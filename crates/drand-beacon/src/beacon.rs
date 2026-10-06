@@ -43,12 +43,6 @@ impl Beacon {
         })
     }
 
-    /// Parses a v1 or v2 relay response body.
-    pub fn from_json(body: &[u8]) -> Result<Self, Error> {
-        let json: BeaconJson = serde_json::from_slice(body).map_err(|_| Error::parse("beacon"))?;
-        json.into_beacon()
-    }
-
     /// `sha256(signature)`: the beacon's randomness, once verified.
     pub fn randomness(&self) -> [u8; 32] {
         sha256(&[&self.signature])
@@ -213,7 +207,7 @@ mod tests {
         let v1 =
             alloc::format!(r#"{{"round":1000,"signature":"{SIG}","randomness":"{RANDOMNESS}"}}"#);
         let v2 = alloc::format!(r#"{{"round":1000,"signature":"{SIG}"}}"#);
-        let a = Beacon::from_json(v1.as_bytes()).unwrap();
+        let a: Beacon = serde_json::from_str(&v1).unwrap();
         let b: Beacon = serde_json::from_str(&v2).unwrap();
         assert_eq!(a, b);
         assert_eq!(hex::encode(a.randomness()), RANDOMNESS);
@@ -226,19 +220,18 @@ mod tests {
             r#"{{"round":1,"signature":"{SIG}","randomness":"{}"}}"#,
             "00".repeat(32)
         );
-        assert_eq!(
-            Beacon::from_json(bad.as_bytes()),
-            Err(Error::RandomnessMismatch)
+        let err = serde_json::from_str::<Beacon>(&bad).unwrap_err();
+        assert!(
+            alloc::format!("{err}").starts_with(&alloc::format!("{}", Error::RandomnessMismatch))
         );
-        assert!(Beacon::from_json(br#"{"round":1,"signature":"zz"}"#).is_err());
+        assert!(serde_json::from_str::<Beacon>(r#"{"round":1,"signature":"zz"}"#).is_err());
     }
 
     #[test]
     fn empty_previous_signature_is_none() {
-        let b = Beacon::from_json(
-            alloc::format!(r#"{{"round":1,"signature":"{SIG}","previous_signature":""}}"#)
-                .as_bytes(),
-        )
+        let b: Beacon = serde_json::from_str(&alloc::format!(
+            r#"{{"round":1,"signature":"{SIG}","previous_signature":""}}"#
+        ))
         .unwrap();
         assert_eq!(b.previous_signature, None);
     }

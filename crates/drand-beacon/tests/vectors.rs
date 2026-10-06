@@ -18,7 +18,7 @@ fn data(name: &str) -> Vec<u8> {
 }
 
 fn beacon(name: &str) -> Beacon {
-    Beacon::from_json(&data(name)).unwrap()
+    serde_json::from_slice(&data(name)).unwrap()
 }
 
 fn v1_randomness(name: &str) -> String {
@@ -94,7 +94,7 @@ fn pedersen_unchained_testnet_beacon_verifies() {
     let hash: ChainHash = v["info"]["hash"].as_str().unwrap().parse().unwrap();
     let info = ChainInfo::from_json(v["info"].to_string().as_bytes(), &hash).unwrap();
     assert_eq!(info.scheme(), &Scheme::PedersenBlsUnchained);
-    let b = Beacon::from_json(v["beacon"].to_string().as_bytes()).unwrap();
+    let b: Beacon = serde_json::from_value(v["beacon"].clone()).unwrap();
     let verified = Verifier::new(&info)
         .unwrap()
         .verify_round(1_000_000, &b)

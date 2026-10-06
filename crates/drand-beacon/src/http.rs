@@ -210,7 +210,8 @@ pub fn classify(
             if body.len() > MAX_BODY {
                 return Err(Error::length("response body", MAX_BODY, body.len()));
             }
-            let beacon = Beacon::from_json(body)?;
+            let beacon: Beacon =
+                serde_json::from_slice(body).map_err(|_| Error::parse("beacon"))?;
             match req {
                 RoundRef::Number(n) if beacon.round != n.get() => {
                     return Err(Error::RoundMismatch {

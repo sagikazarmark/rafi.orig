@@ -520,7 +520,7 @@ impl TestChain {
   `drand_core`'s test suite. The ignored live tests (`tests/live.rs`: each relay and API version on its own, plus a hedged run) and `examples/fetch.rs` were run against the
   public relays.
 - **Additions.** `http::Relay` implements `FromStr`/`Display` with the `v1:`/`v2:` prefixes (Rafi's config
-  uses it). `Beacon::from_json` parses one relay body. `ClientBuilder::test_transport` requires the builder's
+  uses it). `ClientBuilder::test_transport` requires the builder's
   chain to equal `TestChain::info()`. `rafi_core::verify::verify_public` resolves only public chains (the verify
   page); `rafi_drand::resolve_chain` adds the mock chain (tests, server).
 - **The "would have picked" check.** `rafi_core::verify::Report::replaced` lists abandoned and
