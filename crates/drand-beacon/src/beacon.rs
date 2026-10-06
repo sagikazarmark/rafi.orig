@@ -1,6 +1,6 @@
 use alloc::{string::String, vec::Vec};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeStruct};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 use crate::{ChainHash, Error, sha256};
 
@@ -49,24 +49,42 @@ impl Beacon {
     }
 }
 
-#[derive(Deserialize)]
+/// The v1 relay shape. Serializing fills every field but `chain`, which only
+/// [`VerifiedBeacon`] sets.
+#[derive(Serialize, Deserialize)]
 struct BeaconJson {
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
+    chain: Option<ChainHash>,
     round: u64,
     signature: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     previous_signature: Option<String>,
     #[serde(default)]
     randomness: Option<String>,
 }
 
 impl BeaconJson {
-    fn into_beacon(self) -> Result<Beacon, Error> {
+    fn new(chain: Option<ChainHash>, beacon: &Beacon, randomness: &[u8; 32]) -> Self {
+        Self {
+            chain,
+            round: beacon.round,
+            signature: hex::encode(&beacon.signature),
+            previous_signature: beacon.previous_signature.as_ref().map(hex::encode),
+            randomness: Some(hex::encode(randomness)),
+        }
+    }
+}
+
+impl TryFrom<BeaconJson> for Beacon {
+    type Error = Error;
+
+    fn try_from(json: BeaconJson) -> Result<Self, Error> {
         let beacon = Beacon::from_hex(
-            self.round,
-            &self.signature,
-            self.previous_signature.as_deref(),
+            json.round,
+            &json.signature,
+            json.previous_signature.as_deref(),
         )?;
-        if let Some(r) = self.randomness {
+        if let Some(r) = json.randomness {
             let mut claimed = [0u8; 32];
             hex::decode_to_slice(&r, &mut claimed).map_err(|_| Error::parse("randomness"))?;
             if claimed != beacon.randomness() {
@@ -77,48 +95,12 @@ impl BeaconJson {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct BeaconBin {
-    round: u64,
-    signature: Vec<u8>,
-    previous_signature: Option<Vec<u8>>,
-}
-
-fn serialize_json<S: Serializer>(
-    s: S,
-    name: &'static str,
-    chain: Option<&ChainHash>,
-    beacon: &Beacon,
-    randomness: &[u8; 32],
-) -> Result<S::Ok, S::Error> {
-    let fields =
-        3 + usize::from(chain.is_some()) + usize::from(beacon.previous_signature.is_some());
-    let mut st = s.serialize_struct(name, fields)?;
-    if let Some(chain) = chain {
-        st.serialize_field("chain", chain)?;
-    }
-    st.serialize_field("round", &beacon.round)?;
-    st.serialize_field("signature", &hex::encode(&beacon.signature))?;
-    if let Some(prev) = &beacon.previous_signature {
-        st.serialize_field("previous_signature", &hex::encode(prev))?;
-    } else {
-        st.skip_field("previous_signature")?;
-    }
-    st.serialize_field("randomness", &hex::encode(randomness))?;
-    st.end()
-}
-
 impl Serialize for Beacon {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         if s.is_human_readable() {
-            serialize_json(s, "Beacon", None, self, &self.randomness())
+            BeaconJson::new(None, self, &self.randomness()).serialize(s)
         } else {
-            BeaconBin {
-                round: self.round,
-                signature: self.signature.clone(),
-                previous_signature: self.previous_signature.clone(),
-            }
-            .serialize(s)
+            (self.round, &self.signature, &self.previous_signature).serialize(s)
         }
     }
 }
@@ -127,14 +109,14 @@ impl<'de> Deserialize<'de> for Beacon {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         if d.is_human_readable() {
             BeaconJson::deserialize(d)?
-                .into_beacon()
-                .map_err(serde::de::Error::custom)
+                .try_into()
+                .map_err(de::Error::custom)
         } else {
-            let b = BeaconBin::deserialize(d)?;
+            let (round, signature, previous_signature) = Deserialize::deserialize(d)?;
             Ok(Self {
-                round: b.round,
-                signature: b.signature,
-                previous_signature: b.previous_signature,
+                round,
+                signature,
+                previous_signature,
             })
         }
     }
@@ -182,13 +164,7 @@ impl VerifiedBeacon {
 impl Serialize for VerifiedBeacon {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         if s.is_human_readable() {
-            serialize_json(
-                s,
-                "VerifiedBeacon",
-                Some(&self.chain),
-                &self.beacon,
-                &self.randomness,
-            )
+            BeaconJson::new(Some(self.chain), &self.beacon, &self.randomness).serialize(s)
         } else {
             (&self.chain, &self.beacon).serialize(s)
         }
