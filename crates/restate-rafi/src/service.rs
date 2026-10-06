@@ -1,19 +1,15 @@
 //! The `Raffle` virtual object.
 
-use std::{
-    sync::Arc,
-    time::{Duration, UNIX_EPOCH},
-};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use rafi_core::{
     commit::CommitDoc,
-    drand::Beacon,
     engine::Command,
     state::{DrawError, DrawState},
 };
-use rafi_drand::{DrandClient, Fetch};
-use restate_ext::ContextClockExt;
+use rafi_drand::DrandClient;
+use restate_drand::{AwaitError, Drand};
 use restate_sdk::prelude::*;
 
 use crate::projector::Projector;
@@ -26,12 +22,16 @@ const STATE: &str = "state";
 
 /// The draw engine for one raffle per key.
 pub struct Raffle {
-    drand: DrandClient,
+    drand: Drand,
     projector: Arc<dyn Projector>,
 }
 
 impl Raffle {
     pub fn new(drand: DrandClient, projector: impl Projector) -> Self {
+        let config = drand.config();
+        let drand = Drand::new(drand.client().clone())
+            .with_lead(Duration::from_secs(config.lead_secs))
+            .with_fetch_timeout(Duration::from_secs(config.timeout_secs));
         Self {
             drand,
             projector: Arc::new(projector),
@@ -101,13 +101,13 @@ impl Raffle {
         // whose draws would come from a different chain than the one committed.
         if !doc
             .drand_chain
-            .eq_ignore_ascii_case(&self.drand.chain_hash().to_string())
+            .eq_ignore_ascii_case(&self.drand.chain().hash().to_string())
         {
             return Err(rejected(
                 format!(
                     "the raffle commits to drand chain {}, but the draw engine uses {}",
                     doc.drand_chain,
-                    self.drand.chain_hash()
+                    self.drand.chain().hash()
                 ),
                 409,
             ));
@@ -143,10 +143,9 @@ impl Raffle {
             return Err(rejected("expected a draw command", 400));
         };
         let mut state = Self::load(&ctx).await?;
-        let config = self.drand.config();
         if !state
             .drand_chain
-            .eq_ignore_ascii_case(&self.drand.chain_hash().to_string())
+            .eq_ignore_ascii_case(&self.drand.chain().hash().to_string())
         {
             return Err(rejected(
                 "the raffle commits to a different drand chain than the draw engine uses",
@@ -154,17 +153,13 @@ impl Raffle {
             ));
         }
 
-        // Replay-safe: a resumed invocation reads the journaled time, so it
-        // commits to the very same round.
-        let now = ctx
-            .now()
-            .await?
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let (round, round_time) = self.drand.target_round(now);
+        // Replay-safe: the clock read is journaled, so a resumed invocation
+        // commits to the very same round. A stalled draw for this unit is
+        // re-entered on its own round.
+        let commitment = self.drand.commit_round(&ctx).await?;
+        let due = u64::try_from(commitment.due_at).unwrap_or_default();
         let pending = state
-            .begin(&unit_id, round, round_time)
+            .begin(&unit_id, commitment.round, due)
             .map_err(draw_error)?;
         ctx.set(STATE, Json(state.clone()));
         self.project(&ctx, &state).await?;
@@ -183,48 +178,33 @@ impl Raffle {
                 .map_err(|_| rejected("bad randomness", 500))?;
             state.complete_offline(randomness).map_err(draw_error)?;
         } else {
-            let wait = pending.round_time.saturating_sub(now);
-            if wait > 0 {
-                ctx.sleep(Duration::from_millis(wait * 1000 + 300)).await?;
-            }
-            let drand = &self.drand;
-            // The journal holds the plain beacon; it is verified again below.
-            let fetched = ctx
-                .run(|| async move {
-                    match drand.fetch(pending.round).await {
-                        Ok(Fetch::Ready(b)) => Ok(Json(b.into_beacon())),
-                        Ok(_) => Err(anyhow!("round {} not published yet", pending.round).into()),
-                        Err(e) if e.is_retryable() => Err(anyhow!(e).into()),
-                        Err(e) => Err(TerminalError::new(e.to_string()).into()),
-                    }
-                })
-                .name("beacon")
-                .retry_policy(
-                    RunRetryPolicy::new()
-                        .initial_delay(Duration::from_millis(250))
-                        .exponentiation_factor(2.0)
-                        .max_delay(Duration::from_secs(2))
-                        .max_duration(Duration::from_secs(config.timeout_secs)),
-                )
-                .await;
-            match fetched {
-                Ok(Json(beacon)) => {
-                    let beacon: Beacon = beacon;
-                    let completed = self
-                        .drand
-                        .verifier()
-                        .verify_round(pending.round, &beacon)
-                        .map_err(|e| e.to_string())
-                        .and_then(|v| state.complete(&v).map(drop).map_err(|e| e.to_string()));
-                    if let Err(e) = completed {
+            // Sleeps until the round is due, fetches it (journaled, retried) and
+            // verifies it. If it can't be had, the draw stalls on its round.
+            match self.drand.await_beacon(&ctx, pending.round).await {
+                Ok(beacon) => {
+                    if let Err(e) = state.complete(&beacon) {
                         state
                             .stall(&format!("invalid beacon: {e}"))
                             .map_err(draw_error)?;
                     }
                 }
-                Err(e) => state
-                    .stall(&format!("drand unavailable: {e}"))
+                Err(AwaitError::Unavailable { reason, .. }) => state
+                    .stall(&format!("drand unavailable: {reason}"))
                     .map_err(draw_error)?,
+                // Cancelled (or a step failed): the draw stays pending on its
+                // round. Record why, so the organizer sees the retry, offline and
+                // abandon controls right away, then fail the invocation.
+                Err(e) => {
+                    let reason = if e.is_cancelled() {
+                        "draw cancelled".to_owned()
+                    } else {
+                        format!("draw failed: {e}")
+                    };
+                    state.stall(&reason).map_err(draw_error)?;
+                    ctx.set(STATE, Json(state.clone()));
+                    self.project(&ctx, &state).await?;
+                    return Err(e.into_handler_error());
+                }
             }
         }
         ctx.set(STATE, Json(state.clone()));

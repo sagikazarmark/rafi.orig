@@ -193,6 +193,11 @@ impl DrandClient {
         self.client.verifier()
     }
 
+    /// The underlying `drand_beacon` client (e.g. for `restate_drand::Drand`).
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
     /// The round a draw starting at `now_unix` commits to, and when it is due.
     pub fn target_round(&self, now_unix: u64) -> (u64, u64) {
         let schedule = self.schedule();

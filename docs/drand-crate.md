@@ -506,6 +506,12 @@ impl TestChain {
 
 ## 13. Implementation notes
 
+- **`restate-drand` (added 2026-10-07).** A second reusable crate, `crates/restate-drand`, holds the Restate side.
+  It is a `Drand` kept in the service, with `commit_round(&ctx)` and `await_beacon(&ctx, round)`: a journaled
+  clock read, a durable sleep, a journaled fetch with a retry budget, and verification. `AwaitError::Unavailable`
+  (stall) is kept apart from cancellation. On cancellation, `Raffle` records a `draw cancelled` stall on the same round (so the admin controls show at once) and then fails the invocation; an e2e test cancels a sleeping draw to check it. The `Raffle` object uses it;
+  its journal steps are `drand: now` and `drand: beacon`.
+
 - **Order.** M2 and M4 landed together: Rafi went straight to `drand_beacon::client::Client` instead of
   first patching the old fetcher. The end state is the plan's.
 - **Verified against live data.** Fixtures in `crates/drand-beacon/tests/data` were fetched from Cloudflare (v1)

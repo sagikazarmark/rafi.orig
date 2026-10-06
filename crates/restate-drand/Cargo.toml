@@ -1,0 +1,27 @@
+[package]
+name = "restate-drand"
+version = "0.1.0"
+edition = "2024"
+# restate-ext's MSRV.
+rust-version = "1.92"
+license = "MIT OR Apache-2.0"
+description = "drand randomness in Restate handlers: commit to a future round, wait durably, fetch and verify the beacon"
+repository = "https://github.com/sagikazarmark/restate-drand"
+documentation = "https://docs.rs/restate-drand"
+readme = "README.md"
+keywords = ["restate", "drand", "randomness", "beacon", "durable"]
+categories = ["cryptography", "asynchronous"]
+
+[dependencies]
+anyhow = "1"
+drand-beacon = { version = "0.1", path = "../drand-beacon", default-features = false, features = ["bls12-381", "client"] }
+restate-ext = "0.3"
+restate-sdk = { version = "0.12", default-features = false }
+thiserror = "2"
+
+[dev-dependencies]
+drand-beacon = { version = "0.1", path = "../drand-beacon", features = ["test-chain"] }
+hex = "0.4"
+restate-e2e-harness = "0.3"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

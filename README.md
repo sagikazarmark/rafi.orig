@@ -44,6 +44,7 @@ app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ SQL
 ```
 crates/core                   rafi-core: draw algorithm, drand math, state machine, verifier (pure, tested, vectors)
 crates/drand-beacon           drand-beacon: fetch and strictly verify drand beacons (reusable; no_std/wasm core, async client)
+crates/restate-drand          restate-drand: drand in Restate handlers (commit, durable wait, fetch, verify); reusable
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) on drand-beacon
 crates/store                  rafi-store: SQLite schema, connection options, the shared draw state write
 crates/restate-rafi           restate-rafi: the `Raffle` virtual object (library)

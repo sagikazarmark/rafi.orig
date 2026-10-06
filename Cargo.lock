@@ -4964,6 +4964,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "restate-drand"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "drand-beacon",
+ "hex",
+ "restate-e2e-harness",
+ "restate-ext",
+ "restate-sdk",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "restate-e2e-harness"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5001,8 +5016,8 @@ dependencies = [
  "rafi-core",
  "rafi-drand",
  "rafi-store",
+ "restate-drand",
  "restate-e2e-harness",
- "restate-ext",
  "restate-sdk",
  "serde",
  "serde_json",

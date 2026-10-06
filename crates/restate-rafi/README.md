@@ -14,6 +14,8 @@ entrant IDs.
 | `resolve` | exclusive | Claimed / not here / declined, void a unit, abandon a stalled draw, or finish (clears the state). |
 | `get` | shared | The current state, for recovery and debugging. |
 
+Committing to a round and awaiting its beacon go through [`restate-drand`](../restate-drand).
+
 After every change the state goes to a `Projector`. `SqliteProjector` writes it into the Rafi app's SQLite
 database through [`rafi-store`](../store), where the app picks it up; `RecordingProjector` keeps it in memory
 for tests.
