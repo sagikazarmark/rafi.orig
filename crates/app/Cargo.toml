@@ -19,7 +19,7 @@ hex.workspace = true
 sha2.workspace = true
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 uuid = { version = "1", features = ["v4", "js"] }
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 futures-util = "0.3"
 dioform = { version = "0.7", features = ["dioxus-field"] }
 
@@ -30,8 +30,8 @@ futures = { version = "0.3", optional = true }
 axum = { version = "0.8", optional = true }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"], optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"], optional = true }
-hmac = { version = "0.12", optional = true }
-base64 = { version = "0.22", optional = true }
+hmac = { version = "0.13", optional = true }
+base64 = { version = "0.23", optional = true }
 tracing = { version = "0.1", optional = true }
 anyhow = { version = "1", optional = true }
 thiserror = { workspace = true, optional = true }
@@ -40,7 +40,7 @@ thiserror = { workspace = true, optional = true }
 web-sys = { version = "0.3", features = ["EventSource", "MessageEvent", "Window", "Document", "Element", "HtmlElement", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Location", "Navigator", "Crypto"], optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
-gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+gloo-timers = { version = "0.4", features = ["futures"], optional = true }
 dioxus-field = { version = "0.7.0", default-features = false }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components", rev = "bf007c15d0cf4d04d3181cc46cf12325aa773955", version = "0.0.1", default-features = false, features = ["router"] }
 

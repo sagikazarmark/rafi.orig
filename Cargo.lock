@@ -2450,11 +2450,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -4341,7 +4339,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "dioform",
  "dioxus",
  "dioxus-clerk",
@@ -4349,10 +4347,10 @@ dependencies = [
  "dioxus-primitives",
  "futures",
  "futures-util",
- "getrandom 0.3.4",
- "gloo-timers 0.3.0",
+ "getrandom 0.4.3",
+ "gloo-timers 0.4.0",
  "hex",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "http-body-util",
  "js-sys",
  "qrcode",
@@ -4365,7 +4363,7 @@ dependencies = [
  "restate-sdk",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
@@ -4385,7 +4383,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.21",
 ]
 
@@ -4399,7 +4397,7 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
  "tracing",
 ]
@@ -4687,7 +4685,7 @@ name = "restate-rafi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "rafi-core",
  "rafi-drand",
  "rafi-store",
