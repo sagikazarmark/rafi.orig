@@ -33,7 +33,9 @@ fn main() {
                         tracing::warn!("RAFI_DEV_AUTH is on: admin pages are NOT protected");
                     }
                     if cfg.drand.mock {
-                        tracing::warn!("RAFI_DRAND_MOCK is on: draws are NOT publicly verifiable");
+                        tracing::warn!(
+                            "RAFI_DRAND_MOCK is on: draws use a public test chain and are NOT verifiable as drand"
+                        );
                     }
                     let app = server::AppState::new(cfg).await?;
                     server::spawn_background(&app);

@@ -1,4 +1,5 @@
-{$RAFI_DOMAIN} {
+# Every name the app answers to (RAFI_HOSTS; defaults to RAFI_DOMAIN).
+{$RAFI_HOSTS} {
 	# Never compress or buffer the live event stream.
 	@events path /api/r/*/events
 	handle @events {
@@ -17,5 +18,14 @@
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
+	}
+}
+
+# The draw engine, for Restate Cloud: TLS here, HTTP/2 cleartext to restate-rafi, streamed both ways.
+# restate-rafi rejects requests not signed with the environment's identity key.
+# RESTATE_ENDPOINT_HOSTS defaults to RAFI_DOMAIN:9080.
+{$RESTATE_ENDPOINT_HOSTS} {
+	reverse_proxy h2c://restate-rafi:9080 {
+		flush_interval -1
 	}
 }

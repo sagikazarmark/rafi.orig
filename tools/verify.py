@@ -18,6 +18,12 @@ Standard library only. The algorithm:
     pool (pass 1) = entrants never drawn before (whatever the outcome)
     pool (pass 2) = pass-1 winners not forfeited/declined, not yet drawn in pass 2
     randomness    = SHA256(drand signature)
+
+This script checks the algorithm and, with --fetch, that each signature is the
+one the public drand relays serve for that round. It does not check the BLS
+signature itself (that needs pairing-friendly curve code); the browser
+verifier on the raffle's verify page does. With --fetch it also shows whom
+the committed round of an abandoned or offline-replaced draw would have picked.
 """
 
 import hashlib
@@ -26,8 +32,11 @@ import sys
 import urllib.request
 
 ALGO = b"rafi-draw-v1"
-QUICKNET = "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971"
 RELAYS = ["https://api.drand.sh", "https://drand.cloudflare.com"]
+# Public drand chains; anything else (e.g. a test chain) is not publicly verifiable.
+PUBLIC_CHAINS = {
+    "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971": "quicknet",
+}
 
 
 def sha256(*parts: bytes) -> bytes:
@@ -59,10 +68,10 @@ def pool(entrants, draws):
     return 2, [e for e in entrants if e in winners and e not in drawn2]
 
 
-def fetch_beacon(round_):
+def fetch_beacon(chain, round_):
     for relay in RELAYS:
         try:
-            with urllib.request.urlopen(f"{relay}/{QUICKNET}/public/{round_}", timeout=10) as r:
+            with urllib.request.urlopen(f"{relay}/{chain}/public/{round_}", timeout=10) as r:
                 return json.load(r)
         except Exception:  # noqa: BLE001 - try the next relay
             continue
@@ -79,14 +88,45 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
         print(f"ok   list hash {list_hash.hex()}")
     doc = json.loads(commit_doc)
     entrants = doc["entrant_ids"]
-    print(f"     {len(entrants)} entrants, {len(doc['units'])} prize units, chain {doc['drand_chain'][:12]}…")
+    chain = doc["drand_chain"]
+    name = PUBLIC_CHAINS.get(chain)
+    print(f"     {len(entrants)} entrants, {len(doc['units'])} prize units, chain {chain[:12]}… ({name or 'NOT a public drand chain'})")
+    if name is None:
+        print("FAIL draws use a test chain: their randomness is not publicly verifiable")
+        ok = False
+
+    def would_have_picked(k, round_, what):
+        pass_, p = pool(entrants, draws)
+        print(f"     draw {k}: committed round {round_} was {what} (pass {pass_}, pool {len(p)})")
+        if fetch and name and p:
+            b = fetch_beacon(chain, round_)
+            if b is None:
+                print(f"WARN draw {k}: could not fetch drand round {round_}")
+            else:
+                idx = select(sha256(bytes.fromhex(b["signature"])), list_hash, k, len(p))
+                print(f"     draw {k}: round {round_} would have picked index {idx} -> {p[idx]}")
 
     draws = []  # in order
     by_k = {}
+    pending = None  # (k, round) of the announced draw
     for ev in events:
         t = ev["type"]
-        if t == "draw":
+        if t == "announce":
+            if pending is not None:
+                print(f"FAIL draw {ev['k']}: announced while draw {pending[0]} is pending")
+                ok = False
+            pending = (ev["k"], ev["round"])
+        elif t == "draw":
             k = ev["k"]
+            # A draw must settle the announced draw on its committed round
+            # (a beacon from another round would be a silent redraw).
+            if pending is None or pending != (k, ev["round"]):
+                print(f"FAIL draw {k}: round {ev['round']} is not the announced round"
+                      + ("" if pending is None else f" {pending[1]}"))
+                ok = False
+            if ev["mode"] != "beacon" and pending is not None:
+                would_have_picked(k, pending[1], "replaced by an OFFLINE draw")
+            pending = None
             pass_, p = pool(entrants, draws)
             if not p:
                 print(f"FAIL draw {k}: no eligible entrants, but a winner was published")
@@ -98,8 +138,8 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
                 if sha256(sig) != randomness:
                     print(f"FAIL draw {k}: randomness != SHA256(signature)")
                     ok = False
-                if fetch:
-                    b = fetch_beacon(ev["round"])
+                if fetch and name:
+                    b = fetch_beacon(chain, ev["round"])
                     if b is None:
                         print(f"WARN draw {k}: could not fetch drand round {ev['round']}")
                     elif b["signature"].lower() != ev["signature"].lower():
@@ -117,11 +157,20 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
             draws.append(d)
             by_k[k] = d
         elif t == "resolve":
+            if pending is not None and ev["outcome"] in ("not_here", "declined"):
+                print(f"FAIL draw {ev['k']}: resolved {ev['outcome']} while draw {pending[0]} was pending")
+                ok = False
             if ev["k"] in by_k:
                 by_k[ev["k"]]["outcome"] = ev["outcome"]
                 print(f"     draw {ev['k']}: {ev['outcome'].replace('_', ' ')}")
+        elif t == "stall":
+            print(f"     draw {ev['k']}: round {ev['round']} not available yet ({ev['reason']}); still pending")
         elif t == "fail":
-            print(f"     draw {ev['k']} on round {ev['round']} failed: {ev['reason']}")
+            if pending != (ev["k"], ev["round"]):
+                print(f"FAIL draw {ev['k']}: abandon does not match the pending draw")
+                ok = False
+            would_have_picked(ev["k"], ev["round"], f"ABANDONED ({ev['reason']})")
+            pending = None
         elif t == "void":
             print(f"     unit {ev['unit_id']} voided")
     return ok

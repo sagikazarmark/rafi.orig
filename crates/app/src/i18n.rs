@@ -132,6 +132,7 @@ impl Lang {
                 "Nyilvános véletlenszám rögzítése",
             ),
             "drand_round" => ("drand round", "drand kör"),
+            "retrying_round" => ("Still fetching drand round", "Még töltjük a drand kört:"),
             "winners" => ("Winners", "Nyertesek"),
             "verify_link" => ("Check the draw yourself", "Ellenőrizd a sorsolást"),
             "connecting" => ("Connecting…", "Kapcsolódás…"),

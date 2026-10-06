@@ -106,6 +106,7 @@ mod tests {
             assert_eq!(cfg.database.url, "sqlite:///data/rafi.db");
             assert_eq!(cfg.drand.lead_secs, 9);
             assert_eq!(cfg.drand.relays, ["https://a.example", "https://b.example"]);
+            assert!(cfg.drand.validate().is_ok(), "unprefixed relays are v1");
             assert_eq!(cfg.endpoint.listener.port(), 9999);
             assert_eq!(
                 cfg.endpoint.identity_keys,

@@ -4,13 +4,20 @@
 //! and (through `rafi-core` compiled to WASM) by the browser verifier. Run with
 //! `UPDATE_VECTORS=1` to regenerate after an intentional algorithm change,
 //! which must also bump the algorithm identifier.
+//!
+//! The scenario draws from real quicknet beacons (`testdata/quicknet-beacons.json`),
+//! so the browser verifier checks their BLS signatures too. It was regenerated
+//! when that replaced fake signatures; `rafi-draw-v1` itself did not change.
+//! It follows the state machine's fairness rules: a stalled draw keeps its
+//! round, and "not here"/"declined" are never resolved while a draw is pending
+//! (a log doing that fails verification).
 
 use rafi_core::{
     commit::{CommitDoc, UnitRef},
-    drand::{Beacon, randomness_from_signature},
+    drand::{Beacon, VerifiedBeacon, Verifier, chains},
     draw,
     state::{DrawState, Outcome},
-    verify::verify,
+    verify::verify_public,
 };
 use serde::{Deserialize, Serialize};
 
@@ -42,13 +49,25 @@ fn h(label: &str) -> [u8; 32] {
     Sha256::digest(label.as_bytes()).into()
 }
 
-fn beacon(round: u64) -> Beacon {
-    let sig = [h(&format!("sig-{round}")).to_vec(), h("pad")[..16].to_vec()].concat();
-    Beacon {
-        round,
-        randomness: hex::encode(randomness_from_signature(&sig)),
-        signature: hex::encode(sig),
-    }
+/// A real quicknet beacon from `testdata/quicknet-beacons.json`, verified.
+fn beacon(round: u64) -> VerifiedBeacon {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/quicknet-beacons.json"
+    );
+    let data: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("beacons file")).unwrap();
+    let b = data["beacons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["round"] == round)
+        .expect("beacon in testdata");
+    let beacon: Beacon = serde_json::from_value(b.clone()).unwrap();
+    Verifier::new(&chains::quicknet())
+        .unwrap()
+        .verify_round(round, &beacon)
+        .unwrap()
 }
 
 fn generate() -> Vectors {
@@ -94,14 +113,15 @@ fn generate() -> Vectors {
             item_name: "Foo gift".into(),
         },
     ];
-    let doc = CommitDoc::new("raffle-vectors", entrants, units);
+    let doc = CommitDoc::new("raffle-vectors", &chains::QUICKNET, entrants, units);
     let mut s = DrawState::freeze(&doc);
     s.begin("u-voucher-1", 1000, 0).unwrap();
     s.complete(&beacon(1000)).unwrap();
     s.resolve("u-voucher-1", Outcome::NotHere).unwrap();
     s.begin("u-voucher-1", 1003, 0).unwrap();
-    s.fail("drand unavailable").unwrap();
+    s.abandon("abandoned by the organizer").unwrap();
     s.begin("u-voucher-1", 1005, 0).unwrap();
+    s.stall("drand unavailable").unwrap();
     s.complete(&beacon(1005)).unwrap();
     s.resolve("u-voucher-1", Outcome::Claimed).unwrap();
     s.begin("u-ticket-1", 1010, 0).unwrap();
@@ -154,7 +174,7 @@ fn vectors_match() {
         assert_eq!(draw::select(&r, &l, v.k, v.pool_size), v.index);
     }
     let events = serde_json::from_value::<Vec<_>>(stored.scenario.events.clone()).unwrap();
-    let report = verify(
+    let report = verify_public(
         &stored.scenario.commit_doc,
         &stored.scenario.list_hash,
         &events,

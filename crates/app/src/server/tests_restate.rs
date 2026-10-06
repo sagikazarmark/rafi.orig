@@ -65,7 +65,8 @@ async fn app_and_restate_rafi_share_the_database() {
         lead_secs: 0,
         timeout_secs: 5,
         ..DrandConfig::default()
-    });
+    })
+    .unwrap();
     let projector = SqliteProjector::new(&DatabaseConfig { url }).unwrap();
     restate
         .deploy(
@@ -177,7 +178,12 @@ async fn app_and_restate_rafi_share_the_database() {
     // The object forgot everything; the app keeps the verifiable record.
     assert_eq!(app.restate.get().unwrap().get(&id).await.unwrap(), None);
     let data = service::verify_data(&app, &r.slug).await.unwrap();
-    let report = rafi_core::verify::verify(&data.commit_doc, &data.list_hash, &data.events);
+    let report = rafi_core::verify::verify(
+        &data.commit_doc,
+        &data.list_hash,
+        &data.events,
+        rafi_drand::resolve_chain,
+    );
     assert!(report.ok(), "{report:#?}");
     assert_eq!(report.draws.len(), 1);
 

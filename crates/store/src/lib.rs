@@ -107,6 +107,7 @@ mod tests {
     async fn frozen(db: &SqlitePool, engine: &str) -> DrawState {
         let doc = CommitDoc::new(
             "r1",
+            &rafi_core::drand::chains::QUICKNET,
             vec!["a".repeat(32), "b".repeat(32)],
             vec![UnitRef {
                 unit_id: "u1".into(),

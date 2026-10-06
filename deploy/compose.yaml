@@ -2,13 +2,20 @@
 #
 #   cd deploy
 #   cp .env.example .env && $EDITOR .env
-#   docker compose up -d --build
+#   docker compose pull && docker compose up -d     # prebuilt images from GHCR
+#   docker compose up -d --build                     # or build from this checkout
 #
-#   caddy (HTTPS) -> rafi (the app) -> restate (ingress) -> restate-rafi (the draw engine)
+#   caddy (HTTPS) -> rafi (the app) -> Restate Cloud ingress
+#   Restate Cloud -> caddy :9080 (HTTPS) -> restate-rafi (the draw engine)
 #   rafi and restate-rafi share the SQLite database on the `data` volume.
 #
-# Only Caddy publishes ports (80, 443). The Restate admin UI listens on the
-# host's loopback only: `ssh -L 9070:localhost:9070 <vm>`, then http://localhost:9070.
+# Register the draw engine once (and again when its handlers change):
+#   restate deployments register https://$RAFI_DOMAIN:9080
+#
+# Without Restate Cloud, run Restate here instead: `docker compose --profile self-hosted up -d --build`
+# with RESTATE_INGRESS_URL=http://restate:8080 and no RESTATE_API_KEY / RESTATE_IDENTITY_KEYS; the
+# `register` container registers the draw engine. The Restate UI is then on the host's loopback:
+# `ssh -L 9070:localhost:9070 <vm>`, then http://localhost:9070.
 
 services:
   caddy:
@@ -18,47 +25,52 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"
+      - "9080:9080" # the draw engine, for Restate Cloud
     environment:
-      RAFI_DOMAIN: ${RAFI_DOMAIN:?set RAFI_DOMAIN in .env}
+      RAFI_HOSTS: ${RAFI_HOSTS:-${RAFI_DOMAIN:?set RAFI_DOMAIN in .env}}
+      RESTATE_ENDPOINT_HOSTS: ${RESTATE_ENDPOINT_HOSTS:-${RAFI_DOMAIN}:9080}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
       - rafi
+      - restate-rafi
 
   rafi:
     build:
       context: ..
       args:
         CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
-    image: rafi:local
+    image: ${RAFI_IMAGE:-ghcr.io/sagikazarmark/rafi:latest}
     restart: unless-stopped
     env_file: .env
     environment:
       RAFI_DATABASE_URL: sqlite:///data/rafi.db
       RAFI_PUBLIC_URL: https://${RAFI_DOMAIN}
-      RESTATE_INGRESS_URL: http://restate:8080
+      RAFI_DRAW_ENGINE: restate
+      RESTATE_INGRESS_URL: ${RESTATE_INGRESS_URL:-http://restate:8080}
     volumes:
       - data:/data
-    depends_on:
-      - restate
 
-  # The draw engine: the `Raffle` virtual object. Writes draw states into the shared database.
+  # The draw engine: the `Raffle` virtual object. Writes draw states into the shared database and
+  # only accepts requests signed by your Restate environment (RESTATE_IDENTITY_KEYS).
   restate-rafi:
     build:
       context: ..
       dockerfile: crates/restate-rafi-endpoint/Dockerfile
-    image: restate-rafi:local
+    image: ${RESTATE_RAFI_IMAGE:-ghcr.io/sagikazarmark/restate-rafi:latest}
     restart: unless-stopped
     environment:
       RESTATE_RAFI_DATABASE__URL: sqlite:///data/rafi.db
+      RESTATE_RAFI_ENDPOINT__IDENTITY_KEYS: ${RESTATE_IDENTITY_KEYS:-}
     volumes:
       - data:/data
     depends_on:
       - rafi
 
   restate:
+    profiles: [self-hosted]
     image: docker.restate.dev/restatedev/restate:1.7.13
     restart: unless-stopped
     ports:
@@ -66,8 +78,9 @@ services:
     volumes:
       - restate-data:/restate-data
 
-  # Registers restate-rafi with Restate (again on every `up`, so new handlers are picked up).
+  # Registers restate-rafi with the self-hosted Restate (again on every `up`).
   register:
+    profiles: [self-hosted]
     image: curlimages/curl:8.16.0
     restart: "no"
     command:

@@ -218,6 +218,9 @@ fn Drawing(view: RaffleView) -> Element {
                 } else {
                     span { class: "loading loading-dots loading-lg text-primary" }
                 }
+                if view.last_failure.is_some() {
+                    p { class: "alert alert-warning alert-soft text-[0.8em]", "⏳ {t(\"retrying_round\")} {cur.round}" }
+                }
                 p { class: "text-[0.9em] text-base-content/60", "{t(\"locking\")} · {t(\"drand_round\")} {cur.round}" }
             }
         }

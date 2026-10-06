@@ -45,6 +45,7 @@ dioxus-field = { version = "0.7.0", default-features = false }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components", rev = "bf007c15d0cf4d04d3181cc46cf12325aa773955", version = "0.0.1", default-features = false, features = ["router"] }
 
 [dev-dependencies]
+rafi-drand = { path = "../drand", features = ["mock"] }
 restate-rafi = { path = "../restate-rafi" }
 restate-e2e-harness = "0.3"
 restate-sdk = { workspace = true }
@@ -54,6 +55,8 @@ http-body-util = "0.1"
 
 [features]
 default = []
+## Allow `RAFI_DRAND_MOCK=1`: draws from a public test chain (offline development).
+mock-drand = ["rafi-drand?/mock"]
 web = ["dioxus/web", "dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:gloo-timers"]
 server = [
     "dioxus/server",

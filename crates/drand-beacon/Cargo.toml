@@ -1,0 +1,64 @@
+[package]
+name = "drand-beacon"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "Fetch and strictly verify drand randomness beacons: no_std/wasm verifier core plus an async multi-relay client"
+repository = "https://github.com/sagikazarmark/drand-beacon"
+documentation = "https://docs.rs/drand-beacon"
+readme = "README.md"
+keywords = ["drand", "randomness", "bls", "beacon", "verifiable"]
+categories = ["cryptography", "no-std", "wasm", "network-programming"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["bls12-381"]
+## BLS12-381 verification: drand's `default` and `quicknet` chains.
+bls12-381 = ["dep:ark-bls12-381", "dep:ark-ec", "dep:ark-ff", "dep:ark-serialize"]
+## The async HTTP client (native targets only; cfg'd out on wasm32-unknown-unknown).
+client = ["dep:reqwest", "dep:tokio", "dep:futures-util", "dep:tracing"]
+## TLS for the client's built-in `reqwest::Client` (or pass your own).
+rustls = ["reqwest?/rustls"]
+native-tls = ["reqwest?/native-tls"]
+## A deterministic, signing test chain. Anyone with its seed can forge beacons.
+test-chain = ["bls12-381"]
+
+[dependencies]
+ark-bls12-381 = { version = "0.6", default-features = false, features = ["curve"], optional = true }
+ark-ec = { version = "0.6", default-features = false, optional = true }
+ark-ff = { version = "0.6", default-features = false, optional = true }
+ark-serialize = { version = "0.6", default-features = false, optional = true }
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+# arkworks 0.6 is on digest 0.10.
+sha2 = { version = "0.10", default-features = false }
+thiserror = { version = "2", default-features = false }
+
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
+reqwest = { version = "0.13", default-features = false, optional = true }
+tokio = { version = "1", features = ["macros", "time"], optional = true }
+tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
+
+[dev-dependencies]
+hex = "0.4"
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+proptest = "1"
+serde_json = "1"
+
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
+reqwest = { version = "0.13", default-features = false }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "test-util", "time"] }
+
+[[example]]
+name = "fetch"
+required-features = ["client", "rustls"]
+
+[[example]]
+name = "verify"

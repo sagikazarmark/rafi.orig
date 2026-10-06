@@ -422,7 +422,13 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
             if entrant_ids.is_empty() {
                 return Err(conflict("Nobody has entered yet."));
             }
-            let doc = CommitDoc::new(id, entrant_ids.into_iter().map(|(e,)| e).collect(), units);
+            // The app alone decides the chain; the draw engine refuses a mismatch.
+            let doc = CommitDoc::new(
+                id,
+                &app.drand.chain_hash(),
+                entrant_ids.into_iter().map(|(e,)| e).collect(),
+                units,
+            );
             let json = doc.canonical_json();
             let hash = hex::encode(rafi_core::commit::list_hash(&json));
             sqlx::query(
@@ -490,8 +496,13 @@ pub async fn command(
     // Validate against the projection for immediate, friendly errors.
     match &cmd {
         Command::Draw { unit_id, .. } => {
-            if state.pending.is_some() {
-                return Err(conflict("A draw is already in progress."));
+            if let Some(p) = &state.pending {
+                // Drawing the pending unit again retries its committed round
+                // (or completes it offline); nothing else may start meanwhile.
+                if &p.unit_id != unit_id {
+                    return Err(conflict("A draw is already in progress."));
+                }
+                return send(app, &raffle, owner, id, cmd, command_id).await;
             }
             let unit = state.unit(unit_id).ok_or(AppError::NotFound)?;
             if unit.status != UnitStatus::Pending {
@@ -501,10 +512,20 @@ pub async fn command(
                 return Err(conflict("There are no eligible entrants left."));
             }
         }
-        Command::Resolve { unit_id, .. } => {
+        Command::Resolve { unit_id, outcome } => {
             let unit = state.unit(unit_id).ok_or(AppError::NotFound)?;
             if unit.status != UnitStatus::Drawn {
                 return Err(conflict("This prize has no undecided winner."));
+            }
+            if state.pending.is_some() && *outcome != Outcome::Claimed {
+                return Err(conflict(
+                    "Wait for the current draw to finish: “not here” and “declined” could change who it can pick.",
+                ));
+            }
+        }
+        Command::Abandon { unit_id } => {
+            if state.pending.as_ref().is_none_or(|p| &p.unit_id != unit_id) {
+                return Err(conflict("This prize has no draw in progress."));
             }
         }
         Command::Void { unit_id } => {
@@ -522,6 +543,18 @@ pub async fn command(
         }
     }
 
+    send(app, &raffle, owner, id, cmd, command_id).await
+}
+
+/// Audits a validated command and hands it to the raffle's engine.
+async fn send(
+    app: &AppState,
+    raffle: &db::RaffleRow,
+    owner: &str,
+    id: &str,
+    cmd: Command,
+    command_id: &str,
+) -> Result<()> {
     db::audit(
         &app.db,
         id,
@@ -543,12 +576,21 @@ pub async fn command(
 
 /// Emergency switch: continue this raffle's draw in-process (e.g. Restate is down).
 ///
-/// The projection becomes the source of truth. A pending draw is abandoned
-/// (logged as failed) because its beacon might never be fetched.
+/// The projection becomes the source of truth. A pending draw stays pending on
+/// its committed round, and the local engine fetches that round.
 pub async fn switch_to_local(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     if raffle.engine == "local" {
         return Ok(());
+    }
+    if let Some(state) = raffle.draw_state()
+        && !state
+            .drand_chain
+            .eq_ignore_ascii_case(&app.drand.chain_hash().to_string())
+    {
+        return Err(conflict(
+            "This raffle uses a different drand chain than this server's local engine.",
+        ));
     }
     sqlx::query("UPDATE raffles SET engine = 'local', updated_at = ? WHERE id = ?")
         .bind(ids::now())
@@ -556,12 +598,7 @@ pub async fn switch_to_local(app: &AppState, owner: &str, id: &str) -> Result<()
         .execute(&app.db)
         .await?;
     db::audit(&app.db, id, owner, "switch_to_local", "").await?;
-    if let Some(mut state) = raffle.draw_state()
-        && state.pending.is_some()
-    {
-        state.fail("draw engine switched to local")?;
-        app.project(&state).await?;
-    }
+    app.local.resume(app, id).await?;
     app.refresh(id).await;
     Ok(())
 }

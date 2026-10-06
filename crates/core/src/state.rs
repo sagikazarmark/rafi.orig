@@ -11,6 +11,15 @@
 //! - Pass 2 (only when pass 1 is exhausted and prizes remain): pass-1 winners
 //!   whose draw was not forfeited or declined and who were not yet drawn in
 //!   pass 2.
+//!
+//! Fairness rules for a pending draw (its round may already be public):
+//! - A beacon that cannot be fetched or verified never clears the pending draw
+//!   ([`DrawState::stall`]); the next attempt fetches the *same* round.
+//! - Nothing may change the draw's inputs (`k`, pass, pool, chain) while it is
+//!   pending: other draws, voiding it, finishing, and "not here"/"declined"
+//!   resolutions are refused.
+//! - The only exits without its beacon are an offline draw and an explicit,
+//!   logged [`DrawState::abandon`]; the public verifier flags both.
 
 use std::collections::{HashMap, HashSet};
 
@@ -19,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Hash,
     commit::{CommitDoc, UnitRef, list_hash},
-    drand::Beacon,
+    drand::{QUICKNET_CHAIN, VerifiedBeacon},
     draw, hash_from_hex,
 };
 
@@ -87,7 +96,15 @@ pub enum Event {
         index: usize,
         entrant_id: String,
     },
-    /// The announced draw could not be completed (e.g. drand unavailable).
+    /// The pending draw's beacon could not be fetched (yet). The draw stays
+    /// pending on the same round.
+    Stall {
+        k: u64,
+        unit_id: String,
+        round: u64,
+        reason: String,
+    },
+    /// The organizer abandoned the pending draw (its unit goes back to pending).
     Fail {
         k: u64,
         unit_id: String,
@@ -118,6 +135,9 @@ pub struct DrawState {
     pub raffle_id: String,
     /// Hex `SHA256` of the canonical commit document.
     pub list_hash: String,
+    /// Hex hash of the drand chain the draws use (from the commit document).
+    #[serde(default = "quicknet_chain")]
+    pub drand_chain: String,
     /// Sorted entrant IDs.
     pub entrants: Vec<String>,
     pub units: Vec<Unit>,
@@ -145,8 +165,10 @@ pub enum DrawError {
     NoDrawInProgress,
     #[error("there are no eligible entrants left")]
     NoEligibleEntrants,
-    #[error("invalid beacon: {0}")]
-    Beacon(#[from] crate::drand::BeaconError),
+    #[error("the beacon is for round {got}, but the draw committed to round {expected}")]
+    WrongRound { expected: u64, got: u64 },
+    #[error("the beacon is from another drand chain")]
+    WrongChain,
     #[error("invalid list hash")]
     BadListHash,
     #[error("invalid resolution outcome")]
@@ -162,6 +184,10 @@ pub struct Drawn {
     pub pass: u8,
 }
 
+fn quicknet_chain() -> String {
+    QUICKNET_CHAIN.to_owned()
+}
+
 impl DrawState {
     /// Creates the state for a frozen raffle.
     pub fn freeze(doc: &CommitDoc) -> Self {
@@ -169,6 +195,7 @@ impl DrawState {
         Self {
             raffle_id: doc.raffle_id.clone(),
             list_hash: hex::encode(list_hash(&json)),
+            drand_chain: doc.drand_chain.clone(),
             entrants: doc.entrant_ids.clone(),
             units: doc.units.iter().map(Unit::pending).collect(),
             events: Vec::new(),
@@ -299,14 +326,50 @@ impl DrawState {
         Ok(pending)
     }
 
-    /// Completes the pending draw with the beacon for its committed round.
-    pub fn complete(&mut self, beacon: &Beacon) -> Result<Drawn, DrawError> {
+    /// Completes the pending draw with the verified beacon for its committed
+    /// round, from the raffle's drand chain.
+    pub fn complete(&mut self, beacon: &VerifiedBeacon) -> Result<Drawn, DrawError> {
         let pending = self.pending.clone().ok_or(DrawError::NoDrawInProgress)?;
-        let randomness = beacon.checked_randomness(pending.round)?;
+        if beacon.round() != pending.round {
+            return Err(DrawError::WrongRound {
+                expected: pending.round,
+                got: beacon.round(),
+            });
+        }
+        if !beacon
+            .chain()
+            .to_string()
+            .eq_ignore_ascii_case(&self.drand_chain)
+        {
+            return Err(DrawError::WrongChain);
+        }
+        self.settle(
+            pending,
+            *beacon.randomness(),
+            hex::encode(&beacon.beacon().signature),
+            DrawMode::Beacon,
+        )
+    }
+
+    /// Completes the pending draw with a beacon that could not be verified
+    /// (the public verifier replaying a test chain's log). Never used to draw.
+    pub(crate) fn complete_unverified(
+        &mut self,
+        round: u64,
+        signature: &[u8],
+    ) -> Result<Drawn, DrawError> {
+        let pending = self.pending.clone().ok_or(DrawError::NoDrawInProgress)?;
+        if round != pending.round {
+            return Err(DrawError::WrongRound {
+                expected: pending.round,
+                got: round,
+            });
+        }
+        let randomness = crate::sha256(&[signature]);
         self.settle(
             pending,
             randomness,
-            beacon.signature.clone(),
+            hex::encode(signature),
             DrawMode::Beacon,
         )
     }
@@ -327,7 +390,8 @@ impl DrawState {
         let list_hash = hash_from_hex(&self.list_hash).ok_or(DrawError::BadListHash)?;
         let (pass, pool) = self.pool();
         if pool.is_empty() {
-            self.fail("no eligible entrants left")?;
+            // Unreachable while nothing may change a pending draw's pool; the
+            // draw stays pending (only the organizer abandons it).
             return Err(DrawError::NoEligibleEntrants);
         }
         let index = draw::select(&randomness, &list_hash, pending.k, pool.len());
@@ -361,8 +425,26 @@ impl DrawState {
         })
     }
 
-    /// Abandons the pending draw (the unit goes back to pending).
-    pub fn fail(&mut self, reason: &str) -> Result<(), DrawError> {
+    /// Records that the pending draw's beacon could not be fetched or verified.
+    ///
+    /// The draw stays pending on the same round; drawing that unit again
+    /// fetches the same round.
+    pub fn stall(&mut self, reason: &str) -> Result<(), DrawError> {
+        let pending = self.pending.clone().ok_or(DrawError::NoDrawInProgress)?;
+        self.events.push(Event::Stall {
+            k: pending.k,
+            unit_id: pending.unit_id,
+            round: pending.round,
+            reason: reason.to_owned(),
+        });
+        self.version += 1;
+        Ok(())
+    }
+
+    /// Abandons the pending draw on the organizer's explicit request (the unit
+    /// goes back to pending). Logged publicly: the verifier shows what the
+    /// committed round would have picked.
+    pub fn abandon(&mut self, reason: &str) -> Result<(), DrawError> {
         let pending = self.pending.take().ok_or(DrawError::NoDrawInProgress)?;
         self.events.push(Event::Fail {
             k: pending.k,
@@ -374,13 +456,25 @@ impl DrawState {
         Ok(())
     }
 
+    /// [`DrawState::abandon`] for the organizer's command, which names the unit.
+    pub fn abandon_unit(&mut self, unit_id: &str) -> Result<(), DrawError> {
+        match &self.pending {
+            Some(p) if p.unit_id == unit_id => self.abandon("abandoned by the organizer"),
+            _ => Err(DrawError::NoDrawInProgress),
+        }
+    }
+
     /// Records the organizer's decision about a drawn unit.
     ///
     /// `Claimed` keeps the prize with the winner. `NotHere` and `Declined` put
-    /// the unit back to pending so it can be drawn again.
+    /// the unit back to pending so it can be drawn again; they are refused
+    /// while a draw is pending, because they can change its pool.
     pub fn resolve(&mut self, unit_id: &str, outcome: Outcome) -> Result<(), DrawError> {
         if outcome == Outcome::Drawn {
             return Err(DrawError::BadOutcome);
+        }
+        if outcome != Outcome::Claimed && self.pending.is_some() {
+            return Err(DrawError::DrawInProgress);
         }
         let unit = self.unit_mut(unit_id)?;
         if unit.status != UnitStatus::Drawn {
@@ -467,13 +561,37 @@ impl Unit {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use std::num::NonZeroU32;
+
+    use drand_beacon::{Scheme, TestChain, Verifier};
+
     use super::*;
-    use crate::drand::randomness_from_signature;
+
+    /// A signing test chain: real BLS signatures, small round numbers.
+    pub(crate) fn test_chain() -> TestChain {
+        TestChain::new(
+            [9; 32],
+            Scheme::BlsUnchainedG1Rfc9380,
+            NonZeroU32::new(3).unwrap(),
+            0,
+            "rafi-core-test",
+        )
+        .unwrap()
+    }
+
+    pub(crate) fn beacon(round: u64) -> VerifiedBeacon {
+        let tc = test_chain();
+        Verifier::new(&tc.info())
+            .unwrap()
+            .verify_round(round, &tc.sign(round))
+            .unwrap()
+    }
 
     fn doc(n: usize, units: usize) -> CommitDoc {
         CommitDoc::new(
             "raffle",
+            &test_chain().info().hash(),
             (0..n).map(|i| format!("{i:032x}")).collect(),
             (0..units)
                 .map(|i| UnitRef {
@@ -483,15 +601,6 @@ mod tests {
                 })
                 .collect(),
         )
-    }
-
-    pub(crate) fn beacon(round: u64) -> Beacon {
-        let sig = crate::sha256(&[b"sig", &round.to_be_bytes()]).to_vec();
-        Beacon {
-            round,
-            randomness: hex::encode(randomness_from_signature(&sig)),
-            signature: hex::encode(sig),
-        }
     }
 
     fn draw(s: &mut DrawState, unit: &str, round: u64) -> Drawn {
@@ -554,22 +663,64 @@ mod tests {
     }
 
     #[test]
-    fn wrong_round_beacon_is_rejected() {
+    fn wrong_round_or_chain_beacon_is_rejected() {
         let mut s = DrawState::freeze(&doc(5, 1));
         s.begin("u0", 10, 0).unwrap();
-        assert!(matches!(s.complete(&beacon(11)), Err(DrawError::Beacon(_))));
+        assert_eq!(
+            s.complete(&beacon(11)),
+            Err(DrawError::WrongRound {
+                expected: 10,
+                got: 11
+            })
+        );
+        s.drand_chain = QUICKNET_CHAIN.into();
+        assert_eq!(s.complete(&beacon(10)), Err(DrawError::WrongChain));
         assert!(s.pending.is_some());
     }
 
     #[test]
-    fn fail_keeps_k_and_returns_unit() {
+    fn a_stall_keeps_the_draw_on_its_round() {
+        let mut s = DrawState::freeze(&doc(5, 2));
+        let p = s.begin("u0", 10, 0).unwrap();
+        s.stall("drand unavailable").unwrap();
+        assert_eq!(s.pending.as_ref(), Some(&p));
+        // Retrying returns the same pending draw, even with a new round asked for.
+        assert_eq!(s.begin("u0", 99, 0).unwrap(), p);
+        assert_eq!(s.begin("u1", 99, 0), Err(DrawError::DrawInProgress));
+        let d = s.complete(&beacon(10)).unwrap();
+        assert_eq!(d.k, 1);
+    }
+
+    #[test]
+    fn abandon_keeps_k_and_returns_unit() {
         let mut s = DrawState::freeze(&doc(5, 1));
         s.begin("u0", 10, 0).unwrap();
-        s.fail("drand down").unwrap();
+        s.abandon("organizer abandoned the draw").unwrap();
         assert_eq!(s.next_k, 1);
         assert_eq!(s.unit("u0").unwrap().status, UnitStatus::Pending);
         let d = draw(&mut s, "u0", 12);
         assert_eq!(d.k, 1);
+    }
+
+    #[test]
+    fn pool_changing_resolutions_wait_for_the_pending_draw() {
+        let mut s = DrawState::freeze(&doc(2, 3));
+        draw(&mut s, "u0", 1);
+        draw(&mut s, "u1", 2);
+        // Pass 2 is next; its pool depends on the pass-1 outcomes.
+        s.begin("u2", 3, 0).unwrap();
+        let before = s.pool();
+        assert_eq!(
+            s.resolve("u0", Outcome::NotHere),
+            Err(DrawError::DrawInProgress)
+        );
+        assert_eq!(
+            s.resolve("u0", Outcome::Declined),
+            Err(DrawError::DrawInProgress)
+        );
+        s.resolve("u0", Outcome::Claimed).unwrap();
+        assert_eq!(s.pool(), before);
+        assert_eq!(s.finish(), Err(DrawError::DrawInProgress));
     }
 
     #[test]
@@ -588,8 +739,18 @@ mod tests {
         let v0 = s.version;
         s.begin("u0", 1, 0).unwrap();
         let v1 = s.version;
-        s.complete(&beacon(1)).unwrap();
+        s.stall("x").unwrap();
         let v2 = s.version;
-        assert!(v0 < v1 && v1 < v2);
+        s.complete(&beacon(1)).unwrap();
+        let v3 = s.version;
+        assert!(v0 < v1 && v1 < v2 && v2 < v3);
+    }
+
+    #[test]
+    fn states_without_a_chain_default_to_quicknet() {
+        let mut v = serde_json::to_value(DrawState::freeze(&doc(1, 1))).unwrap();
+        v.as_object_mut().unwrap().remove("drand_chain");
+        let s: DrawState = serde_json::from_value(v).unwrap();
+        assert_eq!(s.drand_chain, QUICKNET_CHAIN);
     }
 }

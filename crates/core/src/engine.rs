@@ -16,6 +16,9 @@ pub enum Command {
     Resolve { unit_id: String, outcome: Outcome },
     /// Withdraws a unit that will not be given away.
     Void { unit_id: String },
+    /// Abandons the pending draw of this unit without its committed beacon.
+    /// Logged publicly; the verifier shows what the round would have picked.
+    Abandon { unit_id: String },
     /// Ends the raffle.
     Finish,
 }
@@ -40,6 +43,13 @@ mod tests {
         assert_eq!(
             json,
             r#"{"cmd":"resolve","unit_id":"u1","outcome":"not_here"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Command::Abandon {
+                unit_id: "u1".into()
+            })
+            .unwrap(),
+            r#"{"cmd":"abandon","unit_id":"u1"}"#
         );
         assert_eq!(
             serde_json::to_string(&Command::Finish).unwrap(),
