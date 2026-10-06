@@ -1,0 +1,21 @@
+{$RAFI_DOMAIN} {
+	# Never compress or buffer the live event stream.
+	@events path /api/r/*/events
+	handle @events {
+		reverse_proxy rafi:8080 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy rafi:8080
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

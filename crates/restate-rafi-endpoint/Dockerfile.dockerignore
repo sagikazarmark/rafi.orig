@@ -1,0 +1,8 @@
+*
+!/crates/
+!Cargo.*
+!**/Cargo.*
+!/migrations/
+**/target
+crates/app/assets/tailwind.css
+crates/app/public

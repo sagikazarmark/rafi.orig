@@ -1,0 +1,33 @@
+[package]
+name = "restate-rafi-endpoint"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Standalone endpoint hosting the Rafi draw engine for Restate"
+publish = false
+
+[[bin]]
+name = "restate-rafi"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+restate-rafi = { path = "../restate-rafi" }
+rafi-drand = { path = "../drand" }
+
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }
+restate-config = "0.3"
+restate-ext = { version = "0.3", features = ["shutdown"] }
+# `http_server` serves the endpoint; `rust_crypto` verifies configured identity keys;
+# `tracing-span-filter` provides the filter that drops log lines re-emitted on replay.
+restate-sdk = { workspace = true, features = ["http_server", "rust_crypto", "tracing-span-filter"] }
+serde.workspace = true
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+figment = { version = "0.10", features = ["env", "json", "toml", "yaml", "test"] }

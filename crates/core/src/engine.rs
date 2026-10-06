@@ -1,0 +1,49 @@
+//! Commands sent to a draw engine (the `Raffle` Restate virtual object or the
+//! app's local fallback engine). This is the wire format of the Restate
+//! handlers, shared by the service and its callers.
+
+use serde::{Deserialize, Serialize};
+
+use crate::state::Outcome;
+
+/// A command for the draw engine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "cmd", rename_all = "snake_case")]
+pub enum Command {
+    /// Draws a winner for one prize unit (`offline`: server randomness, not verifiable).
+    Draw { unit_id: String, offline: bool },
+    /// Records the organizer's decision about a drawn unit.
+    Resolve { unit_id: String, outcome: Outcome },
+    /// Withdraws a unit that will not be given away.
+    Void { unit_id: String },
+    /// Ends the raffle.
+    Finish,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wire_format_is_stable() {
+        let json = serde_json::to_string(&Command::Draw {
+            unit_id: "u1".into(),
+            offline: false,
+        })
+        .unwrap();
+        assert_eq!(json, r#"{"cmd":"draw","unit_id":"u1","offline":false}"#);
+        let json = serde_json::to_string(&Command::Resolve {
+            unit_id: "u1".into(),
+            outcome: Outcome::NotHere,
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"cmd":"resolve","unit_id":"u1","outcome":"not_here"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Command::Finish).unwrap(),
+            r#"{"cmd":"finish"}"#
+        );
+    }
+}

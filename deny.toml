@@ -11,6 +11,9 @@ allow = [
   "ISC",
   "CDLA-Permissive-2.0",
   "CC0-1.0",
+  "Zlib",
+  "BSL-1.0",
+  "BSD-2-Clause",
 ]
 
 [bans]
@@ -20,3 +23,13 @@ wildcards = "warn"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# dioxus-primitives (pinned rev), required by the dioxus-daisyui-components registry.
+allow-git = ["https://github.com/DioxusLabs/components"]
+
+[advisories]
+ignore = [
+  # Marvin timing attack in `rsa` (via dioxus-clerk -> jwt-simple). It affects
+  # private-key decryption/signing; Rafi only verifies Clerk JWT signatures with
+  # public keys. No fixed `rsa` release exists yet.
+  { id = "RUSTSEC-2023-0071", reason = "only RSA signature verification with public keys is used" },
+]

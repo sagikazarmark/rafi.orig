@@ -1,0 +1,91 @@
+# Rafi on a single host (a small VM), built from this checkout:
+#
+#   cd deploy
+#   cp .env.example .env && $EDITOR .env
+#   docker compose up -d --build
+#
+#   caddy (HTTPS) -> rafi (the app) -> restate (ingress) -> restate-rafi (the draw engine)
+#   rafi and restate-rafi share the SQLite database on the `data` volume.
+#
+# Only Caddy publishes ports (80, 443). The Restate admin UI listens on the
+# host's loopback only: `ssh -L 9070:localhost:9070 <vm>`, then http://localhost:9070.
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      RAFI_DOMAIN: ${RAFI_DOMAIN:?set RAFI_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - rafi
+
+  rafi:
+    build:
+      context: ..
+      args:
+        CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+    image: rafi:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RAFI_DATABASE_URL: sqlite:///data/rafi.db
+      RAFI_PUBLIC_URL: https://${RAFI_DOMAIN}
+      RESTATE_INGRESS_URL: http://restate:8080
+    volumes:
+      - data:/data
+    depends_on:
+      - restate
+
+  # The draw engine: the `Raffle` virtual object. Writes draw states into the shared database.
+  restate-rafi:
+    build:
+      context: ..
+      dockerfile: crates/restate-rafi-endpoint/Dockerfile
+    image: restate-rafi:local
+    restart: unless-stopped
+    environment:
+      RESTATE_RAFI_DATABASE__URL: sqlite:///data/rafi.db
+    volumes:
+      - data:/data
+    depends_on:
+      - rafi
+
+  restate:
+    image: docker.restate.dev/restatedev/restate:1.7.13
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9070:9070" # admin API and UI, for an SSH tunnel
+    volumes:
+      - restate-data:/restate-data
+
+  # Registers restate-rafi with Restate (again on every `up`, so new handlers are picked up).
+  register:
+    image: curlimages/curl:8.16.0
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        until curl -fsS -X POST http://restate:9070/deployments \
+          -H 'content-type: application/json' \
+          -d '{"uri": "http://restate-rafi:9080", "force": true}' -o /dev/null; do
+          echo "waiting for restate and restate-rafi..."; sleep 2
+        done
+        echo "registered restate-rafi"
+    depends_on:
+      - restate
+      - restate-rafi
+
+volumes:
+  data:
+  restate-data:
+  caddy-data:
+  caddy-config:

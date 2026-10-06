@@ -1,0 +1,227 @@
+{
+  "algo": "rafi-draw-v1",
+  "select": [
+    {
+      "randomness": "eafae26b6bd8bbd6c1908adf647afc9193a56ddccd72cfacbef451c4c451a08f",
+      "list_hash": "473b164c9c76082343cc8be7854f1197264d871915eec79ffcaba5dd982fc8b7",
+      "k": 1,
+      "pool_size": 1,
+      "index": 0
+    },
+    {
+      "randomness": "f19c47b5edca534dff6fb3261bb04ea1d02c3dc8e462d191dbf6233dea54e973",
+      "list_hash": "b1fd2c6eb7a5ce6b8720deb5bc8c13bfdce97b2f90c8ac7711380b2e626ea45a",
+      "k": 2,
+      "pool_size": 2,
+      "index": 1
+    },
+    {
+      "randomness": "a5ebe359ea1489e4b3426535fbe28aaa4dea748e0cf59d6e085009b458ceaf1c",
+      "list_hash": "b3a5dbec11481c31c9ce1628a7f8eec3307d870e87078b9f7afcff0da5f26b4e",
+      "k": 3,
+      "pool_size": 3,
+      "index": 1
+    },
+    {
+      "randomness": "e20025606193f4c81fdc7c21aaf42d19cb34a9ba4ea5249bc69456205aa037d5",
+      "list_hash": "761429dfdbcebf54246097ad1d1c770705037e2461f4c078d171c3793021af9a",
+      "k": 4,
+      "pool_size": 7,
+      "index": 6
+    },
+    {
+      "randomness": "abe6bf1fd5ac707f65b701cb4b0d3153438162e375c7480db2ff21635d3934e8",
+      "list_hash": "012b081314669d7a290f4ca490b2293b640b346f9b676fc834f31448bdead8ee",
+      "k": 5,
+      "pool_size": 10,
+      "index": 9
+    },
+    {
+      "randomness": "129ed73735939519b1d071594a294b23467e59c98f3e645431bb6addcbea298d",
+      "list_hash": "168f81cd69c2f49a3447a26a5d4edcb84fcd02a6d44b2898ac0b6062140da097",
+      "k": 6,
+      "pool_size": 31,
+      "index": 11
+    },
+    {
+      "randomness": "43f9f0a6fa951084fd0dbfa830756535eb6d899b3771c3b9a2bb0417e7bcb1af",
+      "list_hash": "9fb0bb9c33c7ab4283fbe0774e757d10d39e62d18059524ed5f67da2cd1a7f49",
+      "k": 7,
+      "pool_size": 100,
+      "index": 52
+    },
+    {
+      "randomness": "61bcff87101fcea1cf1300c88d7ad1b62ee1bb0551e5b5198b538867ee131745",
+      "list_hash": "a3b2d6189f661b42f6b52f23250d71a7d8b6bb02dd73fc596a0c285252aeddb7",
+      "k": 8,
+      "pool_size": 257,
+      "index": 59
+    },
+    {
+      "randomness": "11f5e73a7e2411e8667110caa77b40930aebf134b4950e789d123d66458f7915",
+      "list_hash": "33b003ec086fce4c8b0fd81aae7447f2e77e9a7c3fae8c4b82cc7161189c6152",
+      "k": 9,
+      "pool_size": 1000,
+      "index": 870
+    },
+    {
+      "randomness": "17f61fe63b3393660023f8d6e511d54bffb9f81857a3294705804f81b5297c08",
+      "list_hash": "6dcb30c03f9b8c83c2ed44cf7a8cb89d109a004de667847da3e8dcf05ff0ec81",
+      "k": 10,
+      "pool_size": 4000000000,
+      "index": 1212364665
+    }
+  ],
+  "scenario": {
+    "commit_doc": "{\"algo\":\"rafi-draw-v1\",\"raffle_id\":\"raffle-vectors\",\"drand_chain\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\",\"entrant_ids\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"units\":[{\"unit_id\":\"u-ticket-1\",\"item_id\":\"ticket\",\"item_name\":\"KCD Budapest ticket\"},{\"unit_id\":\"u-ticket-2\",\"item_id\":\"ticket\",\"item_name\":\"KCD Budapest ticket\"},{\"unit_id\":\"u-voucher-1\",\"item_id\":\"voucher\",\"item_name\":\"CNCF exam voucher\"},{\"unit_id\":\"u-gift-1\",\"item_id\":\"gift\",\"item_name\":\"Foo gift\"}]}",
+    "list_hash": "49f1e9214fd8e7c245b2d75e47af81a11c0f86c2abaa18af58f690df61dc2583",
+    "events": [
+      {
+        "k": 1,
+        "round": 1000,
+        "round_time": 0,
+        "type": "announce",
+        "unit_id": "u-voucher-1"
+      },
+      {
+        "entrant_id": "4a9036e8027f57e1ae64a1d399dcd095",
+        "index": 4,
+        "k": 1,
+        "mode": "beacon",
+        "pass": 1,
+        "pool_size": 12,
+        "randomness": "38b0bc04e3df837a93acd43779e896d651deb3ca2938503ac950913a09ff81ab",
+        "round": 1000,
+        "signature": "960785535059201893c3a8dc91dcbb0226f3879c3699d1d7776be51e72ce7069f563fcd3fb8578799b80b370673b693e",
+        "type": "draw",
+        "unit_id": "u-voucher-1"
+      },
+      {
+        "k": 1,
+        "outcome": "not_here",
+        "type": "resolve"
+      },
+      {
+        "k": 2,
+        "round": 1003,
+        "round_time": 0,
+        "type": "announce",
+        "unit_id": "u-voucher-1"
+      },
+      {
+        "k": 2,
+        "reason": "drand unavailable",
+        "round": 1003,
+        "type": "fail",
+        "unit_id": "u-voucher-1"
+      },
+      {
+        "k": 2,
+        "round": 1005,
+        "round_time": 0,
+        "type": "announce",
+        "unit_id": "u-voucher-1"
+      },
+      {
+        "entrant_id": "381c03af5422411cde3faf643f68584b",
+        "index": 2,
+        "k": 2,
+        "mode": "beacon",
+        "pass": 1,
+        "pool_size": 11,
+        "randomness": "2ca68ffd340efde472580bacecf8df3a8ba17a26bc1ba744b82be9f3bd9227bc",
+        "round": 1005,
+        "signature": "2f5d7a11cd4564256d9c79ce77f4cdf95cdf92762ae092f59389c4980d46c203f563fcd3fb8578799b80b370673b693e",
+        "type": "draw",
+        "unit_id": "u-voucher-1"
+      },
+      {
+        "k": 2,
+        "outcome": "claimed",
+        "type": "resolve"
+      },
+      {
+        "k": 3,
+        "round": 1010,
+        "round_time": 0,
+        "type": "announce",
+        "unit_id": "u-ticket-1"
+      },
+      {
+        "entrant_id": "181a4a87fd2513b3ddbb203b838c953a",
+        "index": 0,
+        "k": 3,
+        "mode": "beacon",
+        "pass": 1,
+        "pool_size": 10,
+        "randomness": "1404ca2fc712589be5f8a8f19b7f09d5184b7ad0aa2d5a69e28afb3efda092b4",
+        "round": 1010,
+        "signature": "a635e603765db23e52908a59930c93227697326b593f3bae7e6fa1d8e666c99cf563fcd3fb8578799b80b370673b693e",
+        "type": "draw",
+        "unit_id": "u-ticket-1"
+      },
+      {
+        "k": 3,
+        "outcome": "declined",
+        "type": "resolve"
+      },
+      {
+        "k": 4,
+        "round": 1012,
+        "round_time": 0,
+        "type": "announce",
+        "unit_id": "u-ticket-1"
+      },
+      {
+        "entrant_id": "cec0f5b79f0b01d34f7481a9c9be2ca7",
+        "index": 7,
+        "k": 4,
+        "mode": "beacon",
+        "pass": 1,
+        "pool_size": 9,
+        "randomness": "829f2a57a06953d455fa2f4c7eb833af21a8ef0e94562ffedf4bd29458003425",
+        "round": 1012,
+        "signature": "3aebb97aa1ea5cf16be827c47d0ecde3c78ef3254507b35ce1843f6a14b9a023f563fcd3fb8578799b80b370673b693e",
+        "type": "draw",
+        "unit_id": "u-ticket-1"
+      },
+      {
+        "k": 4,
+        "outcome": "claimed",
+        "type": "resolve"
+      },
+      {
+        "type": "void",
+        "unit_id": "u-gift-1"
+      },
+      {
+        "k": 5,
+        "round": 1020,
+        "round_time": 0,
+        "type": "announce",
+        "unit_id": "u-ticket-2"
+      },
+      {
+        "entrant_id": "514fd5455cdd9fd3fbb20606fa906d11",
+        "index": 3,
+        "k": 5,
+        "mode": "beacon",
+        "pass": 1,
+        "pool_size": 8,
+        "randomness": "6cf0ae60b952f8be319c1f797322b946dbccd2a6ca9cf2750e25e6f540ef0c79",
+        "round": 1020,
+        "signature": "27ce6ab73cfddd48ecd84e662f335297a699f07ed90fd945211d5b2f4b46806ef563fcd3fb8578799b80b370673b693e",
+        "type": "draw",
+        "unit_id": "u-ticket-2"
+      },
+      {
+        "k": 5,
+        "outcome": "claimed",
+        "type": "resolve"
+      },
+      {
+        "type": "finish"
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+[application]
+name = "rafi"
+default_platform = "web"
+asset_dir = "assets"
+
+[web.app]
+title = "Rafi"
+
+[web.watcher]
+watch_path = ["src", "assets"]
