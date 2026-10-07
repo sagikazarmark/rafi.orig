@@ -113,7 +113,7 @@ fn generate() -> Vectors {
             item_name: "Foo gift".into(),
         },
     ];
-    let doc = CommitDoc::new("raffle-vectors", &chains::QUICKNET, entrants, units);
+    let doc = CommitDoc::new("raffle-vectors", &chains::QUICKNET_HASH, entrants, units);
     let mut s = DrawState::freeze(&doc);
     s.begin("u-voucher-1", 1000, 0).unwrap();
     s.complete(&beacon(1000)).unwrap();

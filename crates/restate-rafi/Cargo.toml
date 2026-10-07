@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 rafi-core.workspace = true
 rafi-drand = { path = "../drand" }
-restate-drand = { path = "../restate-drand" }
+restate-drand = { workspace = true }
 anyhow = "1"
 getrandom = "0.3"
 rafi-store.workspace = true

@@ -337,7 +337,7 @@ impl DrawState {
             });
         }
         if !beacon
-            .chain()
+            .chain_hash()
             .to_string()
             .eq_ignore_ascii_case(&self.drand_chain)
         {
@@ -564,7 +564,7 @@ impl Unit {
 pub(crate) mod tests {
     use std::num::NonZeroU32;
 
-    use drand_beacon::{Scheme, TestChain, Verifier};
+    use drand::{Scheme, TestChain, Verifier};
 
     use super::*;
 
@@ -582,7 +582,7 @@ pub(crate) mod tests {
 
     pub(crate) fn beacon(round: u64) -> VerifiedBeacon {
         let tc = test_chain();
-        Verifier::new(&tc.info())
+        Verifier::new(tc.chain())
             .unwrap()
             .verify_round(round, &tc.sign(round))
             .unwrap()
@@ -591,7 +591,7 @@ pub(crate) mod tests {
     fn doc(n: usize, units: usize) -> CommitDoc {
         CommitDoc::new(
             "raffle",
-            &test_chain().info().hash(),
+            &test_chain().chain().hash(),
             (0..n).map(|i| format!("{i:032x}")).collect(),
             (0..units)
                 .map(|i| UnitRef {

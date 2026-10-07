@@ -63,7 +63,7 @@ pub fn list_hash(canonical_json: &str) -> Hash {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::drand::chains::QUICKNET;
+    use crate::drand::chains::QUICKNET_HASH as QUICKNET;
 
     #[test]
     fn entrants_are_sorted_and_deduped() {

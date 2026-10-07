@@ -1,10 +1,11 @@
 //! The drand side of a draw: which chain, which round.
 //!
-//! Fetching and BLS verification live in the `drand-beacon` crate; this module
+//! Fetching and BLS verification live in the `drand` crate; this module
 //! re-exports what the domain model needs and keeps Rafi's round rule.
 
-pub use drand_beacon::{
-    Beacon, ChainHash, ChainInfo, Error as BeaconError, Schedule, VerifiedBeacon, Verifier, chains,
+pub use drand::{
+    Beacon, ChainHash, ChainInfo, Error as BeaconError, Schedule, UnixTime, VerifiedBeacon,
+    Verifier, chains,
 };
 
 /// The chain every raffle used before the chain became configurable (quicknet).
@@ -18,14 +19,14 @@ pub const QUICKNET_CHAIN: &str = "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f66
 /// commits to the round that is already out, which only test chains allow.
 pub fn target_round(schedule: &Schedule, now_unix: u64, lead_secs: u64) -> u64 {
     let t = i64::try_from(now_unix.saturating_add(lead_secs)).unwrap_or(i64::MAX);
-    schedule.round_at(t).unwrap_or(1)
+    schedule.round_at(UnixTime::from_secs(t)).unwrap_or(1)
 }
 
 /// Unix time at which `round` is published (0 if it does not exist).
 pub fn round_time(schedule: &Schedule, round: u64) -> u64 {
     schedule
         .round_time(round)
-        .and_then(|t| u64::try_from(t).ok())
+        .and_then(|t| u64::try_from(t.as_secs()).ok())
         .unwrap_or_default()
 }
 

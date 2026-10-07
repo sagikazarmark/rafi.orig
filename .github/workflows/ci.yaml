@@ -42,36 +42,6 @@ jobs:
       - name: Clippy (app web)
         run: cargo clippy -p rafi --features web --target wasm32-unknown-unknown -- -D warnings
 
-  drand-beacon:
-    name: drand-beacon (wasm, no_std, features, MSRV)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - name: Verifier core on wasm32 (no default features + bls12-381)
-        run: cargo build -p drand-beacon --target wasm32-unknown-unknown --no-default-features --features bls12-381 --locked
-      - name: The client is compiled out on wasm32
-        run: cargo build -p drand-beacon --target wasm32-unknown-unknown --features client,rustls,test-chain --locked
-      - name: No std or getrandom in the wasm core
-        run: |
-          tree=$(cargo tree -p drand-beacon -e features,normal --target wasm32-unknown-unknown --no-default-features -F bls12-381)
-          if grep -E 'feature "std"|getrandom' <<<"$tree"; then echo "std leaked into the core"; exit 1; fi
-      - name: Tests without TLS (the client must refuse to build without a backend)
-        run: cargo test -p drand-beacon --features client,test-chain --locked
-      - name: Clippy (all features)
-        run: cargo clippy -p drand-beacon --all-targets --all-features -- -D warnings
-      - name: Docs
-        run: RUSTDOCFLAGS=-Dwarnings cargo doc -p drand-beacon --no-deps --all-features
-      - uses: dtolnay/rust-toolchain@1.85
-      - name: MSRV, extracted from the workspace (as it will be published)
-        run: |
-          cp -R crates/drand-beacon "$RUNNER_TEMP/drand-beacon"
-          cd "$RUNNER_TEMP/drand-beacon"
-          cargo +1.85 generate-lockfile
-          cargo +1.85 test --features client,test-chain
 
   deny:
     name: cargo-deny

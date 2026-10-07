@@ -196,7 +196,8 @@ pub fn verify(
                     DrawMode::Beacon => {
                         let beacon = match Beacon::from_hex(*round, signature, None) {
                             Ok(b)
-                                if hex::encode(b.randomness()).eq_ignore_ascii_case(randomness) =>
+                                if hex::encode(crate::sha256(&[&b.signature]))
+                                    .eq_ignore_ascii_case(randomness) =>
                             {
                                 b
                             }
@@ -335,14 +336,14 @@ mod tests {
     };
 
     fn resolve(h: &ChainHash) -> Option<ChainInfo> {
-        let info = test_chain().info();
+        let info = test_chain().chain().clone();
         (info.hash() == *h).then_some(info)
     }
 
     fn setup() -> (CommitDoc, DrawState) {
         let doc = CommitDoc::new(
             "r",
-            &test_chain().info().hash(),
+            &test_chain().chain().hash(),
             (0..10).map(|i| format!("{i:032x}")).collect(),
             (0..3)
                 .map(|i| UnitRef {
@@ -469,7 +470,7 @@ mod tests {
     fn pool_change_while_pending_fails_verification() {
         let doc = CommitDoc::new(
             "r",
-            &test_chain().info().hash(),
+            &test_chain().chain().hash(),
             (0..2).map(|i| format!("{i:032x}")).collect(),
             (0..3)
                 .map(|i| UnitRef {

@@ -2,7 +2,7 @@
 
 use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 
-use drand_beacon::{Scheme, TestChain};
+use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_core::{
     commit::{CommitDoc, UnitRef},
@@ -22,7 +22,7 @@ fn chain() -> &'static (TestChain, Verifier) {
             "props",
         )
         .unwrap();
-        let v = Verifier::new(&tc.info()).unwrap();
+        let v = Verifier::new(tc.chain()).unwrap();
         (tc, v)
     })
 }
@@ -33,7 +33,7 @@ fn beacon(round: u64) -> VerifiedBeacon {
 }
 
 fn resolve(h: &ChainHash) -> Option<ChainInfo> {
-    let info = chain().0.info();
+    let info = chain().0.chain().clone();
     (info.hash() == *h).then_some(info)
 }
 
@@ -79,7 +79,7 @@ proptest! {
     fn invariants_hold_and_log_verifies(n in 0usize..8, units in 1usize..6, ops in proptest::collection::vec(op(), 0..40)) {
         let doc = CommitDoc::new(
             "prop",
-            &chain().0.info().hash(),
+            &chain().0.chain().hash(),
             (0..n).map(|i| format!("{i:032x}")).collect(),
             (0..units).map(|i| UnitRef { unit_id: format!("u{i}"), item_id: "i".into(), item_name: "P".into() }).collect(),
         );
@@ -156,7 +156,7 @@ proptest! {
 
     #[test]
     fn empty_raffle_cannot_draw(units in 1usize..4) {
-        let doc = CommitDoc::new("e", &chain().0.info().hash(), vec![], (0..units).map(|i| UnitRef { unit_id: format!("u{i}"), item_id: "i".into(), item_name: "P".into() }).collect());
+        let doc = CommitDoc::new("e", &chain().0.chain().hash(), vec![], (0..units).map(|i| UnitRef { unit_id: format!("u{i}"), item_id: "i".into(), item_name: "P".into() }).collect());
         let mut s = DrawState::freeze(&doc);
         prop_assert_eq!(s.begin("u0", 1, 0), Err(DrawError::NoEligibleEntrants));
     }

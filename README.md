@@ -22,7 +22,7 @@ See [`docs/PLAN.md`](docs/PLAN.md) for the design and the reasoning behind it.
 2. For each prize unit the organizer presses **Draw**. The draw engine commits to drand
    quicknet round `R` (about 6 s in the future), announces it on screen, waits durably until it is published,
    fetches the beacon from the public relays and verifies its BLS signature against the quicknet key
-   ([`drand-beacon`](crates/drand-beacon)); `randomness = SHA256(signature)`. A beacon that can't be had
+   ([`drand`](https://crates.io/crates/drand)); `randomness = SHA256(signature)`. A beacon that can't be had
    leaves the draw pending on round `R`: retrying fetches the same round, so nobody can force a redraw.
    The only ways out are an offline draw or an explicit abandon, and the verification page shows both.
 3. `seed = SHA256("rafi-draw-v1" ‖ randomness ‖ list_hash ‖ k)`. The winner is `pool[uniform(|pool|)]`, using
@@ -43,9 +43,7 @@ app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ SQL
 
 ```
 crates/core                   rafi-core: draw algorithm, drand math, state machine, verifier (pure, tested, vectors)
-crates/drand-beacon           drand-beacon: fetch and strictly verify drand beacons (reusable; no_std/wasm core, async client)
-crates/restate-drand          restate-drand: drand in Restate handlers (commit, durable wait, fetch, verify); reusable
-crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) on drand-beacon
+crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) on the drand crate
 crates/store                  rafi-store: SQLite schema, connection options, the shared draw state write
 crates/restate-rafi           restate-rafi: the `Raffle` virtual object (library)
 crates/restate-rafi-endpoint  restate-rafi: the binary serving it (config, logging, Dockerfile)
@@ -84,7 +82,7 @@ RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 dx serve --port 8787
 ```
 
 Then open <http://localhost:8787/admin>. To work offline, add `RAFI_DRAND_MOCK=1` and `--features mock-drand`:
-draws then use a test chain with a public key (`drand-beacon`'s `TestChain`) and are *not* verifiable.
+draws then use a test chain with a public key (the `drand` crate's `TestChain`) and are *not* verifiable.
 To test with phones on your network, set `RAFI_PUBLIC_URL` to your machine's LAN address and run `dx serve --addr 0.0.0.0`.
 
 With Restate: Restate runs in Docker ([`compose.yaml`](compose.yaml)), the app and `restate-rafi` on your

@@ -31,7 +31,7 @@ impl Raffle {
         let config = drand.config();
         let drand = Drand::new(drand.client().clone())
             .with_lead(Duration::from_secs(config.lead_secs))
-            .with_fetch_timeout(Duration::from_secs(config.timeout_secs));
+            .with_fetch_budget(Duration::from_secs(config.timeout_secs));
         Self {
             drand,
             projector: Arc::new(projector),
@@ -157,7 +157,7 @@ impl Raffle {
         // commits to the very same round. A stalled draw for this unit is
         // re-entered on its own round.
         let commitment = self.drand.commit_round(&ctx).await?;
-        let due = u64::try_from(commitment.due_at).unwrap_or_default();
+        let due = u64::try_from(commitment.due_at.as_secs()).unwrap_or_default();
         let pending = state
             .begin(&unit_id, commitment.round, due)
             .map_err(draw_error)?;

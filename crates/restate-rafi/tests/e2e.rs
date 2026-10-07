@@ -32,7 +32,7 @@ const RAFFLE: &str = "e2e-raffle";
 fn doc(entrants: usize) -> CommitDoc {
     CommitDoc::new(
         RAFFLE,
-        &rafi_drand::mock_chain().info().hash(),
+        &rafi_drand::mock_chain().chain().hash(),
         (0..entrants).map(|i| format!("{i:032x}")).collect(),
         vec![
             UnitRef {

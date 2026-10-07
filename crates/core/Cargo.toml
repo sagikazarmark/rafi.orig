@@ -7,7 +7,7 @@ rust-version.workspace = true
 description = "Domain model and verifiable draw algorithm for Rafi"
 
 [dependencies]
-drand-beacon = { workspace = true, features = ["bls12-381"] }
+drand = { workspace = true, features = ["bls12-381"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -15,7 +15,7 @@ hex.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-drand-beacon = { workspace = true, features = ["test-chain"] }
+drand = { workspace = true, features = ["test-chain"] }
 proptest = "1"
 sha2.workspace = true
 hex.workspace = true

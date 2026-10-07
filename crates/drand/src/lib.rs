@@ -1,4 +1,4 @@
-//! Rafi's drand settings on top of [`drand_beacon`]: which chain, which relays,
+//! Rafi's drand settings on top of [`drand`]: which chain, which relays,
 //! how far ahead a draw commits, and how long a draw waits for its beacon.
 //!
 //! The chain is quicknet, or (with `mock = true` and the `mock` feature) a
@@ -6,12 +6,12 @@
 //! but anyone can forge them, and its chain hash marks every raffle using it as
 //! not publicly verifiable.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, bail, ensure};
-pub use drand_beacon::client::{Error as FetchError, Fetch};
-use drand_beacon::{
-    ChainHash, ChainInfo, Schedule, VerifiedBeacon, Verifier, chains,
+pub use drand::client::{Error as FetchError, Fetch};
+use drand::{
+    ChainHash, ChainInfo, Schedule, UnixTime, VerifiedBeacon, Verifier, chains,
     client::{Client, Strategy},
     http::Relay,
 };
@@ -56,13 +56,17 @@ pub const MOCK_SEED: [u8; 32] = *b"rafi mock drand: not verifiable!";
 /// The mock (test) chain: pinned parameters, so the app and the draw engine
 /// agree on its hash across restarts.
 #[cfg(feature = "mock")]
-pub fn mock_chain() -> drand_beacon::TestChain {
+pub fn mock_chain() -> drand::TestChain {
     let q = chains::quicknet();
-    drand_beacon::TestChain::new(
+    let period = u32::try_from(q.period().as_secs())
+        .ok()
+        .and_then(std::num::NonZeroU32::new)
+        .expect("quicknet period");
+    drand::TestChain::new(
         MOCK_SEED,
-        drand_beacon::Scheme::BlsUnchainedG1Rfc9380,
-        q.period(),
-        q.genesis_time(),
+        drand::Scheme::BlsUnchainedG1Rfc9380,
+        period,
+        q.genesis_time().as_secs(),
         "rafi-test",
     )
     .expect("supported scheme")
@@ -76,7 +80,7 @@ pub fn resolve_chain(hash: &ChainHash) -> Option<ChainInfo> {
     }
     #[cfg(feature = "mock")]
     {
-        let mock = mock_chain().info();
+        let mock = mock_chain().chain().clone();
         if mock.hash() == *hash {
             return Some(mock);
         }
@@ -91,7 +95,7 @@ impl DrandConfig {
             return Ok(chains::quicknet());
         }
         #[cfg(feature = "mock")]
-        return Ok(mock_chain().info());
+        return Ok(mock_chain().chain().clone());
         #[cfg(not(feature = "mock"))]
         bail!("drand mock mode is not available in this build (enable the `mock-drand` feature)");
     }
@@ -117,7 +121,7 @@ impl DrandConfig {
             !chain.scheme().is_chained(),
             "chained drand schemes are not supported"
         );
-        let period = u64::from(chain.period().get());
+        let period = chain.period().as_secs();
         if !self.mock && self.lead_secs < period {
             bail!(
                 "drand lead_secs must be at least the chain period ({period}s), or the committed round may already be public"
@@ -162,7 +166,7 @@ impl DrandClient {
         } else {
             builder
                 .relays(cfg.parsed_relays()?)
-                .http(reqwest::Client::new())
+                .http_client(reqwest::Client::new())
                 .build()?
         };
         Ok(Self { cfg, client })
@@ -193,7 +197,7 @@ impl DrandClient {
         self.client.verifier()
     }
 
-    /// The underlying `drand_beacon` client (e.g. for `restate_drand::Drand`).
+    /// The underlying `drand` client (e.g. for `restate_drand::Drand`).
     pub fn client(&self) -> &Client {
         &self.client
     }
@@ -215,18 +219,12 @@ impl DrandClient {
     pub async fn wait_for(&self, round: u64) -> Result<VerifiedBeacon, FetchError> {
         let until_due = self
             .schedule()
-            .round_time_ms(round)
-            .map(|due| due.saturating_sub(now_ms()).max(0) as u64)
+            .round_time(round)
+            .map(|due| due.saturating_duration_since(UnixTime::from(SystemTime::now())))
             .unwrap_or_default();
-        let timeout = Duration::from_millis(until_due) + Duration::from_secs(self.cfg.timeout_secs);
+        let timeout = until_due + Duration::from_secs(self.cfg.timeout_secs);
         self.client.wait_for(round, timeout).await
     }
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
 }
 
 #[cfg(test)]
@@ -313,7 +311,7 @@ mod tests {
             ..DrandConfig::default()
         })
         .unwrap();
-        assert!(client.chain_hash() != chains::QUICKNET);
+        assert!(client.chain_hash() != chains::QUICKNET_HASH);
         assert_eq!(
             resolve_chain(&client.chain_hash()),
             Some(client.chain().clone())
@@ -321,9 +319,9 @@ mod tests {
         let Fetch::Ready(b) = client.fetch(7).await.unwrap() else {
             panic!("past rounds are ready")
         };
-        assert_eq!(b.chain(), &client.chain_hash());
+        assert_eq!(b.chain_hash(), client.chain_hash());
         assert_eq!(
-            mock_chain().info().hash(),
+            mock_chain().chain().hash(),
             client.chain_hash(),
             "the mock chain is pinned"
         );

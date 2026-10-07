@@ -1,9 +1,12 @@
 # `drand-beacon`: a reusable drand crate (design plan)
 
-> **Implementation status (2026-10-07).** The 0.1 scope (M1–M4 and the local parts of M5) is implemented
-> in `crates/drand-beacon` and wired into Rafi. Not done yet, because they are outward-facing and wait for
-> Mark: publishing to crates.io, moving the crate to its own repository, filing the `drand_core` issues, and
-> asking drand to list the crate. See [Implementation notes](#13-implementation-notes) at the end.
+> **Published (2026-10-07).** The crate moved to its own repository,
+> [sagikazarmark/drand-rs](https://github.com/sagikazarmark/drand-rs), and is published as
+> [`drand`](https://crates.io/crates/drand) 0.2 (with [`restate-drand`](https://crates.io/crates/restate-drand) 0.2);
+> Rafi depends on the published crates. This plan is kept as written under the working name `drand-beacon`;
+> the published API differs in places (e.g. `UnixTime`, `VerifiedBeacon::chain_hash`, `fetch_budget`, the journal
+> step names `drand: clock` / `drand: fetch`). Still open: filing the `drand_core` issues and asking drand to list
+> the crate.
 
 Status: **approved by all three reviewers** (crypto/protocol, Rust API, Rafi integration) at revision 4, 2026-10-06, with their final non-blocking notes folded in. Revision 4 adds a pool freeze while a draw is pending, abandon/UI/test details (§10.6), and the API nits (Chain error without `#[from]`, `Timeout.last`, `round_at_ms`, `latest()` edge cases, `test_transport` skipping the relay/TLS checks, a pure Send + Sync `TestChain` with `beacon_id`).
 
