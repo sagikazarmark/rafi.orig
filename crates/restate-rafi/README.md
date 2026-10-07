@@ -9,10 +9,12 @@ entrant IDs.
 
 | Handler | Kind | |
 |---|---|---|
-| `freeze` | exclusive | Takes the frozen entrant list (the commit document). Idempotent for the same list. |
-| `draw` | exclusive | Commits to a future drand round, sleeps until it is published, picks the winner. |
-| `resolve` | exclusive | Claimed / not here / declined, void a unit, or finish (clears the state). |
+| `freeze` | exclusive | Takes the frozen entrant list (the commit document). Idempotent for the same list; refuses a commit to another drand chain than the engine's. |
+| `draw` | exclusive | Commits to a future drand round, sleeps until it is published, fetches and BLS-verifies it, picks the winner. If the beacon can't be had, the draw stalls on that round; drawing the unit again retries the same round. |
+| `resolve` | exclusive | Claimed / not here / declined, void a unit, abandon a stalled draw, or finish (clears the state). |
 | `get` | shared | The current state, for recovery and debugging. |
+
+Committing to a round and awaiting its beacon go through [`restate-drand`](../restate-drand).
 
 After every change the state goes to a `Projector`. `SqliteProjector` writes it into the Rafi app's SQLite
 database through [`rafi-store`](../store), where the app picks it up; `RecordingProjector` keeps it in memory
@@ -23,7 +25,7 @@ use rafi_drand::{DrandClient, DrandConfig};
 use restate_rafi::{DatabaseConfig, Raffle, SqliteProjector};
 
 let raffle = Raffle::new(
-    DrandClient::new(DrandConfig::default()),
+    DrandClient::new(DrandConfig::default())?,
     SqliteProjector::new(&DatabaseConfig { url: "sqlite://rafi.db".into() })?,
 );
 let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(raffle).build();

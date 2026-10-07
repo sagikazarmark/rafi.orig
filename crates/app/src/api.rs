@@ -135,6 +135,16 @@ pub async fn void_unit(
 }
 
 #[server]
+pub async fn abandon_draw(
+    id: String,
+    unit_id: String,
+    command_id: String,
+) -> Result<(), ServerFnError> {
+    let (app, owner) = ctx()?;
+    Ok(service::command(&app, &owner, &id, Command::Abandon { unit_id }, &command_id).await?)
+}
+
+#[server]
 pub async fn finish_raffle(id: String, command_id: String) -> Result<(), ServerFnError> {
     let (app, owner) = ctx()?;
     Ok(service::command(&app, &owner, &id, Command::Finish, &command_id).await?)

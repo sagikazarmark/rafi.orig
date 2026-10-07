@@ -1,131 +1,67 @@
-//! drand quicknet round arithmetic and beacon checks.
+//! The drand side of a draw: which chain, which round.
 //!
-//! See <https://docs.drand.love/developer/API-v2/drand-http-api/>.
+//! Fetching and BLS verification live in the `drand` crate; this module
+//! re-exports what the domain model needs and keeps Rafi's round rule.
 
-use serde::{Deserialize, Serialize};
+pub use drand::{
+    Beacon, ChainHash, ChainInfo, Error as BeaconError, Schedule, UnixTime, VerifiedBeacon,
+    Verifier, chains,
+};
 
-use crate::{Hash, sha256};
-
-/// drand quicknet chain hash.
+/// The chain every raffle used before the chain became configurable (quicknet).
 pub const QUICKNET_CHAIN: &str = "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971";
-/// Unix time of quicknet round 1.
-pub const QUICKNET_GENESIS: u64 = 1_692_803_367;
-/// Seconds between quicknet rounds.
-pub const QUICKNET_PERIOD: u64 = 3;
 
-/// Latest round published at or before `unix_secs`.
-pub fn round_at(unix_secs: u64) -> u64 {
-    if unix_secs < QUICKNET_GENESIS {
-        return 1;
-    }
-    (unix_secs - QUICKNET_GENESIS) / QUICKNET_PERIOD + 1
-}
-
-/// Unix time at which `round` is published.
-pub fn round_time(round: u64) -> u64 {
-    QUICKNET_GENESIS + round.saturating_sub(1) * QUICKNET_PERIOD
-}
-
-/// Picks the round a draw starting at `now` commits to.
+/// The round a draw starting at `now_unix` commits to: the latest round due at
+/// `now + lead_secs`.
 ///
-/// With `lead_secs >= QUICKNET_PERIOD` the round is guaranteed to be in the
-/// future, i.e. nobody can know its randomness at commit time.
-pub fn target_round(now_unix: u64, lead_secs: u64) -> u64 {
-    round_at(now_unix + lead_secs)
+/// With `lead_secs >= period` the round is not published yet at `now` (with
+/// `lead_secs >= 2 × period`, by at least a full period). `lead_secs = 0`
+/// commits to the round that is already out, which only test chains allow.
+pub fn target_round(schedule: &Schedule, now_unix: u64, lead_secs: u64) -> u64 {
+    let t = i64::try_from(now_unix.saturating_add(lead_secs)).unwrap_or(i64::MAX);
+    schedule.round_at(UnixTime::from_secs(t)).unwrap_or(1)
 }
 
-/// `randomness = SHA256(signature)` for unchained schemes such as quicknet.
-pub fn randomness_from_signature(signature: &[u8]) -> Hash {
-    sha256(&[signature])
-}
-
-/// A drand beacon as returned by the `/public/{round}` endpoint.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Beacon {
-    pub round: u64,
-    /// Hex-encoded BLS signature.
-    pub signature: String,
-    /// Hex-encoded randomness (`SHA256(signature)`).
-    pub randomness: String,
-}
-
-#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
-pub enum BeaconError {
-    #[error("signature is not valid hex")]
-    BadSignature,
-    #[error("randomness does not match SHA256(signature)")]
-    RandomnessMismatch,
-    #[error("expected round {expected}, got {actual}")]
-    WrongRound { expected: u64, actual: u64 },
-}
-
-impl Beacon {
-    /// Checks that the randomness is derived from the signature and returns it.
-    ///
-    /// BLS signature verification against the chain's public key is not done
-    /// here; anyone can re-fetch the round from independent relays.
-    pub fn checked_randomness(&self, expected_round: u64) -> Result<Hash, BeaconError> {
-        if self.round != expected_round {
-            return Err(BeaconError::WrongRound {
-                expected: expected_round,
-                actual: self.round,
-            });
-        }
-        let sig = hex::decode(&self.signature).map_err(|_| BeaconError::BadSignature)?;
-        let derived = randomness_from_signature(&sig);
-        if hex::encode(derived) != self.randomness.to_ascii_lowercase() {
-            return Err(BeaconError::RandomnessMismatch);
-        }
-        Ok(derived)
-    }
+/// Unix time at which `round` is published (0 if it does not exist).
+pub fn round_time(schedule: &Schedule, round: u64) -> u64 {
+    schedule
+        .round_time(round)
+        .and_then(|t| u64::try_from(t.as_secs()).ok())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const GENESIS: u64 = 1_692_803_367;
+
+    /// The quicknet-only rule this module used before chains were configurable.
+    fn old_target_round(now: u64, lead: u64) -> u64 {
+        let t = now + lead;
+        if t < GENESIS {
+            return 1;
+        }
+        (t - GENESIS) / 3 + 1
+    }
+
     #[test]
-    fn round_math_roundtrips() {
-        assert_eq!(round_at(QUICKNET_GENESIS), 1);
-        assert_eq!(round_at(QUICKNET_GENESIS + 2), 1);
-        assert_eq!(round_at(QUICKNET_GENESIS + 3), 2);
-        for r in [1u64, 2, 10, 1_000_000] {
-            assert_eq!(round_at(round_time(r)), r);
+    fn target_round_is_unchanged_for_quicknet() {
+        let s = chains::quicknet().schedule();
+        for now in GENESIS - 10..GENESIS + 40 {
+            for lead in [0, 3, 6, 9] {
+                assert_eq!(target_round(&s, now, lead), old_target_round(now, lead));
+            }
         }
     }
 
     #[test]
-    fn target_round_is_in_the_future() {
-        for now in QUICKNET_GENESIS..QUICKNET_GENESIS + 20 {
-            let r = target_round(now, 6);
-            assert!(round_time(r) > now);
-            assert!(round_time(r) <= now + 6);
+    fn target_round_is_in_the_future_with_a_lead() {
+        let s = chains::quicknet().schedule();
+        for now in GENESIS..GENESIS + 20 {
+            let r = target_round(&s, now, 6);
+            assert!(round_time(&s, r) > now);
+            assert!(round_time(&s, r) <= now + 6);
         }
-    }
-
-    #[test]
-    fn beacon_check() {
-        let sig = vec![0xab; 48];
-        let beacon = Beacon {
-            round: 5,
-            signature: hex::encode(&sig),
-            randomness: hex::encode(randomness_from_signature(&sig)),
-        };
-        assert!(beacon.checked_randomness(5).is_ok());
-        assert_eq!(
-            beacon.checked_randomness(6),
-            Err(BeaconError::WrongRound {
-                expected: 6,
-                actual: 5
-            })
-        );
-        let bad = Beacon {
-            randomness: hex::encode([0u8; 32]),
-            ..beacon
-        };
-        assert_eq!(
-            bad.checked_randomness(5),
-            Err(BeaconError::RandomnessMismatch)
-        );
     }
 }

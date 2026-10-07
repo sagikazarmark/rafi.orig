@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Hash, drand::QUICKNET_CHAIN, draw::ALGO, sha256};
+use crate::{Hash, drand::ChainHash, draw::ALGO, sha256};
 
 /// A prize unit as committed at freeze time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,8 +28,10 @@ pub struct CommitDoc {
 }
 
 impl CommitDoc {
+    /// `drand_chain` is the chain whose beacons the draws will use.
     pub fn new(
         raffle_id: impl Into<String>,
+        drand_chain: &ChainHash,
         mut entrant_ids: Vec<String>,
         units: Vec<UnitRef>,
     ) -> Self {
@@ -41,7 +43,7 @@ impl CommitDoc {
         Self {
             algo: ALGO.to_owned(),
             raffle_id: raffle_id.into(),
-            drand_chain: QUICKNET_CHAIN.to_owned(),
+            drand_chain: drand_chain.to_string(),
             entrant_ids,
             units,
         }
@@ -61,10 +63,16 @@ pub fn list_hash(canonical_json: &str) -> Hash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drand::chains::QUICKNET_HASH as QUICKNET;
 
     #[test]
     fn entrants_are_sorted_and_deduped() {
-        let doc = CommitDoc::new("r1", vec!["bb".into(), "AA".into(), "aa".into()], vec![]);
+        let doc = CommitDoc::new(
+            "r1",
+            &QUICKNET,
+            vec!["bb".into(), "AA".into(), "aa".into()],
+            vec![],
+        );
         assert_eq!(doc.entrant_ids, vec!["aa", "bb"]);
     }
 
@@ -72,6 +80,7 @@ mod tests {
     fn canonical_json_is_stable() {
         let doc = CommitDoc::new(
             "r1",
+            &QUICKNET,
             vec!["01".into()],
             vec![UnitRef {
                 unit_id: "u1".into(),

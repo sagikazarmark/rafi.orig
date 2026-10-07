@@ -1,19 +1,15 @@
 //! The `Raffle` virtual object.
 
-use std::{
-    sync::Arc,
-    time::{Duration, UNIX_EPOCH},
-};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use rafi_core::{
     commit::CommitDoc,
-    drand::{round_time, target_round},
     engine::Command,
     state::{DrawError, DrawState},
 };
-use rafi_drand::{DrandClient, Fetch};
-use restate_ext::ContextClockExt;
+use rafi_drand::DrandClient;
+use restate_drand::{AwaitError, Drand};
 use restate_sdk::prelude::*;
 
 use crate::projector::Projector;
@@ -26,12 +22,16 @@ const STATE: &str = "state";
 
 /// The draw engine for one raffle per key.
 pub struct Raffle {
-    drand: DrandClient,
+    drand: Drand,
     projector: Arc<dyn Projector>,
 }
 
 impl Raffle {
     pub fn new(drand: DrandClient, projector: impl Projector) -> Self {
+        let config = drand.config();
+        let drand = Drand::new(drand.client().clone())
+            .with_lead(Duration::from_secs(config.lead_secs))
+            .with_fetch_budget(Duration::from_secs(config.timeout_secs));
         Self {
             drand,
             projector: Arc::new(projector),
@@ -48,7 +48,10 @@ fn rejected(e: impl std::fmt::Display, code: u16) -> HandlerError {
 fn draw_error(e: DrawError) -> HandlerError {
     let code = match e {
         DrawError::UnknownUnit(_) => 404,
-        DrawError::BadOutcome | DrawError::BadListHash | DrawError::Beacon(_) => 400,
+        DrawError::BadOutcome
+        | DrawError::BadListHash
+        | DrawError::WrongRound { .. }
+        | DrawError::WrongChain => 400,
         _ => 409,
     };
     rejected(e, code)
@@ -94,6 +97,21 @@ impl Raffle {
         if doc.raffle_id != ctx.key() {
             return Err(rejected("raffle ID does not match the object key", 400));
         }
+        // The app and this endpoint configure drand separately; refuse a raffle
+        // whose draws would come from a different chain than the one committed.
+        if !doc
+            .drand_chain
+            .eq_ignore_ascii_case(&self.drand.chain().hash().to_string())
+        {
+            return Err(rejected(
+                format!(
+                    "the raffle commits to drand chain {}, but the draw engine uses {}",
+                    doc.drand_chain,
+                    self.drand.chain().hash()
+                ),
+                409,
+            ));
+        }
         let fresh = DrawState::freeze(&doc);
         if let Some(Json(existing)) = ctx.get::<Json<DrawState>>(STATE).await? {
             if existing.list_hash == fresh.list_hash {
@@ -112,28 +130,36 @@ impl Raffle {
     ///
     /// Journals one clock read, commits to the drand round `lead_secs` later and
     /// projects that commitment *before* the round exists, sleeps durably until
-    /// it is published, fetches it (retried up to the configured timeout) and
-    /// settles the draw. A failed fetch is recorded as a failed draw; the unit
-    /// goes back to pending.
+    /// it is published, fetches and verifies it (retried up to the configured
+    /// timeout) and settles the draw.
+    ///
+    /// If the beacon cannot be had, the draw is recorded as stalled and stays
+    /// pending on the same round: drawing the unit again re-enters the same
+    /// pending draw and fetches that round, so a withholding relay cannot force
+    /// a redraw on a new round.
     #[handler]
     async fn draw(&self, ctx: ObjectContext<'_>, cmd: Json<Command>) -> HandlerResult<()> {
         let Command::Draw { unit_id, offline } = cmd.into_inner() else {
             return Err(rejected("expected a draw command", 400));
         };
         let mut state = Self::load(&ctx).await?;
-        let config = self.drand.config();
+        if !state
+            .drand_chain
+            .eq_ignore_ascii_case(&self.drand.chain().hash().to_string())
+        {
+            return Err(rejected(
+                "the raffle commits to a different drand chain than the draw engine uses",
+                409,
+            ));
+        }
 
-        // Replay-safe: a resumed invocation reads the journaled time, so it
-        // commits to the very same round.
-        let now = ctx
-            .now()
-            .await?
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let round = target_round(now, config.lead_secs);
+        // Replay-safe: the clock read is journaled, so a resumed invocation
+        // commits to the very same round. A stalled draw for this unit is
+        // re-entered on its own round.
+        let commitment = self.drand.commit_round(&ctx).await?;
+        let due = u64::try_from(commitment.due_at.as_secs()).unwrap_or_default();
         let pending = state
-            .begin(&unit_id, round, round_time(round))
+            .begin(&unit_id, commitment.round, due)
             .map_err(draw_error)?;
         ctx.set(STATE, Json(state.clone()));
         self.project(&ctx, &state).await?;
@@ -152,42 +178,33 @@ impl Raffle {
                 .map_err(|_| rejected("bad randomness", 500))?;
             state.complete_offline(randomness).map_err(draw_error)?;
         } else {
-            let wait = round_time(pending.round).saturating_sub(now);
-            if wait > 0 {
-                ctx.sleep(Duration::from_millis(wait * 1000 + 300)).await?;
-            }
-            let drand = &self.drand;
-            let fetched = ctx
-                .run(|| async move {
-                    match drand
-                        .fetch(pending.round)
-                        .await
-                        .map_err(HandlerError::from)?
-                    {
-                        Fetch::Ready(b) => Ok(Json(b)),
-                        Fetch::NotYet => {
-                            Err(anyhow!("round {} not published yet", pending.round).into())
-                        }
-                    }
-                })
-                .name("beacon")
-                .retry_policy(
-                    RunRetryPolicy::new()
-                        .initial_delay(Duration::from_millis(250))
-                        .exponentiation_factor(2.0)
-                        .max_delay(Duration::from_secs(2))
-                        .max_duration(Duration::from_secs(config.timeout_secs)),
-                )
-                .await;
-            match fetched {
-                Ok(Json(beacon)) => {
+            // Sleeps until the round is due, fetches it (journaled, retried) and
+            // verifies it. If it can't be had, the draw stalls on its round.
+            match self.drand.await_beacon(&ctx, pending.round).await {
+                Ok(beacon) => {
                     if let Err(e) = state.complete(&beacon) {
-                        state.fail(&e.to_string()).map_err(draw_error)?;
+                        state
+                            .stall(&format!("invalid beacon: {e}"))
+                            .map_err(draw_error)?;
                     }
                 }
-                Err(e) => state
-                    .fail(&format!("drand unavailable: {e}"))
+                Err(AwaitError::Unavailable { reason, .. }) => state
+                    .stall(&format!("drand unavailable: {reason}"))
                     .map_err(draw_error)?,
+                // Cancelled (or a step failed): the draw stays pending on its
+                // round. Record why, so the organizer sees the retry, offline and
+                // abandon controls right away, then fail the invocation.
+                Err(e) => {
+                    let reason = if e.is_cancelled() {
+                        "draw cancelled".to_owned()
+                    } else {
+                        format!("draw failed: {e}")
+                    };
+                    state.stall(&reason).map_err(draw_error)?;
+                    ctx.set(STATE, Json(state.clone()));
+                    self.project(&ctx, &state).await?;
+                    return Err(e.into_handler_error());
+                }
             }
         }
         ctx.set(STATE, Json(state.clone()));
@@ -203,6 +220,7 @@ impl Raffle {
         match cmd.into_inner() {
             Command::Resolve { unit_id, outcome } => state.resolve(&unit_id, outcome),
             Command::Void { unit_id } => state.void(&unit_id),
+            Command::Abandon { unit_id } => state.abandon_unit(&unit_id),
             Command::Finish => state.finish(),
             Command::Draw { .. } => return Err(rejected("use the draw handler", 400)),
         }

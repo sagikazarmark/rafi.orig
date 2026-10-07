@@ -154,7 +154,11 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
                         round: *round,
                     });
                 }
-                Event::Fail { reason, .. } => last_failure = Some(reason.clone()),
+                // A stalled draw stays pending on its round; an abandoned one is over.
+                Event::Stall { reason, .. } => last_failure = Some(reason.clone()),
+                Event::Fail { round, reason, .. } => {
+                    last_failure = Some(format!("round {round} abandoned ({reason})"))
+                }
                 Event::Announce { .. } => last_failure = None,
                 _ => {}
             }

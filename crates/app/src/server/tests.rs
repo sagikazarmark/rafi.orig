@@ -129,6 +129,31 @@ async fn wait_for<F: Fn(&db::RaffleRow) -> bool>(app: &AppState, id: &str, f: F)
     panic!("condition not met in time");
 }
 
+/// [`wait_for`] for slow conditions (stalls take a round period plus the timeout).
+async fn wait_long<F: Fn(&db::RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> db::RaffleRow {
+    for _ in 0..1000 {
+        let r = db::raffle(&app.db, id).await.unwrap().unwrap();
+        if f(&r) {
+            return r;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("condition not met in time");
+}
+
+/// An app whose drand relay is unreachable: every draw stalls on its round
+/// (quicknet, 3 s lead, gives up 1 s after the round is due).
+async fn unreachable_drand_app() -> AppState {
+    let mut cfg = Config::for_tests();
+    cfg.drand = rafi_drand::DrandConfig {
+        relays: vec!["http://127.0.0.1:9".into()],
+        mock: false,
+        lead_secs: 3,
+        timeout_secs: 1,
+    };
+    AppState::new(cfg).await.expect("app state")
+}
+
 #[tokio::test]
 async fn full_raffle_flow() {
     let app = app().await;
@@ -347,7 +372,12 @@ async fn full_raffle_flow() {
 
     // The public log verifies independently.
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let report = rafi_core::verify::verify(&data.commit_doc, &data.list_hash, &data.events);
+    let report = rafi_core::verify::verify(
+        &data.commit_doc,
+        &data.list_hash,
+        &data.events,
+        rafi_drand::resolve_chain,
+    );
     assert!(report.ok(), "{report:#?}");
     assert_eq!(report.draws.len(), units.len() + 1);
 
@@ -370,7 +400,15 @@ async fn full_raffle_flow() {
             .all(|e| e.purged && e.email_raw.is_none() && e.token_hash.is_none())
     );
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    assert!(rafi_core::verify::verify(&data.commit_doc, &data.list_hash, &data.events).ok());
+    assert!(
+        rafi_core::verify::verify(
+            &data.commit_doc,
+            &data.list_hash,
+            &data.events,
+            rafi_drand::resolve_chain
+        )
+        .ok()
+    );
 }
 
 #[tokio::test]
@@ -578,7 +616,15 @@ async fn offline_draw_and_engine_switch() {
         UnitStatus::Drawn
     );
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    assert!(rafi_core::verify::verify(&data.commit_doc, &data.list_hash, &data.events).ok());
+    assert!(
+        rafi_core::verify::verify(
+            &data.commit_doc,
+            &data.list_hash,
+            &data.events,
+            rafi_drand::resolve_chain
+        )
+        .ok()
+    );
     // Switching an already-local raffle is a no-op.
     service::switch_to_local(&app, OWNER, &raffle.id)
         .await
@@ -694,4 +740,244 @@ async fn the_restate_watcher_only_watches_when_asked() {
     let mut watcher = super::watch::Watcher::default();
     assert!(watcher.poll(&app).await.unwrap().is_empty());
     assert!(app.watch.is_idle());
+}
+
+/// A draw whose round never arrives in time stalls on that round: retrying
+/// keeps the round, pool-changing resolutions wait, and the only exits
+/// (offline, abandon) are logged for the verifier.
+#[tokio::test]
+async fn stalled_draw_keeps_its_round() {
+    use rafi_core::{state::Event, verify::Replaced};
+
+    let app = unreachable_drand_app().await;
+    let raffle = setup_open(&app, &[("Prize", 3)]).await;
+    for i in 0..4 {
+        service::add_manual(&app, OWNER, &raffle.id, &format!("Person {i}"), None)
+            .await
+            .unwrap();
+    }
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    let r = wait_for(&app, &raffle.id, |r| r.draw_state.is_some()).await;
+    let units: Vec<String> = r
+        .draw_state()
+        .unwrap()
+        .units
+        .iter()
+        .map(|u| u.unit_id.clone())
+        .collect();
+    async fn draw_cmd(
+        app: &AppState,
+        raffle_id: &str,
+        unit: &str,
+        offline: bool,
+        id: &str,
+    ) -> super::service::Result<()> {
+        service::command(
+            app,
+            OWNER,
+            raffle_id,
+            Command::Draw {
+                unit_id: unit.to_owned(),
+                offline,
+            },
+            id,
+        )
+        .await
+    }
+    let draw = |unit: &str, offline: bool, id: &str| {
+        let (unit, id) = (unit.to_owned(), id.to_owned());
+        let (app, raffle_id) = (app.clone(), raffle.id.clone());
+        async move { draw_cmd(&app, &raffle_id, &unit, offline, &id).await }
+    };
+    let stalls = |r: &db::RaffleRow| {
+        r.draw_state()
+            .map(|s| {
+                s.events
+                    .iter()
+                    .filter(|e| matches!(e, Event::Stall { .. }))
+                    .count()
+            })
+            .unwrap_or_default()
+    };
+
+    draw(&units[0], false, "d1").await.unwrap();
+    let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 1).await;
+    let pending = r.draw_state().unwrap().pending.expect("still pending");
+
+    // Another unit cannot start; this one retries the same round.
+    assert!(draw(&units[1], false, "d2").await.is_err());
+    draw(&units[0], false, "d3").await.unwrap();
+    let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 2).await;
+    let s = r.draw_state().unwrap();
+    assert_eq!(s.pending.as_ref(), Some(&pending), "same draw, same round");
+    let announces = s
+        .events
+        .iter()
+        .filter(|e| matches!(e, Event::Announce { .. }))
+        .count();
+    assert_eq!(announces, 1);
+
+    // The organizer abandons it: logged, and the unit can be drawn again.
+    service::command(
+        &app,
+        OWNER,
+        &raffle.id,
+        Command::Abandon {
+            unit_id: units[0].clone(),
+        },
+        "a1",
+    )
+    .await
+    .unwrap();
+    // Then completes the next draw offline instead of waiting for its round.
+    draw(&units[0], false, "d4").await.unwrap();
+    let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 3).await;
+    let next = r.draw_state().unwrap().pending.unwrap();
+    assert_eq!(next.k, pending.k, "the abandoned draw's number is reused");
+    assert!(
+        next.round >= pending.round,
+        "a new draw commits to a current round"
+    );
+    draw(&units[0], true, "o1").await.unwrap();
+    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    assert_eq!(
+        r.draw_state().unwrap().unit(&units[0]).unwrap().status,
+        UnitStatus::Drawn
+    );
+
+    // While the next draw is pending, "not here" waits; "handed over" doesn't.
+    draw(&units[1], false, "d5").await.unwrap();
+    let not_here = service::command(
+        &app,
+        OWNER,
+        &raffle.id,
+        Command::Resolve {
+            unit_id: units[0].clone(),
+            outcome: Outcome::NotHere,
+        },
+        "nh",
+    )
+    .await;
+    assert!(not_here.is_err());
+    service::command(
+        &app,
+        OWNER,
+        &raffle.id,
+        Command::Resolve {
+            unit_id: units[0].clone(),
+            outcome: Outcome::Claimed,
+        },
+        "cl",
+    )
+    .await
+    .unwrap();
+
+    let data = service::verify_data(&app, &raffle.slug).await.unwrap();
+    let report = rafi_core::verify::verify(
+        &data.commit_doc,
+        &data.list_hash,
+        &data.events,
+        rafi_drand::resolve_chain,
+    );
+    assert!(report.ok(), "{report:#?}");
+    let replaced: Vec<_> = report
+        .replaced
+        .iter()
+        .map(|c| (c.round, c.replaced))
+        .collect();
+    assert_eq!(
+        replaced,
+        [
+            (pending.round, Replaced::Abandoned),
+            (next.round, Replaced::Offline)
+        ]
+    );
+    assert_eq!(report.replaced[1].k, pending.k);
+    assert!(rafi_core::verify::verify_public(&data.commit_doc, &data.list_hash, &data.events).ok());
+}
+
+/// The public page only trusts public drand chains: a mock raffle never passes there.
+#[tokio::test]
+async fn mock_raffles_are_not_publicly_verified() {
+    let app = app().await;
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    service::add_manual(&app, OWNER, &raffle.id, "Person", None)
+        .await
+        .unwrap();
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    let data = service::verify_data(&app, &raffle.slug).await.unwrap();
+    let public = rafi_core::verify::verify_public(&data.commit_doc, &data.list_hash, &data.events);
+    assert!(public.chain_unknown() && !public.ok());
+}
+
+/// Switching a Restate raffle with a stalled draw to the local engine keeps
+/// the draw on its round, and the local engine fetches that round.
+#[tokio::test]
+async fn switching_engines_keeps_a_stalled_draw() {
+    use rafi_core::state::Event;
+
+    let app = unreachable_drand_app().await;
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    service::add_manual(&app, OWNER, &raffle.id, "Person", None)
+        .await
+        .unwrap();
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    let r = wait_for(&app, &raffle.id, |r| r.draw_state.is_some()).await;
+    let unit = r.draw_state().unwrap().units[0].unit_id.clone();
+    service::command(
+        &app,
+        OWNER,
+        &raffle.id,
+        Command::Draw {
+            unit_id: unit,
+            offline: false,
+        },
+        "d1",
+    )
+    .await
+    .unwrap();
+    let stalls = |r: &db::RaffleRow| {
+        r.draw_state()
+            .map(|s| {
+                s.events
+                    .iter()
+                    .filter(|e| matches!(e, Event::Stall { .. }))
+                    .count()
+            })
+            .unwrap_or_default()
+    };
+    let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 1).await;
+    let pending = r.draw_state().unwrap().pending.unwrap();
+
+    // Pretend Restate was drawing it; a raffle on another chain is refused.
+    let mut other = r.draw_state().unwrap();
+    other.drand_chain = "00".repeat(32);
+    sqlx::query("UPDATE raffles SET engine = 'restate', draw_state = ? WHERE id = ?")
+        .bind(serde_json::to_string(&other).unwrap())
+        .bind(&raffle.id)
+        .execute(&app.db)
+        .await
+        .unwrap();
+    assert!(
+        service::switch_to_local(&app, OWNER, &raffle.id)
+            .await
+            .is_err()
+    );
+    sqlx::query("UPDATE raffles SET draw_state = ? WHERE id = ?")
+        .bind(r.draw_state.clone())
+        .bind(&raffle.id)
+        .execute(&app.db)
+        .await
+        .unwrap();
+
+    service::switch_to_local(&app, OWNER, &raffle.id)
+        .await
+        .unwrap();
+    let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 2).await;
+    assert_eq!(r.engine, "local");
+    assert_eq!(
+        r.draw_state().unwrap().pending,
+        Some(pending),
+        "same draw, same round"
+    );
 }

@@ -3,7 +3,10 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use rafi_core::state::{DrawMode, Event};
+use rafi_core::{
+    state::{DrawMode, Event},
+    verify::Replaced,
+};
 
 use super::{Brand, ThemeToggle};
 use crate::{
@@ -30,7 +33,13 @@ pub fn Verify(slug: String) -> Element {
             }
         },
         Some(Ok(d)) => {
-            let report = rafi_core::verify::verify(&d.commit_doc, &d.list_hash, &d.events);
+            // Public drand chains only: a test chain is never reported as verified.
+            let report = rafi_core::verify::verify_public(&d.commit_doc, &d.list_hash, &d.events);
+            let test_chain = report.chain_unknown()
+                && report.list_hash_ok
+                && report.errors.is_empty()
+                && report.draws.iter().all(|c| c.ok);
+            let chain = report.chain.clone();
             let names: HashMap<&str, &str> = d
                 .names
                 .iter()
@@ -68,10 +77,39 @@ pub fn Verify(slug: String) -> Element {
                             p { class: "text-sm opacity-90", "Your browser re-ran every draw from the published entrant list and the public drand randomness." }
                         }
                     }
+                } else if test_chain {
+                    div { role: "alert", class: "alert alert-info shadow-sm",
+                        span { class: "text-3xl", "🧪" }
+                        div {
+                            p { class: "font-display text-xl font-extrabold", "Test chain: not publicly verifiable." }
+                            p { class: "text-sm opacity-90", "These draws used a development test chain instead of public drand randomness. They replay consistently, but anyone could have produced their randomness." }
+                        }
+                    }
                 } else {
                     div { role: "alert", class: "alert alert-error shadow-sm",
                         span { class: "text-3xl", "❌" }
                         p { class: "font-display text-xl font-extrabold", "Verification failed." }
+                    }
+                }
+                if !report.replaced.is_empty() {
+                    div { role: "alert", class: "alert alert-warning alert-soft items-start",
+                        Icon { i: I::Alert }
+                        div { class: "space-y-1",
+                            p { class: "font-semibold", "Some committed rounds did not decide their draw:" }
+                            ul { class: "list-inside list-disc text-sm",
+                                for r in report.replaced.iter() {
+                                    li { key: "{r.k}",
+                                        "Draw {r.k} ({unit_names.get(&r.unit_id).cloned().unwrap_or_else(|| r.unit_id.clone())}): round {r.round} was "
+                                        match r.replaced {
+                                            Replaced::Abandoned => "abandoned by the organizer",
+                                            Replaced::Offline => "replaced by an offline draw",
+                                        }
+                                        " (pool of {r.pool.len()})."
+                                    }
+                                }
+                            }
+                            p { class: "text-sm", "Run the independent verifier with --fetch to see whom each of those rounds would have picked." }
+                        }
                     }
                 }
                 if offline {
@@ -109,8 +147,11 @@ pub fn Verify(slug: String) -> Element {
                                             td {
                                                 if c.mode == DrawMode::Offline {
                                                     span { class: "badge badge-warning badge-soft", "offline" }
+                                                } else if report.chain_known {
+                                                    a { class: "link link-primary font-mono", href: "https://api.drand.sh/{chain}/public/{c.round}", target: "_blank", "{c.round}" }
                                                 } else {
-                                                    a { class: "link link-primary font-mono", href: "https://api.drand.sh/{rafi_core::drand::QUICKNET_CHAIN}/public/{c.round}", target: "_blank", "{c.round}" }
+                                                    span { class: "font-mono", "{c.round} " }
+                                                    span { class: "badge badge-info badge-soft", "test chain" }
                                                 }
                                             }
                                             td { "{c.pool_size}" }
@@ -195,7 +236,7 @@ fn event_icon(e: &Event) -> I {
     match e {
         Event::Announce { .. } => I::Lock,
         Event::Draw { .. } => I::Dice,
-        Event::Fail { .. } => I::Alert,
+        Event::Stall { .. } | Event::Fail { .. } => I::Alert,
         Event::Resolve { .. } => I::Check,
         Event::Void { .. } => I::X,
         Event::Finish => I::Flag,
@@ -230,9 +271,12 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, units: &HashMap<String, Stri
                 name(entrant_id)
             )
         }
+        Event::Stall {
+            k, round, reason, ..
+        } => format!("Draw {k}: round {round} not available yet ({reason}); still pending"),
         Event::Fail {
             k, round, reason, ..
-        } => format!("Draw {k} on round {round} failed: {reason}"),
+        } => format!("Draw {k}: committed round {round} abandoned ({reason})"),
         Event::Resolve { k, outcome } => {
             format!("Draw {k}: {}", format!("{outcome:?}").to_lowercase())
         }

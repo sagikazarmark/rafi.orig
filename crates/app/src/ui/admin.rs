@@ -641,6 +641,8 @@ fn DrawConsole(
     let busy = pending.is_some();
     let drawable = matches!(v.state, RaffleState::Frozen | RaffleState::Drawing);
     let mut ask_finish = use_signal(|| false);
+    let mut ask_offline = use_signal(|| false);
+    let mut ask_abandon = use_signal(|| false);
     let toast = use_toast();
     let restate = v.engine.starts_with("restate");
 
@@ -681,6 +683,16 @@ fn DrawConsole(
         }
     };
     let id = admin.id.clone();
+    let abandon = move |unit_id: String| {
+        let id = id.clone();
+        async move {
+            match api::abandon_draw(id, unit_id, command_id()).await {
+                Ok(()) => on_change.call(()),
+                Err(e) => error.set(Some(err_text(e))),
+            }
+        }
+    };
+    let id = admin.id.clone();
     let finish = move || {
         let id = id.clone();
         async move {
@@ -712,12 +724,15 @@ fn DrawConsole(
         .iter()
         .filter(|u| matches!(u.status, UnitStatus::Pending | UnitStatus::Drawn))
         .count();
-    let next_pending = v
-        .units
-        .iter()
-        .find(|u| u.status == UnitStatus::Pending)
-        .map(|u| u.unit_id.clone());
+    let pending_unit = pending.as_ref().map(|p| p.unit_id.clone());
     let offset = v.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
+    // A pending draw whose beacon could not be fetched (or whose fetch was lost,
+    // e.g. a restart): it stays on its round; the organizer can retry, draw
+    // offline, or abandon.
+    let overdue = pending
+        .as_ref()
+        .is_some_and(|c| now() as i64 + offset > c.round_time as i64 * 1000 + 90_000);
+    let stalled = pending.is_some() && (v.last_failure.is_some() || overdue);
 
     rsx! {
         div { class: "space-y-4",
@@ -733,7 +748,7 @@ fn DrawConsole(
                                     if secs > 0 { "{secs}" } else { span { class: "loading loading-dots loading-sm" } }
                                 }
                                 div { class: "space-y-1",
-                                    p { class: "text-sm font-semibold uppercase tracking-widest opacity-80", "Drawing now" }
+                                    p { class: "text-sm font-semibold uppercase tracking-widest opacity-80", if stalled { "Retrying round {cur.round}" } else { "Drawing now" } }
                                     p { class: "font-display text-2xl font-extrabold", "{cur.item_name}" }
                                     p { class: "text-sm opacity-80", "Waiting for public drand round {cur.round}, committed before it exists." }
                                 }
@@ -742,16 +757,30 @@ fn DrawConsole(
                     }
                 }
             }
-            if let Some(f) = &v.last_failure {
+            if let (true, Some(cur), Some(u)) = (stalled, &pending, pending_unit.clone()) {
                 div { role: "alert", class: "alert alert-warning alert-soft items-start",
                     Icon { i: I::Alert }
                     div { class: "space-y-2",
-                        p { class: "font-semibold", "The last draw failed: {f}" }
-                        p { class: "text-sm", "Press Draw again to commit to a new round. If drand stays unreachable you can draw offline (server randomness, marked as not verifiable)." }
-                        if let Some(u) = next_pending.clone() {
-                            button { class: "btn btn-sm btn-outline btn-warning", disabled: busy, onclick: { let draw = draw.clone(); move |_| draw(u.clone(), true) }, "Offline draw (not verifiable)" }
+                        p { class: "font-semibold",
+                            "Round {cur.round} could not be fetched yet"
+                            if let Some(f) = &v.last_failure { ": {f}" } else { "." }
+                        }
+                        p { class: "text-sm",
+                            "The draw stays on round {cur.round}, so retrying can't change the result. "
+                            if restate { "A retry queues behind the current attempt and may take up to a minute. " }
+                            "If drand stays unreachable, draw offline (server randomness, not verifiable) or abandon this draw; both are shown on the public verification page."
+                        }
+                        div { class: "flex flex-wrap gap-2",
+                            button { class: "btn btn-sm btn-warning", onclick: { let draw = draw.clone(); let u = u.clone(); move |_| draw(u.clone(), false) }, "Retry round {cur.round}" }
+                            button { class: "btn btn-sm btn-outline btn-warning", onclick: move |_| ask_offline.set(true), "Offline draw (not verifiable)" }
+                            button { class: "btn btn-sm btn-ghost", onclick: move |_| ask_abandon.set(true), "Abandon this draw" }
                         }
                     }
+                }
+            } else if let (Some(f), None) = (&v.last_failure, &pending) {
+                div { role: "alert", class: "alert alert-soft items-start",
+                    Icon { i: I::Alert }
+                    p { "The last draw ended without its beacon: {f}" }
                 }
             }
             Panel {
@@ -812,8 +841,8 @@ fn DrawConsole(
                                             },
                                             UnitStatus::Drawn if drawable => rsx! {
                                                 button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::Claimed) }, Icon { i: I::Check } "Handed over" }
-                                                button { class: "btn btn-ghost", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::NotHere) }, "Not here" }
-                                                button { class: "btn btn-ghost", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::Declined) }, "Declined" }
+                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::NotHere) }, "Not here" }
+                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::Declined) }, "Declined" }
                                             },
                                             _ => rsx! {},
                                         }
@@ -846,12 +875,30 @@ fn DrawConsole(
                 action: "🎉 Finish",
                 on_confirm: move |_| { spawn(finish()); },
             }
+            if let Some(cur) = &pending {
+                Confirm {
+                    open: ask_offline,
+                    title: format!("Draw offline instead of round {}?", cur.round),
+                    body: "Server randomness replaces the committed drand round. It can't be verified, and the verification page shows that this draw replaced the round it committed to. Only do this if drand stays unreachable.",
+                    action: "Draw offline",
+                    danger: true,
+                    on_confirm: { let draw = draw.clone(); let u = cur.unit_id.clone(); move |_| { spawn(draw(u.clone(), true)); } },
+                }
+                Confirm {
+                    open: ask_abandon,
+                    title: format!("Abandon the draw on round {}?", cur.round),
+                    body: "The prize goes back to “to be drawn” and a new draw commits to a new round. The verification page lists the abandoned round so anyone can see whom it would have picked.",
+                    action: "Abandon",
+                    danger: true,
+                    on_confirm: { let abandon = abandon.clone(); let u = cur.unit_id.clone(); move |_| { spawn(abandon(u.clone())); } },
+                }
+            }
             if restate && drawable {
                 div { class: "collapse collapse-arrow bg-base-100 ring-1 ring-base-300",
                     input { r#type: "checkbox" }
                     div { class: "collapse-title font-semibold", "Restate having trouble?" }
                     div { class: "collapse-content space-y-3 text-sm",
-                        p { "If Restate is unreachable, continue this raffle with the in-process engine. Any pending draw is abandoned and logged." }
+                        p { "If Restate is unreachable, continue this raffle with the in-process engine. A pending draw continues on its committed round." }
                         button { class: "btn btn-sm btn-outline btn-error", onclick: to_local, "Switch to the local engine" }
                     }
                 }

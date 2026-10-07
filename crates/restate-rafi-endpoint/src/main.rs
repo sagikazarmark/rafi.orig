@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
 
     let config = Config::load(cli.config.as_deref())?;
     if config.drand.mock {
-        warn!("drand.mock is on: draws are NOT publicly verifiable");
+        warn!("drand.mock is on: draws use a public test chain and are NOT verifiable as drand");
     }
     if config.endpoint.identity_keys.is_empty() {
         warn!(
@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
 /// Fails on invalid configuration, so the process exits before accepting requests.
 fn endpoint(config: Config) -> Result<Endpoint> {
     let raffle = Raffle::new(
-        DrandClient::new(config.drand),
+        DrandClient::new(config.drand).context("invalid drand configuration")?,
         SqliteProjector::new(&config.database)?,
     );
     Ok(Endpoint::builder()

@@ -62,7 +62,7 @@ impl AppState {
             let _ = restate.set(RestateClient::new(cfg.restate.clone()));
         }
         Ok(Self(Arc::new(Inner {
-            drand: DrandClient::new(cfg.drand.clone()),
+            drand: DrandClient::new(cfg.drand.clone()).context("drand configuration")?,
             altcha: altcha::Altcha::new(cfg.altcha_key.clone(), cfg.altcha_max),
             limiter: ratelimit::Limiter::default(),
             local: LocalEngine::default(),
@@ -131,6 +131,12 @@ pub fn routes(app: AppState) -> Router {
 /// Starts background work (Restate draw states, retention purge if enabled, hub GC).
 pub fn spawn_background(app: &AppState) {
     watch::spawn(app.clone());
+    let resume = app.clone();
+    tokio::spawn(async move {
+        if let Err(e) = resume.local.resume_all(&resume).await {
+            tracing::error!(error = %e, "resuming pending local draws failed");
+        }
+    });
     if app.cfg.retention_enabled {
         retention::spawn(app.clone());
     } else {

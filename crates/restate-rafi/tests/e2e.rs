@@ -32,6 +32,7 @@ const RAFFLE: &str = "e2e-raffle";
 fn doc(entrants: usize) -> CommitDoc {
     CommitDoc::new(
         RAFFLE,
+        &rafi_drand::mock_chain().chain().hash(),
         (0..entrants).map(|i| format!("{i:032x}")).collect(),
         vec![
             UnitRef {
@@ -78,7 +79,8 @@ async fn e2e_raffle() {
         lead_secs: 0,
         timeout_secs: 5,
         ..DrandConfig::default()
-    });
+    })
+    .unwrap();
     let projector = RecordingProjector::default();
     restate
         .deploy(
@@ -105,6 +107,18 @@ async fn e2e_raffle() {
     assert_eq!(reply.status, 200, "refreezing the same list is idempotent");
     let reply = restate
         .invoke(&call("freeze"), Some(&json!(self::doc(4))), None)
+        .await;
+    assert_eq!(reply.status, 409, "{}", reply.body);
+    // A commit to another drand chain than the engine's is refused.
+    let mut quicknet = self::doc(5);
+    quicknet.raffle_id = "other-raffle".into();
+    quicknet.drand_chain = rafi_core::drand::QUICKNET_CHAIN.into();
+    let reply = restate
+        .invoke(
+            &Call::object(SERVICE_NAME, "other-raffle", "freeze"),
+            Some(&json!(quicknet)),
+            None,
+        )
         .await;
     assert_eq!(reply.status, 409, "{}", reply.body);
 
@@ -136,7 +150,16 @@ async fn e2e_raffle() {
 
     // The draw journals the clock, the projections and the beacon under stable names.
     let runs = restate.admin().runs(sent.invocation_id()).await;
-    assert_eq!(runs, ["SystemTime::now()", "project", "beacon", "project"]);
+    assert_eq!(
+        runs,
+        [
+            restate_drand::CLOCK_STEP,
+            "project",
+            restate_drand::CLOCK_STEP,
+            restate_drand::FETCH_STEP,
+            "project"
+        ]
+    );
 
     // Not here: that person is out and the unit is drawn again.
     let reply = restate
@@ -214,7 +237,181 @@ async fn e2e_raffle() {
     assert_eq!(reply.body, Value::Null, "state is cleared after finishing");
 
     // The projected log verifies independently.
-    let report = verify(&doc.canonical_json(), &finished.list_hash, &finished.events);
+    let report = verify(
+        &doc.canonical_json(),
+        &finished.list_hash,
+        &finished.events,
+        rafi_drand::resolve_chain,
+    );
     assert!(report.ok(), "{report:#?}");
     assert_eq!(report.draws.len(), 2);
+}
+
+/// A beacon that cannot be had stalls the draw on its round: a retry (a new
+/// invocation) re-enters the same pending draw, and only an explicit abandon
+/// ends it, which the verifier reports.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs RESTATE_SERVER_BIN"]
+async fn e2e_stalled_draw() {
+    let Some(launcher) = launcher_or_skip(ReusePolicy::Never) else {
+        return;
+    };
+    let restate = launcher.launch(&SERVER).await;
+    // quicknet behind an unreachable relay: every fetch fails, and gives up after a second.
+    let drand = DrandClient::new(DrandConfig {
+        relays: vec!["http://127.0.0.1:9".into()],
+        mock: false,
+        lead_secs: 3,
+        timeout_secs: 1,
+    })
+    .unwrap();
+    let projector = RecordingProjector::default();
+    restate
+        .deploy(
+            Endpoint::builder()
+                .bind(Raffle::new(drand, projector.clone()))
+                .build(),
+        )
+        .await;
+    let call = |handler| Call::object(SERVICE_NAME, RAFFLE, handler);
+    let cmd = |c: Command| serde_json::to_value(c).unwrap();
+    let mut doc = doc(5);
+    doc.drand_chain = rafi_core::drand::QUICKNET_CHAIN.into();
+    let reply = restate
+        .invoke(&call("freeze"), Some(&json!(doc)), Some("freeze-1"))
+        .await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+
+    let stalls = |s: &DrawState| {
+        s.events
+            .iter()
+            .filter(|e| matches!(e, Event::Stall { .. }))
+            .count()
+    };
+    let draw = cmd(Command::Draw {
+        unit_id: "ticket-1".into(),
+        offline: false,
+    });
+    restate
+        .invoke(&call("draw").send(), Some(&draw), Some("draw-1"))
+        .await;
+    let s = projected(&projector, |s| stalls(s) == 1).await;
+    let pending = s.pending.clone().expect("still pending");
+
+    // Another unit is refused; this one retries the same round.
+    let other = cmd(Command::Draw {
+        unit_id: "voucher-1".into(),
+        offline: false,
+    });
+    let reply = restate.invoke(&call("draw"), Some(&other), None).await;
+    assert_eq!(reply.status, 409, "{}", reply.body);
+    restate
+        .invoke(&call("draw").send(), Some(&draw), Some("draw-2"))
+        .await;
+    let s = projected(&projector, |s| stalls(s) == 2).await;
+    assert_eq!(s.pending.as_ref(), Some(&pending));
+
+    // Abandon: logged, the unit is free again.
+    let reply = restate
+        .invoke(
+            &call("resolve"),
+            Some(&cmd(Command::Abandon {
+                unit_id: "ticket-1".into(),
+            })),
+            None,
+        )
+        .await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let s = projected(&projector, |s| s.pending.is_none()).await;
+    let report = verify(
+        &doc.canonical_json(),
+        &s.list_hash,
+        &s.events,
+        rafi_drand::resolve_chain,
+    );
+    assert!(report.ok(), "{report:#?}");
+    assert_eq!(report.replaced.len(), 1);
+    assert_eq!(report.replaced[0].round, pending.round);
+}
+
+/// Cancelling a draw in Restate fails the invocation but records a stall on
+/// the same round first, so the organizer gets the controls right away.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs RESTATE_SERVER_BIN"]
+async fn e2e_cancelled_draw_stalls() {
+    let Some(launcher) = launcher_or_skip(ReusePolicy::Never) else {
+        return;
+    };
+    let restate = launcher.launch(&SERVER).await;
+    // The committed round is two minutes away: the draw sleeps durably.
+    let drand = DrandClient::new(DrandConfig {
+        mock: true,
+        lead_secs: 120,
+        timeout_secs: 5,
+        ..DrandConfig::default()
+    })
+    .unwrap();
+    let projector = RecordingProjector::default();
+    restate
+        .deploy(
+            Endpoint::builder()
+                .bind(Raffle::new(drand, projector.clone()))
+                .build(),
+        )
+        .await;
+    let call = |handler| Call::object(SERVICE_NAME, RAFFLE, handler);
+    let doc = doc(5);
+    let reply = restate
+        .invoke(&call("freeze"), Some(&json!(doc)), Some("freeze-1"))
+        .await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+
+    let draw = serde_json::to_value(Command::Draw {
+        unit_id: "ticket-1".into(),
+        offline: false,
+    })
+    .unwrap();
+    let sent = restate
+        .invoke(&call("draw").send(), Some(&draw), Some("draw-1"))
+        .await;
+    assert!(sent.status < 300, "{}", sent.body);
+    let id = sent.invocation_id().to_owned();
+    let pending = projected(&projector, |s| s.pending.is_some())
+        .await
+        .pending
+        .unwrap();
+    // Wait until the draw sleeps towards its round, then cancel it.
+    for _ in 0..300 {
+        let journal = restate.admin().journal(&id).await;
+        if journal.iter().any(|e| e.entry_type.contains("Sleep")) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    restate.admin().cancel(&id).await;
+
+    let s = projected(&projector, |s| {
+        s.events.iter().any(|e| matches!(e, Event::Stall { .. }))
+    })
+    .await;
+    assert_eq!(s.pending.as_ref(), Some(&pending), "same draw, same round");
+    assert!(
+        s.events.iter().any(
+            |e| matches!(e, Event::Stall { reason, round, .. } if reason == "draw cancelled" && *round == pending.round)
+        ),
+        "{:#?}",
+        s.events
+    );
+    restate.admin().await_status(&id, &["completed"]).await;
+    let failure = restate
+        .admin()
+        .invocation(&id)
+        .await
+        .completion_failure
+        .unwrap_or_default();
+    assert!(failure.contains("cancelled"), "{failure:?}");
+    // The object still holds the pending draw: a retry re-enters it.
+    let reply = restate.invoke(&call("get"), None, None).await;
+    let state: DrawState = serde_json::from_value(reply.body).unwrap();
+    assert_eq!(state.pending, Some(pending));
 }

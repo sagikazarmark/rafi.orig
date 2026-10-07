@@ -1,0 +1,31 @@
+{
+  "_source": "drand quicknet (52db9ba7\u2026e971) beacons, fetched from https://drand.cloudflare.com on 2026-10-07",
+  "chain": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
+  "beacons": [
+    {
+      "round": 1000,
+      "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39",
+      "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd"
+    },
+    {
+      "round": 1005,
+      "signature": "b896a4e9ebdb143601d1cdb39aa9357ef27b48d7d3c1c614e14110243850a9ea21fd96e016a5b64c2a2960d1c73abad8",
+      "randomness": "f9cf57940dfd9b61e980576f5f9c095d8596208d337a924bf06c1ab04a3796fa"
+    },
+    {
+      "round": 1010,
+      "signature": "8bea13e7e5f9c9c51cd061ecf09b33fb1cfc23e7bd947c669e16fb56a15c090908c69a19750d659a12ee3c25692792bd",
+      "randomness": "70b604d40183d07425c86176196a94decd915d5fc1e35841eb25032e6c406c7e"
+    },
+    {
+      "round": 1012,
+      "signature": "af176bfcdd76db41f832282db70e135dcb94deb21c29103ea10a0145cb271eb157ae4bdb33be0ea593e3ed0fb164673c",
+      "randomness": "e66f9bc889657e76d70a49e8f7bff3ae4a807e0ee4bc35b3f1e835162c108a3c"
+    },
+    {
+      "round": 1020,
+      "signature": "a2954ec8148428ea29c24477bff6e7a58459d3a546d429950ab9ae8b0b7d4297b60a87322b1964407c71440362011248",
+      "randomness": "2fb65482b8bb669be0f791624f6f9febb3234063254275908744a76039b2d3b7"
+    }
+  ]
+}

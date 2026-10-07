@@ -17,8 +17,7 @@ use anyhow::{Context as _, bail};
 pub use rafi_core::engine::Command;
 use rafi_core::{
     commit::CommitDoc,
-    drand::{round_time, target_round},
-    state::DrawState,
+    state::{DrawState, Pending},
 };
 use serde::Serialize;
 use tokio::sync::Mutex;
@@ -74,6 +73,12 @@ impl LocalEngine {
     }
 
     pub async fn freeze(&self, app: &AppState, doc: &CommitDoc) -> anyhow::Result<()> {
+        if !doc
+            .drand_chain
+            .eq_ignore_ascii_case(&app.drand.chain_hash().to_string())
+        {
+            bail!("the raffle commits to a different drand chain than the local engine uses");
+        }
         let lock = self.lock_for(&doc.raffle_id);
         let _guard = lock.lock().await;
         if let Ok(existing) = Self::load(app, &doc.raffle_id).await {
@@ -97,9 +102,17 @@ impl LocalEngine {
         let mut state = Self::load(app, raffle_id).await?;
         match cmd {
             Command::Draw { unit_id, offline } => {
-                let now = ids::now() as u64;
-                let round = target_round(now, app.drand.config().lead_secs);
-                let pending = state.begin(&unit_id, round, round_time(round))?;
+                if !state
+                    .drand_chain
+                    .eq_ignore_ascii_case(&app.drand.chain_hash().to_string())
+                {
+                    bail!(
+                        "the raffle commits to a different drand chain than the local engine uses"
+                    );
+                }
+                let (round, round_time) = app.drand.target_round(ids::now() as u64);
+                // A pending draw for this unit (e.g. stalled) is re-entered on its round.
+                let pending = state.begin(&unit_id, round, round_time)?;
                 app.project(&state).await?;
                 if offline {
                     state.complete_offline(ids::random_bytes::<32>())?;
@@ -107,30 +120,11 @@ impl LocalEngine {
                     return Ok(());
                 }
                 drop(guard);
-                let (app, this, raffle_id) = (app.clone(), self.clone(), raffle_id.to_owned());
-                tokio::spawn(async move {
-                    let result = app.drand.fetch_until(pending.round).await;
-                    let lock = this.lock_for(&raffle_id);
-                    let _guard = lock.lock().await;
-                    let outcome = async {
-                        let mut state = Self::load(&app, &raffle_id).await?;
-                        if state.pending.as_ref() != Some(&pending) {
-                            return Ok(()); // superseded
-                        }
-                        match result {
-                            Ok(beacon) => {
-                                if let Err(e) = state.complete(&beacon) {
-                                    state.fail(&e.to_string())?;
-                                }
-                            }
-                            Err(e) => state.fail(&e.to_string())?,
-                        }
-                        app.project(&state).await
-                    };
-                    if let Err(e) = outcome.await {
-                        tracing::error!(raffle_id, error = %e, "local draw failed");
-                    }
-                });
+                self.spawn_fetch(app, raffle_id, pending);
+            }
+            Command::Abandon { unit_id } => {
+                state.abandon_unit(&unit_id)?;
+                app.project(&state).await?;
             }
             Command::Resolve { unit_id, outcome } => {
                 state.resolve(&unit_id, outcome)?;
@@ -146,6 +140,63 @@ impl LocalEngine {
             }
         }
         Ok(())
+    }
+
+    /// Continues a pending draw (after switching engines or restarting): fetches its round.
+    pub async fn resume(&self, app: &AppState, raffle_id: &str) -> anyhow::Result<()> {
+        let lock = self.lock_for(raffle_id);
+        let _guard = lock.lock().await;
+        let pending = super::db::raffle(&app.db, raffle_id)
+            .await?
+            .and_then(|r| r.draw_state())
+            .and_then(|s| s.pending);
+        if let Some(pending) = pending {
+            self.spawn_fetch(app, raffle_id, pending);
+        }
+        Ok(())
+    }
+
+    /// At startup: resumes every local raffle's pending draw (its fetch task
+    /// did not survive the restart).
+    pub async fn resume_all(&self, app: &AppState) -> anyhow::Result<()> {
+        let ids: Vec<(String,)> = sqlx::query_as(
+            "SELECT id FROM raffles WHERE engine = 'local' AND draw_state IS NOT NULL",
+        )
+        .fetch_all(&app.db)
+        .await?;
+        for (id,) in ids {
+            self.resume(app, &id).await?;
+        }
+        Ok(())
+    }
+
+    /// Fetches the pending draw's round and settles it. If the beacon cannot
+    /// be had, the draw is recorded as stalled and stays pending on its round.
+    fn spawn_fetch(&self, app: &AppState, raffle_id: &str, pending: Pending) {
+        let (app, this, raffle_id) = (app.clone(), self.clone(), raffle_id.to_owned());
+        tokio::spawn(async move {
+            let result = app.drand.wait_for(pending.round).await;
+            let lock = this.lock_for(&raffle_id);
+            let _guard = lock.lock().await;
+            let outcome = async {
+                let mut state = Self::load(&app, &raffle_id).await?;
+                if state.pending.as_ref() != Some(&pending) {
+                    return Ok(()); // settled meanwhile (another attempt, offline, abandoned)
+                }
+                match result {
+                    Ok(beacon) => {
+                        if let Err(e) = state.complete(&beacon) {
+                            state.stall(&format!("invalid beacon: {e}"))?;
+                        }
+                    }
+                    Err(e) => state.stall(&format!("drand unavailable: {e}"))?,
+                }
+                app.project(&state).await
+            };
+            if let Err(e) = outcome.await {
+                tracing::error!(raffle_id, error = %e, "local draw failed");
+            }
+        });
     }
 }
 
