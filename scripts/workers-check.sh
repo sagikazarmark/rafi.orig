@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Runs rafi's Cloudflare Workers checks locally, under `wrangler dev`:
+#
+#   1. rafi-store's backend scenarios against D1 (crates/store-d1-check);
+#   2. the live channel driven over real WebSockets (crates/channel-check/scenario.mjs);
+#   3. the attendee page in headless Chromium (crates/attendee/smoke.mjs), when
+#      CHROMIUM (or `chromium`) is available;
+#   4. a draw through Restate into the live channel (crates/restate-worker/e2e.mjs),
+#      when RESTATE_SERVER_BIN is set (./scripts/restate-server.sh prints it).
+#
+# Needs: wrangler (WRANGLER overrides the command), worker-build, node,
+# wasm-bindgen-cli at the lockfile's version and wasm-opt (for the attendee page).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WRANGLER="${WRANGLER:-wrangler}"
+STATE="$(mktemp -d)"
+LOGS="$STATE/logs"
+mkdir -p "$LOGS"
+PIDS=()
+
+cleanup() {
+  for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
+  wait 2>/dev/null || true
+  rm -rf "$STATE"
+}
+trap cleanup EXIT
+
+step() { printf '\n== %s\n' "$*"; }
+
+# Starts `wrangler dev` for a crate on a port, sharing local state, and waits for it.
+serve() {
+  local crate="$1" port="$2" probe="$3"
+  (cd "$ROOT/crates/$crate" && exec $WRANGLER dev --port "$port" --ip 127.0.0.1 --local \
+    --persist-to "$STATE/wrangler" --inspector-port "$((port + 1000))") >"$LOGS/$crate.log" 2>&1 &
+  PIDS+=($!)
+  for _ in $(seq 1 120); do
+    if curl -s -m 3 -o /dev/null "http://127.0.0.1:$port$probe"; then return 0; fi
+    sleep 1
+  done
+  echo "$crate didn't start; log:" >&2
+  tail -30 "$LOGS/$crate.log" >&2
+  return 1
+}
+
+migrate() {
+  (cd "$ROOT/crates/$1" && $WRANGLER d1 migrations apply "$2" --local --persist-to "$STATE/wrangler") >/dev/null
+}
+
+step "build"
+"$ROOT/scripts/attendee.sh" "$ROOT/crates/channel-check/site/attendee"
+for crate in store-d1-check channel-check; do
+  (cd "$ROOT/crates/$crate" && worker-build --release) >"$LOGS/build-$crate.log" 2>&1
+done
+(cd "$ROOT/crates/restate-worker" && worker-build --release --features dev) >"$LOGS/build-restate-worker.log" 2>&1
+migrate store-d1-check rafi-store-check
+migrate channel-check rafi-channel-check
+
+step "rafi-store on D1"
+serve store-d1-check 8789 /
+report="$(curl -s -m 60 -w '\n%{http_code}' http://127.0.0.1:8789/)"
+echo "$report" | head -1
+[ "$(echo "$report" | tail -1)" = "200" ] || { echo "store scenarios failed" >&2; exit 1; }
+
+step "the live channel"
+serve channel-check 8790 '/participant?r=probe'
+node "$ROOT/crates/channel-check/scenario.mjs" http://127.0.0.1:8790
+
+CHROMIUM="${CHROMIUM:-$(command -v chromium || command -v google-chrome || true)}"
+if [ -n "$CHROMIUM" ]; then
+  step "the attendee page in Chromium"
+  CHROMIUM="$CHROMIUM" BASE=http://127.0.0.1:8790 node "$ROOT/crates/attendee/smoke.mjs" "$STATE/chrome"
+else
+  step "the attendee page: skipped (no Chromium)"
+fi
+
+if [ -n "${RESTATE_SERVER_BIN:-}" ]; then
+  step "a draw through Restate"
+  (cd "$STATE" && RESTATE_BASE_DIR="$STATE/restate" RESTATE_NODE_NAME=workers-check \
+    RESTATE_LISTEN_MODE=tcp RESTATE_ADMIN__LISTEN_MODE=tcp RESTATE_INGRESS__LISTEN_MODE=tcp \
+    RESTATE_BIND_ADDRESS=127.0.0.1:15122 RESTATE_ADVERTISED_ADDRESS=http://127.0.0.1:15122 \
+    RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 RESTATE_ADMIN__BIND_ADDRESS=127.0.0.1:19070 \
+    exec "$RESTATE_SERVER_BIN") >"$LOGS/restate-server.log" 2>&1 &
+  PIDS+=($!)
+  serve restate-worker 8791 /discover
+  for _ in $(seq 1 60); do curl -s -m 3 -o /dev/null http://127.0.0.1:19070/health && break; sleep 1; done
+  curl -s -m 30 -X POST http://127.0.0.1:19070/deployments -H 'content-type: application/json' \
+    -d '{"uri":"http://127.0.0.1:8791","use_http_11":true}' >/dev/null
+  INGRESS=http://127.0.0.1:18080 APP=http://127.0.0.1:8790 node "$ROOT/crates/restate-worker/e2e.mjs"
+else
+  step "a draw through Restate: skipped (RESTATE_SERVER_BIN not set)"
+fi
+
+step "all Workers checks passed"

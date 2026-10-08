@@ -41,6 +41,39 @@ jobs:
         run: cargo clippy -p rafi --features server --all-targets -- -D warnings
       - name: Clippy (app web)
         run: cargo clippy -p rafi --features web --target wasm32-unknown-unknown -- -D warnings
+      - name: Clippy (Workers crates)
+        run: |
+          cargo clippy --target wasm32-unknown-unknown \
+            -p rafi-store -p rafi-store-d1-check -p rafi-live -p rafi-channel -p rafi-channel-check \
+            -p restate-rafi -p rafi-attendee -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker --features dev -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker -- -D warnings
+
+  workers:
+    name: Workers (wrangler dev)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-binstall
+      - name: Tools (wasm-bindgen at the lockfile's version, worker-build, wasm-opt, wrangler)
+        run: |
+          WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)
+          cargo binstall -y --locked "wasm-bindgen-cli@$WASM_BINDGEN" worker-build
+          sudo apt-get update && sudo apt-get install -y binaryen
+          npm install -g wrangler@4.94.0
+      - name: Download restate-server
+        run: echo "RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)" >> "$GITHUB_ENV"
+      - name: D1, the live channel, the attendee page in Chrome, a draw through Restate
+        run: CHROMIUM=$(command -v google-chrome) ./scripts/workers-check.sh
 
 
   deny:
