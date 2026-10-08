@@ -57,6 +57,24 @@ const send = (method, params = {}) => new Promise((r) => { const i = ++seq; pend
 const js = async (expr) => (await send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true })).result?.result?.value;
 const until = async (pred, ms = 10000) => { for (let t = 0; t < ms; t += 100) { if (await pred()) return true; await sleep(100); } return false; };
 const card = () => js(`(document.getElementById("live")?.innerText ?? "").replace(/\\s+/g, " ").trim()`);
+
+// The projector: a second tab with its own DevTools connection.
+async function tab(url) {
+  const t = await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
+  const sock = new WebSocket(t.webSocketDebuggerUrl);
+  await new Promise((r) => (sock.onopen = r));
+  let n = 0;
+  const waiting = new Map();
+  sock.onmessage = (m) => {
+    const msg = JSON.parse(m.data);
+    if (msg.id && waiting.has(msg.id)) { waiting.get(msg.id)(msg); waiting.delete(msg.id); }
+  };
+  const call = (method, params = {}) => new Promise((r) => { const i = ++n; waiting.set(i, r); sock.send(JSON.stringify({ id: i, method, params })); });
+  return {
+    js: async (expr) => (await call("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true })).result?.result?.value,
+    close: () => sock.close(),
+  };
+}
 await send("Runtime.enable");
 await send("Page.enable");
 
@@ -82,9 +100,24 @@ await api("start_draw", { id });
 check(await until(async () => /draw is starting|starting/i.test(await card()), 15000), "the freeze reaches the phone");
 admin = await api("get_raffle", { id });
 const unit = admin.view.units[0].unit_id;
+const screen = await tab(`${base}/s/${slug}`);
+const screenText = () => screen.js(`document.body.innerText.replace(/\\s+/g, " ")`);
+check(await until(async () => (await screenText()).includes("Rust in Action"), 20000), "the projector shows the raffle");
 await api("draw_unit", { id, unit_id: unit, offline: false, command_id: commandId() });
 check(await until(async () => /Rust in Action/.test(await card()) && /\d|…/.test(await card()), 15000), "the phone shows the countdown");
-check(await until(async () => (await card()).includes(claim), 30000), "the phone shows the win with its claim code");
+check(await until(() => screen.js(`!!document.querySelector(".countdown")`), 15000), "the projector shows the countdown");
+// The reveal: when does each screen show the winner?
+let phoneAt = 0, screenAt = 0;
+for (let t = 0; t < 30000 && !(phoneAt && screenAt); t += 50) {
+  if (!phoneAt && (await card()).includes(claim)) phoneAt = Date.now();
+  if (!screenAt && (await screenText()).includes("Anna")) screenAt = Date.now();
+  await sleep(50);
+}
+check(phoneAt > 0, "the phone shows the win with its claim code");
+check(screenAt > 0, "the projector reveals Anna");
+check(phoneAt > 0 && screenAt > 0 && screenAt - phoneAt < 1500,
+  `the projector reveals within 1.5 s of the phone (projector ${screenAt - phoneAt} ms after the phone)`);
+screen.close();
 check((await js(`!!document.querySelector("#live [role=alert]")`)) === true, "the win is announced");
 
 // The full view for screens: version from the database, the draw in it.

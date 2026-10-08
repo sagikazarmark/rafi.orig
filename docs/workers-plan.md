@@ -395,6 +395,7 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
     - the `RaffleChannel` class is exported.
   - `crates/app/wrangler.toml` holds production and `[env.dev]`.
   - Locally, `crates/app/evening.mjs` passes a whole evening on the app Worker: setup, a phone joining in Chromium, a draw through Restate reaching the phone live, the finish, End live updates.
+- **M7, the projector:** in the same evening, the projector tab shows the countdown and reveals the winner 5 ms after the phone. The reveal comes from the participant channel, and the full view is polled every 2.5 s.
 - **M0(e), bundle sizes:** compressed, the app Worker is 847 KB, the Restate Worker 914 KB and the attendee WASM 263 KB. All are under Workers' limits. BLS CPU time still needs a deployed Worker.
 - **Still needs your accounts:**
   - staging and production on Cloudflare: D1 with `--jurisdiction eu`, secrets, custom domains;
