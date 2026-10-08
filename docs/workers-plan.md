@@ -343,6 +343,42 @@ Rafi relies on Restate. There is no fallback draw path:
 | (b) Restate Worker | Keep the Restate handler as a container (current `restate-rafi-endpoint`) writing to D1 over its HTTP API, and nudging through an authenticated Worker route. |
 | (e) Bundle size | Split Workers by role (public/attendee, admin, DO, Restate), connected by service bindings. |
 
+## 7a. Ports: Workers supported, not required
+
+Decided 2026-10-08. Cloudflare is one deployment, not an assumption of the code. Every platform-specific piece sits behind an interface, and Cloudflare's implementations live in one crate.
+
+- **`rafi-platform`:** the interfaces a deployment provides:
+  - `Notifier`: "this raffle changed" by ID, "end its live updates", and the `LiveTransport` clients should use;
+  - `RateLimit`, with the `Limit` keys;
+  - `DrawStore`, where the draw engine writes draw states;
+  - the publish rule.
+
+  It depends on no database and no platform.
+- **`restate-rafi` depends only on `DrawStore` and `Notifier`:** `Raffle::new(drand, store, notifier)`. It knows nothing of Cloudflare or of which database is used.
+- **Clients choose a transport from the server's `LiveTransport`** (in `rafi-live`):
+  - `partyline`: Durable Objects over WebSockets;
+  - `poll`;
+  - later `sse`, for example Mercure.
+
+  Adding a strategy means a `Notifier` implementation plus a client transport.
+- **`rafi-cloudflare`** (`rafi-channel` renamed) holds all the Cloudflare glue:
+  - the `RaffleChannel` DO, the gate and the jurisdiction helper;
+  - the `Notifier` over Durable Objects;
+  - the `RateLimit` over the bindings;
+  - config from vars and secrets.
+
+  The app's `worker.rs` and `rafi-restate-worker` only wire it up.
+- **`rafi-store` owns all SQL**, as domain functions, the participant snapshot included. It implements `DrawStore`. Backends:
+  - SQLite (native; its migrations also serve D1);
+  - **Postgres (native, self-hosted)**, chosen by the URL scheme;
+  - D1 (Workers).
+
+  Postgres on Workers through Hyperdrive is not planned yet. The store testsuite runs against every backend.
+- **Rate limiting has three layers:**
+  - edge protection keyed by IP belongs to the platform (Cloudflare WAF; Caddy when self-hosted) and needs no app code;
+  - rafi's own limits are app policy over the injected `RateLimit`: per raffle, and per email, never per IP, since a venue shares one;
+  - the exact entrant cap lives in the database.
+
 ## 8. Self-hosting
 
 Cloudflare only for now. Self-hosting stays possible later:
