@@ -386,12 +386,12 @@ In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done
 
 ## 8. Self-hosting
 
-Cloudflare only for now. Self-hosting stays possible later:
+Self-hosting is supported alongside Workers (§7a). The native server takes:
+- **a database:** SQLite (the default) or Postgres, chosen by `RAFI_DATABASE_URL`;
+- **a notifier:** `Polling` for now; Mercure over SSE is the reserved `sse` transport;
+- **a rate limiter:** in-memory.
 
-- **The store sits behind `rafi-store`'s own API.** SQLite through sqlx can become a second backend.
-- **Nudging goes through one small interface.** The DO now; in-process fan-out later.
-- **Phones fall back to polling `/participant`**, and the projector and admin already poll their full view. Those would be the baseline without a DO.
-- **`restate-rafi-endpoint` keeps compiling.** A self-hosted deployment uses Restate too.
+The draw engine runs as `restate-rafi-endpoint` against the same database. `deploy/compose.yaml` keeps SQLite, with a commented-out Postgres variant.
 
 ## 9. Decided
 
