@@ -9,7 +9,7 @@ exists, so nobody (the organizer included) can predict or steer the result,
 and anyone can re-run every draw afterwards.
 
 - **Projector screen** (`/s/<slug>`): intro, prizes, QR code, live entrant count, countdown, winner reveal.
-- **Attendee page** (`/j/<CODE>`): server-rendered, no WASM, works on bad venue wifi. It shows "you won" with a private claim code.
+- **Attendee page** (`/j/<CODE>`): server-rendered, works on bad venue wifi; a small WebAssembly (with a JavaScript fallback) keeps it live. It shows "you won" with a private claim code.
 - **Organizer admin** (`/admin`): raffles, prizes, people without a smartphone, draw console (Draw / Handed over / Not here / Declined), CSV export.
 - **Verification** (`/v/<slug>`): re-runs every draw in the browser; [`tools/verify.py`](tools/verify.py) does the same independently.
 
@@ -32,11 +32,15 @@ See [`docs/PLAN.md`](docs/PLAN.md) for the design and the reasoning behind it.
 The draw state machine lives in [`crates/core`](crates/core) (pure Rust, no IO). In production it runs in
 **`restate-rafi`**, a separate service hosting the **Restate virtual object** `Raffle` (keyed by raffle ID):
 the app calls it through the Restate ingress, and it writes every new draw state straight into the app's
-SQLite database, where the app picks it up and pushes it to the screens. For development, and as an emergency
-fallback, the same state machine runs in-process. Restate only ever sees anonymous IDs.
+database. Rafi relies on Restate: there is no in-process fallback. Restate only ever sees anonymous IDs.
+
+The server keeps no state between requests. Phones poll their participant view (`/api/r/<slug>/participant`), and
+the projector and the admin poll the full view (`/api/r/<slug>/view`) every few seconds; both carry the raffle's
+`version` from the database. On Cloudflare Workers ([`docs/workers-plan.md`](docs/workers-plan.md)) a live channel
+per raffle pushes the participant view instead.
 
 ```
-app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ SQLite ◀── app (watches, pushes to screens)
+app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ database ◀── app ◀── phones, projector (poll)
 ```
 
 ## Layout
@@ -47,9 +51,11 @@ crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or th
 crates/store                  rafi-store: SQLite schema, connection options, the shared draw state write
 crates/restate-rafi           restate-rafi: the `Raffle` virtual object (library)
 crates/restate-rafi-endpoint  restate-rafi: the binary serving it (config, logging, Dockerfile)
+crates/live                   rafi-live: what a phone sees (participant view, card, proof-of-work)
+crates/channel                rafi-channel: the participant view from the database; the live channel (Workers)
+crates/attendee               rafi-attendee: the attendee page's WebAssembly, and its JavaScript fallback
 crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (attendee pages, JSON APIs)
-                              src/server: SQLite (sqlx), SSE hub, draw engines (Restate client + local),
-                                          attendee SSR pages, proof-of-work, retention
+                              src/server: the Restate client, attendee SSR pages, proof-of-work, retention
 migrations                    SQLite schema
 tools                         verify.py: independent verifier (Python standard library only)
 testdata                      shared test vectors
@@ -79,10 +85,20 @@ verification page; a Dioxus single-page app built by `dx`, `--features web`) and
 the public and admin JSON APIs, and the web app's files; plain `cargo`, `--features server`). The web app calls
 the server's JSON routes (`POST /api/admin/<function>`) on the same origin.
 
-Run locally without Clerk or Restate (in-process draw engine, real drand), in two terminals:
+The attendee page's WebAssembly and its fallback are built into `crates/attendee/dist`, which the server serves at
+`/attendee/` (`RAFI_ATTENDEE_DIR`). Without it the attendee page still renders, but phones can't join or follow the
+draw. Build it once, and again when `crates/attendee` or `crates/live` change (it needs `wasm-bindgen-cli` at the
+version in `Cargo.lock`, and `wasm-opt` from binaryen):
 
 ```sh
-# the server; dx proxies /api/, /j/, /rules/ and /privacy/ to it (crates/app/Dioxus.toml)
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+./scripts/attendee.sh
+```
+
+Draws need Restate (see below). For the admin and the pages alone, run without Clerk, in two terminals:
+
+```sh
+# the server; dx proxies /api/, /j/, /rules/, /privacy/ and /attendee/ to it (crates/app/Dioxus.toml)
 RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi --features server
 
 # the web app, with hot reload
@@ -90,19 +106,22 @@ cd crates/app && dx serve --port 8787
 ```
 
 Then open <http://localhost:8787/admin>. To work offline, add `RAFI_DRAND_MOCK=1` and `--features mock-drand`
-to the server: draws then use a test chain with a public key (the `drand` crate's `TestChain`) and are *not* verifiable.
+to the server, and the same to the draw engine: draws then use a test chain with a public key (the `drand` crate's
+`TestChain`) and are *not* verifiable.
 To test with phones on your network, set `RAFI_PUBLIC_URL` to your machine's LAN address and run `dx serve --addr 0.0.0.0`.
 
 The server alone serves everything once the web app is bundled (this is what the container image runs):
 
 ```sh
 (cd crates/app && dx bundle --platform web --release)   # -> target/dx/rafi/release/web/public
+./scripts/attendee.sh                                    # -> crates/attendee/dist
 RAFI_DEV_AUTH=1 cargo run --release -p rafi --features server   # http://localhost:8080
 ```
 
-It listens on `IP`:`PORT` (default `127.0.0.1:8080`) and serves the web app from `RAFI_PUBLIC_DIR`
-(default `target/dx/rafi/release/web/public`, relative to the working directory), falling back to its
-`index.html` for the app's own routes.
+It listens on `IP`:`PORT` (default `127.0.0.1:8080`), serves the attendee scripts at `/attendee/` from
+`RAFI_ATTENDEE_DIR` (default `crates/attendee/dist`), and the web app from `RAFI_PUBLIC_DIR`
+(default `target/dx/rafi/release/web/public`), both relative to the working directory, falling back to the web
+app's `index.html` for its own routes.
 
 With Restate: Restate runs in Docker ([`compose.yaml`](compose.yaml)), the app and `restate-rafi` on your
 machine, both on the same database file:
@@ -113,7 +132,7 @@ export RAFI_DATABASE_URL="sqlite://$PWD/rafi.db"
 docker compose up -d       # Restate: ingress on :8080, admin API and UI on :9070
                            # (RESTATE_INGRESS_PORT / RESTATE_ADMIN_PORT to move them)
 
-# the server (it creates the database) and the web app; new raffles are drawn by Restate
+# the server (it creates the database) and the web app
 RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http://localhost:8080 \
   PORT=8788 cargo run -p rafi --features server
 (cd crates/app && dx serve --port 8787)
@@ -135,7 +154,7 @@ and leave `RAFI_DEV_AUTH` unset.
 ```sh
 export RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)   # a pinned restate-server for the end-to-end tests
 cargo test --workspace --exclude rafi -- --include-ignored  # core, drand(-beacon, incl. live relays), store, the Raffle object end to end
-cargo test -p rafi --features server -- --include-ignored   # app, and app + restate-rafi + restate-server
+cargo test -p rafi --features server -- --include-ignored   # app (with an in-process stand-in for Restate), and app + restate-rafi + restate-server
 python3 tools/verify.py --vectors testdata/draw-vectors.json
 ```
 
@@ -149,19 +168,17 @@ The app:
 |---|---|---|
 | `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address (the image sets `0.0.0.0`) |
 | `RAFI_PUBLIC_DIR` | `target/dx/rafi/release/web/public` | The bundled web app (the image sets `/usr/local/app/public`) |
+| `RAFI_ATTENDEE_DIR` | `crates/attendee/dist` | The attendee page's WebAssembly and fallback, from `./scripts/attendee.sh` (the image sets `/usr/local/app/attendee`) |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL (QR codes, links) |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | SQLite database (shared with `restate-rafi`) |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |
 | `CLERK_SECRET_KEY` | | Clerk backend key (`CLERK_PUBLISHABLE_KEY` at build time) |
-| `RAFI_DRAW_ENGINE` | `local`, or `restate` if `RESTATE_INGRESS_URL` is set | Draw engine for new raffles |
-| `RESTATE_INGRESS_URL`, `RESTATE_API_KEY` | | Restate ingress (Restate Cloud: an API key with ingress access) |
-| `RAFI_DRAND_RELAYS` | `v2:https://api.drand.sh,v2:https://api2.drand.sh,v2:https://api3.drand.sh,v1:https://drand.cloudflare.com` | Local engine: relays to ask in order (`v1:`/`v2:` API; a bare URL is v1). Every beacon is BLS-verified, so one honest relay is enough |
-| `RAFI_DRAW_LEAD_SECS` | `6` | Local engine: seconds until the committed round (≥ 3) |
-| `RAFI_DRAND_TIMEOUT_SECS` | `60` | Local engine: stop waiting for the beacon after this; the draw stays pending on its round (retry, draw offline, or abandon) |
-| `RAFI_DRAND_MOCK` | off | Draws use a public test chain (offline development; needs `--features mock-drand`). Also picks the chain new raffles commit to |
+| `RESTATE_INGRESS_URL`, `RESTATE_API_KEY` | | The draw engine's Restate ingress (Restate Cloud: an API key with ingress access). Without it, draws can't start |
+| `RAFI_DRAND_MOCK` | off | New raffles commit to a public test chain (offline development; needs `--features mock-drand`, and the draw engine on the same chain) |
 | `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenge |
 | `RAFI_ALTCHA_MAX` | `30000` | Proof-of-work difficulty |
-| `RAFI_RETENTION` | off | Run the hourly job that erases personal data after the event (otherwise erase by hand in the admin) |
+| `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes |
+| `RAFI_RETENTION` | off | Erase personal data after the event in the hourly retention run (otherwise erase by hand in the admin). The run always ends live updates a day after a raffle finishes and forgets expired proof-of-work challenges |
 | `RAFI_RETENTION_DAYS` / `RAFI_RETENTION_WINNERS_DAYS` | `30` / `90` | Erase personal data after the event |
 
 `restate-rafi` (draw settings, database, identity keys):
