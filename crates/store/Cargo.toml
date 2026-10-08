@@ -16,6 +16,11 @@ postgres = ["sqlx/postgres", "sqlx/tls-rustls-aws-lc-rs", "dep:tokio"]
 ## The storage conformance suite (`conformance`): the scenarios every backend
 ## must pass. `tests/conformance.rs` runs them natively; `store-d1-check` on D1.
 conformance = ["dep:futures-util"]
+## An embedded PostgreSQL (pglite-oxide: PGlite on Wasmer) for the
+## conformance suite, so every `cargo test -p rafi-store` checks the Postgres
+## dialect without a server. Only rafi-store's own tests turn it on (the
+## self-dependency below); nothing else builds it.
+embedded-postgres = ["postgres", "conformance", "tokio/rt", "dep:pglite-oxide", "dep:virtual-net", "dep:virtual-mio"]
 
 [dependencies]
 anyhow = "1"
@@ -33,6 +38,13 @@ futures-util = { version = "0.3", default-features = false, features = ["alloc"]
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 # Postgres retries a serialization failure after a short sleep.
 tokio = { version = "1", features = ["time"], optional = true }
+# The embedded Postgres for tests (`embedded-postgres`).
+pglite-oxide = { version = "0.5.1", optional = true }
+# pglite-oxide 0.5.1 is built against these Wasmer alphas; their 0.702.1
+# releases break wasmer-wasix 0.702.0-alpha.3 (a new `NetworkError` variant),
+# and Cargo would pick them. Pinned exactly, so `cargo update` can't.
+virtual-net = { version = "=0.702.0-alpha.3", optional = true }
+virtual-mio = { version = "=0.702.0-alpha.3", optional = true }
 
 # Cloudflare Workers: D1.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -43,7 +55,7 @@ wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
 # Itself with the conformance suite, for `tests/conformance.rs`.
-rafi-store = { path = ".", default-features = false, features = ["conformance"] }
+rafi-store = { path = ".", default-features = false, features = ["conformance", "embedded-postgres"] }
 libtest-mimic = "0.8.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
 

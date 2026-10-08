@@ -101,8 +101,9 @@ check(await until(async () => /draw is starting|starting/i.test(await card()), 1
 admin = await api("get_raffle", { id });
 const unit = admin.view.units[0].unit_id;
 const screen = await tab(`${base}/s/${slug}`);
-const screenText = () => screen.js(`document.body.innerText.replace(/\\s+/g, " ")`);
-check(await until(async () => (await screenText()).includes("Rust in Action"), 20000), "the projector shows the raffle");
+// Read defensively: the projector loads the web app first (a large bundle).
+const screenText = async () => (await screen.js(`(document.body?.innerText ?? "").replace(/\\s+/g, " ")`)) ?? "";
+check(await until(async () => (await screenText()).includes("Rust in Action"), 45000), "the projector shows the raffle");
 await api("draw_unit", { id, unit_id: unit, offline: false, command_id: commandId() });
 check(await until(async () => /Rust in Action/.test(await card()) && /\d|…/.test(await card()), 15000), "the phone shows the countdown");
 check(await until(() => screen.js(`!!document.querySelector(".countdown")`), 15000), "the projector shows the countdown");

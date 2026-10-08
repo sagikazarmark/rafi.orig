@@ -171,9 +171,9 @@ backend lacks, as ignored with the reason. The tiers:
 | Backend | Runs |
 |---|---|
 | SQLite (in memory) | always |
+| embedded Postgres | by default: PGlite (PostgreSQL 17 compiled to WASM, run by `pglite-oxide`), a new server per scenario; no install needed. The first build downloads about 55 MB. `RAFI_TEST_EMBEDDED_POSTGRES=off` skips it |
 | Postgres | when `RAFI_TEST_POSTGRES_URL` names a throwaway database (a fresh schema per scenario); CI sets it |
 | D1 | under `wrangler dev`, through `crates/store-d1-check` (`./scripts/workers-check.sh`, below) |
-| embedded Postgres | being evaluated separately (a tier that needs no server) |
 
 A new backend implements `rafi_store::conformance::Harness` (a name, its capabilities, and a fresh, migrated
 database per scenario) and passes the suite; see the module's documentation.

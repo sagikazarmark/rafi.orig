@@ -3,9 +3,12 @@
 //! `<backend>::<scenario>` (`sqlite::domain.join_cap`), each on a fresh
 //! database.
 //!
-//! A backend that isn't available here (Postgres without
-//! `RAFI_TEST_POSTGRES_URL`), or lacks a capability a scenario needs, reports
-//! the test as ignored, with the reason. D1 runs the same scenarios through
+//! Backends: SQLite (in memory), an embedded Postgres (pglite-oxide; always
+//! on, `RAFI_TEST_EMBEDDED_POSTGRES=off` turns it off), and a real Postgres
+//! when `RAFI_TEST_POSTGRES_URL` names a throwaway database (the only one
+//! with concurrent sessions). A backend that isn't available here, or lacks
+//! a capability a scenario needs, reports the test as ignored, with the
+//! reason. D1 runs the same scenarios through
 //! `crates/store-d1-check`.
 
 use std::sync::Arc;
@@ -53,6 +56,11 @@ fn main() {
     tests.extend(trials::<conformance::Sqlite>(
         "postgres",
         Err("rafi-store built without the `postgres` feature".into()),
+    ));
+    #[cfg(feature = "embedded-postgres")]
+    tests.extend(trials(
+        "embedded-postgres",
+        conformance::EmbeddedPostgres::from_env(),
     ));
     libtest_mimic::run(&args, tests).exit();
 }

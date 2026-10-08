@@ -298,6 +298,76 @@ impl Harness for Postgres {
     }
 }
 
+/// An embedded PostgreSQL (pglite-oxide): a fresh in-process server per
+/// scenario, no service needed. It takes a single client, so the pool has
+/// one connection and scenarios that need concurrent sessions are skipped
+/// (the `postgres` harness runs those). `RAFI_TEST_EMBEDDED_POSTGRES=off`
+/// turns it off.
+#[cfg(all(feature = "embedded-postgres", not(target_arch = "wasm32")))]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EmbeddedPostgres;
+
+#[cfg(all(feature = "embedded-postgres", not(target_arch = "wasm32")))]
+impl EmbeddedPostgres {
+    /// The variable that turns the embedded Postgres off (`off`).
+    pub const VAR: &'static str = "RAFI_TEST_EMBEDDED_POSTGRES";
+
+    /// `Err` says it's turned off.
+    pub fn from_env() -> Result<Self, String> {
+        match std::env::var(Self::VAR).as_deref() {
+            Ok("off" | "0" | "false") => Err(format!("turned off by {}", Self::VAR)),
+            _ => Ok(Self),
+        }
+    }
+}
+
+#[cfg(all(feature = "embedded-postgres", not(target_arch = "wasm32")))]
+impl Harness for EmbeddedPostgres {
+    fn name(&self) -> &str {
+        "embedded-postgres"
+    }
+
+    /// A single client: nothing overlaps.
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::NONE
+    }
+
+    async fn fresh(&self) -> Result<Db, String> {
+        // Starting blocks until the server is up, and the server runs on the
+        // calling runtime: start it off this thread, so a single-threaded
+        // runtime can still drive it.
+        let server = tokio::task::spawn_blocking(pglite_oxide::PgliteServer::temporary_tcp)
+            .await
+            .map_err(|e| format!("starting the embedded Postgres: {e}"))?
+            .map_err(|e| format!("starting the embedded Postgres: {e}"))?;
+        let db = Db::connect_postgres(&server.database_url(), 1)
+            .await
+            .map_err(fail)?;
+        check(
+            db.dialect() == crate::Dialect::Postgres,
+            "the embedded server opened Postgres",
+        )?;
+        // The server stops when the last handle to the database is dropped.
+        Ok(db.holding(StopOffThread(Some(server))))
+    }
+}
+
+/// Stops an embedded server on a thread of its own. Stopping waits for its
+/// client to disconnect, and the pool closes its connection asynchronously,
+/// on the runtime that is dropping the database: stopping inline would block
+/// that runtime and never see the disconnect.
+#[cfg(all(feature = "embedded-postgres", not(target_arch = "wasm32")))]
+struct StopOffThread(Option<pglite_oxide::PgliteServer>);
+
+#[cfg(all(feature = "embedded-postgres", not(target_arch = "wasm32")))]
+impl Drop for StopOffThread {
+    fn drop(&mut self) {
+        if let Some(server) = self.0.take() {
+            std::thread::spawn(move || drop(server));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

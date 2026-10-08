@@ -151,8 +151,18 @@ async fn e2e_raffle() {
     let first = s.unit("ticket-1").unwrap().entrant_id.clone().unwrap();
 
     // The draw journals the clock, the projections (each followed by the live
-    // channel's best-effort notify) and the beacon under stable names.
-    let runs = restate.admin().runs(sent.invocation_id()).await;
+    // channel's best-effort notify) and the beacon under stable names. The
+    // projection above can be seen before the last `notify` is journaled, so
+    // wait for the journal to catch up.
+    let expected_steps = 7;
+    let mut runs = restate.admin().runs(sent.invocation_id()).await;
+    for _ in 0..100 {
+        if runs.len() >= expected_steps {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        runs = restate.admin().runs(sent.invocation_id()).await;
+    }
     assert_eq!(
         runs,
         [

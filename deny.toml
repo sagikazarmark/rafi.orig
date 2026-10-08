@@ -14,6 +14,18 @@ allow = [
   "Zlib",
   "BSL-1.0",
   "BSD-2-Clause",
+  # The embedded Postgres in rafi-store's tests (pglite-oxide, Wasmer):
+  # permissive, test-only.
+  "0BSD",
+  "PostgreSQL",
+  "Apache-2.0 WITH LLVM-exception",
+]
+
+# MPL-2.0 (file-level copyleft) only for these crates, which only rafi-store's
+# tests pull in (pglite-oxide -> Wasmer). Unmodified, never shipped.
+exceptions = [
+  { allow = ["MPL-2.0"], crate = "cooked-waker" },
+  { allow = ["MPL-2.0"], crate = "option-ext" },
 ]
 
 [bans]
@@ -24,7 +36,12 @@ wildcards = "warn"
 unknown-registry = "deny"
 unknown-git = "deny"
 # dioxus-primitives (pinned rev), required by the dioxus-daisyui-components registry.
-allow-git = ["https://github.com/DioxusLabs/components"]
+allow-git = [
+  "https://github.com/DioxusLabs/components",
+  # restate-sdk made safe on wasm32 (Cloudflare Workers); upstream PR open.
+  # Remove with the [patch.crates-io] entry once it's released.
+  "https://github.com/sagikazarmark/restate-sdk-rust",
+]
 
 [advisories]
 ignore = [
@@ -32,4 +49,10 @@ ignore = [
   # private-key decryption/signing; Rafi only verifies Clerk JWT signatures with
   # public keys. No fixed `rsa` release exists yet.
   { id = "RUSTSEC-2023-0071", reason = "only RSA signature verification with public keys is used" },
+  # Unmaintained crates reached only through pglite-oxide's Wasmer runtime,
+  # which runs the embedded Postgres in rafi-store's tests (`embedded-postgres`).
+  { id = "RUSTSEC-2025-0141", reason = "bincode: test-only, via pglite-oxide (Wasmer)" },
+  { id = "RUSTSEC-2024-0436", reason = "paste: test-only, via pglite-oxide (Wasmer)" },
+  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2: test-only, via pglite-oxide (Wasmer)" },
+  { id = "RUSTSEC-2021-0127", reason = "serde_cbor: test-only, via pglite-oxide (Wasmer)" },
 ]

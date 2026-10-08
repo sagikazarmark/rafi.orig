@@ -65,8 +65,13 @@ fn options(url: &str) -> Result<PgConnectOptions> {
 
 /// Opens a pool on the existing database at `url`.
 pub(super) async fn connect(url: &str) -> Result<Postgres> {
+    connect_with(url, 8).await
+}
+
+/// Opens a pool of at most `max_connections` on the existing database at `url`.
+pub(super) async fn connect_with(url: &str, max_connections: u32) -> Result<Postgres> {
     let pool = PgPoolOptions::new()
-        .max_connections(8)
+        .max_connections(max_connections)
         .idle_timeout(Duration::from_secs(600))
         .max_lifetime(Duration::from_secs(3600))
         .connect_with(options(url)?)
