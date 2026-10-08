@@ -48,11 +48,12 @@ app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ dat
 ```
 crates/core                   rafi-core: draw algorithm, drand math, state machine, verifier (pure, tested, vectors)
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) on the drand crate
-crates/store                  rafi-store: SQLite schema, connection options, the shared draw state write
+crates/store                  rafi-store: the schema, SQLite and D1 backends, the draw state write, the participant snapshot
 crates/restate-rafi           restate-rafi: the `Raffle` virtual object (library)
 crates/restate-rafi-endpoint  restate-rafi: the binary serving it (config, logging, Dockerfile)
-crates/live                   rafi-live: what a phone sees (participant view, card, proof-of-work)
-crates/channel                rafi-channel: the participant view from the database; the live channel (Workers)
+crates/live                   rafi-live: what a phone sees (participant view, card, proof-of-work, live transport)
+crates/platform               rafi-platform: what a deployment provides (Notifier, RateLimit, DrawStore, publish rule)
+crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleChannel Durable Object, notifier, rate limits, config)
 crates/attendee               rafi-attendee: the attendee page's WebAssembly, and its JavaScript fallback
 crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (attendee pages, JSON APIs)
                               src/server: the Restate client, attendee SSR pages, proof-of-work, retention
@@ -212,9 +213,11 @@ during a live raffle (`/api/status` shows `live_raffles`).
 
 ## Cloudflare Workers
 
-The plan and its decisions: [`docs/workers-plan.md`](docs/workers-plan.md). Three Workers: the app (`crates/app`,
-feature `worker`, with the per-raffle `RaffleChannel` Durable Object), the draw engine (`crates/restate-worker`), and
-the D1 database they share.
+The plan and its decisions: [`docs/workers-plan.md`](docs/workers-plan.md). Cloudflare is one deployment, not an
+assumption of the code: the app and the draw engine are written against `rafi-platform`'s interfaces, and
+`crates/cloudflare` (`rafi-cloudflare`) implements them over Workers bindings. Two Workers wire it up: the app
+(`crates/app`, feature `worker`, which also hosts the per-raffle `RaffleChannel` Durable Object) and the draw engine
+(`crates/restate-worker`), with the D1 database they share.
 
 Local development, everything under `wrangler dev` (the tools are in `devenv.nix`; wasm-bindgen-cli must match
 `Cargo.lock`):
@@ -228,8 +231,8 @@ Local development, everything under `wrangler dev` (the tools are in `devenv.nix
 restate deployments register http://127.0.0.1:8791 --use-http1.1
 ```
 
-`./scripts/workers-check.sh` runs every Workers check locally: rafi-store on D1, the live channel over WebSockets,
-the attendee page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
+`./scripts/workers-check.sh` runs every Workers check locally: rafi-store on D1, the live channel over WebSockets
+(`crates/cloudflare-check`), the attendee page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
 job runs it.
 
 Deploying (needs a Cloudflare account and Restate Cloud): see the comments at the top of `crates/app/wrangler.toml` and

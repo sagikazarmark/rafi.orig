@@ -233,13 +233,16 @@ Rafi relies on Restate. There is no fallback draw path:
 | Crate | Status | Contents | Used by |
 |---|---|---|---|
 | `rafi-core` | unchanged | Domain model, verifiable draw | everyone except the attendee WASM |
-| `rafi-live` | **new** | `ParticipantView`, the `RaffleLive` channel, `screen()`, `Card`, `CardStrings`, a lightweight state enum, the ALTCHA module (types, `solve`, `verify`) | DO, app, attendee WASM |
-| `rafi-attendee` | **new** | The attendee WASM: mounts `Card`, subscribes, proof-of-work, extras (wake lock module included) | phones |
-| `rafi-store` | ported | Own API and error type; D1 backend; `version` | app, Restate handler, DO |
-| `restate-rafi` | ported | `Raffle` virtual object; projector writes D1, then nudges the DO in a separate, best-effort `ctx.run` | Restate Worker |
-| `rafi` (app) | ported | App Worker: routes, server functions, `RaffleChannel` DO, Cron | |
-| `rafi-restate-worker` | **new** | Restate Worker: the adapter around `Endpoint::handle_with_options`, signature checks, D1 and DO bindings | Restate Cloud |
-| `restate-rafi-endpoint` | kept, not deployed | The native endpoint, for future self-hosting (§8) | |
+| `rafi-live` | **new** | `ParticipantView`, the `RaffleLive` channel, `screen()`, `Card`, `CardStrings`, a lightweight state enum, the ALTCHA module (types, `solve`, `verify`), `LiveTransport` | DO, app, attendee WASM |
+| `rafi-platform` | **new** (§7a) | The ports: `Notifier` (`Polling`, `Recording`), `RateLimit` and `Limit` (native `Limiter`), `DrawStore` (`MemoryDrawStore`), the publish rule, `BoxFuture` | everyone but the attendee WASM |
+| `rafi-attendee` | **new** | The attendee WASM: mounts `Card`, follows the server's `LiveTransport` (partyline or polling), proof-of-work, extras (wake lock module included) | phones |
+| `rafi-store` | ported | Own API and error type; SQLite and D1 backends; `version`; the participant `live::Snapshot`; `DrawWriter`, its `DrawStore` | app, both draw engine hosts, DO |
+| `restate-rafi` | ported | `Raffle` virtual object over a `DrawStore` and a `Notifier`: the store write, then `notify` in a separate, best-effort `ctx.run`. No database or platform dependency | both draw engine hosts |
+| `rafi-cloudflare` | **new** (`rafi-channel` renamed) | All Cloudflare glue: the `RaffleChannel` DO, the socket gate and jurisdiction helper, `DurableObjects` (`Notifier`), `RateLimitBindings` (`RateLimit`), config from vars and secrets | both Workers |
+| `rafi` (app) | ported | Routes, server functions, retention, over `AppState::from_parts(cfg, db, notifier, limiter)`; the `worker` feature is the App Worker's thin entry point (fetch, Cron, exports `RaffleChannel`) | |
+| `rafi-restate-worker` | **new** | Restate Worker: the adapter around `Endpoint::handle_with_options`, signature checks; wires `DrawWriter` over D1 and `DurableObjects` | Restate Cloud |
+| `restate-rafi-endpoint` | kept, not deployed | The native endpoint, for self-hosting (§8): `DrawWriter` over SQLite (opened lazily), the `Polling` notifier | |
+| `rafi-store-d1-check`, `rafi-cloudflare-check` | local checks | Workers that drive the store and the channel under `wrangler dev` (`scripts/workers-check.sh`) | |
 
 `rafi-live` must not depend on `rafi-core`, which pulls in drand and BLS. The server maps `RaffleState` to `rafi-live`'s enum.
 
@@ -347,6 +350,8 @@ Rafi relies on Restate. There is no fallback draw path:
 
 Decided 2026-10-08. Cloudflare is one deployment, not an assumption of the code. Every platform-specific piece sits behind an interface, and Cloudflare's implementations live in one crate.
 
+In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done; §11); (2) all SQL into `rafi-store`; (3) Postgres.
+
 - **`rafi-platform`:** the interfaces a deployment provides:
   - `Notifier`: "this raffle changed" by ID, "end its live updates", and the `LiveTransport` clients should use;
   - `RateLimit`, with the `Limit` keys;
@@ -410,7 +415,7 @@ Cloudflare only for now. Self-hosting stays possible later:
 Findings from building M1–M4 on the `cloudflare` branch, verified locally under `wrangler dev`:
 
 - **Dioxus fullstack server doesn't compile for wasm32 as published.** `dioxus-server` 0.7.10 and 0.8.0-alpha.1 depend on `hyper-util` (`full`) and axum's `tokio`/`http1` features, which pull in tokio `net`/mio. `serve_dioxus_application` and `register_server_functions` are `cfg(not(wasm32))`. Plain `dioxus-ssr` works on Workers: a spike page rendered under `wrangler dev`, and its wasm is 144 KB compressed. This decides how M5 serves the admin and projector.
-- **`workerd` doesn't implement Durable Object jurisdictions.** `RAFI_DO_JURISDICTION = ""` turns them off for local runs; production keeps the default, `eu`. `worker` has no jurisdiction API, so `rafi_channel::namespace` calls the JS method.
+- **`workerd` doesn't implement Durable Object jurisdictions.** `RAFI_DO_JURISDICTION = ""` turns them off for local runs; production keeps the default, `eu`. `worker` has no jurisdiction API, so `rafi_cloudflare::namespace` calls the JS method.
 - **D1 counts rows changed by triggers in `changes`.** The version triggers make a one-row `UPDATE` report 2, so only zero versus non-zero is portable; `Query::run` documents this.
 - **D1 allows at most 100 bound parameters per statement**, so multi-row INSERTs are chunked (32 rows of fake entrants).
 - **`D1Result::results` decodes through serde and loses column order**, so rafi-store reads the JS result objects directly, and `batch_rows` calls the binding's `batch`.
@@ -421,11 +426,11 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
 - **Local dev:** two `wrangler dev` sessions find each other through `~/.wrangler/registry`. Stopping a second session with the same Worker name unregisters it. Restate's ingress may need `http://[::1]:8080` if another process holds `127.0.0.1:8080`.
 - **M0(d), Clerk on Workers:** `dioxus-clerk`'s `worker` feature runs axum with `ClerkAuthLayer` and the `ClerkAuth` extractor under `workerd`. Anonymous requests pass through, and bogus bearer tokens are rejected without a crash. The spike Worker was 509 KB compressed. Verifying real tokens needs a Clerk instance, so it waits for staging.
 - **`scripts/workers-check.sh`** runs all local Workers checks: D1, the channel, the attendee page in Chromium, and a Restate draw. CI's `workers` job runs it.
-- **The native app is stateless (M5, first half).** `rafi` is a library plus a thin binary. Platform pieces sit behind `AppState::from_parts(cfg, db, live, limiter)`: `server::live::Live` (`has_channel`, `nudge`, `destroy`; natively `Polling`, a no-op) and `server::ratelimit::RateLimit` (`allow(Limit, key)`; natively the in-memory `Limiter`). The Workers entry point builds `Db::d1`, a `Live` over `rafi_channel::{nudge, destroy}` and a `RateLimit` over the two bindings, and calls `retention::run` from the Cron. App tests run against an in-process stand-in for Restate's ingress (`server/fake_engine.rs`).
+- **The native app is stateless (M5, first half).** `rafi` is a library plus a thin binary. Platform pieces sit behind `AppState::from_parts(cfg, db, notifier, limiter)`, with the interfaces from `rafi-platform` (§7a): natively the `Polling` notifier and the in-memory `Limiter`. The Workers entry point builds `Db::d1`, `rafi_cloudflare::DurableObjects` and `RateLimitBindings`, and calls `retention::run` from the Cron. App tests run against an in-process stand-in for Restate's ingress (`server/fake_engine.rs`).
 - **M5, the app on Workers.**
   - `rafi` builds as a Worker with the `worker` feature:
     - the same axum routes, `#[worker::send]` on handlers;
-    - `Live` over `rafi_channel`, `RateLimit` over the bindings;
+    - the `Notifier` over the Durable Objects, `RateLimit` over the bindings (both from `rafi-cloudflare`);
     - config from vars and secrets, failing closed;
     - the Cron runs `retention::run`;
     - the `RaffleChannel` class is exported.
@@ -433,6 +438,12 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
   - Locally, `crates/app/evening.mjs` passes a whole evening on the app Worker: setup, a phone joining in Chromium, a draw through Restate reaching the phone live, the finish, End live updates.
 - **M7, the projector:** in the same evening, the projector tab shows the countdown and reveals the winner 5 ms after the phone. The reveal comes from the participant channel, and the full view is polled every 2.5 s.
 - **M0(e), bundle sizes:** compressed, the app Worker is 847 KB, the Restate Worker 914 KB and the attendee WASM 263 KB. All are under Workers' limits. BLS CPU time still needs a deployed Worker.
+- **Ports and adapters, pass 1 (§7a).** `rafi-platform` holds the interfaces; `rafi-channel` became `rafi-cloudflare`, the only crate (with the two Worker entry points) that knows Cloudflare. In practice:
+  - `Notifier::notify` returns nothing: implementations log and drop their own failures. `DurableObjects` tries a nudge three times (100 ms, then 200 ms apart), so the Restate `notify` step's own attempts only cover the step failing. The journal step names (`project`, `notify`) are unchanged.
+  - `LiveTransport` is chosen per raffle by `AppState::transport`: the notifier's while live updates run, plain polling once they've ended. The page config and the full view carry it as `live` (`{"kind":"partyline"}`, `{"kind":"poll","every_ms":2500}`). The JS fallback always polls.
+  - The participant snapshot moved from the channel crate to `rafi_store::live`, which the app's `/participant` endpoint and the attendee page read too.
+  - `crates/channel-check` became `crates/cloudflare-check`; its Worker and D1 names are now `rafi-cloudflare-check` (the Restate Worker's `[env.check]` binds to that name).
+  - Left for pass 2: SQL is still spread over the app (`server/db.rs`, `service.rs`, `retention.rs`, `view.rs`) and the check Workers; only the snapshot and the draw state write live in `rafi-store`.
 - **Still needs your accounts:**
   - staging and production on Cloudflare: D1 with `--jurisdiction eu`, secrets, custom domains;
   - the Restate Cloud deployment;
