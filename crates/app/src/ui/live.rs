@@ -6,21 +6,26 @@
 //! with newer time-dependent content, so a view with `v >=` the current one
 //! is taken.
 //!
-//! Where the server runs a live channel ([`RaffleView::channel`]), the
-//! participant view is also followed over it: an event ahead of the full view
-//! is kept as [`LiveView::ahead`], so the projector shows the reveal right
-//! away, and the full view is fetched at once in the background.
+//! How else to follow the raffle comes from the server ([`RaffleView::live`]):
+//!
+//! - `partyline`: the participant view is also followed over the raffle's
+//!   channel: an event ahead of the full view is kept as [`LiveView::ahead`],
+//!   so the projector shows the reveal right away, and the full view is
+//!   fetched at once in the background;
+//! - `poll`: only the full view, polled every `every_ms`;
+//! - `sse`: no client yet, so it polls like `poll`.
 
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use partyline_dioxus::{ChannelOptions, Status, use_channel_latest};
+use partyline_dioxus::{BaseUrl, ChannelOptions, Status, use_channel_latest};
 use rafi_core::raffle::RaffleState;
-use rafi_live::{ParticipantView, RaffleLive};
+use rafi_live::{LiveTransport, ParticipantView, RaffleLive};
 
 use crate::model::RaffleView;
 
-/// How often the full view is polled while the raffle is live.
+/// How often the full view is polled while the raffle is live, unless the
+/// server asks for polling at another interval.
 const POLL_MS: u32 = 2_500;
 
 /// A raffle followed live.
@@ -41,23 +46,19 @@ impl LiveView {
         self.ahead.read().clone().filter(|p| p.v > view.v)
     }
 
-    /// The live channel subscription, where the server has one and the
-    /// raffle is live; render it anywhere in the page.
+    /// The live channel subscription, where the server pushes over
+    /// partyline and the raffle is live; render it anywhere in the page.
     pub fn feed(self) -> Element {
-        let wanted = self
-            .view
-            .read()
-            .as_ref()
-            .is_some_and(|v| v.channel && live(v.state));
-        let raffle_id = self
-            .view
-            .read()
-            .as_ref()
-            .map(|v| v.raffle_id.clone())
-            .unwrap_or_default();
+        let subscription = self.view.read().as_ref().and_then(|v| match &v.live {
+            LiveTransport::Partyline { base_url } if live(v.state) => {
+                Some((v.raffle_id.clone(), base_url.clone()))
+            }
+            // Polling (and SSE, which has no client yet): the full view's poll does it all.
+            _ => None,
+        });
         rsx! {
-            if wanted {
-                ChannelFeed { key: "{raffle_id}", live: self, raffle_id: raffle_id.clone() }
+            if let Some((raffle_id, base_url)) = subscription {
+                ChannelFeed { key: "{raffle_id}", live: self, raffle_id: raffle_id.clone(), base_url }
             }
         }
     }
@@ -105,7 +106,12 @@ pub fn use_live_view(slug: String) -> LiveView {
     use_future(move || async move {
         fetcher.send(());
         loop {
-            gloo_timers::future::TimeoutFuture::new(POLL_MS).await;
+            let every = view
+                .peek()
+                .as_ref()
+                .and_then(|v| v.live.poll_every_ms())
+                .unwrap_or(POLL_MS);
+            gloo_timers::future::TimeoutFuture::new(every).await;
             if view.peek().as_ref().is_none_or(|v| live(v.state)) {
                 fetcher.send(());
             }
@@ -123,8 +129,12 @@ pub fn use_live_view(slug: String) -> LiveView {
 /// The raffle's live channel. Mounted only while it's wanted: unmounting
 /// closes the socket.
 #[component]
-fn ChannelFeed(live: LiveView, raffle_id: String) -> Element {
-    let (latest, channel) = use_channel_latest::<RaffleLive>(ChannelOptions::new(raffle_id));
+fn ChannelFeed(live: LiveView, raffle_id: String, base_url: Option<String>) -> Element {
+    let mut options = ChannelOptions::new(raffle_id);
+    if let Some(url) = base_url {
+        options = options.base_url(BaseUrl::Explicit(url));
+    }
+    let (latest, channel) = use_channel_latest::<RaffleLive>(options);
     let mut ahead = live.ahead;
     use_effect(move || {
         let Some(p) = latest() else {

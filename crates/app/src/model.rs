@@ -16,11 +16,10 @@ pub struct RaffleView {
     /// `v >=` theirs: a poll can return the same version with newer
     /// time-dependent content (`recent_names`).
     pub v: u64,
-    /// Whether the raffle has a live channel to subscribe to (the participant
-    /// view, for the reveal). `false` on servers without one: then clients
-    /// only poll.
-    #[serde(default)]
-    pub channel: bool,
+    /// How to follow the raffle besides polling this view: where the
+    /// deployment pushes the participant view (`partyline`), screens
+    /// subscribe to it for the reveal; otherwise they only poll.
+    pub live: rafi_live::LiveTransport,
     /// The organizer ended live updates.
     #[serde(default)]
     pub live_ended: bool,

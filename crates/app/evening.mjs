@@ -92,7 +92,7 @@ const claim = await js(`document.querySelector(".claim-code").innerText.trim()`)
 check(await until(() => js("window.__rafiReady === true"), 15000), "the phone's WebAssembly is ready");
 check((await card()).includes("Waiting"), "the card waits for the draw");
 const cfg = await js(`JSON.parse(document.getElementById("rafi-config").textContent)`);
-check(cfg.channel === true, "the page knows there's a live channel");
+check(cfg.live?.kind === "partyline", "the page subscribes over partyline");
 
 // The draw, through Restate; the phone follows over the live channel.
 await api("lifecycle", { id, action: "close" });
@@ -122,7 +122,7 @@ check((await js(`!!document.querySelector("#live [role=alert]")`)) === true, "th
 
 // The full view for screens: version from the database, the draw in it.
 const view = await (await fetch(`${base}/api/r/${slug}/view`)).json();
-check(view.draws.length === 1 && view.channel === true, "the full view has the draw and the channel flag");
+check(view.draws.length === 1 && view.live?.kind === "partyline", "the full view has the draw and the partyline transport");
 const participant = await (await fetch(`${base}/api/r/${slug}/participant`)).json();
 check(participant.winners.length === 1 && !JSON.stringify(participant).includes("anna@example.com"),
   "the participant view has the winner and no email");

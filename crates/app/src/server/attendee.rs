@@ -16,15 +16,15 @@ use axum::{
     routing::get,
 };
 use dioxus::prelude::*;
-use rafi_live::{Card, CardStrings, ParticipantView, Phase};
+use rafi_live::{Card, CardStrings, LiveTransport, ParticipantView, Phase};
+use rafi_platform::Limit;
+use rafi_store::live::Snapshot;
 use serde::{Deserialize, Serialize};
 
 use super::{
     AppState, altcha,
     db::{self, EntrantRow, RaffleRow},
-    ids,
-    ratelimit::Limit,
-    service,
+    ids, service,
 };
 use crate::{i18n::Lang, icons::I};
 
@@ -193,7 +193,7 @@ enum Notice {
 struct PageCtx<'a> {
     raffle: &'a RaffleRow,
     /// What phones see, read in one snapshot.
-    snapshot: &'a rafi_channel::Snapshot,
+    snapshot: &'a Snapshot,
     lang: Lang,
     entrant: Option<&'a EntrantRow>,
     notice: Notice,
@@ -212,7 +212,7 @@ struct PageConfig<'a> {
     strings: &'a CardStrings,
     participant_url: String,
     server_now_ms: u64,
-    channel: bool,
+    live: LiveTransport,
     needs_altcha: bool,
     altcha_url: &'static str,
     screen_on: &'static str,
@@ -366,7 +366,7 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
         strings: &strings,
         participant_url: format!("/api/r/{}/participant", raffle.slug),
         server_now_ms: now_ms,
-        channel: app.live.has_channel() && snapshot.channel_open(),
+        live: app.transport(&raffle.id, !snapshot.channel_open()),
         needs_altcha: joining,
         altcha_url: "/api/altcha",
         screen_on: lang.t("screen_on"),
@@ -408,8 +408,8 @@ fn with_lang_cookie(mut resp: Response, query: &LangQuery, secure: bool) -> Resp
 }
 
 /// What phones see of `raffle`; `None` if it's gone (or the read failed).
-async fn snapshot(app: &AppState, raffle: &RaffleRow) -> Option<rafi_channel::Snapshot> {
-    match rafi_channel::Snapshot::read(&app.db, &raffle.id).await {
+async fn snapshot(app: &AppState, raffle: &RaffleRow) -> Option<Snapshot> {
+    match Snapshot::read(&app.db, &raffle.id).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!(error = %e, "reading the participant view");

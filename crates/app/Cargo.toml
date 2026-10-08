@@ -15,8 +15,8 @@ crate-type = ["cdylib", "rlib"]
 rafi-core.workspace = true
 rafi-drand = { path = "../drand", optional = true }
 rafi-store = { workspace = true, optional = true }
-rafi-live = { path = "../live", optional = true }
-rafi-channel = { path = "../channel", optional = true }
+rafi-live = { path = "../live" }
+rafi-platform = { path = "../platform", optional = true }
 # The web app adds `launch`, `web`, `devtools` and `logger`; the server only renders (`ssr`).
 dioxus = { version = "=0.7.10", default-features = false, features = ["router", "lib"] }
 dioxus-clerk = "0.6"
@@ -57,6 +57,7 @@ tower-http = { version = "0.6", features = ["fs"], optional = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 worker = { version = "0.8.7", features = ["http", "axum"], optional = true }
 tower-service = { version = "0.3", optional = true }
+rafi-cloudflare = { path = "../cloudflare", optional = true }
 http = { version = "1", optional = true }
 
 [dev-dependencies]
@@ -82,7 +83,6 @@ web = [
     "dep:js-sys",
     "dep:gloo-timers",
     "dep:gloo-net",
-    "dep:rafi-live",
     "dep:partyline-dioxus",
 ]
 # The native server: attendee pages (`dioxus::ssr`), the admin's JSON routes, the web app's files.
@@ -95,9 +95,8 @@ server = [
     "dep:reqwest",
     "dep:rafi-drand",
     "dep:rafi-store",
-    "dep:rafi-live",
-    "rafi-live?/server",
-    "dep:rafi-channel",
+    "rafi-live/server",
+    "dep:rafi-platform",
     "dep:tracing",
     "dep:anyhow",
     "dep:thiserror",
@@ -107,6 +106,7 @@ server = [
 worker = [
     "server",
     "dep:worker",
+    "dep:rafi-cloudflare",
     "dep:tower-service",
     "dep:js-sys",
     "dioxus-clerk/worker",

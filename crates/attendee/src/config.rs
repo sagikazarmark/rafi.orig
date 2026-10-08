@@ -1,6 +1,6 @@
 //! The page's embedded state.
 
-use rafi_live::{CardStrings, ParticipantView, Phase};
+use rafi_live::{CardStrings, LiveTransport, ParticipantView, Phase};
 use serde::Deserialize;
 
 /// What the server embeds in `#rafi-config`.
@@ -21,11 +21,9 @@ pub struct PageConfig {
     pub participant_url: String,
     /// The server's clock at render time, Unix milliseconds.
     pub server_now_ms: u64,
-    /// Whether the raffle has a live channel (`/partyline/raffle/{id}`). A
-    /// server without one (self-hosted) sets `false`; the card then polls
-    /// `participant_url`.
-    #[serde(default = "yes")]
-    pub channel: bool,
+    /// How to follow the raffle: subscribe to its partyline channel
+    /// (`/partyline/raffle/{id}`), or poll `participant_url`.
+    pub live: LiveTransport,
     /// The join form is on the page and needs a proof-of-work.
     #[serde(default)]
     pub needs_altcha: bool,
@@ -35,10 +33,6 @@ pub struct PageConfig {
     pub screen_on: String,
     #[serde(default)]
     pub keep_screen_on: String,
-}
-
-fn yes() -> bool {
-    true
 }
 
 fn altcha_url() -> String {

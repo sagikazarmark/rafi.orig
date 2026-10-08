@@ -10,8 +10,9 @@ use rafi_core::{
 use super::{AppState, db};
 use crate::model::{CurrentDraw, DrawView, PrizeView, RaffleView, UnitView};
 
-/// Display name used when the organizer hid an entrant's name.
-pub const HIDDEN_NAME: &str = "★ ★ ★";
+/// Display name used when the organizer hid an entrant's name (the same on
+/// phones).
+pub use rafi_store::live::HIDDEN_NAME;
 
 /// How long a new entrant's name waits before appearing on the screen.
 pub const NAME_DELAY_SECS: i64 = 5;
@@ -225,7 +226,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
     .to_owned();
     Ok(Some(RaffleView {
         v: raffle.version.max(0) as u64,
-        channel: app.live.has_channel() && raffle.live_ended_at.is_none(),
+        live: app.transport(&raffle.id, raffle.live_ended_at.is_some()),
         live_ended: raffle.live_ended_at.is_some(),
         raffle_id: raffle.id.clone(),
         slug: raffle.slug.clone(),

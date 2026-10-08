@@ -13,18 +13,11 @@ use rafi_core::{
     raffle::RaffleState,
     state::{Outcome, UnitStatus},
 };
+use rafi_live::LiveTransport;
+use rafi_platform::{Limiter, Notifier, Polling, Recording};
 use tower::ServiceExt;
 
-use super::{
-    AppState,
-    config::Config,
-    db,
-    engine::Command,
-    fake_engine,
-    live::{Live, Polling, Recording},
-    ratelimit::Limiter,
-    routes, service,
-};
+use super::{AppState, config::Config, db, engine::Command, fake_engine, routes, service};
 use crate::model::{ItemInput, Lifecycle};
 
 const OWNER: &str = "user_test";
@@ -34,12 +27,12 @@ async fn app() -> AppState {
 }
 
 async fn app_with(cfg: Config) -> AppState {
-    app_with_live(cfg, Arc::new(Polling)).await
+    app_with_live(cfg, Arc::new(Polling::default())).await
 }
 
 /// An app whose draw engine is the in-process stand-in for Restate, on the
 /// same database.
-async fn app_with_live(mut cfg: Config, live: Arc<dyn Live>) -> AppState {
+async fn app_with_live(mut cfg: Config, live: Arc<dyn Notifier>) -> AppState {
     let db = rafi_store::Db::connect(&cfg.database_url)
         .await
         .expect("database");
@@ -555,7 +548,11 @@ async fn full_view_v_is_the_version_column() {
     let v0 = view["v"].as_u64().unwrap();
     assert_eq!(v0, version(&app, &raffle.id).await);
     assert!(view["server_now_ms"].as_u64().unwrap() > 0);
-    assert_eq!(view["channel"], false, "no live channel natively");
+    assert_eq!(
+        view["live"],
+        serde_json::json!({"kind": "poll", "every_ms": 2500}),
+        "no push natively: clients poll"
+    );
 
     // Polling again without a write: the same version.
     let (_, _, again) = get_json(&router, &url).await;
@@ -671,7 +668,7 @@ async fn participant_view_has_no_personal_data() {
     .await;
     assert!(page.contains("id=\"rafi-config\""));
     assert!(page.contains(&format!("\"participant_url\":\"{url}\"")));
-    assert!(page.contains("\"channel\":false"));
+    assert!(page.contains(r#""live":{"kind":"poll","every_ms":2500}"#));
     assert!(
         !page.contains(&other.display_name),
         "a non-winner's name on the page"
@@ -1370,30 +1367,32 @@ async fn ending_live_updates() {
     let app = app_with_live(Config::for_tests(), live.clone()).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     assert!(
-        !live.calls("nudge").is_empty(),
+        !live.notified().is_empty(),
         "lifecycle changes nudge the channel"
     );
     let err = service::end_live(&app, OWNER, &raffle.id)
         .await
         .unwrap_err();
     assert!(matches!(err, service::AppError::Conflict(_)), "{err}");
-    assert!(live.calls("destroy").is_empty());
+    assert!(live.ended().is_empty());
 
     let raffle = finished_raffle(&app).await;
     assert!(raffle.live_ended_at.is_none());
     let view = super::view::build(&app, &raffle.id).await.unwrap().unwrap();
-    assert!(view.channel && !view.live_ended);
+    assert_eq!(view.live, LiveTransport::Partyline { base_url: None });
+    assert!(!view.live_ended);
 
     service::end_live(&app, OWNER, &raffle.id).await.unwrap();
     let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
     let ended = r.live_ended_at.expect("live_ended_at is set");
-    assert_eq!(live.calls("destroy"), std::slice::from_ref(&raffle.id));
+    assert_eq!(live.ended(), std::slice::from_ref(&raffle.id));
     let view = super::view::build(&app, &raffle.id).await.unwrap().unwrap();
-    assert!(!view.channel && view.live_ended);
+    assert_eq!(view.live, LiveTransport::poll(), "ended: plain polling");
+    assert!(view.live_ended);
 
     // Again: the channel is destroyed again, the time stays.
     service::end_live(&app, OWNER, &raffle.id).await.unwrap();
-    assert_eq!(live.calls("destroy").len(), 2);
+    assert_eq!(live.ended().len(), 2);
     let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.live_ended_at, Some(ended));
     // Other organizers can't.
@@ -1411,7 +1410,7 @@ async fn writes_nudge_and_destroy_the_channel() {
     let app = app_with_live(Config::for_tests(), live.clone()).await;
     let router = routes(app.clone());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    let nudges = || live.calls("nudge").len();
+    let nudges = || live.notified().len();
 
     let before = nudges();
     join(&router, &raffle.join_code, "Anna", "anna@example.com").await;
@@ -1443,7 +1442,7 @@ async fn writes_nudge_and_destroy_the_channel() {
         .await
         .unwrap();
     service::purge(&app, OWNER, &raffle.id).await.unwrap();
-    assert_eq!(live.calls("destroy"), std::slice::from_ref(&raffle.id));
+    assert_eq!(live.ended(), std::slice::from_ref(&raffle.id));
     let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state(), RaffleState::Purged);
     assert!(r.live_ended_at.is_some(), "a purge ends live updates");
@@ -1458,7 +1457,7 @@ async fn writes_nudge_and_destroy_the_channel() {
 
     let other = service::create(&app, OWNER, "Other").await.unwrap();
     service::delete(&app, OWNER, &other).await.unwrap();
-    assert_eq!(live.calls("destroy"), [raffle.id.clone(), other]);
+    assert_eq!(live.ended(), [raffle.id.clone(), other]);
 }
 
 /// The retention run ends the live channel of raffles finished over a day
@@ -1483,7 +1482,7 @@ async fn retention_ends_channels_and_logs_erasures() {
     let report = super::retention::run(&app).await.unwrap();
     assert_eq!(report.erased, 0);
     assert_eq!(report.channels_ended, 1);
-    assert_eq!(live.calls("destroy"), std::slice::from_ref(&old.id));
+    assert_eq!(live.ended(), std::slice::from_ref(&old.id));
     let r = db::raffle(&app.db, &old.id).await.unwrap().unwrap();
     assert!(r.live_ended_at.is_some());
     assert!(

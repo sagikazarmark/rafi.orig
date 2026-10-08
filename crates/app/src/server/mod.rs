@@ -3,7 +3,8 @@
 //!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small
-//! interfaces in [`AppState`] ([`live::Live`], [`ratelimit::RateLimit`]).
+//! interfaces from `rafi-platform` in [`AppState`] ([`Notifier`],
+//! [`RateLimit`]); each deployment plugs in its own.
 
 pub mod admin;
 pub mod altcha;
@@ -13,9 +14,7 @@ pub mod config;
 pub mod db;
 pub mod engine;
 pub mod ids;
-pub mod live;
 pub mod public;
-pub mod ratelimit;
 pub mod retention;
 pub mod service;
 pub mod view;
@@ -27,8 +26,9 @@ use std::{ops::Deref, sync::Arc};
 use anyhow::Context as _;
 use axum::{Extension, Router};
 use rafi_drand::DrandClient;
+use rafi_platform::{Notifier, RateLimit};
 
-use self::{config::Config, db::Db, engine::RestateClient, live::Live, ratelimit::RateLimit};
+use self::{config::Config, db::Db, engine::RestateClient};
 
 #[derive(Clone)]
 pub struct AppState(Arc<Inner>);
@@ -40,8 +40,8 @@ pub struct Inner {
     pub drand: DrandClient,
     /// The draw engine; `None` without `RESTATE_INGRESS_URL`.
     pub restate: Option<RestateClient>,
-    /// The raffles' live channels (natively: none, phones poll).
-    pub live: Arc<dyn Live>,
+    /// Live updates to clients (natively: none, clients poll).
+    pub notifier: Arc<dyn Notifier>,
     /// The join rate limits.
     pub limiter: Arc<dyn RateLimit>,
 }
@@ -54,8 +54,8 @@ impl Deref for AppState {
 }
 
 impl AppState {
-    /// The native server: opens (and migrates) the database; no live channel,
-    /// in-memory rate limits.
+    /// The native server: opens (and migrates) the database; no push (clients
+    /// poll), in-memory rate limits.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn new(cfg: Config) -> anyhow::Result<Self> {
         let db = db::connect(&cfg.database_url)
@@ -64,16 +64,16 @@ impl AppState {
         Self::from_parts(
             cfg,
             db,
-            Arc::new(live::Polling),
-            Arc::new(ratelimit::Limiter::default()),
+            Arc::new(rafi_platform::Polling::default()),
+            Arc::new(rafi_platform::Limiter::default()),
         )
     }
 
-    /// The app over a database and the platform's live channel and rate limits.
+    /// The app over a database and the platform's notifier and rate limits.
     pub fn from_parts(
         cfg: Config,
         db: Db,
-        live: Arc<dyn Live>,
+        notifier: Arc<dyn Notifier>,
         limiter: Arc<dyn RateLimit>,
     ) -> anyhow::Result<Self> {
         let restate =
@@ -81,11 +81,21 @@ impl AppState {
         Ok(Self(Arc::new(Inner {
             drand: DrandClient::new(cfg.drand.clone()).context("drand configuration")?,
             restate,
-            live,
+            notifier,
             limiter,
             db,
             cfg,
         })))
+    }
+
+    /// How clients follow `raffle_id`: the deployment's transport while its
+    /// live updates run, plain polling once they've ended.
+    pub fn transport(&self, raffle_id: &str, live_ended: bool) -> rafi_live::LiveTransport {
+        if live_ended {
+            rafi_live::LiveTransport::poll()
+        } else {
+            self.notifier.transport(raffle_id)
+        }
     }
 
     /// When personal data of a finished raffle is erased (the retention settings).

@@ -6,8 +6,9 @@
 //!   (90). Entrant IDs and the draw log stay, so the published draw remains
 //!   verifiable. Each erasure is logged in `erasures`, without personal data.
 //! - **Proof-of-work:** expired challenges leave `altcha_used`.
-//! - **Live channels:** a raffle that finished more than a day ago and still
-//!   has its live channel gets it destroyed, whether or not erasure is on.
+//! - **Live updates:** a raffle that finished more than a day ago and still
+//!   has live updates gets them ended ([`Notifier::end`](rafi_platform::Notifier::end);
+//!   on Workers, its channel object is destroyed), whether or not erasure is on.
 //!
 //! Every write is set-based (a few statements per run, whatever the number of
 //! entrants), to stay under D1's per-invocation query limit. A successful run
@@ -155,7 +156,7 @@ async fn end_channels(app: &AppState, now: i64) -> u64 {
     for (id,) in due {
         // Over raffles refuse sockets anyway, so destroying first is safe,
         // and a failure leaves the raffle for the next run.
-        if let Err(e) = app.live.destroy(&id).await {
+        if let Err(e) = app.notifier.end(&id).await {
             tracing::warn!(raffle_id = id, error = %e, "ending a live channel failed");
             continue;
         }

@@ -2,8 +2,8 @@
 //! from the participant endpoint.
 
 use dioxus::prelude::*;
-use partyline_dioxus::{ChannelOptions, Status, use_channel_latest};
-use rafi_live::{Card, ParticipantView, RaffleLive, Screen};
+use partyline_dioxus::{BaseUrl, ChannelOptions, Status, use_channel_latest};
+use rafi_live::{Card, LiveTransport, ParticipantView, RaffleLive, Screen};
 use wasm_bindgen::{JsCast, closure::Closure};
 
 use crate::{clock, config::PageConfig, extras};
@@ -141,20 +141,26 @@ fn App() -> Element {
 
     let current = view();
 
-    // Without a live channel, poll: faster while a draw is pending.
-    let channel = cfg.channel;
+    // The server says how to follow the raffle. Partyline subscribes (below);
+    // polling (and SSE, which has no client yet) polls, twice as often while a
+    // draw is pending.
+    let poll_ms = cfg.live.poll_every_ms();
     use_future({
         let refetch = refetch.clone();
         move || {
             let refetch = refetch.clone();
             async move {
-                if channel {
+                let Some(every) = poll_ms else {
                     return;
-                }
+                };
                 loop {
                     let pending = view.peek().current.is_some();
-                    gloo_timers::future::TimeoutFuture::new(if pending { 1_500 } else { 3_000 })
-                        .await;
+                    gloo_timers::future::TimeoutFuture::new(if pending {
+                        every / 2
+                    } else {
+                        every
+                    })
+                    .await;
                     if view.peek().state.is_live() {
                         let _ = refetch.unbounded_send(());
                     }
@@ -163,7 +169,10 @@ fn App() -> Element {
         }
     });
 
-    let live = current.state.is_live() && channel;
+    let subscription = match &cfg.live {
+        LiveTransport::Partyline { base_url } if current.state.is_live() => Some(base_url.clone()),
+        _ => None,
+    };
     let me_for_live = me.clone();
     rsx! {
         Card {
@@ -175,9 +184,10 @@ fn App() -> Element {
             strings: cfg.strings.clone(),
             announce: announce(),
         }
-        if live {
+        if let Some(base_url) = subscription {
             Live {
                 raffle_id: cfg.raffle_id.clone(),
+                base_url,
                 on_view: move |fresh: ParticipantView| {
                     let (mut view, mut announce) = (view, announce);
                     apply(fresh, &mut view, &mut announce, me_for_live.as_deref());
@@ -195,10 +205,15 @@ fn App() -> Element {
 #[component]
 fn Live(
     raffle_id: String,
+    base_url: Option<String>,
     on_view: EventHandler<ParticipantView>,
     on_resync: EventHandler<()>,
 ) -> Element {
-    let (latest, channel) = use_channel_latest::<RaffleLive>(ChannelOptions::new(raffle_id));
+    let mut options = ChannelOptions::new(raffle_id);
+    if let Some(url) = base_url {
+        options = options.base_url(BaseUrl::Explicit(url));
+    }
+    let (latest, channel) = use_channel_latest::<RaffleLive>(options);
     use_effect(move || {
         if let Some(fresh) = latest() {
             on_view.call(fresh);

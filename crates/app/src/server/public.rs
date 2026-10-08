@@ -56,7 +56,7 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
         Ok(r) => r,
         Err(status) => return status.into_response(),
     };
-    match rafi_channel::Snapshot::read(&app.db, &raffle.id).await {
+    match rafi_store::live::Snapshot::read(&app.db, &raffle.id).await {
         Ok(Some(snap)) => {
             ([(header::CACHE_CONTROL, "no-store")], Json(snap.view())).into_response()
         }

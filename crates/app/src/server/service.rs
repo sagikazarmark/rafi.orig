@@ -1,8 +1,8 @@
 //! Raffle operations shared by the admin API and the attendee routes.
 //!
-//! Every write that changes what phones see (the participant view) nudges
-//! the raffle's live channel ([`AppState::live`]). Joins don't: they never
-//! change it. The draw engine nudges after its own writes.
+//! Every write that changes what phones see (the participant view) notifies
+//! clients ([`AppState::notifier`]). Joins don't: they never change it. The
+//! draw engine notifies after its own writes.
 
 use std::collections::HashSet;
 
@@ -220,7 +220,7 @@ pub async fn delete(app: &AppState, owner: &str, id: &str) -> Result<()> {
         .await?;
     db::audit(&app.db, id, owner, "delete", "").await?;
     // Best effort: the raffle is gone either way, and its channel finds nothing to show.
-    if let Err(e) = app.live.destroy(id).await {
+    if let Err(e) = app.notifier.end(id).await {
         tracing::warn!(raffle_id = id, error = %e, "ending the live channel of a deleted raffle failed");
     }
     Ok(())
@@ -322,7 +322,7 @@ pub async fn upsert_item(
         }
     };
     // Before the freeze, phones count the prizes from the items.
-    app.live.nudge(raffle_id).await;
+    app.notifier.notify(raffle_id).await;
     Ok(id)
 }
 
@@ -344,7 +344,7 @@ pub async fn delete_item(
         .bind(raffle_id)
         .run()
         .await?;
-    app.live.nudge(raffle_id).await;
+    app.notifier.notify(raffle_id).await;
     Ok(())
 }
 
@@ -378,7 +378,7 @@ pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle)
         ));
     }
     db::audit(&app.db, id, owner, to.as_str(), "").await?;
-    app.live.nudge(id).await;
+    app.notifier.notify(id).await;
     Ok(())
 }
 
@@ -422,7 +422,7 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
                     "The raffle changed in the meantime; reload and try again.",
                 ));
             }
-            app.live.nudge(id).await;
+            app.notifier.notify(id).await;
             commit(app, owner, id, units, from).await?
         }
         RaffleState::Frozen if raffle.draw_state.is_none() => match raffle.commit_doc.as_deref() {
@@ -495,7 +495,7 @@ async fn commit(
             .bind(id)
             .run()
             .await?;
-        app.live.nudge(id).await;
+        app.notifier.notify(id).await;
         return Err(conflict("Nobody has entered yet."));
     }
     // The app alone decides the chain; the draw engine refuses a mismatch.
@@ -915,7 +915,7 @@ pub async fn patch_entrant(
     db::audit(&app.db, raffle_id, owner, "patch_entrant", entrant_id).await?;
     // A drawn entrant's name is on the phones.
     if renamed_or_hidden {
-        app.live.nudge(raffle_id).await;
+        app.notifier.notify(raffle_id).await;
     }
     Ok(())
 }
@@ -941,7 +941,7 @@ pub async fn remove_entrant(
         erase(app, raffle_id, Some(entrant_id)).await?;
         db::audit(&app.db, raffle_id, owner, "erase_entrant", entrant_id).await?;
     }
-    app.live.nudge(raffle_id).await;
+    app.notifier.notify(raffle_id).await;
     Ok(())
 }
 
@@ -999,7 +999,7 @@ pub async fn purge(app: &AppState, owner: &str, raffle_id: &str) -> Result<()> {
         .await?;
     db::audit(&app.db, raffle_id, owner, "purge", "").await?;
     // Destroying the channel publishes the final (erased) view first.
-    app.live.destroy(raffle_id).await?;
+    app.notifier.end(raffle_id).await?;
     Ok(())
 }
 
@@ -1026,7 +1026,7 @@ pub async fn end_live(app: &AppState, owner: &str, raffle_id: &str) -> Result<()
     if raffle.live_ended_at.is_none() {
         db::audit(&app.db, raffle_id, owner, "end_live", "").await?;
     }
-    app.live.destroy(raffle_id).await?;
+    app.notifier.end(raffle_id).await?;
     Ok(())
 }
 
