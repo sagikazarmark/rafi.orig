@@ -131,6 +131,18 @@ The inline `<head>` theme script stays JS.
 
 **Size budget:** ≤ 220 KB compressed; the prototype measured about 205 KB.
 
+### 2.5a Serving the admin and projector
+
+`dioxus-server` doesn't compile for Workers (§11), so the admin and projector are a **Dioxus web app served as static assets** (Workers Assets, single-page fallback). There's no server-side rendering or hydration for them.
+
+- **`api.rs` keeps its signatures.** Each server function becomes a typed client: it POSTs JSON to `/api/admin/<name>` and decodes the reply.
+- **The server side is plain axum routes** that call the existing `service` layer. The same routes run natively (tests, development, self-hosting) and on Workers (`worker` runs axum routers).
+- **Auth stays as it is:**
+  - the routes are same-origin, so Clerk's session cookie comes along;
+  - `dioxus-clerk`'s `worker` feature verifies it on Workers.
+- **The attendee page is unaffected:** plain routes with `dioxus::ssr`.
+- **One `rafi` crate with three features:** `web` (the UI), `server` (native axum) and `worker` (the Workers entry point: fetch, the Cron, and `RaffleChannel`).
+
 ### 2.6 Phone bugs fixed while porting
 
 - **`Winner` gains `claimed`**, so a claimed winner is no longer told to go to the organizer.
