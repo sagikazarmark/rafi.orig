@@ -9,8 +9,8 @@ use figment::{
     providers::{Env, Format, Json, Toml, Yaml},
 };
 use rafi_drand::DrandConfig;
+use rafi_store::{Db, DrawWriter, PurgeAfter};
 use restate_config::{EndpointConfig, ServiceOptionsConfig};
-use restate_rafi::DatabaseConfig;
 use serde::{Deserialize, Serialize};
 
 /// The environment variable prefix (e.g. `RESTATE_RAFI_DATABASE__URL`).
@@ -27,6 +27,49 @@ pub struct Config {
     pub drand: DrandConfig,
     /// The Rafi app's SQLite database, where the draw state is written.
     pub database: DatabaseConfig,
+}
+
+/// The Rafi app's database.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DatabaseConfig {
+    /// The same SQLite database the app uses (its `RAFI_DATABASE_URL`).
+    pub url: String,
+    /// Days after a raffle finishes until non-winners are erased. Set it to the
+    /// app's `RAFI_RETENTION_DAYS`: whoever stores the finished state dates it.
+    pub retention_nonwinners_days: i64,
+    /// Days after a raffle finishes until winners are erased (the app's
+    /// `RAFI_RETENTION_WINNERS_DAYS`).
+    pub retention_winners_days: i64,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            url: "sqlite://rafi.db".into(),
+            retention_nonwinners_days: 30,
+            retention_winners_days: 90,
+        }
+    }
+}
+
+impl DatabaseConfig {
+    /// When personal data of a finished raffle is erased.
+    pub fn purge_after(&self) -> PurgeAfter {
+        PurgeAfter::days(self.retention_nonwinners_days, self.retention_winners_days)
+    }
+
+    /// Where the draw engine writes draw states: the app's database, opened
+    /// lazily. The app owns the schema and creates the file; until it has,
+    /// writes fail and Restate retries them.
+    pub fn draw_store(&self) -> Result<DrawWriter> {
+        if self.url.trim().is_empty() {
+            bail!("database.url is required");
+        }
+        let db = Db::connect_lazy(&self.url)
+            .with_context(|| format!("invalid database.url {:?}", self.url))?;
+        Ok(DrawWriter::new(db, self.purge_after()))
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -66,6 +109,30 @@ mod tests {
     #![allow(clippy::result_large_err)] // figment::Jail returns figment::Error
 
     use super::*;
+
+    #[test]
+    fn database_url_is_required() {
+        let cfg = DatabaseConfig {
+            url: " ".into(),
+            ..DatabaseConfig::default()
+        };
+        assert!(cfg.draw_store().is_err());
+    }
+
+    #[tokio::test]
+    async fn opening_does_not_create_the_file() {
+        let path = std::env::temp_dir().join(format!("rafi-endpoint-{}.db", std::process::id()));
+        DatabaseConfig {
+            url: format!("sqlite://{}", path.display()),
+            ..DatabaseConfig::default()
+        }
+        .draw_store()
+        .unwrap();
+        assert!(
+            !path.exists(),
+            "the app creates the database, not the draw engine"
+        );
+    }
 
     #[test]
     fn defaults_listen_on_9080_with_real_drand() {

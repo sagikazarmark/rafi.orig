@@ -9,10 +9,9 @@ use rafi_core::{
     state::{DrawError, DrawState},
 };
 use rafi_drand::DrandClient;
+use rafi_platform::{DrawStore, Notifier};
 use restate_drand::{AwaitError, Drand};
 use restate_sdk::prelude::*;
-
-use crate::projector::Projector;
 
 /// The Restate service name.
 pub const SERVICE_NAME: &str = "Raffle";
@@ -23,18 +22,22 @@ const STATE: &str = "state";
 /// The draw engine for one raffle per key.
 pub struct Raffle {
     drand: Drand,
-    projector: Arc<dyn Projector>,
+    store: Arc<dyn DrawStore>,
+    notifier: Arc<dyn Notifier>,
 }
 
 impl Raffle {
-    pub fn new(drand: DrandClient, projector: impl Projector) -> Self {
+    /// Draws with `drand`, writes every state to `store` and tells clients
+    /// through `notifier`.
+    pub fn new(drand: DrandClient, store: impl DrawStore, notifier: impl Notifier) -> Self {
         let config = drand.config();
         let drand = Drand::new(drand.client().clone())
             .with_lead(Duration::from_secs(config.lead_secs))
             .with_fetch_budget(Duration::from_secs(config.timeout_secs));
         Self {
             drand,
-            projector: Arc::new(projector),
+            store: Arc::new(store),
+            notifier: Arc::new(notifier),
         }
     }
 }
@@ -58,13 +61,24 @@ fn draw_error(e: DrawError) -> HandlerError {
 }
 
 impl Raffle {
-    /// Hands the state to the projector, at least once (journaled, retried
-    /// until it succeeds: the database is the record), then tells the live
-    /// channel, best effort.
+    /// Writes the state to the store, at least once (journaled, retried until
+    /// it succeeds: the database is the record), then tells clients, best
+    /// effort.
     async fn project(&self, ctx: &ObjectContext<'_>, state: &DrawState) -> HandlerResult<()> {
-        let projector = &*self.projector;
+        let store = &*self.store;
         ctx.run(|| async move {
-            projector.project(state).await.map_err(HandlerError::from)?;
+            let written = store
+                .save_draw_state(state)
+                .await
+                .map_err(HandlerError::from)?;
+            if !written {
+                // Already stored (a retry), or for another entrant list.
+                tracing::debug!(
+                    raffle_id = state.raffle_id,
+                    version = state.version,
+                    "draw state not written"
+                );
+            }
             Ok(())
         })
         .name("project")
@@ -75,13 +89,15 @@ impl Raffle {
                 .max_delay(Duration::from_secs(5)),
         )
         .await?;
+        // Its own journaled step, so a replay doesn't notify again. The notifier
+        // logs and drops its own failures (clients re-read on their own), so a
+        // stuck notification can't block the raffle's object; the attempts
+        // only cover the step itself failing.
         let raffle_id = state.raffle_id.as_str();
+        let notifier = &*self.notifier;
         let notified = ctx
             .run(|| async move {
-                projector
-                    .notify(raffle_id)
-                    .await
-                    .map_err(HandlerError::from)?;
+                notifier.notify(raffle_id).await;
                 Ok(())
             })
             .name("notify")
@@ -92,7 +108,7 @@ impl Raffle {
             )
             .await;
         if let Err(e) = notified {
-            tracing::warn!(raffle_id, error = %e, "notifying the live channel failed");
+            tracing::warn!(raffle_id, error = %e, "notifying clients failed");
         }
         Ok(())
     }

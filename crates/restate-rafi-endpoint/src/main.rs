@@ -9,9 +9,10 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Parser;
 use rafi_drand::DrandClient;
+use rafi_platform::Polling;
 use restate_config::ConfigureEndpointExt;
 use restate_ext::shutdown_signal;
-use restate_rafi::{Raffle, SqliteProjector};
+use restate_rafi::Raffle;
 use restate_sdk::{endpoint::Endpoint, filter::ReplayAwareFilter, http_server::HttpServer};
 use tokio::net::TcpListener;
 use tracing::{info, warn};
@@ -72,7 +73,9 @@ async fn main() -> Result<()> {
 fn endpoint(config: Config) -> Result<Endpoint> {
     let raffle = Raffle::new(
         DrandClient::new(config.drand).context("invalid drand configuration")?,
-        SqliteProjector::new(&config.database)?,
+        config.database.draw_store()?,
+        // Natively there is no push: the app's clients poll the database.
+        Polling::default(),
     );
     Ok(Endpoint::builder()
         .configure(&config.endpoint)?

@@ -16,8 +16,9 @@ use rafi_core::{
     verify::verify,
 };
 use rafi_drand::{DrandClient, DrandConfig};
+use rafi_platform::{MemoryDrawStore, Recording};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
-use restate_rafi::{Raffle, RecordingProjector, SERVICE_NAME};
+use restate_rafi::{Raffle, SERVICE_NAME};
 use restate_sdk::endpoint::Endpoint;
 use serde_json::{Value, json};
 
@@ -50,9 +51,9 @@ fn doc(entrants: usize) -> CommitDoc {
 }
 
 /// Waits until the latest projection satisfies `f`.
-async fn projected(projector: &RecordingProjector, f: impl Fn(&DrawState) -> bool) -> DrawState {
+async fn projected(store: &MemoryDrawStore, f: impl Fn(&DrawState) -> bool) -> DrawState {
     for _ in 0..200 {
-        if let Some(s) = projector.latest(RAFFLE)
+        if let Some(s) = store.latest(RAFFLE)
             && f(&s)
         {
             return s;
@@ -61,7 +62,7 @@ async fn projected(projector: &RecordingProjector, f: impl Fn(&DrawState) -> boo
     }
     panic!(
         "projection not reached; latest: {:#?}",
-        projector.latest(RAFFLE)
+        store.latest(RAFFLE)
     );
 }
 
@@ -81,11 +82,12 @@ async fn e2e_raffle() {
         ..DrandConfig::default()
     })
     .unwrap();
-    let projector = RecordingProjector::default();
+    let store = MemoryDrawStore::default();
+    let notifier = std::sync::Arc::new(Recording::default());
     restate
         .deploy(
             Endpoint::builder()
-                .bind(Raffle::new(drand, projector.clone()))
+                .bind(Raffle::new(drand, store.clone(), notifier.clone()))
                 .build(),
         )
         .await;
@@ -99,7 +101,7 @@ async fn e2e_raffle() {
         .invoke(&call("freeze"), Some(&json!(doc)), Some("freeze-1"))
         .await;
     assert_eq!(reply.status, 200, "{}", reply.body);
-    let frozen = projected(&projector, |s| s.events.is_empty()).await;
+    let frozen = projected(&store, |s| s.events.is_empty()).await;
     assert_eq!(frozen.entrants.len(), 5);
     let reply = restate
         .invoke(&call("freeze"), Some(&json!(doc)), None)
@@ -135,7 +137,7 @@ async fn e2e_raffle() {
         .invoke(&call("draw").send(), Some(&draw), Some("draw-1"))
         .await;
     assert!(again.status < 300, "{}", again.body);
-    let s = projected(&projector, |s| {
+    let s = projected(&store, |s| {
         s.unit("ticket-1")
             .is_some_and(|u| u.status == UnitStatus::Drawn)
     })
@@ -179,7 +181,7 @@ async fn e2e_raffle() {
     restate
         .invoke(&call("draw").send(), Some(&draw), Some("draw-2"))
         .await;
-    let s = projected(&projector, |s| {
+    let s = projected(&store, |s| {
         s.unit("ticket-1")
             .is_some_and(|u| u.status == UnitStatus::Drawn)
             && s.next_k == 3
@@ -234,10 +236,15 @@ async fn e2e_raffle() {
             .status,
         200
     );
-    let finished = projected(&projector, |s| s.finished).await;
+    let finished = projected(&store, |s| s.finished).await;
     let reply = restate.invoke(&call("get"), None, None).await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.body, Value::Null, "state is cleared after finishing");
+    assert!(
+        notifier.notified().iter().all(|id| id == RAFFLE) && notifier.notified().len() >= 4,
+        "every write notifies clients: {:?}",
+        notifier.notified()
+    );
 
     // The projected log verifies independently.
     let report = verify(
@@ -268,11 +275,12 @@ async fn e2e_stalled_draw() {
         timeout_secs: 1,
     })
     .unwrap();
-    let projector = RecordingProjector::default();
+    let store = MemoryDrawStore::default();
+    let notifier = std::sync::Arc::new(Recording::default());
     restate
         .deploy(
             Endpoint::builder()
-                .bind(Raffle::new(drand, projector.clone()))
+                .bind(Raffle::new(drand, store.clone(), notifier.clone()))
                 .build(),
         )
         .await;
@@ -298,7 +306,7 @@ async fn e2e_stalled_draw() {
     restate
         .invoke(&call("draw").send(), Some(&draw), Some("draw-1"))
         .await;
-    let s = projected(&projector, |s| stalls(s) == 1).await;
+    let s = projected(&store, |s| stalls(s) == 1).await;
     let pending = s.pending.clone().expect("still pending");
 
     // Another unit is refused; this one retries the same round.
@@ -311,7 +319,7 @@ async fn e2e_stalled_draw() {
     restate
         .invoke(&call("draw").send(), Some(&draw), Some("draw-2"))
         .await;
-    let s = projected(&projector, |s| stalls(s) == 2).await;
+    let s = projected(&store, |s| stalls(s) == 2).await;
     assert_eq!(s.pending.as_ref(), Some(&pending));
 
     // Abandon: logged, the unit is free again.
@@ -325,7 +333,7 @@ async fn e2e_stalled_draw() {
         )
         .await;
     assert_eq!(reply.status, 200, "{}", reply.body);
-    let s = projected(&projector, |s| s.pending.is_none()).await;
+    let s = projected(&store, |s| s.pending.is_none()).await;
     let report = verify(
         &doc.canonical_json(),
         &s.list_hash,
@@ -354,11 +362,12 @@ async fn e2e_cancelled_draw_stalls() {
         ..DrandConfig::default()
     })
     .unwrap();
-    let projector = RecordingProjector::default();
+    let store = MemoryDrawStore::default();
+    let notifier = std::sync::Arc::new(Recording::default());
     restate
         .deploy(
             Endpoint::builder()
-                .bind(Raffle::new(drand, projector.clone()))
+                .bind(Raffle::new(drand, store.clone(), notifier.clone()))
                 .build(),
         )
         .await;
@@ -379,7 +388,7 @@ async fn e2e_cancelled_draw_stalls() {
         .await;
     assert!(sent.status < 300, "{}", sent.body);
     let id = sent.invocation_id().to_owned();
-    let pending = projected(&projector, |s| s.pending.is_some())
+    let pending = projected(&store, |s| s.pending.is_some())
         .await
         .pending
         .unwrap();
@@ -393,7 +402,7 @@ async fn e2e_cancelled_draw_stalls() {
     }
     restate.admin().cancel(&id).await;
 
-    let s = projected(&projector, |s| {
+    let s = projected(&store, |s| {
         s.events.iter().any(|e| matches!(e, Event::Stall { .. }))
     })
     .await;

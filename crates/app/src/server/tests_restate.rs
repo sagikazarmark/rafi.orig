@@ -11,8 +11,10 @@ use std::time::Duration;
 
 use rafi_core::state::{Outcome, UnitStatus};
 use rafi_drand::{DrandClient, DrandConfig};
+use rafi_platform::Polling;
+use rafi_store::{Db, DrawWriter, PurgeAfter};
 use restate_e2e_harness::{ReusePolicy, ServerSpec, launcher_or_skip};
-use restate_rafi::{DatabaseConfig, Raffle, SqliteProjector};
+use restate_rafi::Raffle;
 use restate_sdk::endpoint::Endpoint;
 
 use super::{
@@ -64,15 +66,12 @@ async fn app_and_restate_rafi_share_the_database() {
         ..DrandConfig::default()
     })
     .unwrap();
-    let projector = SqliteProjector::new(&DatabaseConfig {
-        url,
-        ..DatabaseConfig::default()
-    })
-    .unwrap();
+    // As the native endpoint opens it: lazily, without creating it.
+    let store = DrawWriter::new(Db::connect_lazy(&url).unwrap(), PurgeAfter::days(30, 90));
     restate
         .deploy(
             Endpoint::builder()
-                .bind(Raffle::new(drand, projector))
+                .bind(Raffle::new(drand, store, Polling::default()))
                 .build(),
         )
         .await;

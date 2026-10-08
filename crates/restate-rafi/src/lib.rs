@@ -8,16 +8,15 @@
 //! new one), and every beacon is BLS-verified against the committed chain.
 //!
 //! The object only ever sees anonymous entrant IDs. After every change it
-//! hands the state to a [`Projector`]; in production [`SqliteProjector`] writes
-//! it into the Rafi app's SQLite database, and the app pushes it to the screens.
+//! writes the state to a [`DrawStore`](rafi_platform::DrawStore) (the app's
+//! database), then tells clients through a
+//! [`Notifier`](rafi_platform::Notifier), best effort. Which database and which
+//! live transport is up to the deployment: this crate knows neither.
 //!
 //! What the service does is independent of how it is configured or served;
-//! the `restate-rafi-endpoint` crate is the binary that serves it.
+//! the `restate-rafi-endpoint` crate (native) and `rafi-restate-worker`
+//! (Cloudflare Workers) serve it.
 
-mod projector;
 mod service;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use projector::SqliteProjector;
-pub use projector::{BoxFuture, DatabaseConfig, Projector, RecordingProjector};
 pub use service::{Raffle, SERVICE_NAME};
