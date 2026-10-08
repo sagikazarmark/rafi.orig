@@ -12,7 +12,7 @@ use std::time::Duration;
 use rafi_core::state::{Outcome, UnitStatus};
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_platform::Polling;
-use rafi_store::{Db, DrawWriter, PurgeAfter};
+use rafi_store::{Db, DrawWriter, PurgeAfter, RaffleRow, raffles};
 use restate_e2e_harness::{ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_rafi::Raffle;
 use restate_sdk::endpoint::Endpoint;
@@ -20,7 +20,6 @@ use restate_sdk::endpoint::Endpoint;
 use super::{
     AppState,
     config::{Config, RestateConfig},
-    db,
     engine::{Command, RestateClient},
     service, view,
 };
@@ -33,9 +32,9 @@ const SERVER: ServerSpec = ServerSpec {
     env: &[],
 };
 
-async fn wait_for<F: Fn(&db::RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> db::RaffleRow {
+async fn wait_for<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> RaffleRow {
     for _ in 0..300 {
-        let r = db::raffle(&app.db, id).await.unwrap().unwrap();
+        let r = raffles::get(&app.db, id).await.unwrap().unwrap();
         if f(&r) {
             return r;
         }
@@ -113,7 +112,7 @@ async fn app_and_restate_rafi_share_the_database() {
             .unwrap();
     }
     assert_eq!(
-        db::raffle(&app.db, &id).await.unwrap().unwrap().engine,
+        raffles::get(&app.db, &id).await.unwrap().unwrap().engine,
         "restate"
     );
 
@@ -150,7 +149,7 @@ async fn app_and_restate_rafi_share_the_database() {
             .any(|d| d.display_name.starts_with("Person")),
         "the winner's name is on the screens"
     );
-    let r = db::raffle(&app.db, &id).await.unwrap().unwrap();
+    let r = raffles::get(&app.db, &id).await.unwrap().unwrap();
     assert_eq!(view.v, r.version as u64);
 
     service::command(
@@ -169,7 +168,7 @@ async fn app_and_restate_rafi_share_the_database() {
         .await
         .unwrap();
     wait_for(&app, &id, |r| r.state == "finished").await;
-    let r = db::raffle(&app.db, &id).await.unwrap().unwrap();
+    let r = raffles::get(&app.db, &id).await.unwrap().unwrap();
     assert!(
         r.purge_nonwinners_at.is_some(),
         "erasure is scheduled once finished"

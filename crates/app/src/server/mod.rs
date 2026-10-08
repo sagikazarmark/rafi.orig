@@ -1,5 +1,5 @@
-//! Server side: database, attendee pages, public and admin APIs, and the
-//! draw engine's client.
+//! Server side: attendee pages, public and admin APIs, and the draw engine's
+//! client. The database and all its SQL are in `rafi-store`.
 //!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small
@@ -11,7 +11,6 @@ pub mod altcha;
 pub mod attendee;
 pub mod auth;
 pub mod config;
-pub mod db;
 pub mod engine;
 pub mod ids;
 pub mod public;
@@ -27,8 +26,9 @@ use anyhow::Context as _;
 use axum::{Extension, Router};
 use rafi_drand::DrandClient;
 use rafi_platform::{Notifier, RateLimit};
+use rafi_store::Db;
 
-use self::{config::Config, db::Db, engine::RestateClient};
+use self::{config::Config, engine::RestateClient};
 
 #[derive(Clone)]
 pub struct AppState(Arc<Inner>);
@@ -58,7 +58,7 @@ impl AppState {
     /// poll), in-memory rate limits.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn new(cfg: Config) -> anyhow::Result<Self> {
-        let db = db::connect(&cfg.database_url)
+        let db = Db::connect(&cfg.database_url)
             .await
             .context("opening database")?;
         Self::from_parts(

@@ -8,13 +8,16 @@
 //!   [`LiveTransport`] clients use;
 //! - [`RateLimit`], with the [`Limit`] keys;
 //! - [`DrawStore`]: where the draw engine writes draw states;
-//! - [`rule::decide`]: when a live channel publishes a participant view.
+//! - [`rule::decide`]: when a live channel publishes a participant view;
+//! - [`sendable`]: a `Send` future from one that is only `Send` natively
+//!   (wasm32 is single-threaded).
 //!
 //! This crate depends on no database and no platform.
 
 mod notifier;
 mod ratelimit;
 pub mod rule;
+mod send;
 mod store;
 
 use std::{future::Future, pin::Pin};
@@ -24,10 +27,11 @@ pub use rafi_live::LiveTransport;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ratelimit::Limiter;
 pub use ratelimit::{Limit, RateLimit};
+pub use send::sendable;
 pub use store::{DrawStore, MemoryDrawStore};
 
 /// A boxed, sendable future, so the interfaces work as trait objects (axum
 /// and the Restate SDK require `Send`). Implementations whose futures aren't
 /// `Send` (Workers' bindings, single-threaded) wrap them, for example with
-/// `worker::send::SendFuture`.
+/// [`sendable`] or `worker::send::SendFuture`.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

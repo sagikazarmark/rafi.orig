@@ -18,14 +18,10 @@ use axum::{
 use dioxus::prelude::*;
 use rafi_live::{Card, CardStrings, LiveTransport, ParticipantView, Phase};
 use rafi_platform::Limit;
-use rafi_store::live::Snapshot;
+use rafi_store::{EntrantRow, RaffleRow, entrants, items, live::Snapshot, raffles};
 use serde::{Deserialize, Serialize};
 
-use super::{
-    AppState, altcha,
-    db::{self, EntrantRow, RaffleRow},
-    ids, service,
-};
+use super::{AppState, altcha, ids, service};
 use crate::{i18n::Lang, icons::I};
 
 const COOKIE_MAX_AGE: i64 = 3 * 86_400;
@@ -95,7 +91,7 @@ fn normalize_code(code: &str) -> String {
 }
 
 async fn load(app: &AppState, code: &str) -> Option<RaffleRow> {
-    let raffle = db::raffle_by_join_code(&app.db, &normalize_code(code))
+    let raffle = raffles::by_join_code(&app.db, &normalize_code(code))
         .await
         .ok()
         .flatten()?;
@@ -108,7 +104,7 @@ async fn current_entrant(
     headers: &HeaderMap,
 ) -> Option<EntrantRow> {
     let token = cookie(headers, &cookie_name(&raffle.id))?;
-    db::entrant_by_token(&app.db, &raffle.id, &ids::token_hash(&token))
+    entrants::by_token(&app.db, &raffle.id, &ids::token_hash(&token))
         .await
         .ok()
         .flatten()
@@ -418,7 +414,6 @@ async fn snapshot(app: &AppState, raffle: &RaffleRow) -> Option<Snapshot> {
     }
 }
 
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn page(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
@@ -451,7 +446,6 @@ async fn page(
     with_lang_cookie(resp, &q, app.cfg.cookie_secure)
 }
 
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn submit(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
@@ -553,7 +547,6 @@ async fn try_join(
 }
 
 /// The current attendee's own entry (cookie-authenticated, never cached).
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn me(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
@@ -598,21 +591,20 @@ fn text_page(
     Html(document(lang, title, body, None))
 }
 
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn rules(
     Extension(app): Extension<AppState>,
     Path(slug): Path<String>,
     Query(q): Query<LangQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let Ok(Some(r)) = db::raffle_by_slug(&app.db, &slug).await else {
+    let Ok(Some(r)) = raffles::by_slug(&app.db, &slug).await else {
         return not_found(pick_lang(&q, &headers, None));
     };
     if !r.state().is_public() {
         return not_found(pick_lang(&q, &headers, None));
     }
     let lang = pick_lang(&q, &headers, Some(&r));
-    let items = db::items(&app.db, &r.id).await.unwrap_or_default();
+    let items = items::list(&app.db, &r.id).await.unwrap_or_default();
     let prizes: Vec<String> = items
         .iter()
         .map(|i| {
@@ -693,14 +685,13 @@ fn contact(r: &RaffleRow) -> String {
     }
 }
 
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn privacy(
     Extension(app): Extension<AppState>,
     Path(slug): Path<String>,
     Query(q): Query<LangQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let Ok(Some(r)) = db::raffle_by_slug(&app.db, &slug).await else {
+    let Ok(Some(r)) = raffles::by_slug(&app.db, &slug).await else {
         return not_found(pick_lang(&q, &headers, None));
     };
     if !r.state().is_public() {

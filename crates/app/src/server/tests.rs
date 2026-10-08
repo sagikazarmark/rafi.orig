@@ -15,9 +15,10 @@ use rafi_core::{
 };
 use rafi_live::LiveTransport;
 use rafi_platform::{Limiter, Notifier, Polling, Recording};
+use rafi_store::{RaffleRow, entrants, items, raffles};
 use tower::ServiceExt;
 
-use super::{AppState, config::Config, db, engine::Command, fake_engine, routes, service};
+use super::{AppState, config::Config, engine::Command, fake_engine, routes, service};
 use crate::model::{ItemInput, Lifecycle};
 
 const OWNER: &str = "user_test";
@@ -111,7 +112,7 @@ async fn join(
     (status, cookie, text)
 }
 
-async fn setup_open(app: &AppState, items: &[(&str, u32)]) -> db::RaffleRow {
+async fn setup_open(app: &AppState, items: &[(&str, u32)]) -> RaffleRow {
     let id = service::create(app, OWNER, "Cloud Native Budapest")
         .await
         .unwrap();
@@ -136,12 +137,12 @@ async fn setup_open(app: &AppState, items: &[(&str, u32)]) -> db::RaffleRow {
     service::lifecycle(app, OWNER, &id, Lifecycle::Open)
         .await
         .unwrap();
-    db::raffle(&app.db, &id).await.unwrap().unwrap()
+    raffles::get(&app.db, &id).await.unwrap().unwrap()
 }
 
-async fn wait_for<F: Fn(&db::RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> db::RaffleRow {
+async fn wait_for<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> RaffleRow {
     for _ in 0..200 {
-        let r = db::raffle(&app.db, id).await.unwrap().unwrap();
+        let r = raffles::get(&app.db, id).await.unwrap().unwrap();
         if f(&r) {
             return r;
         }
@@ -151,9 +152,9 @@ async fn wait_for<F: Fn(&db::RaffleRow) -> bool>(app: &AppState, id: &str, f: F)
 }
 
 /// [`wait_for`] for slow conditions (stalls take a round period plus the timeout).
-async fn wait_long<F: Fn(&db::RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> db::RaffleRow {
+async fn wait_long<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> RaffleRow {
     for _ in 0..1000 {
-        let r = db::raffle(&app.db, id).await.unwrap().unwrap();
+        let r = raffles::get(&app.db, id).await.unwrap().unwrap();
         if f(&r) {
             return r;
         }
@@ -221,7 +222,7 @@ async fn full_raffle_flow() {
     )
     .await;
     assert!(page.contains("Person 0"));
-    let me = db::entrants(&app.db, &raffle.id)
+    let me = entrants::list(&app.db, &raffle.id)
         .await
         .unwrap()
         .into_iter()
@@ -242,7 +243,7 @@ async fn full_raffle_flow() {
     service::add_manual(&app, OWNER, &raffle.id, "No Phone", None)
         .await
         .unwrap();
-    assert_eq!(db::entrants(&app.db, &raffle.id).await.unwrap().len(), 6);
+    assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 6);
 
     // Freeze; joining is closed afterwards.
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
@@ -342,7 +343,7 @@ async fn full_raffle_flow() {
                 first
             );
         }
-        let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+        let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
         winners.push(
             r.draw_state()
                 .unwrap()
@@ -389,7 +390,7 @@ async fn full_raffle_flow() {
     service::command(&app, OWNER, &raffle.id, Command::Finish, "fin")
         .await
         .unwrap();
-    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state(), RaffleState::Finished);
     assert!(r.purge_nonwinners_at.is_some());
 
@@ -417,14 +418,14 @@ async fn full_raffle_flow() {
         .unwrap();
     let report = super::retention::run(&app).await.unwrap();
     assert_eq!(report.erased, 6);
-    let entrants = db::entrants(&app.db, &raffle.id).await.unwrap();
+    let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert!(
         entrants
             .iter()
             .all(|e| e.purged && e.email_raw.is_none() && e.token_hash.is_none())
     );
     assert_eq!(
-        db::raffle(&app.db, &raffle.id)
+        raffles::get(&app.db, &raffle.id)
             .await
             .unwrap()
             .unwrap()
@@ -471,7 +472,7 @@ async fn public_view_has_no_personal_data() {
     .await;
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     wait_for(&app, &raffle.id, |r| r.draw_state.is_some()).await;
-    let state = db::raffle(&app.db, &raffle.id)
+    let state = raffles::get(&app.db, &raffle.id)
         .await
         .unwrap()
         .unwrap()
@@ -503,7 +504,7 @@ async fn public_view_has_no_personal_data() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let claim = db::entrants(&app.db, &raffle.id).await.unwrap()[0]
+    let claim = entrants::list(&app.db, &raffle.id).await.unwrap()[0]
         .claim_code
         .clone();
     assert!(body.contains("Visible"));
@@ -530,7 +531,7 @@ async fn get_json(
 }
 
 async fn version(app: &AppState, id: &str) -> u64 {
-    db::raffle(&app.db, id).await.unwrap().unwrap().version as u64
+    raffles::get(&app.db, id).await.unwrap().unwrap().version as u64
 }
 
 /// The full view's `v` is the raffle's `version` column, which every write
@@ -622,7 +623,7 @@ async fn participant_view_has_no_personal_data() {
         .entrant_id
         .clone()
         .unwrap();
-    let entrants = db::entrants(&app.db, &raffle.id).await.unwrap();
+    let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     let winner = entrants.iter().find(|e| e.id == winner_id).unwrap();
     let other = entrants.iter().find(|e| e.id != winner_id).unwrap();
 
@@ -680,7 +681,7 @@ async fn drafts_are_private() {
     let app = app().await;
     let router = routes(app.clone());
     let id = service::create(&app, OWNER, "Secret").await.unwrap();
-    let raffle = db::raffle(&app.db, &id).await.unwrap().unwrap();
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
     let (status, _, _) = send(
         &router,
         Request::get(format!("/j/{}", raffle.join_code))
@@ -752,7 +753,12 @@ async fn join_requires_proof_of_work_and_consent() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(db::entrants(&app.db, &raffle.id).await.unwrap().is_empty());
+    assert!(
+        entrants::list(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -818,7 +824,7 @@ async fn draws_need_restate() {
         .unwrap_err();
     assert!(err.to_string().contains("Restate"), "{err}");
     assert_eq!(
-        db::raffle(&app.db, &raffle.id)
+        raffles::get(&app.db, &raffle.id)
             .await
             .unwrap()
             .unwrap()
@@ -947,7 +953,7 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
     .await;
     assert_eq!((status, body.as_str()), (StatusCode::OK, "null"));
     assert_eq!(
-        db::raffle(&app.db, &id).await.unwrap().unwrap().state(),
+        raffles::get(&app.db, &id).await.unwrap().unwrap().state(),
         RaffleState::Ready
     );
 
@@ -1002,7 +1008,7 @@ async fn lifecycle_guards() {
     );
     // The failed freeze must not leave the raffle frozen.
     assert_eq!(
-        db::raffle(&app.db, &id).await.unwrap().unwrap().state(),
+        raffles::get(&app.db, &id).await.unwrap().unwrap().state(),
         RaffleState::Open
     );
     assert!(
@@ -1010,7 +1016,7 @@ async fn lifecycle_guards() {
         "fakes need test mode"
     );
     let dup = service::duplicate(&app, OWNER, &id).await.unwrap();
-    assert_eq!(db::items(&app.db, &dup).await.unwrap().len(), 1);
+    assert_eq!(items::list(&app.db, &dup).await.unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -1050,7 +1056,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
 
     // Starting again re-sends the same commitment.
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let again = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    let again = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(again.commit_doc, r.commit_doc);
 }
 
@@ -1066,7 +1072,7 @@ async fn fake_entrants_are_added_in_one_batch() {
     service::add_fakes(&app, OWNER, &raffle.id, service::MAX_FAKE_ENTRANTS + 1)
         .await
         .unwrap();
-    let entrants = db::entrants(&app.db, &raffle.id).await.unwrap();
+    let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert_eq!(entrants.len(), service::MAX_FAKE_ENTRANTS as usize);
     assert!(entrants.iter().all(|e| e.source == "fake" && !e.hidden));
     let ids: std::collections::HashSet<_> = entrants.iter().map(|e| &e.id).collect();
@@ -1120,7 +1126,7 @@ async fn stalled_draw_keeps_its_round() {
         let (app, raffle_id) = (app.clone(), raffle.id.clone());
         async move { draw_cmd(&app, &raffle_id, &unit, offline, &id).await }
     };
-    let stalls = |r: &db::RaffleRow| {
+    let stalls = |r: &RaffleRow| {
         r.draw_state()
             .map(|s| {
                 s.events
@@ -1271,7 +1277,7 @@ async fn joins_stop_at_the_entrant_cap() {
     assert!(cookie.is_none());
     assert!(page.contains("this raffle is full"), "{page}");
     assert!(page.contains("id=\"join\""), "the form stays");
-    assert_eq!(db::entrants(&app.db, &raffle.id).await.unwrap().len(), 2);
+    assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 2);
 
     let (status, _, page) = join(&router, &raffle.join_code, "Again", "p0@example.com").await;
     assert_eq!(status, StatusCode::OK);
@@ -1302,7 +1308,7 @@ async fn proof_of_work_replays_are_refused() {
     let (status, _, page) = send(&router, post("Bot", "bot@example.com")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(page.contains("human"), "{page}");
-    assert_eq!(db::entrants(&app.db, &raffle.id).await.unwrap().len(), 1);
+    assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 1);
 
     let solution = rafi_live::altcha::Solution::from_payload(&altcha).unwrap();
     let rows: Vec<(String, i64)> = app
@@ -1345,7 +1351,7 @@ async fn proof_of_work_replays_are_refused() {
 }
 
 /// A raffle with three entrants, frozen and finished without draws.
-async fn finished_raffle(app: &AppState) -> db::RaffleRow {
+async fn finished_raffle(app: &AppState) -> RaffleRow {
     let raffle = setup_open(app, &[("Prize", 1)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
         service::add_manual(app, OWNER, &raffle.id, name, None)
@@ -1356,7 +1362,7 @@ async fn finished_raffle(app: &AppState) -> db::RaffleRow {
     service::command(app, OWNER, &raffle.id, Command::Finish, "fin")
         .await
         .unwrap();
-    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state(), RaffleState::Finished);
     r
 }
@@ -1383,7 +1389,7 @@ async fn ending_live_updates() {
     assert!(!view.live_ended);
 
     service::end_live(&app, OWNER, &raffle.id).await.unwrap();
-    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     let ended = r.live_ended_at.expect("live_ended_at is set");
     assert_eq!(live.ended(), std::slice::from_ref(&raffle.id));
     let view = super::view::build(&app, &raffle.id).await.unwrap().unwrap();
@@ -1393,7 +1399,7 @@ async fn ending_live_updates() {
     // Again: the channel is destroyed again, the time stays.
     service::end_live(&app, OWNER, &raffle.id).await.unwrap();
     assert_eq!(live.ended().len(), 2);
-    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.live_ended_at, Some(ended));
     // Other organizers can't.
     assert!(matches!(
@@ -1419,7 +1425,7 @@ async fn writes_nudge_and_destroy_the_channel() {
         .unwrap();
     assert_eq!(nudges(), before, "joins don't nudge");
 
-    let anna = db::entrants(&app.db, &raffle.id).await.unwrap()[0]
+    let anna = entrants::list(&app.db, &raffle.id).await.unwrap()[0]
         .id
         .clone();
     service::patch_entrant(
@@ -1443,7 +1449,7 @@ async fn writes_nudge_and_destroy_the_channel() {
         .unwrap();
     service::purge(&app, OWNER, &raffle.id).await.unwrap();
     assert_eq!(live.ended(), std::slice::from_ref(&raffle.id));
-    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state(), RaffleState::Purged);
     assert!(r.live_ended_at.is_some(), "a purge ends live updates");
     let (logged,): (i64,) = app
@@ -1483,10 +1489,10 @@ async fn retention_ends_channels_and_logs_erasures() {
     assert_eq!(report.erased, 0);
     assert_eq!(report.channels_ended, 1);
     assert_eq!(live.ended(), std::slice::from_ref(&old.id));
-    let r = db::raffle(&app.db, &old.id).await.unwrap().unwrap();
+    let r = raffles::get(&app.db, &old.id).await.unwrap().unwrap();
     assert!(r.live_ended_at.is_some());
     assert!(
-        db::raffle(&app.db, &recent.id)
+        raffles::get(&app.db, &recent.id)
             .await
             .unwrap()
             .unwrap()
@@ -1524,14 +1530,14 @@ async fn retention_ends_channels_and_logs_erasures() {
         .unwrap();
     let report = super::retention::run(&app).await.unwrap();
     assert_eq!(report.erased, 3);
-    let entrants = db::entrants(&app.db, &old.id).await.unwrap();
+    let entrants = entrants::list(&app.db, &old.id).await.unwrap();
     assert!(
         entrants
             .iter()
             .all(|e| e.purged && e.display_name.starts_with('#'))
     );
     assert!(
-        db::entrants(&app.db, &recent.id)
+        entrants::list(&app.db, &recent.id)
             .await
             .unwrap()
             .iter()
@@ -1539,7 +1545,11 @@ async fn retention_ends_channels_and_logs_erasures() {
     );
     // Not yet purged: the winners' date hasn't passed.
     assert_eq!(
-        db::raffle(&app.db, &old.id).await.unwrap().unwrap().state(),
+        raffles::get(&app.db, &old.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state(),
         RaffleState::Finished
     );
     let log: Vec<serde_json::Value> = app.db.query("SELECT * FROM erasures").all().await.unwrap();

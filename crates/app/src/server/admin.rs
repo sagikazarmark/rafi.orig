@@ -20,7 +20,6 @@ pub fn routes() -> Router {
 
 /// `ClerkAuthLayer` (around the whole router) verifies the session; without one,
 /// or without the layer, `auth` is `None` and only dev auth lets the call through.
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn call(
     Extension(app): Extension<AppState>,
     auth: Option<ClerkAuth>,

@@ -6,8 +6,9 @@ use rafi_core::{
     raffle::RaffleState,
     state::{Event, Outcome, UnitStatus},
 };
+use rafi_store::view::Full;
 
-use super::{AppState, db};
+use super::AppState;
 use crate::model::{CurrentDraw, DrawView, PrizeView, RaffleView, UnitView};
 
 /// Display name used when the organizer hid an entrant's name (the same on
@@ -21,47 +22,15 @@ pub fn join_url(app: &AppState, join_code: &str) -> String {
     format!("{}/j/{join_code}", app.cfg.public_url)
 }
 
-/// The raffle, its items and entrants, read in one snapshot (one batch), so
-/// the version and the content agree.
-async fn read(
-    app: &AppState,
-    raffle_id: &str,
-) -> rafi_store::Result<Option<(db::RaffleRow, Vec<db::ItemRow>, Vec<db::EntrantRow>)>> {
-    let db = &app.db;
-    let mut sets = db
-        .batch_rows(vec![
-            db.query("SELECT * FROM raffles WHERE id = ?")
-                .bind(raffle_id),
-            db.query("SELECT * FROM items WHERE raffle_id = ? ORDER BY position, rowid")
-                .bind(raffle_id),
-            db.query("SELECT * FROM entrants WHERE raffle_id = ? ORDER BY created_at, rowid")
-                .bind(raffle_id),
-        ])
-        .await?
-        .into_iter();
-    let (Some(raffle), Some(items), Some(entrants)) = (sets.next(), sets.next(), sets.next())
-    else {
-        return Ok(None);
-    };
-    let Some(raffle) = raffle.into_iter().next() else {
-        return Ok(None);
-    };
-    fn decode_all<T: serde::de::DeserializeOwned>(
-        rows: Vec<rafi_store::Row>,
-    ) -> rafi_store::Result<Vec<T>> {
-        rows.into_iter().map(|r| r.decode()).collect()
-    }
-    Ok(Some((
-        raffle.decode()?,
-        decode_all(items)?,
-        decode_all(entrants)?,
-    )))
-}
-
 /// The full view of a raffle, or `None` if it doesn't exist. Its `v` is the
 /// raffle's version.
 pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<RaffleView>> {
-    let Some((raffle, items, entrants)) = read(app, raffle_id).await? else {
+    let Some(Full {
+        raffle,
+        items,
+        entrants,
+    }) = Full::read(&app.db, raffle_id).await?
+    else {
         return Ok(None);
     };
     let now = super::ids::now();

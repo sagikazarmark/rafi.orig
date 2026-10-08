@@ -30,13 +30,11 @@ fn entrant(raffle: &str, name: &str) -> String {
 }
 
 async fn draw_state(db: &Db, raffle: &str) -> Result<DrawState> {
-    let (json,): (String,) = db
-        .query("SELECT draw_state FROM raffles WHERE id = ?")
-        .bind(raffle)
-        .one()
+    rafi_store::raffles::get(db, raffle)
         .await
-        .map_err(err)?;
-    serde_json::from_str(&json).map_err(err)
+        .map_err(err)?
+        .and_then(|r| r.draw_state())
+        .ok_or_else(|| err("the raffle has no draw state"))
 }
 
 async fn reset(db: &Db, raffle: &str) -> Result<()> {

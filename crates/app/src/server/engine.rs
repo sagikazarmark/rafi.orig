@@ -12,10 +12,13 @@ use std::time::Duration;
 use anyhow::{Context as _, bail};
 pub use rafi_core::engine::Command;
 use rafi_core::{commit::CommitDoc, state::DrawState};
+use rafi_platform::sendable;
 use serde::Serialize;
 
 use super::config::RestateConfig;
 
+/// Calls the ingress over HTTP. reqwest's wasm32 futures aren't `Send`, so
+/// each call is wrapped in [`sendable`] for the handlers that make it.
 #[derive(Clone)]
 pub struct RestateClient {
     http: reqwest::Client,
@@ -24,7 +27,7 @@ pub struct RestateClient {
 
 impl RestateClient {
     pub fn new(cfg: RestateConfig) -> Self {
-        // On wasm32 (Workers) reqwest has no timeouts; the platform bounds requests.
+        // On wasm32 reqwest has no timeouts; the platform bounds requests.
         #[cfg(not(target_arch = "wasm32"))]
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
@@ -41,35 +44,38 @@ impl RestateClient {
         handler: &str,
         send: bool,
         idempotency_key: &str,
-        body: &impl Serialize,
+        body: &(impl Serialize + Sync),
     ) -> anyhow::Result<()> {
-        let mut url = format!("{}/Raffle/{}/{handler}", self.cfg.ingress_url, raffle_id);
-        if send {
-            url.push_str("/send");
-        }
-        let mut req = self
-            .http
-            .post(&url)
-            .json(body)
-            .header("idempotency-key", idempotency_key);
-        if !self.cfg.api_key.is_empty() {
-            req = req.bearer_auth(&self.cfg.api_key);
-        }
-        let resp = req
-            .send()
-            .await
-            .with_context(|| format!("calling Restate {handler}"))?;
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            // Restate wraps terminal errors as JSON {"message": ...}.
-            let message = serde_json::from_str::<serde_json::Value>(&text)
-                .ok()
-                .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_owned))
-                .unwrap_or(text);
-            bail!("{message} (Restate {handler}: HTTP {status})");
-        }
-        Ok(())
+        sendable(async move {
+            let mut url = format!("{}/Raffle/{}/{handler}", self.cfg.ingress_url, raffle_id);
+            if send {
+                url.push_str("/send");
+            }
+            let mut req = self
+                .http
+                .post(&url)
+                .json(body)
+                .header("idempotency-key", idempotency_key);
+            if !self.cfg.api_key.is_empty() {
+                req = req.bearer_auth(&self.cfg.api_key);
+            }
+            let resp = req
+                .send()
+                .await
+                .with_context(|| format!("calling Restate {handler}"))?;
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                // Restate wraps terminal errors as JSON {"message": ...}.
+                let message = serde_json::from_str::<serde_json::Value>(&text)
+                    .ok()
+                    .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_owned))
+                    .unwrap_or(text);
+                bail!("{message} (Restate {handler}: HTTP {status})");
+            }
+            Ok(())
+        })
+        .await
     }
 
     pub async fn freeze(&self, doc: &CommitDoc) -> anyhow::Result<()> {
@@ -104,25 +110,31 @@ impl RestateClient {
     /// Reads the object's state through the shared handler.
     #[cfg_attr(not(test), allow(dead_code))]
     pub async fn get(&self, raffle_id: &str) -> anyhow::Result<Option<DrawState>> {
-        let url = format!("{}/Raffle/{}/get", self.cfg.ingress_url, raffle_id);
-        let mut req = self.http.post(&url);
-        if !self.cfg.api_key.is_empty() {
-            req = req.bearer_auth(&self.cfg.api_key);
-        }
-        let resp = req.send().await?.error_for_status()?;
-        Ok(resp.json().await?)
+        sendable(async move {
+            let url = format!("{}/Raffle/{}/get", self.cfg.ingress_url, raffle_id);
+            let mut req = self.http.post(&url);
+            if !self.cfg.api_key.is_empty() {
+                req = req.bearer_auth(&self.cfg.api_key);
+            }
+            let resp = req.send().await?.error_for_status()?;
+            Ok(resp.json().await?)
+        })
+        .await
     }
 
     pub async fn healthy(&self) -> bool {
-        let url = format!("{}/restate/health", self.cfg.ingress_url);
-        let mut req = self.http.get(&url);
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            req = req.timeout(Duration::from_secs(3));
-        }
-        if !self.cfg.api_key.is_empty() {
-            req = req.bearer_auth(&self.cfg.api_key);
-        }
-        matches!(req.send().await, Ok(r) if r.status().is_success())
+        sendable(async move {
+            let url = format!("{}/restate/health", self.cfg.ingress_url);
+            let mut req = self.http.get(&url);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                req = req.timeout(Duration::from_secs(3));
+            }
+            if !self.cfg.api_key.is_empty() {
+                req = req.bearer_auth(&self.cfg.api_key);
+            }
+            matches!(req.send().await, Ok(r) if r.status().is_success())
+        })
+        .await
     }
 }

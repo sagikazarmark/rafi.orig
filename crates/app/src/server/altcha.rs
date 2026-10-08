@@ -1,9 +1,9 @@
 //! The join form's proof-of-work: issuing challenges and redeeming solutions
 //! ([`rafi_live::altcha`]'s scheme, ALTCHA-compatible).
 //!
-//! Each challenge is accepted once: a redeemed challenge is stored in
-//! `altcha_used` until it expires, and a second redemption fails its primary
-//! key. The retention run deletes expired rows.
+//! Each challenge is accepted once ([`rafi_store::altcha`]): a redeemed
+//! challenge is kept until it expires, and a second redemption is refused.
+//! The retention run deletes expired ones.
 
 pub use rafi_live::altcha::Challenge;
 use rafi_live::altcha::{self, Solution};
@@ -36,26 +36,15 @@ pub async fn redeem(app: &AppState, payload: &str) -> rafi_store::Result<bool> {
         return Ok(false);
     }
     let expires_at = solution.expires_at().unwrap_or_default();
-    let inserted = app
-        .db
-        .query("INSERT INTO altcha_used (challenge, expires_at) VALUES (?, ?)")
-        .bind(&solution.challenge)
-        .bind(i64::try_from(expires_at).unwrap_or(i64::MAX))
-        .run()
-        .await;
-    match inserted {
-        Ok(_) => Ok(true),
-        Err(e) if e.is_unique_violation() => Ok(false),
-        Err(e) => Err(e),
-    }
+    rafi_store::altcha::redeem(
+        &app.db,
+        &solution.challenge,
+        i64::try_from(expires_at).unwrap_or(i64::MAX),
+    )
+    .await
 }
 
 /// Deletes the challenges that have expired (they can't be redeemed anyway).
 pub async fn purge_expired(app: &AppState) -> rafi_store::Result<()> {
-    app.db
-        .query("DELETE FROM altcha_used WHERE expires_at < ?")
-        .bind(ids::now())
-        .run()
-        .await?;
-    Ok(())
+    rafi_store::altcha::purge_expired(&app.db, ids::now()).await
 }

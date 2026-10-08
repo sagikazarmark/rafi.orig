@@ -7,8 +7,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use rafi_store::{RaffleRow, live::Snapshot, raffles};
 
-use super::{AppState, altcha, db, service, view};
+use super::{AppState, altcha, service, view};
 
 pub fn routes() -> Router {
     Router::new()
@@ -20,8 +21,8 @@ pub fn routes() -> Router {
         .route("/healthz", get(|| async { "ok" }))
 }
 
-async fn public_raffle(app: &AppState, slug: &str) -> Result<db::RaffleRow, StatusCode> {
-    match db::raffle_by_slug(&app.db, slug).await {
+async fn public_raffle(app: &AppState, slug: &str) -> Result<RaffleRow, StatusCode> {
+    match raffles::by_slug(&app.db, slug).await {
         Ok(Some(r)) if r.state().is_public() => Ok(r),
         Ok(_) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
@@ -32,7 +33,6 @@ async fn public_raffle(app: &AppState, slug: &str) -> Result<db::RaffleRow, Stat
 }
 
 /// The full view: what the projector and the admin show. They poll it.
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn full_view(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     let raffle = match public_raffle(&app, &slug).await {
         Ok(r) => r,
@@ -50,13 +50,12 @@ async fn full_view(Extension(app): Extension<AppState>, Path(slug): Path<String>
 
 /// The participant view: what phones show. No personal data beyond the
 /// drawn entrants' display names (masked when hidden).
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     let raffle = match public_raffle(&app, &slug).await {
         Ok(r) => r,
         Err(status) => return status.into_response(),
     };
-    match rafi_store::live::Snapshot::read(&app.db, &raffle.id).await {
+    match Snapshot::read(&app.db, &raffle.id).await {
         Ok(Some(snap)) => {
             ([(header::CACHE_CONTROL, "no-store")], Json(snap.view())).into_response()
         }
@@ -68,7 +67,6 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
     }
 }
 
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn verify_json(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     match service::verify_data(&app, &slug).await {
         Ok(data) => Json(data).into_response(),
@@ -90,15 +88,9 @@ async fn challenge(Extension(app): Extension<AppState>) -> Response {
 
 /// Number of raffles that are live right now. The deploy pipeline refuses to
 /// restart the server while this is non-zero.
-#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn status(Extension(app): Extension<AppState>) -> Response {
-    let live: Result<(i64,), _> = app
-        .db
-        .query("SELECT COUNT(*) FROM raffles WHERE state IN ('open', 'frozen', 'drawing') AND test_mode = 0")
-        .one()
-        .await;
-    match live {
-        Ok((n,)) => (
+    match raffles::live_count(&app.db).await {
+        Ok(n) => (
             [(header::CACHE_CONTROL, "no-store")],
             Json(serde_json::json!({ "live_raffles": n })),
         )
