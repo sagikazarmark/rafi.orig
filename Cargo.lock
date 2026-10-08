@@ -4136,6 +4136,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "partyline-worker"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c67b116a5a919e7fbaee6192f25f78b6b29e540bb355aab529f5e796d048a73"
+dependencies = [
+ "partyline",
+ "serde_json",
+ "worker",
+]
+
+[[package]]
 name = "pastey"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4584,6 +4595,33 @@ dependencies = [
  "uuid",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "rafi-channel"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "partyline-worker",
+ "rafi-core",
+ "rafi-live",
+ "rafi-store",
+ "serde",
+ "serde_json",
+ "tokio",
+ "wasm-bindgen",
+ "worker",
+]
+
+[[package]]
+name = "rafi-channel-check"
+version = "0.0.0"
+dependencies = [
+ "rafi-channel",
+ "rafi-core",
+ "rafi-store",
+ "serde_json",
+ "worker",
 ]
 
 [[package]]

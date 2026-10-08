@@ -1,0 +1,25 @@
+# Local only: drives rafi-channel's Durable Object (see scenario.mjs).
+name = "rafi-channel-check"
+main = "build/index.js"
+compatibility_date = "2026-05-01"
+
+[build]
+command = "worker-build --release"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rafi-channel-check"
+database_id = "00000000-0000-0000-0000-000000000001"
+migrations_dir = "../../migrations"
+
+[[durable_objects.bindings]]
+name = "RAFFLE_CHANNEL"
+class_name = "RaffleChannel"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RaffleChannel"]
+
+# workerd (wrangler dev) doesn't implement jurisdictions; production uses "eu".
+[vars]
+RAFI_DO_JURISDICTION = ""
