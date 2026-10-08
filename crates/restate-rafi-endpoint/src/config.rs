@@ -25,7 +25,7 @@ pub struct Config {
     pub services: ServicesConfig,
     /// Beacon relays and timing.
     pub drand: DrandConfig,
-    /// The Rafi app's SQLite database, where the draw state is written.
+    /// The Rafi app's database (SQLite or Postgres), where the draw state is written.
     pub database: DatabaseConfig,
 }
 
@@ -33,7 +33,8 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DatabaseConfig {
-    /// The same SQLite database the app uses (its `RAFI_DATABASE_URL`).
+    /// The same database the app uses (its `RAFI_DATABASE_URL`): `sqlite://…`
+    /// or `postgres://…`.
     pub url: String,
     /// Days after a raffle finishes until non-winners are erased. Set it to the
     /// app's `RAFI_RETENTION_DAYS`: whoever stores the finished state dates it.
@@ -60,8 +61,8 @@ impl DatabaseConfig {
     }
 
     /// Where the draw engine writes draw states: the app's database, opened
-    /// lazily. The app owns the schema and creates the file; until it has,
-    /// writes fail and Restate retries them.
+    /// lazily. The app owns the schema (and creates the SQLite file); until it
+    /// has, writes fail and Restate retries them.
     pub fn draw_store(&self) -> Result<DrawWriter> {
         if self.url.trim().is_empty() {
             bail!("database.url is required");

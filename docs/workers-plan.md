@@ -350,7 +350,7 @@ Rafi relies on Restate. There is no fallback draw path:
 
 Decided 2026-10-08. Cloudflare is one deployment, not an assumption of the code. Every platform-specific piece sits behind an interface, and Cloudflare's implementations live in one crate.
 
-In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done; §11); (2) all SQL into `rafi-store`, written for both dialects (done; §11); (3) Postgres.
+In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done; §11); (2) all SQL into `rafi-store`, written for both dialects (done; §11); (3) Postgres, natively for self-hosting (done; §11).
 
 - **`rafi-platform`:** the interfaces a deployment provides:
   - `Notifier`: "this raffle changed" by ID, "end its live updates", and the `LiveTransport` clients should use;
@@ -374,11 +374,11 @@ In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done
 
   The app's `worker.rs` and `rafi-restate-worker` only wire it up.
 - **`rafi-store` owns all SQL**, as domain functions, the participant snapshot included. It implements `DrawStore`. Backends:
-  - SQLite (native; its migrations also serve D1);
-  - **Postgres (native, self-hosted)**, chosen by the URL scheme;
+  - SQLite (native, the default; its migrations also serve D1);
+  - **Postgres (native, self-hosted)**, chosen by the URL scheme (`postgres://`), with its own migrations in `migrations/postgres`;
   - D1 (Workers).
 
-  Postgres on Workers through Hyperdrive is not planned yet. The store testsuite runs against every backend.
+  Postgres on Workers through Hyperdrive is not planned. The store testsuite runs against every backend (Postgres when `RAFI_TEST_POSTGRES_URL` is set, as on CI).
 - **Rate limiting has three layers:**
   - edge protection keyed by IP belongs to the platform (Cloudflare WAF; Caddy when self-hosted) and needs no app code;
   - rafi's own limits are app policy over the injected `RateLimit`: per raffle, and per email, never per IP, since a venue shares one;
@@ -456,6 +456,17 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
     - `SUM` over a `BIGINT` column is `NUMERIC` in Postgres (the snapshot's `COALESCE(SUM(qty), 0)`), and `SELECT 1` is `INT4` (`entrants::email_taken`). Decoding has to accept both, or the SQL casts.
     - Unique violations are recognized by sqlx's `is_unique_violation`. The message fallback, `UNIQUE constraint failed`, is SQLite's.
     - The `retention::DUE` predicate is built once (`LazyLock`) from the dialect function, so it needs one per dialect. `draw_state` is `TEXT`, so the Postgres variant casts it to `jsonb`.
+- **Ports and adapters, pass 3 (§7a): Postgres for self-hosting.** Native only; SQLite stays the default and D1 the Workers backend, both unchanged.
+  - **Selection:** `Db::connect` and `connect_lazy` open Postgres for `postgres://` and `postgresql://` URLs, SQLite for anything else (as before). `Db::dialect()` returns `Dialect::Sqlite` (SQLite, D1) or `Dialect::Postgres`. The backend is rafi-store's default `postgres` feature (sqlx's Postgres driver with rustls); it is inert on wasm32. Natively, `Native` is an enum over the `sqlite` and `postgres` backends.
+  - **Placeholders:** the Postgres backend rewrites `?N` to `$N` and each bare `?` to the next `$N`, outside string literals, quoted names and comments. `$` is left alone.
+  - **Parameters:** values are bound as `INT8`, `FLOAT8` or `TEXT`. `NULL` is bound untyped (OID 0), so Postgres infers its type from the column or comparison. Statements that bind a `NULL` aren't cached (sqlx caches prepared statements by SQL text alone), so an inferred type never sticks to a later run that binds a value. `(?2 IS NULL OR id = ?2)` on its first run is refused (Postgres types `$2` at `IS NULL` and can't: SQLSTATE 42P08); the backend then runs the whole operation again with `NULL`s typed `TEXT`. The SQL is unchanged.
+  - **Decoding** by type OID, from the binary format: `INT2`/`INT4`/`INT8` and `BOOL` as `Int`; `NUMERIC` (from `SUM`) as `Int` when integral, else `Real`; `FLOAT4`/`FLOAT8` as `Real`; text types as `Text`. No SQL needed a cast: `COALESCE(SUM(qty), 0)` and `SELECT 1` decode as they are.
+  - **Transactions are serializable** (`default_transaction_isolation` on every connection), as SQLite's effectively are, so the entrant cap (`INSERT … SELECT … WHERE (SELECT COUNT(*) …) < cap`) stays exact when joins race; under Postgres's default read committed it would not. A serialization failure or deadlock reruns the operation (a statement or a whole batch, both self-contained), up to ten times with a short jittered sleep. A test races 16 joins against a cap of 5.
+  - **Batches** run in a transaction, as on SQLite; `batch_rows` therefore reads one serializable snapshot.
+  - **The one dialect statement:** `jsonb_array_elements((draw_state)::jsonb -> 'events') AS x(value)` with `x.value ->> 'type'` and `->> 'entrant_id'`. A `NULL` draw state has no elements, as with `json_each`. `retention::due(dialect)` builds its predicate once per dialect.
+  - **Migrations:** `migrations/postgres/0001_init.sql` and `0002_workers.sql` mirror the SQLite files: `BIGINT` for every integer (flags stay 0/1), `GENERATED BY DEFAULT AS IDENTITY` for `AUTOINCREMENT`, the same constraints and indexes. The version bump is a `BEFORE UPDATE` trigger on `raffles` that increments `NEW.version` unless the write already changed it (SQLite's `AFTER UPDATE` re-updates the row; the result is the same), and one `AFTER INSERT OR UPDATE OR DELETE` trigger function per child table bumps the raffle. sqlx and wrangler skip the subdirectory in `migrations/`, so D1 and SQLite are unaffected.
+  - **Unique violations** come from sqlx's `is_unique_violation` (SQLSTATE 23505), as before.
+  - **Tests:** with `RAFI_TEST_POSTGRES_URL` set, the store testsuite runs every scenario on a fresh schema (`rafi_store::testing::fresh_schema`: `CREATE SCHEMA`, then `search_path` through the URL's `options`), and so do the app's tests, including the end-to-end test where `restate-server` and `restate-rafi` share the schema. The schemas are left behind: use a throwaway database. The `erase` scenario now erases everyone first, which caught the `NULL` typing above. CI's `test` job runs a `postgres:16` service.
 - **Still needs your accounts:**
   - staging and production on Cloudflare: D1 with `--jurisdiction eu`, secrets, custom domains;
   - the Restate Cloud deployment;

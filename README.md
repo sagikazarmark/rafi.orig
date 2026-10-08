@@ -48,7 +48,7 @@ app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ dat
 ```
 crates/core                   rafi-core: draw algorithm, drand math, state machine, verifier (pure, tested, vectors)
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) on the drand crate
-crates/store                  rafi-store: the schema, SQLite and D1 backends, the draw state write, the participant snapshot
+crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the draw state write, the participant snapshot
 crates/restate-rafi           restate-rafi: the `Raffle` virtual object (library)
 crates/restate-rafi-endpoint  restate-rafi: the binary serving it (config, logging, Dockerfile)
 crates/live                   rafi-live: what a phone sees (participant view, card, proof-of-work, live transport)
@@ -57,7 +57,7 @@ crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleChanne
 crates/attendee               rafi-attendee: the attendee page's WebAssembly, and its JavaScript fallback
 crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (attendee pages, JSON APIs)
                               src/server: the Restate client, attendee SSR pages, proof-of-work, retention
-migrations                    SQLite schema
+migrations                    SQLite (and D1) schema; migrations/postgres: the same for Postgres
 tools                         verify.py: independent verifier (Python standard library only)
 testdata                      shared test vectors
 compose.yaml                  a local Restate server for development
@@ -161,6 +161,17 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 
 Without `RESTATE_SERVER_BIN` the end-to-end tests skip (and fail on CI).
 
+With `RAFI_TEST_POSTGRES_URL` naming a throwaway Postgres database, the store's scenarios and the app's tests
+(the end-to-end one included) also run against Postgres, each on a fresh schema, which they leave behind. CI sets
+it. Locally, for example:
+
+```sh
+D=$(mktemp -d); initdb -D $D/pg -U rafi --auth=trust >/dev/null
+pg_ctl -D $D/pg -o "-p 54329 -k ''" -l $D/pg.log start && createdb -h 127.0.0.1 -p 54329 -U rafi rafi_test
+export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
+# afterwards: pg_ctl -D $D/pg stop && rm -rf $D
+```
+
 ## Configuration
 
 The app:
@@ -171,7 +182,7 @@ The app:
 | `RAFI_PUBLIC_DIR` | `target/dx/rafi/release/web/public` | The bundled web app (the image sets `/usr/local/app/public`) |
 | `RAFI_ATTENDEE_DIR` | `crates/attendee/dist` | The attendee page's WebAssembly and fallback, from `./scripts/attendee.sh` (the image sets `/usr/local/app/attendee`) |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL (QR codes, links) |
-| `RAFI_DATABASE_URL` | `sqlite://rafi.db` | SQLite database (shared with `restate-rafi`) |
+| `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `restate-rafi`: SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`, the database must exist). The app applies the migrations on start |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |
 | `CLERK_SECRET_KEY` | | Clerk backend key (`CLERK_PUBLISHABLE_KEY` at build time) |
 | `RESTATE_INGRESS_URL`, `RESTATE_API_KEY` | | The draw engine's Restate ingress (Restate Cloud: an API key with ingress access). Without it, draws can't start |
@@ -205,6 +216,14 @@ environment's signing public key). The app calls the Restate Cloud ingress with 
 
 Without Restate Cloud, `docker compose --profile self-hosted up -d` also runs a Restate server on the VM and registers
 `restate-rafi` with it (see the comments in `compose.yaml`).
+
+PostgreSQL instead of SQLite: point both at the same, existing database, the app with
+`RAFI_DATABASE_URL=postgres://user:password@host/rafi` and `restate-rafi` with the same URL in `database.url`
+(`RESTATE_RAFI_DATABASE__URL`). The app applies the migrations (`migrations/postgres`) on start, as it does for
+SQLite; until it has, `restate-rafi`'s writes fail and Restate retries them. Transactions run serializable, as on
+SQLite. Connections use TLS when the server offers it; add `?sslmode=verify-full` to require it, against the Mozilla
+root certificates or `sslrootcert=<file>`. `deploy/compose.yaml` keeps SQLite; its comments show the Postgres
+variant.
 
 To update: build and push new images (CI does it on `main`; by hand, `docker buildx build --platform linux/amd64
 --build-arg CLERK_PUBLISHABLE_KEY -t ghcr.io/sagikazarmark/rafi:latest --push .` and the same for

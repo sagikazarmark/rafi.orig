@@ -44,7 +44,7 @@ environment variable, `__` separating the levels (`RESTATE_RAFI_DATABASE__URL`);
 
 | Setting | Variable | Default | |
 |---|---|---|---|
-| `database.url` | `RESTATE_RAFI_DATABASE__URL` | `sqlite://rafi.db` | The app's database (its `RAFI_DATABASE_URL`) |
+| `database.url` | `RESTATE_RAFI_DATABASE__URL` | `sqlite://rafi.db` | The app's database (its `RAFI_DATABASE_URL`): `sqlite://…` or `postgres://user:password@host/db` |
 | `database.retention_nonwinners_days` | `RESTATE_RAFI_DATABASE__RETENTION_NONWINNERS_DAYS` | `30` | Days after a raffle finishes until non-winners are erased; dated when the finished state is stored. Must match the app's `RAFI_RETENTION_DAYS` |
 | `database.retention_winners_days` | `RESTATE_RAFI_DATABASE__RETENTION_WINNERS_DAYS` | `90` | The same for winners (the app's `RAFI_RETENTION_WINNERS_DAYS`) |
 | `endpoint.listener` | `RESTATE_RAFI_ENDPOINT__LISTENER` | `0.0.0.0:9080` | Listen address |
