@@ -6,14 +6,29 @@
 
 use std::sync::LazyLock;
 
-use crate::{Db, Result, dialect, entrants::ERASED};
+use crate::{
+    Db, Result,
+    dialect::{self, Dialect},
+    entrants::ERASED,
+};
 
 /// The entrants (of table `entrants`) whose personal data is due for erasure
 /// at `?1`: in a finished raffle, not yet erased; non-winners once the
 /// raffle's non-winner date passed; winners (they claimed a prize) once the
 /// winner date passed, or the non-winner date if their prize was delivered.
-static DUE: LazyLock<String> = LazyLock::new(|| {
-    let winners = dialect::draw_state_entrants("r.draw_state", "units", "status", "claimed");
+/// Built once per dialect.
+fn due(dialect: Dialect) -> &'static str {
+    static SQLITE: LazyLock<String> = LazyLock::new(|| due_sql(Dialect::Sqlite));
+    static POSTGRES: LazyLock<String> = LazyLock::new(|| due_sql(Dialect::Postgres));
+    match dialect {
+        Dialect::Sqlite => &SQLITE,
+        Dialect::Postgres => &POSTGRES,
+    }
+}
+
+fn due_sql(dialect: Dialect) -> String {
+    let winners =
+        dialect::draw_state_entrants(dialect, "r.draw_state", "units", "status", "claimed");
     format!(
         "entrants.purged = 0 AND EXISTS (
             SELECT 1 FROM raffles r
@@ -25,13 +40,13 @@ static DUE: LazyLock<String> = LazyLock::new(|| {
                   ELSE r.purge_nonwinners_at <= ?1
               END)"
     )
-});
+}
 
 /// Erases every entrant that is due at `now`, logs the erasures, and marks
 /// raffles whose winners are due as purged: one batch, all or nothing.
 /// Returns how many entrants were erased.
 pub async fn erase_due(db: &Db, now: i64) -> Result<u64> {
-    let due = &*DUE;
+    let due = due(db.dialect());
     let (count,): (i64,) = db
         .query(format!("SELECT COUNT(*) FROM entrants WHERE {due}"))
         .bind(now)

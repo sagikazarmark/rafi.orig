@@ -4,10 +4,14 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi's database: all of its SQL, as domain functions over SQLite (native) and D1 (Workers), including the draw state write shared by the app and the draw engine, and the participant snapshot"
+description = "Rafi's database: all of its SQL, as domain functions over SQLite and Postgres (native) and D1 (Workers), including the draw state write shared by the app and the draw engine, and the participant snapshot"
 publish = false
 
 [features]
+default = ["postgres"]
+## PostgreSQL as a native backend (`postgres://` database URLs), for
+## self-hosting. Native only: Workers use D1, and ignore it.
+postgres = ["sqlx/postgres", "dep:tokio"]
 ## The shared backend scenarios (`testsuite`), for running against D1.
 testsuite = []
 
@@ -20,9 +24,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
-# Native: SQLite through sqlx (self-hosting, development, tests).
+# Native: SQLite (and Postgres) through sqlx (self-hosting, development, tests).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+# Postgres retries a serialization failure after a short sleep.
+tokio = { version = "1", features = ["time"], optional = true }
 
 # Cloudflare Workers: D1.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -32,4 +38,4 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }

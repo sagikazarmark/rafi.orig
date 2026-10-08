@@ -1,88 +1,99 @@
-//! SQLite through sqlx, for self-hosting, development and tests.
+//! The native backends, chosen by the database URL's scheme: SQLite (the
+//! default) or, with the `postgres` feature, PostgreSQL.
 
-use std::{str::FromStr, time::Duration};
+use sqlx::SqlitePool;
 
-use sqlx::{
-    Column, Row as _, SqlitePool, TypeInfo, ValueRef,
-    sqlite::{
-        SqliteArguments, SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow,
-        SqliteSynchronous,
-    },
-};
-
+#[cfg(feature = "postgres")]
+use super::postgres::{self, Postgres};
+use super::sqlite::{self, Sqlite};
 use crate::{
+    dialect::Dialect,
     error::{Error, Result},
     query::{Db, Statement},
-    value::{Row, Value},
+    value::Row,
 };
 
 #[derive(Clone)]
-pub(crate) struct Native {
-    pool: SqlitePool,
+pub(crate) enum Native {
+    Sqlite(Sqlite),
+    #[cfg(feature = "postgres")]
+    Postgres(Postgres),
+}
+
+/// Whether `url` names a Postgres database (`postgres://`, `postgresql://`).
+/// Anything else is SQLite, as before Postgres was supported.
+fn is_postgres(url: &str) -> bool {
+    let scheme = url.split_once(':').map_or("", |(s, _)| s);
+    scheme.eq_ignore_ascii_case("postgres") || scheme.eq_ignore_ascii_case("postgresql")
+}
+
+#[cfg(not(feature = "postgres"))]
+fn no_postgres() -> Error {
+    Error::Backend("rafi-store was built without the `postgres` feature".into())
 }
 
 impl Db {
-    /// Opens (creating if missing) and migrates the database at `url`
-    /// (`sqlite://rafi.db`, `sqlite::memory:`).
+    /// Opens and migrates the database at `url`.
     ///
-    /// File databases use WAL, so the app and a self-hosted draw engine can write
-    /// the same file, and wait up to five seconds for each other's locks. An
-    /// in-memory database exists per connection, so it keeps exactly one.
+    /// - `sqlite://rafi.db`, `sqlite::memory:`: SQLite, creating the file if
+    ///   missing. File databases use WAL, so the app and a self-hosted draw
+    ///   engine can write the same file, and wait up to five seconds for each
+    ///   other's locks. An in-memory database exists per connection, so it
+    ///   keeps exactly one.
+    /// - `postgres://user:password@host/db` (or `postgresql://`): PostgreSQL;
+    ///   the database must exist. Every transaction is serializable, as SQLite's
+    ///   are, and retried when Postgres aborts it as a serialization failure.
     pub async fn connect(url: &str) -> Result<Self> {
-        let in_memory = url.contains(":memory:");
-        let opts = options(url)?.create_if_missing(true);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(if in_memory { 1 } else { 8 })
-            .min_connections(if in_memory { 1 } else { 0 })
-            .idle_timeout((!in_memory).then(|| Duration::from_secs(600)))
-            .max_lifetime((!in_memory).then(|| Duration::from_secs(3600)))
-            .connect_with(opts)
-            .await?;
-        let db = Self::from_pool(pool);
+        let backend = if is_postgres(url) {
+            #[cfg(feature = "postgres")]
+            {
+                Native::Postgres(postgres::connect(url).await?)
+            }
+            #[cfg(not(feature = "postgres"))]
+            return Err(no_postgres());
+        } else {
+            Native::Sqlite(sqlite::connect(url).await?)
+        };
+        let db = Self { backend };
         db.migrate().await?;
         Ok(db)
     }
 
     /// Opens the existing database at `url` lazily: the first query connects.
-    /// Neither creates the file nor migrates it; that's the app's job, so a
-    /// writer that starts first (the draw engine) fails until the app has
+    /// Neither creates the database nor migrates it; that's the app's job, so
+    /// a writer that starts first (the draw engine) fails until the app has
     /// run, and is retried.
     pub fn connect_lazy(url: &str) -> Result<Self> {
-        let opts = options(url)?.create_if_missing(false);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(2)
-            .connect_lazy_with(opts);
-        Ok(Self::from_pool(pool))
+        let backend = if is_postgres(url) {
+            #[cfg(feature = "postgres")]
+            {
+                Native::Postgres(postgres::connect_lazy(url)?)
+            }
+            #[cfg(not(feature = "postgres"))]
+            return Err(no_postgres());
+        } else {
+            Native::Sqlite(sqlite::connect_lazy(url)?)
+        };
+        Ok(Self { backend })
     }
 
-    /// Wraps an existing pool (it must already be migrated).
+    /// Wraps an existing SQLite pool (it must already be migrated).
     pub fn from_pool(pool: SqlitePool) -> Self {
         Self {
-            backend: Native { pool },
+            backend: Native::Sqlite(Sqlite { pool }),
         }
     }
 
-    /// Brings the schema up to date. On D1, `wrangler d1 migrations apply` runs
-    /// the same files instead.
+    /// Brings the schema up to date: `migrations/` for SQLite (on D1,
+    /// `wrangler d1 migrations apply` runs the same files instead), and
+    /// `migrations/postgres/` for Postgres.
     pub async fn migrate(&self) -> Result<()> {
-        sqlx::migrate!("../../migrations")
-            .run(&self.backend.pool)
-            .await
-            .map_err(|e| Error::Backend(e.to_string()))
+        match &self.backend {
+            Native::Sqlite(b) => b.migrate().await,
+            #[cfg(feature = "postgres")]
+            Native::Postgres(b) => b.migrate().await,
+        }
     }
-}
-
-/// Connection options for a database URL.
-pub fn options(url: &str) -> Result<SqliteConnectOptions> {
-    let opts = SqliteConnectOptions::from_str(url)?
-        .foreign_keys(true)
-        .busy_timeout(Duration::from_secs(5));
-    Ok(if url.contains(":memory:") {
-        opts
-    } else {
-        opts.journal_mode(SqliteJournalMode::Wal)
-            .synchronous(SqliteSynchronous::Normal)
-    })
 }
 
 impl From<sqlx::Error> for Error {
@@ -95,76 +106,59 @@ impl From<sqlx::Error> for Error {
     }
 }
 
-/// Statements come from rafi's own code with every value bound as a parameter,
-/// never interpolated, which is what sqlx's audit marker asks for.
-fn prepare(stmt: &Statement) -> sqlx::query::Query<'_, sqlx::Sqlite, SqliteArguments> {
-    let mut q = sqlx::query(sqlx::AssertSqlSafe(stmt.sql.as_str()));
-    for p in &stmt.params {
-        q = match p {
-            Value::Null => q.bind(None::<i64>),
-            Value::Int(i) => q.bind(*i),
-            Value::Real(f) => q.bind(*f),
-            Value::Text(s) => q.bind(s.as_str()),
-        };
-    }
-    q
-}
-
-fn to_row(row: &SqliteRow) -> Result<Row> {
-    let mut out = Row::default();
-    for (i, col) in row.columns().iter().enumerate() {
-        out.columns.push(col.name().to_owned());
-        let raw = row.try_get_raw(i)?;
-        let value = if raw.is_null() {
-            Value::Null
-        } else {
-            match raw.type_info().name() {
-                "INTEGER" | "BOOLEAN" | "INT8" | "INT" | "BIGINT" => Value::Int(row.try_get(i)?),
-                "REAL" | "FLOAT" | "DOUBLE" | "NUMERIC" => Value::Real(row.try_get(i)?),
-                "BLOB" => {
-                    let bytes: Vec<u8> = row.try_get(i)?;
-                    Value::Text(String::from_utf8_lossy(&bytes).into_owned())
-                }
-                _ => Value::Text(row.try_get(i)?),
-            }
-        };
-        out.values.push(value);
-    }
-    Ok(out)
-}
-
 impl Native {
+    pub(crate) fn dialect(&self) -> Dialect {
+        match self {
+            Self::Sqlite(_) => Dialect::Sqlite,
+            #[cfg(feature = "postgres")]
+            Self::Postgres(_) => Dialect::Postgres,
+        }
+    }
+
     pub(crate) async fn all(&self, stmt: Statement) -> Result<Vec<Row>> {
-        prepare(&stmt)
-            .fetch_all(&self.pool)
-            .await?
-            .iter()
-            .map(to_row)
-            .collect()
+        match self {
+            Self::Sqlite(b) => b.all(stmt).await,
+            #[cfg(feature = "postgres")]
+            Self::Postgres(b) => b.all(stmt).await,
+        }
     }
 
     pub(crate) async fn run(&self, stmt: Statement) -> Result<u64> {
-        Ok(prepare(&stmt).execute(&self.pool).await?.rows_affected())
+        match self {
+            Self::Sqlite(b) => b.run(stmt).await,
+            #[cfg(feature = "postgres")]
+            Self::Postgres(b) => b.run(stmt).await,
+        }
     }
 
     pub(crate) async fn batch(&self, stmts: Vec<Statement>) -> Result<Vec<u64>> {
-        let mut tx = self.pool.begin().await?;
-        let mut changes = Vec::with_capacity(stmts.len());
-        for stmt in &stmts {
-            changes.push(prepare(stmt).execute(&mut *tx).await?.rows_affected());
+        match self {
+            Self::Sqlite(b) => b.batch(stmts).await,
+            #[cfg(feature = "postgres")]
+            Self::Postgres(b) => b.batch(stmts).await,
         }
-        tx.commit().await?;
-        Ok(changes)
     }
 
     pub(crate) async fn batch_rows(&self, stmts: Vec<Statement>) -> Result<Vec<Vec<Row>>> {
-        let mut tx = self.pool.begin().await?;
-        let mut out = Vec::with_capacity(stmts.len());
-        for stmt in &stmts {
-            let rows = prepare(stmt).fetch_all(&mut *tx).await?;
-            out.push(rows.iter().map(to_row).collect::<Result<_>>()?);
+        match self {
+            Self::Sqlite(b) => b.batch_rows(stmts).await,
+            #[cfg(feature = "postgres")]
+            Self::Postgres(b) => b.batch_rows(stmts).await,
         }
-        tx.commit().await?;
-        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_postgres;
+
+    #[test]
+    fn the_scheme_picks_the_backend() {
+        assert!(is_postgres("postgres://rafi@localhost/rafi"));
+        assert!(is_postgres("postgresql://rafi@localhost/rafi"));
+        assert!(is_postgres("POSTGRES://rafi@localhost/rafi"));
+        assert!(!is_postgres("sqlite://rafi.db"));
+        assert!(!is_postgres("sqlite::memory:"));
+        assert!(!is_postgres("rafi.db"));
     }
 }

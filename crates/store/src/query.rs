@@ -2,12 +2,14 @@
 //!
 //! The shape follows sqlx (`db.query(sql).bind(x).all().await`), so the SQL and
 //! its call sites read the same on every backend. Statements use `?` or `?N`
-//! placeholders; both SQLite and D1 accept them.
+//! placeholders; SQLite and D1 accept them, and the Postgres backend
+//! rewrites them to `$N`.
 
 use serde::de::DeserializeOwned;
 
 use crate::{
     backend::Backend,
+    dialect::Dialect,
     error::{Error, Result},
     value::{Row, Value},
 };
@@ -19,6 +21,11 @@ pub struct Db {
 }
 
 impl Db {
+    /// The backend's SQL dialect, for the few statements that differ.
+    pub fn dialect(&self) -> Dialect {
+        self.backend.dialect()
+    }
+
     /// Starts a statement.
     pub fn query(&self, sql: impl Into<String>) -> Query<'_> {
         Query {

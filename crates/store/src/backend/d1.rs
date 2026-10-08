@@ -11,6 +11,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use worker::{D1Database, D1PreparedStatement, send::SendFuture};
 
 use crate::{
+    dialect::Dialect,
     error::{Error, Result},
     query::{Db, Statement},
     value::{Row, Value},
@@ -79,6 +80,11 @@ fn from_js(value: JsValue) -> Value {
 /// nothing can actually move them across threads; this keeps [`Db`]'s futures
 /// `Send` on every target, as axum and the Restate SDK require.
 impl D1 {
+    /// D1 is SQLite.
+    pub(crate) fn dialect(&self) -> Dialect {
+        Dialect::Sqlite
+    }
+
     pub(crate) fn all(
         &self,
         stmt: Statement,

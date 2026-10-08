@@ -1,9 +1,13 @@
 //! Rafi's database, shared by the app, the draw engine and the live channel.
 //!
 //! The schema lives in `migrations/` at the workspace root. Natively the
-//! database is SQLite (through sqlx), and [`Db::connect`] applies the
-//! migrations; on Cloudflare Workers it is D1, and `wrangler d1 migrations
-//! apply` applies the same files.
+//! database is SQLite or, for self-hosting, PostgreSQL (through sqlx, chosen
+//! by the URL's scheme), and [`Db::connect`] applies the migrations
+//! (`migrations/` and `migrations/postgres/`); on Cloudflare Workers it is
+//! D1, and `wrangler d1 migrations apply` applies the SQLite files.
+//!
+//! Postgres is the `postgres` feature, on by default; it adds nothing on
+//! Workers.
 //!
 //! All of rafi's SQL lives here, as domain functions over a [`Db`]:
 //!
@@ -18,7 +22,8 @@
 //!
 //! The SQL is written for SQLite (and D1) and Postgres alike: `?`/`?N`
 //! placeholders, no `rowid`, booleans stored as 0/1 and compared explicitly.
-//! What can't be shared lives in one place, `dialect`.
+//! What can't be shared lives in one place, `dialect`, chosen at runtime by
+//! [`Db::dialect`].
 //!
 //! D1 has no interactive transactions: a write that spans several statements
 //! goes through [`Db::batch`], which runs them as one transaction on every
@@ -40,6 +45,7 @@ pub mod view;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use backend::options;
+pub use dialect::Dialect;
 pub use entrants::EntrantRow;
 pub use error::{Error, Result};
 pub use items::ItemRow;
@@ -156,21 +162,119 @@ impl DrawStore for DrawWriter {
 #[cfg(any(test, feature = "testsuite"))]
 pub mod testsuite;
 
+/// Test support for suites that run against Postgres when
+/// `RAFI_TEST_POSTGRES_URL` names a (throwaway) database.
+#[cfg(all(feature = "postgres", not(target_arch = "wasm32")))]
+pub mod testing {
+    pub use crate::backend::fresh_schema;
+
+    /// Names a throwaway Postgres database for tests.
+    pub const POSTGRES_URL_VAR: &str = "RAFI_TEST_POSTGRES_URL";
+
+    /// The database `RAFI_TEST_POSTGRES_URL` names, if it is set.
+    pub fn postgres_base_url() -> Option<String> {
+        std::env::var(POSTGRES_URL_VAR)
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    /// A URL for a fresh, empty schema in that database, or `None` if
+    /// `RAFI_TEST_POSTGRES_URL` isn't set. Panics if the schema can't be
+    /// created.
+    pub async fn postgres_url() -> Option<String> {
+        let base = postgres_base_url()?;
+        Some(
+            fresh_schema(&base)
+                .await
+                .unwrap_or_else(|e| panic!("creating a schema in {POSTGRES_URL_VAR}: {e}")),
+        )
+    }
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+
+    fn assert_passed(backend: &str, results: Vec<(&str, Result<(), String>)>) {
+        let failed: Vec<String> = results
+            .iter()
+            .filter_map(|(name, r)| r.as_ref().err().map(|e| format!("{name}: {e}")))
+            .collect();
+        assert!(failed.is_empty(), "{backend}: {}", failed.join("; "));
+        eprintln!("{backend}: {} scenarios passed", results.len());
+    }
 
     /// The shared scenarios, against in-memory SQLite. `crates/store-d1-check`
     /// runs the same ones against D1.
     #[tokio::test]
     async fn testsuite() {
-        for (name, result) in
-            testsuite::run(|| async { Db::connect("sqlite::memory:").await.unwrap() }).await
-        {
-            if let Err(e) = result {
-                panic!("{name}: {e}");
-            }
+        let results =
+            testsuite::run(|| async { Db::connect("sqlite::memory:").await.unwrap() }).await;
+        assert_passed("SQLite", results);
+    }
+
+    /// The shared scenarios against Postgres, each on a fresh schema, when
+    /// `RAFI_TEST_POSTGRES_URL` is set.
+    #[cfg(feature = "postgres")]
+    #[tokio::test]
+    async fn testsuite_on_postgres() {
+        if testing::postgres_base_url().is_none() {
+            eprintln!("skipped: set RAFI_TEST_POSTGRES_URL to run the testsuite against Postgres");
+            return;
         }
+        let results = testsuite::run(|| async {
+            let db = Db::connect(&testing::postgres_url().await.unwrap())
+                .await
+                .unwrap();
+            assert_eq!(db.dialect(), Dialect::Postgres);
+            db
+        })
+        .await;
+        assert_passed("Postgres", results);
+    }
+
+    /// Serializable transactions keep the entrant cap exact when joins race,
+    /// as SQLite's single writer does.
+    #[cfg(feature = "postgres")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn racing_joins_respect_the_cap_on_postgres() {
+        let Some(url) = testing::postgres_url().await else {
+            eprintln!("skipped: set RAFI_TEST_POSTGRES_URL to run against Postgres");
+            return;
+        };
+        let db = Db::connect(&url).await.unwrap();
+        db.query(
+            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, created_at, updated_at)
+             VALUES ('r1', 'o', 's', 'j', 't', 'open', 0, 0)",
+        )
+        .run()
+        .await
+        .unwrap();
+        let joins = (0..16).map(|n| {
+            let db = db.clone();
+            tokio::spawn(async move {
+                let id = format!("{n:032}");
+                let email = format!("{n}@example.com");
+                let join = entrants::Join {
+                    id: &id,
+                    raffle_id: "r1",
+                    display_name: "Anna",
+                    email_raw: &email,
+                    email_norm: &email,
+                    claim_code: &id[..4],
+                    token_hash: &id,
+                    consent_version: "v1",
+                    consent_marketing: false,
+                };
+                entrants::join(&db, &join, 5).await.unwrap()
+            })
+        });
+        let mut joined = 0;
+        for j in joins.collect::<Vec<_>>() {
+            joined += usize::from(j.await.unwrap());
+        }
+        assert_eq!(joined, 5);
+        assert_eq!(entrants::count_active(&db, "r1").await.unwrap(), 5);
     }
 
     #[tokio::test]

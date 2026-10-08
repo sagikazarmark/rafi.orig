@@ -62,6 +62,7 @@ impl Snapshot {
                     "SELECT e.id, e.display_name, e.hidden FROM entrants e
                      WHERE e.raffle_id = ?1 AND e.id IN ({})",
                     dialect::draw_state_entrants(
+                        db.dialect(),
                         "(SELECT draw_state FROM raffles WHERE id = ?1)",
                         "events",
                         "type",
