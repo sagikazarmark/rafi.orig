@@ -383,3 +383,5 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
 - **The Restate Worker is 914 KB of wasm compressed.**
 - **A failing nudge works as designed.** With the cross-Worker DO binding disconnected, draws still completed, `notify` gave up after three attempts, and the channel's 15 s re-read delivered the winner.
 - **Local dev:** two `wrangler dev` sessions find each other through `~/.wrangler/registry`. Stopping a second session with the same Worker name unregisters it. Restate's ingress may need `http://[::1]:8080` if another process holds `127.0.0.1:8080`.
+- **M0(d), Clerk on Workers:** `dioxus-clerk`'s `worker` feature runs axum with `ClerkAuthLayer` and the `ClerkAuth` extractor under `workerd`. Anonymous requests pass through, and bogus bearer tokens are rejected without a crash. The spike Worker was 509 KB compressed. Verifying real tokens needs a Clerk instance, so it waits for staging.
+- **`scripts/workers-check.sh`** runs all local Workers checks: D1, the channel, the attendee page in Chromium, and a Restate draw. CI's `workers` job runs it.
