@@ -228,6 +228,23 @@ pub struct VerifyData {
 pub struct Me {
     pub owner_id: String,
     pub dev_auth: bool,
+    /// Whether personal data is erased automatically (retention is on).
+    #[serde(default)]
+    pub retention_enabled: bool,
+    /// When the last retention run succeeded (unix seconds), if ever.
+    #[serde(default)]
+    pub retention_ok_at: Option<i64>,
+}
+
+impl Me {
+    /// Retention is on but hasn't succeeded in the last two hours (it runs
+    /// hourly): erasure may have stopped.
+    pub fn retention_stale(&self, now_secs: i64) -> bool {
+        self.retention_enabled
+            && self
+                .retention_ok_at
+                .is_none_or(|at| now_secs - at > 2 * 3600)
+    }
 }
 
 pub fn now_unix_ms() -> u64 {
@@ -247,4 +264,33 @@ pub fn now_unix_ms() -> u64 {
 #[cfg(target_arch = "wasm32")]
 fn js_sys_now() -> u64 {
     js_sys::Date::now() as u64
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::Me;
+
+    fn me(enabled: bool, ok_at: Option<i64>) -> Me {
+        Me {
+            owner_id: "o".into(),
+            dev_auth: false,
+            retention_enabled: enabled,
+            retention_ok_at: ok_at,
+        }
+    }
+
+    #[test]
+    fn retention_is_stale_after_two_hours_without_a_run() {
+        let now = 1_000_000;
+        assert!(
+            !me(true, Some(now - 3600)).retention_stale(now),
+            "ran an hour ago"
+        );
+        assert!(
+            me(true, Some(now - 3 * 3600)).retention_stale(now),
+            "nothing for three hours"
+        );
+        assert!(me(true, None).retention_stale(now), "never ran");
+        assert!(!me(false, None).retention_stale(now), "erasure is off");
+    }
 }

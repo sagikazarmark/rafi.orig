@@ -97,6 +97,8 @@ admin_api! {
         Ok(Me {
             owner_id: owner.to_owned(),
             dev_auth: app.cfg.dev_auth,
+            retention_enabled: app.cfg.retention_enabled,
+            retention_ok_at: crate::server::retention::last_ok(app).await?,
         })
     };
 

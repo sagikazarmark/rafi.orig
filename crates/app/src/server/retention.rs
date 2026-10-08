@@ -38,6 +38,16 @@ const DUE: &str = "entrants.purged = 0 AND EXISTS (
           ELSE r.purge_nonwinners_at <= ?1
       END)";
 
+/// When the last run succeeded (unix seconds), if ever.
+pub async fn last_ok(app: &AppState) -> anyhow::Result<Option<i64>> {
+    let row: Option<(String,)> = app
+        .db
+        .query("SELECT value FROM meta WHERE key = 'last_retention_ok_at'")
+        .optional()
+        .await?;
+    Ok(row.and_then(|(v,)| v.parse().ok()))
+}
+
 /// What a run did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Report {
