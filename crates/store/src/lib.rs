@@ -6,7 +6,8 @@
 //! apply` applies the same files.
 //!
 //! The draw engine only ever writes a raffle's draw state, through
-//! [`save_draw_state`].
+//! [`save_draw_state`]; [`DrawWriter`] offers it as the engine's
+//! [`DrawStore`]. What phones see is read in one snapshot by [`live::Snapshot`].
 //!
 //! D1 has no interactive transactions: a write that spans several statements
 //! goes through [`Db::batch`], which runs them as one transaction on both
@@ -14,6 +15,7 @@
 
 mod backend;
 mod error;
+pub mod live;
 mod query;
 mod value;
 
@@ -22,6 +24,7 @@ pub use backend::options;
 pub use error::{Error, Result};
 pub use query::{Db, Query};
 use rafi_core::state::{DrawState, Event};
+use rafi_platform::{BoxFuture, DrawStore};
 pub use value::{Row, Value};
 
 /// The current time in unix seconds. `std::time` aborts on
@@ -104,6 +107,34 @@ pub async fn save_draw_state(db: &Db, state: &DrawState, purge: PurgeAfter) -> R
     Ok(written > 0)
 }
 
+/// The draw engine's [`DrawStore`] over this database: [`save_draw_state`]
+/// with the configured erasure dates.
+#[derive(Clone)]
+pub struct DrawWriter {
+    db: Db,
+    purge: PurgeAfter,
+}
+
+impl DrawWriter {
+    pub fn new(db: Db, purge: PurgeAfter) -> Self {
+        Self { db, purge }
+    }
+}
+
+impl DrawStore for DrawWriter {
+    fn save_draw_state<'a>(&'a self, state: &'a DrawState) -> BoxFuture<'a, anyhow::Result<bool>> {
+        let write = async move {
+            save_draw_state(&self.db, state, self.purge)
+                .await
+                .map_err(|e| anyhow::anyhow!("writing the draw state: {e}"))
+        };
+        // D1's futures aren't `Send`; a Worker is single-threaded, so the wrapper is sound.
+        #[cfg(target_arch = "wasm32")]
+        let write = worker::send::SendFuture::new(write);
+        Box::pin(write)
+    }
+}
+
 #[cfg(any(test, feature = "testsuite"))]
 pub mod testsuite;
 
@@ -122,5 +153,27 @@ mod tests {
                 panic!("{name}: {e}");
             }
         }
+    }
+
+    #[tokio::test]
+    async fn opening_lazily_does_not_create_the_file() {
+        let path = std::env::temp_dir().join(format!("rafi-lazy-{}.db", std::process::id()));
+        let db = Db::connect_lazy(&format!("sqlite://{}", path.display())).unwrap();
+        assert!(!path.exists(), "the app creates the database");
+        let writer = DrawWriter::new(db, PurgeAfter::days(30, 90));
+        let doc = rafi_core::commit::CommitDoc::new(
+            "r1",
+            &rafi_core::drand::chains::QUICKNET_HASH,
+            vec!["a".repeat(32)],
+            vec![],
+        );
+        assert!(
+            writer
+                .save_draw_state(&DrawState::freeze(&doc))
+                .await
+                .is_err(),
+            "no database yet: the engine retries"
+        );
+        assert!(!path.exists());
     }
 }

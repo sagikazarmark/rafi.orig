@@ -43,6 +43,18 @@ impl Db {
         Ok(db)
     }
 
+    /// Opens the existing database at `url` lazily: the first query connects.
+    /// Neither creates the file nor migrates it; that's the app's job, so a
+    /// writer that starts first (the draw engine) fails until the app has
+    /// run, and is retried.
+    pub fn connect_lazy(url: &str) -> Result<Self> {
+        let opts = options(url)?.create_if_missing(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_lazy_with(opts);
+        Ok(Self::from_pool(pool))
+    }
+
     /// Wraps an existing pool (it must already be migrated).
     pub fn from_pool(pool: SqlitePool) -> Self {
         Self {

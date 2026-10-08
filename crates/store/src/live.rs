@@ -1,18 +1,19 @@
 //! Reading what phones see from the database, and building the participant view.
 //!
-//! Everything comes from one [`Db::batch_rows`], so the version and the
+//! Whatever pushes live updates (a live channel, the polling endpoint, the
+//! attendee page) reads the raffle through [`Snapshot`], so every one of them
+//! shows the same thing. Everything comes from one [`Db::batch_rows`], so the version and the
 //! content are one consistent snapshot: a write can't land between them and
 //! leave a view labelled newer than what it holds.
 
 use std::collections::HashMap;
 
+use crate::{Db, Result};
 use rafi_core::state::{DrawState, Event, Outcome, UnitStatus};
 use rafi_live::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
-use rafi_store::{Db, Result};
 use serde::Deserialize;
 
-/// Display name used when the organizer hid an entrant's name. Must match the
-/// app's `view::HIDDEN_NAME`.
+/// Display name used when the organizer hid an entrant's name.
 pub const HIDDEN_NAME: &str = "★ ★ ★";
 
 /// The raffle as phones see it, read in one snapshot.
