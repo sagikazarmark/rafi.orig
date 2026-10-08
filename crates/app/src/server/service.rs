@@ -24,6 +24,9 @@ use crate::model::{
 pub const CONSENT_VERSION: &str = "2026-10-01";
 pub const MAX_NAME_CHARS: usize = 24;
 pub const MAX_FAKE_ENTRANTS: u32 = 500;
+/// Rows per `INSERT` when adding fake entrants: 4 shared parameters plus 3 per
+/// row stays within D1's 100 bound parameters per statement.
+const FAKES_PER_INSERT: u32 = 32;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
@@ -39,8 +42,8 @@ pub enum AppError {
     Internal(#[from] anyhow::Error),
 }
 
-impl From<sqlx::Error> for AppError {
-    fn from(e: sqlx::Error) -> Self {
+impl From<rafi_store::Error> for AppError {
+    fn from(e: rafi_store::Error) -> Self {
         Self::Internal(e.into())
     }
 }
@@ -88,14 +91,16 @@ pub async fn owned(app: &AppState, owner: &str, id: &str) -> Result<RaffleRow> {
 }
 
 pub async fn list(app: &AppState, owner: &str) -> Result<Vec<RaffleSummary>> {
-    let rows: Vec<(String, String, String, String, bool, i64, i64)> = sqlx::query_as(
-        "SELECT r.id, r.slug, r.title, r.state, r.test_mode, r.created_at,
-                (SELECT COUNT(*) FROM entrants e WHERE e.raffle_id = r.id)
-         FROM raffles r WHERE r.owner_id = ? ORDER BY r.created_at DESC",
-    )
-    .bind(owner)
-    .fetch_all(&app.db)
-    .await?;
+    let rows: Vec<(String, String, String, String, bool, i64, i64)> = app
+        .db
+        .query(
+            "SELECT r.id, r.slug, r.title, r.state, r.test_mode, r.created_at,
+                    (SELECT COUNT(*) FROM entrants e WHERE e.raffle_id = r.id)
+             FROM raffles r WHERE r.owner_id = ? ORDER BY r.created_at DESC",
+        )
+        .bind(owner)
+        .all()
+        .await?;
     Ok(rows
         .into_iter()
         .map(
@@ -120,26 +125,28 @@ pub async fn create(app: &AppState, owner: &str, title: &str) -> Result<String> 
     let id = ids::id();
     let now = ids::now();
     for _ in 0..8 {
-        let res = sqlx::query(
-            "INSERT INTO raffles (id, owner_id, slug, join_code, title, engine, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(owner)
-        .bind(ids::slug(title))
-        .bind(ids::code(4))
-        .bind(title)
-        .bind(app.cfg.engine.as_str())
-        .bind(now)
-        .bind(now)
-        .execute(&app.db)
-        .await;
+        let res = app
+            .db
+            .query(
+                "INSERT INTO raffles (id, owner_id, slug, join_code, title, engine, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&id)
+            .bind(owner)
+            .bind(ids::slug(title))
+            .bind(ids::code(4))
+            .bind(title)
+            .bind(app.cfg.engine.as_str())
+            .bind(now)
+            .bind(now)
+            .run()
+            .await;
         match res {
             Ok(_) => {
                 db::audit(&app.db, &id, owner, "create", title).await?;
                 return Ok(id);
             }
-            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => continue,
+            Err(e) if e.is_unique_violation() => continue,
             Err(e) => return Err(e.into()),
         }
     }
@@ -180,23 +187,24 @@ pub async fn update_settings(
     if raffle.test_mode != s.test_mode && !raffle.state().entrants_editable() {
         return Err(conflict("Test mode cannot change after the draw started."));
     }
-    sqlx::query(
-        "UPDATE raffles SET title = ?, description = ?, lang = ?, organizer_name = ?, contact_email = ?, rules = ?,
-         event_date = ?, min_age = ?, test_mode = ?, updated_at = ? WHERE id = ?",
-    )
-    .bind(title)
-    .bind(s.description.trim())
-    .bind(lang)
-    .bind(s.organizer_name.trim())
-    .bind(s.contact_email.trim())
-    .bind(s.rules.trim())
-    .bind(s.event_date.trim())
-    .bind(s.min_age.min(99) as i64)
-    .bind(s.test_mode)
-    .bind(ids::now())
-    .bind(id)
-    .execute(&app.db)
-    .await?;
+    app.db
+        .query(
+            "UPDATE raffles SET title = ?, description = ?, lang = ?, organizer_name = ?, contact_email = ?, rules = ?,
+             event_date = ?, min_age = ?, test_mode = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(title)
+        .bind(s.description.trim())
+        .bind(lang)
+        .bind(s.organizer_name.trim())
+        .bind(s.contact_email.trim())
+        .bind(s.rules.trim())
+        .bind(s.event_date.trim())
+        .bind(s.min_age.min(99))
+        .bind(s.test_mode)
+        .bind(ids::now())
+        .bind(id)
+        .run()
+        .await?;
     app.refresh(id).await;
     Ok(())
 }
@@ -208,9 +216,10 @@ pub async fn delete(app: &AppState, owner: &str, id: &str) -> Result<()> {
     {
         return Err(conflict("A draw is in progress."));
     }
-    sqlx::query("DELETE FROM raffles WHERE id = ?")
+    app.db
+        .query("DELETE FROM raffles WHERE id = ?")
         .bind(id)
-        .execute(&app.db)
+        .run()
         .await?;
     db::audit(&app.db, id, owner, "delete", "").await?;
     Ok(())
@@ -274,37 +283,40 @@ pub async fn upsert_item(
     }
     let id = match &input.id {
         Some(id) => {
-            let res = sqlx::query(
-                "UPDATE items SET name = ?, sponsor = ?, description = ?, qty = ?, position = ? WHERE id = ? AND raffle_id = ?",
-            )
-            .bind(name)
-            .bind(input.sponsor.trim())
-            .bind(input.description.trim())
-            .bind(input.qty as i64)
-            .bind(input.position)
-            .bind(id)
-            .bind(raffle_id)
-            .execute(&app.db)
-            .await?;
-            if res.rows_affected() == 0 {
+            let changed = app
+                .db
+                .query(
+                    "UPDATE items SET name = ?, sponsor = ?, description = ?, qty = ?, position = ? WHERE id = ? AND raffle_id = ?",
+                )
+                .bind(name)
+                .bind(input.sponsor.trim())
+                .bind(input.description.trim())
+                .bind(input.qty)
+                .bind(input.position)
+                .bind(id)
+                .bind(raffle_id)
+                .run()
+                .await?;
+            if changed == 0 {
                 return Err(AppError::NotFound);
             }
             id.clone()
         }
         None => {
             let id = ids::code(6).to_lowercase();
-            sqlx::query(
-                "INSERT INTO items (id, raffle_id, name, sponsor, description, qty, position) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(&id)
-            .bind(raffle_id)
-            .bind(name)
-            .bind(input.sponsor.trim())
-            .bind(input.description.trim())
-            .bind(input.qty as i64)
-            .bind(input.position)
-            .execute(&app.db)
-            .await?;
+            app.db
+                .query(
+                    "INSERT INTO items (id, raffle_id, name, sponsor, description, qty, position) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(&id)
+                .bind(raffle_id)
+                .bind(name)
+                .bind(input.sponsor.trim())
+                .bind(input.description.trim())
+                .bind(input.qty)
+                .bind(input.position)
+                .run()
+                .await?;
             id
         }
     };
@@ -324,10 +336,11 @@ pub async fn delete_item(
             "Prizes cannot change after the entrant list is frozen.",
         ));
     }
-    sqlx::query("DELETE FROM items WHERE id = ? AND raffle_id = ?")
+    app.db
+        .query("DELETE FROM items WHERE id = ? AND raffle_id = ?")
         .bind(item_id)
         .bind(raffle_id)
-        .execute(&app.db)
+        .run()
         .await?;
     app.refresh(raffle_id).await;
     Ok(())
@@ -348,15 +361,16 @@ pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle)
             from.as_str()
         ))
     })?;
-    let res =
-        sqlx::query("UPDATE raffles SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
-            .bind(to.as_str())
-            .bind(ids::now())
-            .bind(id)
-            .bind(from.as_str())
-            .execute(&app.db)
-            .await?;
-    if res.rows_affected() == 0 {
+    let changed = app
+        .db
+        .query("UPDATE raffles SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
+        .bind(to.as_str())
+        .bind(ids::now())
+        .bind(id)
+        .bind(from.as_str())
+        .run()
+        .await?;
+    if changed == 0 {
         return Err(conflict(
             "The raffle changed in the meantime; reload and try again.",
         ));
@@ -370,6 +384,8 @@ pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle)
 ///
 /// Calling it again on a frozen raffle re-sends the stored commit document to
 /// the engine (idempotent), which recovers from an engine outage at freeze time.
+/// A raffle left frozen without a commit document (the freeze stopped between
+/// its writes) gets one built from its now-fixed entrant list.
 pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     let engine = EngineKind::parse(&raffle.engine);
@@ -386,72 +402,38 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
     }
 
     let doc = match raffle.state() {
-        RaffleState::Open | RaffleState::Closed => {
-            let items = db::items(&app.db, id).await?;
-            let units: Vec<UnitRef> = items
-                .iter()
-                .flat_map(|i| {
-                    (1..=i.qty).map(move |n| UnitRef {
-                        unit_id: unit_id(&i.id, n),
-                        item_id: i.id.clone(),
-                        item_name: i.name.clone(),
-                    })
-                })
-                .collect();
-            if units.is_empty() {
-                return Err(conflict("Add at least one prize first."));
+        from @ (RaffleState::Open | RaffleState::Closed) => {
+            let units = units(app, id).await?;
+            let (entrants,): (i64,) = app
+                .db
+                .query("SELECT COUNT(*) FROM entrants WHERE raffle_id = ? AND purged = 0")
+                .bind(id)
+                .one()
+                .await?;
+            if entrants == 0 {
+                return Err(conflict("Nobody has entered yet."));
             }
-
             // Close registration first so no join can slip in while we read the list.
-            let mut tx = app.db.begin().await?;
-            let res = sqlx::query("UPDATE raffles SET state = 'frozen', updated_at = ? WHERE id = ? AND state IN ('open', 'closed')")
+            let changed = app
+                .db
+                .query("UPDATE raffles SET state = 'frozen', updated_at = ? WHERE id = ? AND state IN ('open', 'closed')")
                 .bind(ids::now())
                 .bind(id)
-                .execute(&mut *tx)
+                .run()
                 .await?;
-            if res.rows_affected() == 0 {
+            if changed == 0 {
                 return Err(conflict(
                     "The raffle changed in the meantime; reload and try again.",
                 ));
             }
-            let entrant_ids: Vec<(String,)> =
-                sqlx::query_as("SELECT id FROM entrants WHERE raffle_id = ? AND purged = 0")
-                    .bind(id)
-                    .fetch_all(&mut *tx)
-                    .await?;
-            if entrant_ids.is_empty() {
-                return Err(conflict("Nobody has entered yet."));
-            }
-            // The app alone decides the chain; the draw engine refuses a mismatch.
-            let doc = CommitDoc::new(
-                id,
-                &app.drand.chain_hash(),
-                entrant_ids.into_iter().map(|(e,)| e).collect(),
-                units,
-            );
-            let json = doc.canonical_json();
-            let hash = hex::encode(rafi_core::commit::list_hash(&json));
-            sqlx::query(
-                "UPDATE raffles SET commit_doc = ?, list_hash = ?, frozen_at = ? WHERE id = ?",
-            )
-            .bind(&json)
-            .bind(&hash)
-            .bind(ids::now())
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            db::audit(&app.db, id, owner, "freeze", &hash).await?;
-            app.refresh(id).await;
-            doc
+            commit(app, owner, id, units, from).await?
         }
-        RaffleState::Frozen if raffle.draw_state.is_none() => {
-            let json = raffle
-                .commit_doc
-                .as_deref()
-                .ok_or_else(|| conflict("Missing commit document."))?;
-            serde_json::from_str(json).map_err(anyhow::Error::from)?
-        }
+        RaffleState::Frozen if raffle.draw_state.is_none() => match raffle.commit_doc.as_deref() {
+            Some(json) => serde_json::from_str(json).map_err(anyhow::Error::from)?,
+            // A freeze that stopped before writing its commit document: the
+            // entrant list is fixed since the raffle froze, so commit it now.
+            None => commit(app, owner, id, units(app, id).await?, RaffleState::Closed).await?,
+        },
         RaffleState::Frozen | RaffleState::Drawing => return Ok(()),
         s => {
             return Err(conflict(format!(
@@ -473,6 +455,93 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
         EngineKind::Local => app.local.freeze(app, &doc).await?,
     }
     Ok(())
+}
+
+/// The prize units of a raffle, in draw order. Errors if there are none.
+async fn units(app: &AppState, id: &str) -> Result<Vec<UnitRef>> {
+    let units: Vec<UnitRef> = db::items(&app.db, id)
+        .await?
+        .iter()
+        .flat_map(|i| {
+            (1..=i.qty).map(move |n| UnitRef {
+                unit_id: unit_id(&i.id, n),
+                item_id: i.id.clone(),
+                item_name: i.name.clone(),
+            })
+        })
+        .collect();
+    if units.is_empty() {
+        return Err(conflict("Add at least one prize first."));
+    }
+    Ok(units)
+}
+
+/// Commits the entrant list of a frozen raffle: builds the commit document
+/// from its entrants and stores it with the list hash.
+///
+/// D1 has no interactive transactions, so freezing and committing are separate
+/// writes; this is the second, and is safe to repeat. If another attempt
+/// committed first, its document is returned. If nobody is left to draw from
+/// (everyone was removed while freezing), the raffle goes back to `unfreeze_to`.
+async fn commit(
+    app: &AppState,
+    owner: &str,
+    id: &str,
+    units: Vec<UnitRef>,
+    unfreeze_to: RaffleState,
+) -> Result<CommitDoc> {
+    let entrant_ids: Vec<(String,)> = app
+        .db
+        .query("SELECT id FROM entrants WHERE raffle_id = ? AND purged = 0")
+        .bind(id)
+        .all()
+        .await?;
+    if entrant_ids.is_empty() {
+        app.db
+            .query(
+                "UPDATE raffles SET state = ?, updated_at = ?
+                 WHERE id = ? AND state = 'frozen' AND commit_doc IS NULL",
+            )
+            .bind(unfreeze_to.as_str())
+            .bind(ids::now())
+            .bind(id)
+            .run()
+            .await?;
+        app.refresh(id).await;
+        return Err(conflict("Nobody has entered yet."));
+    }
+    // The app alone decides the chain; the draw engine refuses a mismatch.
+    let doc = CommitDoc::new(
+        id,
+        &app.drand.chain_hash(),
+        entrant_ids.into_iter().map(|(e,)| e).collect(),
+        units,
+    );
+    let json = doc.canonical_json();
+    let hash = hex::encode(rafi_core::commit::list_hash(&json));
+    let changed = app
+        .db
+        .query(
+            "UPDATE raffles SET commit_doc = ?, list_hash = ?, frozen_at = ?
+             WHERE id = ? AND state = 'frozen' AND commit_doc IS NULL",
+        )
+        .bind(&json)
+        .bind(&hash)
+        .bind(ids::now())
+        .bind(id)
+        .run()
+        .await?;
+    if changed == 0 {
+        // Another attempt committed first (or the raffle moved on).
+        let stored = db::raffle(&app.db, id)
+            .await?
+            .and_then(|r| r.commit_doc)
+            .ok_or_else(|| conflict("The raffle changed in the meantime; reload and try again."))?;
+        return Ok(serde_json::from_str(&stored).map_err(anyhow::Error::from)?);
+    }
+    db::audit(&app.db, id, owner, "freeze", &hash).await?;
+    app.refresh(id).await;
+    Ok(doc)
 }
 
 /// Sends a draw command to the raffle's engine.
@@ -592,10 +661,11 @@ pub async fn switch_to_local(app: &AppState, owner: &str, id: &str) -> Result<()
             "This raffle uses a different drand chain than this server's local engine.",
         ));
     }
-    sqlx::query("UPDATE raffles SET engine = 'local', updated_at = ? WHERE id = ?")
+    app.db
+        .query("UPDATE raffles SET engine = 'local', updated_at = ? WHERE id = ?")
         .bind(ids::now())
         .bind(id)
-        .execute(&app.db)
+        .run()
         .await?;
     db::audit(&app.db, id, owner, "switch_to_local", "").await?;
     app.local.resume(app, id).await?;
@@ -631,14 +701,15 @@ pub fn validate_name(name: &str) -> Result<String, &'static str> {
 }
 
 async fn unique_claim_code(app: &AppState, raffle_id: &str) -> Result<String> {
-    let taken: HashSet<String> =
-        sqlx::query_as::<_, (String,)>("SELECT claim_code FROM entrants WHERE raffle_id = ?")
-            .bind(raffle_id)
-            .fetch_all(&app.db)
-            .await?
-            .into_iter()
-            .map(|(c,)| c)
-            .collect();
+    let taken: HashSet<String> = app
+        .db
+        .query("SELECT claim_code FROM entrants WHERE raffle_id = ?")
+        .bind(raffle_id)
+        .all::<(String,)>()
+        .await?
+        .into_iter()
+        .map(|(c,)| c)
+        .collect();
     for _ in 0..50 {
         let code = ids::code(4);
         if !taken.contains(&code) {
@@ -679,30 +750,32 @@ pub async fn join(
         .await
         .map_err(|_| "err_rate")?;
     let now = ids::now();
-    let res = sqlx::query(
-        "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, token_hash,
-                               consent_version, consent_rules_at, consent_marketing, created_at)
-         SELECT ?, ?, ?, ?, ?, 'self', ?, ?, ?, ?, ?, ?
-         WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ? AND state = 'open')",
-    )
-    .bind(&id)
-    .bind(&raffle.id)
-    .bind(&name)
-    .bind(email.trim())
-    .bind(&email_norm)
-    .bind(&claim)
-    .bind(ids::token_hash(&token))
-    .bind(CONSENT_VERSION)
-    .bind(now)
-    .bind(marketing)
-    .bind(now)
-    .bind(&raffle.id)
-    .execute(&app.db)
-    .await;
+    let res = app
+        .db
+        .query(
+            "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, token_hash,
+                                   consent_version, consent_rules_at, consent_marketing, created_at)
+             SELECT ?, ?, ?, ?, ?, 'self', ?, ?, ?, ?, ?, ?
+             WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ? AND state = 'open')",
+        )
+        .bind(&id)
+        .bind(&raffle.id)
+        .bind(&name)
+        .bind(email.trim())
+        .bind(&email_norm)
+        .bind(&claim)
+        .bind(ids::token_hash(&token))
+        .bind(CONSENT_VERSION)
+        .bind(now)
+        .bind(marketing)
+        .bind(now)
+        .bind(&raffle.id)
+        .run()
+        .await;
     match res {
-        Ok(r) if r.rows_affected() == 1 => {}
-        Ok(_) => return Err("reg_closed"),
-        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+        Ok(0) => return Err("reg_closed"),
+        Ok(_) => {}
+        Err(e) if e.is_unique_violation() => {
             return Ok(JoinOutcome::AlreadyIn);
         }
         Err(e) => {
@@ -739,24 +812,26 @@ pub async fn add_manual(
     };
     let id = ids::id();
     let claim = unique_claim_code(app, raffle_id).await?;
-    let res = sqlx::query(
-        "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, consent_version, consent_rules_at, created_at)
-         VALUES (?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?)",
-    )
-    .bind(&id)
-    .bind(raffle_id)
-    .bind(&name)
-    .bind(raw)
-    .bind(norm)
-    .bind(&claim)
-    .bind(CONSENT_VERSION)
-    .bind(ids::now())
-    .bind(ids::now())
-    .execute(&app.db)
-    .await;
+    let res = app
+        .db
+        .query(
+            "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, consent_version, consent_rules_at, created_at)
+             VALUES (?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(raffle_id)
+        .bind(&name)
+        .bind(raw)
+        .bind(norm)
+        .bind(&claim)
+        .bind(CONSENT_VERSION)
+        .bind(ids::now())
+        .bind(ids::now())
+        .run()
+        .await;
     match res {
         Ok(_) => {}
-        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+        Err(e) if e.is_unique_violation() => {
             return Err(conflict("This email is already entered."));
         }
         Err(e) => return Err(e.into()),
@@ -785,29 +860,43 @@ pub async fn add_fakes(app: &AppState, owner: &str, raffle_id: &str, n: u32) -> 
         "Zsófi", "Alex", "Sam", "Robin", "Kim", "Max",
     ];
     let n = n.min(MAX_FAKE_ENTRANTS);
-    let mut tx = app.db.begin().await?;
-    for _ in 0..n {
-        let b = ids::random_bytes::<2>();
-        let name = format!(
-            "{} {}.",
-            FIRST[b[0] as usize % FIRST.len()],
-            (b'A' + b[1] % 26) as char
-        );
-        sqlx::query(
-            "INSERT INTO entrants (id, raffle_id, display_name, source, claim_code, consent_version, consent_rules_at, created_at)
-             VALUES (?, ?, ?, 'fake', ?, ?, ?, ?)",
-        )
-        .bind(ids::id())
-        .bind(raffle_id)
-        .bind(name)
-        .bind(ids::code(4))
-        .bind(CONSENT_VERSION)
-        .bind(ids::now())
-        .bind(ids::now() - super::view::NAME_DELAY_SECS)
-        .execute(&mut *tx)
-        .await?;
+    let now = ids::now();
+    // Multi-row INSERTs in one batch, all or nothing. ?1–?4 are the same for
+    // every row; each row binds its ID, name and claim code after them.
+    let mut inserts = Vec::new();
+    let mut left = n;
+    while left > 0 {
+        let rows = left.min(FAKES_PER_INSERT);
+        left -= rows;
+        let values: Vec<String> = (0..rows)
+            .map(|r| {
+                let p = 5 + 3 * r;
+                format!("(?{p}, ?1, ?{}, 'fake', ?{}, ?2, ?3, ?4)", p + 1, p + 2)
+            })
+            .collect();
+        let mut insert = app
+            .db
+            .query(format!(
+                "INSERT INTO entrants (id, raffle_id, display_name, source, claim_code, consent_version, consent_rules_at, created_at)
+                 VALUES {}",
+                values.join(", ")
+            ))
+            .bind(raffle_id)
+            .bind(CONSENT_VERSION)
+            .bind(now)
+            .bind(now - super::view::NAME_DELAY_SECS);
+        for _ in 0..rows {
+            let b = ids::random_bytes::<2>();
+            let name = format!(
+                "{} {}.",
+                FIRST[b[0] as usize % FIRST.len()],
+                (b'A' + b[1] % 26) as char
+            );
+            insert = insert.bind(ids::id()).bind(name).bind(ids::code(4));
+        }
+        inserts.push(insert);
     }
-    tx.commit().await?;
+    app.db.batch(inserts).await?;
     db::audit(&app.db, raffle_id, owner, "add_fakes", &n.to_string()).await?;
     app.refresh(raffle_id).await;
     Ok(())
@@ -829,17 +918,19 @@ pub async fn patch_entrant(
     }
     if let Some(name) = patch.display_name {
         let name = validate_name(&name).map_err(|k| bad(crate::i18n::Lang::En.t(k)))?;
-        sqlx::query("UPDATE entrants SET display_name = ? WHERE id = ?")
+        app.db
+            .query("UPDATE entrants SET display_name = ? WHERE id = ?")
             .bind(name)
             .bind(entrant_id)
-            .execute(&app.db)
+            .run()
             .await?;
     }
     if let Some(hidden) = patch.hidden {
-        sqlx::query("UPDATE entrants SET hidden = ? WHERE id = ?")
+        app.db
+            .query("UPDATE entrants SET hidden = ? WHERE id = ?")
             .bind(hidden)
             .bind(entrant_id)
-            .execute(&app.db)
+            .run()
             .await?;
     }
     if let Some(delivered) = patch.delivered {
@@ -847,10 +938,11 @@ pub async fn patch_entrant(
             return Err(conflict("Nothing to deliver yet."));
         }
         let at = delivered.then(ids::now);
-        sqlx::query("UPDATE entrants SET delivered_at = ? WHERE id = ?")
+        app.db
+            .query("UPDATE entrants SET delivered_at = ? WHERE id = ?")
             .bind(at)
             .bind(entrant_id)
-            .execute(&app.db)
+            .run()
             .await?;
     }
     db::audit(&app.db, raffle_id, owner, "patch_entrant", entrant_id).await?;
@@ -868,10 +960,11 @@ pub async fn remove_entrant(
 ) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
     if raffle.state().entrants_editable() {
-        sqlx::query("DELETE FROM entrants WHERE id = ? AND raffle_id = ?")
+        app.db
+            .query("DELETE FROM entrants WHERE id = ? AND raffle_id = ?")
             .bind(entrant_id)
             .bind(raffle_id)
-            .execute(&app.db)
+            .run()
             .await?;
         db::audit(&app.db, raffle_id, owner, "remove_entrant", entrant_id).await?;
     } else {
@@ -882,18 +975,21 @@ pub async fn remove_entrant(
     Ok(())
 }
 
-/// Erases personal data of one entrant, or all entrants of a raffle.
-pub async fn erase(app: &AppState, raffle_id: &str, entrant_id: Option<&str>) -> Result<u64> {
-    let res = sqlx::query(
-        "UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL, token_hash = NULL,
-         consent_marketing = 0, purged = 1
-         WHERE raffle_id = ?1 AND purged = 0 AND (?2 IS NULL OR id = ?2)",
-    )
-    .bind(raffle_id)
-    .bind(entrant_id)
-    .execute(&app.db)
-    .await?;
-    Ok(res.rows_affected())
+/// Erases personal data of one entrant, or all entrants of a raffle. Returns
+/// whether anyone was erased.
+pub async fn erase(app: &AppState, raffle_id: &str, entrant_id: Option<&str>) -> Result<bool> {
+    let changed = app
+        .db
+        .query(
+            "UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL, token_hash = NULL,
+             consent_marketing = 0, purged = 1
+             WHERE raffle_id = ?1 AND purged = 0 AND (?2 IS NULL OR id = ?2)",
+        )
+        .bind(raffle_id)
+        .bind(entrant_id)
+        .run()
+        .await?;
+    Ok(changed > 0)
 }
 
 pub async fn purge(app: &AppState, owner: &str, raffle_id: &str) -> Result<()> {
@@ -902,11 +998,12 @@ pub async fn purge(app: &AppState, owner: &str, raffle_id: &str) -> Result<()> {
         return Err(conflict("Only finished raffles can be purged."));
     }
     erase(app, raffle_id, None).await?;
-    sqlx::query("UPDATE raffles SET state = 'purged', purged_at = ?, updated_at = ? WHERE id = ?")
+    app.db
+        .query("UPDATE raffles SET state = 'purged', purged_at = ?, updated_at = ? WHERE id = ?")
         .bind(ids::now())
         .bind(ids::now())
         .bind(raffle_id)
-        .execute(&app.db)
+        .run()
         .await?;
     db::audit(&app.db, raffle_id, owner, "purge", "").await?;
     app.refresh(raffle_id).await;

@@ -75,6 +75,8 @@ mod tests {
             assert!(!cfg.drand.mock);
             assert_eq!(cfg.drand.lead_secs, 6);
             assert_eq!(cfg.database.url, "sqlite://rafi.db");
+            assert_eq!(cfg.database.retention_nonwinners_days, 30);
+            assert_eq!(cfg.database.retention_winners_days, 90);
             Ok(())
         });
     }
@@ -87,6 +89,7 @@ mod tests {
                 r#"
                 [database]
                 url = "sqlite:///data/rafi.db"
+                retention_winners_days = 120
 
                 [services.raffle]
                 inactivity_timeout = "5m"
@@ -104,6 +107,8 @@ mod tests {
             );
             let cfg = Config::load(Some(Path::new("rafi.toml"))).expect("config");
             assert_eq!(cfg.database.url, "sqlite:///data/rafi.db");
+            assert_eq!(cfg.database.purge_after().winners_secs, 120 * 86_400);
+            assert_eq!(cfg.database.retention_nonwinners_days, 30);
             assert_eq!(cfg.drand.lead_secs, 9);
             assert_eq!(cfg.drand.relays, ["https://a.example", "https://b.example"]);
             assert!(cfg.drand.validate().is_ok(), "unprefixed relays are v1");

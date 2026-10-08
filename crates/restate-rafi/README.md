@@ -26,7 +26,10 @@ use restate_rafi::{DatabaseConfig, Raffle, SqliteProjector};
 
 let raffle = Raffle::new(
     DrandClient::new(DrandConfig::default())?,
-    SqliteProjector::new(&DatabaseConfig { url: "sqlite://rafi.db".into() })?,
+    SqliteProjector::new(&DatabaseConfig {
+        url: "sqlite://rafi.db".into(),
+        ..DatabaseConfig::default()
+    })?,
 );
 let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(raffle).build();
 ```

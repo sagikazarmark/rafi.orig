@@ -1,35 +1,15 @@
-//! SQLite access.
+//! Database access, through rafi-store.
 
 use rafi_core::raffle::RaffleState;
-use sqlx::{FromRow, SqlitePool, sqlite::SqlitePoolOptions};
-
-pub type Db = SqlitePool;
+pub use rafi_store::Db;
+use serde::Deserialize;
 
 pub async fn connect(url: &str) -> anyhow::Result<Db> {
-    let in_memory = url.contains(":memory:");
-    let opts = rafi_store::options(url)?.create_if_missing(true);
-    let pool = SqlitePoolOptions::new()
-        // An in-memory database exists per connection; keep exactly one.
-        .max_connections(if in_memory { 1 } else { 8 })
-        .min_connections(if in_memory { 1 } else { 0 })
-        .idle_timeout(if in_memory {
-            None
-        } else {
-            Some(std::time::Duration::from_secs(600))
-        })
-        .max_lifetime(if in_memory {
-            None
-        } else {
-            Some(std::time::Duration::from_secs(3600))
-        })
-        .connect_with(opts)
-        .await?;
-    rafi_store::migrate(&pool).await?;
-    Ok(pool)
+    Ok(Db::connect(url).await?)
 }
 
 #[allow(dead_code)] // mirrors the table; not every column is read
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RaffleRow {
     pub id: String,
     pub owner_id: String,
@@ -72,7 +52,7 @@ impl RaffleRow {
 }
 
 #[allow(dead_code)] // mirrors the table; not every column is read
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ItemRow {
     pub id: String,
     pub raffle_id: String,
@@ -84,7 +64,7 @@ pub struct ItemRow {
 }
 
 #[allow(dead_code)] // mirrors the table; not every column is read
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct EntrantRow {
     pub id: String,
     pub raffle_id: String,
@@ -103,46 +83,46 @@ pub struct EntrantRow {
     pub created_at: i64,
 }
 
-pub async fn raffle(db: &Db, id: &str) -> sqlx::Result<Option<RaffleRow>> {
-    sqlx::query_as("SELECT * FROM raffles WHERE id = ?")
+pub async fn raffle(db: &Db, id: &str) -> rafi_store::Result<Option<RaffleRow>> {
+    db.query("SELECT * FROM raffles WHERE id = ?")
         .bind(id)
-        .fetch_optional(db)
+        .optional()
         .await
 }
 
-pub async fn raffle_by_slug(db: &Db, slug: &str) -> sqlx::Result<Option<RaffleRow>> {
-    sqlx::query_as("SELECT * FROM raffles WHERE slug = ?")
+pub async fn raffle_by_slug(db: &Db, slug: &str) -> rafi_store::Result<Option<RaffleRow>> {
+    db.query("SELECT * FROM raffles WHERE slug = ?")
         .bind(slug)
-        .fetch_optional(db)
+        .optional()
         .await
 }
 
-pub async fn raffle_by_join_code(db: &Db, code: &str) -> sqlx::Result<Option<RaffleRow>> {
-    sqlx::query_as("SELECT * FROM raffles WHERE join_code = ?")
+pub async fn raffle_by_join_code(db: &Db, code: &str) -> rafi_store::Result<Option<RaffleRow>> {
+    db.query("SELECT * FROM raffles WHERE join_code = ?")
         .bind(code)
-        .fetch_optional(db)
+        .optional()
         .await
 }
 
-pub async fn items(db: &Db, raffle_id: &str) -> sqlx::Result<Vec<ItemRow>> {
-    sqlx::query_as("SELECT * FROM items WHERE raffle_id = ? ORDER BY position, rowid")
+pub async fn items(db: &Db, raffle_id: &str) -> rafi_store::Result<Vec<ItemRow>> {
+    db.query("SELECT * FROM items WHERE raffle_id = ? ORDER BY position, rowid")
         .bind(raffle_id)
-        .fetch_all(db)
+        .all()
         .await
 }
 
-pub async fn entrants(db: &Db, raffle_id: &str) -> sqlx::Result<Vec<EntrantRow>> {
-    sqlx::query_as("SELECT * FROM entrants WHERE raffle_id = ? ORDER BY created_at, rowid")
+pub async fn entrants(db: &Db, raffle_id: &str) -> rafi_store::Result<Vec<EntrantRow>> {
+    db.query("SELECT * FROM entrants WHERE raffle_id = ? ORDER BY created_at, rowid")
         .bind(raffle_id)
-        .fetch_all(db)
+        .all()
         .await
 }
 
-pub async fn entrant(db: &Db, raffle_id: &str, id: &str) -> sqlx::Result<Option<EntrantRow>> {
-    sqlx::query_as("SELECT * FROM entrants WHERE raffle_id = ? AND id = ?")
+pub async fn entrant(db: &Db, raffle_id: &str, id: &str) -> rafi_store::Result<Option<EntrantRow>> {
+    db.query("SELECT * FROM entrants WHERE raffle_id = ? AND id = ?")
         .bind(raffle_id)
         .bind(id)
-        .fetch_optional(db)
+        .optional()
         .await
 }
 
@@ -150,11 +130,11 @@ pub async fn entrant_by_token(
     db: &Db,
     raffle_id: &str,
     token_hash: &str,
-) -> sqlx::Result<Option<EntrantRow>> {
-    sqlx::query_as("SELECT * FROM entrants WHERE raffle_id = ? AND token_hash = ?")
+) -> rafi_store::Result<Option<EntrantRow>> {
+    db.query("SELECT * FROM entrants WHERE raffle_id = ? AND token_hash = ?")
         .bind(raffle_id)
         .bind(token_hash)
-        .fetch_optional(db)
+        .optional()
         .await
 }
 
@@ -164,14 +144,14 @@ pub async fn audit(
     actor: &str,
     action: &str,
     detail: &str,
-) -> sqlx::Result<()> {
-    sqlx::query("INSERT INTO audit (raffle_id, at, actor, action, detail) VALUES (?, ?, ?, ?, ?)")
+) -> rafi_store::Result<()> {
+    db.query("INSERT INTO audit (raffle_id, at, actor, action, detail) VALUES (?, ?, ?, ?, ?)")
         .bind(raffle_id)
         .bind(super::ids::now())
         .bind(actor)
         .bind(action)
         .bind(detail)
-        .execute(db)
+        .run()
         .await
         .map(|_| ())
 }

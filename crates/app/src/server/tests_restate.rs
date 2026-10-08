@@ -67,7 +67,11 @@ async fn app_and_restate_rafi_share_the_database() {
         ..DrandConfig::default()
     })
     .unwrap();
-    let projector = SqliteProjector::new(&DatabaseConfig { url }).unwrap();
+    let projector = SqliteProjector::new(&DatabaseConfig {
+        url,
+        ..DatabaseConfig::default()
+    })
+    .unwrap();
     restate
         .deploy(
             Endpoint::builder()

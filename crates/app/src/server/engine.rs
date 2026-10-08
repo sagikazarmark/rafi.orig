@@ -159,11 +159,11 @@ impl LocalEngine {
     /// At startup: resumes every local raffle's pending draw (its fetch task
     /// did not survive the restart).
     pub async fn resume_all(&self, app: &AppState) -> anyhow::Result<()> {
-        let ids: Vec<(String,)> = sqlx::query_as(
-            "SELECT id FROM raffles WHERE engine = 'local' AND draw_state IS NOT NULL",
-        )
-        .fetch_all(&app.db)
-        .await?;
+        let ids: Vec<(String,)> = app
+            .db
+            .query("SELECT id FROM raffles WHERE engine = 'local' AND draw_state IS NOT NULL")
+            .all()
+            .await?;
         for (id,) in ids {
             self.resume(app, &id).await?;
         }

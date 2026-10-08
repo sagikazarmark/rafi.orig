@@ -78,26 +78,35 @@ impl AppState {
     /// version) and pushes the new view to every screen. The Restate engine
     /// writes its states itself; [`watch`] pushes those.
     pub async fn project(&self, state: &DrawState) -> anyhow::Result<()> {
-        rafi_store::save_draw_state(&self.db, state, EngineKind::Local.as_str()).await?;
+        rafi_store::save_draw_state(&self.db, state, self.purge_after()).await?;
         self.schedule_purges().await?;
         self.refresh(&state.raffle_id).await;
         Ok(())
+    }
+
+    /// When personal data of a finished raffle is erased (the retention settings).
+    pub fn purge_after(&self) -> rafi_store::PurgeAfter {
+        rafi_store::PurgeAfter::days(
+            self.cfg.retention_nonwinners_days,
+            self.cfg.retention_winners_days,
+        )
     }
 
     /// Dates the erasure of personal data for raffles that just finished,
     /// whichever engine finished them.
     pub async fn schedule_purges(&self) -> anyhow::Result<()> {
         let day = 86_400;
-        sqlx::query(
-            "UPDATE raffles SET
-                purge_nonwinners_at = finished_at + ?1,
-                purge_winners_at = finished_at + ?2
-             WHERE finished_at IS NOT NULL AND purge_nonwinners_at IS NULL",
-        )
-        .bind(self.cfg.retention_nonwinners_days * day)
-        .bind(self.cfg.retention_winners_days * day)
-        .execute(&self.db)
-        .await?;
+        self.db
+            .query(
+                "UPDATE raffles SET
+                    purge_nonwinners_at = finished_at + ?1,
+                    purge_winners_at = finished_at + ?2
+                 WHERE finished_at IS NOT NULL AND purge_nonwinners_at IS NULL",
+            )
+            .bind(self.cfg.retention_nonwinners_days * day)
+            .bind(self.cfg.retention_winners_days * day)
+            .run()
+            .await?;
         Ok(())
     }
 

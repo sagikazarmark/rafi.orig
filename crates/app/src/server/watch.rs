@@ -84,11 +84,11 @@ pub fn spawn(app: AppState) {
 
 /// Restate raffles with a draw in flight.
 async fn unsettled(app: &AppState) -> anyhow::Result<Vec<String>> {
-    let rows: Vec<db::RaffleRow> = sqlx::query_as(
-        "SELECT * FROM raffles WHERE engine = 'restate' AND state IN ('frozen', 'drawing')",
-    )
-    .fetch_all(&app.db)
-    .await?;
+    let rows: Vec<db::RaffleRow> = app
+        .db
+        .query("SELECT * FROM raffles WHERE engine = 'restate' AND state IN ('frozen', 'drawing')")
+        .all()
+        .await?;
     Ok(rows
         .into_iter()
         .filter(|r| r.draw_state.is_none() || r.draw_state().is_some_and(|s| s.pending.is_some()))

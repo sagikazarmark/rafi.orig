@@ -8,8 +8,9 @@ use std::{
 
 use anyhow::{Context, bail};
 use rafi_core::state::DrawState;
+use rafi_store::{Db, PurgeAfter};
 use serde::{Deserialize, Serialize};
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::sqlite::SqlitePoolOptions;
 
 /// A boxed, sendable future (the projector is a trait object).
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -29,13 +30,28 @@ pub trait Projector: Send + Sync + 'static {
 pub struct DatabaseConfig {
     /// The same SQLite database the app uses (its `RAFI_DATABASE_URL`).
     pub url: String,
+    /// Days after a raffle finishes until non-winners are erased. Set it to the
+    /// app's `RAFI_RETENTION_DAYS`: whoever stores the finished state dates it.
+    pub retention_nonwinners_days: i64,
+    /// Days after a raffle finishes until winners are erased (the app's
+    /// `RAFI_RETENTION_WINNERS_DAYS`).
+    pub retention_winners_days: i64,
 }
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             url: "sqlite://rafi.db".into(),
+            retention_nonwinners_days: 30,
+            retention_winners_days: 90,
         }
+    }
+}
+
+impl DatabaseConfig {
+    /// When personal data of a finished raffle is erased.
+    pub fn purge_after(&self) -> PurgeAfter {
+        PurgeAfter::days(self.retention_nonwinners_days, self.retention_winners_days)
     }
 }
 
@@ -46,7 +62,8 @@ impl Default for DatabaseConfig {
 /// Restate retries them.
 #[derive(Clone)]
 pub struct SqliteProjector {
-    db: SqlitePool,
+    db: Db,
+    purge: PurgeAfter,
 }
 
 impl SqliteProjector {
@@ -58,26 +75,25 @@ impl SqliteProjector {
         let opts = rafi_store::options(&cfg.url)
             .with_context(|| format!("invalid database.url {:?}", cfg.url))?
             .create_if_missing(false);
-        Ok(Self::from_pool(
-            SqlitePoolOptions::new()
-                .max_connections(2)
-                .connect_lazy_with(opts),
-        ))
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_lazy_with(opts);
+        Ok(Self::from_db(Db::from_pool(pool), cfg.purge_after()))
     }
 
-    pub fn from_pool(db: SqlitePool) -> Self {
-        Self { db }
+    pub fn from_db(db: Db, purge: PurgeAfter) -> Self {
+        Self { db, purge }
     }
 }
 
 impl Projector for SqliteProjector {
     fn project<'a>(&'a self, state: &'a DrawState) -> BoxFuture<'a, anyhow::Result<()>> {
         Box::pin(async move {
-            let written = rafi_store::save_draw_state(&self.db, state, "restate")
+            let written = rafi_store::save_draw_state(&self.db, state, self.purge)
                 .await
                 .context("writing the draw state")?;
             if !written {
-                // Already stored (a retry), or the raffle is no longer drawn by Restate.
+                // Already stored (a retry), or for another entrant list.
                 tracing::debug!(
                     raffle_id = state.raffle_id,
                     version = state.version,
@@ -128,7 +144,13 @@ mod tests {
 
     #[test]
     fn database_url_is_required() {
-        assert!(SqliteProjector::new(&DatabaseConfig { url: " ".into() }).is_err());
+        assert!(
+            SqliteProjector::new(&DatabaseConfig {
+                url: " ".into(),
+                ..DatabaseConfig::default()
+            })
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -136,6 +158,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("rafi-projector-{}.db", std::process::id()));
         SqliteProjector::new(&DatabaseConfig {
             url: format!("sqlite://{}", path.display()),
+            ..DatabaseConfig::default()
         })
         .unwrap();
         assert!(

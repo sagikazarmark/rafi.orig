@@ -28,11 +28,13 @@ pub async fn run(app: &AppState) -> anyhow::Result<u64> {
     // Raffles finished by Restate while the app was not watching get their dates here.
     app.schedule_purges().await?;
     let now = ids::now();
-    let raffles: Vec<db::RaffleRow> = sqlx::query_as(
-        "SELECT * FROM raffles WHERE state IN ('finished', 'purged') AND finished_at IS NOT NULL AND purged_at IS NULL",
-    )
-    .fetch_all(&app.db)
-    .await?;
+    let raffles: Vec<db::RaffleRow> = app
+        .db
+        .query(
+            "SELECT * FROM raffles WHERE state IN ('finished', 'purged') AND finished_at IS NOT NULL AND purged_at IS NULL",
+        )
+        .all()
+        .await?;
     let mut erased = 0;
     for raffle in raffles {
         let winners: HashSet<String> = raffle
@@ -57,15 +59,16 @@ pub async fn run(app: &AppState) -> anyhow::Result<u64> {
             } else {
                 nonwinners_due
             };
-            if due {
-                erased += service::erase(app, &raffle.id, Some(&e.id)).await?;
+            if due && service::erase(app, &raffle.id, Some(&e.id)).await? {
+                erased += 1;
             }
         }
         if winners_due {
-            sqlx::query("UPDATE raffles SET state = 'purged', purged_at = ? WHERE id = ?")
+            app.db
+                .query("UPDATE raffles SET state = 'purged', purged_at = ? WHERE id = ?")
                 .bind(now)
                 .bind(&raffle.id)
-                .execute(&app.db)
+                .run()
                 .await?;
         }
         if erased > 0 {

@@ -110,10 +110,11 @@ async fn altcha(Extension(app): Extension<AppState>) -> Response {
 /// Number of raffles that are live right now. The deploy pipeline refuses to
 /// restart the server while this is non-zero.
 async fn status(Extension(app): Extension<AppState>) -> Response {
-    let live: Result<(i64,), _> =
-        sqlx::query_as("SELECT COUNT(*) FROM raffles WHERE state IN ('open', 'frozen', 'drawing') AND test_mode = 0")
-            .fetch_one(&app.db)
-            .await;
+    let live: Result<(i64,), _> = app
+        .db
+        .query("SELECT COUNT(*) FROM raffles WHERE state IN ('open', 'frozen', 'drawing') AND test_mode = 0")
+        .one()
+        .await;
     match live {
         Ok((n,)) => (
             [(header::CACHE_CONTROL, "no-store")],

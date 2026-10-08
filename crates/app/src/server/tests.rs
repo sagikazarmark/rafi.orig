@@ -386,9 +386,10 @@ async fn full_raffle_flow() {
     assert_eq!(csv.lines().count(), 1 + units.len() + 1);
 
     // Retention: once due, personal data is erased but the draw stays verifiable.
-    sqlx::query("UPDATE raffles SET purge_nonwinners_at = 0, purge_winners_at = 0 WHERE id = ?")
+    app.db
+        .query("UPDATE raffles SET purge_nonwinners_at = 0, purge_winners_at = 0 WHERE id = ?")
         .bind(&raffle.id)
-        .execute(&app.db)
+        .run()
         .await
         .unwrap();
     let erased = super::retention::run(&app).await.unwrap();
@@ -726,6 +727,66 @@ async fn lifecycle_guards() {
 }
 
 #[tokio::test]
+async fn a_freeze_interrupted_before_its_commit_can_still_start() {
+    let app = app().await;
+    let raffle = setup_open(&app, &[("Book", 2)]).await;
+    for name in ["Anna", "Bence", "Csilla"] {
+        service::add_manual(&app, OWNER, &raffle.id, name, None)
+            .await
+            .unwrap();
+    }
+    // The freeze's first write landed, the commit document's did not.
+    app.db
+        .query("UPDATE raffles SET state = 'frozen' WHERE id = ?")
+        .bind(&raffle.id)
+        .run()
+        .await
+        .unwrap();
+
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    let r = wait_for(&app, &raffle.id, |r| r.draw_state.is_some()).await;
+    let doc: rafi_core::commit::CommitDoc =
+        serde_json::from_str(r.commit_doc.as_deref().expect("commit document")).unwrap();
+    assert_eq!(doc.entrant_ids.len(), 3);
+    assert_eq!(doc.units.len(), 2);
+    assert_eq!(
+        r.list_hash.as_deref(),
+        Some(
+            hex::encode(rafi_core::commit::list_hash(
+                r.commit_doc.as_deref().unwrap()
+            ))
+            .as_str()
+        )
+    );
+    assert!(r.frozen_at.is_some());
+    assert_eq!(r.draw_state().unwrap().list_hash, r.list_hash.unwrap());
+
+    // Starting again re-sends the same commitment.
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    let again = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    assert_eq!(again.commit_doc, r.commit_doc);
+}
+
+#[tokio::test]
+async fn fake_entrants_are_added_in_one_batch() {
+    let app = app().await;
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    let mut settings = service::settings_of(&raffle);
+    settings.test_mode = true;
+    service::update_settings(&app, OWNER, &raffle.id, settings)
+        .await
+        .unwrap();
+    service::add_fakes(&app, OWNER, &raffle.id, service::MAX_FAKE_ENTRANTS + 1)
+        .await
+        .unwrap();
+    let entrants = db::entrants(&app.db, &raffle.id).await.unwrap();
+    assert_eq!(entrants.len(), service::MAX_FAKE_ENTRANTS as usize);
+    assert!(entrants.iter().all(|e| e.source == "fake" && !e.hidden));
+    let ids: std::collections::HashSet<_> = entrants.iter().map(|e| &e.id).collect();
+    assert_eq!(ids.len(), entrants.len());
+}
+
+#[tokio::test]
 async fn the_restate_watcher_only_watches_when_asked() {
     let app = app().await;
     assert!(
@@ -952,10 +1013,11 @@ async fn switching_engines_keeps_a_stalled_draw() {
     // Pretend Restate was drawing it; a raffle on another chain is refused.
     let mut other = r.draw_state().unwrap();
     other.drand_chain = "00".repeat(32);
-    sqlx::query("UPDATE raffles SET engine = 'restate', draw_state = ? WHERE id = ?")
+    app.db
+        .query("UPDATE raffles SET engine = 'restate', draw_state = ? WHERE id = ?")
         .bind(serde_json::to_string(&other).unwrap())
         .bind(&raffle.id)
-        .execute(&app.db)
+        .run()
         .await
         .unwrap();
     assert!(
@@ -963,10 +1025,11 @@ async fn switching_engines_keeps_a_stalled_draw() {
             .await
             .is_err()
     );
-    sqlx::query("UPDATE raffles SET draw_state = ? WHERE id = ?")
+    app.db
+        .query("UPDATE raffles SET draw_state = ? WHERE id = ?")
         .bind(r.draw_state.clone())
         .bind(&raffle.id)
-        .execute(&app.db)
+        .run()
         .await
         .unwrap();
 
