@@ -10,8 +10,9 @@ publish = false
 [features]
 default = ["postgres"]
 ## PostgreSQL as a native backend (`postgres://` database URLs), for
-## self-hosting. Native only: Workers use D1, and ignore it.
-postgres = ["sqlx/postgres", "dep:tokio"]
+## self-hosting, with TLS (rustls, Mozilla roots). Native only: Workers use
+## D1, and ignore it. Without it, rafi-store builds only SQLite natively.
+postgres = ["sqlx/postgres", "sqlx/tls-rustls-aws-lc-rs", "dep:tokio"]
 ## The shared backend scenarios (`testsuite`), for running against D1.
 testsuite = []
 
