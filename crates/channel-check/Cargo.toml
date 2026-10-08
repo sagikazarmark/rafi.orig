@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rafi-channel = { path = "../channel" }
 rafi-core.workspace = true
+rafi-drand = { path = "../drand", features = ["mock"] }
 rafi-store.workspace = true
 serde_json.workspace = true
 worker = "0.8.7"

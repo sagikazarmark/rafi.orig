@@ -6,11 +6,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{Context, bail};
 use rafi_core::state::DrawState;
-use rafi_store::{Db, PurgeAfter};
+#[cfg(not(target_arch = "wasm32"))]
+use rafi_store::Db;
+use rafi_store::PurgeAfter;
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::SqlitePoolOptions;
 
 /// A boxed, sendable future (the projector is a trait object).
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -22,6 +22,15 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// receiver can simply keep the highest version it has seen.
 pub trait Projector: Send + Sync + 'static {
     fn project<'a>(&'a self, state: &'a DrawState) -> BoxFuture<'a, anyhow::Result<()>>;
+
+    /// Tells the raffle's live channel that its state changed (on Workers, the
+    /// nudge to its Durable Object). Runs after [`Projector::project`], in a
+    /// journaled `run` of its own with a few attempts; a failure is dropped,
+    /// not retried forever, because the channel re-reads periodically anyway
+    /// and a stuck nudge must not block the raffle's object.
+    fn notify<'a>(&'a self, _raffle_id: &'a str) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// The Rafi app's database.
@@ -60,15 +69,20 @@ impl DatabaseConfig {
 ///
 /// The app owns the schema and creates the file; until it has, writes fail and
 /// Restate retries them.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
 pub struct SqliteProjector {
     db: Db,
     purge: PurgeAfter,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl SqliteProjector {
     /// Opens the database lazily: the first projection connects.
     pub fn new(cfg: &DatabaseConfig) -> anyhow::Result<Self> {
+        use anyhow::{Context, bail};
+        use sqlx::sqlite::SqlitePoolOptions;
+
         if cfg.url.trim().is_empty() {
             bail!("database.url is required");
         }
@@ -86,8 +100,11 @@ impl SqliteProjector {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Projector for SqliteProjector {
     fn project<'a>(&'a self, state: &'a DrawState) -> BoxFuture<'a, anyhow::Result<()>> {
+        use anyhow::Context;
+
         Box::pin(async move {
             let written = rafi_store::save_draw_state(&self.db, state, self.purge)
                 .await
@@ -138,7 +155,7 @@ impl Projector for RecordingProjector {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
 

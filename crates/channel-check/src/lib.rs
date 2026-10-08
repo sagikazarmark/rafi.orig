@@ -90,6 +90,45 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
     Ok(())
 }
 
+/// The app's half of a Restate freeze: the commit document (on the mock drand
+/// chain the Restate Worker uses in development) and the frozen raffle row.
+/// Returns the document to hand to `Raffle/{id}/freeze`.
+async fn prepare(db: &Db, raffle: &str) -> Result<String> {
+    let chain = rafi_drand::DrandClient::new(rafi_drand::DrandConfig {
+        mock: true,
+        ..Default::default()
+    })
+    .map_err(err)?
+    .chain_hash();
+    let doc = CommitDoc::new(
+        raffle,
+        &chain,
+        vec![entrant(raffle, "anna"), entrant(raffle, "bence")],
+        vec![
+            UnitRef {
+                unit_id: "book-1".into(),
+                item_id: "book".into(),
+                item_name: "Book".into(),
+            },
+            UnitRef {
+                unit_id: "shirt-1".into(),
+                item_id: "shirt".into(),
+                item_name: "Shirt".into(),
+            },
+        ],
+    );
+    let state = DrawState::freeze(&doc);
+    let json = serde_json::to_string(&doc).map_err(err)?;
+    db.query("UPDATE raffles SET state = 'frozen', commit_doc = ?, list_hash = ? WHERE id = ?")
+        .bind(json.as_str())
+        .bind(&state.list_hash)
+        .bind(raffle)
+        .run()
+        .await
+        .map_err(err)?;
+    Ok(json)
+}
+
 /// A completed draw for `who`, written the way Restate's projector writes it.
 async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
     let mut state = draw_state(db, raffle).await?;
@@ -180,6 +219,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 .map_err(err)?;
         }
         "/freeze" => freeze(&db, raffle).await?,
+        "/prepare" => return Response::ok(prepare(&db, raffle).await?),
         "/draw/anna" => draw(&db, raffle, "anna").await?,
         "/draw/bence" => draw(&db, raffle, "bence").await?,
         "/finish" => finish(&db, raffle).await?,

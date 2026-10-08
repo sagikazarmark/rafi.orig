@@ -58,7 +58,9 @@ fn draw_error(e: DrawError) -> HandlerError {
 }
 
 impl Raffle {
-    /// Hands the state to the projector, at least once (journaled, retried).
+    /// Hands the state to the projector, at least once (journaled, retried
+    /// until it succeeds: the database is the record), then tells the live
+    /// channel, best effort.
     async fn project(&self, ctx: &ObjectContext<'_>, state: &DrawState) -> HandlerResult<()> {
         let projector = &*self.projector;
         ctx.run(|| async move {
@@ -73,6 +75,25 @@ impl Raffle {
                 .max_delay(Duration::from_secs(5)),
         )
         .await?;
+        let raffle_id = state.raffle_id.as_str();
+        let notified = ctx
+            .run(|| async move {
+                projector
+                    .notify(raffle_id)
+                    .await
+                    .map_err(HandlerError::from)?;
+                Ok(())
+            })
+            .name("notify")
+            .retry_policy(
+                RunRetryPolicy::new()
+                    .initial_delay(Duration::from_millis(100))
+                    .max_attempts(3),
+            )
+            .await;
+        if let Err(e) = notified {
+            tracing::warn!(raffle_id, error = %e, "notifying the live channel failed");
+        }
         Ok(())
     }
 

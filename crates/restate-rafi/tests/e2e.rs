@@ -148,16 +148,19 @@ async fn e2e_raffle() {
     assert_eq!(announces, 1, "the idempotency key deduplicated the draw");
     let first = s.unit("ticket-1").unwrap().entrant_id.clone().unwrap();
 
-    // The draw journals the clock, the projections and the beacon under stable names.
+    // The draw journals the clock, the projections (each followed by the live
+    // channel's best-effort notify) and the beacon under stable names.
     let runs = restate.admin().runs(sent.invocation_id()).await;
     assert_eq!(
         runs,
         [
             restate_drand::CLOCK_STEP,
             "project",
+            "notify",
             restate_drand::CLOCK_STEP,
             restate_drand::FETCH_STEP,
-            "project"
+            "project",
+            "notify"
         ]
     );
 

@@ -4618,6 +4618,7 @@ version = "0.0.0"
 dependencies = [
  "rafi-channel",
  "rafi-core",
+ "rafi-drand",
  "rafi-store",
  "serde_json",
  "worker",
@@ -4662,6 +4663,23 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "rafi-restate-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "http",
+ "http-body-util",
+ "rafi-channel",
+ "rafi-core",
+ "rafi-drand",
+ "rafi-store",
+ "restate-rafi",
+ "restate-sdk",
+ "worker",
 ]
 
 [[package]]
@@ -5015,11 +5033,12 @@ dependencies = [
 [[package]]
 name = "restate-sdk"
 version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5c7de5cd2aa6349a57ddd7a0b88d2f2e7870d3022b7d171fd1984a463b4c50c"
+source = "git+https://github.com/sagikazarmark/restate-sdk-rust?branch=wasm#91bf758b8f6d8fc8eb91fb63524f01dbe74b2bea"
 dependencies = [
  "bytes",
  "futures",
+ "getrandom 0.2.17",
+ "getrandom 0.4.3",
  "http",
  "http-body",
  "http-body-util",
@@ -5042,13 +5061,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "typify",
+ "web-time",
 ]
 
 [[package]]
 name = "restate-sdk-macros"
 version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be5c9e728067ad808d3f95ffe8f678d0c0b3a6374888dbd55764194e87d879c1"
+source = "git+https://github.com/sagikazarmark/restate-sdk-rust?branch=wasm#91bf758b8f6d8fc8eb91fb63524f01dbe74b2bea"
 dependencies = [
  "jiff",
  "proc-macro2",
@@ -6135,7 +6154,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

@@ -17,5 +17,7 @@
 mod projector;
 mod service;
 
-pub use projector::{DatabaseConfig, Projector, RecordingProjector, SqliteProjector};
+#[cfg(not(target_arch = "wasm32"))]
+pub use projector::SqliteProjector;
+pub use projector::{BoxFuture, DatabaseConfig, Projector, RecordingProjector};
 pub use service::{Raffle, SERVICE_NAME};
