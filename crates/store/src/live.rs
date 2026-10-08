@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::{Db, Result};
+use crate::{Db, Result, dialect};
 use rafi_core::state::{DrawState, Event, Outcome, UnitStatus};
 use rafi_live::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
 use serde::Deserialize;
@@ -58,14 +58,16 @@ impl Snapshot {
                 )
                 .bind(raffle_id),
                 // Only the entrants that were drawn: no other names leave the database.
-                db.query(
+                db.query(format!(
                     "SELECT e.id, e.display_name, e.hidden FROM entrants e
-                     WHERE e.raffle_id = ?1 AND e.id IN (
-                         SELECT json_extract(ev.value, '$.entrant_id')
-                         FROM raffles r, json_each(r.draw_state, '$.events') ev
-                         WHERE r.id = ?1 AND json_extract(ev.value, '$.type') = 'draw'
-                     )",
-                )
+                     WHERE e.raffle_id = ?1 AND e.id IN ({})",
+                    dialect::draw_state_entrants(
+                        "(SELECT draw_state FROM raffles WHERE id = ?1)",
+                        "events",
+                        "type",
+                        "draw",
+                    )
+                ))
                 .bind(raffle_id),
                 db.query("SELECT COALESCE(SUM(qty), 0) FROM items WHERE raffle_id = ?1")
                     .bind(raffle_id),

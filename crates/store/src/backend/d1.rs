@@ -4,11 +4,11 @@
 //! 2^53; rafi stores unix seconds and small counters, which fit. A batch runs
 //! as one transaction.
 
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 use js_sys::{Array, Object};
 use wasm_bindgen::{JsCast, JsValue};
-use worker::{D1Database, D1PreparedStatement};
+use worker::{D1Database, D1PreparedStatement, send::SendFuture};
 
 use crate::{
     error::{Error, Result},
@@ -74,6 +74,37 @@ fn from_js(value: JsValue) -> Value {
     }
 }
 
+/// The backend's operations, as `Send` futures. D1's own futures hold
+/// JavaScript values and aren't `Send`, but a Worker runs on one thread, so
+/// nothing can actually move them across threads; this keeps [`Db`]'s futures
+/// `Send` on every target, as axum and the Restate SDK require.
+impl D1 {
+    pub(crate) fn all(
+        &self,
+        stmt: Statement,
+    ) -> impl Future<Output = Result<Vec<Row>>> + Send + '_ {
+        SendFuture::new(self.all_js(stmt))
+    }
+
+    pub(crate) fn run(&self, stmt: Statement) -> impl Future<Output = Result<u64>> + Send + '_ {
+        SendFuture::new(self.run_js(stmt))
+    }
+
+    pub(crate) fn batch(
+        &self,
+        stmts: Vec<Statement>,
+    ) -> impl Future<Output = Result<Vec<u64>>> + Send + '_ {
+        SendFuture::new(self.batch_js(stmts))
+    }
+
+    pub(crate) fn batch_rows(
+        &self,
+        stmts: Vec<Statement>,
+    ) -> impl Future<Output = Result<Vec<Vec<Row>>>> + Send + '_ {
+        SendFuture::new(self.batch_rows_js(stmts))
+    }
+}
+
 impl D1 {
     fn prepare(&self, stmt: &Statement) -> Result<D1PreparedStatement> {
         let params: Vec<JsValue> = stmt.params.iter().map(js).collect();
@@ -85,7 +116,7 @@ impl D1 {
 
     /// Reads the JavaScript result directly: `D1Result::results` decodes
     /// through serde, which loses the column order tuples rely on.
-    pub(crate) async fn all(&self, stmt: Statement) -> Result<Vec<Row>> {
+    async fn all_js(&self, stmt: Statement) -> Result<Vec<Row>> {
         let prepared = self.prepare(&stmt)?;
         let promise = prepared.inner().all().map_err(js_err)?;
         let result = wasm_bindgen_futures::JsFuture::from(promise)
@@ -94,12 +125,12 @@ impl D1 {
         rows_of(result)
     }
 
-    pub(crate) async fn run(&self, stmt: Statement) -> Result<u64> {
+    async fn run_js(&self, stmt: Statement) -> Result<u64> {
         let result = self.prepare(&stmt)?.run().await.map_err(err)?;
         changes(&result)
     }
 
-    pub(crate) async fn batch(&self, stmts: Vec<Statement>) -> Result<Vec<u64>> {
+    async fn batch_js(&self, stmts: Vec<Statement>) -> Result<Vec<u64>> {
         let prepared = stmts
             .iter()
             .map(|s| self.prepare(s))
@@ -110,7 +141,7 @@ impl D1 {
 }
 
 impl D1 {
-    pub(crate) async fn batch_rows(&self, stmts: Vec<Statement>) -> Result<Vec<Vec<Row>>> {
+    async fn batch_rows_js(&self, stmts: Vec<Statement>) -> Result<Vec<Vec<Row>>> {
         let prepared = stmts
             .iter()
             .map(|s| self.prepare(s))

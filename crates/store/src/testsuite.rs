@@ -5,10 +5,17 @@ use std::future::Future;
 
 use rafi_core::{
     commit::{CommitDoc, UnitRef},
-    state::DrawState,
+    raffle::RaffleState,
+    state::{DrawMode, DrawState, Event, UnitStatus},
 };
+use rafi_live::Phase;
 
-use crate::{Db, PurgeAfter, save_draw_state};
+use crate::{
+    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants, items,
+    live::{HIDDEN_NAME, Snapshot},
+    raffles, retention, save_draw_state,
+    view::Full,
+};
 
 const PURGE: PurgeAfter = PurgeAfter {
     nonwinners_secs: 30,
@@ -44,6 +51,35 @@ where
         ),
         ("decodes_rows", decodes_rows(&fresh().await).await),
         ("reads_a_snapshot", reads_a_snapshot(&fresh().await).await),
+        ("freezes_in_steps", freezes_in_steps(&fresh().await).await),
+        (
+            "joins_up_to_the_cap_once_per_email",
+            joins_up_to_the_cap_once_per_email(&fresh().await).await,
+        ),
+        (
+            "adds_fakes_in_chunks",
+            adds_fakes_in_chunks(&fresh().await).await,
+        ),
+        (
+            "erases_and_logs_erasures",
+            erases_and_logs_erasures(&fresh().await).await,
+        ),
+        (
+            "retention_erases_what_is_due",
+            retention_erases_what_is_due(&fresh().await).await,
+        ),
+        (
+            "altcha_refuses_replays",
+            altcha_refuses_replays(&fresh().await).await,
+        ),
+        (
+            "reads_the_full_view",
+            reads_the_full_view(&fresh().await).await,
+        ),
+        (
+            "phones_see_only_drawn_names",
+            phones_see_only_drawn_names(&fresh().await).await,
+        ),
     ]
 }
 
@@ -240,4 +276,626 @@ async fn reads_a_snapshot(db: &Db) -> Outcome {
     check(qty == 3, "an aggregate")?;
     let (v, title): (i64, String) = sets[0].remove(0).decode().map_err(fail)?;
     check(v > 0 && title == "t", "the raffle row")
+}
+
+// ---------------------------------------------------------------------------
+// The domain functions
+// ---------------------------------------------------------------------------
+
+/// A new raffle, moved straight to `state` (the store doesn't check the
+/// lifecycle; the app does).
+async fn raffle_in(db: &Db, id: &str, state: RaffleState) -> Outcome {
+    raffles::insert(
+        db,
+        &raffles::NewRaffle {
+            id,
+            owner_id: "o",
+            slug: &format!("slug-{id}"),
+            join_code: &format!("code-{id}"),
+            title: "t",
+        },
+    )
+    .await
+    .map_err(fail)?;
+    if state != RaffleState::Draft {
+        check(
+            raffles::transition(db, id, RaffleState::Draft, state)
+                .await
+                .map_err(fail)?,
+            "moving a new raffle",
+        )?;
+    }
+    Ok(())
+}
+
+/// A self-service entry whose token hash is its ID.
+fn joiner<'a>(raffle_id: &'a str, id: &'a str, email: &'a str) -> entrants::Join<'a> {
+    entrants::Join {
+        id,
+        raffle_id,
+        display_name: id,
+        email_raw: email,
+        email_norm: email,
+        claim_code: "K2P9",
+        token_hash: id,
+        consent_version: "v1",
+        consent_marketing: false,
+    }
+}
+
+async fn join(db: &Db, raffle_id: &str, id: &str, email: &str, cap: i64) -> Result<bool, String> {
+    entrants::join(db, &joiner(raffle_id, id, email), cap)
+        .await
+        .map_err(fail)
+}
+
+fn manual<'a>(raffle_id: &'a str, id: &'a str, email: Option<&'a str>) -> entrants::Manual<'a> {
+    entrants::Manual {
+        id,
+        raffle_id,
+        display_name: id,
+        email_raw: email,
+        email_norm: email,
+        claim_code: "Q4M7",
+        consent_version: "v1",
+    }
+}
+
+async fn raffle(db: &Db, id: &str) -> Result<RaffleRow, String> {
+    raffles::get(db, id)
+        .await
+        .map_err(fail)?
+        .ok_or_else(|| format!("raffle {id} is gone"))
+}
+
+async fn entrant(db: &Db, raffle_id: &str, id: &str) -> Result<EntrantRow, String> {
+    entrants::get(db, raffle_id, id)
+        .await
+        .map_err(fail)?
+        .ok_or_else(|| format!("entrant {id} is gone"))
+}
+
+async fn freezes_in_steps(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Draft).await?;
+    check(
+        !raffles::freeze(db, "r1").await.map_err(fail)?,
+        "a draft doesn't freeze",
+    )?;
+    check(
+        raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open)
+            .await
+            .map_err(fail)?,
+        "opening",
+    )?;
+    check(
+        !raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open)
+            .await
+            .map_err(fail)?,
+        "a transition from a state the raffle has left",
+    )?;
+    for id in ["a", "b", "c"] {
+        check(join(db, "r1", id, &format!("{id}@x"), 10).await?, "joining")?;
+    }
+    check(
+        entrants::erase(db, "r1", Some("c")).await.map_err(fail)?,
+        "erasing one",
+    )?;
+    check(
+        entrants::count_active(db, "r1").await.map_err(fail)? == 2,
+        "erased entrants don't count",
+    )?;
+
+    check(raffles::freeze(db, "r1").await.map_err(fail)?, "freezing")?;
+    check(
+        !raffles::freeze(db, "r1").await.map_err(fail)?,
+        "freezing twice",
+    )?;
+    check(
+        !join(db, "r1", "d", "d@x", 10).await?,
+        "no joins once frozen",
+    )?;
+    let mut ids = entrants::active_ids(db, "r1").await.map_err(fail)?;
+    ids.sort();
+    check(ids == ["a", "b"], &format!("the list to commit: {ids:?}"))?;
+
+    check(
+        raffles::commit(db, "r1", "{}", "h1").await.map_err(fail)?,
+        "committing",
+    )?;
+    check(
+        !raffles::commit(db, "r1", "{}", "h2").await.map_err(fail)?,
+        "committing again",
+    )?;
+    raffles::unfreeze(db, "r1", RaffleState::Closed)
+        .await
+        .map_err(fail)?;
+    let r = raffle(db, "r1").await?;
+    check(
+        r.state() == RaffleState::Frozen
+            && r.list_hash.as_deref() == Some("h1")
+            && r.commit_doc.is_some()
+            && r.frozen_at.is_some(),
+        "the first commit stays, and a committed raffle stays frozen",
+    )?;
+
+    // A freeze that found nobody to draw from goes back.
+    raffle_in(db, "r2", RaffleState::Closed).await?;
+    check(
+        raffles::freeze(db, "r2").await.map_err(fail)?,
+        "freezing a closed raffle",
+    )?;
+    raffles::unfreeze(db, "r2", RaffleState::Closed)
+        .await
+        .map_err(fail)?;
+    check(
+        raffle(db, "r2").await?.state() == RaffleState::Closed,
+        "unfrozen",
+    )
+}
+
+async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    check(join(db, "r1", "a", "a@x", 2).await?, "the first entry")?;
+    match entrants::join(db, &joiner("r1", "a2", "a@x"), 2).await {
+        Err(e) if e.is_unique_violation() => {}
+        other => return Err(format!("the same email again: {other:?}")),
+    }
+    check(
+        entrants::email_taken(db, "r1", "a@x").await.map_err(fail)?,
+        "the email is taken",
+    )?;
+    check(
+        !entrants::email_taken(db, "r1", "z@x").await.map_err(fail)?,
+        "another email isn't",
+    )?;
+    check(join(db, "r1", "b", "b@x", 2).await?, "the second entry")?;
+    check(!join(db, "r1", "c", "c@x", 2).await?, "the raffle is full")?;
+
+    // The organizer can add people without an email, but not a taken one.
+    for id in ["m1", "m2"] {
+        entrants::insert_manual(db, &manual("r1", id, None))
+            .await
+            .map_err(fail)?;
+    }
+    let taken = entrants::insert_manual(db, &manual("r1", "m3", Some("b@x"))).await;
+    check(
+        taken.is_err_and(|e| e.is_unique_violation()),
+        "a manual entry with a taken email",
+    )?;
+    check(
+        entrants::claim_codes(db, "r1").await.map_err(fail)?.len() == 4,
+        "claim codes",
+    )?;
+    let a = entrants::by_token(db, "r1", "a").await.map_err(fail)?;
+    check(
+        a.is_some_and(|a| {
+            a.id == "a" && a.source == "self" && a.consent_rules_at.is_some() && !a.hidden
+        }),
+        "found by token",
+    )?;
+
+    // Each raffle has its own emails; a closed one takes nobody.
+    raffle_in(db, "r2", RaffleState::Open).await?;
+    check(
+        join(db, "r2", "d", "a@x", 10).await?,
+        "the email in another raffle",
+    )?;
+    raffle_in(db, "r3", RaffleState::Closed).await?;
+    check(
+        !join(db, "r3", "e", "e@x", 10).await?,
+        "registration is closed",
+    )
+}
+
+async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    let fake = |i: usize| entrants::Fake {
+        id: format!("f{i:03}"),
+        display_name: format!("Fake {i}"),
+        claim_code: format!("C{i:03}"),
+    };
+    // More rows than fit in one statement's parameters on D1.
+    let fakes: Vec<_> = (0..70).map(fake).collect();
+    entrants::insert_fakes(db, "r1", "v1", 5, &fakes)
+        .await
+        .map_err(fail)?;
+    let list = entrants::list(db, "r1").await.map_err(fail)?;
+    check(
+        list.len() == 70
+            && list
+                .iter()
+                .all(|e| e.source == "fake" && e.created_at == 5 && e.email_norm.is_none()),
+        "seventy fakes",
+    )?;
+    check(
+        list.windows(2).all(|w| w[0].id < w[1].id),
+        "entered at the same time: listed by ID",
+    )?;
+    // All or nothing: a duplicate in the last statement fails every one.
+    let mut again: Vec<_> = (100..140).map(fake).collect();
+    again.push(fake(0));
+    check(
+        entrants::insert_fakes(db, "r1", "v1", 6, &again)
+            .await
+            .is_err(),
+        "a duplicate ID fails",
+    )?;
+    check(
+        entrants::list(db, "r1").await.map_err(fail)?.len() == 70,
+        "nothing was added",
+    )
+}
+
+async fn erases_and_logs_erasures(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    for id in ["a", "b", "c"] {
+        join(db, "r1", id, &format!("{id}@x"), 10).await?;
+    }
+    entrants::set_hidden(db, "a", true).await.map_err(fail)?;
+    entrants::set_display_name(db, "b", "Bea")
+        .await
+        .map_err(fail)?;
+    entrants::set_delivered(db, "b", Some(9))
+        .await
+        .map_err(fail)?;
+    let b = entrant(db, "r1", "b").await?;
+    check(
+        b.display_name == "Bea"
+            && b.delivered_at == Some(9)
+            && entrant(db, "r1", "a").await?.hidden,
+        "patched",
+    )?;
+    entrants::set_delivered(db, "b", None).await.map_err(fail)?;
+    check(
+        entrant(db, "r1", "b").await?.delivered_at.is_none(),
+        "not delivered after all",
+    )?;
+
+    check(
+        entrants::erase(db, "r1", Some("a")).await.map_err(fail)?,
+        "erasing one",
+    )?;
+    check(
+        !entrants::erase(db, "r1", Some("a")).await.map_err(fail)?,
+        "erasing them again",
+    )?;
+    let a = entrant(db, "r1", "a").await?;
+    check(
+        a.purged
+            && a.display_name == "#a"
+            && a.email_raw.is_none()
+            && a.email_norm.is_none()
+            && a.token_hash.is_none(),
+        "their personal data is gone",
+    )?;
+    check(
+        !entrant(db, "r1", "b").await?.purged,
+        "nobody else was erased",
+    )?;
+    check(
+        entrants::erase(db, "r1", None).await.map_err(fail)?,
+        "erasing the rest",
+    )?;
+    check(
+        entrant(db, "r1", "b").await?.display_name == "#b",
+        "everyone is erased",
+    )?;
+    let log: Vec<(String, String)> = db
+        .query("SELECT raffle_id, entrant_id FROM erasures ORDER BY entrant_id")
+        .all()
+        .await
+        .map_err(fail)?;
+    check(
+        log == [
+            ("r1".to_owned(), "a".to_owned()),
+            ("r1".to_owned(), "b".to_owned()),
+            ("r1".to_owned(), "c".to_owned()),
+        ],
+        &format!("each erasure is logged once: {log:?}"),
+    )?;
+
+    // Before the freeze, removing deletes.
+    entrants::delete(db, "r1", "a").await.map_err(fail)?;
+    check(
+        entrants::list(db, "r1").await.map_err(fail)?.len() == 2,
+        "removed",
+    )
+}
+
+async fn retention_erases_what_is_due(db: &Db) -> Outcome {
+    // A finished raffle: w claimed a prize, d claimed one that was delivered,
+    // n won nothing.
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    for id in ["w", "d", "n"] {
+        join(db, "r1", id, &format!("{id}@x"), 10).await?;
+    }
+    entrants::set_delivered(db, "d", Some(1))
+        .await
+        .map_err(fail)?;
+    let doc = CommitDoc::new(
+        "r1",
+        &rafi_core::drand::chains::QUICKNET_HASH,
+        vec!["w".into(), "d".into(), "n".into()],
+        ["u1", "u2"]
+            .map(|u| UnitRef {
+                unit_id: u.into(),
+                item_id: "i".into(),
+                item_name: "Ticket".into(),
+            })
+            .into(),
+    );
+    let mut state = DrawState::freeze(&doc);
+    for (unit, winner) in [(0, "w"), (1, "d")] {
+        state.units[unit].status = UnitStatus::Claimed;
+        state.units[unit].entrant_id = Some(winner.into());
+    }
+    db.query(
+        "UPDATE raffles SET state = 'finished', draw_state = ?, finished_at = 100,
+         purge_nonwinners_at = 130, purge_winners_at = 190 WHERE id = 'r1'",
+    )
+    .bind(serde_json::to_string(&state).map_err(fail)?)
+    .run()
+    .await
+    .map_err(fail)?;
+    // A raffle that hasn't finished is never due.
+    raffle_in(db, "r2", RaffleState::Drawing).await?;
+    entrants::insert_manual(db, &manual("r2", "x", None))
+        .await
+        .map_err(fail)?;
+    db.query("UPDATE raffles SET purge_nonwinners_at = 0, purge_winners_at = 0 WHERE id = 'r2'")
+        .run()
+        .await
+        .map_err(fail)?;
+
+    let erase = |now| retention::erase_due(db, now);
+    check(
+        erase(129).await.map_err(fail)? == 0,
+        "nothing before the non-winners' date",
+    )?;
+    check(
+        erase(130).await.map_err(fail)? == 2,
+        "the non-winner and the delivered winner",
+    )?;
+    let purged = |e: EntrantRow| e.purged;
+    check(
+        purged(entrant(db, "r1", "n").await?)
+            && purged(entrant(db, "r1", "d").await?)
+            && !purged(entrant(db, "r1", "w").await?),
+        "only those two",
+    )?;
+    check(
+        raffle(db, "r1").await?.state() == RaffleState::Finished,
+        "the raffle isn't purged before the winners' date",
+    )?;
+    check(erase(189).await.map_err(fail)? == 0, "nobody else yet")?;
+    check(erase(190).await.map_err(fail)? == 1, "the winner")?;
+    let r = raffle(db, "r1").await?;
+    check(
+        r.state() == RaffleState::Purged && r.purged_at == Some(190),
+        "the raffle is purged",
+    )?;
+    check(
+        erase(10_000).await.map_err(fail)? == 0,
+        "a purged raffle is done",
+    )?;
+    check(
+        !purged(entrant(db, "r2", "x").await?),
+        "the unfinished raffle is untouched",
+    )?;
+    let log: Vec<(String, i64)> = db
+        .query("SELECT entrant_id, at FROM erasures ORDER BY entrant_id")
+        .all()
+        .await
+        .map_err(fail)?;
+    check(
+        log == [
+            ("d".to_owned(), 130),
+            ("n".to_owned(), 130),
+            ("w".to_owned(), 190),
+        ],
+        &format!("the erasure log: {log:?}"),
+    )?;
+
+    // Live channels end a while after the raffle finished, once.
+    check(
+        retention::live_channels_due(db, 99)
+            .await
+            .map_err(fail)?
+            .is_empty(),
+        "no channel to end yet",
+    )?;
+    check(
+        retention::live_channels_due(db, 100).await.map_err(fail)? == ["r1"],
+        "the finished raffle's channel",
+    )?;
+    retention::live_ended(db, "r1", 200).await.map_err(fail)?;
+    retention::live_ended(db, "r1", 300).await.map_err(fail)?;
+    check(
+        retention::live_channels_due(db, 1000)
+            .await
+            .map_err(fail)?
+            .is_empty()
+            && raffle(db, "r1").await?.live_ended_at == Some(200),
+        "ended once",
+    )?;
+
+    check(
+        retention::last_ok(db).await.map_err(fail)?.is_none(),
+        "no run yet",
+    )?;
+    retention::record_ok(db, 5).await.map_err(fail)?;
+    retention::record_ok(db, 7).await.map_err(fail)?;
+    check(
+        retention::last_ok(db).await.map_err(fail)? == Some(7),
+        "the last run",
+    )
+}
+
+async fn altcha_refuses_replays(db: &Db) -> Outcome {
+    let redeem = |challenge, expires_at| altcha::redeem(db, challenge, expires_at);
+    check(
+        redeem("c1", 100).await.map_err(fail)?,
+        "the first redemption",
+    )?;
+    check(!redeem("c1", 100).await.map_err(fail)?, "a replay")?;
+    check(redeem("c2", 50).await.map_err(fail)?, "another challenge")?;
+    altcha::purge_expired(db, 60).await.map_err(fail)?;
+    check(
+        !redeem("c1", 100).await.map_err(fail)?,
+        "an unexpired challenge stays redeemed",
+    )?;
+    check(
+        redeem("c2", 50).await.map_err(fail)?,
+        "an expired one is forgotten",
+    )
+}
+
+async fn reads_the_full_view(db: &Db) -> Outcome {
+    check(
+        Full::read(db, "nope").await.map_err(fail)?.is_none(),
+        "no such raffle",
+    )?;
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    let item = |name, position| items::ItemFields {
+        name,
+        sponsor: "",
+        description: "",
+        qty: 1,
+        position,
+    };
+    items::insert(db, "i2", "r1", &item("Shirt", 1))
+        .await
+        .map_err(fail)?;
+    items::insert(db, "i1", "r1", &item("Book", 0))
+        .await
+        .map_err(fail)?;
+    items::insert(db, "i0", "r1", &item("Mug", 1))
+        .await
+        .map_err(fail)?;
+    check(
+        items::update(db, "i2", "r1", &item("T-shirt", 1))
+            .await
+            .map_err(fail)?,
+        "updating an item",
+    )?;
+    check(
+        !items::update(db, "i9", "r1", &item("Hat", 2))
+            .await
+            .map_err(fail)?,
+        "updating a missing item",
+    )?;
+    join(db, "r1", "z", "z@x", 10).await?;
+    entrants::insert_fakes(
+        db,
+        "r1",
+        "v1",
+        5,
+        &[entrants::Fake {
+            id: "y".into(),
+            display_name: "Yves".into(),
+            claim_code: "Y1".into(),
+        }],
+    )
+    .await
+    .map_err(fail)?;
+
+    let full = Full::read(db, "r1")
+        .await
+        .map_err(fail)?
+        .ok_or("the raffle is gone")?;
+    let item_ids: Vec<_> = full.items.iter().map(|i| i.id.as_str()).collect();
+    check(
+        item_ids == ["i1", "i0", "i2"] && full.items[2].name == "T-shirt",
+        &format!("items by position, then ID: {item_ids:?}"),
+    )?;
+    let entrant_ids: Vec<_> = full.entrants.iter().map(|e| e.id.as_str()).collect();
+    check(
+        entrant_ids == ["y", "z"],
+        &format!("entrants in the order they entered: {entrant_ids:?}"),
+    )?;
+    check(
+        full.raffle.version == raffle(db, "r1").await?.version && full.raffle.version > 0,
+        "the raffle's version",
+    )?;
+    check(
+        items::list(db, "r1").await.map_err(fail)?.len() == 3,
+        "the same items",
+    )?;
+    items::delete(db, "i1", "r1").await.map_err(fail)?;
+    check(
+        Full::read(db, "r1")
+            .await
+            .map_err(fail)?
+            .is_some_and(|f| f.items.len() == 2 && f.raffle.version > full.raffle.version),
+        "a deleted item is gone, and the version moved",
+    )
+}
+
+async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
+    let mut state = frozen(db, "r1").await?;
+    let (anna, bence) = ("a".repeat(32), "b".repeat(32));
+    for id in [&anna, &bence] {
+        entrants::insert_manual(db, &manual("r1", id, None))
+            .await
+            .map_err(fail)?;
+    }
+    entrants::set_display_name(db, &anna, "Anna")
+        .await
+        .map_err(fail)?;
+    entrants::set_display_name(db, &bence, "Bence")
+        .await
+        .map_err(fail)?;
+    entrants::set_hidden(db, &bence, true).await.map_err(fail)?;
+    let k = state.next_k;
+    state.events.push(Event::Draw {
+        k,
+        unit_id: "u1".into(),
+        round: 1,
+        signature: String::new(),
+        randomness: String::new(),
+        mode: DrawMode::Beacon,
+        pass: 1,
+        pool_size: 2,
+        index: 0,
+        entrant_id: bence.clone(),
+    });
+    state.next_k += 1;
+    state.units[0].status = UnitStatus::Drawn;
+    state.units[0].entrant_id = Some(bence.clone());
+    state.units[0].k = Some(k);
+    state.version += 1;
+    check(
+        save_draw_state(db, &state, PURGE).await.map_err(fail)?,
+        "writing the draw",
+    )?;
+
+    let snap = Snapshot::read(db, "r1")
+        .await
+        .map_err(fail)?
+        .ok_or("the raffle is gone")?;
+    let view = snap.view();
+    let json = serde_json::to_string(&view).map_err(fail)?;
+    check(view.state == Phase::Drawing, "drawing")?;
+    check(
+        view.last
+            .as_ref()
+            .is_some_and(|l| l.display_name == HIDDEN_NAME),
+        "the drawn entrant, masked",
+    )?;
+    check(
+        view.winners.len() == 1 && view.prizes_left == 1,
+        "one winner, the prize still open",
+    )?;
+    check(
+        !json.contains("Anna") && !json.contains("Bence"),
+        "no other name leaves the database",
+    )?;
+    check(
+        view.v == raffle(db, "r1").await?.version as u64,
+        "the raffle's version",
+    )?;
+    check(
+        Snapshot::read(db, "nope").await.map_err(fail)?.is_none(),
+        "no such raffle",
+    )
 }

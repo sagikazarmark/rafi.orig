@@ -5,24 +5,46 @@
 //! migrations; on Cloudflare Workers it is D1, and `wrangler d1 migrations
 //! apply` applies the same files.
 //!
-//! The draw engine only ever writes a raffle's draw state, through
-//! [`save_draw_state`]; [`DrawWriter`] offers it as the engine's
-//! [`DrawStore`]. What phones see is read in one snapshot by [`live::Snapshot`].
+//! All of rafi's SQL lives here, as domain functions over a [`Db`]:
+//!
+//! - [`raffles`], [`items`], [`entrants`]: the organizer's and attendees'
+//!   reads and writes, the freeze's steps included;
+//! - [`audit`], [`altcha`] (redeemed proof-of-work challenges), [`retention`]
+//!   (erasure, ending live channels, `meta`);
+//! - [`view::Full`]: what the projector and the admin see, and
+//!   [`live::Snapshot`]: what phones see, each read in one snapshot;
+//! - [`save_draw_state`], the draw engine's only write; [`DrawWriter`] offers
+//!   it as the engine's [`DrawStore`].
+//!
+//! The SQL is written for SQLite (and D1) and Postgres alike: `?`/`?N`
+//! placeholders, no `rowid`, booleans stored as 0/1 and compared explicitly.
+//! What can't be shared lives in one place, `dialect`.
 //!
 //! D1 has no interactive transactions: a write that spans several statements
-//! goes through [`Db::batch`], which runs them as one transaction on both
-//! backends.
+//! goes through [`Db::batch`], which runs them as one transaction on every
+//! backend. Every future is `Send`, on Workers too.
 
+pub mod altcha;
+pub mod audit;
 mod backend;
+mod dialect;
+pub mod entrants;
 mod error;
+pub mod items;
 pub mod live;
 mod query;
+pub mod raffles;
+pub mod retention;
 mod value;
+pub mod view;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use backend::options;
+pub use entrants::EntrantRow;
 pub use error::{Error, Result};
+pub use items::ItemRow;
 pub use query::{Db, Query};
+pub use raffles::RaffleRow;
 use rafi_core::state::{DrawState, Event};
 use rafi_platform::{BoxFuture, DrawStore};
 pub use value::{Row, Value};
@@ -85,10 +107,10 @@ pub async fn save_draw_state(db: &Db, state: &DrawState, purge: PurgeAfter) -> R
                 draw_state = ?1,
                 draw_version = ?2,
                 state = CASE WHEN state IN ('frozen', 'drawing') THEN ?3 ELSE state END,
-                finished_at = CASE WHEN ?4 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
-                purge_nonwinners_at = CASE WHEN ?4 AND purge_nonwinners_at IS NULL
+                finished_at = CASE WHEN ?4 = 1 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
+                purge_nonwinners_at = CASE WHEN ?4 = 1 AND purge_nonwinners_at IS NULL
                     THEN COALESCE(finished_at, ?5) + ?6 ELSE purge_nonwinners_at END,
-                purge_winners_at = CASE WHEN ?4 AND purge_winners_at IS NULL
+                purge_winners_at = CASE WHEN ?4 = 1 AND purge_winners_at IS NULL
                     THEN COALESCE(finished_at, ?5) + ?7 ELSE purge_winners_at END,
                 updated_at = ?5
              WHERE id = ?8 AND list_hash = ?9 AND draw_version < ?2",
@@ -123,15 +145,11 @@ impl DrawWriter {
 
 impl DrawStore for DrawWriter {
     fn save_draw_state<'a>(&'a self, state: &'a DrawState) -> BoxFuture<'a, anyhow::Result<bool>> {
-        let write = async move {
+        Box::pin(async move {
             save_draw_state(&self.db, state, self.purge)
                 .await
                 .map_err(|e| anyhow::anyhow!("writing the draw state: {e}"))
-        };
-        // D1's futures aren't `Send`; a Worker is single-threaded, so the wrapper is sound.
-        #[cfg(target_arch = "wasm32")]
-        let write = worker::send::SendFuture::new(write);
-        Box::pin(write)
+        })
     }
 }
 
