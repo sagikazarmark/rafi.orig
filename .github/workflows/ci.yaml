@@ -16,7 +16,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    # The store's scenarios and the app's tests also run against Postgres.
+    # The store's conformance suite and the app's tests also run against Postgres.
     services:
       postgres:
         image: postgres:16

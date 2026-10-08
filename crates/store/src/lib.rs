@@ -28,6 +28,11 @@
 //! D1 has no interactive transactions: a write that spans several statements
 //! goes through [`Db::batch`], which runs them as one transaction on every
 //! backend. Every future is `Send`, on Workers too.
+//!
+//! What every backend must do is pinned down by the storage conformance
+//! suite, `conformance` (the `conformance` feature): named scenarios that
+//! `tests/conformance.rs` runs against SQLite and Postgres, and
+//! `crates/store-d1-check` against D1.
 
 pub mod altcha;
 pub mod audit;
@@ -159,8 +164,8 @@ impl DrawStore for DrawWriter {
     }
 }
 
-#[cfg(any(test, feature = "testsuite"))]
-pub mod testsuite;
+#[cfg(feature = "conformance")]
+pub mod conformance;
 
 /// Test support for suites that run against Postgres when
 /// `RAFI_TEST_POSTGRES_URL` names a (throwaway) database.
@@ -194,88 +199,6 @@ pub mod testing {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-
-    fn assert_passed(backend: &str, results: Vec<(&str, Result<(), String>)>) {
-        let failed: Vec<String> = results
-            .iter()
-            .filter_map(|(name, r)| r.as_ref().err().map(|e| format!("{name}: {e}")))
-            .collect();
-        assert!(failed.is_empty(), "{backend}: {}", failed.join("; "));
-        eprintln!("{backend}: {} scenarios passed", results.len());
-    }
-
-    /// The shared scenarios, against in-memory SQLite. `crates/store-d1-check`
-    /// runs the same ones against D1.
-    #[tokio::test]
-    async fn testsuite() {
-        let results =
-            testsuite::run(|| async { Db::connect("sqlite::memory:").await.unwrap() }).await;
-        assert_passed("SQLite", results);
-    }
-
-    /// The shared scenarios against Postgres, each on a fresh schema, when
-    /// `RAFI_TEST_POSTGRES_URL` is set.
-    #[cfg(feature = "postgres")]
-    #[tokio::test]
-    async fn testsuite_on_postgres() {
-        if testing::postgres_base_url().is_none() {
-            eprintln!("skipped: set RAFI_TEST_POSTGRES_URL to run the testsuite against Postgres");
-            return;
-        }
-        let results = testsuite::run(|| async {
-            let db = Db::connect(&testing::postgres_url().await.unwrap())
-                .await
-                .unwrap();
-            assert_eq!(db.dialect(), Dialect::Postgres);
-            db
-        })
-        .await;
-        assert_passed("Postgres", results);
-    }
-
-    /// Serializable transactions keep the entrant cap exact when joins race,
-    /// as SQLite's single writer does.
-    #[cfg(feature = "postgres")]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn racing_joins_respect_the_cap_on_postgres() {
-        let Some(url) = testing::postgres_url().await else {
-            eprintln!("skipped: set RAFI_TEST_POSTGRES_URL to run against Postgres");
-            return;
-        };
-        let db = Db::connect(&url).await.unwrap();
-        db.query(
-            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, created_at, updated_at)
-             VALUES ('r1', 'o', 's', 'j', 't', 'open', 0, 0)",
-        )
-        .run()
-        .await
-        .unwrap();
-        let joins = (0..16).map(|n| {
-            let db = db.clone();
-            tokio::spawn(async move {
-                let id = format!("{n:032}");
-                let email = format!("{n}@example.com");
-                let join = entrants::Join {
-                    id: &id,
-                    raffle_id: "r1",
-                    display_name: "Anna",
-                    email_raw: &email,
-                    email_norm: &email,
-                    claim_code: &id[..4],
-                    token_hash: &id,
-                    consent_version: "v1",
-                    consent_marketing: false,
-                };
-                entrants::join(&db, &join, 5).await.unwrap()
-            })
-        });
-        let mut joined = 0;
-        for j in joins.collect::<Vec<_>>() {
-            joined += usize::from(j.await.unwrap());
-        }
-        assert_eq!(joined, 5);
-        assert_eq!(entrants::count_active(&db, "r1").await.unwrap(), 5);
-    }
 
     #[tokio::test]
     async fn opening_lazily_does_not_create_the_file() {

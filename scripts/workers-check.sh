@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs rafi's Cloudflare Workers checks locally, under `wrangler dev`:
 #
-#   1. rafi-store's backend scenarios against D1 (crates/store-d1-check);
+#   1. rafi-store's conformance suite against D1 (crates/store-d1-check), failing
+#      if any scenario fails;
 #   2. the live channel driven over real WebSockets (crates/cloudflare-check/scenario.mjs);
 #   3. the attendee page in headless Chromium (crates/attendee/smoke.mjs), when
 #      CHROMIUM (or `chromium`) is available;
@@ -60,11 +61,11 @@ done
 migrate store-d1-check rafi-store-check
 migrate cloudflare-check rafi-cloudflare-check
 
-step "rafi-store on D1"
+step "rafi-store's conformance suite on D1"
 serve store-d1-check 8789 /
 report="$(curl -s -m 60 -w '\n%{http_code}' http://127.0.0.1:8789/)"
 echo "$report" | head -1
-[ "$(echo "$report" | tail -1)" = "200" ] || { echo "store scenarios failed" >&2; exit 1; }
+[ "$(echo "$report" | tail -1)" = "200" ] || { echo "store conformance scenarios failed" >&2; exit 1; }
 
 step "the live channel"
 serve cloudflare-check 8790 '/participant?r=probe'

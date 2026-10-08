@@ -1,7 +1,4 @@
-//! Scenarios every backend must pass. Native tests run them against SQLite;
-//! `crates/store-d1-check` runs them against D1 under `wrangler dev`.
-
-use std::future::Future;
+//! The `domain.*` scenarios: the domain functions, on every backend.
 
 use rafi_core::{
     commit::{CommitDoc, UnitRef},
@@ -10,6 +7,7 @@ use rafi_core::{
 };
 use rafi_live::Phase;
 
+use super::{Outcome, check, fail};
 use crate::{
     Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants, items,
     live::{HIDDEN_NAME, Snapshot},
@@ -22,67 +20,7 @@ const PURGE: PurgeAfter = PurgeAfter {
     winners_secs: 90,
 };
 
-type Outcome = Result<(), String>;
-
-fn check(ok: bool, what: &str) -> Outcome {
-    if ok { Ok(()) } else { Err(what.to_owned()) }
-}
-
-fn fail(e: impl std::fmt::Display) -> String {
-    e.to_string()
-}
-
-/// Runs every scenario on a fresh database from `fresh`, which must return an
-/// empty, migrated database each time it is called.
-pub async fn run<F, Fut>(fresh: F) -> Vec<(&'static str, Outcome)>
-where
-    F: Fn() -> Fut,
-    Fut: Future<Output = Db>,
-{
-    vec![
-        (
-            "keeps_the_newest_state",
-            keeps_the_newest_state(&fresh().await).await,
-        ),
-        ("bumps_the_version", bumps_the_version(&fresh().await).await),
-        (
-            "batches_are_atomic",
-            batches_are_atomic(&fresh().await).await,
-        ),
-        ("decodes_rows", decodes_rows(&fresh().await).await),
-        ("reads_a_snapshot", reads_a_snapshot(&fresh().await).await),
-        ("freezes_in_steps", freezes_in_steps(&fresh().await).await),
-        (
-            "joins_up_to_the_cap_once_per_email",
-            joins_up_to_the_cap_once_per_email(&fresh().await).await,
-        ),
-        (
-            "adds_fakes_in_chunks",
-            adds_fakes_in_chunks(&fresh().await).await,
-        ),
-        (
-            "erases_and_logs_erasures",
-            erases_and_logs_erasures(&fresh().await).await,
-        ),
-        (
-            "retention_erases_what_is_due",
-            retention_erases_what_is_due(&fresh().await).await,
-        ),
-        (
-            "altcha_refuses_replays",
-            altcha_refuses_replays(&fresh().await).await,
-        ),
-        (
-            "reads_the_full_view",
-            reads_the_full_view(&fresh().await).await,
-        ),
-        (
-            "phones_see_only_drawn_names",
-            phones_see_only_drawn_names(&fresh().await).await,
-        ),
-    ]
-}
-
+/// A frozen raffle `id` with two entrants and one prize, and its draw state.
 async fn frozen(db: &Db, id: &str) -> Result<DrawState, String> {
     let doc = CommitDoc::new(
         id,
@@ -109,7 +47,7 @@ async fn frozen(db: &Db, id: &str) -> Result<DrawState, String> {
     Ok(state)
 }
 
-async fn keeps_the_newest_state(db: &Db) -> Outcome {
+pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     let mut state = frozen(db, "r1").await?;
     check(
         save_draw_state(db, &state, PURGE).await.map_err(fail)?,
@@ -142,145 +80,6 @@ async fn keeps_the_newest_state(db: &Db) -> Outcome {
         "a different entrant list",
     )
 }
-
-async fn version(db: &Db) -> Result<i64, String> {
-    Ok(db
-        .query("SELECT version FROM raffles WHERE id = 'r1'")
-        .one::<(i64,)>()
-        .await
-        .map_err(fail)?
-        .0)
-}
-
-async fn bumps_the_version(db: &Db) -> Outcome {
-    frozen(db, "r1").await?;
-    let v0 = version(db).await?;
-    db.query("UPDATE raffles SET title = 'x' WHERE id = 'r1'")
-        .run()
-        .await
-        .map_err(fail)?;
-    let v1 = version(db).await?;
-    check(v1 == v0 + 1, "a raffle update bumps once")?;
-    for sql in [
-        "INSERT INTO items (id, raffle_id, name) VALUES ('i', 'r1', 'Book')",
-        "INSERT INTO entrants (id, raffle_id, display_name, claim_code, created_at) VALUES ('e', 'r1', 'Anna', 'K2P9', 0)",
-        "UPDATE entrants SET hidden = 1 WHERE id = 'e'",
-        "DELETE FROM items WHERE id = 'i'",
-    ] {
-        db.query(sql).run().await.map_err(fail)?;
-    }
-    check(
-        version(db).await? == v1 + 4,
-        "item and entrant writes bump once each",
-    )
-}
-
-async fn batches_are_atomic(db: &Db) -> Outcome {
-    frozen(db, "r1").await?;
-    let res = db
-        .batch(vec![
-            db.query("UPDATE raffles SET title = 'changed' WHERE id = 'r1'"),
-            db.query(
-                "INSERT INTO raffles (id, owner_id, slug, join_code, title, created_at, updated_at)
-                 VALUES ('r2', 'o', 'slug-r1', 'k', 't', 0, 0)",
-            ),
-        ])
-        .await;
-    match res {
-        Err(e) => check(e.is_unique_violation(), "the error is a unique violation")?,
-        Ok(_) => return Err("a batch with a failing statement succeeded".into()),
-    }
-    let (title,): (String,) = db
-        .query("SELECT title FROM raffles WHERE id = 'r1'")
-        .one()
-        .await
-        .map_err(fail)?;
-    check(title == "t", "the first statement rolled back")?;
-    let changes = db
-        .batch(vec![
-            db.query("UPDATE raffles SET title = 'a' WHERE id = 'r1'"),
-            db.query("UPDATE raffles SET title = 'b' WHERE id = 'nope'"),
-        ])
-        .await
-        .map_err(fail)?;
-    // D1 counts rows changed by triggers too (here, the version bump), so only
-    // zero versus non-zero is portable.
-    check(
-        changes[0] > 0 && changes[1] == 0,
-        &format!("changed rows per statement: {changes:?}"),
-    )
-}
-
-async fn decodes_rows(db: &Db) -> Outcome {
-    #[derive(serde::Deserialize)]
-    struct Entrant {
-        id: String,
-        hidden: bool,
-        email_raw: Option<String>,
-        created_at: i64,
-    }
-    frozen(db, "r1").await?;
-    db.query(
-        "INSERT INTO entrants (id, raffle_id, display_name, claim_code, hidden, created_at)
-         VALUES ('e', 'r1', 'Anna', 'K2P9', 1, 1760000000)",
-    )
-    .run()
-    .await
-    .map_err(fail)?;
-    let e: Entrant = db
-        .query("SELECT * FROM entrants WHERE id = ?")
-        .bind("e")
-        .one()
-        .await
-        .map_err(fail)?;
-    check(
-        e.id == "e" && e.hidden && e.email_raw.is_none() && e.created_at == 1_760_000_000,
-        "struct decode",
-    )?;
-    let missing: Option<Entrant> = db
-        .query("SELECT * FROM entrants WHERE id = ?")
-        .bind("x")
-        .optional()
-        .await
-        .map_err(fail)?;
-    check(missing.is_none(), "optional finds nothing")?;
-    let (n,): (i64,) = db
-        .query("SELECT COUNT(*) FROM entrants WHERE raffle_id = ?")
-        .bind("r1")
-        .one()
-        .await
-        .map_err(fail)?;
-    check(n == 1, "tuple decode")
-}
-
-async fn reads_a_snapshot(db: &Db) -> Outcome {
-    frozen(db, "r1").await?;
-    db.query("INSERT INTO items (id, raffle_id, name, qty) VALUES ('i', 'r1', 'Book', 3)")
-        .run()
-        .await
-        .map_err(fail)?;
-    let mut sets = db
-        .batch_rows(vec![
-            db.query("SELECT version, title FROM raffles WHERE id = ?")
-                .bind("r1"),
-            db.query("SELECT SUM(qty) FROM items WHERE raffle_id = ?")
-                .bind("r1"),
-            db.query("SELECT id FROM entrants WHERE raffle_id = ?")
-                .bind("r1"),
-        ])
-        .await
-        .map_err(fail)?;
-    check(sets.len() == 3, "one row set per statement")?;
-    check(sets[2].is_empty(), "an empty result")?;
-    let (qty,): (i64,) = sets[1].remove(0).decode().map_err(fail)?;
-    check(qty == 3, "an aggregate")?;
-    let (v, title): (i64, String) = sets[0].remove(0).decode().map_err(fail)?;
-    check(v > 0 && title == "t", "the raffle row")
-}
-
-// ---------------------------------------------------------------------------
-// The domain functions
-// ---------------------------------------------------------------------------
 
 /// A new raffle, moved straight to `state` (the store doesn't check the
 /// lifecycle; the app does).
@@ -355,7 +154,7 @@ async fn entrant(db: &Db, raffle_id: &str, id: &str) -> Result<EntrantRow, Strin
         .ok_or_else(|| format!("entrant {id} is gone"))
 }
 
-async fn freezes_in_steps(db: &Db) -> Outcome {
+pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Draft).await?;
     check(
         !raffles::freeze(db, "r1").await.map_err(fail)?,
@@ -433,7 +232,7 @@ async fn freezes_in_steps(db: &Db) -> Outcome {
     )
 }
 
-async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
+pub(super) async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
     check(join(db, "r1", "a", "a@x", 2).await?, "the first entry")?;
     match entrants::join(db, &joiner("r1", "a2", "a@x"), 2).await {
@@ -487,7 +286,31 @@ async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
     )
 }
 
-async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
+/// Joins that race (each on its own connection) still stop at the cap: the
+/// check and the insert are one statement, and the backend's transactions
+/// must keep it exact (Postgres: serializable, retried on conflict).
+pub(super) async fn racing_joins_respect_the_cap(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    let ids: Vec<(String, String)> = (0..16)
+        .map(|n| (format!("{n:032}"), format!("{n}@example.com")))
+        .collect();
+    let joiners: Vec<_> = ids
+        .iter()
+        .map(|(id, email)| joiner("r1", id, email))
+        .collect();
+    let joins = joiners.iter().map(|j| entrants::join(db, j, 5));
+    let mut joined = 0;
+    for result in futures_util::future::join_all(joins).await {
+        joined += usize::from(result.map_err(fail)?);
+    }
+    check(joined == 5, &format!("{joined} of 16 racing joins went in"))?;
+    check(
+        entrants::count_active(db, "r1").await.map_err(fail)? == 5,
+        "five entrants",
+    )
+}
+
+pub(super) async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
     let fake = |i: usize| entrants::Fake {
         id: format!("f{i:03}"),
@@ -526,7 +349,7 @@ async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
     )
 }
 
-async fn erases_and_logs_erasures(db: &Db) -> Outcome {
+pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
     // Erasing everyone first: the statement's first run binds NULL.
     check(
@@ -607,7 +430,7 @@ async fn erases_and_logs_erasures(db: &Db) -> Outcome {
     )
 }
 
-async fn retention_erases_what_is_due(db: &Db) -> Outcome {
+pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     // A finished raffle: w claimed a prize, d claimed one that was delivered,
     // n won nothing.
     raffle_in(db, "r1", RaffleState::Open).await?;
@@ -736,7 +559,7 @@ async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     )
 }
 
-async fn altcha_refuses_replays(db: &Db) -> Outcome {
+pub(super) async fn altcha_refuses_replays(db: &Db) -> Outcome {
     let redeem = |challenge, expires_at| altcha::redeem(db, challenge, expires_at);
     check(
         redeem("c1", 100).await.map_err(fail)?,
@@ -755,7 +578,7 @@ async fn altcha_refuses_replays(db: &Db) -> Outcome {
     )
 }
 
-async fn reads_the_full_view(db: &Db) -> Outcome {
+pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
     check(
         Full::read(db, "nope").await.map_err(fail)?.is_none(),
         "no such raffle",
@@ -836,7 +659,7 @@ async fn reads_the_full_view(db: &Db) -> Outcome {
     )
 }
 
-async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
+pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
     let mut state = frozen(db, "r1").await?;
     let (anna, bence) = ("a".repeat(32), "b".repeat(32));
     for id in [&anna, &bence] {

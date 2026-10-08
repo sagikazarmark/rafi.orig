@@ -161,9 +161,25 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 
 Without `RESTATE_SERVER_BIN` the end-to-end tests skip (and fail on CI).
 
-With `RAFI_TEST_POSTGRES_URL` naming a throwaway Postgres database, the store's scenarios and the app's tests
-(the end-to-end one included) also run against Postgres, each on a fresh schema, which they leave behind. CI sets
-it. Locally, for example:
+**The storage conformance suite** (`rafi_store::conformance`) is the contract every database backend must pass:
+named scenarios for the query layer (`query.*`: decoding, `NULL` parameters, batch atomicity and snapshots, unique
+violations, change counts, ordering, D1's parameter limit, the version triggers) and the domain functions
+(`domain.*`). `cargo test -p rafi-store` lists each one per backend, as `<backend>::<scenario>`
+(`sqlite::domain.join_cap`), and reports a backend that isn't available, or a capability a scenario needs that the
+backend lacks, as ignored with the reason. The tiers:
+
+| Backend | Runs |
+|---|---|
+| SQLite (in memory) | always |
+| Postgres | when `RAFI_TEST_POSTGRES_URL` names a throwaway database (a fresh schema per scenario); CI sets it |
+| D1 | under `wrangler dev`, through `crates/store-d1-check` (`./scripts/workers-check.sh`, below) |
+| embedded Postgres | being evaluated separately (a tier that needs no server) |
+
+A new backend implements `rafi_store::conformance::Harness` (a name, its capabilities, and a fresh, migrated
+database per scenario) and passes the suite; see the module's documentation.
+
+With `RAFI_TEST_POSTGRES_URL` set, the app's tests (the end-to-end one included) also run against Postgres, each on
+a fresh schema, which they leave behind. Locally, for example:
 
 ```sh
 D=$(mktemp -d); initdb -D $D/pg -U rafi --auth=trust >/dev/null
@@ -250,7 +266,7 @@ Local development, everything under `wrangler dev` (the tools are in `devenv.nix
 restate deployments register http://127.0.0.1:8791 --use-http1.1
 ```
 
-`./scripts/workers-check.sh` runs every Workers check locally: rafi-store on D1, the live channel over WebSockets
+`./scripts/workers-check.sh` runs every Workers check locally: rafi-store's conformance suite on D1, the live channel over WebSockets
 (`crates/cloudflare-check`), the attendee page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
 job runs it.
 

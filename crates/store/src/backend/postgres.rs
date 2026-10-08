@@ -8,10 +8,13 @@
 //! - **Parameters** are bound as `INT8`, `FLOAT8` or `TEXT`. `NULL` is bound
 //!   untyped, so Postgres infers its type from where it is used
 //!   (`delivered_at = $1`); such statements aren't cached, so a type inferred
-//!   from a `NULL` never sticks to a statement that later binds a value. Where
-//!   nothing determines the type (`$2 IS NULL OR id = $2`, since Postgres
-//!   types `$2` at `IS NULL`), Postgres refuses the statement, and it is run
-//!   again with its `NULL`s as `TEXT`.
+//!   from a `NULL` never sticks to a statement that later binds a value (one
+//!   cached from an earlier run with values is reused, with the values'
+//!   types). Where nothing determines the type (`$2 IS NULL OR id = $2`,
+//!   since Postgres types `$2` at `IS NULL`), Postgres refuses the statement,
+//!   and the operation is run again with that statement's `NULL`s as `TEXT`;
+//!   the other statements of a batch keep theirs inferred. (So one statement
+//!   can't bind both kinds of `NULL`.)
 //! - **Rows** decode into the store's [`Value`]s: integers of every width and
 //!   booleans as `Int`, `NUMERIC` (what `SUM` returns) as `Int` when integral,
 //!   floats as `Real`, text as `Text`.
@@ -308,28 +311,56 @@ fn sqlstate(e: &sqlx::Error) -> Option<String> {
     }
 }
 
-/// Runs `op` until it succeeds or fails with something other than a
-/// serialization failure or deadlock, at most [`ATTEMPTS`] times. If a
-/// statement binds `NULL` where nothing determines its type (`?2 IS NULL`
-/// alone), the operation is run again with `NULL`s typed as `TEXT`.
-async fn retrying<T, F, Fut>(nulls_bound: bool, mut op: F) -> Result<T>
+/// A failed operation, and which of its statements failed, if one did.
+struct Failed {
+    stmt: Option<usize>,
+    error: sqlx::Error,
+}
+
+impl From<sqlx::Error> for Failed {
+    fn from(error: sqlx::Error) -> Self {
+        Self { stmt: None, error }
+    }
+}
+
+impl Failed {
+    /// Blames statement `stmt`.
+    fn at(stmt: usize) -> impl FnOnce(sqlx::Error) -> Self {
+        move |error| Self {
+            stmt: Some(stmt),
+            error,
+        }
+    }
+}
+
+/// Runs `op`, made of `stmts`, until it succeeds or fails with something
+/// other than a serialization failure or deadlock, at most [`ATTEMPTS`]
+/// times. `op` gets how to type each statement's `NULL`s: if a statement
+/// binds `NULL` where nothing determines its type (`?2 IS NULL` alone), the
+/// operation is run again with that statement's `NULL`s typed as `TEXT`, and
+/// the others' left as they were.
+async fn retrying<T, F, Fut>(stmts: &[Statement], mut op: F) -> Result<T>
 where
-    F: FnMut(Nulls) -> Fut,
-    Fut: Future<Output = Result<T, sqlx::Error>>,
+    F: FnMut(Vec<Nulls>) -> Fut,
+    Fut: Future<Output = Result<T, Failed>>,
 {
     let mut attempt = 1;
-    let mut nulls = Nulls::Inferred;
+    let mut nulls = vec![Nulls::Inferred; stmts.len()];
     loop {
-        let result = op(nulls).await;
-        let code = result.as_ref().err().and_then(sqlstate);
-        match (result, code.as_deref()) {
+        let Failed { stmt, error } = match op(nulls.clone()).await {
+            Ok(v) => return Ok(v),
+            Err(failed) => failed,
+        };
+        match (sqlstate(&error).as_deref(), stmt) {
             // ambiguous_parameter ("could not determine data type of parameter"),
             // indeterminate_datatype
-            (Err(_), Some("42P08" | "42P18")) if nulls_bound && nulls == Nulls::Inferred => {
-                nulls = Nulls::Text;
+            (Some("42P08" | "42P18"), Some(i))
+                if has_null(&stmts[i]) && nulls[i] == Nulls::Inferred =>
+            {
+                nulls[i] = Nulls::Text;
             }
             // serialization_failure, deadlock_detected
-            (Err(_), Some("40001" | "40P01")) if attempt < ATTEMPTS => {
+            (Some("40001" | "40P01"), _) if attempt < ATTEMPTS => {
                 // A little jitter, so conflicting writers don't meet again.
                 let jitter = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -340,7 +371,7 @@ where
                 .await;
                 attempt += 1;
             }
-            (result, _) => return result.map_err(Error::from),
+            _ => return Err(error.into()),
         }
     }
 }
@@ -354,9 +385,12 @@ impl Postgres {
     }
 
     pub(crate) async fn all(&self, stmt: Statement) -> Result<Vec<Row>> {
-        let (pool, stmt) = (&self.pool, &stmt);
-        retrying(has_null(stmt), |nulls| async move {
-            prepare(stmt, nulls).fetch_all(pool).await
+        let (pool, stmts) = (&self.pool, std::slice::from_ref(&stmt));
+        retrying(stmts, |nulls| async move {
+            prepare(&stmts[0], nulls[0])
+                .fetch_all(pool)
+                .await
+                .map_err(Failed::at(0))
         })
         .await?
         .iter()
@@ -365,23 +399,28 @@ impl Postgres {
     }
 
     pub(crate) async fn run(&self, stmt: Statement) -> Result<u64> {
-        let (pool, stmt) = (&self.pool, &stmt);
-        retrying(has_null(stmt), |nulls| async move {
-            Ok(prepare(stmt, nulls).execute(pool).await?.rows_affected())
+        let (pool, stmts) = (&self.pool, std::slice::from_ref(&stmt));
+        retrying(stmts, |nulls| async move {
+            Ok(prepare(&stmts[0], nulls[0])
+                .execute(pool)
+                .await
+                .map_err(Failed::at(0))?
+                .rows_affected())
         })
         .await
     }
 
     pub(crate) async fn batch(&self, stmts: Vec<Statement>) -> Result<Vec<u64>> {
         let (pool, stmts) = (&self.pool, &stmts);
-        retrying(stmts.iter().any(has_null), |nulls| async move {
+        retrying(stmts, |nulls| async move {
             let mut tx = pool.begin().await?;
             let mut changes = Vec::with_capacity(stmts.len());
-            for stmt in stmts {
+            for (i, stmt) in stmts.iter().enumerate() {
                 changes.push(
-                    prepare(stmt, nulls)
+                    prepare(stmt, nulls[i])
                         .execute(&mut *tx)
-                        .await?
+                        .await
+                        .map_err(Failed::at(i))?
                         .rows_affected(),
                 );
             }
@@ -393,11 +432,16 @@ impl Postgres {
 
     pub(crate) async fn batch_rows(&self, stmts: Vec<Statement>) -> Result<Vec<Vec<Row>>> {
         let (pool, stmts) = (&self.pool, &stmts);
-        let sets = retrying(stmts.iter().any(has_null), |nulls| async move {
+        let sets = retrying(stmts, |nulls| async move {
             let mut tx = pool.begin().await?;
             let mut sets = Vec::with_capacity(stmts.len());
-            for stmt in stmts {
-                sets.push(prepare(stmt, nulls).fetch_all(&mut *tx).await?);
+            for (i, stmt) in stmts.iter().enumerate() {
+                sets.push(
+                    prepare(stmt, nulls[i])
+                        .fetch_all(&mut *tx)
+                        .await
+                        .map_err(Failed::at(i))?,
+                );
             }
             tx.commit().await?;
             Ok(sets)
