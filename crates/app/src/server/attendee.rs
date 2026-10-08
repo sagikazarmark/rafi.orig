@@ -418,6 +418,7 @@ async fn snapshot(app: &AppState, raffle: &RaffleRow) -> Option<rafi_channel::Sn
     }
 }
 
+#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn page(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
@@ -450,6 +451,7 @@ async fn page(
     with_lang_cookie(resp, &q, app.cfg.cookie_secure)
 }
 
+#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn submit(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
@@ -551,6 +553,7 @@ async fn try_join(
 }
 
 /// The current attendee's own entry (cookie-authenticated, never cached).
+#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn me(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
@@ -595,6 +598,7 @@ fn text_page(
     Html(document(lang, title, body, None))
 }
 
+#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn rules(
     Extension(app): Extension<AppState>,
     Path(slug): Path<String>,
@@ -689,6 +693,7 @@ fn contact(r: &RaffleRow) -> String {
     }
 }
 
+#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn privacy(
     Extension(app): Extension<AppState>,
     Path(slug): Path<String>,

@@ -28,3 +28,5 @@ pub mod server;
 pub mod style;
 #[cfg(feature = "web")]
 pub mod ui;
+#[cfg(all(feature = "worker", target_arch = "wasm32"))]
+pub mod worker;

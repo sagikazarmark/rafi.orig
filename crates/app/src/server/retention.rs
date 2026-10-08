@@ -13,6 +13,7 @@
 //! entrants), to stay under D1's per-invocation query limit. A successful run
 //! records `last_retention_ok_at` in `meta`.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use super::{AppState, altcha, ids, service::ERASED};
@@ -46,6 +47,8 @@ pub struct Report {
     pub channels_ended: u64,
 }
 
+/// The native hourly run; on Workers the Cron Trigger calls [`run`].
+#[cfg(not(target_arch = "wasm32"))]
 pub fn spawn(app: AppState) {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(3600));

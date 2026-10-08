@@ -1,7 +1,7 @@
 //! Rafi's entry points: the native server (`server`) or the web app (`web`).
 //! Everything else is in the library (`lib.rs`).
 
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", not(target_arch = "wasm32")))]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     use anyhow::Context as _;
@@ -73,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Ctrl-C or SIGTERM (`docker stop`).
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", not(target_arch = "wasm32")))]
 async fn shutdown() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -104,3 +104,8 @@ fn main() {
         "Build rafi with `--features server` (the server) or `--features web` (the web app)."
     );
 }
+
+/// On Cloudflare Workers the entry points are in the library (`worker`
+/// feature); the binary has nothing to run.
+#[cfg(all(feature = "server", target_arch = "wasm32"))]
+fn main() {}

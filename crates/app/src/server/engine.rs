@@ -6,6 +6,7 @@
 //! It writes every new state into the database itself and nudges the
 //! raffle's live channel; screens pick it up from there.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
@@ -23,10 +24,14 @@ pub struct RestateClient {
 
 impl RestateClient {
     pub fn new(cfg: RestateConfig) -> Self {
+        // On wasm32 (Workers) reqwest has no timeouts; the platform bounds requests.
+        #[cfg(not(target_arch = "wasm32"))]
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("http client");
+        #[cfg(target_arch = "wasm32")]
+        let http = reqwest::Client::new();
         Self { http, cfg }
     }
 
@@ -110,7 +115,11 @@ impl RestateClient {
 
     pub async fn healthy(&self) -> bool {
         let url = format!("{}/restate/health", self.cfg.ingress_url);
-        let mut req = self.http.get(&url).timeout(Duration::from_secs(3));
+        let mut req = self.http.get(&url);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            req = req.timeout(Duration::from_secs(3));
+        }
         if !self.cfg.api_key.is_empty() {
             req = req.bearer_auth(&self.cfg.api_key);
         }

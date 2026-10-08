@@ -444,7 +444,6 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -463,7 +462,6 @@ dependencies = [
  "sync_wrapper",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -1429,6 +1427,7 @@ dependencies = [
  "jwk-simple",
  "jwt-simple",
  "reqwest 0.13.5",
+ "send_wrapper",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -4382,6 +4381,7 @@ dependencies = [
  "gloo-net",
  "gloo-timers 0.3.0",
  "hex",
+ "http",
  "http-body-util",
  "js-sys",
  "partyline-dioxus",
@@ -4402,10 +4402,12 @@ dependencies = [
  "tokio",
  "tower",
  "tower-http",
+ "tower-service",
  "tracing",
  "uuid",
  "wasm-bindgen",
  "web-sys",
+ "worker",
 ]
 
 [[package]]
@@ -6234,7 +6236,6 @@ dependencies = [
  "tokio",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -7029,6 +7030,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4057bce8ec66c80b7e270d884c312e2a4ff60eb997fd02936656106c06a964e5"
 dependencies = [
  "async-trait",
+ "axum",
  "bytes",
  "chrono",
  "futures-channel",

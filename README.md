@@ -210,6 +210,32 @@ To update: build and push new images (CI does it on `main`; by hand, `docker bui
 `crates/restate-rafi-endpoint/Dockerfile`), then `docker compose pull && docker compose up -d` on the VM. Avoid it
 during a live raffle (`/api/status` shows `live_raffles`).
 
+## Cloudflare Workers
+
+The plan and its decisions: [`docs/workers-plan.md`](docs/workers-plan.md). Three Workers: the app (`crates/app`,
+feature `worker`, with the per-raffle `RaffleChannel` Durable Object), the draw engine (`crates/restate-worker`), and
+the D1 database they share.
+
+Local development, everything under `wrangler dev` (the tools are in `devenv.nix`; wasm-bindgen-cli must match
+`Cargo.lock`):
+
+```sh
+./scripts/app-assets.sh                                   # web app bundle + attendee scripts -> crates/app/worker-assets
+(cd crates/app && wrangler d1 migrations apply rafi --local --env dev)
+(cd crates/app && wrangler dev --env dev)                 # http://127.0.0.1:8787, dev auth, mock drand
+(cd crates/restate-worker && wrangler dev --env dev --port 8791)
+# a local restate-server with its ingress on :18080, then:
+restate deployments register http://127.0.0.1:8791 --use-http1.1
+```
+
+`./scripts/workers-check.sh` runs every Workers check locally: rafi-store on D1, the live channel over WebSockets,
+the attendee page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
+job runs it.
+
+Deploying (needs a Cloudflare account and Restate Cloud): see the comments at the top of `crates/app/wrangler.toml` and
+`crates/restate-worker/wrangler.toml` (D1 created with `--jurisdiction eu`, the secrets, registering the draw engine
+with Restate Cloud per release). Don't deploy while a raffle is live: a deploy restarts the Durable Objects.
+
 ## License
 
 Licensed under either of

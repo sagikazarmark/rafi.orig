@@ -55,11 +55,10 @@ pub fn token_hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
+/// Unix seconds. `std::time` aborts on Cloudflare Workers; the store's clock
+/// reads the JavaScript one there.
 pub fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or_default()
+    rafi_store::now()
 }
 
 #[cfg(test)]

@@ -20,7 +20,9 @@ pub mod retention;
 pub mod service;
 pub mod view;
 
-use std::{ops::Deref, path::PathBuf, sync::Arc};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+use std::{ops::Deref, sync::Arc};
 
 use anyhow::Context as _;
 use axum::{Extension, Router};
@@ -54,6 +56,7 @@ impl Deref for AppState {
 impl AppState {
     /// The native server: opens (and migrates) the database; no live channel,
     /// in-memory rate limits.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn new(cfg: Config) -> anyhow::Result<Self> {
         let db = db::connect(&cfg.database_url)
             .await
@@ -104,6 +107,7 @@ pub fn routes(app: AppState) -> Router {
 }
 
 /// Starts the native background work: the hourly retention run.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn spawn_background(app: &AppState) {
     if !app.cfg.retention_enabled {
         tracing::info!("automatic erasure of personal data is off (RAFI_RETENTION)");
@@ -112,6 +116,7 @@ pub fn spawn_background(app: &AppState) {
 }
 
 /// Where the static files are.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Dirs {
     /// The web app (admin, projector, verification page): `dx bundle`'s output.
     pub public: PathBuf,
@@ -123,7 +128,8 @@ pub struct Dirs {
 /// The complete HTTP router: [`routes`], the attendee scripts at
 /// `/attendee/`, then the web app from [`Dirs::public`] with a single-page
 /// fallback to its `index.html`, all behind the Clerk auth layer unless dev
-/// auth is on.
+/// auth is on. On Workers, Workers Assets serves the files instead.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn build_router(
     app: AppState,
     auth: Option<dioxus_clerk::server::ClerkAuthLayer>,

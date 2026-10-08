@@ -386,3 +386,20 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
 - **M0(d), Clerk on Workers:** `dioxus-clerk`'s `worker` feature runs axum with `ClerkAuthLayer` and the `ClerkAuth` extractor under `workerd`. Anonymous requests pass through, and bogus bearer tokens are rejected without a crash. The spike Worker was 509 KB compressed. Verifying real tokens needs a Clerk instance, so it waits for staging.
 - **`scripts/workers-check.sh`** runs all local Workers checks: D1, the channel, the attendee page in Chromium, and a Restate draw. CI's `workers` job runs it.
 - **The native app is stateless (M5, first half).** `rafi` is a library plus a thin binary. Platform pieces sit behind `AppState::from_parts(cfg, db, live, limiter)`: `server::live::Live` (`has_channel`, `nudge`, `destroy`; natively `Polling`, a no-op) and `server::ratelimit::RateLimit` (`allow(Limit, key)`; natively the in-memory `Limiter`). The Workers entry point builds `Db::d1`, a `Live` over `rafi_channel::{nudge, destroy}` and a `RateLimit` over the two bindings, and calls `retention::run` from the Cron. App tests run against an in-process stand-in for Restate's ingress (`server/fake_engine.rs`).
+- **M5, the app on Workers.**
+  - `rafi` builds as a Worker with the `worker` feature:
+    - the same axum routes, `#[worker::send]` on handlers;
+    - `Live` over `rafi_channel`, `RateLimit` over the bindings;
+    - config from vars and secrets, failing closed;
+    - the Cron runs `retention::run`;
+    - the `RaffleChannel` class is exported.
+  - `crates/app/wrangler.toml` holds production and `[env.dev]`.
+  - Locally, `crates/app/evening.mjs` passes a whole evening on the app Worker: setup, a phone joining in Chromium, a draw through Restate reaching the phone live, the finish, End live updates.
+- **M0(e), bundle sizes:** compressed, the app Worker is 847 KB, the Restate Worker 914 KB and the attendee WASM 263 KB. All are under Workers' limits. BLS CPU time still needs a deployed Worker.
+- **Still needs your accounts:**
+  - staging and production on Cloudflare: D1 with `--jurisdiction eu`, secrets, custom domains;
+  - the Restate Cloud deployment;
+  - real Clerk verification;
+  - BLS CPU time on a deployed Worker;
+  - the phone test plan (§6);
+  - the cutover (M8).

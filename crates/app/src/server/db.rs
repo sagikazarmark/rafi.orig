@@ -4,6 +4,7 @@ use rafi_core::raffle::RaffleState;
 pub use rafi_store::Db;
 use serde::Deserialize;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn connect(url: &str) -> anyhow::Result<Db> {
     Ok(Db::connect(url).await?)
 }

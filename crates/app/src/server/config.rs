@@ -1,5 +1,6 @@
 //! Runtime configuration from environment variables.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::env;
 
 pub use rafi_drand::DrandConfig;
@@ -44,16 +45,20 @@ pub struct Config {
     pub retention_winners_days: i64,
 }
 
-fn var(name: &str) -> Option<String> {
-    env::var(name).ok().filter(|v| !v.trim().is_empty())
-}
-
-fn flag(name: &str) -> bool {
-    var(name).is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
-}
-
 impl Config {
+    /// From the process environment (the native server).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_env() -> Self {
+        Self::from_lookup(|name| env::var(name).ok())
+    }
+
+    /// From any lookup: the process environment natively, the Worker's vars
+    /// and secrets on Workers. Empty values count as unset.
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
+        let var = |name: &str| lookup(name).filter(|v| !v.trim().is_empty());
+        let flag = |name: &str| {
+            var(name).is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
+        };
         let public_url = var("RAFI_PUBLIC_URL")
             .unwrap_or_else(|| "http://localhost:8080".into())
             .trim_end_matches('/')

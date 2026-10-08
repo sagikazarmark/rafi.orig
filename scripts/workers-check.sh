@@ -6,7 +6,10 @@
 #   3. the attendee page in headless Chromium (crates/attendee/smoke.mjs), when
 #      CHROMIUM (or `chromium`) is available;
 #   4. a draw through Restate into the live channel (crates/restate-worker/e2e.mjs),
-#      when RESTATE_SERVER_BIN is set (./scripts/restate-server.sh prints it).
+#      when RESTATE_SERVER_BIN is set (./scripts/restate-server.sh prints it);
+#   5. a whole evening on the app Worker itself (crates/app/evening.mjs): the
+#      admin API, a phone joining in Chromium, draws through Restate, the end.
+#      Needs RESTATE_SERVER_BIN, Chromium and dx (for the web app bundle).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node,
 # wasm-bindgen-cli at the lockfile's version and wasm-opt (for the attendee page).
@@ -31,7 +34,8 @@ step() { printf '\n== %s\n' "$*"; }
 # Starts `wrangler dev` for a crate on a port, sharing local state, and waits for it.
 serve() {
   local crate="$1" port="$2" probe="$3"
-  (cd "$ROOT/crates/$crate" && exec $WRANGLER dev --port "$port" --ip 127.0.0.1 --local \
+  shift 3
+  (cd "$ROOT/crates/$crate" && exec $WRANGLER dev "$@" --port "$port" --ip 127.0.0.1 --local \
     --persist-to "$STATE/wrangler" --inspector-port "$((port + 1000))") >"$LOGS/$crate.log" 2>&1 &
   PIDS+=($!)
   for _ in $(seq 1 120); do
@@ -82,13 +86,27 @@ if [ -n "${RESTATE_SERVER_BIN:-}" ]; then
     RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 RESTATE_ADMIN__BIND_ADDRESS=127.0.0.1:19070 \
     exec "$RESTATE_SERVER_BIN") >"$LOGS/restate-server.log" 2>&1 &
   PIDS+=($!)
-  serve restate-worker 8791 /discover
+  serve restate-worker 8791 /discover --env check
   for _ in $(seq 1 60); do curl -s -m 3 -o /dev/null http://127.0.0.1:19070/health && break; sleep 1; done
   curl -s -m 30 -X POST http://127.0.0.1:19070/deployments -H 'content-type: application/json' \
     -d '{"uri":"http://127.0.0.1:8791","use_http_11":true}' >/dev/null
   INGRESS=http://127.0.0.1:18080 APP=http://127.0.0.1:8790 node "$ROOT/crates/restate-worker/e2e.mjs"
 else
   step "a draw through Restate: skipped (RESTATE_SERVER_BIN not set)"
+fi
+
+if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev/null; then
+  step "an evening on the app Worker"
+  "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
+  (cd "$ROOT/crates/app" && worker-build --release --features worker-dev) >"$LOGS/build-app.log" 2>&1
+  (cd "$ROOT/crates/app" && $WRANGLER d1 migrations apply rafi --local --env dev --persist-to "$STATE/wrangler") >/dev/null
+  serve app 8787 /healthz --env dev
+  serve restate-worker 8792 /discover --env dev
+  curl -s -m 30 -X POST http://127.0.0.1:19070/deployments -H 'content-type: application/json' \
+    -d '{"uri":"http://127.0.0.1:8792","use_http_11":true,"force":true}' >/dev/null
+  CHROMIUM="$CHROMIUM" APP=http://127.0.0.1:8787 node "$ROOT/crates/app/evening.mjs" "$STATE/chrome-app"
+else
+  step "an evening on the app Worker: skipped (needs RESTATE_SERVER_BIN, Chromium and dx)"
 fi
 
 step "all Workers checks passed"

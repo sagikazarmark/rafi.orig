@@ -32,6 +32,7 @@ async fn public_raffle(app: &AppState, slug: &str) -> Result<db::RaffleRow, Stat
 }
 
 /// The full view: what the projector and the admin show. They poll it.
+#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn full_view(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     let raffle = match public_raffle(&app, &slug).await {
         Ok(r) => r,
@@ -49,6 +50,7 @@ async fn full_view(Extension(app): Extension<AppState>, Path(slug): Path<String>
 
 /// The participant view: what phones show. No personal data beyond the
 /// drawn entrants' display names (masked when hidden).
+#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     let raffle = match public_raffle(&app, &slug).await {
         Ok(r) => r,
@@ -66,6 +68,7 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
     }
 }
 
+#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn verify_json(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     match service::verify_data(&app, &slug).await {
         Ok(data) => Json(data).into_response(),
@@ -87,6 +90,7 @@ async fn challenge(Extension(app): Extension<AppState>) -> Response {
 
 /// Number of raffles that are live right now. The deploy pipeline refuses to
 /// restart the server while this is non-zero.
+#[cfg_attr(all(feature = "worker", target_arch = "wasm32"), worker::send)]
 async fn status(Extension(app): Extension<AppState>) -> Response {
     let live: Result<(i64,), _> = app
         .db

@@ -246,12 +246,5 @@ pub fn now_unix_ms() -> u64 {
 
 #[cfg(target_arch = "wasm32")]
 fn js_sys_now() -> u64 {
-    #[cfg(feature = "web")]
-    {
-        js_sys::Date::now() as u64
-    }
-    #[cfg(not(feature = "web"))]
-    {
-        0
-    }
+    js_sys::Date::now() as u64
 }

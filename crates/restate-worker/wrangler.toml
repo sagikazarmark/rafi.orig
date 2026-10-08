@@ -1,26 +1,84 @@
-# Local development: the Restate Worker next to crates/channel-check, which
-# hosts the RaffleChannel objects and shares this D1 (run both with the same
-# --persist-to). Production configuration comes with the deployment setup.
+# The draw engine on Cloudflare Workers. The top level is production;
+# `[env.dev]` runs next to the app's dev Worker (rafi-dev) and `[env.check]`
+# next to crates/channel-check (scripts/workers-check.sh).
+#
+# Before the first deploy:
+#   wrangler secret put RESTATE_IDENTITY_KEYS   # the Restate environment's public key(s)
+# then register https://<this worker's hostname> with Restate Cloud as a new
+# deployment (one per release).
+
 name = "rafi-restate"
 main = "build/index.js"
 compatibility_date = "2026-05-01"
+workers_dev = false
+preview_urls = false
 
 [build]
+command = "worker-build --release"
+
+# The app's database: the same D1 as crates/app/wrangler.toml.
+[[d1_databases]]
+binding = "DB"
+database_name = "rafi"
+database_id = "00000000-0000-0000-0000-000000000000" # the app's D1 ID
+migrations_dir = "../../migrations"
+
+# The app's live channels (the RaffleChannel class lives in the `rafi` Worker).
+[[durable_objects.bindings]]
+name = "RAFFLE_CHANNEL"
+class_name = "RaffleChannel"
+script_name = "rafi"
+
+[observability]
+enabled = false
+
+[vars]
+RAFI_DO_JURISDICTION = "eu"
+RAFI_RETENTION_DAYS = "30"
+RAFI_RETENTION_WINNERS_DAYS = "90"
+
+# Next to the app's dev Worker (`wrangler dev --env dev` in crates/app).
+[env.dev]
+workers_dev = true
+
+[env.dev.build]
 command = "worker-build --release --features dev"
 
-[[d1_databases]]
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "rafi"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "../../migrations"
+
+[[env.dev.durable_objects.bindings]]
+name = "RAFFLE_CHANNEL"
+class_name = "RaffleChannel"
+script_name = "rafi-dev"
+
+[env.dev.vars]
+RAFI_DO_JURISDICTION = "" # workerd doesn't implement jurisdictions
+RAFI_DRAND_MOCK = "1"
+RAFI_DRAND_LEAD_SECS = "3"
+
+# Next to crates/channel-check (scripts/workers-check.sh).
+[env.check]
+workers_dev = true
+
+[env.check.build]
+command = "worker-build --release --features dev"
+
+[[env.check.d1_databases]]
 binding = "DB"
 database_name = "rafi-channel-check"
 database_id = "00000000-0000-0000-0000-000000000001"
 migrations_dir = "../../migrations"
 
-[[durable_objects.bindings]]
+[[env.check.durable_objects.bindings]]
 name = "RAFFLE_CHANNEL"
 class_name = "RaffleChannel"
 script_name = "rafi-channel-check"
 
-[vars]
-# workerd doesn't implement jurisdictions; production uses "eu".
+[env.check.vars]
 RAFI_DO_JURISDICTION = ""
 RAFI_DRAND_MOCK = "1"
 RAFI_DRAND_LEAD_SECS = "3"
