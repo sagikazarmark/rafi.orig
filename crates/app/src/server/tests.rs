@@ -1425,9 +1425,14 @@ async fn writes_nudge_and_destroy_the_channel() {
         .unwrap();
     assert_eq!(nudges(), before, "joins don't nudge");
 
-    let anna = entrants::list(&app.db, &raffle.id).await.unwrap()[0]
-        .id
-        .clone();
+    // Entrants who joined in the same second are listed by ID.
+    let anna = entrants::list(&app.db, &raffle.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|e| e.display_name == "Anna")
+        .unwrap()
+        .id;
     service::patch_entrant(
         &app,
         OWNER,

@@ -160,7 +160,7 @@ Rafi relies on Restate. There is no fallback draw path:
 
 ### 2.8 Data layer
 
-- **`rafi-store` exposes its own functions and error type**, with `worker::D1Database` behind them. sqlx stays only for a future SQLite backend (§8).
+- **`rafi-store` exposes its own functions and error type**: domain functions holding all of rafi's SQL (§7a), over SQLite (sqlx) natively and `worker::D1Database` on Workers.
 
   `sqlx-d1` 0.4.3 pins sqlx-core 0.8.6, while the workspace is on sqlx 0.9.
 - **No interactive transactions** (D1 doesn't have them):
@@ -236,7 +236,7 @@ Rafi relies on Restate. There is no fallback draw path:
 | `rafi-live` | **new** | `ParticipantView`, the `RaffleLive` channel, `screen()`, `Card`, `CardStrings`, a lightweight state enum, the ALTCHA module (types, `solve`, `verify`), `LiveTransport` | DO, app, attendee WASM |
 | `rafi-platform` | **new** (§7a) | The ports: `Notifier` (`Polling`, `Recording`), `RateLimit` and `Limit` (native `Limiter`), `DrawStore` (`MemoryDrawStore`), the publish rule, `BoxFuture` | everyone but the attendee WASM |
 | `rafi-attendee` | **new** | The attendee WASM: mounts `Card`, follows the server's `LiveTransport` (partyline or polling), proof-of-work, extras (wake lock module included) | phones |
-| `rafi-store` | ported | Own API and error type; SQLite and D1 backends; `version`; the participant `live::Snapshot`; `DrawWriter`, its `DrawStore` | app, both draw engine hosts, DO |
+| `rafi-store` | ported | All SQL, as domain functions (raffles, items, entrants, audit, ALTCHA, retention, the full view); own error type; SQLite and D1 backends; `version`; the participant `live::Snapshot`; `DrawWriter`, its `DrawStore` | app, both draw engine hosts, DO |
 | `restate-rafi` | ported | `Raffle` virtual object over a `DrawStore` and a `Notifier`: the store write, then `notify` in a separate, best-effort `ctx.run`. No database or platform dependency | both draw engine hosts |
 | `rafi-cloudflare` | **new** (`rafi-channel` renamed) | All Cloudflare glue: the `RaffleChannel` DO, the socket gate and jurisdiction helper, `DurableObjects` (`Notifier`), `RateLimitBindings` (`RateLimit`), config from vars and secrets | both Workers |
 | `rafi` (app) | ported | Routes, server functions, retention, over `AppState::from_parts(cfg, db, notifier, limiter)`; the `worker` feature is the App Worker's thin entry point (fetch, Cron, exports `RaffleChannel`) | |
@@ -350,7 +350,7 @@ Rafi relies on Restate. There is no fallback draw path:
 
 Decided 2026-10-08. Cloudflare is one deployment, not an assumption of the code. Every platform-specific piece sits behind an interface, and Cloudflare's implementations live in one crate.
 
-In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done; §11); (2) all SQL into `rafi-store`; (3) Postgres.
+In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done; §11); (2) all SQL into `rafi-store`, written for both dialects (done; §11); (3) Postgres.
 
 - **`rafi-platform`:** the interfaces a deployment provides:
   - `Notifier`: "this raffle changed" by ID, "end its live updates", and the `LiveTransport` clients should use;
@@ -429,7 +429,7 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
 - **The native app is stateless (M5, first half).** `rafi` is a library plus a thin binary. Platform pieces sit behind `AppState::from_parts(cfg, db, notifier, limiter)`, with the interfaces from `rafi-platform` (§7a): natively the `Polling` notifier and the in-memory `Limiter`. The Workers entry point builds `Db::d1`, `rafi_cloudflare::DurableObjects` and `RateLimitBindings`, and calls `retention::run` from the Cron. App tests run against an in-process stand-in for Restate's ingress (`server/fake_engine.rs`).
 - **M5, the app on Workers.**
   - `rafi` builds as a Worker with the `worker` feature:
-    - the same axum routes, `#[worker::send]` on handlers;
+    - the same axum routes (since pass 2 without `#[worker::send]`: the store's futures are `Send` on wasm32 too);
     - the `Notifier` over the Durable Objects, `RateLimit` over the bindings (both from `rafi-cloudflare`);
     - config from vars and secrets, failing closed;
     - the Cron runs `retention::run`;
@@ -443,7 +443,19 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
   - `LiveTransport` is chosen per raffle by `AppState::transport`: the notifier's while live updates run, plain polling once they've ended. The page config and the full view carry it as `live` (`{"kind":"partyline"}`, `{"kind":"poll","every_ms":2500}`). The JS fallback always polls.
   - The participant snapshot moved from the channel crate to `rafi_store::live`, which the app's `/participant` endpoint and the attendee page read too.
   - `crates/channel-check` became `crates/cloudflare-check`; its Worker and D1 names are now `rafi-cloudflare-check` (the Restate Worker's `[env.check]` binds to that name).
-  - Left for pass 2: SQL is still spread over the app (`server/db.rs`, `service.rs`, `retention.rs`, `view.rs`) and the check Workers; only the snapshot and the draw state write live in `rafi-store`.
+  - Pass 2 moved the SQL that was still spread over the app into `rafi-store` (below).
+- **Ports and adapters, pass 2 (§7a): all SQL in `rafi-store`.**
+  - Modules: `raffles` (lifecycle, settings, the freeze's three guarded steps `freeze`, `commit`, `unfreeze`), `items`, `entrants` (the capped `join`, manual and fake entrants, `erase` with its log), `audit`, `altcha`, `retention` (set-based erasure, channels to end, `meta`), `view::Full` (the full view's one-batch read) and `live::Snapshot`. The row types moved with them. The app keeps validation, Restate calls, notifications and auth; `server/db.rs` is gone and the app has no SQL. The check Workers keep their own test-setup SQL.
+  - Portable SQL: no `rowid`. Items are ordered by `position, id`, entrants by `created_at, id`, so ties (same position; same second, as with fake entrants) now break by ID rather than insertion order. Boolean parameters are compared (`?4 = 1`); flags stay 0/1 integers.
+  - The only dialect-specific SQL is reading entrant IDs out of the draw state's JSON (`json_each`, `json_extract`), in `dialect::draw_state_entrants`. Two queries use it: the snapshot's drawn entrants and retention's claimed winners.
+  - `Send` everywhere: the D1 backend wraps its futures (`worker::send::SendFuture`), so `Db`'s futures are `Send` on wasm32 too, and the handlers dropped `#[worker::send]`. reqwest's wasm32 futures aren't `Send` either, so the Restate client wraps its calls in `rafi_platform::sendable`, which is a no-op natively. The app's server code no longer mentions Cloudflare outside `worker.rs`.
+  - The store testsuite (native and D1) gained scenarios for the freeze steps, the entrant cap and unique email, fake entrants across statements, erasure and its log, retention, ALTCHA replay, the full view and the participant snapshot.
+  - For pass 3 (Postgres):
+    - `?N` placeholders are reused within a statement. No statement mixes `?` and `?N`, and no `?` appears inside a string literal, though `$` does (JSON paths).
+    - `Value::Null` is bound for text and integer columns, and in `(?2 IS NULL OR id = ?2)` (`entrants::erase`). The native backend binds it as a typed `i64` null, which Postgres would reject against text.
+    - `SUM` over a `BIGINT` column is `NUMERIC` in Postgres (the snapshot's `COALESCE(SUM(qty), 0)`), and `SELECT 1` is `INT4` (`entrants::email_taken`). Decoding has to accept both, or the SQL casts.
+    - Unique violations are recognized by sqlx's `is_unique_violation`. The message fallback, `UNIQUE constraint failed`, is SQLite's.
+    - The `retention::DUE` predicate is built once (`LazyLock`) from the dialect function, so it needs one per dialect. `draw_state` is `TEXT`, so the Postgres variant casts it to `jsonb`.
 - **Still needs your accounts:**
   - staging and production on Cloudflare: D1 with `--jurisdiction eu`, secrets, custom domains;
   - the Restate Cloud deployment;
