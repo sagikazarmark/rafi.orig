@@ -1,178 +1,355 @@
 # Rafi on Cloudflare Workers (plan)
 
-Status: proposal, 2026-10-08. Builds on the prototypes on the `prototype/participant-view` branch (`docs/prototype-participant-view.md` there).
+Status: accepted, 2026-10-08. Reviewed in four passes: fit with the code, distributed design, security/privacy/operations, and structure and client. The findings are folded in below.
+
+This plan builds on the prototypes on the `prototype/participant-view` branch (`docs/prototype-participant-view.md` there).
 
 ## 1. Goal
 
 Run the app and the Restate handler on Cloudflare Workers, with no in-memory processes, and push live updates over WebSockets from a Durable Object per raffle using [partyline](https://github.com/sagikazarmark/partyline).
 
-Restate stays the draw engine. The DO is only the live fan-out: it never holds workflow state.
-
-What goes away:
+Restate is the only draw engine. The DO is only the live fan-out: it never holds workflow state.
 
 | Today | On Workers |
 |---|---|
 | `Hub` (SSE fan-out) and its GC task | `RaffleChannel` DO, partyline Latest channel |
-| `Watch` (polls D1 for Restate's writes) | Restate's projector nudges the DO |
-| `refresh_later` (delayed names) | DO alarm |
-| `LocalEngine` (in-process draws) | Removed; Restate only (see §8) |
-| `Limiter` (in-memory) | Workers rate-limiting binding |
-| `Altcha.used` (in-memory replay set) | D1 table with a unique key |
+| `Watch` (polls the database for Restate's writes) | Restate's projector nudges the DO |
+| `refresh_later` (delayed names) | The projector's poll picks them up; phones never show names of non-winners |
+| `LocalEngine` (in-process draws) and the admin's "switch to local" | Removed. Rafi relies on Restate (§2.7) |
+| `Limiter` (in-memory) | Workers rate-limiting binding (soft), plus a per-raffle entrant cap in D1 (hard) |
+| `Altcha.used` (in-memory replay set) | D1 table; a duplicate INSERT fails |
 | Hourly retention task | Cron Trigger |
-| SQLite + Litestream on Hetzner | D1 (EU jurisdiction) |
-| Restate tunnel from the server | Restate Cloud calls the Worker over HTTPS (request-response) |
+| SQLite + Litestream on Hetzner | D1, EU jurisdiction |
+| Restate tunnel from the server | Restate Cloud calls a dedicated Worker over HTTPS (request-response, signed) |
+| `std::env` configuration | `worker::Env` vars and secrets |
 
-## 2. Decisions already made
+## 2. Decisions
 
-These come from the prototypes and the discussion that led to them.
+### 2.1 Two views
 
-1. **Two views.**
-   - **Phones** get a five-field **participant view** (`state`, `current`, `last`, `winners`, `prizes_left`, plus `v`), pushed in full on a Latest channel.
-   - **The projector and admin** get the same channel's events only as a signal to fetch their full view over HTTP. They poll every 2–3 s while registration is open, because `recent_names` changes with time, not only with D1 writes.
-2. **Only the DO builds the participant view.**
-   - The app and Restate only nudge the DO.
-   - On a nudge, the DO reads D1 and builds the view. It publishes only if the version is newer than any it has seen and the content changed.
-   - `v` is the raffle's version in D1, never a process counter.
-   - A DO alarm coalesces bursts of joins and handles the name delay.
-3. **The page embeds the participant view, and subscribes only while the raffle is live.** No partyline cursor is needed: the version check orders views. Phones close their socket themselves when they receive the final state.
-4. **Restate destroys the DO after a grace period** once the raffle has finished.
-   - After the grace period, the Worker refuses sockets for the raffle and the DO ignores nudges.
-   - Personal data then lives only in D1, and retention only touches D1.
-5. **The attendee page is server-rendered Rust plus a small WASM.**
-   - The server renders the live card from the **same Dioxus component** the WASM mounts.
-   - The WASM adds:
-     - live updates;
-     - the proof-of-work;
-     - wake lock, chime, vibration and the theme toggle.
-   - A small JS fallback polls `/view` when `WebAssembly` is unavailable (iOS Lockdown Mode).
-   - The budget is about 220 KB compressed, measured at about 205 KB.
-6. **Two existing phone bugs get fixed while porting.**
-   - `Winner` gains `claimed`, so a claimed winner is no longer told to go to the organizer.
-   - `last` stops showing no-shows.
+- **Phones** get a five-field **participant view**, pushed in full on a Latest channel:
+  - `state`;
+  - `current`: the draw in progress, with its prize, round and round time;
+  - `last`: the latest draw that didn't end in a no-show;
+  - `winners`, each with `entrant_id`, `item_name` and `claimed`;
+  - `prizes_left`.
 
-## 3. Crate layout, and what to reuse
+  It also carries `v`.
+- **The projector and admin:**
+  - render the reveal straight from the participant channel's events, so they're never behind the phones;
+  - also poll their full view every 2–3 s for as long as the raffle is live. The full view also changes without any write to D1, because `recent_names` depends on time;
+  - fetch it on mount and on every reconnect.
+- **Versions:**
+  - **Both views' `v` is the raffle's version in D1**, never a process counter.
+  - **For the full view, clients accept `v >= current`**, since a poll can return the same version with newer time-dependent content.
+  - **For the participant view, phones accept only a newer `v`.**
+  - **`server_now_ms` stays in the full view.** The participant view has no time-dependent fields.
+
+### 2.2 Only the DO builds the participant view
+
+- **Nudges come from:**
+  - the app, for lifecycle changes, admin edits, resolutions and End live updates;
+  - Restate, for draw states.
+
+  **Joins don't nudge**, because they never change the participant view.
+- **On a nudge, the DO:**
+  1. reads the raffle's `version` and all content in **one `db.batch()`**, which is one consistent snapshot, from the primary (never a read replica);
+  2. publishes if `v` is newer than the stored `seen_v` and the content changed;
+  3. stores `seen_v` in its own SQL in the same synchronous block as the publish.
+- **Every write that spans several statements is one D1 batch**, so no nudge can see half of it.
+- **The DO answers 2xx when it ignores a nudge.** A nudge that fails is retried a few times; after that it's dropped. The periodic re-read covers it.
+- **Periodic re-read:** while sockets are connected and the raffle isn't over, the DO alarm re-reads D1 about every 15 s, so a lost nudge is repaired.
+
+  This is the only use of the DO's single alarm. rafi doesn't pass the alarm to `hub.on_alarm()`; Latest mode never sets one.
+- **A destroyed flag:** the DO keeps one in memory. Destroy sets it first, and every nudge and alarm checks it after each `await`, before publishing or setting an alarm.
+
+### 2.3 The page and the socket
+
+- **The page embeds the participant view.** It subscribes while the raffle is **public and not over** (Ready, Open, Closed, Frozen, Drawing). Ready is included so a visitor's page can reload when registration opens.
+- **No partyline cursor is needed**, because `v` orders views. Phones close their socket when they receive the final state.
+- **Clients fetch `/api/r/{slug}/participant`:**
+  - on `visibilitychange`, `pageshow`, `focus` and `online`;
+  - on reconnect;
+  - once, on a close code that tells them not to reconnect.
+- **The Worker refuses a socket by accepting it and closing it with 4403**, through partyline's `reject`. Never with an HTTP error, which the browser sees as 1006 and keeps retrying.
+- **The clock offset is recorded by an inline script while the page parses**, and re-synced from the `Date` header of every `/participant` fetch.
+
+### 2.4 Ending live updates
+
+- **The trigger:** the admin's **"End live updates"** action, available once the raffle has finished.
+- **What it does:** it sets `live_ended_at` in D1, then the app tells the DO to destroy itself. Restate isn't involved.
+- **Destroy:**
+  1. sets the destroyed flag;
+  2. publishes the final view from a fresh D1 read;
+  3. closes every socket with 4403;
+  4. deletes the alarm;
+  5. deletes all storage.
+- **After destroy:**
+  - the Worker refuses sockets for the raffle;
+  - the DO ignores nudges (it checks `live_ended_at`);
+  - a DO with empty storage checks `live_ended_at` before accepting a socket.
+- **The DO is also destroyed:**
+  - when a raffle is deleted;
+  - when a raffle is purged by hand;
+  - by the Cron, for any raffle that finished more than 24 h ago. This runs **whether or not erasure is enabled.**
+- **Personal data then lives only in D1.**
+
+### 2.5 The attendee page
+
+**Shape:** the server renders the page in Rust, and a small WASM adds behaviour.
+
+- **One `Card` component**, in `rafi-live`, is used by both:
+  - the server, through `dioxus::ssr`;
+  - the WASM.
+- **`Card` renders one root (or nothing)** and calls no browser APIs while rendering. The reload, timers and audio live in `rafi-attendee`.
+- **`#live` is a plain `aria-live` mount point owned by the page.** The WASM clears it and mounts in the same task. `role="alert"` and the pop animation are added only when the win happens on the client, not on page load.
+- **Strings:** `Card` takes a `CardStrings` struct that the server fills in from i18n and embeds in the page JSON.
+
+**The WASM adds:**
+- live updates;
+- the proof-of-work;
+- wake lock, chime and vibration;
+- the theme toggle.
+
+The inline `<head>` theme script stays JS.
+
+**The join form:**
+- **The Join button is server-rendered disabled**, with the spinner. It's enabled once a proof-of-work solve finishes, in the WASM or the fallback.
+- **On the form page there's no `#live`**, so the WASM doesn't mount the card there.
+- **The audio unlock and the wake-lock request stay inside the submit gesture.**
+
+**The JS fallback is an inline loader.**
+- **It starts when:**
+  - `typeof WebAssembly !== "object"`;
+  - the WASM hasn't signalled ready within about 8 s;
+  - the WASM's panic hook fires.
+- **What it does:**
+  - polls `/api/r/{slug}/participant` and reloads the page when `v` rises;
+  - ticks the countdown;
+  - solves the proof-of-work in JS;
+  - keeps the theme toggle and the wake/audio button working.
+
+**Size budget:** ≤ 220 KB compressed; the prototype measured about 205 KB.
+
+### 2.6 Phone bugs fixed while porting
+
+- **`Winner` gains `claimed`**, so a claimed winner is no longer told to go to the organizer.
+- **`last` skips no-shows.**
+
+### 2.7 Restate is the only engine
+
+Rafi relies on Restate. There is no fallback draw path:
+- `LocalEngine` goes;
+- so do the admin's "switch to local" action and API;
+- so does the engine column guard.
+
+### 2.8 Data layer
+
+- **`rafi-store` exposes its own functions and error type**, with `worker::D1Database` behind them. sqlx stays only for a future SQLite backend (§8).
+
+  `sqlx-d1` 0.4.3 pins sqlx-core 0.8.6, while the workspace is on sqlx 0.9.
+- **No interactive transactions** (D1 doesn't have them):
+  - **Freeze** becomes: check there are entrants; a batch that sets `frozen` (guarded by state); read the list; write the commit doc.
+
+    "Frozen without a commit doc" becomes recoverable: Start rebuilds the commit doc from the fixed entrant list.
+  - **Fake entrants** become one batch of multi-row INSERTs.
+- **Retention uses set-based `UPDATE`s**, to stay under D1's per-invocation query limit.
+- **`save_draw_state` sets `purge_*_at`** when the state is finished. `Watch` used to do that.
+- **A `version` column on `raffles`**, bumped by triggers on every write that affects either view.
+
+### 2.9 Configuration and runtime
+
+- **`Config` is built from `worker::Env`.** `std::env::var` always fails on wasm, so every setting would silently fall back to its default.
+- **Required secrets stop the Worker if missing**; none of them falls back to a default:
+  - `RAFI_ALTCHA_KEY`;
+  - the Clerk keys;
+  - the Restate identity keys;
+  - the ingress API key.
+
+  Don't rotate the ALTCHA key during an event: challenges are valid for 20 minutes.
+- **`RAFI_DEV_AUTH` and mock drand are compiled out of the release build.**
+- **Clocks:** `ids::now`, `rafi-store` and `model::now_unix_ms` use `Date.now()` on wasm. `now_unix_ms` currently returns 0 on a wasm server build.
+- **`reqwest` on wasm** has no `ClientBuilder::timeout`, so use per-request timeouts.
+
+### 2.10 Privacy
+
+- **Jurisdiction:** D1 is created with `--jurisdiction eu`. DO IDs come from an EU-jurisdiction namespace. A DO's jurisdiction is fixed when its ID is created, so this must be right from the first deployment.
+
+  rafi builds its own stubs for this; partyline's `stub()` gets a jurisdiction option upstream later.
+- **Logs:**
+  - invocation logs are off, or have confirmed header redaction (client IP, the `Cookie` header);
+  - no Web Analytics;
+  - no names, emails or tokens in `console`.
+- **The privacy notice, in Hungarian and English, adds:**
+  - Cloudflare, Inc. (US, DPF/SCCs) for hosting, the database and logs;
+  - that D1 Time Travel keeps erased data for up to 30 more days.
+- **Erasure log and restores:** keep a log of erasures with no personal data in it (entrant ID and time). Any restore must re-apply it.
+- **Retention:**
+  - on by default in the Workers build;
+  - records `last_retention_ok_at`, and the admin shows a warning when it's stale;
+  - erasure is written as SQL statements that return no personal data.
+
+### 2.11 Security and operations
+
+- **Sockets:**
+  - the Worker accepts them only for public raffles that aren't over;
+  - connections are rate-limited per raffle with the binding (never by IP);
+  - the DO refuses sockets beyond a cap with 4403, and those clients fall back to polling.
+- **Restate endpoint:**
+  - its own Worker, on its own hostname;
+  - signatures are verified before any routing, discovery included;
+  - a new versioned Restate deployment is registered per release.
+- **Deploy freeze:** CI refuses `wrangler deploy` while a raffle is Open, Frozen or Drawing, using `/api/status`. A deploy restarts DOs and drops every socket.
+- **Staging:** a separate staging Worker with its own D1 and a Clerk dev instance. Production has `workers_dev = false` and `preview_urls = false`.
+- **Rate limits:** the binding counts per location and only supports 10 s or 60 s windows, so it's a soft limit. That means two bindings: per raffle, and per email. The hard limit is a per-raffle entrant cap in D1.
+- **ALTCHA replay:** the check runs after the HMAC check, and is a plain INSERT that fails on a duplicate key. The Cron purges expired rows.
+
+## 3. Crate layout
 
 ### Rule
 
-- **Start as a module in the workspace.**
+- **Start as a module.**
 - **Make it a crate** when a second consumer needs it, across a stable boundary.
-- **Contribute it upstream** when the code is generic and an existing crate is its natural home.
+- **Contribute it upstream** when it's generic and an existing crate is its natural home.
 - **Publish a new crate only** when none of the above applies.
 
-### Workspace after the move
+### Workspace
 
 | Crate | Status | Contents | Used by |
 |---|---|---|---|
 | `rafi-core` | unchanged | Domain model, verifiable draw | everyone except the attendee WASM |
-| `rafi-live` | **new** | `ParticipantView`; the `RaffleLive` partyline channel; `screen()`; the Dioxus `Card` component; its own lightweight state enum | DO, app (server rendering), attendee WASM |
-| `rafi-attendee` | **new** | The attendee WASM: mounts `Card`, subscribes, browser extras | phones |
-| `rafi-store` | ported | Queries on D1, `version` bumping | app, Restate handler, DO |
-| `restate-rafi` | ported | The `Raffle` virtual object; projector writes D1 and nudges the DO | Restate handler Worker |
-| `rafi` (app) | ported | Worker: routes, server functions, `RaffleChannel` DO, Cron Trigger | |
-| `restate-rafi-endpoint` | dropped, or kept for self-hosting (§8) | | |
+| `rafi-live` | **new** | `ParticipantView`, the `RaffleLive` channel, `screen()`, `Card`, `CardStrings`, a lightweight state enum, the ALTCHA module (types, `solve`, `verify`) | DO, app, attendee WASM |
+| `rafi-attendee` | **new** | The attendee WASM: mounts `Card`, subscribes, proof-of-work, extras (wake lock module included) | phones |
+| `rafi-store` | ported | Own API and error type; D1 backend; `version` | app, Restate handler, DO |
+| `restate-rafi` | ported | `Raffle` virtual object; projector writes D1, then nudges the DO in a separate, best-effort `ctx.run` | Restate Worker |
+| `rafi` (app) | ported | App Worker: routes, server functions, `RaffleChannel` DO, Cron | |
+| `rafi-restate-worker` | **new** | Restate Worker: the adapter around `Endpoint::handle_with_options`, signature checks, D1 and DO bindings | Restate Cloud |
+| `restate-rafi-endpoint` | kept, not deployed | The native endpoint, for future self-hosting (§8) | |
 
-`rafi-live` must not depend on `rafi-core`. `rafi-core` pulls in drand and BLS (arkworks), which would bloat the attendee WASM. The server maps `RaffleState` to `rafi-live`'s state enum.
+`rafi-live` must not depend on `rafi-core`, which pulls in drand and BLS. The server maps `RaffleState` to `rafi-live`'s enum.
 
-This split is the extraction that matters. It's the only way one `Card` component serves both the server-rendered page and the WASM, and one set of view types serves the DO, the server and the phone.
+### Reuse
 
-### The client pieces
+- **ALTCHA:** rafi's own scheme for now. Contribute the `web-time` fix to the official `altcha` crate later, then move to protocol v2.
+- **Wake lock:** stays in `rafi-attendee`.
+- **Vibrate, the chime and the theme toggle:** stay in `rafi-attendee`, which owns the toggle (the inline `<head>` script stays in the page).
+- **Restate:** the `wasm` branch fixes are in an open upstream PR; rafi uses the git branch until it's released. The Workers adapter can go upstream later.
+- **partyline gaps.** rafi works around these first and upstreams them later:
+  - stubs with a jurisdiction;
+  - `Hub::destroy`;
+  - `head()` free of writes on an empty log;
+  - creating tables lazily;
+  - `pageshow` and `focus` as wake sources.
 
-| Piece | Recommendation | Why |
-|---|---|---|
-| ALTCHA | **Keep rafi's own scheme for now**, as a shared module in `rafi-live` (types, `solve`, `verify`). In parallel, contribute the wasm clock fix to the official `altcha` crate (§4), then switch to it and to protocol v2. | The official `altcha` 1.0 compiles for wasm but aborts at runtime in both `solve_challenge` and `verify_solution`. rafi's scheme already ran in the prototype's WASM. Replay protection is rafi's own job either way (a D1 table). |
-| Wake lock | **Contribute `use_wake_lock` to `dioxus-sdk`.** Until it merges, keep it as a module in `rafi-attendee`. | It's generic, and `dioxus-sdk` (geolocation, notification, storage, …) has no wake lock. web-sys gates `WakeLock` behind an unstable flag; the prototype's 8-line binding avoids that. |
-| Vibrate | Keep it in `rafi-attendee`. | It's one call. |
-| Chime and audio unlock | Keep them in `rafi-attendee`. | The sound is rafi's own. The generic part (unlock on gesture, iOS `audioSession`) is about 15 lines. |
-| Theme toggle | Keep it in the app. Consider `dioxus-sdk`'s `storage` for the saved value. | It's daisyUI-specific, and the inline `<head>` script stays JS anyway. |
-| Restate on Workers | **Upstream the `wasm` branch fixes, then a Workers adapter**, to `restate-sdk`. | This is the most reusable piece of the whole move (§4, §5 M4). |
-| partyline gaps | Add `Hub::destroy`, and create the tables lazily instead of in the constructor. | rafi is partyline's first real consumer. |
-
-## 4. Verified facts and assumptions
+## 4. Facts
 
 **Known from prior use:**
 
-- **Dioxus runs on Workers.** Mark has used it there before, so M0(a) is a quick check rather than a go/no-go.
-- **The Restate SDK runs on Workers with the `wasm` branch of [sagikazarmark/restate-sdk-rust](https://github.com/sagikazarmark/restate-sdk-rust/tree/wasm)** (commit `91bf758`, on top of 0.12). On `wasm32-unknown-unknown` it:
-  - uses `web-time` clocks;
-  - skips the 60 s `tokio::time::timeout` in `drain_input`;
-  - selects the JS `getrandom` backends;
-  - adds a `check-wasm32` CI job.
+- **Dioxus runs on Workers.**
+- **The Restate SDK runs on wasm** with [sagikazarmark/restate-sdk-rust `wasm`](https://github.com/sagikazarmark/restate-sdk-rust/tree/wasm) (`91bf758`, on 0.12; upstream PR open). It uses `web-time` clocks, skips the `drain_input` timeout and selects the JS `getrandom` backends.
 
-  rafi still needs its own adapter. SDK 0.12 ships only `http_server` and `lambda`. The Lambda adapter is about 30 lines around `Endpoint::handle_with_options(request, RequestResponse)`, so a Workers adapter is the same shape.
+  SDK 0.12 ships only `http_server` and `lambda`, so rafi writes the Workers adapter. The Lambda adapter is about 30 lines around `Endpoint::handle_with_options(request, RequestResponse)`.
 
-**Verified by reading the code, crate metadata, or a `cargo check`** (not by running on Workers):
+**Verified by reading code, crate metadata or a `cargo check`:**
 
-- **The official `altcha` crate (1.0) doesn't work on wasm yet.**
-  - It compiles for `wasm32-unknown-unknown` once the consumer enables `getrandom` 0.2's `js` feature.
-  - It **aborts at runtime**: `solve_challenge` and `verify_solution` call `std::time::Instant::now()`, and `verify_solution` also calls `SystemTime::now()`. That's the same problem the Restate branch fixes, and the same `web-time` fix applies.
-- **rafi's own code has the same clock problem.** On `wasm32-unknown-unknown` these must move to `web-time` or `Date.now()`:
-  - `app/src/server/ids.rs:59` (`now()`, used everywhere on the server);
-  - `store/src/lib.rs:64`;
-  - `drand/src/lib.rs:223`;
-  - `app/src/model.rs:229`.
-
-  The `Instant::now()` calls in `ratelimit.rs` and `watch.rs` disappear with those modules. The same audit applies to `getrandom` backends and to any other dependency that reads the std clock.
-- **`sqlx-d1` 0.4.3 exists** ("SQLx for Cloudflare D1").
-  - rafi has about 40 query call sites.
-  - All are runtime `sqlx::query`/`query_as` calls, with no compile-time macros, so the port is mechanical.
-- **`dioxus-sdk` 0.7 has no wake lock.**
+- **The official `altcha` 1.0 compiles for wasm** (with `getrandom` 0.2 `js`), but **aborts at runtime**: `solve_challenge` and `verify_solution` read `Instant::now()` / `SystemTime::now()`.
+- **`sqlx-d1` 0.4.3 pins sqlx-core 0.8.6**; the workspace is on 0.9.
+- **rafi uses interactive transactions** in `start_draw` (`service.rs:406–443`) and `add_fakes` (`service.rs:788–810`).
+- **Configuration uses `std::env::var`** (`config.rs:49`).
+- **The projector's `ctx.run` retries without limit** (`restate-rafi/src/service.rs:64`).
+- **The Restate SDK requires `Send` futures.** `worker` D1 and DO futures aren't `Send`, so they need wrapping (for example `SendWrapper`), and the projector is built from each request's `Env`.
+- **partyline:**
+  - `SqlLog::head()` inserts the epoch row on read (`sql_log.rs:86`);
+  - `stub()` sets no jurisdiction (`helpers.rs:16`);
+  - the client stops reconnecting only on 1000, 4400, 4403 and 4426.
+- **The `std::time` audit:**
+  - `ids.rs:59` and `store/src/lib.rs:64` need fixing;
+  - the `drand/src/lib.rs:223` and `Instant` call sites go away with `LocalEngine` and its modules.
+- **rafi has 37 query call sites, plus `migrate!` and `FromRow`.** There are no compile-time query macros.
 
 **Measured in the prototypes:**
 
-- The attendee WASM is about 205 KB compressed.
-- Proof-of-work: 10–17 ms in WASM against 330 ms in JS.
-- `dx` 0.7.9 skipped wasm-opt.
-- The Dioxus mount adds to `#live` instead of replacing it.
+- the attendee WASM is about 205 KB compressed;
+- the proof-of-work takes 10–17 ms in WASM against 330 ms in JS;
+- `dx` 0.7.9 skipped wasm-opt;
+- the Dioxus mount adds to `#live` instead of replacing it.
 
 **Assumed, to confirm in M0:**
 
-- The app Worker fits the Workers bundle size limit. It includes Dioxus server rendering, rafi-core and BLS.
-- BLS verification fits within Workers CPU limits. The free plan's 10 ms per request is likely too little, so plan on the paid plan.
-- D1 and DOs can be pinned to the EU jurisdiction.
+- the bundle size limits;
+- the CPU time for BLS verification, on both the app and the Restate Worker;
+- the Workers plan (paid).
 
 ## 5. Milestones
 
-Each M0 spike ends in a go or no-go before the work that depends on it starts.
-
 | # | Milestone | Done when |
 |---|---|---|
-| **M0** | **Spikes**, each a throwaway Worker: (a) quick check that Dioxus 0.7.10 fullstack works on Workers with rafi's routes; (b) the Restate adapter on the `wasm` SDK branch, called by Restate Cloud with identity keys in request-response mode; (c) `sqlx-d1` running `rafi-store`'s queries; (d) `dioxus-clerk` server-side verification on Workers; (e) bundle size and BLS verification CPU time on a deployed Worker; (f) an audit of std clock and `getrandom` use in rafi and its dependencies (§4) | Each one either works, or has a chosen fallback (§7) |
-| **M1** | **`rafi-live`**: lift `participant.rs`; add `claimed` and fix the no-show bug; `Card` component; lightweight state enum; the ALTCHA decision | Server rendering and a native test render the same `Card` from the same view |
-| **M2** | **D1 store**: `rafi-store` on D1; a `version` column bumped by triggers on every write that affects the raffle; migrations via `wrangler d1 migrations`; the ALTCHA replay table | rafi's existing store tests pass against D1 locally (`wrangler dev` / miniflare) |
-| **M3** | **`RaffleChannel` DO**: partyline hub embedded by hand; nudge → read D1 → version and content check → publish; alarm for coalescing and the name delay; destroy; Worker connection gate. partyline: `Hub::destroy` and lazy tables | The prototype's scripted evening passes against `wrangler dev` |
-| **M4** | **Restate on Workers**: depend on the `wasm` SDK branch (git dependency until upstream releases it); Workers adapter (in-repo, then upstream); projector writes D1 and nudges the DO inside `ctx.run`; delayed self-call that destroys the DO after the grace period | A draw runs end to end through Restate Cloud and a phone sees it |
-| **M5** | **App on Workers**: routes and server functions; attendee page rendered with `Card`; rate limiting via the binding; retention via a Cron Trigger; delete `Hub`, `Watch`, `refresh_later` and `LocalEngine` | The admin flow works end to end on a preview deployment |
-| **M6** | **Attendee WASM**: `rafi-attendee` (clear `#live` before mounting, subscribe, extras, no `expect`s); the JS fallback when WASM is missing; a CI size check (≤ 220 KB compressed); confirm `dx` 0.7.10 runs wasm-opt | The phone test plan passes (§6) |
-| **M7** | **Projector and admin live**: subscribe for nudges, fetch the full view over HTTP, poll during registration | The projector shows the reveal within about 1 s of the round |
-| **M8** | **Cutover**: SQLite → D1 import; update the privacy notice (Cloudflare as processor); register the Restate deployment; DNS; switch off Hetzner after one event | One real meetup runs on Workers |
+| **M0** | **Spikes and setup**: (a) Dioxus 0.7.10 fullstack Worker serving rafi's routes; (b) Restate Worker on the `wasm` branch writing D1 and calling a DO stub inside `ctx.run`, called by a Restate server with identity keys; (c) D1 through `worker::D1Database`; (d) `dioxus-clerk` server-side verification on Workers; (e) bundle size and BLS CPU time on both Workers; (f) the clock and `getrandom` audit. Also: `wrangler.toml` (D1 with EU jurisdiction, the DO class and its migration tag, both rate-limit bindings, the Cron, the secrets list), the build for the fullstack Worker, and a dev loop (`wrangler dev` and a local `restate-server`) to replace compose | Each spike works, or has a chosen fallback (§7) |
+| **M1** | **`rafi-live`**: `ParticipantView` (with `claimed` and `last` skipping no-shows), `screen()`, `Card`, `CardStrings`, the state enum, the ALTCHA module. It needs no spike, so it can start now | For every `Screen` variant, SSR HTML equals the first render of the WASM; `screen()` tests from the prototype's cases |
+| **M2** | **Store on D1**: `rafi-store` API and error type; D1 backend; `version` triggers; batches instead of transactions (freeze, fakes); set-based retention; `purge_*_at` in `save_draw_state`; ALTCHA replay table; erasure log; entrant cap | The store tests pass against D1 under `wrangler dev`, including a test that kills the freeze between its steps |
+| **M3** | **`RaffleChannel` DO**: hub embedded by hand; batch read; `seen_v` stored; destroyed flag; periodic re-read alarm; destroy (final view, 4403, alarm, storage); jurisdiction; socket cap; Worker gate and `reject(4403)` | The prototype's scripted evening, ported to a harness against `wrangler dev`, passes, including the destroy races |
+| **M4** | **Restate on Workers**: `rafi-restate-worker` (adapter, signatures before routing); projector writes D1, then a best-effort nudge `ctx.run` | A draw runs end to end through a local `restate-server`, and the DO publishes it |
+| **M5** | **App on Workers**: `Config` from `Env`, failing closed; routes and server functions; attendee page rendering `Card`; `/participant` endpoint; rate limits; the Cron (retention, ALTCHA purge, DO cleanup); "End live updates"; remove `Hub`, `Watch`, `refresh_later`, `LocalEngine`, the switch-to-local UI and API, the engine guard; `rafi-store` call sites; tests migrated | This admin flow works on staging: create → publish → open → join from two phones → freeze → three draws, including a no-show → finish → End live updates |
+| **M6** | **Attendee WASM**: `rafi-attendee` (mount, subscribe, proof-of-work, extras, no `expect`s); inline loader and fallback; disabled Join; Tailwind `@source` for the new crates; CI size check (≤ 220 KB compressed); confirm `dx` 0.7.10 runs wasm-opt | The phone test plan passes (§6) |
+| **M7** | **Projector and admin live**: reveal from participant events; full-view poll every 2–3 s while live; fetch on mount and reconnect; `v >=` | The projector shows the reveal within about 1 s of the round |
+| **M8** | **Cutover**: gate (no raffle Open, Frozen or Drawing); SQLite → D1 import; privacy notice; Restate deployment; DNS; deploy-freeze check in CI; a tested D1 → SQLite rollback export; Hetzner on standby until a second event succeeds; then delete Hetzner volumes, snapshots and dumps, and record it | Two real meetups run on Workers |
 
-M1 depends only on M0. M2 and M3 can run in parallel. M4 and M5 need M2.
+**Dependencies:**
+- **Critical path:** M0 → M2 → M3 → M4 → M5 → M7 → M8.
+- **M1** can run any time before M5.
+- **M6** needs M1, M3 and M5.
 
 ## 6. Testing
 
-- **Unit:** `screen()` and the DO's publish rule, using the prototype's cases as tests. The partyline loopback harness covers resume.
-- **Local end to end:** `wrangler dev` with D1 and the DOs, a local Restate server, and the CDP smoke test (`smoke.mjs` from the prototype) extended to the full join → draw → win flow.
+- **Unit:**
+  - `screen()`;
+  - the DO's publish rule (`seen_v`, unchanged, stale, destroyed);
+  - the ALTCHA module;
+  - the freeze recovery.
+- **Store:** against D1 in `wrangler dev`.
+- **App and integration:** the current `server/tests.rs` and `tests_restate.rs` cases, ported. Specifically:
+  - neither view contains personal data;
+  - retention, including DO destroy;
+  - a join racing the freeze;
+  - auth;
+  - Restate draws through a local `restate-server`.
+- **Browser:** the CDP smoke test (`smoke.mjs`) extended to join → draw → win, plus a fallback run with `WebAssembly` removed.
 - **Phones (manual, before M8):**
-  - iOS Safari, including Lockdown Mode (the fallback path);
+  - iOS Safari, including Lockdown Mode;
   - Android Chrome;
-  - with the phone locked and unlocked during a draw (wake);
-  - with Wi-Fi switched off and on (resume);
-  - the chime actually playing on iOS.
+  - locking and unlocking during a draw;
+  - Wi-Fi off and on;
+  - the chime playing on iOS.
 
 ## 7. Fallbacks if a spike fails
 
 | Spike fails | Fallback |
 |---|---|
-| (b) Restate adapter | Keep the Restate handler as a container (current `restate-rafi-endpoint`, e.g. Cloudflare Containers or Fly) writing to D1 over its HTTP API, and nudging the DO through an authenticated Worker route. |
-| (c) `sqlx-d1` | Use `worker::D1Database` directly behind the `rafi-store` interface. |
-| (e) Bundle size | Split into Workers by role (attendee/public, admin, DO, Restate handler), connected by service bindings. |
+| (b) Restate Worker | Keep the Restate handler as a container (current `restate-rafi-endpoint`) writing to D1 over its HTTP API, and nudging through an authenticated Worker route. |
+| (e) Bundle size | Split Workers by role (public/attendee, admin, DO, Restate), connected by service bindings. |
 
-## 8. Open questions
+## 8. Self-hosting
 
-1. **Self-hosting:** keep a non-Workers deployment (SQLite, SSE, `LocalEngine`)? Supporting both doubles the store and live-update code. I recommend Workers only, unless self-hosting is a goal for other organizers.
-2. **Grace period** before the DO is destroyed: 1 hour? The rest of the evening? It decides how long winner names live in DO storage.
-3. **Workers plan:** paid, assuming M0(e) confirms the free plan's 10 ms CPU limit is too tight for BLS verification.
-4. **Restate SDK fork:** is the `wasm` branch going upstream? Until it's released, rafi pins a git dependency.
-5. **ALTCHA:** contribute the `web-time` fix to `altcha-org/altcha-lib-rs`, then move to the official crate and protocol v2? Until then, rafi keeps its own scheme.
-6. **Where the Workers adapter for Restate lives:** in this repo, in the SDK fork next to the wasm fixes, or in a small crate of its own.
-7. **Wake lock:** contribute `use_wake_lock` to `dioxus-sdk`, or keep it in `rafi-attendee`?
+Cloudflare only for now. Self-hosting stays possible later:
+
+- **The store sits behind `rafi-store`'s own API.** SQLite through sqlx can become a second backend.
+- **Nudging goes through one small interface.** The DO now; in-process fan-out later.
+- **Phones fall back to polling `/participant`**, and the projector and admin already poll their full view. Those would be the baseline without a DO.
+- **`restate-rafi-endpoint` keeps compiling.** A self-hosted deployment uses Restate too.
+
+## 9. Decided
+
+- **Self-hosting:** later; Cloudflare only for now.
+- **Ending live updates:** manual, with Cron cleanup as the safety net.
+- **Restate SDK:** the `wasm` git branch until the upstream PR is released.
+- **ALTCHA:** rafi's own scheme; upstream fix later.
+- **Wake lock:** in `rafi-attendee`.
+- **Emergency draws:** none; rely on Restate.
+- **Store:** own API, with `worker::D1Database` behind it.
+- **Projector:** reveal from participant events, plus polling.
+- **Backups:** accept D1 Time Travel's 30-day window, and say so in the notice.
+
+## 10. Open questions
+
+1. **Workers plan:** paid, assuming M0(e) confirms the free plan's 10 ms CPU limit is too tight.
+2. **Where the Restate Workers adapter lives long-term:** this repo, the SDK fork, or its own crate.
