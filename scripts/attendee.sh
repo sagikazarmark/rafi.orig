@@ -30,6 +30,9 @@ wasm-opt -Oz --strip-debug --strip-producers \
   --enable-sign-ext --enable-reference-types --enable-multivalue \
   "$OUT/rafi_attendee_bg.wasm" -o "$OUT/rafi_attendee_bg.wasm"
 
+# The JavaScript fallback, loaded by the page when the WebAssembly can't run.
+cp "$ROOT/crates/attendee/fallback.js" "$OUT/fallback.js"
+
 wasm=$(gzip -9c "$OUT/rafi_attendee_bg.wasm" | wc -c | tr -d ' ')
 js=$(gzip -9c "$OUT/rafi_attendee.js" | wc -c | tr -d ' ')
 total=$((wasm + js))

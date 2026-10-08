@@ -102,9 +102,19 @@ await js(`window.__beforeReload = true`);
 await post("/open");
 check(await until(() => js("window.__beforeReload !== true"), 10000), "the visitor's page reloads when registration opens");
 
-// Without WebAssembly, the loader hands over to the fallback.
+// Without WebAssembly, the loader hands over to the JavaScript fallback,
+// which renders the same card and follows the raffle by polling.
+raffle = `f${Date.now()}`;
+await post("/reset?nudge=0");
 await open(`/page?r=${raffle}&me=anna&nowasm=1`);
-check(await until(() => js("(window.__rafiFallback || 0) > 0"), 3000), "no WebAssembly: the fallback starts");
+check(await until(() => js("window.__rafiFallbackRunning === true"), 3000), "no WebAssembly: the fallback starts");
+check((await card()).includes("Waiting for the draw"), "the fallback shows the card");
+await post("/close");
+await post("/freeze");
+check(await until(async () => (await card()).includes("The draw is starting"), 8000), "the fallback picks up the freeze by polling");
+await post("/draw/anna");
+check(await until(async () => (await card()).includes("You won!"), 8000), "the fallback shows Anna's win");
+check((await js(`!!document.querySelector("#live [role=alert].animate-pop")`)) === true, "and announces it");
 
 const real = errors.filter((e) => !/WebSocket|4403|ERR_|rafiFallback|fallback/i.test(e));
 check(real.length === 0, `no console errors${real.length ? ": " + real.join(" | ") : ""}`);

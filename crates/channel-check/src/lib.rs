@@ -203,7 +203,7 @@ async fn page(db: &Db, raffle: &str, me: Option<&str>, nowasm: bool) -> Result<R
 <script type="application/json" id="rafi-config">{config}</script>
 {nowasm}
 <script>
-window.rafiFallback=function(){{window.__rafiFallback=(window.__rafiFallback||0)+1;console.log("rafi: fallback")}};
+window.rafiFallback=function(){{if(window.__rafiFallback)return;window.__rafiFallback=1;var s=document.createElement("script");s.src="/attendee/fallback.js";document.body.appendChild(s)}};
 setTimeout(function(){{if(!window.__rafiReady)window.rafiFallback()}},8000);
 if(typeof WebAssembly!=="object"){{window.rafiFallback()}}else{{import("/attendee/rafi_attendee.js").then(function(m){{return m.default()}}).catch(function(e){{console.error(e);window.rafiFallback()}})}}
 </script></body></html>"#
