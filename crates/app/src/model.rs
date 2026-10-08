@@ -43,7 +43,7 @@ pub struct RaffleView {
     pub list_hash: Option<String>,
     pub server_now_ms: u64,
     pub test_mode: bool,
-    /// Human-readable description of the draw engine (e.g. "restate", "local").
+    /// Human-readable description of the draw engine (e.g. "restate", "restate (mock drand)").
     pub engine: String,
 }
 
