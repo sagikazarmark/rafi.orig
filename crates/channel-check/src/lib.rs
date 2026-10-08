@@ -129,6 +129,98 @@ async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     Ok(json)
 }
 
+const STRINGS: &[(&str, &str)] = &[
+    ("you_won", "You won!"),
+    ("go_to_organizer", "Go to the organizer"),
+    ("thanks_won", "Thanks, enjoy!"),
+    ("thanks", "Thanks for joining"),
+    ("drawing", "Drawing"),
+    ("not_this_time", "Not this time"),
+    ("draw_starting", "The draw is starting"),
+    ("prizes_left", "prizes left"),
+    ("waiting", "Waiting for the draw"),
+    ("locking", "Locking"),
+    ("drand_round", "drand round"),
+];
+
+/// A stand-in for the attendee page: the server-rendered card, the embedded
+/// config, the inline loader with its fallback, and the WASM. `me` picks the
+/// entrant (`anna`, `bence`, or none for a visitor); `nowasm=1` removes
+/// `WebAssembly` to exercise the fallback.
+async fn page(db: &Db, raffle: &str, me: Option<&str>, nowasm: bool) -> Result<Response> {
+    use dioxus::prelude::*;
+    use rafi_live::{Card, CardStrings};
+
+    let snap = rafi_channel::Snapshot::read(db, raffle)
+        .await
+        .map_err(err)?
+        .ok_or_else(|| err("no such raffle"))?;
+    let view = snap.view();
+    let strings = CardStrings::from_lookup(|k| {
+        STRINGS
+            .iter()
+            .find(|(key, _)| *key == k)
+            .map(|(_, v)| (*v).to_owned())
+            .unwrap_or_default()
+    });
+    let me = me.map(|m| entrant(raffle, m));
+    let now_ms = js_sys::Date::now() as u64;
+    let card = dioxus::ssr::render_element(rsx! {
+        Card {
+            view: view.clone(),
+            me: me.clone(),
+            claim_code: me.as_ref().map(|_| "K2P9".to_owned()),
+            page_state: snap.state,
+            now_ms,
+            strings: strings.clone(),
+        }
+    });
+    let config = serde_json::json!({
+        "raffle_id": raffle,
+        "entrant_id": me,
+        "claim_code": me.as_ref().map(|_| "K2P9"),
+        "page_state": snap.state,
+        "view": view,
+        "strings": strings,
+        "participant_url": format!("/participant?r={raffle}"),
+        "server_now_ms": now_ms,
+        "screen_on": "Screen stays on",
+        "keep_screen_on": "Keep the screen on",
+    });
+    let config = config.to_string().replace("</", "<\\/");
+    let nowasm = if nowasm {
+        "<script>delete window.WebAssembly;</script>"
+    } else {
+        ""
+    };
+    let html = format!(
+        r#"<!doctype html><html><head><meta charset="utf-8">
+<script>window.__rafiT0=Date.now();try{{var t=localStorage.getItem("rafi-theme");if(t)document.documentElement.setAttribute("data-theme",t)}}catch(e){{}}</script>
+<style>.hidden{{display:none}}</style><title>rafi check</title></head><body>
+<header><button id="theme" type="button"><span class="theme-icon-system">🖥</span><span class="theme-icon-light hidden">☀️</span><span class="theme-icon-dark hidden">🌙</span></button></header>
+<section id="live" aria-live="polite">{card}</section>
+<button id="wake" type="button">Keep the screen on</button>
+<script type="application/json" id="rafi-config">{config}</script>
+{nowasm}
+<script>
+window.rafiFallback=function(){{window.__rafiFallback=(window.__rafiFallback||0)+1;console.log("rafi: fallback")}};
+setTimeout(function(){{if(!window.__rafiReady)window.rafiFallback()}},8000);
+if(typeof WebAssembly!=="object"){{window.rafiFallback()}}else{{import("/attendee/rafi_attendee.js").then(function(m){{return m.default()}}).catch(function(e){{console.error(e);window.rafiFallback()}})}}
+</script></body></html>"#
+    );
+    Response::from_html(html)
+}
+
+fn altcha_challenge() -> rafi_live::altcha::Challenge {
+    let random = || (js_sys::Math::random() * u32::MAX as f64) as u64;
+    let mut salt = [0u8; 12];
+    for b in &mut salt {
+        *b = random() as u8;
+    }
+    let now = (js_sys::Date::now() / 1000.0) as u64;
+    rafi_live::altcha::issue(b"check-key", 30_000, now, random() % 30_000, salt)
+}
+
 /// A completed draw for `who`, written the way Restate's projector writes it.
 async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
     let mut state = draw_state(db, raffle).await?;
@@ -192,6 +284,21 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         return Response::error("missing ?r=<raffle id>", 400);
     };
     let raffle = raffle.as_str();
+    if path == "/api/altcha" {
+        return Response::from_json(&altcha_challenge());
+    }
+    if path == "/page" {
+        let Some(raffle) = param("r") else {
+            return Response::error("missing ?r=<raffle id>", 400);
+        };
+        return page(
+            &db,
+            &raffle,
+            param("me").as_deref(),
+            param("nowasm").is_some(),
+        )
+        .await;
+    }
     if path == "/participant" {
         let snap = rafi_channel::Snapshot::read(&db, raffle)
             .await
@@ -206,6 +313,20 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         "/join" => {
             db.query("INSERT INTO entrants (id, raffle_id, display_name, claim_code, created_at) VALUES (?, ?, 'Cora', 'Q4M7', 0)")
                 .bind(entrant(raffle, "cora"))
+                .bind(raffle)
+                .run()
+                .await
+                .map_err(err)?;
+        }
+        "/ready" => {
+            db.query("UPDATE raffles SET state = 'ready' WHERE id = ?")
+                .bind(raffle)
+                .run()
+                .await
+                .map_err(err)?;
+        }
+        "/open" => {
+            db.query("UPDATE raffles SET state = 'open' WHERE id = ?")
                 .bind(raffle)
                 .run()
                 .await

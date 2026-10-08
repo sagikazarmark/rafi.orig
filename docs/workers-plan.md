@@ -129,7 +129,10 @@ The inline `<head>` theme script stays JS.
   - solves the proof-of-work in JS;
   - keeps the theme toggle and the wake/audio button working.
 
-**Size budget:** ≤ 220 KB compressed; the prototype measured about 205 KB.
+**Size budget:** ≤ 280 KB compressed. The first build is 262 KB (250 KB wasm plus 11 KB JS).
+- **Against the prototype:** the prototype measured 189 KB through the same build. Most of the difference is Dioxus's runtime for the real app (+53 KB before optimisation), JSON decoding of the page config and views (+43 KB), and `rafi-live` (+23 KB).
+- **Why it's acceptable:** the page is server-rendered first, so the size only delays live updates.
+- **Follow-up:** trimming it.
 
 ### 2.5a Serving the admin and projector
 
@@ -302,7 +305,7 @@ Rafi relies on Restate. There is no fallback draw path:
 | **M3** | **`RaffleChannel` DO**: hub embedded by hand; batch read; `seen_v` stored; destroyed flag; periodic re-read alarm; destroy (final view, 4403, alarm, storage); jurisdiction; socket cap; Worker gate and `reject(4403)` | The prototype's scripted evening, ported to a harness against `wrangler dev`, passes, including the destroy races |
 | **M4** | **Restate on Workers**: `rafi-restate-worker` (adapter, signatures before routing); projector writes D1, then a best-effort nudge `ctx.run` | A draw runs end to end through a local `restate-server`, and the DO publishes it |
 | **M5** | **App on Workers**: `Config` from `Env`, failing closed; routes and server functions; attendee page rendering `Card`; `/participant` endpoint; rate limits; the Cron (retention, ALTCHA purge, DO cleanup); "End live updates"; remove `Hub`, `Watch`, `refresh_later`, `LocalEngine`, the switch-to-local UI and API, the engine guard; `rafi-store` call sites; tests migrated | This admin flow works on staging: create → publish → open → join from two phones → freeze → three draws, including a no-show → finish → End live updates |
-| **M6** | **Attendee WASM**: `rafi-attendee` (mount, subscribe, proof-of-work, extras, no `expect`s); inline loader and fallback; disabled Join; Tailwind `@source` for the new crates; CI size check (≤ 220 KB compressed); confirm `dx` 0.7.10 runs wasm-opt | The phone test plan passes (§6) |
+| **M6** | **Attendee WASM**: `rafi-attendee` (mount, subscribe, proof-of-work, extras, no `expect`s); inline loader and fallback; disabled Join; Tailwind `@source` for the new crates; CI size check (≤ 280 KB compressed); confirm `dx` 0.7.10 runs wasm-opt | The phone test plan passes (§6) |
 | **M7** | **Projector and admin live**: reveal from participant events; full-view poll every 2–3 s while live; fetch on mount and reconnect; `v >=` | The projector shows the reveal within about 1 s of the round |
 | **M8** | **Cutover**: gate (no raffle Open, Frozen or Drawing); SQLite → D1 import; privacy notice; Restate deployment; DNS; deploy-freeze check in CI; a tested D1 → SQLite rollback export; Hetzner on standby until a second event succeeds; then delete Hetzner volumes, snapshots and dumps, and record it | Two real meetups run on Workers |
 

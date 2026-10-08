@@ -11,7 +11,10 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
+js-sys = "0.3"
 rafi-channel = { path = "../channel" }
+rafi-live = { path = "../live", features = ["server"] }
 rafi-core.workspace = true
 rafi-drand = { path = "../drand", features = ["mock"] }
 rafi-store.workspace = true
