@@ -1,8 +1,10 @@
 //! The Rafi draw engine on Cloudflare Workers.
 //!
 //! Restate calls this Worker over HTTPS in request-response mode; each request
-//! is handed to the SDK's [`Endpoint`]. Draw states are written to D1 (the
-//! record), then the raffle's live channel is nudged, best effort.
+//! is handed to the SDK's [`Endpoint`]. This crate only wires the draw engine
+//! to Cloudflare: draw states go to D1 (the record) through rafi-store, then
+//! the raffle's Durable Object is nudged, best effort, through
+//! `rafi-cloudflare`.
 //!
 //! Configuration (`wrangler.toml` vars and secrets):
 //!
@@ -19,57 +21,15 @@
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
-use rafi_core::state::DrawState;
+use rafi_cloudflare::{DurableObjects, lookup};
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_store::{Db, PurgeAfter};
-use restate_rafi::{BoxFuture, Projector, Raffle};
+use rafi_store::{DrawWriter, PurgeAfter};
+use restate_rafi::Raffle;
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode};
-use worker::{
-    Context, Env, Request, Response, Result, event,
-    send::{SendFuture, SendWrapper},
-};
-
-/// Writes draw states into D1 and nudges the raffle's live channel.
-struct D1Projector {
-    db: Db,
-    env: SendWrapper<Env>,
-    purge: PurgeAfter,
-}
-
-impl Projector for D1Projector {
-    fn project<'a>(&'a self, state: &'a DrawState) -> BoxFuture<'a, anyhow::Result<()>> {
-        // D1's futures aren't `Send`; a Worker is single-threaded, so the wrapper is sound.
-        Box::pin(SendFuture::new(async move {
-            rafi_store::save_draw_state(&self.db, state, self.purge)
-                .await
-                .map_err(|e| anyhow::anyhow!("writing the draw state: {e}"))?;
-            Ok(())
-        }))
-    }
-
-    fn notify<'a>(&'a self, raffle_id: &'a str) -> BoxFuture<'a, anyhow::Result<()>> {
-        Box::pin(SendFuture::new(async move {
-            // `tracing` has no output on Workers; log failures where `wrangler tail` sees them.
-            rafi_channel::nudge(&self.env.0, raffle_id)
-                .await
-                .map(|_| ())
-                .map_err(|e| {
-                    worker::console_error!("rafi-restate-worker: nudging {raffle_id}: {e}");
-                    anyhow::anyhow!("nudging the live channel: {e}")
-                })
-        }))
-    }
-}
-
-fn var(env: &Env, name: &str) -> Option<String> {
-    env.var(name)
-        .ok()
-        .map(|v| v.to_string())
-        .filter(|v| !v.trim().is_empty())
-}
+use worker::{Context, Env, Request, Response, Result, event};
 
 fn number<T: std::str::FromStr>(env: &Env, name: &str, default: T) -> T {
-    var(env, name)
+    lookup(env, name)
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(default)
 }
@@ -77,7 +37,7 @@ fn number<T: std::str::FromStr>(env: &Env, name: &str, default: T) -> T {
 fn drand_config(env: &Env) -> DrandConfig {
     let defaults = DrandConfig::default();
     DrandConfig {
-        relays: var(env, "RAFI_DRAND_RELAYS")
+        relays: lookup(env, "RAFI_DRAND_RELAYS")
             .map(|v| {
                 v.split(',')
                     .map(|s| s.trim().to_owned())
@@ -85,7 +45,7 @@ fn drand_config(env: &Env) -> DrandConfig {
                     .collect()
             })
             .unwrap_or(defaults.relays),
-        mock: cfg!(feature = "dev") && var(env, "RAFI_DRAND_MOCK").as_deref() == Some("1"),
+        mock: cfg!(feature = "dev") && lookup(env, "RAFI_DRAND_MOCK").as_deref() == Some("1"),
         lead_secs: number(env, "RAFI_DRAND_LEAD_SECS", defaults.lead_secs),
         timeout_secs: number(env, "RAFI_DRAND_TIMEOUT_SECS", defaults.timeout_secs),
     }
@@ -93,22 +53,20 @@ fn drand_config(env: &Env) -> DrandConfig {
 
 /// The SDK endpoint for this request's bindings.
 fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
-    let projector = D1Projector {
-        db: Db::d1(env.d1(rafi_channel::D1_BINDING)?),
-        env: SendWrapper(env.clone()),
-        purge: PurgeAfter::days(
+    let store = DrawWriter::new(
+        rafi_cloudflare::database(env)?,
+        PurgeAfter::days(
             number(env, "RAFI_RETENTION_DAYS", 30),
             number(env, "RAFI_RETENTION_WINNERS_DAYS", 90),
         ),
-    };
-    let raffle = Raffle::new(DrandClient::new(drand_config(env))?, projector);
+    );
+    let raffle = Raffle::new(
+        DrandClient::new(drand_config(env))?,
+        store,
+        DurableObjects::new(env.clone()),
+    );
     let mut builder = Endpoint::builder();
-    let keys = env
-        .secret("RESTATE_IDENTITY_KEYS")
-        .map(|s| s.to_string())
-        .ok()
-        .or_else(|| var(env, "RESTATE_IDENTITY_KEYS"))
-        .unwrap_or_default();
+    let keys = lookup(env, "RESTATE_IDENTITY_KEYS").unwrap_or_default();
     let keys: Vec<&str> = keys
         .split(',')
         .map(str::trim)

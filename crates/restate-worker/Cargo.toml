@@ -23,8 +23,7 @@ anyhow = "1"
 bytes = "1"
 http = "1"
 http-body-util = "0.1"
-rafi-channel = { path = "../channel" }
-rafi-core.workspace = true
+rafi-cloudflare = { path = "../cloudflare" }
 rafi-store.workspace = true
 restate-rafi = { path = "../restate-rafi" }
 restate-sdk = { workspace = true, features = ["rust_crypto"] }

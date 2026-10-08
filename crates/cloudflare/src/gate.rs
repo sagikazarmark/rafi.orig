@@ -8,11 +8,11 @@
 
 use partyline_worker::{close, reject};
 use rafi_live::Phase;
-use rafi_store::Db;
+use rafi_store::live::Snapshot;
 use wasm_bindgen::{JsCast, JsValue};
 use worker::{Env, Headers, Method, ObjectNamespace, Request, RequestInit, Response, Result, Stub};
 
-use crate::{object::RAFFLE_HEADER, snapshot::Snapshot};
+use crate::object::RAFFLE_HEADER;
 
 /// The Durable Object binding of [`crate::RaffleChannel`].
 pub const BINDING: &str = "RAFFLE_CHANNEL";
@@ -62,7 +62,7 @@ async fn call(env: &Env, raffle_id: &str, path: &str) -> Result<String> {
     let text = res.text().await?;
     if res.status_code() != 200 {
         return Err(worker::Error::RustError(format!(
-            "rafi-channel {path}: {} {text}",
+            "RaffleChannel {path}: {} {text}",
             res.status_code()
         )));
     }
@@ -74,6 +74,7 @@ async fn call(env: &Env, raffle_id: &str, path: &str) -> Result<String> {
 ///
 /// Best effort: a lost nudge is repaired by the object's periodic re-read, so
 /// callers log failures instead of failing their own write.
+/// [`DurableObjects`](crate::DurableObjects) does that for writers.
 pub async fn nudge(env: &Env, raffle_id: &str) -> Result<String> {
     call(env, raffle_id, "/nudge").await
 }
@@ -90,12 +91,13 @@ pub async fn destroy(env: &Env, raffle_id: &str) -> Result<()> {
 /// Refusals accept the socket and close it with 4403, never an HTTP error:
 /// browsers see a failed upgrade as a network error (1006) and keep retrying,
 /// while 4403 tells the partyline client to stop (and rafi's page to poll).
-pub async fn connect(env: &Env, db: &Db, raffle_id: &str, req: Request) -> Result<Response> {
-    let open = match Snapshot::read(db, raffle_id).await {
+pub async fn connect(env: &Env, raffle_id: &str, req: Request) -> Result<Response> {
+    let db = crate::database(env)?;
+    let open = match Snapshot::read(&db, raffle_id).await {
         Ok(Some(s)) => s.accepts_sockets() && s.state != Phase::Draft,
         Ok(None) => false,
         Err(e) => {
-            worker::console_error!("rafi-channel: reading raffle {raffle_id}: {e}");
+            worker::console_error!("rafi: reading raffle {raffle_id}: {e}");
             return reject(close::INTERNAL_ERROR, "try again");
         }
     };

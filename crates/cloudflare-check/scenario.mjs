@@ -1,4 +1,4 @@
-// Drives rafi-channel end to end against `wrangler dev` (see src/lib.rs):
+// Drives rafi-cloudflare's RaffleChannel end to end against `wrangler dev` (see src/lib.rs):
 // phones connect over partyline, the raffle changes the way the app and the
 // draw engine change it, and every step checks what the phones received.
 //

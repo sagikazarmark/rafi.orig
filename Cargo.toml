@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/drand", "crates/store", "crates/restate-rafi", "crates/restate-rafi-endpoint", "crates/app", "crates/live", "crates/store-d1-check", "crates/channel", "crates/channel-check", "crates/restate-worker", "crates/attendee"]
+members = ["crates/core", "crates/drand", "crates/store", "crates/restate-rafi", "crates/restate-rafi-endpoint", "crates/app", "crates/live", "crates/store-d1-check", "crates/platform", "crates/cloudflare", "crates/cloudflare-check", "crates/restate-worker", "crates/attendee"]
 
 [workspace.package]
 edition = "2024"

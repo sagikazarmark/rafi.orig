@@ -8,7 +8,9 @@
 //! - `scheduled`: the Cron Trigger runs [`server::retention::run`].
 //! - [`RaffleChannel`] is exported from here, so the class lives in this Worker.
 //!
-//! Configuration comes from the Worker's vars and secrets (see `wrangler.toml`).
+//! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
+//! raffles' Durable Objects, the rate-limiting bindings, and configuration
+//! from the Worker's vars and secrets (see `wrangler.toml`).
 //! Missing secrets fail closed: every request is refused rather than run with
 //! a default. Dev auth and mock drand need the `worker-dev` feature.
 
@@ -16,85 +18,12 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use dioxus_clerk::server::{ClerkAuthLayer, ClerkAuthLayerConfig};
-pub use rafi_channel::RaffleChannel;
-use rafi_store::Db;
+pub use rafi_cloudflare::RaffleChannel;
+use rafi_cloudflare::{DurableObjects, RateLimitBindings, lookup};
 use tower_service::Service;
-use worker::{
-    Context, Env, HttpRequest, ScheduleContext, ScheduledEvent, event,
-    send::{SendFuture, SendWrapper},
-};
+use worker::{Context, Env, HttpRequest, ScheduleContext, ScheduledEvent, event};
 
-use crate::server::{
-    self, AppState,
-    config::Config,
-    live::{BoxFuture, Live},
-    ratelimit::{Limit, RateLimit},
-};
-
-/// The live channel: one Durable Object per raffle.
-struct Channels(SendWrapper<Env>);
-
-impl Live for Channels {
-    fn has_channel(&self) -> bool {
-        true
-    }
-
-    fn nudge<'a>(&'a self, raffle_id: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(SendFuture::new(async move {
-            if let Err(e) = rafi_channel::nudge(&self.0, raffle_id).await {
-                worker::console_error!("rafi: nudging {raffle_id}: {e}");
-            }
-        }))
-    }
-
-    fn destroy<'a>(&'a self, raffle_id: &'a str) -> BoxFuture<'a, anyhow::Result<()>> {
-        Box::pin(SendFuture::new(async move {
-            rafi_channel::destroy(&self.0, raffle_id)
-                .await
-                .map_err(|e| anyhow::anyhow!("ending the live channel of {raffle_id}: {e}"))
-        }))
-    }
-}
-
-/// Cloudflare's rate-limiting bindings: approximate and per location, so a
-/// soft limit (the hard one is the entrant cap in the database). A missing
-/// binding allows.
-struct Bindings(SendWrapper<Env>);
-
-impl Bindings {
-    fn binding(limit: Limit) -> &'static str {
-        match limit {
-            Limit::JoinPerRaffle => "JOIN_PER_RAFFLE_LIMITER",
-            Limit::JoinPerEmail => "JOIN_PER_EMAIL_LIMITER",
-        }
-    }
-}
-
-impl RateLimit for Bindings {
-    fn allow<'a>(&'a self, limit: Limit, key: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(SendFuture::new(async move {
-            let Ok(limiter) = self.0.rate_limiter(Self::binding(limit)) else {
-                return true;
-            };
-            match limiter.limit(key.to_owned()).await {
-                Ok(outcome) => outcome.success,
-                Err(e) => {
-                    worker::console_error!("rafi: rate limiter {}: {e}", Self::binding(limit));
-                    true
-                }
-            }
-        }))
-    }
-}
-
-/// A secret, else a var; empty counts as unset.
-fn lookup(env: &Env, name: &str) -> Option<String> {
-    env.secret(name)
-        .map(|s| s.to_string())
-        .ok()
-        .or_else(|| env.var(name).map(|v| v.to_string()).ok())
-        .filter(|v| !v.trim().is_empty())
-}
+use crate::server::{self, AppState, config::Config};
 
 /// The app for this request's bindings. Fails closed on missing secrets.
 fn app(env: &Env) -> anyhow::Result<(AppState, Option<ClerkAuthLayer>)> {
@@ -126,12 +55,11 @@ fn app(env: &Env) -> anyhow::Result<(AppState, Option<ClerkAuthLayer>)> {
                 .map_err(|e| anyhow::anyhow!("Clerk configuration: {e:?}"))?,
         )
     };
-    let db = Db::d1(env.d1(rafi_channel::D1_BINDING)?);
     let app = AppState::from_parts(
         cfg,
-        db,
-        Arc::new(Channels(SendWrapper(env.clone()))),
-        Arc::new(Bindings(SendWrapper(env.clone()))),
+        rafi_cloudflare::database(env)?,
+        Arc::new(DurableObjects::new(env.clone())),
+        Arc::new(RateLimitBindings::new(env.clone())),
     )?;
     Ok((app, auth))
 }
@@ -148,9 +76,8 @@ fn misconfigured(e: anyhow::Error) -> http::Response<Body> {
 async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> worker::Result<http::Response<Body>> {
     if let Some(raffle_id) = req.uri().path().strip_prefix("/partyline/raffle/") {
         let raffle_id = raffle_id.to_owned();
-        let db = Db::d1(env.d1(rafi_channel::D1_BINDING)?);
         let req = worker::Request::try_from(req)?;
-        return Ok(rafi_channel::connect(&env, &db, &raffle_id, req)
+        return Ok(rafi_cloudflare::connect(&env, &raffle_id, req)
             .await?
             .into());
     }

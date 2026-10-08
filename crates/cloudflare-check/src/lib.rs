@@ -2,20 +2,22 @@
 //! the way the app and the draw engine would.
 //!
 //! ```shell
-//! cd crates/channel-check
-//! wrangler d1 migrations apply rafi-channel-check --local
+//! cd crates/cloudflare-check
+//! wrangler d1 migrations apply rafi-cloudflare-check --local
 //! wrangler dev --local --port 8790 &
 //! node scenario.mjs http://127.0.0.1:8790
 //! ```
 
 #![cfg(target_arch = "wasm32")]
 
-pub use rafi_channel::RaffleChannel;
+use rafi_cloudflare::DurableObjects;
+pub use rafi_cloudflare::RaffleChannel;
 use rafi_core::{
     commit::{CommitDoc, UnitRef},
     state::{DrawState, Event, UnitStatus},
 };
-use rafi_store::{Db, PurgeAfter};
+use rafi_platform::Notifier;
+use rafi_store::{Db, PurgeAfter, live::Snapshot};
 use worker::{Context, Env, Method, Request, Response, Result, event};
 
 fn err(e: impl std::fmt::Display) -> worker::Error {
@@ -147,11 +149,17 @@ const STRINGS: &[(&str, &str)] = &[
 /// config, the inline loader with its fallback, and the WASM. `me` picks the
 /// entrant (`anna`, `bence`, or none for a visitor); `nowasm=1` removes
 /// `WebAssembly` to exercise the fallback.
-async fn page(db: &Db, raffle: &str, me: Option<&str>, nowasm: bool) -> Result<Response> {
+async fn page(
+    env: &Env,
+    db: &Db,
+    raffle: &str,
+    me: Option<&str>,
+    nowasm: bool,
+) -> Result<Response> {
     use dioxus::prelude::*;
     use rafi_live::{Card, CardStrings};
 
-    let snap = rafi_channel::Snapshot::read(db, raffle)
+    let snap = Snapshot::read(db, raffle)
         .await
         .map_err(err)?
         .ok_or_else(|| err("no such raffle"))?;
@@ -184,6 +192,7 @@ async fn page(db: &Db, raffle: &str, me: Option<&str>, nowasm: bool) -> Result<R
         "strings": strings,
         "participant_url": format!("/participant?r={raffle}"),
         "server_now_ms": now_ms,
+        "live": DurableObjects::new(env.clone()).transport(raffle),
         "screen_on": "Screen stays on",
         "keep_screen_on": "Keep the screen on",
     });
@@ -268,7 +277,7 @@ async fn finish(db: &Db, raffle: &str) -> Result<()> {
 
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
-    let db = Db::d1(env.d1("DB")?);
+    let db = rafi_cloudflare::database(&env)?;
     let url = req.url()?;
     let path = url.path().to_owned();
     let param = |name: &str| {
@@ -278,7 +287,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     };
     let nudge_after = param("nudge").as_deref() != Some("0");
     if let Some(id) = path.strip_prefix("/partyline/raffle/") {
-        return rafi_channel::connect(&env, &db, id, req).await;
+        return rafi_cloudflare::connect(&env, id, req).await;
     }
     let Some(raffle) = param("r") else {
         return Response::error("missing ?r=<raffle id>", 400);
@@ -292,6 +301,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             return Response::error("missing ?r=<raffle id>", 400);
         };
         return page(
+            &env,
             &db,
             &raffle,
             param("me").as_deref(),
@@ -300,9 +310,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .await;
     }
     if path == "/participant" {
-        let snap = rafi_channel::Snapshot::read(&db, raffle)
-            .await
-            .map_err(err)?;
+        let snap = Snapshot::read(&db, raffle).await.map_err(err)?;
         return Response::from_json(&snap.map(|s| s.view()));
     }
     if req.method() != Method::Post {
@@ -350,14 +358,14 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 .run()
                 .await
                 .map_err(err)?;
-            rafi_channel::destroy(&env, raffle).await?;
+            rafi_cloudflare::destroy(&env, raffle).await?;
             return Response::ok("destroyed");
         }
         "/nudge" => {}
         _ => return Response::error("Not Found", 404),
     }
     if nudge_after {
-        return Response::ok(rafi_channel::nudge(&env, raffle).await?);
+        return Response::ok(rafi_cloudflare::nudge(&env, raffle).await?);
     }
     Response::ok("written")
 }

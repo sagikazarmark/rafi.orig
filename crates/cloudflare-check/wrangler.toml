@@ -1,5 +1,5 @@
-# Local only: drives rafi-channel's Durable Object (see scenario.mjs).
-name = "rafi-channel-check"
+# Local only: drives rafi-cloudflare's Durable Object (see scenario.mjs).
+name = "rafi-cloudflare-check"
 main = "build/index.js"
 compatibility_date = "2026-05-01"
 
@@ -12,7 +12,7 @@ directory = "./site"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "rafi-channel-check"
+database_name = "rafi-cloudflare-check"
 database_id = "00000000-0000-0000-0000-000000000001"
 migrations_dir = "../../migrations"
 

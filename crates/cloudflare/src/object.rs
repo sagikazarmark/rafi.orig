@@ -14,15 +14,11 @@ use std::{cell::Cell, time::Duration};
 
 use partyline_worker::{Hub, HubConfig, close, reject};
 use rafi_live::{ParticipantView, RaffleLive};
-use rafi_store::Db;
+use rafi_platform::rule::{Decision, decide};
+use rafi_store::{Db, live::Snapshot};
 use worker::{
     DurableObject, Env, Method, Request, Response, Result, SqlStorageValue, State, WebSocket,
     WebSocketIncomingMessage, durable_object, wasm_bindgen,
-};
-
-use crate::{
-    rule::{Decision, decide},
-    snapshot::Snapshot,
 };
 
 /// The header carrying the raffle ID on requests to the object.
@@ -55,7 +51,7 @@ impl RaffleChannel {
     }
 
     fn db(&self) -> Result<Db> {
-        Ok(Db::d1(self.env.d1(crate::D1_BINDING)?))
+        crate::database(&self.env)
     }
 
     /// The raffle ID, highest version seen and last published view.
@@ -193,7 +189,7 @@ impl DurableObject for RaffleChannel {
     fn new(state: State, env: Env) -> Self {
         let hub = Hub::new(state, HubConfig::default());
         if let Err(e) = hub.state().storage().sql().exec(SCHEMA, None) {
-            worker::console_error!("rafi-channel: creating the table failed: {e}");
+            worker::console_error!("RaffleChannel: creating the table failed: {e}");
         }
         Self {
             hub,

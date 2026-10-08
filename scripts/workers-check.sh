@@ -2,7 +2,7 @@
 # Runs rafi's Cloudflare Workers checks locally, under `wrangler dev`:
 #
 #   1. rafi-store's backend scenarios against D1 (crates/store-d1-check);
-#   2. the live channel driven over real WebSockets (crates/channel-check/scenario.mjs);
+#   2. the live channel driven over real WebSockets (crates/cloudflare-check/scenario.mjs);
 #   3. the attendee page in headless Chromium (crates/attendee/smoke.mjs), when
 #      CHROMIUM (or `chromium`) is available;
 #   4. a draw through Restate into the live channel (crates/restate-worker/e2e.mjs),
@@ -52,13 +52,13 @@ migrate() {
 }
 
 step "build"
-"$ROOT/scripts/attendee.sh" "$ROOT/crates/channel-check/site/attendee"
-for crate in store-d1-check channel-check; do
+"$ROOT/scripts/attendee.sh" "$ROOT/crates/cloudflare-check/site/attendee"
+for crate in store-d1-check cloudflare-check; do
   (cd "$ROOT/crates/$crate" && worker-build --release) >"$LOGS/build-$crate.log" 2>&1
 done
 (cd "$ROOT/crates/restate-worker" && worker-build --release --features dev) >"$LOGS/build-restate-worker.log" 2>&1
 migrate store-d1-check rafi-store-check
-migrate channel-check rafi-channel-check
+migrate cloudflare-check rafi-cloudflare-check
 
 step "rafi-store on D1"
 serve store-d1-check 8789 /
@@ -67,8 +67,8 @@ echo "$report" | head -1
 [ "$(echo "$report" | tail -1)" = "200" ] || { echo "store scenarios failed" >&2; exit 1; }
 
 step "the live channel"
-serve channel-check 8790 '/participant?r=probe'
-node "$ROOT/crates/channel-check/scenario.mjs" http://127.0.0.1:8790
+serve cloudflare-check 8790 '/participant?r=probe'
+node "$ROOT/crates/cloudflare-check/scenario.mjs" http://127.0.0.1:8790
 
 CHROMIUM="${CHROMIUM:-$(command -v chromium || command -v google-chrome || true)}"
 if [ -n "$CHROMIUM" ]; then

@@ -1,10 +1,10 @@
 [package]
-name = "rafi-channel-check"
+name = "rafi-cloudflare-check"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Drives rafi-channel's Durable Object end to end under `wrangler dev` (see scenario.mjs)"
+description = "Drives rafi-cloudflare's Durable Object end to end under `wrangler dev` (see scenario.mjs)"
 publish = false
 
 [lib]
@@ -13,7 +13,8 @@ crate-type = ["cdylib", "rlib"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
 js-sys = "0.3"
-rafi-channel = { path = "../channel" }
+rafi-cloudflare = { path = "../cloudflare" }
+rafi-platform = { path = "../platform" }
 rafi-live = { path = "../live", features = ["server"] }
 rafi-core.workspace = true
 rafi-drand = { path = "../drand", features = ["mock"] }
