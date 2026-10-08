@@ -528,6 +528,11 @@ async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
 
 async fn erases_and_logs_erasures(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
+    // Erasing everyone first: the statement's first run binds NULL.
+    check(
+        !entrants::erase(db, "r1", None).await.map_err(fail)?,
+        "nobody to erase yet",
+    )?;
     for id in ["a", "b", "c"] {
         join(db, "r1", id, &format!("{id}@x"), 10).await?;
     }

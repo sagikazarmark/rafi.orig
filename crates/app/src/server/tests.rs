@@ -1,4 +1,5 @@
-//! Integration tests: in-memory SQLite, an in-process stand-in for Restate
+//! Integration tests: in-memory SQLite (or, with `RAFI_TEST_POSTGRES_URL`
+//! set, a fresh Postgres schema per test), an in-process stand-in for Restate
 //! ([`super::fake_engine`]), mock drand.
 
 use std::{sync::Arc, time::Duration};
@@ -32,8 +33,14 @@ async fn app_with(cfg: Config) -> AppState {
 }
 
 /// An app whose draw engine is the in-process stand-in for Restate, on the
-/// same database.
+/// same database. With `RAFI_TEST_POSTGRES_URL` set, the test database is a
+/// fresh schema there instead of in-memory SQLite.
 async fn app_with_live(mut cfg: Config, live: Arc<dyn Notifier>) -> AppState {
+    if cfg.database_url == Config::for_tests().database_url
+        && let Some(url) = rafi_store::testing::postgres_url().await
+    {
+        cfg.database_url = url;
+    }
     let db = rafi_store::Db::connect(&cfg.database_url)
         .await
         .expect("database");

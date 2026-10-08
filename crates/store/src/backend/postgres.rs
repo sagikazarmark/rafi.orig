@@ -6,10 +6,12 @@
 //!   Only `?` is rewritten (outside string literals and quoted names), since
 //!   `$` appears in SQL literals.
 //! - **Parameters** are bound as `INT8`, `FLOAT8` or `TEXT`. `NULL` is bound
-//!   untyped, so Postgres infers its type from where it is used (`email_raw =
-//!   $4`, `$2 IS NULL OR id = $2`); such statements aren't cached, so a type
-//!   inferred from a `NULL` never sticks to a statement that later binds a
-//!   value.
+//!   untyped, so Postgres infers its type from where it is used
+//!   (`delivered_at = $1`); such statements aren't cached, so a type inferred
+//!   from a `NULL` never sticks to a statement that later binds a value. Where
+//!   nothing determines the type (`$2 IS NULL OR id = $2`, since Postgres
+//!   types `$2` at `IS NULL`), Postgres refuses the statement, and it is run
+//!   again with its `NULL`s as `TEXT`.
 //! - **Rows** decode into the store's [`Value`]s: integers of every width and
 //!   booleans as `Int`, `NUMERIC` (what `SUM` returns) as `Int` when integral,
 //!   floats as `Real`, text as `Text`.
@@ -146,8 +148,18 @@ fn placeholders(sql: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// A bound value: `INT8`, `FLOAT8`, `TEXT`, or an untyped `NULL`.
-struct Param<'a>(&'a Value);
+/// How `NULL` parameters are typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Nulls {
+    /// Untyped: Postgres infers the type from where the parameter is used.
+    Inferred,
+    /// `TEXT`, for a statement where nothing determines the type (Postgres
+    /// reports an indeterminate type); what an untyped literal would be.
+    Text,
+}
+
+/// A bound value: `INT8`, `FLOAT8`, `TEXT`, or a `NULL`.
+struct Param<'a>(&'a Value, Nulls);
 
 /// Postgres infers the type of a parameter declared with OID 0.
 const UNTYPED: PgTypeInfo = PgTypeInfo::with_oid(Oid(0));
@@ -169,26 +181,29 @@ impl Encode<'_, Pg> for Param<'_> {
     }
 
     fn produces(&self) -> Option<PgTypeInfo> {
-        Some(match self.0 {
-            Value::Null => UNTYPED,
-            Value::Int(_) => <i64 as Type<Pg>>::type_info(),
-            Value::Real(_) => <f64 as Type<Pg>>::type_info(),
-            Value::Text(_) => <str as Type<Pg>>::type_info(),
+        Some(match self {
+            Param(Value::Null, Nulls::Inferred) => UNTYPED,
+            Param(Value::Int(_), _) => <i64 as Type<Pg>>::type_info(),
+            Param(Value::Real(_), _) => <f64 as Type<Pg>>::type_info(),
+            Param(Value::Text(_) | Value::Null, _) => <str as Type<Pg>>::type_info(),
         })
     }
 }
 
 /// Statements come from rafi's own code with every value bound as a parameter,
 /// never interpolated, which is what sqlx's audit marker asks for.
-fn prepare(stmt: &Statement) -> sqlx::query::Query<'_, Pg, PgArguments> {
+fn prepare(stmt: &Statement, nulls: Nulls) -> sqlx::query::Query<'_, Pg, PgArguments> {
     let sql = placeholders(&stmt.sql).into_owned();
-    let has_null = stmt.params.iter().any(|p| matches!(p, Value::Null));
     stmt.params
         .iter()
         .fold(sqlx::query(sqlx::AssertSqlSafe(sql)), |q, p| {
-            q.bind(Param(p))
+            q.bind(Param(p, nulls))
         })
-        .persistent(!has_null)
+        .persistent(!has_null(stmt))
+}
+
+fn has_null(stmt: &Statement) -> bool {
+    stmt.params.iter().any(|p| matches!(p, Value::Null))
 }
 
 fn to_row(row: &PgRow) -> Result<Row> {
@@ -286,21 +301,35 @@ fn numeric(b: &[u8]) -> Result<Value, BoxDynError> {
     Ok(Value::Real(if negative { -f } else { f }))
 }
 
-fn retryable(e: &sqlx::Error) -> bool {
-    matches!(e, sqlx::Error::Database(d) if matches!(d.code().as_deref(), Some("40001" | "40P01")))
+fn sqlstate(e: &sqlx::Error) -> Option<String> {
+    match e {
+        sqlx::Error::Database(d) => d.code().map(Cow::into_owned),
+        _ => None,
+    }
 }
 
 /// Runs `op` until it succeeds or fails with something other than a
-/// serialization failure or deadlock, at most [`ATTEMPTS`] times.
-async fn retrying<T, F, Fut>(mut op: F) -> Result<T>
+/// serialization failure or deadlock, at most [`ATTEMPTS`] times. If a
+/// statement binds `NULL` where nothing determines its type (`?2 IS NULL`
+/// alone), the operation is run again with `NULL`s typed as `TEXT`.
+async fn retrying<T, F, Fut>(nulls_bound: bool, mut op: F) -> Result<T>
 where
-    F: FnMut() -> Fut,
+    F: FnMut(Nulls) -> Fut,
     Fut: Future<Output = Result<T, sqlx::Error>>,
 {
     let mut attempt = 1;
+    let mut nulls = Nulls::Inferred;
     loop {
-        match op().await {
-            Err(e) if attempt < ATTEMPTS && retryable(&e) => {
+        let result = op(nulls).await;
+        let code = result.as_ref().err().and_then(sqlstate);
+        match (result, code.as_deref()) {
+            // ambiguous_parameter ("could not determine data type of parameter"),
+            // indeterminate_datatype
+            (Err(_), Some("42P08" | "42P18")) if nulls_bound && nulls == Nulls::Inferred => {
+                nulls = Nulls::Text;
+            }
+            // serialization_failure, deadlock_detected
+            (Err(_), Some("40001" | "40P01")) if attempt < ATTEMPTS => {
                 // A little jitter, so conflicting writers don't meet again.
                 let jitter = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -311,7 +340,7 @@ where
                 .await;
                 attempt += 1;
             }
-            result => return result.map_err(Error::from),
+            (result, _) => return result.map_err(Error::from),
         }
     }
 }
@@ -326,25 +355,35 @@ impl Postgres {
 
     pub(crate) async fn all(&self, stmt: Statement) -> Result<Vec<Row>> {
         let (pool, stmt) = (&self.pool, &stmt);
-        retrying(|| async move { prepare(stmt).fetch_all(pool).await })
-            .await?
-            .iter()
-            .map(to_row)
-            .collect()
+        retrying(has_null(stmt), |nulls| async move {
+            prepare(stmt, nulls).fetch_all(pool).await
+        })
+        .await?
+        .iter()
+        .map(to_row)
+        .collect()
     }
 
     pub(crate) async fn run(&self, stmt: Statement) -> Result<u64> {
         let (pool, stmt) = (&self.pool, &stmt);
-        retrying(|| async move { Ok(prepare(stmt).execute(pool).await?.rows_affected()) }).await
+        retrying(has_null(stmt), |nulls| async move {
+            Ok(prepare(stmt, nulls).execute(pool).await?.rows_affected())
+        })
+        .await
     }
 
     pub(crate) async fn batch(&self, stmts: Vec<Statement>) -> Result<Vec<u64>> {
         let (pool, stmts) = (&self.pool, &stmts);
-        retrying(|| async move {
+        retrying(stmts.iter().any(has_null), |nulls| async move {
             let mut tx = pool.begin().await?;
             let mut changes = Vec::with_capacity(stmts.len());
             for stmt in stmts {
-                changes.push(prepare(stmt).execute(&mut *tx).await?.rows_affected());
+                changes.push(
+                    prepare(stmt, nulls)
+                        .execute(&mut *tx)
+                        .await?
+                        .rows_affected(),
+                );
             }
             tx.commit().await?;
             Ok(changes)
@@ -354,11 +393,11 @@ impl Postgres {
 
     pub(crate) async fn batch_rows(&self, stmts: Vec<Statement>) -> Result<Vec<Vec<Row>>> {
         let (pool, stmts) = (&self.pool, &stmts);
-        let sets = retrying(|| async move {
+        let sets = retrying(stmts.iter().any(has_null), |nulls| async move {
             let mut tx = pool.begin().await?;
             let mut sets = Vec::with_capacity(stmts.len());
             for stmt in stmts {
-                sets.push(prepare(stmt).fetch_all(&mut *tx).await?);
+                sets.push(prepare(stmt, nulls).fetch_all(&mut *tx).await?);
             }
             tx.commit().await?;
             Ok(sets)

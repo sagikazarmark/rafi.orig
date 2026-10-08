@@ -1,7 +1,8 @@
 //! The app and the separate `restate-rafi` service, end to end: the app calls
 //! the `Raffle` object through a real `restate-server`'s ingress, the object
-//! writes every state into the app's SQLite file (through its own connection
-//! pool, as the separate process does), and the screens' view shows it.
+//! writes every state into the app's SQLite file, or Postgres schema with
+//! `RAFI_TEST_POSTGRES_URL` set (through its own connection pool, as the
+//! separate process does), and the screens' view shows it.
 //!
 //! Ignored: run with `RESTATE_SERVER_BIN` set and `-- --ignored`.
 
@@ -51,10 +52,14 @@ async fn app_and_restate_rafi_share_the_database() {
     };
     let restate = launcher.launch(&SERVER).await;
 
-    // A real database file, opened by the app and, separately, by the service.
+    // A real database file, opened by the app and, separately, by the service;
+    // with `RAFI_TEST_POSTGRES_URL` set, a fresh schema there.
     let dir = std::env::temp_dir().join(format!("rafi-e2e-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let url = format!("sqlite://{}", dir.join("rafi.db").display());
+    let url = match rafi_store::testing::postgres_url().await {
+        Some(url) => url,
+        None => format!("sqlite://{}", dir.join("rafi.db").display()),
+    };
     let mut cfg = Config::for_tests();
     cfg.database_url = url.clone();
 
