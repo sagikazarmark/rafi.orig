@@ -91,14 +91,7 @@ impl D1 {
         let result = wasm_bindgen_futures::JsFuture::from(promise)
             .await
             .map_err(js_err)?;
-        let rows = js_sys::Reflect::get(&result, &JsValue::from_str("results")).map_err(js_err)?;
-        if rows.is_undefined() || rows.is_null() {
-            return Ok(Vec::new());
-        }
-        let rows: Array = rows
-            .dyn_into()
-            .map_err(|_| Error::Decode("D1 results are not an array".into()))?;
-        rows.iter().map(to_row).collect()
+        rows_of(result)
     }
 
     pub(crate) async fn run(&self, stmt: Statement) -> Result<u64> {
@@ -114,6 +107,48 @@ impl D1 {
         let results = self.db.batch(prepared).await.map_err(err)?;
         results.iter().map(changes).collect()
     }
+}
+
+impl D1 {
+    pub(crate) async fn batch_rows(&self, stmts: Vec<Statement>) -> Result<Vec<Vec<Row>>> {
+        let prepared = stmts
+            .iter()
+            .map(|s| self.prepare(s))
+            .collect::<Result<Vec<_>>>()?;
+        let statements = Array::new();
+        for p in &prepared {
+            statements.push(p.inner());
+        }
+        // `D1Database::batch` hands back `D1Result`s, whose rows only decode
+        // through serde; call `batch` on the binding to keep column order.
+        let binding: &JsValue = (*self.db).as_ref();
+        let batch = js_sys::Reflect::get(binding, &JsValue::from_str("batch"))
+            .map_err(js_err)?
+            .dyn_into::<js_sys::Function>()
+            .map_err(|_| Error::Backend("D1 binding has no batch".into()))?;
+        let promise: js_sys::Promise = batch
+            .call1(binding, &statements)
+            .map_err(js_err)?
+            .dyn_into()
+            .map_err(|_| Error::Backend("D1 batch did not return a promise".into()))?;
+        let results: Array = wasm_bindgen_futures::JsFuture::from(promise)
+            .await
+            .map_err(js_err)?
+            .dyn_into()
+            .map_err(|_| Error::Decode("D1 batch results are not an array".into()))?;
+        results.iter().map(rows_of).collect()
+    }
+}
+
+fn rows_of(result: JsValue) -> Result<Vec<Row>> {
+    let rows = js_sys::Reflect::get(&result, &JsValue::from_str("results")).map_err(js_err)?;
+    if rows.is_undefined() || rows.is_null() {
+        return Ok(Vec::new());
+    }
+    let rows: Array = rows
+        .dyn_into()
+        .map_err(|_| Error::Decode("D1 results are not an array".into()))?;
+    rows.iter().map(to_row).collect()
 }
 
 fn changes(result: &worker::D1Result) -> Result<u64> {

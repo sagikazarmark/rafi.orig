@@ -43,6 +43,7 @@ where
             batches_are_atomic(&fresh().await).await,
         ),
         ("decodes_rows", decodes_rows(&fresh().await).await),
+        ("reads_a_snapshot", reads_a_snapshot(&fresh().await).await),
     ]
 }
 
@@ -214,4 +215,29 @@ async fn decodes_rows(db: &Db) -> Outcome {
         .await
         .map_err(fail)?;
     check(n == 1, "tuple decode")
+}
+
+async fn reads_a_snapshot(db: &Db) -> Outcome {
+    frozen(db, "r1").await?;
+    db.query("INSERT INTO items (id, raffle_id, name, qty) VALUES ('i', 'r1', 'Book', 3)")
+        .run()
+        .await
+        .map_err(fail)?;
+    let mut sets = db
+        .batch_rows(vec![
+            db.query("SELECT version, title FROM raffles WHERE id = ?")
+                .bind("r1"),
+            db.query("SELECT SUM(qty) FROM items WHERE raffle_id = ?")
+                .bind("r1"),
+            db.query("SELECT id FROM entrants WHERE raffle_id = ?")
+                .bind("r1"),
+        ])
+        .await
+        .map_err(fail)?;
+    check(sets.len() == 3, "one row set per statement")?;
+    check(sets[2].is_empty(), "an empty result")?;
+    let (qty,): (i64,) = sets[1].remove(0).decode().map_err(fail)?;
+    check(qty == 3, "an aggregate")?;
+    let (v, title): (i64, String) = sets[0].remove(0).decode().map_err(fail)?;
+    check(v > 0 && title == "t", "the raffle row")
 }

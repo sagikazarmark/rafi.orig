@@ -144,4 +144,15 @@ impl Native {
         tx.commit().await?;
         Ok(changes)
     }
+
+    pub(crate) async fn batch_rows(&self, stmts: Vec<Statement>) -> Result<Vec<Vec<Row>>> {
+        let mut tx = self.pool.begin().await?;
+        let mut out = Vec::with_capacity(stmts.len());
+        for stmt in &stmts {
+            let rows = prepare(stmt).fetch_all(&mut *tx).await?;
+            out.push(rows.iter().map(to_row).collect::<Result<_>>()?);
+        }
+        tx.commit().await?;
+        Ok(out)
+    }
 }

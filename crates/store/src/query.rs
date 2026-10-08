@@ -40,6 +40,14 @@ impl Db {
         let stmts = queries.into_iter().map(|q| q.stmt).collect();
         self.backend.batch(stmts).await
     }
+
+    /// Runs reads as one transaction and returns each statement's rows: one
+    /// consistent snapshot, which separate queries are not (a write can land
+    /// between them).
+    pub async fn batch_rows(&self, queries: Vec<Query<'_>>) -> Result<Vec<Vec<Row>>> {
+        let stmts = queries.into_iter().map(|q| q.stmt).collect();
+        self.backend.batch_rows(stmts).await
+    }
 }
 
 /// A statement and its parameters.
