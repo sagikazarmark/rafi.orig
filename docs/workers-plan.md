@@ -353,3 +353,18 @@ Cloudflare only for now. Self-hosting stays possible later:
 
 1. **Workers plan:** paid, assuming M0(e) confirms the free plan's 10 ms CPU limit is too tight.
 2. **Where the Restate Workers adapter lives long-term:** this repo, the SDK fork, or its own crate.
+
+## 11. Implementation notes
+
+Findings from building M1–M4 on the `cloudflare` branch, verified locally under `wrangler dev`:
+
+- **Dioxus fullstack server doesn't compile for wasm32 as published.** `dioxus-server` 0.7.10 and 0.8.0-alpha.1 depend on `hyper-util` (`full`) and axum's `tokio`/`http1` features, which pull in tokio `net`/mio. `serve_dioxus_application` and `register_server_functions` are `cfg(not(wasm32))`. Plain `dioxus-ssr` works on Workers: a spike page rendered under `wrangler dev`, and its wasm is 144 KB compressed. This decides how M5 serves the admin and projector.
+- **`workerd` doesn't implement Durable Object jurisdictions.** `RAFI_DO_JURISDICTION = ""` turns them off for local runs; production keeps the default, `eu`. `worker` has no jurisdiction API, so `rafi_channel::namespace` calls the JS method.
+- **D1 counts rows changed by triggers in `changes`.** The version triggers make a one-row `UPDATE` report 2, so only zero versus non-zero is portable; `Query::run` documents this.
+- **D1 allows at most 100 bound parameters per statement**, so multi-row INSERTs are chunked (32 rows of fake entrants).
+- **`D1Result::results` decodes through serde and loses column order**, so rafi-store reads the JS result objects directly, and `batch_rows` calls the binding's `batch`.
+- **A raffle's channel object stays destroyed in memory until it is evicted.** Raffle IDs are unique, so this only matters for harnesses, which use a fresh raffle per run.
+- **Locally, a server-side WebSocket close reaches Node clients only after about 10 s** (the dev proxy's close timeout). The code (4403) arrives intact. Phones also close on the final view.
+- **The Restate Worker is 914 KB of wasm compressed.**
+- **A failing nudge works as designed.** With the cross-Worker DO binding disconnected, draws still completed, `notify` gave up after three attempts, and the channel's 15 s re-read delivered the winner.
+- **Local dev:** two `wrangler dev` sessions find each other through `~/.wrangler/registry`. Stopping a second session with the same Worker name unregisters it. Restate's ingress may need `http://[::1]:8080` if another process holds `127.0.0.1:8080`.
