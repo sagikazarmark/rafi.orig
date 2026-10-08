@@ -11,7 +11,7 @@ publish = false
 rafi-core.workspace = true
 rafi-drand = { path = "../drand", optional = true }
 rafi-store = { workspace = true, optional = true }
-dioxus = { version = "=0.7.10", features = ["router", "fullstack"] }
+dioxus = { version = "=0.7.10", features = ["router"] }
 dioxus-clerk = "0.6"
 serde.workspace = true
 serde_json.workspace = true
@@ -28,6 +28,7 @@ tokio = { version = "1", features = ["full"], optional = true }
 tokio-stream = { version = "0.1", features = ["sync", "time"], optional = true }
 futures = { version = "0.3", optional = true }
 axum = { version = "0.8", optional = true }
+tower-http = { version = "0.6", features = ["fs"], optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"], optional = true }
 hmac = { version = "0.12", optional = true }
 base64 = { version = "0.22", optional = true }
@@ -40,6 +41,7 @@ web-sys = { version = "0.3", features = ["EventSource", "MessageEvent", "Window"
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
 gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+gloo-net = { version = "0.6", default-features = false, features = ["http", "json"], optional = true }
 dioxus-field = { version = "0.7.0", default-features = false }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components", rev = "bf007c15d0cf4d04d3181cc46cf12325aa773955", version = "0.0.1", default-features = false, features = ["router"] }
 
@@ -56,14 +58,23 @@ http-body-util = "0.1"
 default = []
 ## Allow `RAFI_DRAND_MOCK=1`: draws from a public test chain (offline development).
 mock-drand = ["rafi-drand?/mock"]
-web = ["dioxus/web", "dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:gloo-timers"]
+web = [
+    "dioxus/web",
+    "dep:web-sys",
+    "dep:wasm-bindgen",
+    "dep:js-sys",
+    "dep:gloo-timers",
+    "dep:gloo-net",
+]
+# The native server: attendee pages (`dioxus::ssr`), the admin's JSON routes, the web app's files.
 server = [
-    "dioxus/server",
+    "dioxus/ssr",
     "dioxus-clerk/server",
     "dep:tokio",
     "dep:tokio-stream",
     "dep:futures",
     "dep:axum",
+    "dep:tower-http",
     "dep:reqwest",
     "dep:rafi-drand",
     "dep:rafi-store",

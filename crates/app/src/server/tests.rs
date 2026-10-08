@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use dioxus::server::axum::{
+use axum::{
     Router,
     body::Body,
     http::{Request, StatusCode, header},
@@ -632,49 +632,121 @@ async fn offline_draw_and_engine_switch() {
         .unwrap();
 }
 
+/// POSTs `args` (JSON) to the admin function `name`.
+fn admin_call(name: &str, args: &str) -> Request<Body> {
+    Request::post(format!("/api/admin/{name}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(args.to_owned()))
+        .unwrap()
+}
+
 #[tokio::test]
 async fn admin_requires_clerk_session() {
     use dioxus_clerk::testing::TestClerk;
     let app = app().await;
     let clerk = TestClerk::new().unwrap();
-    // The Dioxus router serves the client bundle from `public/` next to the binary.
-    let public = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("public");
+    // A stand-in for the web bundle.
+    let public = std::env::temp_dir().join(format!("rafi-public-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&public).unwrap();
     std::fs::write(
         public.join("index.html"),
         "<!doctype html><html><head></head><body><div id=\"main\"></div></body></html>",
     )
     .unwrap();
-    let router = super::build_router(app.clone(), Some(clerk.layer().unwrap()));
+    let router = super::build_router(app.clone(), Some(clerk.layer().unwrap()), &public);
 
-    let (status, _, _) = send(
-        &router,
-        Request::post("/api/admin/whoami")
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from("{}"))
-            .unwrap(),
-    )
-    .await;
-    assert!(
-        !status.is_success(),
-        "anonymous request must fail, got {status}"
+    let (status, _, body) = send(&router, admin_call("whoami", "{}")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert!(body.contains("Please sign in."), "{body}");
+
+    let mut req = admin_call("whoami", "{}");
+    req.headers_mut().insert(
+        header::COOKIE,
+        clerk.cookie("user_2abc").unwrap().parse().unwrap(),
     );
+    let (status, _, body) = send(&router, req).await;
+    assert!(status.is_success(), "{status}: {body}");
+    let me: crate::model::Me = serde_json::from_str(&body).unwrap();
+    assert_eq!(me.owner_id, "user_2abc");
+    assert!(!me.dev_auth);
+
+    // The web app, with a single-page fallback for its own routes.
+    for path in ["/", "/admin", "/admin/r/abc", "/s/some-slug"] {
+        let (status, _, body) =
+            send(&router, Request::get(path).body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert!(body.contains("<div id=\"main\">"), "{path}: {body}");
+    }
+    std::fs::remove_dir_all(&public).ok();
+}
+
+#[tokio::test]
+async fn admin_api_needs_a_session_unless_dev_auth() {
+    // No session and no dev auth: every admin function is refused.
+    let router = routes(app().await);
+    for name in [
+        "whoami",
+        "list_raffles",
+        "create_raffle",
+        "no_such_function",
+    ] {
+        let (status, _, body) = send(&router, admin_call(name, r#"{"title":"x"}"#)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{name}: {body}");
+        let err: crate::api::ApiError = serde_json::from_str(&body).unwrap();
+        assert_eq!(err.message, "Please sign in.");
+    }
+
+    // Dev auth: the organizer is `dev`.
+    let mut cfg = Config::for_tests();
+    cfg.dev_auth = true;
+    let app = AppState::new(cfg).await.unwrap();
+    let router = routes(app.clone());
+
+    let (status, _, body) = send(&router, admin_call("whoami", "")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let me: crate::model::Me = serde_json::from_str(&body).unwrap();
+    assert_eq!((me.owner_id.as_str(), me.dev_auth), ("dev", true));
 
     let (status, _, body) = send(
         &router,
-        Request::post("/api/admin/whoami")
-            .header(header::CONTENT_TYPE, "application/json")
-            .header(header::COOKIE, clerk.cookie("user_2abc").unwrap())
-            .body(Body::from("{}"))
-            .unwrap(),
+        admin_call("create_raffle", r#"{"title":"Meetup #1"}"#),
     )
     .await;
-    assert!(status.is_success(), "{status}: {body}");
-    assert!(body.contains("user_2abc"), "{body}");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let id: String = serde_json::from_str(&body).unwrap();
+
+    let (status, _, body) = send(&router, admin_call("list_raffles", "{}")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let list: Vec<crate::model::RaffleSummary> = serde_json::from_str(&body).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].title, "Meetup #1");
+
+    // Unit results are JSON `null`.
+    let (status, _, body) = send(
+        &router,
+        admin_call(
+            "lifecycle",
+            &format!(r#"{{"id":"{id}","action":"publish"}}"#),
+        ),
+    )
+    .await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "null"));
+    assert_eq!(
+        db::raffle(&app.db, &id).await.unwrap().unwrap().state(),
+        RaffleState::Ready
+    );
+
+    // Errors carry the service's message and a matching status.
+    let (status, _, body) = send(&router, admin_call("create_raffle", r#"{"title":" "}"#)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let err: crate::api::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.message, "The title must be 1–120 characters.");
+    let (status, _, body) = send(&router, admin_call("get_raffle", r#"{"id":"nope"}"#)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let (status, _, body) = send(&router, admin_call("get_raffle", "{}")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let (status, _, _) = send(&router, admin_call("no_such_function", "{}")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

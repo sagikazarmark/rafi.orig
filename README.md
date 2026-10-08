@@ -47,7 +47,7 @@ crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or th
 crates/store                  rafi-store: SQLite schema, connection options, the shared draw state write
 crates/restate-rafi           restate-rafi: the `Raffle` virtual object (library)
 crates/restate-rafi-endpoint  restate-rafi: the binary serving it (config, logging, Dockerfile)
-crates/app                    rafi: Dioxus 0.7 fullstack app (admin, projector, verify) + axum server
+crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (attendee pages, JSON APIs)
                               src/server: SQLite (sqlx), SSE hub, draw engines (Restate client + local),
                                           attendee SSR pages, proof-of-work, retention
 migrations                    SQLite schema
@@ -67,23 +67,42 @@ cargo install dioxus-cli@0.7.10 --locked
 
 The UI uses **Tailwind CSS v4 + daisyUI 5** (vendored as single-file plugins in `crates/app/vendor/`, no npm),
 with custom light (`rafi`) and dark (`rafi-dark`) themes defined in [`crates/app/tailwind.css`](crates/app/tailwind.css).
-`dx` compiles it automatically; before a plain `cargo build`/`cargo test` on a fresh checkout run `./scripts/tailwind.sh`.
+`dx` compiles it automatically; before a plain `cargo build`/`clippy` of the web app on a fresh checkout run `./scripts/tailwind.sh`.
 Organizer forms use [dioform](https://crates.io/crates/dioform) (typed fields, validation, managed async submit)
 rendered with components from the [dioxus-daisyui-components](https://github.com/sagikazarmark/dioxus-daisyui-components)
 registry (fields, select, switch, buttons, alert dialogs, dropdown menu, tabs, toasts), installed into
 `crates/app/src/components/` with `dx components add <name> --path <registry checkout>`. Treat that directory as
 vendored: update it by re-installing (`--force`), not by editing.
 
-Run locally without Clerk or Restate (in-process draw engine, real drand):
+The app is two builds of one crate (`crates/app`, package `rafi`): the **web app** (admin, projector and
+verification page; a Dioxus single-page app built by `dx`, `--features web`) and the **server** (attendee pages,
+the public and admin JSON APIs, and the web app's files; plain `cargo`, `--features server`). The web app calls
+the server's JSON routes (`POST /api/admin/<function>`) on the same origin.
+
+Run locally without Clerk or Restate (in-process draw engine, real drand), in two terminals:
 
 ```sh
-cd crates/app
-RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 dx serve --port 8787
+# the server; dx proxies /api/, /j/, /rules/ and /privacy/ to it (crates/app/Dioxus.toml)
+RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi --features server
+
+# the web app, with hot reload
+cd crates/app && dx serve --port 8787
 ```
 
-Then open <http://localhost:8787/admin>. To work offline, add `RAFI_DRAND_MOCK=1` and `--features mock-drand`:
-draws then use a test chain with a public key (the `drand` crate's `TestChain`) and are *not* verifiable.
+Then open <http://localhost:8787/admin>. To work offline, add `RAFI_DRAND_MOCK=1` and `--features mock-drand`
+to the server: draws then use a test chain with a public key (the `drand` crate's `TestChain`) and are *not* verifiable.
 To test with phones on your network, set `RAFI_PUBLIC_URL` to your machine's LAN address and run `dx serve --addr 0.0.0.0`.
+
+The server alone serves everything once the web app is bundled (this is what the container image runs):
+
+```sh
+(cd crates/app && dx bundle --platform web --release)   # -> target/dx/rafi/release/web/public
+RAFI_DEV_AUTH=1 cargo run --release -p rafi --features server   # http://localhost:8080
+```
+
+It listens on `IP`:`PORT` (default `127.0.0.1:8080`) and serves the web app from `RAFI_PUBLIC_DIR`
+(default `target/dx/rafi/release/web/public`, relative to the working directory), falling back to its
+`index.html` for the app's own routes.
 
 With Restate: Restate runs in Docker ([`compose.yaml`](compose.yaml)), the app and `restate-rafi` on your
 machine, both on the same database file:
@@ -94,9 +113,10 @@ export RAFI_DATABASE_URL="sqlite://$PWD/rafi.db"
 docker compose up -d       # Restate: ingress on :8080, admin API and UI on :9070
                            # (RESTATE_INGRESS_PORT / RESTATE_ADMIN_PORT to move them)
 
-# the app (it creates the database); new raffles are drawn by Restate
-(cd crates/app && RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 \
-  RESTATE_INGRESS_URL=http://localhost:8080 dx serve --port 8787)
+# the server (it creates the database) and the web app; new raffles are drawn by Restate
+RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http://localhost:8080 \
+  PORT=8788 cargo run -p rafi --features server
+(cd crates/app && dx serve --port 8787)
 
 # the draw engine, in another terminal (offline: add --features mock-drand and RESTATE_RAFI_DRAND__MOCK=true,
 # matching the app's RAFI_DRAND_MOCK; the engine refuses raffles committed to another chain)
@@ -107,12 +127,12 @@ curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
   -d '{"uri": "http://host.docker.internal:9080", "force": true}'
 ```
 
-With Clerk, export `CLERK_PUBLISHABLE_KEY` (at build time) and `CLERK_SECRET_KEY`, and leave `RAFI_DEV_AUTH` unset.
+With Clerk, export `CLERK_PUBLISHABLE_KEY` (when building the web app) and `CLERK_SECRET_KEY` (for the server),
+and leave `RAFI_DEV_AUTH` unset.
 
 ### Tests
 
 ```sh
-./scripts/tailwind.sh                                # once, so the stylesheet asset exists
 export RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)   # a pinned restate-server for the end-to-end tests
 cargo test --workspace --exclude rafi -- --include-ignored  # core, drand(-beacon, incl. live relays), store, the Raffle object end to end
 cargo test -p rafi --features server -- --include-ignored   # app, and app + restate-rafi + restate-server
@@ -127,6 +147,8 @@ The app:
 
 | Variable | Default | |
 |---|---|---|
+| `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address (the image sets `0.0.0.0`) |
+| `RAFI_PUBLIC_DIR` | `target/dx/rafi/release/web/public` | The bundled web app (the image sets `/usr/local/app/public`) |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL (QR codes, links) |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | SQLite database (shared with `restate-rafi`) |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |

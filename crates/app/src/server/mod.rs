@@ -1,5 +1,6 @@
-//! Server side: database, live hub, draw engines, attendee pages, public API.
+//! Server side: database, live hub, draw engines, attendee pages, public and admin APIs.
 
+pub mod admin;
 pub mod altcha;
 pub mod attendee;
 pub mod auth;
@@ -16,10 +17,10 @@ pub mod service;
 pub mod view;
 pub mod watch;
 
-use std::{ops::Deref, sync::Arc};
+use std::{ops::Deref, path::Path, sync::Arc};
 
 use anyhow::Context as _;
-use dioxus::server::axum::{Extension, Router};
+use axum::{Extension, Router};
 use rafi_core::state::DrawState;
 use rafi_drand::DrandClient;
 
@@ -129,11 +130,12 @@ impl AppState {
     }
 }
 
-/// Routes served by plain axum handlers (attendee pages, SSE, public JSON).
+/// The server's own routes: attendee pages, SSE, public JSON and the admin API.
 pub fn routes(app: AppState) -> Router {
     Router::new()
         .merge(attendee::routes())
         .merge(public::routes())
+        .merge(admin::routes())
         .layer(Extension(app))
 }
 
@@ -161,22 +163,18 @@ pub fn spawn_background(app: &AppState) {
     });
 }
 
-/// Returns the app state for the current server function call.
-pub fn current() -> Result<AppState, dioxus::prelude::ServerFnError> {
-    dioxus::fullstack::FullstackContext::current()
-        .and_then(|ctx| ctx.extension::<AppState>())
-        .ok_or_else(|| dioxus::prelude::ServerFnError::new("app state is not available"))
-}
+/// The complete HTTP router: [`routes`], then the web app (admin, projector,
+/// verification page) from `public_dir` with a single-page fallback to its
+/// `index.html`, all behind the Clerk auth layer unless dev auth is on.
+pub fn build_router(
+    app: AppState,
+    auth: Option<dioxus_clerk::server::ClerkAuthLayer>,
+    public_dir: &Path,
+) -> Router {
+    use tower_http::services::{ServeDir, ServeFile};
 
-/// The complete HTTP router: Dioxus app and server functions, attendee pages,
-/// public API, and (unless dev auth is on) the Clerk auth layer.
-pub fn build_router(app: AppState, auth: Option<dioxus_clerk::server::ClerkAuthLayer>) -> Router {
-    use dioxus::server::{DioxusRouterExt, ServeConfig};
-
-    let router = Router::new()
-        .serve_dioxus_application(ServeConfig::new(), crate::ui::App)
-        .merge(routes(app.clone()))
-        .layer(Extension(app));
+    let web_app = ServeDir::new(public_dir).fallback(ServeFile::new(public_dir.join("index.html")));
+    let router = routes(app).fallback_service(web_app);
     match auth {
         Some(layer) => router.layer(layer),
         None => router,

@@ -2,14 +2,14 @@
 
 use std::time::Duration;
 
-use dioxus::prelude::*;
-use dioxus::server::axum::{
+use axum::{
     Extension, Form, Json, Router,
     extract::{Path, Query},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
+use dioxus::prelude::*;
 use rafi_core::raffle::RaffleState;
 use serde::Deserialize;
 
@@ -112,7 +112,7 @@ const THEME_INIT: &str = r#"try{var t=localStorage.getItem("rafi-theme");if(t)do
 
 fn document(lang: Lang, title: &str, body: String, script: Option<String>) -> String {
     let title = escape(title);
-    let css = escape(&crate::ui::stylesheet_url());
+    let css = escape(crate::style::STYLESHEET_URL);
     let script = script
         .map(|s| format!("<script>{s}</script>"))
         .unwrap_or_default();

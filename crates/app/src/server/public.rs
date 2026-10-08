@@ -2,7 +2,7 @@
 
 use std::{convert::Infallible, time::Duration};
 
-use dioxus::server::axum::{
+use axum::{
     Extension, Json, Router,
     extract::Path,
     http::{StatusCode, header},

@@ -6,7 +6,7 @@ use dioform::prelude::*;
 use dioxus::prelude::*;
 
 use crate::{
-    api,
+    api::{self, ApiError},
     components::{
         button::{Button, ButtonColor, ButtonSize},
         field::{Field, FieldDescription, FieldError, FieldLabel},
@@ -20,11 +20,8 @@ use crate::{
     model::{ItemInput, RaffleSettings},
 };
 
-pub fn err_text(e: ServerFnError) -> String {
-    match e {
-        ServerFnError::ServerError { message, .. } => message,
-        other => other.to_string(),
-    }
+pub fn err_text(e: ApiError) -> String {
+    e.message
 }
 
 /// Form-level errors (e.g. the server rejected the submission).

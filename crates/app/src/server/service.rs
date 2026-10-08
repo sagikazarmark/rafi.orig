@@ -1,4 +1,4 @@
-//! Raffle operations shared by server functions and attendee routes.
+//! Raffle operations shared by the admin API and the attendee routes.
 
 use std::collections::HashSet;
 
@@ -32,8 +32,6 @@ const FAKES_PER_INSERT: u32 = 32;
 pub enum AppError {
     #[error("not found")]
     NotFound,
-    #[error("forbidden")]
-    Forbidden,
     #[error("{0}")]
     BadRequest(String),
     #[error("{0}")]
@@ -51,16 +49,6 @@ impl From<rafi_store::Error> for AppError {
 impl From<rafi_core::state::DrawError> for AppError {
     fn from(e: rafi_core::state::DrawError) -> Self {
         Self::Conflict(e.to_string())
-    }
-}
-
-impl From<AppError> for dioxus::prelude::ServerFnError {
-    fn from(e: AppError) -> Self {
-        if let AppError::Internal(e) = &e {
-            tracing::error!(error = %e, "internal error");
-            return dioxus::prelude::ServerFnError::new("internal error");
-        }
-        dioxus::prelude::ServerFnError::new(e.to_string())
     }
 }
 
