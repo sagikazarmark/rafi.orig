@@ -4119,6 +4119,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "partyline"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b29b4a797c35754176aa5a49e6bfe3039548f7d8fda64b7ea424b157fdcbc5b"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "pastey"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4593,6 +4604,21 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "rafi-live"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "dioxus",
+ "dioxus-ssr",
+ "hex",
+ "hmac 0.12.1",
+ "partyline",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
