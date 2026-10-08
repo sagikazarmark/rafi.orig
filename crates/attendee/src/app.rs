@@ -141,7 +141,29 @@ fn App() -> Element {
 
     let current = view();
 
-    let live = current.state.is_live();
+    // Without a live channel, poll: faster while a draw is pending.
+    let channel = cfg.channel;
+    use_future({
+        let refetch = refetch.clone();
+        move || {
+            let refetch = refetch.clone();
+            async move {
+                if channel {
+                    return;
+                }
+                loop {
+                    let pending = view.peek().current.is_some();
+                    gloo_timers::future::TimeoutFuture::new(if pending { 1_500 } else { 3_000 })
+                        .await;
+                    if view.peek().state.is_live() {
+                        let _ = refetch.unbounded_send(());
+                    }
+                }
+            }
+        }
+    });
+
+    let live = current.state.is_live() && channel;
     let me_for_live = me.clone();
     rsx! {
         Card {

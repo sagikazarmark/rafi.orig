@@ -21,6 +21,11 @@ pub struct PageConfig {
     pub participant_url: String,
     /// The server's clock at render time, Unix milliseconds.
     pub server_now_ms: u64,
+    /// Whether the raffle has a live channel (`/partyline/raffle/{id}`). A
+    /// server without one (self-hosted) sets `false`; the card then polls
+    /// `participant_url`.
+    #[serde(default = "yes")]
+    pub channel: bool,
     /// The join form is on the page and needs a proof-of-work.
     #[serde(default)]
     pub needs_altcha: bool,
@@ -30,6 +35,10 @@ pub struct PageConfig {
     pub screen_on: String,
     #[serde(default)]
     pub keep_screen_on: String,
+}
+
+fn yes() -> bool {
+    true
 }
 
 fn altcha_url() -> String {
