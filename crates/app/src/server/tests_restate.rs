@@ -1,8 +1,7 @@
 //! The app and the separate `restate-rafi` service, end to end: the app calls
 //! the `Raffle` object through a real `restate-server`'s ingress, the object
 //! writes every state into the app's SQLite file (through its own connection
-//! pool, as the separate process does), and the app's watcher pushes it to the
-//! screens.
+//! pool, as the separate process does), and the screens' view shows it.
 //!
 //! Ignored: run with `RESTATE_SERVER_BIN` set and `-- --ignored`.
 
@@ -18,10 +17,10 @@ use restate_sdk::endpoint::Endpoint;
 
 use super::{
     AppState,
-    config::{Config, EngineKind, RestateConfig},
+    config::{Config, RestateConfig},
     db,
     engine::{Command, RestateClient},
-    service, watch,
+    service, view,
 };
 use crate::model::{ItemInput, Lifecycle};
 
@@ -57,8 +56,6 @@ async fn app_and_restate_rafi_share_the_database() {
     let url = format!("sqlite://{}", dir.join("rafi.db").display());
     let mut cfg = Config::for_tests();
     cfg.database_url = url.clone();
-    cfg.engine = EngineKind::Restate;
-    let app = AppState::new(cfg).await.unwrap();
 
     let drand = DrandClient::new(DrandConfig {
         mock: true,
@@ -84,8 +81,11 @@ async fn app_and_restate_rafi_share_the_database() {
         api_key: String::new(),
     });
     assert!(client.healthy().await, "Restate ingress health endpoint");
-    app.restate.set(client).ok().expect("client set once");
-    let mut watcher = watch::Watcher::default();
+    cfg.restate = RestateConfig {
+        ingress_url: restate.ingress_url().trim_end_matches('/').to_owned(),
+        api_key: String::new(),
+    };
+    let app = AppState::new(cfg).await.unwrap();
 
     let id = service::create(&app, OWNER, "Shared database")
         .await
@@ -124,7 +124,6 @@ async fn app_and_restate_rafi_share_the_database() {
         .expect("freeze via restate-rafi");
     let r = wait_for(&app, &id, |r| r.draw_state.is_some()).await;
     let unit = r.draw_state().unwrap().units[0].unit_id.clone();
-    watcher.poll(&app).await.unwrap();
 
     service::command(
         &app,
@@ -144,17 +143,16 @@ async fn app_and_restate_rafi_share_the_database() {
     })
     .await;
 
-    // The watcher notices the service's write and pushes it to the screens.
-    assert_eq!(watcher.poll(&app).await.unwrap(), std::slice::from_ref(&id));
+    // The screens' view shows the service's write, versioned by the database.
+    let view = view::build(&app, &id).await.unwrap().expect("a view");
     assert!(
-        watcher.poll(&app).await.unwrap().is_empty(),
-        "nothing new since"
-    );
-    let view = app.hub.current(&id).expect("a view was published");
-    assert!(
-        serde_json::to_string(&*view).unwrap().contains("Person"),
+        view.draws
+            .iter()
+            .any(|d| d.display_name.starts_with("Person")),
         "the winner's name is on the screens"
     );
+    let r = db::raffle(&app.db, &id).await.unwrap().unwrap();
+    assert_eq!(view.v, r.version as u64);
 
     service::command(
         &app,
@@ -172,7 +170,6 @@ async fn app_and_restate_rafi_share_the_database() {
         .await
         .unwrap();
     wait_for(&app, &id, |r| r.state == "finished").await;
-    watcher.poll(&app).await.unwrap();
     let r = db::raffle(&app.db, &id).await.unwrap().unwrap();
     assert!(
         r.purge_nonwinners_at.is_some(),
@@ -180,7 +177,7 @@ async fn app_and_restate_rafi_share_the_database() {
     );
 
     // The object forgot everything; the app keeps the verifiable record.
-    assert_eq!(app.restate.get().unwrap().get(&id).await.unwrap(), None);
+    assert_eq!(app.restate.as_ref().unwrap().get(&id).await.unwrap(), None);
     let data = service::verify_data(&app, &r.slug).await.unwrap();
     let report = rafi_core::verify::verify(
         &data.commit_doc,

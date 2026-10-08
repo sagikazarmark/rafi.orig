@@ -139,7 +139,7 @@ admin_api! {
     fn finish_raffle(id: String, command_id: String) -> () =
         |app, owner| service::command(app, owner, &id, Command::Finish, &command_id);
 
-    fn switch_to_local(id: String) -> () = |app, owner| service::switch_to_local(app, owner, &id);
+    fn end_live_updates(id: String) -> () = |app, owner| service::end_live(app, owner, &id);
 
     fn add_entrant(id: String, name: String, email: Option<String>) -> String =
         |app, owner| service::add_manual(app, owner, &id, &name, email);
@@ -162,6 +162,14 @@ admin_api! {
 pub async fn get_verify(slug: String) -> Result<VerifyData, ApiError> {
     let slug = String::from(js_sys::encode_uri_component(&slug));
     client::get(&format!("/api/r/{slug}/verify.json")).await
+}
+
+/// Public: a raffle's full view (`/api/r/<slug>/view`), which the projector and
+/// the admin poll.
+#[cfg(feature = "web")]
+pub async fn get_view(slug: String) -> Result<crate::model::RaffleView, ApiError> {
+    let slug = String::from(js_sys::encode_uri_component(&slug));
+    client::get(&format!("/api/r/{slug}/view")).await
 }
 
 #[cfg(feature = "server")]

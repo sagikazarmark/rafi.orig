@@ -1,6 +1,12 @@
-//! The attendee phone page: server-rendered HTML and a small script, no WASM.
-
-use std::time::Duration;
+//! The attendee phone page.
+//!
+//! The server renders the whole page, including the live card
+//! ([`rafi_live::Card`], the same component the phone's WebAssembly mounts),
+//! and embeds the page's state as JSON in `#rafi-config` (see
+//! `crates/attendee/src/config.rs`, `PageConfig`). An inline loader then
+//! starts the WebAssembly from `/attendee/` (`./scripts/attendee.sh`), or the
+//! JavaScript fallback when it can't run. They keep the card current, solve
+//! the join form's proof-of-work and enable its button.
 
 use axum::{
     Extension, Form, Json, Router,
@@ -10,17 +16,18 @@ use axum::{
     routing::get,
 };
 use dioxus::prelude::*;
-use rafi_core::raffle::RaffleState;
-use serde::Deserialize;
+use rafi_live::{Card, CardStrings, ParticipantView, Phase};
+use serde::{Deserialize, Serialize};
 
 use super::{
-    AppState,
+    AppState, altcha,
     db::{self, EntrantRow, RaffleRow},
-    ids, service,
+    ids,
+    ratelimit::Limit,
+    service,
 };
 use crate::{i18n::Lang, icons::I};
 
-const JS: &str = include_str!("../../assets/attendee.js");
 const COOKIE_MAX_AGE: i64 = 3 * 86_400;
 
 pub fn routes() -> Router {
@@ -107,22 +114,30 @@ async fn current_entrant(
         .flatten()
 }
 
-/// Applies the saved colour scheme before first paint (shared with the Dioxus app).
-const THEME_INIT: &str = r#"try{var t=localStorage.getItem("rafi-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}"#;
+/// Runs before first paint: records when the page started parsing (the
+/// phone's clock offset is measured from it) and applies the saved colour
+/// scheme (shared with the Dioxus app).
+const HEAD_SCRIPT: &str = r#"window.__rafiT0=Date.now();try{var t=localStorage.getItem("rafi-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}"#;
 
-fn document(lang: Lang, title: &str, body: String, script: Option<String>) -> String {
+/// Starts the attendee WebAssembly, or the JavaScript fallback when there is
+/// no WebAssembly, the module fails to load, or it isn't ready within 8 s
+/// (the module's panic hook also calls `rafiFallback`).
+const LOADER: &str = r#"window.rafiFallback=function(){if(window.__rafiFallback)return;window.__rafiFallback=1;var s=document.createElement("script");s.src="/attendee/fallback.js";document.body.appendChild(s)};
+setTimeout(function(){if(!window.__rafiReady)window.rafiFallback()},8000);
+if(typeof WebAssembly!=="object"){window.rafiFallback()}else{import("/attendee/rafi_attendee.js").then(function(m){return m.default()}).catch(function(e){console.error(e);window.rafiFallback()})}"#;
+
+/// A page: `tail` is raw HTML appended to the body (scripts).
+fn document(lang: Lang, title: &str, body: String, tail: Option<String>) -> String {
     let title = escape(title);
     let css = escape(crate::style::STYLESHEET_URL);
-    let script = script
-        .map(|s| format!("<script>{s}</script>"))
-        .unwrap_or_default();
+    let tail = tail.unwrap_or_default();
     format!(
         "<!doctype html><html lang=\"{}\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\
          <meta name=\"robots\" content=\"noindex\"><meta name=\"color-scheme\" content=\"light dark\">\
-         <script>{THEME_INIT}</script>\
+         <script>{HEAD_SCRIPT}</script>\
          <link rel=\"stylesheet\" href=\"{css}\">\
-         <title>{title}</title></head><body class=\"min-h-dvh bg-base-200 bg-dots\">{body}{script}</body></html>",
+         <title>{title}</title></head><body class=\"min-h-dvh bg-base-200 bg-dots\">{body}{tail}</body></html>",
         lang.code()
     )
 }
@@ -161,8 +176,9 @@ fn escape(s: &str) -> String {
 }
 
 /// JSON for embedding inside a `<script>` element.
-fn script_json(v: &serde_json::Value) -> String {
-    v.to_string()
+fn script_json(v: &impl Serialize) -> String {
+    serde_json::to_string(v)
+        .unwrap_or_else(|_| "null".into())
         .replace("</", "<\\/")
         .replace("<!--", "<\\!--")
 }
@@ -176,52 +192,47 @@ enum Notice {
 
 struct PageCtx<'a> {
     raffle: &'a RaffleRow,
+    /// What phones see, read in one snapshot.
+    snapshot: &'a rafi_channel::Snapshot,
     lang: Lang,
     entrant: Option<&'a EntrantRow>,
     notice: Notice,
     form: JoinForm,
 }
 
-fn strings(lang: Lang) -> serde_json::Value {
-    let keys = [
-        "waiting",
-        "draw_starting",
-        "drawing",
-        "still_in",
-        "you_won",
-        "go_to_organizer",
-        "not_this_time",
-        "prizes_left",
-        "thanks",
-        "thanks_won",
-        "keep_screen_on",
-        "screen_on",
-        "claim_code",
-        "reg_closed",
-        "locking",
-        "drand_round",
-        "winners",
-        "connecting",
-        "not_here",
-        "declined",
-    ];
-    serde_json::Value::Object(
-        keys.iter()
-            .map(|k| (k.to_string(), serde_json::Value::from(lang.t(k))))
-            .collect(),
-    )
+/// What the page embeds in `#rafi-config`, for the attendee WebAssembly and
+/// its fallback (`crates/attendee/src/config.rs`, `PageConfig`).
+#[derive(Serialize)]
+struct PageConfig<'a> {
+    raffle_id: &'a str,
+    entrant_id: Option<&'a str>,
+    claim_code: Option<&'a str>,
+    page_state: Phase,
+    view: &'a ParticipantView,
+    strings: &'a CardStrings,
+    participant_url: String,
+    server_now_ms: u64,
+    channel: bool,
+    needs_altcha: bool,
+    altcha_url: &'static str,
+    screen_on: &'static str,
+    keep_screen_on: &'static str,
 }
 
 fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
     let PageCtx {
         raffle,
+        snapshot,
         lang,
         entrant,
         notice,
         form,
     } = ctx;
     let t = |k: &str| lang.t(k);
-    let state = raffle.state();
+    let phase = snapshot.state;
+    let view = snapshot.view();
+    let strings = CardStrings::from_lookup(|k| lang.t(k).to_owned());
+    let now_ms = crate::model::now_unix_ms();
     let code = raffle.join_code.clone();
     let other = lang.other();
     let switch_href = format!("/j/{code}?lang={}", other.code());
@@ -230,6 +241,23 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
     let error = match notice {
         Notice::Error(k) => Some(t(k)),
         _ => None,
+    };
+    let me = entrant.map(|e| e.id.clone());
+    let claim_code = entrant.map(|e| e.claim_code.clone());
+    let joining = entrant.is_none() && phase == Phase::Open && notice != Notice::AlreadyIn;
+
+    // The live card's mount point: the page owns it, the card renders inside.
+    let live = rsx! {
+        section { id: "live", class: "empty:hidden", aria_live: "polite",
+            Card {
+                view: view.clone(),
+                me: me.clone(),
+                claim_code: claim_code.clone(),
+                page_state: phase,
+                now_ms,
+                strings: strings.clone(),
+            }
+        }
     };
 
     let card = "card bg-base-100 shadow-sm ring-1 ring-base-300";
@@ -247,15 +275,15 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
                     small { class: "text-sm opacity-80", "{t(\"claim_code_hint\")}" }
                 }
             }
-            section { id: "live", class: "{card} min-h-28 items-center justify-center p-6 text-center", aria_live: "polite",
-                p { class: "text-lg font-semibold", "{t(\"waiting\")}" }
-            }
+            {live}
             button { id: "wake", class: "btn btn-outline btn-block rounded-full", r#type: "button", "{t(\"keep_screen_on\")}" }
             p { class: "text-center text-sm text-base-content/60", "{t(\"keep_open\")}" }
         },
-        None if state == RaffleState::Open && notice != Notice::AlreadyIn => {
+        // The join form: no live card here.
+        None if joining => {
             let name = form.name.clone();
             let email = form.email.clone();
+            let join_label = format!("{} 🎟️", t("join"));
             rsx! {
                 form { class: "{card}", method: "post", action: "/j/{code}?lang={lang.code()}", id: "join",
                     div { class: "card-body gap-1",
@@ -287,15 +315,21 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
                             span { class: "text-sm text-base-content/80", "{t(\"marketing\")}" }
                         }
                         input { r#type: "hidden", name: "altcha", id: "altcha" }
-                        button { class: "btn btn-primary btn-lg btn-block mt-4 rounded-full", r#type: "submit", id: "submit", "{t(\"join\")} 🎟️" }
+                        // Enabled by the WebAssembly (or the fallback) once the
+                        // proof-of-work is solved; it then shows `data-label`.
+                        button { class: "btn btn-primary btn-lg btn-block mt-4 rounded-full", r#type: "submit", id: "submit", disabled: true, "data-label": "{join_label}",
+                            span { class: "loading loading-spinner loading-md" }
+                            "{t(\"solving\")}"
+                        }
                     }
                 }
             }
         }
         None => {
-            let (emoji, msg) = match (notice.clone(), state) {
+            let (emoji, msg) = match (notice.clone(), phase) {
                 (Notice::AlreadyIn, _) => ("👋", t("already_in")),
-                (_, RaffleState::Ready) => ("⏳", t("reg_not_open")),
+                (Notice::Error(k), _) => ("⚠️", t(k)),
+                (_, Phase::Ready) => ("⏳", t("reg_not_open")),
                 _ => ("🔒", t("reg_closed")),
             };
             rsx! {
@@ -303,7 +337,7 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
                     span { class: "text-4xl", "{emoji}" }
                     p { class: "text-lg font-semibold", role: "status", "{msg}" }
                 }
-                section { id: "live", class: "{card} min-h-28 items-center justify-center p-6 text-center empty:hidden", aria_live: "polite" }
+                {live}
             }
         }
     };
@@ -323,22 +357,26 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
         }
     });
 
-    let config = serde_json::json!({
-        "slug": raffle.slug,
-        "joinCode": raffle.join_code,
-        "state": state,
-        "entrantId": entrant.map(|e| e.id.clone()),
-        "claimCode": entrant.map(|e| e.claim_code.clone()),
-        "needsAltcha": entrant.is_none() && state == RaffleState::Open,
-        "strings": strings(lang),
-    });
-    let _ = app;
-    document(
-        lang,
-        &raffle.title,
-        body,
-        Some(format!("window.RAFI={};\n{JS}", script_json(&config))),
-    )
+    let config = PageConfig {
+        raffle_id: &raffle.id,
+        entrant_id: me.as_deref(),
+        claim_code: claim_code.as_deref(),
+        page_state: phase,
+        view: &view,
+        strings: &strings,
+        participant_url: format!("/api/r/{}/participant", raffle.slug),
+        server_now_ms: now_ms,
+        channel: app.live.has_channel() && snapshot.channel_open(),
+        needs_altcha: joining,
+        altcha_url: "/api/altcha",
+        screen_on: lang.t("screen_on"),
+        keep_screen_on: lang.t("keep_screen_on"),
+    };
+    let tail = format!(
+        "<script type=\"application/json\" id=\"rafi-config\">{}</script><script>{LOADER}</script>",
+        script_json(&config)
+    );
+    document(lang, &raffle.title, body, Some(tail))
 }
 
 fn not_found(lang: Lang) -> Response {
@@ -369,6 +407,17 @@ fn with_lang_cookie(mut resp: Response, query: &LangQuery, secure: bool) -> Resp
     resp
 }
 
+/// What phones see of `raffle`; `None` if it's gone (or the read failed).
+async fn snapshot(app: &AppState, raffle: &RaffleRow) -> Option<rafi_channel::Snapshot> {
+    match rafi_channel::Snapshot::read(&app.db, &raffle.id).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(error = %e, "reading the participant view");
+            None
+        }
+    }
+}
+
 async fn page(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
@@ -383,10 +432,14 @@ async fn page(
     }
     let lang = pick_lang(&q, &headers, Some(&raffle));
     let entrant = current_entrant(&app, &raffle, &headers).await;
+    let Some(snapshot) = snapshot(&app, &raffle).await else {
+        return not_found(lang);
+    };
     let html = render_page(
         &app,
         PageCtx {
             raffle: &raffle,
+            snapshot: &snapshot,
             lang,
             entrant: entrant.as_ref(),
             notice: Notice::None,
@@ -408,60 +461,14 @@ async fn submit(
         return not_found(pick_lang(&q, &headers, None));
     };
     let lang = pick_lang(&q, &headers, Some(&raffle));
-    let render = |notice: Notice, form: JoinForm, status: StatusCode| {
-        let html = render_page(
-            &app,
-            PageCtx {
-                raffle: &raffle,
-                lang,
-                entrant: None,
-                notice,
-                form,
-            },
-        );
-        (status, [(header::CACHE_CONTROL, "no-store")], Html(html)).into_response()
-    };
 
     // Already joined on this device: just show the page.
     if current_entrant(&app, &raffle, &headers).await.is_some() {
         return Redirect::to(&format!("/j/{}", raffle.join_code)).into_response();
     }
 
-    let email_key = rafi_core::email::normalize(&form.email).unwrap_or_default();
-    let limited = !app
-        .limiter
-        .check(&format!("join:{}", raffle.id), 600, Duration::from_secs(60))
-        || !app.limiter.check(
-            &format!("join:{}:{email_key}", raffle.id),
-            5,
-            Duration::from_secs(60),
-        );
-    if limited {
-        return render(
-            Notice::Error("err_rate"),
-            form,
-            StatusCode::TOO_MANY_REQUESTS,
-        );
-    }
-    if !app.altcha.verify(&form.altcha) {
-        return render(
-            Notice::Error("err_bot"),
-            form,
-            StatusCode::UNPROCESSABLE_ENTITY,
-        );
-    }
-
-    match service::join(
-        &app,
-        &raffle,
-        &form.name,
-        &form.email,
-        form.rules.is_some(),
-        form.marketing.is_some(),
-    )
-    .await
-    {
-        Ok(service::JoinOutcome::Joined { token, .. }) => {
+    let (notice, status) = match try_join(&app, &raffle, &form).await {
+        Ok(token) => {
             let secure = if app.cfg.cookie_secure {
                 "; Secure"
             } else {
@@ -475,12 +482,71 @@ async fn submit(
             if let Ok(v) = HeaderValue::from_str(&cookie) {
                 resp.headers_mut().append(header::SET_COOKIE, v);
             }
-            resp
+            return resp;
         }
-        Ok(service::JoinOutcome::AlreadyIn) => {
-            render(Notice::AlreadyIn, JoinForm::default(), StatusCode::OK)
+        Err(refused) => refused,
+    };
+    let Some(snapshot) = snapshot(&app, &raffle).await else {
+        return not_found(lang);
+    };
+    let form = if notice == Notice::AlreadyIn {
+        JoinForm::default()
+    } else {
+        form
+    };
+    let html = render_page(
+        &app,
+        PageCtx {
+            raffle: &raffle,
+            snapshot: &snapshot,
+            lang,
+            entrant: None,
+            notice,
+            form,
+        },
+    );
+    (status, [(header::CACHE_CONTROL, "no-store")], Html(html)).into_response()
+}
+
+/// Rate limits, the proof-of-work, then the join itself. Returns the
+/// entrant's cookie token, or why (and with what status) the join was refused.
+async fn try_join(
+    app: &AppState,
+    raffle: &RaffleRow,
+    form: &JoinForm,
+) -> Result<String, (Notice, StatusCode)> {
+    let email_key = rafi_core::email::normalize(&form.email).unwrap_or_default();
+    let limited = !app.limiter.allow(Limit::JoinPerRaffle, &raffle.id).await
+        || !app
+            .limiter
+            .allow(Limit::JoinPerEmail, &format!("{}:{email_key}", raffle.id))
+            .await;
+    if limited {
+        return Err((Notice::Error("err_rate"), StatusCode::TOO_MANY_REQUESTS));
+    }
+    match altcha::redeem(app, &form.altcha).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err((Notice::Error("err_bot"), StatusCode::UNPROCESSABLE_ENTITY));
         }
-        Err(key) => render(Notice::Error(key), form, StatusCode::UNPROCESSABLE_ENTITY),
+        Err(e) => {
+            tracing::error!(error = %e, "redeeming a proof-of-work");
+            return Err((Notice::Error("err_rate"), StatusCode::SERVICE_UNAVAILABLE));
+        }
+    }
+    let joined = service::join(
+        app,
+        raffle,
+        &form.name,
+        &form.email,
+        form.rules.is_some(),
+        form.marketing.is_some(),
+    )
+    .await;
+    match joined {
+        Ok(service::JoinOutcome::Joined { token }) => Ok(token),
+        Ok(service::JoinOutcome::AlreadyIn) => Err((Notice::AlreadyIn, StatusCode::OK)),
+        Err(key) => Err((Notice::Error(key), StatusCode::UNPROCESSABLE_ENTITY)),
     }
 }
 

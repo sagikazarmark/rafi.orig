@@ -1,6 +1,7 @@
-//! Integration tests: in-memory SQLite, local draw engine, mock drand.
+//! Integration tests: in-memory SQLite, an in-process stand-in for Restate
+//! ([`super::fake_engine`]), mock drand.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     Router,
@@ -14,13 +15,38 @@ use rafi_core::{
 };
 use tower::ServiceExt;
 
-use super::{AppState, altcha::Altcha, config::Config, db, engine::Command, routes, service};
+use super::{
+    AppState,
+    config::Config,
+    db,
+    engine::Command,
+    fake_engine,
+    live::{Live, Polling, Recording},
+    ratelimit::Limiter,
+    routes, service,
+};
 use crate::model::{ItemInput, Lifecycle};
 
 const OWNER: &str = "user_test";
 
 async fn app() -> AppState {
-    AppState::new(Config::for_tests()).await.expect("app state")
+    app_with(Config::for_tests()).await
+}
+
+async fn app_with(cfg: Config) -> AppState {
+    app_with_live(cfg, Arc::new(Polling)).await
+}
+
+/// An app whose draw engine is the in-process stand-in for Restate, on the
+/// same database.
+async fn app_with_live(mut cfg: Config, live: Arc<dyn Live>) -> AppState {
+    let db = rafi_store::Db::connect(&cfg.database_url)
+        .await
+        .expect("database");
+    let purge =
+        rafi_store::PurgeAfter::days(cfg.retention_nonwinners_days, cfg.retention_winners_days);
+    cfg.restate.ingress_url = fake_engine::start(db.clone(), cfg.drand.clone(), purge).await;
+    AppState::from_parts(cfg, db, live, Arc::new(Limiter::default())).expect("app state")
 }
 
 async fn send(router: &Router, req: Request<Body>) -> (StatusCode, header::HeaderMap, String) {
@@ -38,7 +64,9 @@ async fn solved_altcha(router: &Router) -> String {
     )
     .await;
     let challenge = serde_json::from_str(&body).expect("challenge json");
-    Altcha::encode(&Altcha::solve(&challenge).expect("solvable"))
+    rafi_live::altcha::solve(&challenge)
+        .expect("solvable")
+        .to_payload()
 }
 
 fn form(fields: &[(&str, &str)]) -> String {
@@ -151,12 +179,14 @@ async fn unreachable_drand_app() -> AppState {
         lead_secs: 3,
         timeout_secs: 1,
     };
-    AppState::new(cfg).await.expect("app state")
+    app_with(cfg).await
 }
 
 #[tokio::test]
 async fn full_raffle_flow() {
-    let app = app().await;
+    let mut cfg = Config::for_tests();
+    cfg.retention_enabled = true;
+    let app = app_with(cfg).await;
     let router = routes(app.clone());
     let raffle = setup_open(
         &app,
@@ -392,14 +422,36 @@ async fn full_raffle_flow() {
         .run()
         .await
         .unwrap();
-    let erased = super::retention::run(&app).await.unwrap();
-    assert_eq!(erased, 6);
+    let report = super::retention::run(&app).await.unwrap();
+    assert_eq!(report.erased, 6);
     let entrants = db::entrants(&app.db, &raffle.id).await.unwrap();
     assert!(
         entrants
             .iter()
             .all(|e| e.purged && e.email_raw.is_none() && e.token_hash.is_none())
     );
+    assert_eq!(
+        db::raffle(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state(),
+        RaffleState::Purged
+    );
+    // Each erasure is logged once, by ID; a second run has nothing to do.
+    let logged: Vec<(String, String)> = app
+        .db
+        .query("SELECT raffle_id, entrant_id FROM erasures ORDER BY entrant_id")
+        .all()
+        .await
+        .unwrap();
+    let mut ids: Vec<(String, String)> = entrants
+        .iter()
+        .map(|e| (raffle.id.clone(), e.id.clone()))
+        .collect();
+    ids.sort();
+    assert_eq!(logged, ids);
+    assert_eq!(super::retention::run(&app).await.unwrap().erased, 0);
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(
         rafi_core::verify::verify(
@@ -474,34 +526,156 @@ async fn public_view_has_no_personal_data() {
     assert!(!verify.contains("secret-address"));
 }
 
+async fn get_json(
+    router: &Router,
+    url: &str,
+) -> (StatusCode, header::HeaderMap, serde_json::Value) {
+    let (status, headers, body) =
+        send(router, Request::get(url).body(Body::empty()).unwrap()).await;
+    let json = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+    (status, headers, json)
+}
+
+async fn version(app: &AppState, id: &str) -> u64 {
+    db::raffle(&app.db, id).await.unwrap().unwrap().version as u64
+}
+
+/// The full view's `v` is the raffle's `version` column, which every write
+/// that changes a screen bumps; the view still carries the server's clock.
 #[tokio::test]
-async fn sse_sends_current_view_first() {
+async fn full_view_v_is_the_version_column() {
     let app = app().await;
     let router = routes(app.clone());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    let resp = router
-        .clone()
-        .oneshot(
-            Request::get(format!("/api/r/{}/events", raffle.slug))
-                .body(Body::empty())
-                .unwrap(),
-        )
+    let url = format!("/api/r/{}/view", raffle.slug);
+
+    let (status, headers, view) = get_json(&router, &url).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
+    let v0 = view["v"].as_u64().unwrap();
+    assert_eq!(v0, version(&app, &raffle.id).await);
+    assert!(view["server_now_ms"].as_u64().unwrap() > 0);
+    assert_eq!(view["channel"], false, "no live channel natively");
+
+    // Polling again without a write: the same version.
+    let (_, _, again) = get_json(&router, &url).await;
+    assert_eq!(again["v"].as_u64().unwrap(), v0);
+
+    service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    assert_eq!(
-        resp.headers().get(header::CONTENT_TYPE).unwrap(),
-        "text/event-stream"
-    );
-    let mut body = resp.into_body();
-    let frame = tokio::time::timeout(Duration::from_secs(2), body.frame())
-        .await
-        .expect("first event")
+    let (_, _, view) = get_json(&router, &url).await;
+    let v1 = view["v"].as_u64().unwrap();
+    assert!(v1 > v0, "{v1} > {v0}");
+    assert_eq!(v1, version(&app, &raffle.id).await);
+    assert_eq!(view["entrant_count"], 1);
+
+    // The admin's copy is the same view.
+    let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
+    assert_eq!(admin.view.v, v1);
+}
+
+/// What phones poll: the participant view, with no personal data beyond the
+/// names of drawn entrants (masked when hidden), never cached.
+#[tokio::test]
+async fn participant_view_has_no_personal_data() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1), ("Other", 1)]).await;
+    for (name, email) in [("Anna", "anna@example.com"), ("Bence", "bence@example.com")] {
+        join(&router, &raffle.join_code, name, email).await;
+    }
+    let url = format!("/api/r/{}/participant", raffle.slug);
+    let (status, headers, view) = get_json(&router, &url).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
+    assert_eq!(view["state"], "open");
+    assert_eq!(view["prizes_left"], 2);
+    assert_eq!(view["v"].as_u64().unwrap(), version(&app, &raffle.id).await);
+    let text = view.to_string();
+    for secret in ["Anna", "Bence", "@example.com"] {
+        assert!(!text.contains(secret), "{secret} leaked: {text}");
+    }
+
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    let r = wait_for(&app, &raffle.id, |r| r.draw_state.is_some()).await;
+    let unit = r.draw_state().unwrap().units[0].unit_id.clone();
+    service::command(
+        &app,
+        OWNER,
+        &raffle.id,
+        Command::Draw {
+            unit_id: unit.clone(),
+            offline: false,
+        },
+        "c",
+    )
+    .await
+    .unwrap();
+    let r = wait_for(&app, &raffle.id, |r| {
+        r.draw_state()
+            .is_some_and(|s| s.unit(&unit).unwrap().status == UnitStatus::Drawn)
+    })
+    .await;
+    let winner_id = r
+        .draw_state()
         .unwrap()
+        .unit(&unit)
+        .unwrap()
+        .entrant_id
+        .clone()
         .unwrap();
-    let text = String::from_utf8_lossy(frame.data_ref().unwrap()).into_owned();
-    assert!(text.starts_with("event: view"), "{text}");
-    assert!(text.contains(&raffle.join_code));
+    let entrants = db::entrants(&app.db, &raffle.id).await.unwrap();
+    let winner = entrants.iter().find(|e| e.id == winner_id).unwrap();
+    let other = entrants.iter().find(|e| e.id != winner_id).unwrap();
+
+    let (_, _, view) = get_json(&router, &url).await;
+    let text = view.to_string();
+    assert_eq!(view["last"]["display_name"], winner.display_name.as_str());
+    assert_eq!(view["winners"][0]["entrant_id"], winner_id.as_str());
+    assert!(
+        !text.contains(&other.display_name),
+        "a non-winner's name: {text}"
+    );
+    assert!(!text.contains("@example.com"), "an email: {text}");
+    for e in &entrants {
+        assert!(
+            !text.contains(&format!("\"{}\"", e.claim_code)),
+            "a claim code: {text}"
+        );
+    }
+
+    // A hidden winner's name is masked.
+    service::patch_entrant(
+        &app,
+        OWNER,
+        &raffle.id,
+        &winner_id,
+        crate::model::EntrantPatch {
+            hidden: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let (_, _, view) = get_json(&router, &url).await;
+    assert!(!view.to_string().contains(&winner.display_name));
+
+    // The attendee page embeds the same view and renders its card.
+    let (_, _, page) = send(
+        &router,
+        Request::get(format!("/j/{}", raffle.join_code))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(page.contains("id=\"rafi-config\""));
+    assert!(page.contains(&format!("\"participant_url\":\"{url}\"")));
+    assert!(page.contains("\"channel\":false"));
+    assert!(
+        !page.contains(&other.display_name),
+        "a non-winner's name on the page"
+    );
 }
 
 #[tokio::test]
@@ -518,14 +692,16 @@ async fn drafts_are_private() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    let (status, _, _) = send(
-        &router,
-        Request::get(format!("/api/r/{}/events", raffle.slug))
-            .body(Body::empty())
-            .unwrap(),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    for path in ["view", "participant"] {
+        let (status, _, _) = send(
+            &router,
+            Request::get(format!("/api/r/{}/{path}", raffle.slug))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+    }
     // Other organizers cannot see it either.
     assert!(matches!(
         service::admin(&app, "someone_else", &id).await,
@@ -583,7 +759,7 @@ async fn join_requires_proof_of_work_and_consent() {
 }
 
 #[tokio::test]
-async fn offline_draw_and_engine_switch() {
+async fn offline_draw() {
     let app = app().await;
     let router = routes(app.clone());
     let raffle = setup_open(&app, &[("Prize", 2)]).await;
@@ -611,11 +787,12 @@ async fn offline_draw_and_engine_switch() {
     )
     .await
     .unwrap();
-    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
-    assert_eq!(
-        r.draw_state().unwrap().unit(&unit).unwrap().status,
-        UnitStatus::Drawn
-    );
+    // Draws run asynchronously in the engine.
+    wait_for(&app, &raffle.id, |r| {
+        r.draw_state()
+            .is_some_and(|s| s.unit(&unit).unwrap().status == UnitStatus::Drawn)
+    })
+    .await;
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(
         rafi_core::verify::verify(
@@ -626,10 +803,32 @@ async fn offline_draw_and_engine_switch() {
         )
         .ok()
     );
-    // Switching an already-local raffle is a no-op.
-    service::switch_to_local(&app, OWNER, &raffle.id)
+}
+
+/// Without a draw engine configured, nothing can start.
+#[tokio::test]
+async fn draws_need_restate() {
+    let mut cfg = Config::for_tests();
+    cfg.dev_auth = true;
+    let app = AppState::new(cfg).await.unwrap();
+    assert!(app.restate.is_none());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
         .await
         .unwrap();
+    let err = service::start_draw(&app, OWNER, &raffle.id)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("Restate"), "{err}");
+    assert_eq!(
+        db::raffle(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state(),
+        RaffleState::Open,
+        "nothing was frozen"
+    );
 }
 
 /// POSTs `args` (JSON) to the admin function `name`.
@@ -653,7 +852,26 @@ async fn admin_requires_clerk_session() {
         "<!doctype html><html><head></head><body><div id=\"main\"></div></body></html>",
     )
     .unwrap();
-    let router = super::build_router(app.clone(), Some(clerk.layer().unwrap()), &public);
+    // And for the attendee scripts.
+    let attendee = public.join("attendee-dist");
+    std::fs::create_dir_all(&attendee).unwrap();
+    std::fs::write(attendee.join("fallback.js"), "// fallback").unwrap();
+    let router = super::build_router(
+        app.clone(),
+        Some(clerk.layer().unwrap()),
+        &super::Dirs {
+            public: public.clone(),
+            attendee,
+        },
+    );
+    let (status, _, body) = send(
+        &router,
+        Request::get("/attendee/fallback.js")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "// fallback"));
 
     let (status, _, body) = send(&router, admin_call("whoami", "{}")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
@@ -858,23 +1076,6 @@ async fn fake_entrants_are_added_in_one_batch() {
     assert_eq!(ids.len(), entrants.len());
 }
 
-#[tokio::test]
-async fn the_restate_watcher_only_watches_when_asked() {
-    let app = app().await;
-    assert!(
-        app.watch.is_idle(),
-        "nothing is queried until a Restate command is sent"
-    );
-
-    // A local raffle (or a missing one) is not Restate's to write: dropped at once.
-    let id = service::create(&app, "owner", "Local").await.unwrap();
-    app.watch.wake(&id);
-    app.watch.wake("missing");
-    let mut watcher = super::watch::Watcher::default();
-    assert!(watcher.poll(&app).await.unwrap().is_empty());
-    assert!(app.watch.is_idle());
-}
-
 /// A draw whose round never arrives in time stalls on that round: retrying
 /// keeps the round, pool-changing resolutions wait, and the only exits
 /// (offline, abandon) are logged for the verifier.
@@ -972,14 +1173,19 @@ async fn stalled_draw_keeps_its_round() {
         "a new draw commits to a current round"
     );
     draw(&units[0], true, "o1").await.unwrap();
-    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
-    assert_eq!(
-        r.draw_state().unwrap().unit(&units[0]).unwrap().status,
-        UnitStatus::Drawn
-    );
+    wait_for(&app, &raffle.id, |r| {
+        r.draw_state()
+            .is_some_and(|s| s.unit(&units[0]).unwrap().status == UnitStatus::Drawn)
+    })
+    .await;
 
     // While the next draw is pending, "not here" waits; "handed over" doesn't.
     draw(&units[1], false, "d5").await.unwrap();
+    wait_for(&app, &raffle.id, |r| {
+        r.draw_state()
+            .is_some_and(|s| s.pending.as_ref().is_some_and(|p| p.unit_id == units[1]))
+    })
+    .await;
     let not_here = service::command(
         &app,
         OWNER,
@@ -1043,76 +1249,316 @@ async fn mock_raffles_are_not_publicly_verified() {
     assert!(public.chain_unknown() && !public.ok());
 }
 
-/// Switching a Restate raffle with a stalled draw to the local engine keeps
-/// the draw on its round, and the local engine fetches that round.
+/// The hard limit: the join's `INSERT` refuses entrants beyond the cap, with
+/// a clear message; someone already in is still told so.
 #[tokio::test]
-async fn switching_engines_keeps_a_stalled_draw() {
-    use rafi_core::state::Event;
-
-    let app = unreachable_drand_app().await;
+async fn joins_stop_at_the_entrant_cap() {
+    let mut cfg = Config::for_tests();
+    cfg.max_entrants = 2;
+    let app = app_with(cfg).await;
+    let router = routes(app.clone());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, OWNER, &raffle.id, "Person", None)
+    for i in 0..2 {
+        let (status, cookie, _) = join(
+            &router,
+            &raffle.join_code,
+            &format!("P{i}"),
+            &format!("p{i}@example.com"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "join {i}");
+        assert!(cookie.is_some());
+    }
+    let (status, cookie, page) = join(&router, &raffle.join_code, "Late", "late@example.com").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(cookie.is_none());
+    assert!(page.contains("this raffle is full"), "{page}");
+    assert!(page.contains("id=\"join\""), "the form stays");
+    assert_eq!(db::entrants(&app.db, &raffle.id).await.unwrap().len(), 2);
+
+    let (status, _, page) = join(&router, &raffle.join_code, "Again", "p0@example.com").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("already entered"), "{page}");
+}
+
+/// A proof-of-work is redeemed once: the second use fails the `altcha_used`
+/// primary key. Expired rows leave with the retention run.
+#[tokio::test]
+async fn proof_of_work_replays_are_refused() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let altcha = solved_altcha(&router).await;
+    let post = |name: &str, email: &str| {
+        Request::post(format!("/j/{}", raffle.join_code))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(form(&[
+                ("name", name),
+                ("email", email),
+                ("rules", "on"),
+                ("altcha", &altcha),
+            ])))
+            .unwrap()
+    };
+    let (status, _, _) = send(&router, post("Anna", "anna@example.com")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (status, _, page) = send(&router, post("Bot", "bot@example.com")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(page.contains("human"), "{page}");
+    assert_eq!(db::entrants(&app.db, &raffle.id).await.unwrap().len(), 1);
+
+    let solution = rafi_live::altcha::Solution::from_payload(&altcha).unwrap();
+    let rows: Vec<(String, i64)> = app
+        .db
+        .query("SELECT challenge, expires_at FROM altcha_used")
+        .all()
         .await
         .unwrap();
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.draw_state.is_some()).await;
-    let unit = r.draw_state().unwrap().units[0].unit_id.clone();
-    service::command(
+    assert_eq!(
+        rows,
+        [(
+            solution.challenge.clone(),
+            solution.expires_at().unwrap() as i64
+        )]
+    );
+    assert!(!super::altcha::redeem(&app, &altcha).await.unwrap());
+
+    // A forged solution never reaches the table.
+    let mut forged = solution.clone();
+    forged.signature = "00".repeat(32);
+    assert!(
+        !super::altcha::redeem(&app, &forged.to_payload())
+            .await
+            .unwrap()
+    );
+
+    app.db
+        .query("INSERT INTO altcha_used (challenge, expires_at) VALUES ('old', 1)")
+        .run()
+        .await
+        .unwrap();
+    super::retention::run(&app).await.unwrap();
+    let (left,): (i64,) = app
+        .db
+        .query("SELECT COUNT(*) FROM altcha_used")
+        .one()
+        .await
+        .unwrap();
+    assert_eq!(left, 1, "only the unexpired challenge stays");
+}
+
+/// A raffle with three entrants, frozen and finished without draws.
+async fn finished_raffle(app: &AppState) -> db::RaffleRow {
+    let raffle = setup_open(app, &[("Prize", 1)]).await;
+    for name in ["Anna", "Bence", "Csilla"] {
+        service::add_manual(app, OWNER, &raffle.id, name, None)
+            .await
+            .unwrap();
+    }
+    service::start_draw(app, OWNER, &raffle.id).await.unwrap();
+    service::command(app, OWNER, &raffle.id, Command::Finish, "fin")
+        .await
+        .unwrap();
+    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    assert_eq!(r.state(), RaffleState::Finished);
+    r
+}
+
+#[tokio::test]
+async fn ending_live_updates() {
+    let live = Arc::new(Recording::default());
+    let app = app_with_live(Config::for_tests(), live.clone()).await;
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    assert!(
+        !live.calls("nudge").is_empty(),
+        "lifecycle changes nudge the channel"
+    );
+    let err = service::end_live(&app, OWNER, &raffle.id)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, service::AppError::Conflict(_)), "{err}");
+    assert!(live.calls("destroy").is_empty());
+
+    let raffle = finished_raffle(&app).await;
+    assert!(raffle.live_ended_at.is_none());
+    let view = super::view::build(&app, &raffle.id).await.unwrap().unwrap();
+    assert!(view.channel && !view.live_ended);
+
+    service::end_live(&app, OWNER, &raffle.id).await.unwrap();
+    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    let ended = r.live_ended_at.expect("live_ended_at is set");
+    assert_eq!(live.calls("destroy"), std::slice::from_ref(&raffle.id));
+    let view = super::view::build(&app, &raffle.id).await.unwrap().unwrap();
+    assert!(!view.channel && view.live_ended);
+
+    // Again: the channel is destroyed again, the time stays.
+    service::end_live(&app, OWNER, &raffle.id).await.unwrap();
+    assert_eq!(live.calls("destroy").len(), 2);
+    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    assert_eq!(r.live_ended_at, Some(ended));
+    // Other organizers can't.
+    assert!(matches!(
+        service::end_live(&app, "someone_else", &raffle.id).await,
+        Err(service::AppError::NotFound)
+    ));
+}
+
+/// Deleting and purging a raffle destroy its channel; admin edits that phones
+/// see nudge it, joins don't.
+#[tokio::test]
+async fn writes_nudge_and_destroy_the_channel() {
+    let live = Arc::new(Recording::default());
+    let app = app_with_live(Config::for_tests(), live.clone()).await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let nudges = || live.calls("nudge").len();
+
+    let before = nudges();
+    join(&router, &raffle.join_code, "Anna", "anna@example.com").await;
+    service::add_manual(&app, OWNER, &raffle.id, "Bence", None)
+        .await
+        .unwrap();
+    assert_eq!(nudges(), before, "joins don't nudge");
+
+    let anna = db::entrants(&app.db, &raffle.id).await.unwrap()[0]
+        .id
+        .clone();
+    service::patch_entrant(
         &app,
         OWNER,
         &raffle.id,
-        Command::Draw {
-            unit_id: unit,
-            offline: false,
+        &anna,
+        crate::model::EntrantPatch {
+            hidden: Some(true),
+            ..Default::default()
         },
-        "d1",
     )
     .await
     .unwrap();
-    let stalls = |r: &db::RaffleRow| {
-        r.draw_state()
-            .map(|s| {
-                s.events
-                    .iter()
-                    .filter(|e| matches!(e, Event::Stall { .. }))
-                    .count()
-            })
-            .unwrap_or_default()
-    };
-    let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 1).await;
-    let pending = r.draw_state().unwrap().pending.unwrap();
+    assert_eq!(nudges(), before + 1, "hiding a name nudges");
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    assert_eq!(nudges(), before + 2, "the freeze nudges");
 
-    // Pretend Restate was drawing it; a raffle on another chain is refused.
-    let mut other = r.draw_state().unwrap();
-    other.drand_chain = "00".repeat(32);
-    app.db
-        .query("UPDATE raffles SET engine = 'restate', draw_state = ? WHERE id = ?")
-        .bind(serde_json::to_string(&other).unwrap())
+    service::command(&app, OWNER, &raffle.id, Command::Finish, "fin")
+        .await
+        .unwrap();
+    service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    assert_eq!(live.calls("destroy"), std::slice::from_ref(&raffle.id));
+    let r = db::raffle(&app.db, &raffle.id).await.unwrap().unwrap();
+    assert_eq!(r.state(), RaffleState::Purged);
+    assert!(r.live_ended_at.is_some(), "a purge ends live updates");
+    let (logged,): (i64,) = app
+        .db
+        .query("SELECT COUNT(*) FROM erasures WHERE raffle_id = ?")
         .bind(&raffle.id)
+        .one()
+        .await
+        .unwrap();
+    assert_eq!(logged, 2, "the purge logs its erasures");
+
+    let other = service::create(&app, OWNER, "Other").await.unwrap();
+    service::delete(&app, OWNER, &other).await.unwrap();
+    assert_eq!(live.calls("destroy"), [raffle.id.clone(), other]);
+}
+
+/// The retention run ends the live channel of raffles finished over a day
+/// ago, whether or not erasure is on, logs every erasure without personal
+/// data, and records that it ran.
+#[tokio::test]
+async fn retention_ends_channels_and_logs_erasures() {
+    let live = Arc::new(Recording::default());
+    let app = app_with_live(Config::for_tests(), live.clone()).await;
+    let old = finished_raffle(&app).await;
+    let recent = finished_raffle(&app).await;
+    let now = super::ids::now();
+    app.db
+        .query("UPDATE raffles SET finished_at = ? WHERE id = ?")
+        .bind(now - super::retention::CHANNEL_GRACE_SECS - 60)
+        .bind(&old.id)
         .run()
         .await
         .unwrap();
+
+    // Erasure is off: only the channel goes.
+    let report = super::retention::run(&app).await.unwrap();
+    assert_eq!(report.erased, 0);
+    assert_eq!(report.channels_ended, 1);
+    assert_eq!(live.calls("destroy"), std::slice::from_ref(&old.id));
+    let r = db::raffle(&app.db, &old.id).await.unwrap().unwrap();
+    assert!(r.live_ended_at.is_some());
     assert!(
-        service::switch_to_local(&app, OWNER, &raffle.id)
+        db::raffle(&app.db, &recent.id)
             .await
-            .is_err()
+            .unwrap()
+            .unwrap()
+            .live_ended_at
+            .is_none()
     );
+    let (ok_at,): (String,) = app
+        .db
+        .query("SELECT value FROM meta WHERE key = 'last_retention_ok_at'")
+        .one()
+        .await
+        .unwrap();
+    assert!(ok_at.parse::<i64>().unwrap() >= now);
+    assert_eq!(
+        super::retention::run(&app).await.unwrap().channels_ended,
+        0,
+        "once"
+    );
+
+    // Erasure on: the old raffle's non-winners are due.
+    let mut cfg = Config::for_tests();
+    cfg.retention_enabled = true;
+    let app = AppState::from_parts(
+        cfg,
+        app.db.clone(),
+        live.clone(),
+        Arc::new(Limiter::default()),
+    )
+    .unwrap();
     app.db
-        .query("UPDATE raffles SET draw_state = ? WHERE id = ?")
-        .bind(r.draw_state.clone())
-        .bind(&raffle.id)
+        .query("UPDATE raffles SET purge_nonwinners_at = 0 WHERE id = ?")
+        .bind(&old.id)
         .run()
         .await
         .unwrap();
-
-    service::switch_to_local(&app, OWNER, &raffle.id)
-        .await
-        .unwrap();
-    let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 2).await;
-    assert_eq!(r.engine, "local");
-    assert_eq!(
-        r.draw_state().unwrap().pending,
-        Some(pending),
-        "same draw, same round"
+    let report = super::retention::run(&app).await.unwrap();
+    assert_eq!(report.erased, 3);
+    let entrants = db::entrants(&app.db, &old.id).await.unwrap();
+    assert!(
+        entrants
+            .iter()
+            .all(|e| e.purged && e.display_name.starts_with('#'))
     );
+    assert!(
+        db::entrants(&app.db, &recent.id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|e| !e.purged)
+    );
+    // Not yet purged: the winners' date hasn't passed.
+    assert_eq!(
+        db::raffle(&app.db, &old.id).await.unwrap().unwrap().state(),
+        RaffleState::Finished
+    );
+    let log: Vec<serde_json::Value> = app.db.query("SELECT * FROM erasures").all().await.unwrap();
+    assert_eq!(log.len(), 3);
+    for row in &log {
+        let keys: Vec<&str> = row
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let mut keys = keys;
+        keys.sort();
+        assert_eq!(
+            keys,
+            ["at", "entrant_id", "id", "raffle_id"],
+            "no personal data"
+        );
+        assert_eq!(row["raffle_id"], old.id.as_str());
+    }
 }

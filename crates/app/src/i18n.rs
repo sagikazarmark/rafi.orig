@@ -141,6 +141,22 @@ impl Lang {
             "registration_soon" => ("Registration opens soon", "Hamarosan indul a jelentkezés"),
             "not_here" => ("not here", "nem volt jelen"),
             "declined" => ("declined", "visszautasította"),
+            "err_full" => (
+                "Sorry, this raffle is full: it has reached its maximum number of entrants.",
+                "Sajnáljuk, a sorsolás betelt: elérte a résztvevők maximális számát.",
+            ),
+            "solving" => ("Getting ready…", "Előkészítés…"),
+            // The admin's "End live updates" action.
+            "end_live" => ("End live updates", "Élő frissítések leállítása"),
+            "end_live_title" => (
+                "End live updates for this raffle?",
+                "Leállítod a sorsolás élő frissítéseit?",
+            ),
+            "end_live_body" => (
+                "Phones and the projector stop following the raffle live. The results stay on the pages and the verification page.",
+                "A telefonok és a kivetítő nem követik tovább élőben a sorsolást. Az eredmények megmaradnak az oldalakon és az ellenőrző oldalon.",
+            ),
+            "live_ended" => ("Live updates ended", "Az élő frissítések leálltak"),
             _ => return leak(key),
         };
         match self {
@@ -165,5 +181,36 @@ mod tests {
         assert_eq!(Lang::Hu.t("join"), "Csatlakozom");
         assert_eq!(Lang::parse("HU"), Lang::Hu);
         assert_eq!(Lang::parse("de"), Lang::En);
+    }
+
+    /// Every key the phone's card and the new actions use exists in both languages.
+    #[test]
+    fn card_and_live_keys_exist() {
+        let keys = [
+            "you_won",
+            "go_to_organizer",
+            "thanks_won",
+            "thanks",
+            "drawing",
+            "not_this_time",
+            "draw_starting",
+            "prizes_left",
+            "waiting",
+            "locking",
+            "drand_round",
+            "err_full",
+            "solving",
+            "end_live",
+            "end_live_title",
+            "end_live_body",
+            "live_ended",
+        ];
+        for key in keys {
+            for lang in [Lang::En, Lang::Hu] {
+                let s = lang.t(key);
+                assert!(s != key && !s.is_empty(), "{key} ({})", lang.code());
+            }
+            assert_ne!(Lang::En.t(key), Lang::Hu.t(key), "{key} is translated");
+        }
     }
 }

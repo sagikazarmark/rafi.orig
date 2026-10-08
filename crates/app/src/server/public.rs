@@ -1,28 +1,21 @@
-//! Public JSON and SSE endpoints.
-
-use std::{convert::Infallible, time::Duration};
+//! Public JSON endpoints.
 
 use axum::{
     Extension, Json, Router,
     extract::Path,
     http::{StatusCode, header},
-    response::{
-        IntoResponse, Response,
-        sse::{Event, KeepAlive, Sse},
-    },
+    response::{IntoResponse, Response},
     routing::get,
 };
-use futures::StreamExt;
-use tokio_stream::wrappers::WatchStream;
 
-use super::{AppState, db, service};
+use super::{AppState, altcha, db, service, view};
 
 pub fn routes() -> Router {
     Router::new()
-        .route("/api/r/{slug}/events", get(events))
-        .route("/api/r/{slug}/view", get(view))
+        .route("/api/r/{slug}/view", get(full_view))
+        .route("/api/r/{slug}/participant", get(participant))
         .route("/api/r/{slug}/verify.json", get(verify_json))
-        .route("/api/altcha", get(altcha))
+        .route("/api/altcha", get(challenge))
         .route("/api/status", get(status))
         .route("/healthz", get(|| async { "ok" }))
 }
@@ -38,53 +31,38 @@ async fn public_raffle(app: &AppState, slug: &str) -> Result<db::RaffleRow, Stat
     }
 }
 
-/// Live view of a raffle as server-sent events. The latest view is sent
-/// immediately on connect, so reconnecting clients never need a replay.
-async fn events(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
+/// The full view: what the projector and the admin show. They poll it.
+async fn full_view(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     let raffle = match public_raffle(&app, &slug).await {
         Ok(r) => r,
         Err(status) => return status.into_response(),
     };
-    let rx = app.hub.subscribe(&raffle.id);
-    if rx.borrow().is_none() {
-        app.refresh(&raffle.id).await;
+    match view::build(&app, &raffle.id).await {
+        Ok(Some(v)) => ([(header::CACHE_CONTROL, "no-store")], Json(v)).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "building the view");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
-    let views = WatchStream::new(rx).filter_map(|view| async move {
-        let view = view?;
-        let json = serde_json::to_string(&*view).ok()?;
-        Some(Ok::<_, Infallible>(
-            Event::default().event("view").data(json),
-        ))
-    });
-    // Real events (not SSE comments) so clients can detect stale connections.
-    let pings =
-        tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_secs(15)))
-            .skip(1)
-            .map(|_| Ok::<_, Infallible>(Event::default().event("ping").data("")));
-    let stream = futures::stream::select(views, pings);
-    let mut resp = Sse::new(stream)
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
-        .into_response();
-    // Tell reverse proxies not to buffer the stream.
-    resp.headers_mut()
-        .insert("x-accel-buffering", "no".parse().expect("header"));
-    resp.headers_mut()
-        .insert(header::CACHE_CONTROL, "no-cache".parse().expect("header"));
-    resp
 }
 
-/// The current view as plain JSON (polling fallback).
-async fn view(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
+/// The participant view: what phones show. No personal data beyond the
+/// drawn entrants' display names (masked when hidden).
+async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     let raffle = match public_raffle(&app, &slug).await {
         Ok(r) => r,
         Err(status) => return status.into_response(),
     };
-    if app.hub.current(&raffle.id).is_none() {
-        app.refresh(&raffle.id).await;
-    }
-    match app.hub.current(&raffle.id) {
-        Some(v) => ([(header::CACHE_CONTROL, "no-store")], Json(&*v)).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+    match rafi_channel::Snapshot::read(&app.db, &raffle.id).await {
+        Ok(Some(snap)) => {
+            ([(header::CACHE_CONTROL, "no-store")], Json(snap.view())).into_response()
+        }
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "reading the participant view");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -99,10 +77,10 @@ async fn verify_json(Extension(app): Extension<AppState>, Path(slug): Path<Strin
     }
 }
 
-async fn altcha(Extension(app): Extension<AppState>) -> Response {
+async fn challenge(Extension(app): Extension<AppState>) -> Response {
     (
         [(header::CACHE_CONTROL, "no-store")],
-        Json(app.altcha.challenge()),
+        Json(altcha::challenge(&app)),
     )
         .into_response()
 }

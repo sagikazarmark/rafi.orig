@@ -4,14 +4,6 @@ use std::env;
 
 pub use rafi_drand::DrandConfig;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EngineKind {
-    /// Draws run in-process (development, tests, emergency fallback).
-    Local,
-    /// Draws run in the `Raffle` virtual object of the `restate-rafi` service.
-    Restate,
-}
-
 /// How the app reaches the `restate-rafi` service: through the Restate ingress.
 #[derive(Debug, Clone)]
 pub struct RestateConfig {
@@ -31,15 +23,22 @@ pub struct Config {
     pub public_url: String,
     /// Skip Clerk and treat every admin request as user `dev`. Never use in production.
     pub dev_auth: bool,
-    pub engine: EngineKind,
+    /// The draw engine: the `Raffle` virtual object of the `restate-rafi`
+    /// service. Without an ingress URL, draws can't start.
     pub restate: RestateConfig,
+    /// The drand chain new raffles commit to (the draw engine refuses another).
     pub drand: DrandConfig,
     pub altcha_key: Vec<u8>,
     /// Maximum proof-of-work number (difficulty).
     pub altcha_max: u64,
     pub cookie_secure: bool,
-    /// Run the hourly erasure job (`RAFI_RETENTION`). Off for now: personal
-    /// data is only erased by hand from the admin.
+    /// The most entrants a raffle takes (`RAFI_MAX_ENTRANTS`): the hard limit
+    /// behind the soft rate limits.
+    pub max_entrants: i64,
+    /// Erase personal data in the hourly retention run (`RAFI_RETENTION`).
+    /// Off for now: personal data is only erased by hand from the admin. The
+    /// run itself always happens (expired proof-of-work challenges, ending
+    /// live channels).
     pub retention_enabled: bool,
     pub retention_nonwinners_days: i64,
     pub retention_winners_days: i64,
@@ -59,17 +58,9 @@ impl Config {
             .unwrap_or_else(|| "http://localhost:8080".into())
             .trim_end_matches('/')
             .to_owned();
-        let restate_ingress = var("RESTATE_INGRESS_URL").unwrap_or_default();
-        let engine = match var("RAFI_DRAW_ENGINE").as_deref() {
-            Some("restate") => EngineKind::Restate,
-            Some("local") => EngineKind::Local,
-            _ if !restate_ingress.is_empty() => EngineKind::Restate,
-            _ => EngineKind::Local,
-        };
         let altcha_key = var("RAFI_ALTCHA_KEY")
             .map(|k| k.into_bytes())
             .unwrap_or_else(|| crate::server::ids::random_bytes::<32>().to_vec());
-        let defaults = DrandConfig::default();
         Self {
             database_url: var("RAFI_DATABASE_URL").unwrap_or_else(|| "sqlite://rafi.db".into()),
             cookie_secure: var("RAFI_COOKIE_SECURE")
@@ -77,27 +68,25 @@ impl Config {
                 .unwrap_or_else(|| public_url.starts_with("https://")),
             public_url,
             dev_auth: flag("RAFI_DEV_AUTH"),
-            engine,
             restate: RestateConfig {
-                ingress_url: restate_ingress.trim_end_matches('/').to_owned(),
+                ingress_url: var("RESTATE_INGRESS_URL")
+                    .unwrap_or_default()
+                    .trim_end_matches('/')
+                    .to_owned(),
                 api_key: var("RESTATE_API_KEY").unwrap_or_default(),
             },
+            // Only the chain matters here: the draw engine fetches the beacons.
             drand: DrandConfig {
-                relays: var("RAFI_DRAND_RELAYS")
-                    .map(|v| v.split(',').map(str::to_owned).collect())
-                    .unwrap_or(defaults.relays),
                 mock: flag("RAFI_DRAND_MOCK"),
-                lead_secs: var("RAFI_DRAW_LEAD_SECS")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(defaults.lead_secs),
-                timeout_secs: var("RAFI_DRAND_TIMEOUT_SECS")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(defaults.timeout_secs),
+                ..DrandConfig::default()
             },
             altcha_key,
             altcha_max: var("RAFI_ALTCHA_MAX")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(30_000),
+            max_entrants: var("RAFI_MAX_ENTRANTS")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(2000),
             retention_enabled: flag("RAFI_RETENTION"),
             retention_nonwinners_days: var("RAFI_RETENTION_DAYS")
                 .and_then(|v| v.parse().ok())
@@ -108,14 +97,14 @@ impl Config {
         }
     }
 
-    /// Configuration for tests: in-memory database, local engine, mock drand.
+    /// Configuration for tests: in-memory database, mock drand, no Restate
+    /// (the tests point `restate` at their engine).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn for_tests() -> Self {
         Self {
             database_url: "sqlite::memory:".into(),
             public_url: "http://localhost:8080".into(),
             dev_auth: false,
-            engine: EngineKind::Local,
             restate: RestateConfig {
                 ingress_url: String::new(),
                 api_key: String::new(),
@@ -129,6 +118,7 @@ impl Config {
             altcha_key: b"test-key".to_vec(),
             altcha_max: 50,
             cookie_secure: false,
+            max_entrants: 2000,
             retention_enabled: false,
             retention_nonwinners_days: 30,
             retention_winners_days: 90,

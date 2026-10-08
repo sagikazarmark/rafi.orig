@@ -28,6 +28,7 @@ use crate::{
         tabs::{TabContent, TabContentAppearance, TabTrigger, Tabs, TabsAppearance},
         toast::{ToastOptions, use_toast},
     },
+    i18n::Lang,
     icons::{I, Icon},
     model::{
         AdminEntrant, EntrantPatch, EntrantSource, Item, Lifecycle, RaffleAdmin as AdminData,
@@ -297,18 +298,18 @@ pub fn RaffleAdmin(id: String) -> Element {
     }
 }
 
-/// Re-fetches admin data whenever the public live view changes.
+/// Re-fetches admin data whenever the public live view moves past `version`.
 #[component]
 fn LiveRefresh(slug: String, version: u64, on_change: EventHandler<()>) -> Element {
     let live = use_live_view(slug);
     use_effect(move || {
-        if let Some(v) = live.read().as_ref()
+        if let Some(v) = live.view.read().as_ref()
             && v.v > version
         {
             on_change.call(());
         }
     });
-    rsx! {}
+    live.feed()
 }
 
 #[component]
@@ -375,7 +376,11 @@ fn Header(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
     let mut ask_delete = use_signal(|| false);
     let mut ask_purge = use_signal(|| false);
     let mut ask_freeze = use_signal(|| false);
+    let mut ask_end = use_signal(|| false);
     let mut busy = use_signal(|| false);
+    // The admin is in English; these strings also have their Hungarian
+    // versions in i18n.
+    let t = |k: &str| Lang::En.t(k);
     let nav = navigator();
     let toast = use_toast();
     let screen_url = format!("{}/s/{}", admin.public_url, v.slug);
@@ -464,9 +469,23 @@ fn Header(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
             }
         }
     };
+    let id = admin.id.clone();
+    let end_live = move || {
+        let id = id.clone();
+        async move {
+            busy.set(true);
+            match api::end_live_updates(id).await {
+                Ok(()) => {
+                    toast.success(t("live_ended").to_owned(), ToastOptions::new());
+                    on_change.call(());
+                }
+                Err(e) => error.set(Some(err_text(e))),
+            }
+            busy.set(false);
+        }
+    };
     let unconfirmed = v.state == RaffleState::Frozen
         && v.list_hash.is_some()
-        && v.engine.starts_with("restate")
         && v.draws.is_empty()
         && v.current.is_none();
     let join_url = v.join_url.clone();
@@ -575,6 +594,12 @@ fn Header(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
                         RaffleState::Frozen if unconfirmed => rsx! {
                             Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Icon { i: I::Undo } "Retry handing the list to the draw engine" }
                         },
+                        RaffleState::Finished | RaffleState::Purged if v.live_ended => rsx! {
+                            span { class: "badge badge-ghost gap-1", Icon { i: I::Check, class: "size-3.5" } "{t(\"live_ended\")}" }
+                        },
+                        RaffleState::Finished | RaffleState::Purged => rsx! {
+                            Button { class: "btn-outline", disabled: busy(), onclick: move |_| ask_end.set(true), Icon { i: I::Flag } "{t(\"end_live\")}" }
+                        },
                         _ => rsx! {},
                     }
                     if busy() { span { class: "loading loading-dots loading-md text-primary" } }
@@ -590,6 +615,13 @@ fn Header(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
             ),
             action: "🔒 Freeze & start",
             on_confirm: move |_| { spawn(start()); },
+        }
+        Confirm {
+            open: ask_end,
+            title: t("end_live_title"),
+            body: t("end_live_body"),
+            action: t("end_live"),
+            on_confirm: move |_| { spawn(end_live()); },
         }
         Confirm {
             open: ask_purge,
@@ -644,7 +676,6 @@ fn DrawConsole(
     let mut ask_offline = use_signal(|| false);
     let mut ask_abandon = use_signal(|| false);
     let toast = use_toast();
-    let restate = v.engine.starts_with("restate");
 
     let id = admin.id.clone();
     let draw = move |unit_id: String, offline: bool| {
@@ -708,17 +739,6 @@ fn DrawConsole(
             }
         }
     };
-    let id = admin.id.clone();
-    let to_local = move |_| {
-        let id = id.clone();
-        async move {
-            match api::switch_to_local(id).await {
-                Ok(()) => on_change.call(()),
-                Err(e) => error.set(Some(err_text(e))),
-            }
-        }
-    };
-
     let units_left = v
         .units
         .iter()
@@ -767,7 +787,7 @@ fn DrawConsole(
                         }
                         p { class: "text-sm",
                             "The draw stays on round {cur.round}, so retrying can't change the result. "
-                            if restate { "A retry queues behind the current attempt and may take up to a minute. " }
+                            "A retry queues behind the current attempt and may take up to a minute. "
                             "If drand stays unreachable, draw offline (server randomness, not verifiable) or abandon this draw; both are shown on the public verification page."
                         }
                         div { class: "flex flex-wrap gap-2",
@@ -891,16 +911,6 @@ fn DrawConsole(
                     action: "Abandon",
                     danger: true,
                     on_confirm: { let abandon = abandon.clone(); let u = cur.unit_id.clone(); move |_| { spawn(abandon(u.clone())); } },
-                }
-            }
-            if restate && drawable {
-                div { class: "collapse collapse-arrow bg-base-100 ring-1 ring-base-300",
-                    input { r#type: "checkbox" }
-                    div { class: "collapse-title font-semibold", "Restate having trouble?" }
-                    div { class: "collapse-content space-y-3 text-sm",
-                        p { "If Restate is unreachable, continue this raffle with the in-process engine. A pending draw continues on its committed round." }
-                        button { class: "btn btn-sm btn-outline btn-error", onclick: to_local, "Switch to the local engine" }
-                    }
                 }
             }
         }

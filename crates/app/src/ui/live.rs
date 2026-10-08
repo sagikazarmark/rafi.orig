@@ -1,129 +1,225 @@
-//! Live raffle view over server-sent events, plus a ticking clock.
+//! The live raffle view for the projector and the admin, plus a ticking clock.
+//!
+//! The full view (`/api/r/{slug}/view`) is polled every few seconds while the
+//! raffle is live, and fetched on mount and whenever the page becomes
+//! visible, is focused or comes back online. Polls can return the same `v`
+//! with newer time-dependent content, so a view with `v >=` the current one
+//! is taken.
+//!
+//! Where the server runs a live channel ([`RaffleView::channel`]), the
+//! participant view is also followed over it: an event ahead of the full view
+//! is kept as [`LiveView::ahead`], so the projector shows the reveal right
+//! away, and the full view is fetched at once in the background.
+
+use std::rc::Rc;
 
 use dioxus::prelude::*;
+use partyline_dioxus::{ChannelOptions, Status, use_channel_latest};
+use rafi_core::raffle::RaffleState;
+use rafi_live::{ParticipantView, RaffleLive};
 
 use crate::model::RaffleView;
 
-/// Subscribes to `/api/r/{slug}/events` in the browser. `EventSource`
-/// reconnects on its own; a watchdog reconnects if no event (or ping) arrived
-/// for a while, e.g. after a laptop wakes from sleep.
-pub fn use_live_view(slug: String) -> Signal<Option<RaffleView>> {
+/// How often the full view is polled while the raffle is live.
+const POLL_MS: u32 = 2_500;
+
+/// A raffle followed live.
+#[derive(Clone, Copy, PartialEq)]
+pub struct LiveView {
+    /// The full view; `None` until the first fetch succeeds.
+    pub view: Signal<Option<RaffleView>>,
+    /// The participant view from the live channel while it's ahead of
+    /// [`view`](Self::view) (newer `v`).
+    pub ahead: Signal<Option<ParticipantView>>,
+    /// Fetches the full view now.
+    pub refresh: Callback<()>,
+}
+
+impl LiveView {
+    /// The participant view, if it's still ahead of the full view.
+    pub fn ahead_of(&self, view: &RaffleView) -> Option<ParticipantView> {
+        self.ahead.read().clone().filter(|p| p.v > view.v)
+    }
+
+    /// The live channel subscription, where the server has one and the
+    /// raffle is live; render it anywhere in the page.
+    pub fn feed(self) -> Element {
+        let wanted = self
+            .view
+            .read()
+            .as_ref()
+            .is_some_and(|v| v.channel && live(v.state));
+        let raffle_id = self
+            .view
+            .read()
+            .as_ref()
+            .map(|v| v.raffle_id.clone())
+            .unwrap_or_default();
+        rsx! {
+            if wanted {
+                ChannelFeed { key: "{raffle_id}", live: self, raffle_id: raffle_id.clone() }
+            }
+        }
+    }
+}
+
+/// Public and not over: when the view changes on its own.
+fn live(state: RaffleState) -> bool {
+    matches!(
+        state,
+        RaffleState::Ready
+            | RaffleState::Open
+            | RaffleState::Closed
+            | RaffleState::Frozen
+            | RaffleState::Drawing
+    )
+}
+
+/// Follows the raffle `slug`.
+pub fn use_live_view(slug: String) -> LiveView {
     let mut view = use_signal(|| None::<RaffleView>);
-    let rx = use_coroutine(move |mut rx: UnboundedReceiver<RaffleView>| async move {
-        use futures_util::StreamExt;
-        while let Some(v) = rx.next().await {
-            let newer = view.peek().as_ref().is_none_or(|cur| v.v > cur.v);
-            if newer {
-                view.set(Some(v));
+    let mut ahead = use_signal(|| None::<ParticipantView>);
+
+    let fetcher = use_coroutine(move |mut rx: UnboundedReceiver<()>| {
+        let slug = slug.clone();
+        async move {
+            use futures_util::StreamExt;
+            while rx.next().await.is_some() {
+                // Requests that queued up meanwhile are answered by this fetch.
+                while rx.try_recv().is_ok() {}
+                let Ok(fresh) = crate::api::get_view(slug.clone()).await else {
+                    continue;
+                };
+                if ahead.peek().as_ref().is_some_and(|p| p.v <= fresh.v) {
+                    ahead.set(None);
+                }
+                let take = view.peek().as_ref().is_none_or(|cur| fresh.v >= cur.v);
+                if take {
+                    view.set(Some(fresh));
+                }
             }
         }
     });
+    let refresh = use_callback(move |()| fetcher.send(()));
 
-    #[cfg(feature = "web")]
-    {
-        let slug = slug.clone();
-        use_hook(move || web::connect(slug, rx));
+    use_future(move || async move {
+        fetcher.send(());
+        loop {
+            gloo_timers::future::TimeoutFuture::new(POLL_MS).await;
+            if view.peek().as_ref().is_none_or(|v| live(v.state)) {
+                fetcher.send(());
+            }
+        }
+    });
+    use_hook(move || Rc::new(wake::listen(move || fetcher.send(()))));
+
+    LiveView {
+        view,
+        ahead,
+        refresh,
     }
-    #[cfg(not(feature = "web"))]
-    let _ = (slug, rx);
-    view
 }
 
-/// Milliseconds since the epoch, updated every `every_ms` (client only).
+/// The raffle's live channel. Mounted only while it's wanted: unmounting
+/// closes the socket.
+#[component]
+fn ChannelFeed(live: LiveView, raffle_id: String) -> Element {
+    let (latest, channel) = use_channel_latest::<RaffleLive>(ChannelOptions::new(raffle_id));
+    let mut ahead = live.ahead;
+    use_effect(move || {
+        let Some(p) = latest() else {
+            return;
+        };
+        let behind = live.view.peek().as_ref().is_none_or(|v| p.v > v.v);
+        let newer = ahead.peek().as_ref().is_none_or(|a| p.v > a.v);
+        if behind && newer {
+            ahead.set(Some(p));
+            live.refresh.call(());
+        }
+    });
+    // A reconnect may have missed events; a stopped channel leaves polling.
+    let mut was_open = use_signal(|| false);
+    use_effect(move || match channel.status() {
+        Status::Open => {
+            if *was_open.peek() {
+                live.refresh.call(());
+            }
+            was_open.set(true);
+        }
+        Status::Stopped { .. } => live.refresh.call(()),
+        _ => {}
+    });
+    rsx! {}
+}
+
+/// Milliseconds since the epoch, updated every `every_ms`.
 pub fn use_clock(every_ms: u32) -> Signal<u64> {
     let mut now = use_signal(crate::model::now_unix_ms);
     use_future(move || async move {
-        #[cfg(feature = "web")]
         loop {
             gloo_timers::future::TimeoutFuture::new(every_ms).await;
             now.set(crate::model::now_unix_ms());
-        }
-        #[cfg(not(feature = "web"))]
-        {
-            let _ = (every_ms, &mut now);
         }
     });
     now
 }
 
-#[cfg(feature = "web")]
-mod web {
-    use std::{cell::RefCell, rc::Rc};
+/// The page coming back: shown again, restored, focused or back online.
+mod wake {
+    use std::rc::Rc;
 
-    use dioxus::prelude::*;
     use wasm_bindgen::{JsCast, closure::Closure};
 
-    use crate::model::RaffleView;
+    /// A target, its event and the callback.
+    type Listener = (web_sys::EventTarget, &'static str, Closure<dyn Fn()>);
 
-    pub struct Live {
-        es: Rc<RefCell<Option<web_sys::EventSource>>>,
+    /// Event listeners, removed when dropped.
+    pub struct Listeners {
+        added: Vec<Listener>,
     }
 
-    impl Drop for Live {
+    impl Drop for Listeners {
         fn drop(&mut self) {
-            if let Some(es) = self.es.borrow_mut().take() {
-                es.close();
+            for (target, event, cb) in &self.added {
+                let _ =
+                    target.remove_event_listener_with_callback(event, cb.as_ref().unchecked_ref());
             }
         }
     }
 
-    pub fn connect(slug: String, tx: Coroutine<RaffleView>) -> Rc<Live> {
-        let es: Rc<RefCell<Option<web_sys::EventSource>>> = Rc::default();
-        let last = Rc::new(RefCell::new(js_sys::Date::now()));
-        let url = format!("/api/r/{slug}/events");
-
-        let open = {
-            let (es, last, url) = (es.clone(), last.clone(), url.clone());
-            Rc::new(move || {
-                if let Some(old) = es.borrow_mut().take() {
-                    old.close();
-                }
-                let Ok(source) = web_sys::EventSource::new(&url) else {
-                    return;
-                };
-                let last_v = last.clone();
-                let on_view = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-                    move |e: web_sys::MessageEvent| {
-                        *last_v.borrow_mut() = js_sys::Date::now();
-                        if let Some(data) = e.data().as_string()
-                            && let Ok(v) = serde_json::from_str::<RaffleView>(&data)
-                        {
-                            tx.send(v);
-                        }
-                    },
-                );
-                let last_p = last.clone();
-                let on_ping = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-                    move |_e: web_sys::MessageEvent| {
-                        *last_p.borrow_mut() = js_sys::Date::now();
-                    },
-                );
-                let _ = source
-                    .add_event_listener_with_callback("view", on_view.as_ref().unchecked_ref());
-                let _ = source
-                    .add_event_listener_with_callback("ping", on_ping.as_ref().unchecked_ref());
-                on_view.forget();
-                on_ping.forget();
-                *es.borrow_mut() = Some(source);
-            })
+    /// Calls `f` whenever the page comes back.
+    pub fn listen(f: impl Fn() + 'static) -> Listeners {
+        let mut added = Vec::new();
+        let Some(window) = web_sys::window() else {
+            return Listeners { added };
         };
-        open();
-
-        // Watchdog: pings arrive every 15 s; reconnect if we heard nothing for 35 s.
-        let (es_w, open_w) = (es.clone(), open.clone());
-        spawn(async move {
-            loop {
-                gloo_timers::future::TimeoutFuture::new(5_000).await;
-                if es_w.borrow().is_none() {
-                    break;
-                }
-                if js_sys::Date::now() - *last.borrow() > 35_000.0 {
-                    *last.borrow_mut() = js_sys::Date::now();
-                    open_w();
-                }
+        let f = Rc::new(f);
+        for event in ["pageshow", "focus", "online"] {
+            let f = f.clone();
+            let cb = Closure::<dyn Fn()>::new(move || f());
+            let target: web_sys::EventTarget = window.clone().into();
+            if target
+                .add_event_listener_with_callback(event, cb.as_ref().unchecked_ref())
+                .is_ok()
+            {
+                added.push((target, event, cb));
             }
-        });
-
-        Rc::new(Live { es })
+        }
+        if let Some(document) = window.document() {
+            let doc = document.clone();
+            let cb = Closure::<dyn Fn()>::new(move || {
+                if doc.visibility_state() == web_sys::VisibilityState::Visible {
+                    f();
+                }
+            });
+            let target: web_sys::EventTarget = document.into();
+            if target
+                .add_event_listener_with_callback("visibilitychange", cb.as_ref().unchecked_ref())
+                .is_ok()
+            {
+                added.push((target, "visibilitychange", cb));
+            }
+        }
+        Listeners { added }
     }
 }

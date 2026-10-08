@@ -1,4 +1,8 @@
 //! Raffle operations shared by the admin API and the attendee routes.
+//!
+//! Every write that changes what phones see (the participant view) nudges
+//! the raffle's live channel ([`AppState::live`]). Joins don't: they never
+//! change it. The draw engine nudges after its own writes.
 
 use std::collections::HashSet;
 
@@ -10,9 +14,8 @@ use rafi_core::{
 
 use super::{
     AppState,
-    config::EngineKind,
     db::{self, RaffleRow},
-    engine::Command,
+    engine::{Command, RestateClient},
     ids,
 };
 use crate::model::{
@@ -66,6 +69,13 @@ pub fn unit_id(item_id: &str, n: i64) -> String {
     format!("{item_id}-{n}")
 }
 
+/// The draw engine, or a conflict if this server has none.
+fn engine(app: &AppState) -> Result<&RestateClient> {
+    app.restate
+        .as_ref()
+        .ok_or_else(|| conflict("Restate is not configured on this server."))
+}
+
 // ---------------------------------------------------------------------------
 // Raffles
 // ---------------------------------------------------------------------------
@@ -117,14 +127,13 @@ pub async fn create(app: &AppState, owner: &str, title: &str) -> Result<String> 
             .db
             .query(
                 "INSERT INTO raffles (id, owner_id, slug, join_code, title, engine, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 VALUES (?, ?, ?, ?, ?, 'restate', ?, ?)",
             )
             .bind(&id)
             .bind(owner)
             .bind(ids::slug(title))
             .bind(ids::code(4))
             .bind(title)
-            .bind(app.cfg.engine.as_str())
             .bind(now)
             .bind(now)
             .run()
@@ -193,7 +202,7 @@ pub async fn update_settings(
         .bind(id)
         .run()
         .await?;
-    app.refresh(id).await;
+    // Nothing phones see: the participant view has no settings.
     Ok(())
 }
 
@@ -210,6 +219,10 @@ pub async fn delete(app: &AppState, owner: &str, id: &str) -> Result<()> {
         .run()
         .await?;
     db::audit(&app.db, id, owner, "delete", "").await?;
+    // Best effort: the raffle is gone either way, and its channel finds nothing to show.
+    if let Err(e) = app.live.destroy(id).await {
+        tracing::warn!(raffle_id = id, error = %e, "ending the live channel of a deleted raffle failed");
+    }
     Ok(())
 }
 
@@ -308,7 +321,8 @@ pub async fn upsert_item(
             id
         }
     };
-    app.refresh(raffle_id).await;
+    // Before the freeze, phones count the prizes from the items.
+    app.live.nudge(raffle_id).await;
     Ok(id)
 }
 
@@ -330,7 +344,7 @@ pub async fn delete_item(
         .bind(raffle_id)
         .run()
         .await?;
-    app.refresh(raffle_id).await;
+    app.live.nudge(raffle_id).await;
     Ok(())
 }
 
@@ -364,7 +378,7 @@ pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle)
         ));
     }
     db::audit(&app.db, id, owner, to.as_str(), "").await?;
-    app.refresh(id).await;
+    app.live.nudge(id).await;
     Ok(())
 }
 
@@ -376,17 +390,11 @@ pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle)
 /// its writes) gets one built from its now-fixed entrant list.
 pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
-    let engine = EngineKind::parse(&raffle.engine);
-    if engine == EngineKind::Restate {
-        let client = app
-            .restate
-            .get()
-            .ok_or_else(|| conflict("Restate is not configured on this server."))?;
-        if !client.healthy().await {
-            return Err(conflict(
-                "Restate is not reachable. Check the connection, or switch this raffle to the local engine.",
-            ));
-        }
+    let client = engine(app)?;
+    if !client.healthy().await {
+        return Err(conflict(
+            "Restate is not reachable. Check the connection and try again.",
+        ));
     }
 
     let doc = match raffle.state() {
@@ -414,6 +422,7 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
                     "The raffle changed in the meantime; reload and try again.",
                 ));
             }
+            app.live.nudge(id).await;
             commit(app, owner, id, units, from).await?
         }
         RaffleState::Frozen if raffle.draw_state.is_none() => match raffle.commit_doc.as_deref() {
@@ -431,17 +440,8 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
         }
     };
 
-    match engine {
-        EngineKind::Restate => {
-            app.watch.wake(id);
-            app.restate
-                .get()
-                .expect("checked above")
-                .freeze(&doc)
-                .await?
-        }
-        EngineKind::Local => app.local.freeze(app, &doc).await?,
-    }
+    // The engine writes the frozen draw state and nudges the channel itself.
+    client.freeze(&doc).await?;
     Ok(())
 }
 
@@ -495,7 +495,7 @@ async fn commit(
             .bind(id)
             .run()
             .await?;
-        app.refresh(id).await;
+        app.live.nudge(id).await;
         return Err(conflict("Nobody has entered yet."));
     }
     // The app alone decides the chain; the draw engine refuses a mismatch.
@@ -528,7 +528,6 @@ async fn commit(
         return Ok(serde_json::from_str(&stored).map_err(anyhow::Error::from)?);
     }
     db::audit(&app.db, id, owner, "freeze", &hash).await?;
-    app.refresh(id).await;
     Ok(doc)
 }
 
@@ -559,7 +558,7 @@ pub async fn command(
                 if &p.unit_id != unit_id {
                     return Err(conflict("A draw is already in progress."));
                 }
-                return send(app, &raffle, owner, id, cmd, command_id).await;
+                return send(app, owner, id, cmd, command_id).await;
             }
             let unit = state.unit(unit_id).ok_or(AppError::NotFound)?;
             if unit.status != UnitStatus::Pending {
@@ -600,18 +599,13 @@ pub async fn command(
         }
     }
 
-    send(app, &raffle, owner, id, cmd, command_id).await
+    send(app, owner, id, cmd, command_id).await
 }
 
-/// Audits a validated command and hands it to the raffle's engine.
-async fn send(
-    app: &AppState,
-    raffle: &db::RaffleRow,
-    owner: &str,
-    id: &str,
-    cmd: Command,
-    command_id: &str,
-) -> Result<()> {
+/// Audits a validated command and hands it to the draw engine, which writes
+/// the new state and nudges the channel itself.
+async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &str) -> Result<()> {
+    let client = engine(app)?;
     db::audit(
         &app.db,
         id,
@@ -620,44 +614,7 @@ async fn send(
         &serde_json::to_string(&cmd).unwrap_or_default(),
     )
     .await?;
-    match EngineKind::parse(&raffle.engine) {
-        EngineKind::Restate => {
-            let client = app.restate.get().ok_or_else(|| conflict("Restate is not configured on this server; switch this raffle to the local engine."))?;
-            app.watch.wake(id);
-            client.command(id, &cmd, command_id).await?;
-        }
-        EngineKind::Local => app.local.command(app, id, cmd).await?,
-    }
-    Ok(())
-}
-
-/// Emergency switch: continue this raffle's draw in-process (e.g. Restate is down).
-///
-/// The projection becomes the source of truth. A pending draw stays pending on
-/// its committed round, and the local engine fetches that round.
-pub async fn switch_to_local(app: &AppState, owner: &str, id: &str) -> Result<()> {
-    let raffle = owned(app, owner, id).await?;
-    if raffle.engine == "local" {
-        return Ok(());
-    }
-    if let Some(state) = raffle.draw_state()
-        && !state
-            .drand_chain
-            .eq_ignore_ascii_case(&app.drand.chain_hash().to_string())
-    {
-        return Err(conflict(
-            "This raffle uses a different drand chain than this server's local engine.",
-        ));
-    }
-    app.db
-        .query("UPDATE raffles SET engine = 'local', updated_at = ? WHERE id = ?")
-        .bind(ids::now())
-        .bind(id)
-        .run()
-        .await?;
-    db::audit(&app.db, id, owner, "switch_to_local", "").await?;
-    app.local.resume(app, id).await?;
-    app.refresh(id).await;
+    client.command(id, &cmd, command_id).await?;
     Ok(())
 }
 
@@ -738,13 +695,16 @@ pub async fn join(
         .await
         .map_err(|_| "err_rate")?;
     let now = ids::now();
+    // Only while registration is open, and only below the entrant cap: the
+    // hard limit behind the (soft) rate limits.
     let res = app
         .db
         .query(
             "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, token_hash,
                                    consent_version, consent_rules_at, consent_marketing, created_at)
-             SELECT ?, ?, ?, ?, ?, 'self', ?, ?, ?, ?, ?, ?
-             WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ? AND state = 'open')",
+             SELECT ?1, ?2, ?3, ?4, ?5, 'self', ?6, ?7, ?8, ?9, ?10, ?11
+             WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ?2 AND state = 'open')
+               AND (SELECT COUNT(*) FROM entrants WHERE raffle_id = ?2) < ?12",
         )
         .bind(&id)
         .bind(&raffle.id)
@@ -757,11 +717,11 @@ pub async fn join(
         .bind(now)
         .bind(marketing)
         .bind(now)
-        .bind(&raffle.id)
+        .bind(app.cfg.max_entrants)
         .run()
         .await;
     match res {
-        Ok(0) => return Err("reg_closed"),
+        Ok(0) => return not_joined(app, raffle, &email_norm).await,
         Ok(_) => {}
         Err(e) if e.is_unique_violation() => {
             return Ok(JoinOutcome::AlreadyIn);
@@ -771,12 +731,36 @@ pub async fn join(
             return Err("err_rate");
         }
     }
-    app.refresh(&raffle.id).await;
-    app.refresh_later(
-        &raffle.id,
-        std::time::Duration::from_secs(super::view::NAME_DELAY_SECS as u64 + 1),
-    );
+    // No nudge: a join doesn't change what phones see. Screens poll.
     Ok(JoinOutcome::Joined { token })
+}
+
+/// Why a join inserted nothing: registration closed, the email is already
+/// in, or the raffle is full.
+async fn not_joined(
+    app: &AppState,
+    raffle: &RaffleRow,
+    email_norm: &str,
+) -> std::result::Result<JoinOutcome, &'static str> {
+    let open = matches!(
+        db::raffle(&app.db, &raffle.id).await,
+        Ok(Some(r)) if r.state().joinable()
+    );
+    if !open {
+        return Err("reg_closed");
+    }
+    let already: Option<(i64,)> = app
+        .db
+        .query("SELECT 1 FROM entrants WHERE raffle_id = ? AND email_norm = ?")
+        .bind(&raffle.id)
+        .bind(email_norm)
+        .optional()
+        .await
+        .map_err(|_| "err_rate")?;
+    if already.is_some() {
+        return Ok(JoinOutcome::AlreadyIn);
+    }
+    Err("err_full")
 }
 
 pub async fn add_manual(
@@ -825,11 +809,6 @@ pub async fn add_manual(
         Err(e) => return Err(e.into()),
     }
     db::audit(&app.db, raffle_id, owner, "add_manual", &id).await?;
-    app.refresh(raffle_id).await;
-    app.refresh_later(
-        raffle_id,
-        std::time::Duration::from_secs(super::view::NAME_DELAY_SECS as u64 + 1),
-    );
     Ok(id)
 }
 
@@ -886,7 +865,6 @@ pub async fn add_fakes(app: &AppState, owner: &str, raffle_id: &str, n: u32) -> 
     }
     app.db.batch(inserts).await?;
     db::audit(&app.db, raffle_id, owner, "add_fakes", &n.to_string()).await?;
-    app.refresh(raffle_id).await;
     Ok(())
 }
 
@@ -904,6 +882,7 @@ pub async fn patch_entrant(
     if entrant.purged {
         return Err(conflict("This entrant's data has been erased."));
     }
+    let renamed_or_hidden = patch.display_name.is_some() || patch.hidden.is_some();
     if let Some(name) = patch.display_name {
         let name = validate_name(&name).map_err(|k| bad(crate::i18n::Lang::En.t(k)))?;
         app.db
@@ -934,7 +913,10 @@ pub async fn patch_entrant(
             .await?;
     }
     db::audit(&app.db, raffle_id, owner, "patch_entrant", entrant_id).await?;
-    app.refresh(raffle_id).await;
+    // A drawn entrant's name is on the phones.
+    if renamed_or_hidden {
+        app.live.nudge(raffle_id).await;
+    }
     Ok(())
 }
 
@@ -959,42 +941,92 @@ pub async fn remove_entrant(
         erase(app, raffle_id, Some(entrant_id)).await?;
         db::audit(&app.db, raffle_id, owner, "erase_entrant", entrant_id).await?;
     }
-    app.refresh(raffle_id).await;
+    app.live.nudge(raffle_id).await;
     Ok(())
 }
 
-/// Erases personal data of one entrant, or all entrants of a raffle. Returns
-/// whether anyone was erased.
+/// Erases personal data of one entrant, or all entrants of a raffle, and logs
+/// each erasure in `erasures` (IDs and time only), so a restored backup can
+/// re-apply it. Returns whether anyone was erased.
 pub async fn erase(app: &AppState, raffle_id: &str, entrant_id: Option<&str>) -> Result<bool> {
+    let now = ids::now();
     let changed = app
         .db
-        .query(
-            "UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL, token_hash = NULL,
-             consent_marketing = 0, purged = 1
-             WHERE raffle_id = ?1 AND purged = 0 AND (?2 IS NULL OR id = ?2)",
-        )
-        .bind(raffle_id)
-        .bind(entrant_id)
-        .run()
+        .batch(vec![
+            app.db
+                .query(
+                    "INSERT INTO erasures (raffle_id, entrant_id, at)
+                     SELECT raffle_id, id, ?3 FROM entrants
+                     WHERE raffle_id = ?1 AND purged = 0 AND (?2 IS NULL OR id = ?2)",
+                )
+                .bind(raffle_id)
+                .bind(entrant_id)
+                .bind(now),
+            app.db
+                .query(format!(
+                    "UPDATE entrants SET {ERASED}
+                     WHERE raffle_id = ?1 AND purged = 0 AND (?2 IS NULL OR id = ?2)"
+                ))
+                .bind(raffle_id)
+                .bind(entrant_id),
+        ])
         .await?;
-    Ok(changed > 0)
+    Ok(changed.get(1).is_some_and(|&n| n > 0))
 }
 
+/// The `SET` clause that erases an entrant's personal data. The anonymous
+/// ID, the claim code's row and the draw log stay.
+pub const ERASED: &str = "display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL, \
+     token_hash = NULL, consent_marketing = 0, purged = 1";
+
+/// Erases every entrant's personal data of a finished raffle now, and ends
+/// its live channel.
 pub async fn purge(app: &AppState, owner: &str, raffle_id: &str) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
     if raffle.state() != RaffleState::Finished && raffle.state() != RaffleState::Purged {
         return Err(conflict("Only finished raffles can be purged."));
     }
     erase(app, raffle_id, None).await?;
+    let now = ids::now();
     app.db
-        .query("UPDATE raffles SET state = 'purged', purged_at = ?, updated_at = ? WHERE id = ?")
+        .query(
+            "UPDATE raffles SET state = 'purged', purged_at = ?1, updated_at = ?1,
+             live_ended_at = COALESCE(live_ended_at, ?1) WHERE id = ?2",
+        )
+        .bind(now)
+        .bind(raffle_id)
+        .run()
+        .await?;
+    db::audit(&app.db, raffle_id, owner, "purge", "").await?;
+    // Destroying the channel publishes the final (erased) view first.
+    app.live.destroy(raffle_id).await?;
+    Ok(())
+}
+
+/// Ends live updates of a finished raffle: phones stop listening and the
+/// raffle's live channel is destroyed. Safe to repeat (the channel is
+/// destroyed again).
+pub async fn end_live(app: &AppState, owner: &str, raffle_id: &str) -> Result<()> {
+    let raffle = owned(app, owner, raffle_id).await?;
+    if !matches!(raffle.state(), RaffleState::Finished | RaffleState::Purged) {
+        return Err(conflict(
+            "Live updates can only end once the raffle has finished.",
+        ));
+    }
+    app.db
+        .query(
+            "UPDATE raffles SET live_ended_at = COALESCE(live_ended_at, ?), updated_at = ?
+             WHERE id = ?",
+        )
         .bind(ids::now())
         .bind(ids::now())
         .bind(raffle_id)
         .run()
         .await?;
-    db::audit(&app.db, raffle_id, owner, "purge", "").await?;
-    app.refresh(raffle_id).await;
+    if raffle.live_ended_at.is_none() {
+        db::audit(&app.db, raffle_id, owner, "end_live", "").await?;
+    }
+    app.live.destroy(raffle_id).await?;
     Ok(())
 }
 
@@ -1039,12 +1071,9 @@ pub async fn admin(app: &AppState, owner: &str, id: &str) -> Result<RaffleAdmin>
             }
         })
         .collect();
-    let view = match app.hub.current(id) {
-        Some(v) => (*v).clone(),
-        None => super::view::build(app, id)
-            .await?
-            .ok_or(AppError::NotFound)?,
-    };
+    let view = super::view::build(app, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     Ok(RaffleAdmin {
         id: raffle.id.clone(),
         settings: settings_of(&raffle),

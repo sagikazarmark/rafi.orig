@@ -6,13 +6,24 @@ use rafi_core::{
 };
 use serde::{Deserialize, Serialize};
 
-/// The public, live state of a raffle, pushed to every screen over SSE.
+/// The public, live state of a raffle: the projector's and the admin's full
+/// view, which they poll (`/api/r/{slug}/view`).
 ///
 /// Must never contain emails, entrant tokens or claim codes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RaffleView {
-    /// Monotonic version; clients ignore older views.
+    /// The raffle's version in the database. Clients accept a view with
+    /// `v >=` theirs: a poll can return the same version with newer
+    /// time-dependent content (`recent_names`).
     pub v: u64,
+    /// Whether the raffle has a live channel to subscribe to (the participant
+    /// view, for the reveal). `false` on servers without one: then clients
+    /// only poll.
+    #[serde(default)]
+    pub channel: bool,
+    /// The organizer ended live updates.
+    #[serde(default)]
+    pub live_ended: bool,
     pub raffle_id: String,
     pub slug: String,
     pub title: String,
