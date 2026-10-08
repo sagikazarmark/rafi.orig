@@ -16,6 +16,23 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    # The store's scenarios and the app's tests also run against Postgres.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rafi
+          POSTGRES_PASSWORD: rafi
+          POSTGRES_DB: rafi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rafi -d rafi_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      RAFI_TEST_POSTGRES_URL: postgres://rafi:rafi@localhost:5432/rafi_test
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
