@@ -1,4 +1,4 @@
-//! When the channel publishes a freshly built view.
+//! When a live channel publishes a freshly built participant view.
 
 use rafi_live::ParticipantView;
 

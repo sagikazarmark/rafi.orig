@@ -7,7 +7,8 @@
 //! - [`screen()`]: which card a phone shows, as a pure function;
 //! - [`Card`]: the Dioxus component that renders it, on the server (SSR) and
 //!   in the WASM alike, with [`CardStrings`];
-//! - [`altcha`]: rafi's proof-of-work for the join form.
+//! - [`altcha`]: rafi's proof-of-work for the join form;
+//! - [`LiveTransport`]: how clients follow a raffle on this deployment.
 //!
 //! This crate must stay light enough for the phone: it doesn't depend on
 //! `rafi-core` (which pulls in drand and BLS), and it reads no clock and no
@@ -16,10 +17,12 @@
 pub mod altcha;
 mod card;
 mod screen;
+mod transport;
 mod view;
 
 pub use card::{CARD, Card, CardProps, CardStrings, WON};
 pub use screen::{Screen, screen};
+pub use transport::{DEFAULT_POLL_MS, LiveTransport};
 pub use view::{Current, DrawInput, DrawOutcome, LastDraw, ParticipantView, Phase, Winner};
 
 /// The raffle's live channel: phones follow the latest [`ParticipantView`].
