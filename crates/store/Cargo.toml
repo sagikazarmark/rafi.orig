@@ -4,13 +4,29 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi's SQLite database: schema, connection options, and the draw state write shared by the app and the draw engine"
+description = "Rafi's database: schema, a small query layer over SQLite (native) and D1 (Workers), and the draw state write shared by the app and the draw engine"
 publish = false
+
+[features]
+## The shared backend scenarios (`testsuite`), for running against D1.
+testsuite = []
 
 [dependencies]
 rafi-core.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+
+# Native: SQLite through sqlx (self-hosting, development, tests).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+
+# Cloudflare Workers: D1.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { version = "0.8.7", features = ["d1"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }

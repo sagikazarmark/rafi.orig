@@ -1,0 +1,16 @@
+[package]
+name = "rafi-store-d1-check"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Runs rafi-store's backend scenarios against D1 under `wrangler dev` (see README)"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rafi-store = { workspace = true, features = ["testsuite"] }
+serde_json.workspace = true
+worker = "0.8.7"

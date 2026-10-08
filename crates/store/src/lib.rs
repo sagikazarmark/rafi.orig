@@ -1,55 +1,70 @@
-//! Rafi's SQLite database, shared by the app and the `restate-rafi` draw engine.
+//! Rafi's database, shared by the app, the draw engine and the live channel.
 //!
-//! The app owns the schema ([`migrate`]) and everything in it; the draw engine
-//! only ever writes a raffle's draw state, through [`save_draw_state`]. Both
-//! processes open the same file in WAL mode, which SQLite supports for several
-//! processes on one host.
+//! The schema lives in `migrations/` at the workspace root. Natively the
+//! database is SQLite (through sqlx), and [`Db::connect`] applies the
+//! migrations; on Cloudflare Workers it is D1, and `wrangler d1 migrations
+//! apply` applies the same files.
+//!
+//! The draw engine only ever writes a raffle's draw state, through
+//! [`save_draw_state`].
+//!
+//! D1 has no interactive transactions: a write that spans several statements
+//! goes through [`Db::batch`], which runs them as one transaction on both
+//! backends.
 
-use std::{str::FromStr, time::Duration};
+mod backend;
+mod error;
+mod query;
+mod value;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use backend::options;
+pub use error::{Error, Result};
+pub use query::{Db, Query};
 use rafi_core::state::{DrawState, Event};
-use sqlx::{
-    SqlitePool,
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
-};
+pub use value::{Row, Value};
 
-pub use sqlx::Error;
-
-/// Connection options for a database URL (`sqlite://rafi.db`, `sqlite::memory:`).
-///
-/// File databases use WAL, so the app and the draw engine can write the same
-/// file, and wait up to five seconds for each other's locks.
-pub fn options(url: &str) -> Result<SqliteConnectOptions, Error> {
-    let opts = SqliteConnectOptions::from_str(url)?
-        .foreign_keys(true)
-        .busy_timeout(Duration::from_secs(5));
-    Ok(if url.contains(":memory:") {
-        opts
-    } else {
-        opts.journal_mode(SqliteJournalMode::Wal)
-            .synchronous(SqliteSynchronous::Normal)
-    })
+/// The current time in unix seconds. `std::time` aborts on
+/// `wasm32-unknown-unknown`, so Workers read the JavaScript clock.
+pub fn now() -> i64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        (js_sys::Date::now() / 1000.0) as i64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64)
+    }
 }
 
-/// Brings the schema up to date. Only the app runs this.
-pub async fn migrate(db: &SqlitePool) -> Result<(), sqlx::migrate::MigrateError> {
-    sqlx::migrate!("../../migrations").run(db).await
+/// When personal data of a finished raffle is erased, counted from when it finished.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PurgeAfter {
+    pub nonwinners_secs: i64,
+    pub winners_secs: i64,
+}
+
+impl PurgeAfter {
+    pub fn days(nonwinners: i64, winners: i64) -> Self {
+        Self {
+            nonwinners_secs: nonwinners * 86_400,
+            winners_secs: winners * 86_400,
+        }
+    }
 }
 
 /// Stores a draw engine's state for a raffle.
 ///
 /// Idempotent and safe to retry: a state is only written when it is newer than
-/// the stored one, and only while `engine` still owns the raffle's draw (a
-/// raffle switched to the local engine ignores late writes from Restate).
-/// Moves the raffle to `drawing` or `finished` as the state progresses.
+/// the stored one, and for the entrant list the raffle was frozen with. Moves
+/// the raffle to `drawing` or `finished` as the state progresses, and when it
+/// finishes, dates the erasure of personal data.
 ///
 /// Returns whether the state was written.
-pub async fn save_draw_state(
-    db: &SqlitePool,
-    state: &DrawState,
-    engine: &str,
-) -> Result<bool, Error> {
-    let json = serde_json::to_string(state).map_err(|e| Error::Encode(Box::new(e)))?;
+pub async fn save_draw_state(db: &Db, state: &DrawState, purge: PurgeAfter) -> Result<bool> {
+    let json = serde_json::to_string(state).map_err(|e| Error::Backend(e.to_string()))?;
     let started = state
         .events
         .iter()
@@ -61,104 +76,51 @@ pub async fn save_draw_state(
     } else {
         "frozen"
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64);
-    let written = sqlx::query(
-        "UPDATE raffles SET
-            draw_state = ?1,
-            draw_version = ?2,
-            state = CASE WHEN state IN ('frozen', 'drawing') THEN ?3 ELSE state END,
-            finished_at = CASE WHEN ?4 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
-            updated_at = ?5
-         WHERE id = ?6 AND engine = ?7 AND list_hash = ?8 AND draw_version < ?2",
-    )
-    .bind(&json)
-    .bind(state.version as i64)
-    .bind(lifecycle)
-    .bind(state.finished)
-    .bind(now)
-    .bind(&state.raffle_id)
-    .bind(engine)
-    .bind(&state.list_hash)
-    .execute(db)
-    .await?
-    .rows_affected();
+    let written = db
+        .query(
+            "UPDATE raffles SET
+                draw_state = ?1,
+                draw_version = ?2,
+                state = CASE WHEN state IN ('frozen', 'drawing') THEN ?3 ELSE state END,
+                finished_at = CASE WHEN ?4 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
+                purge_nonwinners_at = CASE WHEN ?4 AND purge_nonwinners_at IS NULL
+                    THEN COALESCE(finished_at, ?5) + ?6 ELSE purge_nonwinners_at END,
+                purge_winners_at = CASE WHEN ?4 AND purge_winners_at IS NULL
+                    THEN COALESCE(finished_at, ?5) + ?7 ELSE purge_winners_at END,
+                updated_at = ?5
+             WHERE id = ?8 AND list_hash = ?9 AND draw_version < ?2",
+        )
+        .bind(json)
+        .bind(state.version)
+        .bind(lifecycle)
+        .bind(state.finished)
+        .bind(now())
+        .bind(purge.nonwinners_secs)
+        .bind(purge.winners_secs)
+        .bind(&state.raffle_id)
+        .bind(&state.list_hash)
+        .run()
+        .await?;
     Ok(written > 0)
 }
 
-#[cfg(test)]
-mod tests {
-    use rafi_core::commit::{CommitDoc, UnitRef};
-    use sqlx::sqlite::SqlitePoolOptions;
+#[cfg(any(test, feature = "testsuite"))]
+pub mod testsuite;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
     use super::*;
 
-    async fn db() -> SqlitePool {
-        let db = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(options("sqlite::memory:").unwrap())
-            .await
-            .unwrap();
-        migrate(&db).await.unwrap();
-        db
-    }
-
-    async fn frozen(db: &SqlitePool, engine: &str) -> DrawState {
-        let doc = CommitDoc::new(
-            "r1",
-            &rafi_core::drand::chains::QUICKNET_HASH,
-            vec!["a".repeat(32), "b".repeat(32)],
-            vec![UnitRef {
-                unit_id: "u1".into(),
-                item_id: "i1".into(),
-                item_name: "Ticket".into(),
-            }],
-        );
-        let state = DrawState::freeze(&doc);
-        sqlx::query(
-            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, list_hash, created_at, updated_at)
-             VALUES ('r1', 'o', 's', 'j', 't', 'frozen', ?, ?, 0, 0)",
-        )
-        .bind(engine)
-        .bind(&state.list_hash)
-        .execute(db)
-        .await
-        .unwrap();
-        state
-    }
-
+    /// The shared scenarios, against in-memory SQLite. `crates/store-d1-check`
+    /// runs the same ones against D1.
     #[tokio::test]
-    async fn keeps_the_newest_state_of_the_owning_engine() {
-        let db = db().await;
-        let mut state = frozen(&db, "restate").await;
-
-        assert!(
-            !save_draw_state(&db, &state, "local").await.unwrap(),
-            "another engine's raffle"
-        );
-        assert!(save_draw_state(&db, &state, "restate").await.unwrap());
-        assert!(
-            !save_draw_state(&db, &state, "restate").await.unwrap(),
-            "a retry is a no-op"
-        );
-
-        state.finish().unwrap();
-        assert!(save_draw_state(&db, &state, "restate").await.unwrap());
-        let (lifecycle, finished_at): (String, Option<i64>) =
-            sqlx::query_as("SELECT state, finished_at FROM raffles WHERE id = 'r1'")
-                .fetch_one(&db)
-                .await
-                .unwrap();
-        assert_eq!(lifecycle, "finished");
-        assert!(finished_at.is_some());
-
-        let mut other = state.clone();
-        other.list_hash = "0".repeat(64);
-        other.version += 1;
-        assert!(
-            !save_draw_state(&db, &other, "restate").await.unwrap(),
-            "a different entrant list"
-        );
+    async fn testsuite() {
+        for (name, result) in
+            testsuite::run(|| async { Db::connect("sqlite::memory:").await.unwrap() }).await
+        {
+            if let Err(e) = result {
+                panic!("{name}: {e}");
+            }
+        }
     }
 }
