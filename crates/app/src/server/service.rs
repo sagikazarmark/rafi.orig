@@ -8,8 +8,9 @@ use std::collections::HashSet;
 
 use rafi_core::{
     commit::{CommitDoc, UnitRef},
+    engine::ErrorKind,
     raffle::{Action, RaffleState},
-    state::{Outcome, UnitStatus},
+    state::{DrawError, Outcome},
 };
 use rafi_store::{RaffleRow, audit, entrants, items, raffles};
 
@@ -46,9 +47,14 @@ impl From<rafi_store::Error> for AppError {
     }
 }
 
-impl From<rafi_core::state::DrawError> for AppError {
-    fn from(e: rafi_core::state::DrawError) -> Self {
-        Self::Conflict(e.to_string())
+impl From<DrawError> for AppError {
+    fn from(e: DrawError) -> Self {
+        match e.kind() {
+            ErrorKind::NotFound => Self::NotFound,
+            ErrorKind::BadRequest => Self::BadRequest(e.to_string()),
+            ErrorKind::Conflict => Self::Conflict(e.to_string()),
+            ErrorKind::Invariant => Self::Internal(e.into()),
+        }
     }
 }
 
@@ -60,10 +66,6 @@ fn bad(msg: impl Into<String>) -> AppError {
 
 fn conflict(msg: impl Into<String>) -> AppError {
     AppError::Conflict(msg.into())
-}
-
-pub fn unit_id(item_id: &str, n: i64) -> String {
-    format!("{item_id}-{n}")
 }
 
 /// The draw engine, or a conflict if this server has none.
@@ -376,17 +378,14 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
 
 /// The prize units of a raffle, in draw order. Errors if there are none.
 async fn units(app: &AppState, id: &str) -> Result<Vec<UnitRef>> {
-    let units: Vec<UnitRef> = items::list(&app.db, id)
-        .await?
-        .iter()
-        .flat_map(|i| {
-            (1..=i.qty).map(move |n| UnitRef {
-                unit_id: unit_id(&i.id, n),
-                item_id: i.id.clone(),
-                item_name: i.name.clone(),
-            })
-        })
-        .collect();
+    let items = items::list(&app.db, id).await?;
+    let units = rafi_core::commit::units(items.iter().map(|i| {
+        (
+            i.id.as_str(),
+            i.name.as_str(),
+            u64::try_from(i.qty).unwrap_or(0),
+        )
+    }));
     if units.is_empty() {
         return Err(conflict("Add at least one prize first."));
     }
@@ -448,57 +447,58 @@ pub async fn command(
         )
     })?;
 
-    // Validate against the projection for immediate, friendly errors.
-    match &cmd {
-        Command::Draw { unit_id, .. } => {
-            if let Some(p) = &state.pending {
-                // Drawing the pending unit again retries its committed round
-                // (or completes it offline); nothing else may start meanwhile.
-                if &p.unit_id != unit_id {
-                    return Err(conflict("A draw is already in progress."));
-                }
-                return send(app, owner, id, cmd, command_id).await;
-            }
-            let unit = state.unit(unit_id).ok_or(AppError::NotFound)?;
-            if unit.status != UnitStatus::Pending {
-                return Err(conflict("This prize has already been drawn or withdrawn."));
-            }
-            if state.pool().1.is_empty() {
-                return Err(conflict("There are no eligible entrants left."));
-            }
-        }
-        Command::Resolve { unit_id, outcome } => {
-            let unit = state.unit(unit_id).ok_or(AppError::NotFound)?;
-            if unit.status != UnitStatus::Drawn {
-                return Err(conflict("This prize has no undecided winner."));
-            }
-            if state.pending.is_some() && *outcome != Outcome::Claimed {
-                return Err(conflict(
-                    "Wait for the current draw to finish: “not here” and “declined” could change who it can pick.",
-                ));
-            }
-        }
-        Command::Abandon { unit_id } => {
-            if state.pending.as_ref().is_none_or(|p| &p.unit_id != unit_id) {
-                return Err(conflict("This prize has no draw in progress."));
-            }
-        }
-        Command::Void { unit_id } => {
-            let unit = state.unit(unit_id).ok_or(AppError::NotFound)?;
-            if unit.status != UnitStatus::Pending {
-                return Err(conflict(
-                    "Only prizes that have not been won can be withdrawn.",
-                ));
-            }
-        }
-        Command::Finish => {
-            if state.pending.is_some() {
-                return Err(conflict("Wait for the current draw to finish."));
-            }
-        }
-    }
+    // Validate against the projection for immediate, friendly errors: a dry
+    // run of the engine's own rules on a copy. Draws are accepted
+    // asynchronously, so a draw the engine refused would go unnoticed.
+    let mut dry = state.clone();
+    let checked = match &cmd {
+        // Drawing the pending unit again retries its committed round (or
+        // completes it offline); nothing else may start meanwhile.
+        Command::Draw { unit_id, .. } => dry.begin(unit_id, 0, 0).map(|_| ()),
+        // While a draw is waiting for its round, the engine would queue the
+        // command behind it; only "handed over" is let through (it can't
+        // change the draw). The rest waits for the draw to land or stall.
+        Command::Resolve {
+            outcome: Outcome::Claimed,
+            ..
+        } => dry.apply(&cmd),
+        _ if dry.pending.is_some() && !dry.stalled() => Err(DrawError::DrawInProgress),
+        _ => dry.apply(&cmd),
+    };
+    checked.map_err(|e| refusal(&cmd, e))?;
 
     send(app, owner, id, cmd, command_id).await
+}
+
+/// The organizer-facing message for a command the draw rules refuse.
+fn refusal(cmd: &Command, e: DrawError) -> AppError {
+    let message = match (cmd, &e) {
+        (_, DrawError::UnknownUnit(_)) => return AppError::NotFound,
+        (_, DrawError::Finished) => "The raffle is finished.",
+        (Command::Draw { .. }, DrawError::DrawInProgress) => "A draw is already in progress.",
+        (Command::Draw { .. }, DrawError::UnitNotPending(_)) => {
+            "This prize has already been drawn or withdrawn."
+        }
+        (_, DrawError::NoEligibleEntrants) => "There are no eligible entrants left.",
+        (Command::Resolve { .. }, DrawError::UnitNotDrawn(_)) => {
+            "This prize has no undecided winner."
+        }
+        (Command::Resolve { .. }, DrawError::DrawInProgress) => {
+            "Wait for the current draw to finish: “not here” and “declined” could change who it can pick."
+        }
+        (Command::Abandon { .. }, DrawError::NoDrawInProgress) => {
+            "This prize has no draw in progress."
+        }
+        (Command::Abandon { .. }, DrawError::DrawInProgress) => {
+            "The draw is still waiting for its drand round; it can be abandoned if it stalls."
+        }
+        (Command::Void { .. }, DrawError::UnitNotPending(_)) => {
+            "Only prizes that have not been won can be withdrawn."
+        }
+        (_, DrawError::DrawInProgress) => "Wait for the current draw to finish.",
+        _ => return AppError::Conflict(e.to_string()),
+    };
+    conflict(message)
 }
 
 /// Audits a validated command and hands it to the draw engine, which writes

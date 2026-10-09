@@ -267,7 +267,7 @@ pub fn verify(
                     continue;
                 }
             },
-            Event::Fail {
+            Event::Abandon {
                 k,
                 unit_id,
                 round,

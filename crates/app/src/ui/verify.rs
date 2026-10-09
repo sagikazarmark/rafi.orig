@@ -236,7 +236,7 @@ fn event_icon(e: &Event) -> I {
     match e {
         Event::Announce { .. } => I::Lock,
         Event::Draw { .. } => I::Dice,
-        Event::Stall { .. } | Event::Fail { .. } => I::Alert,
+        Event::Stall { .. } | Event::Abandon { .. } => I::Alert,
         Event::Resolve { .. } => I::Check,
         Event::Void { .. } => I::X,
         Event::Finish => I::Flag,
@@ -274,7 +274,7 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, units: &HashMap<String, Stri
         Event::Stall {
             k, round, reason, ..
         } => format!("Draw {k}: round {round} not available yet ({reason}); still pending"),
-        Event::Fail {
+        Event::Abandon {
             k, round, reason, ..
         } => format!("Draw {k}: committed round {round} abandoned ({reason})"),
         Event::Resolve { k, outcome } => {

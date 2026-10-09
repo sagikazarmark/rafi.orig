@@ -27,7 +27,7 @@ use axum::{
 };
 use rafi_core::{
     commit::CommitDoc,
-    engine::Command,
+    engine::{BeaconOutcome, Command},
     state::{DrawError, DrawState, Pending},
 };
 use rafi_drand::{DrandClient, DrandConfig};
@@ -85,10 +85,7 @@ fn refused(status: StatusCode, message: impl ToString) -> Response {
 }
 
 fn draw_error(e: DrawError) -> Response {
-    let status = match e {
-        DrawError::UnknownUnit(_) => StatusCode::NOT_FOUND,
-        _ => StatusCode::CONFLICT,
-    };
+    let status = StatusCode::from_u16(e.kind().status()).expect("a status code");
     refused(status, e)
 }
 
@@ -124,10 +121,6 @@ impl Engine {
     fn first_time(&self, key: &str) -> bool {
         self.seen.lock().unwrap().insert(key.to_owned())
     }
-
-    fn same_chain(&self, chain: &str) -> bool {
-        chain.eq_ignore_ascii_case(&self.drand.chain_hash().to_string())
-    }
 }
 
 async fn freeze(
@@ -141,25 +134,13 @@ async fn freeze(
             "raffle ID does not match the object key",
         );
     }
-    if !engine.same_chain(&doc.drand_chain) {
-        return refused(
-            StatusCode::CONFLICT,
-            "the raffle commits to another drand chain",
-        );
-    }
     let lock = engine.lock(&id);
     let _guard = lock.lock().await;
-    let fresh = DrawState::freeze(&doc);
-    if let Some(existing) = engine.load(&id) {
-        if existing.list_hash == fresh.list_hash {
-            return StatusCode::OK.into_response();
-        }
-        return refused(
-            StatusCode::CONFLICT,
-            "raffle is already frozen with a different entrant list",
-        );
+    match DrawState::freeze_or_check(engine.load(&id).as_ref(), &doc, &engine.drand.chain_hash()) {
+        Ok(Some(fresh)) => engine.project(&fresh).await,
+        Ok(None) => {}
+        Err(e) => return draw_error(e),
     }
-    engine.project(&fresh).await;
     StatusCode::OK.into_response()
 }
 
@@ -186,7 +167,7 @@ async fn draw(
         let Some(mut state) = engine.load(&id) else {
             return;
         };
-        if !engine.same_chain(&state.drand_chain) {
+        if state.check_chain(&engine.drand.chain_hash()).is_err() {
             return;
         }
         let (round, round_time) = engine.drand.target_round(ids::now() as u64);
@@ -196,7 +177,8 @@ async fn draw(
         };
         engine.project(&state).await;
         if offline {
-            if state.complete_offline(ids::random_bytes::<32>()).is_ok() {
+            let randomness = BeaconOutcome::Offline(ids::random_bytes::<32>());
+            if state.conclude(randomness).is_ok() {
                 engine.project(&state).await;
             }
             return;
@@ -219,14 +201,11 @@ async fn settle(engine: &Engine, id: &str, pending: Pending) {
     if state.pending.as_ref() != Some(&pending) {
         return; // settled meanwhile (another attempt, offline, abandoned)
     }
-    let settled = match result {
-        Ok(beacon) => match state.complete(&beacon) {
-            Ok(_) => Ok(()),
-            Err(e) => state.stall(&format!("invalid beacon: {e}")).map(|_| ()),
-        },
-        Err(e) => state.stall(&format!("drand unavailable: {e}")).map(|_| ()),
+    let outcome = match result {
+        Ok(beacon) => BeaconOutcome::Verified(beacon),
+        Err(e) => BeaconOutcome::Unavailable(e.to_string()),
     };
-    if settled.is_ok() {
+    if state.conclude(outcome).is_ok() {
         engine.project(&state).await;
     }
 }
@@ -247,18 +226,9 @@ async fn resolve(
         return StatusCode::OK.into_response();
     }
     let Some(mut state) = engine.load(&id) else {
-        return refused(StatusCode::NOT_FOUND, "raffle is not frozen");
+        return draw_error(DrawError::NotFrozen);
     };
-    let applied = match cmd {
-        Command::Resolve { unit_id, outcome } => state.resolve(&unit_id, outcome),
-        Command::Void { unit_id } => state.void(&unit_id),
-        Command::Abandon { unit_id } => state.abandon_unit(&unit_id),
-        Command::Finish => state.finish(),
-        Command::Draw { .. } => {
-            return refused(StatusCode::BAD_REQUEST, "use the draw handler");
-        }
-    };
-    if let Err(e) = applied {
+    if let Err(e) = state.apply(&cmd) {
         return draw_error(e);
     }
     engine.project(&state).await;

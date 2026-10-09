@@ -1,9 +1,14 @@
 //! The draw state machine.
 //!
-//! [`DrawState`] is owned by the draw engine (the Restate virtual object, or the
-//! local fallback engine) and projected into the app database after every step.
+//! [`DrawState`] is owned by the draw engine (the Restate virtual object; the
+//! local runner in tests) and projected into the app database after every step.
 //! All changes are recorded as [`Event`]s, which is also what the public
 //! verifier replays.
+//!
+//! The engine protocol is here too, so engines only do I/O:
+//! [`DrawState::freeze_or_check`] for a freeze, [`DrawState::check_chain`],
+//! [`DrawState::begin`] and [`DrawState::conclude`] for a draw, and
+//! [`DrawState::apply`] for every other command.
 //!
 //! Pool rules:
 //! - Pass 1: everyone who has not been drawn yet. Once drawn, you are out,
@@ -28,8 +33,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Hash,
     commit::{CommitDoc, UnitRef, list_hash},
-    drand::{QUICKNET_CHAIN, VerifiedBeacon},
-    draw, hash_from_hex,
+    drand::{ChainHash, QUICKNET_CHAIN, VerifiedBeacon},
+    draw,
+    engine::{BeaconOutcome, Command, ErrorKind},
+    hash_from_hex,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,7 +112,9 @@ pub enum Event {
         reason: String,
     },
     /// The organizer abandoned the pending draw (its unit goes back to pending).
-    Fail {
+    /// Published logs (and `tools/verify.py`) call it `fail`.
+    #[serde(rename = "fail")]
+    Abandon {
         k: u64,
         unit_id: String,
         round: u64,
@@ -151,6 +160,16 @@ pub struct DrawState {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DrawError {
+    #[error("the raffle is not frozen")]
+    NotFrozen,
+    #[error("the raffle is already frozen with a different entrant list")]
+    AlreadyFrozen,
+    #[error("the raffle commits to drand chain {committed}, but the draw engine uses {engine}")]
+    ChainMismatch { committed: String, engine: String },
+    #[error("invalid commit document: {0}")]
+    InvalidCommit(String),
+    #[error("draws go through the draw step, not as a command")]
+    NotACommand,
     #[error("the raffle is finished")]
     Finished,
     #[error("unknown prize unit {0}")]
@@ -173,6 +192,40 @@ pub enum DrawError {
     BadListHash,
     #[error("invalid resolution outcome")]
     BadOutcome,
+}
+
+impl DrawError {
+    /// How engines and their callers classify this refusal.
+    pub fn kind(&self) -> ErrorKind {
+        match self {
+            Self::NotFrozen | Self::UnknownUnit(_) => ErrorKind::NotFound,
+            Self::InvalidCommit(_) | Self::NotACommand | Self::BadOutcome => ErrorKind::BadRequest,
+            Self::AlreadyFrozen
+            | Self::ChainMismatch { .. }
+            | Self::Finished
+            | Self::UnitNotPending(_)
+            | Self::UnitNotDrawn(_)
+            | Self::DrawInProgress
+            | Self::NoDrawInProgress
+            | Self::NoEligibleEntrants => ErrorKind::Conflict,
+            // A beacon for the wrong round or chain only ever stalls a draw,
+            // and the list hash is the engine's own: these are engine bugs.
+            Self::WrongRound { .. } | Self::WrongChain | Self::BadListHash => ErrorKind::Invariant,
+        }
+    }
+}
+
+/// Refuses a raffle committed to another drand chain than the engine's.
+fn check_chain(committed: &str, engine: &ChainHash) -> Result<(), DrawError> {
+    let engine = engine.to_string();
+    if committed.eq_ignore_ascii_case(&engine) {
+        Ok(())
+    } else {
+        Err(DrawError::ChainMismatch {
+            committed: committed.to_owned(),
+            engine,
+        })
+    }
 }
 
 /// Result of a completed draw.
@@ -203,6 +256,86 @@ impl DrawState {
             pending: None,
             finished: false,
             version: 1,
+        }
+    }
+
+    /// A freeze, as every engine applies it: `existing` is the engine's state
+    /// for the raffle, if any.
+    ///
+    /// Validates the document and refuses another chain than the engine's.
+    /// Freezing the same list again is a no-op (`None`); a different list is
+    /// refused. Otherwise returns the fresh state to store.
+    pub fn freeze_or_check(
+        existing: Option<&DrawState>,
+        doc: &CommitDoc,
+        engine_chain: &ChainHash,
+    ) -> Result<Option<DrawState>, DrawError> {
+        doc.validate()?;
+        check_chain(&doc.drand_chain, engine_chain)?;
+        let fresh = Self::freeze(doc);
+        match existing {
+            Some(existing) if existing.list_hash == fresh.list_hash => Ok(None),
+            Some(_) => Err(DrawError::AlreadyFrozen),
+            None => Ok(Some(fresh)),
+        }
+    }
+
+    /// Refuses to draw with an engine on another drand chain than the one the
+    /// raffle committed to.
+    pub fn check_chain(&self, engine_chain: &ChainHash) -> Result<(), DrawError> {
+        check_chain(&self.drand_chain, engine_chain)
+    }
+
+    /// Whether the pending draw has stalled: its latest attempt couldn't get
+    /// the committed round's beacon. (A retry in progress re-enters the same
+    /// pending draw without an event, so it still reads as stalled.)
+    pub fn stalled(&self) -> bool {
+        let Some(pending) = &self.pending else {
+            return false;
+        };
+        // `k` is reused after an abandon: only the latest announcement counts.
+        self.events
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                Event::Stall { k, .. } if *k == pending.k => Some(true),
+                Event::Announce { k, .. } if *k == pending.k => Some(false),
+                _ => None,
+            })
+            .unwrap_or(false)
+    }
+
+    /// Settles the pending draw with its beacon's outcome.
+    ///
+    /// A verified beacon completes it (`Some`); offline randomness completes it
+    /// as an offline draw. A beacon that doesn't fit the draw (wrong round or
+    /// chain), an unavailable one and an interrupted attempt all stall it
+    /// (`None`): the draw stays pending on its round, never abandoned, so a
+    /// retry fetches the same round.
+    pub fn conclude(&mut self, outcome: BeaconOutcome) -> Result<Option<Drawn>, DrawError> {
+        match outcome {
+            BeaconOutcome::Verified(beacon) => match self.complete(&beacon) {
+                Ok(drawn) => Ok(Some(drawn)),
+                Err(e) => self.stall(&format!("invalid beacon: {e}")).map(|()| None),
+            },
+            BeaconOutcome::Offline(randomness) => self.complete_offline(randomness).map(Some),
+            BeaconOutcome::Unavailable(reason) => self
+                .stall(&format!("drand unavailable: {reason}"))
+                .map(|()| None),
+            BeaconOutcome::Interrupted(reason) => self.stall(&reason).map(|()| None),
+        }
+    }
+
+    /// Applies a command other than a draw (draws go through [`Self::begin`]
+    /// and [`Self::conclude`]). After [`Command::Finish`] the state is
+    /// `finished` and the engine may forget it.
+    pub fn apply(&mut self, cmd: &Command) -> Result<(), DrawError> {
+        match cmd {
+            Command::Resolve { unit_id, outcome } => self.resolve(unit_id, *outcome),
+            Command::Void { unit_id } => self.void(unit_id),
+            Command::Abandon { unit_id } => self.abandon_unit(unit_id),
+            Command::Finish => self.finish(),
+            Command::Draw { .. } => Err(DrawError::NotACommand),
         }
     }
 
@@ -446,7 +579,7 @@ impl DrawState {
     /// committed round would have picked.
     pub fn abandon(&mut self, reason: &str) -> Result<(), DrawError> {
         let pending = self.pending.take().ok_or(DrawError::NoDrawInProgress)?;
-        self.events.push(Event::Fail {
+        self.events.push(Event::Abandon {
             k: pending.k,
             unit_id: pending.unit_id,
             round: pending.round,
@@ -744,6 +877,161 @@ pub(crate) mod tests {
         s.complete(&beacon(1)).unwrap();
         let v3 = s.version;
         assert!(v0 < v1 && v1 < v2 && v2 < v3);
+    }
+
+    fn chain() -> ChainHash {
+        test_chain().chain().hash()
+    }
+
+    #[test]
+    fn freeze_or_check_is_idempotent_per_list() {
+        let d = doc(3, 1);
+        let fresh = DrawState::freeze_or_check(None, &d, &chain())
+            .unwrap()
+            .unwrap();
+        assert_eq!(fresh, DrawState::freeze(&d));
+        assert_eq!(
+            DrawState::freeze_or_check(Some(&fresh), &d, &chain()),
+            Ok(None)
+        );
+        assert_eq!(
+            DrawState::freeze_or_check(Some(&fresh), &doc(4, 1), &chain()),
+            Err(DrawError::AlreadyFrozen)
+        );
+    }
+
+    #[test]
+    fn freeze_or_check_refuses_another_chain_and_invalid_documents() {
+        let quicknet = crate::drand::chains::QUICKNET_HASH;
+        assert!(matches!(
+            DrawState::freeze_or_check(None, &doc(3, 1), &quicknet),
+            Err(DrawError::ChainMismatch { .. })
+        ));
+        assert!(matches!(
+            DrawState::freeze_or_check(None, &doc(0, 1), &chain()),
+            Err(DrawError::InvalidCommit(_))
+        ));
+        let s = DrawState::freeze(&doc(3, 1));
+        assert_eq!(s.check_chain(&chain()), Ok(()));
+        assert_eq!(
+            s.check_chain(&quicknet).unwrap_err().kind(),
+            ErrorKind::Conflict
+        );
+    }
+
+    #[test]
+    fn conclude_completes_or_stalls_on_the_same_round() {
+        let mut s = DrawState::freeze(&doc(5, 2));
+        let p = s.begin("u0", 10, 0).unwrap();
+
+        assert_eq!(s.conclude(BeaconOutcome::Verified(beacon(11))), Ok(None));
+        assert!(s.stalled());
+        assert_eq!(s.pending.as_ref(), Some(&p));
+        assert_eq!(
+            s.conclude(BeaconOutcome::Unavailable("relays down".into())),
+            Ok(None)
+        );
+        assert_eq!(
+            s.conclude(BeaconOutcome::Interrupted("draw cancelled".into())),
+            Ok(None)
+        );
+        assert!(matches!(
+            s.events.last(),
+            Some(Event::Stall { reason, round: 10, .. }) if reason == "draw cancelled"
+        ));
+
+        let drawn = s
+            .conclude(BeaconOutcome::Verified(beacon(10)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(drawn.k, 1);
+        assert!(!s.stalled());
+
+        s.begin("u1", 20, 0).unwrap();
+        assert!(!s.stalled());
+        let offline = s
+            .conclude(BeaconOutcome::Offline([7; 32]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(offline.k, 2);
+        assert!(matches!(
+            s.events.last(),
+            Some(Event::Draw {
+                mode: DrawMode::Offline,
+                ..
+            })
+        ));
+        assert_eq!(
+            s.conclude(BeaconOutcome::Unavailable("x".into())),
+            Err(DrawError::NoDrawInProgress)
+        );
+    }
+
+    #[test]
+    fn a_new_announcement_after_an_abandon_is_not_stalled() {
+        let mut s = DrawState::freeze(&doc(5, 1));
+        s.begin("u0", 10, 0).unwrap();
+        s.stall("x").unwrap();
+        s.abandon("organizer").unwrap();
+        assert!(!s.stalled());
+        // The same k, announced again.
+        s.begin("u0", 12, 0).unwrap();
+        assert!(!s.stalled());
+    }
+
+    #[test]
+    fn apply_runs_every_command_but_draws() {
+        let mut s = DrawState::freeze(&doc(5, 2));
+        draw(&mut s, "u0", 1);
+        let resolve = Command::Resolve {
+            unit_id: "u0".into(),
+            outcome: Outcome::Claimed,
+        };
+        s.apply(&resolve).unwrap();
+        s.apply(&Command::Void {
+            unit_id: "u1".into(),
+        })
+        .unwrap();
+        let draw_cmd = Command::Draw {
+            unit_id: "u1".into(),
+            offline: false,
+        };
+        assert_eq!(s.apply(&draw_cmd), Err(DrawError::NotACommand));
+        assert_eq!(
+            s.apply(&Command::Abandon {
+                unit_id: "u1".into()
+            }),
+            Err(DrawError::NoDrawInProgress)
+        );
+        s.apply(&Command::Finish).unwrap();
+        assert!(s.finished);
+    }
+
+    #[test]
+    fn error_kinds() {
+        assert_eq!(DrawError::NotFrozen.kind(), ErrorKind::NotFound);
+        assert_eq!(
+            DrawError::UnknownUnit("u".into()).kind(),
+            ErrorKind::NotFound
+        );
+        assert_eq!(DrawError::BadOutcome.kind(), ErrorKind::BadRequest);
+        assert_eq!(DrawError::AlreadyFrozen.kind(), ErrorKind::Conflict);
+        assert_eq!(DrawError::DrawInProgress.kind(), ErrorKind::Conflict);
+        assert_eq!(DrawError::WrongChain.kind(), ErrorKind::Invariant);
+        assert_eq!(DrawError::BadListHash.kind(), ErrorKind::Invariant);
+    }
+
+    #[test]
+    fn an_abandon_is_published_as_fail() {
+        let e = Event::Abandon {
+            k: 1,
+            unit_id: "u0".into(),
+            round: 10,
+            reason: "x".into(),
+        };
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(json["type"], "fail");
+        assert_eq!(serde_json::from_value::<Event>(json).unwrap(), e);
     }
 
     #[test]

@@ -124,7 +124,7 @@ proptest! {
                     None => {
                         let ended = &s.events[events_before..];
                         prop_assert!(
-                            matches!(ended, [Event::Draw { .. }] | [Event::Fail { .. }]),
+                            matches!(ended, [Event::Draw { .. }] | [Event::Abandon { .. }]),
                             "pending draw ended by {:?}", ended
                         );
                     }

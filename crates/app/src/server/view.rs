@@ -83,8 +83,8 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         None => items
             .iter()
             .flat_map(|i| {
-                (1..=i.qty.max(0)).map(move |n| UnitView {
-                    unit_id: super::service::unit_id(&i.id, n),
+                (1..=u64::try_from(i.qty).unwrap_or(0)).map(move |n| UnitView {
+                    unit_id: rafi_core::commit::unit_id(&i.id, n),
                     item_id: i.id.clone(),
                     item_name: i.name.clone(),
                     status: UnitStatus::Pending,
@@ -163,7 +163,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
                 }
                 // A stalled draw stays pending on its round; an abandoned one is over.
                 Event::Stall { reason, .. } => last_failure = Some(reason.clone()),
-                Event::Fail { round, reason, .. } => {
+                Event::Abandon { round, reason, .. } => {
                     last_failure = Some(format!("round {round} abandoned ({reason})"))
                 }
                 Event::Announce { .. } => last_failure = None,

@@ -79,14 +79,7 @@ impl RestateClient {
     }
 
     pub async fn freeze(&self, doc: &CommitDoc) -> anyhow::Result<()> {
-        let key = format!(
-            "freeze-{}",
-            rafi_core::commit::list_hash(&doc.canonical_json())
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
-        );
-        self.invoke(&doc.raffle_id, "freeze", false, &key, doc)
+        self.invoke(&doc.raffle_id, "freeze", false, &doc.freeze_key(), doc)
             .await
     }
 
