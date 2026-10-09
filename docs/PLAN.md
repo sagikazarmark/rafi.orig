@@ -6,6 +6,8 @@ Status: draft plan, 2026-10-05. Versions and platform facts were checked by rese
 
 **Revision 4 (2026-10-06).** The Restate service is a separate component: `restate-rafi` (library `crates/restate-rafi`, binary `crates/restate-rafi-endpoint`), following the layout of the other `restate-*` repos. It writes the draw state straight into the app's SQLite database (`crates/store`, shared with the app), and the app watches for new versions and pushes them to the screens. Litestream is dropped. Production is one VM running `deploy/compose.yaml` (Caddy, the app, `restate-rafi` and a self-hosted Restate, built from the checkout); development runs Restate in Docker (`compose.yaml`) with the app and `restate-rafi` on the host. Where §8 and §11 still describe the in-process SDK tunnel, Caddy or Litestream, this revision supersedes them.
 
+**Revision 5 (2026-10-09).** The draw engine is a seam: the app talks to it through `DrawEngine` (`crates/platform`), and the engine's rules (freeze, settling a draw with its beacon, every other command, how refusals are classified) live in `rafi-core`, so every engine only does I/O. Production's engine is still the Restate `Raffle` object, reached through `restate-rafi-client`; `rafi-engine-local` is an in-process engine for tests and development, never production. An engine conformance suite runs on both. The app decides the drand chain a raffle commits to (`RAFI_DRAND_CHAIN`); the engine reports its own (`RaffleEngine/info`) only for a check before freezing, and still refuses a mismatch. **The "local draw" fallback (§6.4) is dropped:** two engines owning one raffle could announce one draw on two rounds. When Restate is down, the organizer waits, or completes a stalled draw offline. See [engine-plan.md](engine-plan.md).
+
 ## Implementation status (2026-10-06)
 
 Milestones M0–M7 are implemented (see the README for how to run them).
@@ -26,7 +28,7 @@ Milestones M0–M7 are implemented (see the README for how to run them).
 - **CI:** GitHub Actions instead of a Dagger module.
 - **Draw engine as a separate service:** `restate-rafi` writes the draw state into SQLite itself (`rafi-store::save_draw_state`, newest version wins, only while the raffle is still drawn by Restate); the app polls recently updated Restate raffles every 250 ms. Both processes need the same database file, so they run on one host.
 - **Restate ingress:** called over plain HTTP with `reqwest`, using the classic `/Raffle/{key}/{handler}[/send]` paths, instead of the generated ingress client. This avoids pulling in reqwest 0.13 twice.
-- **Emergency switch:** "Switch to local engine" is implemented as a separate action. Any pending Restate draw is logged as failed.
+- **Emergency switch:** "Switch to local engine" was implemented as a separate action (any pending Restate draw logged as failed). Removed with the stateless server, and dropped for good in revision 5.
 - **UI (redesign, 2026-10-06):** Tailwind CSS v4 + daisyUI 5 with custom light/dark themes (system default, toggle everywhere), self-hosted display font (no Google Fonts, for GDPR), dioform for the organizer forms.
 - **UI components:** the admin uses the dioxus-daisyui-components registry (copied into `crates/app/src/components/`, backed by `dioxus-primitives`, a pinned git dependency allowed in `deny.toml`): dioform-bound fields via `dioxus-field`, `AlertDialog` confirmations for freeze/finish/delete/erase, `DropdownMenu`, `Tabs`, and toasts. The phone page stays server-rendered without WASM, so it keeps plain daisyUI classes.
 
@@ -220,7 +222,7 @@ Also ship `tools/verify.py` (about 40 lines, `hashlib` only) and `testdata/draw-
 - **More units than eligible entrants:** pass 2, as described in §6.2.
 - **Nobody left at all:** "no eligible entrants", and the unit stays Pending.
 - **drand outage:** the draw fails after 60 s of retries and the unit returns to Pending. The organizer can wait and retry, with a new round. The last resort is an explicit **"offline draw"**: OS randomness inside `ctx.run`, flagged as **unverifiable** on the projector and in the log.
-- **Restate Cloud outage during the event:** the admin view offers "local draw". The app runs the same `rafi-core` algorithm itself, with drand, logs it and marks it "local". It's still verifiable, but not protected against crashes.
+- **Restate Cloud outage during the event:** ~~the admin view offers "local draw"~~ (dropped in revision 5: a second engine owning the raffle could announce a draw on another round). The app refuses to start a draw while the engine is unreachable; a draw that stalls stays pending on its round, and the organizer retries it or completes it offline (flagged unverifiable).
 
 ## 7. Attendee identity and coming back
 
@@ -541,7 +543,7 @@ docs/PLAN.md
 | M2 | **Restate spike → VO** | The tunnel connects to Restate Cloud EU, with a fallback endpoint if not. The VO `Raffle` has freeze, draw, resolve, void, finish and get, plus the drand client with two relays, projection into SQLite and the hub, and the testcontainers suite. **Answer the open questions from §8.3.** |
 | M3 | **Raffle admin** | CRUD for raffles and items (quantity, sponsor, duplicate), publish/open/close, entrants without a phone, hide/rename/remove, a test-mode flag and fake entrants. |
 | M4 | **Attendee join** | `/j/{CODE}` SSR page, ALTCHA, email normalisation and dedupe, the guarded insert, cookie identity, consents, `/me`, HU/EN, and the rules and privacy pages. |
-| M5 | **Live screens + draw** | The hub and SSE, the projector's intro/QR/count/names, the phone states with reconnects, start_draw (freeze and commit), the per-gift draw flow with countdown, Not here / Declined → redraw, void, finish, `/v/{slug}` with the in-browser verifier, and the "local draw" and "offline draw" fallbacks. |
+| M5 | **Live screens + draw** | The hub and SSE, the projector's intro/QR/count/names, the phone states with reconnects, start_draw (freeze and commit), the per-gift draw flow with countdown, Not here / Declined → redraw, void, finish, `/v/{slug}` with the in-browser verifier, and the "offline draw" fallback (the "local draw" one was dropped in revision 5). |
 | M6 | **After the event + privacy** | Winners CSV, marking prizes delivered, the retention job, per-entrant deletion, and the Litestream retention window. |
 | M7 | **Polish** | Animations with reduced motion, `aria-live`, sound, Android vibration, the organizer phone layout, the deploy-freeze check, and a full rehearsal at a real meetup. |
 
@@ -556,7 +558,7 @@ docs/PLAN.md
 
 ## 13. Open risks
 
-- **Restate Cloud is on the critical path during the draw.** Mitigation: the "local draw" fallback (§6.4), and a check that Restate is healthy before "Start the draw".
+- **Restate Cloud is on the critical path during the draw.** Mitigation: a check that Restate is reachable (and on the app's drand chain) before "Start the draw", and offline draws for stalled ones (§6.4; the "local draw" fallback was dropped in revision 5).
 - **Tunnel maturity:** new in SDK 0.12, and the docs lag behind. Two fallbacks are described in §8.3. Verify in M2.
 - **Shared-handler visibility of in-flight state** has mixed sources. It's only used for recovery or debugging, because the projection and SSE are the primary path. Verify in M2.
 - **Restate Free tier:** the sources say 50k or 100k actions per month. About 300 per event fits either.

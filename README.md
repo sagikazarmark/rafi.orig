@@ -29,10 +29,14 @@ See [`docs/PLAN.md`](docs/PLAN.md) for the design and the reasoning behind it.
    SHA-256 counter-mode rejection sampling, so there is no modulo bias.
 4. One win per person. "Not here" or "Declined" removes that person and the prize is drawn again with a new round
    (not while another draw is pending, since that could change its pool).
-The draw state machine lives in [`crates/core`](crates/core) (pure Rust, no IO). In production it runs in
-**`restate-rafi`**, a separate service hosting the **Restate virtual object** `Raffle` (keyed by raffle ID):
-the app calls it through the Restate ingress, and it writes every new draw state straight into the app's
-database. Rafi relies on Restate: there is no in-process fallback. Restate only ever sees anonymous IDs.
+The draw state machine and the draw engine's rules live in [`crates/core`](crates/core) (pure Rust, no IO). The
+app talks to **the draw engine** through one interface (`DrawEngine`, in `crates/platform`; its contract is
+documented there). In production that engine is **`restate-rafi`**, a separate service hosting the **Restate
+virtual object** `Raffle` (keyed by raffle ID): the app calls it through the Restate ingress
+(`restate-rafi-client`), and it writes every new draw state straight into the app's database. Rafi relies on
+Restate for draws: there is no in-process fallback in production (`rafi-engine-local` is for tests and development
+only). Restate only ever sees anonymous IDs. The app decides which drand chain raffles commit to
+(`RAFI_DRAND_CHAIN`); the engine only checks it. See [`docs/engine-plan.md`](docs/engine-plan.md).
 
 The server keeps no state between requests. Phones poll their participant view (`/api/r/<slug>/participant`), and
 the projector and the admin poll the full view (`/api/r/<slug>/view`) every few seconds; both carry the raffle's
@@ -49,14 +53,16 @@ app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ dat
 crates/core                   rafi-core: draw algorithm, drand math, state machine, verifier (pure, tested, vectors)
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) on the drand crate
 crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the draw state write, the participant snapshot
-crates/restate-rafi           restate-rafi: the `Raffle` virtual object (library)
+crates/restate-rafi           restate-rafi: the `Raffle` virtual object and the `RaffleEngine` service (library)
 crates/restate-rafi-endpoint  restate-rafi: the binary serving it (config, logging, Dockerfile)
+crates/restate-rafi-client    restate-rafi-client: the draw engine through the Restate ingress (what the app links)
+crates/engine-local           rafi-engine-local: an in-process draw engine (tests, development) and the engine conformance suite
 crates/live                   rafi-live: what a phone sees (participant view, card, proof-of-work, live transport)
-crates/platform               rafi-platform: what a deployment provides (Notifier, RateLimit, DrawStore, publish rule)
+crates/platform               rafi-platform: what a deployment provides (DrawEngine, Notifier, RateLimit, DrawStore, publish rule)
 crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleChannel Durable Object, notifier, rate limits, config)
 crates/attendee               rafi-attendee: the attendee page's WebAssembly, and its JavaScript fallback
 crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (attendee pages, JSON APIs)
-                              src/server: the Restate client, attendee SSR pages, proof-of-work, retention
+                              src/server: attendee SSR pages, the JSON APIs, proof-of-work, retention
 migrations                    SQLite (and D1) schema; migrations/postgres: the same for Postgres
 tools                         verify.py: independent verifier (Python standard library only)
 testdata                      shared test vectors
@@ -106,9 +112,9 @@ RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p raf
 cd crates/app && dx serve --port 8787
 ```
 
-Then open <http://localhost:8787/admin>. To work offline, add `RAFI_DRAND_MOCK=1` and `--features mock-drand`
-to the server, and the same to the draw engine: draws then use a test chain with a public key (the `drand` crate's
-`TestChain`) and are *not* verifiable.
+Then open <http://localhost:8787/admin>. To work offline, add `RAFI_DRAND_CHAIN=mock` and `--features mock-drand`
+to the server, and the mock chain to the draw engine: draws then use a test chain with a public key (the `drand`
+crate's `TestChain`) and are *not* verifiable.
 To test with phones on your network, set `RAFI_PUBLIC_URL` to your machine's LAN address and run `dx serve --addr 0.0.0.0`.
 
 The server alone serves everything once the web app is bundled (this is what the container image runs):
@@ -139,10 +145,10 @@ RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http:/
 (cd crates/app && dx serve --port 8787)
 
 # the draw engine, in another terminal (offline: add --features mock-drand and RESTATE_RAFI_DRAND__MOCK=true,
-# matching the app's RAFI_DRAND_MOCK; the engine refuses raffles committed to another chain)
+# matching the app's RAFI_DRAND_CHAIN=mock; the app refuses to start a draw on an engine on another chain)
 RESTATE_RAFI_DATABASE__URL="$RAFI_DATABASE_URL" cargo run -p restate-rafi-endpoint
 
-# once, and again whenever the Raffle object's handlers change
+# once, and again whenever the services' handlers change (Raffle, RaffleEngine)
 curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
   -d '{"uri": "http://host.docker.internal:9080", "force": true}'
 ```
@@ -154,8 +160,8 @@ and leave `RAFI_DEV_AUTH` unset.
 
 ```sh
 export RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)   # a pinned restate-server for the end-to-end tests
-cargo test --workspace --exclude rafi -- --include-ignored  # core, drand(-beacon, incl. live relays), store, the Raffle object end to end
-cargo test -p rafi --features server -- --include-ignored   # app (with an in-process stand-in for Restate), and app + restate-rafi + restate-server
+cargo test --workspace --exclude rafi -- --include-ignored  # core, drand, store, the engine conformance suite (local runner and the Raffle object on restate-server)
+cargo test -p rafi --features server -- --include-ignored   # app (with the in-process draw engine), and app + restate-rafi + restate-server
 python3 tools/verify.py --vectors testdata/draw-vectors.json
 ```
 
@@ -177,6 +183,15 @@ backend lacks, as ignored with the reason. The tiers:
 
 A new backend implements `rafi_store::conformance::Harness` (a name, its capabilities, and a fresh, migrated
 database per scenario) and passes the suite; see the module's documentation.
+
+**The engine conformance suite** (`rafi_engine_local::conformance`) is the contract every draw engine must pass,
+through the `DrawEngine` interface alone: the fairness rules (the round is committed before its beacon is asked for;
+a withheld or forged beacon stalls the draw on its round and a retry fetches the same round; offline draws and
+abandons are logged; nothing changes a pending draw's pool; every log passes the verifier) and the contract
+(idempotency, one command at a time per raffle, asynchronous draws, refusals with their kind, a raffle forgotten
+once finished). It deploys once per drand profile (instant, with a lead, a withheld relay, a forging relay, a flaky
+store) and runs on the local runner (`cargo test -p rafi-engine-local`) and on the `Raffle` object through
+`restate-rafi-client` (`cargo test -p restate-rafi -- --include-ignored`, one `restate-server` per profile).
 
 With `RAFI_TEST_POSTGRES_URL` set, the app's tests (the end-to-end one included) also run against Postgres, each on
 a fresh schema, which they leave behind. Locally, for example:
@@ -202,7 +217,9 @@ The app:
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |
 | `CLERK_SECRET_KEY` | | Clerk backend key (`CLERK_PUBLISHABLE_KEY` at build time) |
 | `RESTATE_INGRESS_URL`, `RESTATE_API_KEY` | | The draw engine's Restate ingress (Restate Cloud: an API key with ingress access). Without it, draws can't start |
-| `RAFI_DRAND_MOCK` | off | New raffles commit to a public test chain (offline development; needs `--features mock-drand`, and the draw engine on the same chain) |
+| `RESTATE_TIMEOUT_SECS` | `90` | How long a call to the draw engine waits (natively): a command queued behind a draw waiting for its beacon may take the engine's drand lead plus fetch timeout; past this it is accepted and applies later. Keep it above `lead_secs + timeout_secs` of `restate-rafi` |
+| `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to (a chain hash). Release builds accept only public drand chains; `mock` (a public test chain, *not* verifiable) needs `--features mock-drand`. The draw engine must draw from the same chain: the app refuses to start a draw otherwise |
+| `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
 | `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenge |
 | `RAFI_ALTCHA_MAX` | `30000` | Proof-of-work difficulty |
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes |
@@ -220,7 +237,7 @@ On a VM with Docker and a domain pointing at it (production: a Scaleway DEV1-M i
 git clone https://github.com/sagikazarmark/rafi.orig rafi && cd rafi/deploy
 cp .env.example .env && $EDITOR .env   # domain, Clerk keys, proof-of-work key, Restate Cloud
 docker compose pull && docker compose up -d
-restate deployments register https://$RAFI_DOMAIN:9080   # once, and when the Raffle handlers change
+restate deployments register https://$RAFI_DOMAIN:9080   # once, and when the handlers change (Raffle, RaffleEngine)
 ```
 
 [`deploy/compose.yaml`](deploy/compose.yaml) runs Caddy (automatic HTTPS), the app and `restate-rafi` from the GHCR

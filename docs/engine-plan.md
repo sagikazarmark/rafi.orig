@@ -342,3 +342,31 @@ from app; after D is deployed) → docs (PLAN.md §6 fallback removed) → G onl
     deadline looks like an engine stuck retrying `project`).
   - `RaffleEngine/info` sends the chain as a hex string; the client parses it into `ChainHash`
     (wire format independent of drand's serde).
+
+## Implementation status (2026-10-09)
+
+Steps A–F are implemented; G (participant split) stays deferred until a trigger, H needed nothing.
+Where the implementation differs from the plan:
+
+- **Local runner ordering:** instead of taking the per-raffle lock before `command(Draw)` returns,
+  `LocalEngine` keeps one queue per raffle, worked off by one task. Arrival order is the queue's
+  order, an accepted draw returns at once (like `/send`), and a caller's deadline can never cancel a
+  queued command (the task owns it). Commands are deduplicated by ID before they are queued.
+- **`BeaconOutcome::Cancelled` is `Interrupted`** (cancelled, or a journaled step failed), and
+  `DrawState::apply` returns `()`: `state.finished` tells the engine to forget the raffle.
+- **`EngineError::Pending`** makes the app's call succeed (the command applies once; the screens
+  follow the projection) rather than a distinct 202. `EngineError::Unavailable` is
+  `AppError::Unavailable` (503). The client counts a reply as a refusal only when the ingress marks
+  it `x-restate-error-source: invocation`: the ingress's own errors (say, an unregistered
+  `RaffleEngine`) are `Unavailable`, never "not found".
+- **drand fault profiles:** `Withheld` is quicknet behind an unreachable relay with a 3 s lead (a
+  stall takes about 4 s); `Forged` is quicknet behind an in-process relay serving beacons signed by
+  the mock key. Both reach `restate_drand` because they are relays.
+- **Scenario 8:** the suite checks the announced round's `round_time` is not before the draw was
+  requested. `restate_drand`'s clock context is sealed, so the round-rule agreement is a unit test in
+  `rafi-drand` that restates its formula (`round_at(now_ms + lead)`) against `target_round`.
+- **Freeze after finish:** the scenario replays the freeze within Restate's idempotency window (it
+  can't wait an hour); beyond it, the store's highest-version guard is what keeps the record.
+- **Deadline on wasm32:** not raced yet; on Workers a call waits out the bound.
+- **Config:** the client timeout is `RESTATE_TIMEOUT_SECS` (default 90).
+- `Event::Fail` is `Event::Abandon`, still `"fail"` on the wire.
