@@ -97,7 +97,7 @@
       },
       {
         "k": 1,
-        "outcome": "not_here",
+        "resolution": "not_here",
         "type": "resolved"
       },
       {
@@ -142,7 +142,7 @@
       },
       {
         "k": 2,
-        "outcome": "claimed",
+        "resolution": "claimed",
         "type": "resolved"
       },
       {
@@ -166,7 +166,7 @@
       },
       {
         "k": 3,
-        "outcome": "declined",
+        "resolution": "declined",
         "type": "resolved"
       },
       {
@@ -190,7 +190,7 @@
       },
       {
         "k": 4,
-        "outcome": "claimed",
+        "resolution": "claimed",
         "type": "resolved"
       },
       {
@@ -218,7 +218,7 @@
       },
       {
         "k": 5,
-        "outcome": "claimed",
+        "resolution": "claimed",
         "type": "resolved"
       },
       {

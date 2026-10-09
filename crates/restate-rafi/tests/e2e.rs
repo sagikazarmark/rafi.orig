@@ -181,7 +181,7 @@ async fn e2e_raffle() {
             &call("decide"),
             Some(&json!(Decision::Resolve {
                 item: "ticket-1".into(),
-                outcome: Resolution::NotHere,
+                resolution: Resolution::NotHere,
             })),
             None,
         )
@@ -199,7 +199,7 @@ async fn e2e_raffle() {
     assert_ne!(s.item(&"ticket-1".into()).unwrap().winner(), Some(&first));
     let claim = json!(Decision::Resolve {
         item: "ticket-1".into(),
-        outcome: Resolution::Claimed,
+        resolution: Resolution::Claimed,
     });
     assert_eq!(
         restate

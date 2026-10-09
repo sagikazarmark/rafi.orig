@@ -197,8 +197,8 @@ mod tests {
             k
         }
 
-        fn resolve(&mut self, k: u64, outcome: Resolution) {
-            self.events.push(Event::Resolved { k, outcome });
+        fn resolve(&mut self, k: u64, resolution: Resolution) {
+            self.events.push(Event::Resolved { k, resolution });
         }
 
         fn drawing(&self) -> Drawing {

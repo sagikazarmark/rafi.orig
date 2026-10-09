@@ -696,10 +696,10 @@ fn DrawConsole(
         }
     };
     let id = admin.id.clone();
-    let resolve = move |item: ItemId, outcome: Resolution| {
+    let resolve = move |item: ItemId, resolution: Resolution| {
         let id = id.clone();
         async move {
-            match api::resolve_item(id, item, outcome, command_id()).await {
+            match api::resolve_item(id, item, resolution, command_id()).await {
                 Ok(()) => {
                     error.set(None);
                     on_change.call(());

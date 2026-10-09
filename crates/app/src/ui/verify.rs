@@ -264,8 +264,8 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<ItemId, Stri
         Event::Abandoned {
             k, round, reason, ..
         } => format!("Draw {k}: committed round {round} abandoned ({reason})"),
-        Event::Resolved { k, outcome } => {
-            format!("Draw {k}: {}", format!("{outcome:?}").to_lowercase())
+        Event::Resolved { k, resolution } => {
+            format!("Draw {k}: {}", format!("{resolution:?}").to_lowercase())
         }
         Event::Voided { item } => format!("{} withdrawn", item_name(item)),
         Event::Finished => "Finished 🎉".into(),

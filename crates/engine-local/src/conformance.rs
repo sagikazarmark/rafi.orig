@@ -515,7 +515,7 @@ async fn commands_apply_once(fx: Arc<Fixture>, id: String) -> Result<(), String>
     fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
         item: "item-1".into(),
-        outcome: Resolution::Claimed,
+        resolution: Resolution::Claimed,
     };
     fx.ok(&id, claimed.clone(), "c1").await?;
     // Applied again, it would be refused (no undecided winner).
@@ -539,9 +539,9 @@ async fn refusals_keep_their_kind(fx: Arc<Fixture>, id: String) -> Result<(), St
         .await?;
     let doc = fx.doc(&id, 3, 2);
     fx.open(&doc).await?;
-    let resolve = |item: &str, outcome| Decision::Resolve {
+    let resolve = |item: &str, resolution| Decision::Resolve {
         item: item.into(),
-        outcome,
+        resolution,
     };
     fx.refused(
         &id,
@@ -609,7 +609,7 @@ async fn a_finished_drawing_is_forgotten(fx: Arc<Fixture>, id: String) -> Result
     fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
         item: "item-1".into(),
-        outcome: Resolution::Claimed,
+        resolution: Resolution::Claimed,
     };
     fx.ok(&id, claimed, "c1").await?;
     fx.ok(&id, Decision::Finish, "f1").await?;
@@ -854,7 +854,7 @@ async fn every_state_reaches_a_flaky_store(fx: Arc<Fixture>, id: String) -> Resu
     fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
         item: "item-1".into(),
-        outcome: Resolution::Claimed,
+        resolution: Resolution::Claimed,
     };
     fx.ok(&id, claimed, "c1").await?;
     fx.ok(&id, Decision::Finish, "f1").await?;

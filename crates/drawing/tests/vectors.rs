@@ -125,9 +125,9 @@ fn generate() -> Vectors {
             .unwrap();
     };
     let decide = |s: &mut Drawing, decision: Decision| s.decide(&decision).unwrap();
-    let resolve = |item: &str, outcome| Decision::Resolve {
+    let resolve = |item: &str, resolution| Decision::Resolve {
         item: item.into(),
-        outcome,
+        resolution,
     };
     draw(&mut s, "voucher-1", 1000);
     decide(&mut s, resolve("voucher-1", Resolution::NotHere));

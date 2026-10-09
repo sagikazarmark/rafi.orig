@@ -130,8 +130,8 @@ admin_api! {
     fn draw_item(id: String, item: ItemId, command_id: String) -> () =
         |app, owner| service::command(app, owner, &id, DrawRequest { item }, &command_id);
 
-    fn resolve_item(id: String, item: ItemId, outcome: Resolution, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Decision::Resolve { item, outcome }, &command_id);
+    fn resolve_item(id: String, item: ItemId, resolution: Resolution, command_id: String) -> () =
+        |app, owner| service::command(app, owner, &id, Decision::Resolve { item, resolution }, &command_id);
 
     fn void_item(id: String, item: ItemId, command_id: String) -> () =
         |app, owner| service::command(app, owner, &id, Decision::Void { item }, &command_id);

@@ -66,10 +66,13 @@ impl Resolution {
 
 /// The organizer's decision about a drawing: every command but a draw.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "cmd", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Decision {
     /// Resolves a drawn item's winner.
-    Resolve { item: ItemId, outcome: Resolution },
+    Resolve {
+        item: ItemId,
+        resolution: Resolution,
+    },
     /// Withdraws an item that will not be given away.
     Void { item: ItemId },
     /// Abandons the pending draw of this item without its committed beacon.
@@ -105,23 +108,23 @@ mod tests {
         assert_eq!(json, r#"{"item":"item-1"}"#);
         let json = serde_json::to_string(&Decision::Resolve {
             item: "item-1".into(),
-            outcome: Resolution::NotHere,
+            resolution: Resolution::NotHere,
         })
         .unwrap();
         assert_eq!(
             json,
-            r#"{"cmd":"resolve","item":"item-1","outcome":"not_here"}"#
+            r#"{"type":"resolve","item":"item-1","resolution":"not_here"}"#
         );
         assert_eq!(
             serde_json::to_string(&Decision::Abandon {
                 item: "item-1".into()
             })
             .unwrap(),
-            r#"{"cmd":"abandon","item":"item-1"}"#
+            r#"{"type":"abandon","item":"item-1"}"#
         );
         assert_eq!(
             serde_json::to_string(&Decision::Finish).unwrap(),
-            r#"{"cmd":"finish"}"#
+            r#"{"type":"finish"}"#
         );
     }
 }

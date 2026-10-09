@@ -168,7 +168,7 @@ async fn app_and_restate_rafi_share_the_database() {
         &id,
         Decision::Resolve {
             item: item.clone(),
-            outcome: Resolution::Claimed,
+            resolution: Resolution::Claimed,
         },
         "cmd-2",
     )

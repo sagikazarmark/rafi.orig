@@ -500,7 +500,7 @@ pub async fn command(
         // change the draw). The rest waits for the draw to land or stall.
         Command::Decide(
             decision @ Decision::Resolve {
-                outcome: Resolution::Claimed,
+                resolution: Resolution::Claimed,
                 ..
             },
         ) => dry.decide(decision),
@@ -562,13 +562,13 @@ async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &
 fn audited(cmd: &Command) -> (&'static str, String) {
     match cmd {
         Command::Draw(DrawRequest { item }) => ("draw", item.to_string()),
-        Command::Decide(Decision::Resolve { item, outcome }) => {
-            let outcome = match outcome {
+        Command::Decide(Decision::Resolve { item, resolution }) => {
+            let resolution = match resolution {
                 Resolution::Claimed => "claimed",
                 Resolution::NotHere => "not_here",
                 Resolution::Declined => "declined",
             };
-            ("resolve", format!("{item} {outcome}"))
+            ("resolve", format!("{item} {resolution}"))
         }
         Command::Decide(Decision::Void { item }) => ("void", item.to_string()),
         Command::Decide(Decision::Abandon { item }) => ("abandon", item.to_string()),

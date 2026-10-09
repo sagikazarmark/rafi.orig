@@ -144,7 +144,7 @@ pub enum Event {
         reason: String,
     },
     /// The organizer resolved draw `k`'s winner.
-    Resolved { k: u64, outcome: Resolution },
+    Resolved { k: u64, resolution: Resolution },
     /// The organizer withdrew an item.
     Voided { item: ItemId },
     /// The drawing ended.
@@ -280,8 +280,8 @@ impl Drawing {
     pub fn draws(&self) -> Vec<CompletedDraw> {
         let mut outcomes: HashMap<u64, Outcome> = HashMap::new();
         for e in &self.events {
-            if let Event::Resolved { k, outcome } = e {
-                outcomes.insert(*k, (*outcome).into());
+            if let Event::Resolved { k, resolution } = e {
+                outcomes.insert(*k, (*resolution).into());
             }
         }
         self.events
@@ -446,7 +446,7 @@ impl Drawing {
     /// and the engine may forget it.
     pub fn decide(&mut self, decision: &Decision) -> Result<(), Error> {
         match decision {
-            Decision::Resolve { item, outcome } => self.resolve(item, *outcome),
+            Decision::Resolve { item, resolution } => self.resolve(item, *resolution),
             Decision::Void { item } => self.void(item),
             Decision::Abandon { item } => match &self.pending {
                 Some(p) if p.item == *item => self.abandon("abandoned by the organizer"),
@@ -600,8 +600,8 @@ impl Drawing {
     /// Resolves a drawn item's winner. A claim keeps the item with the
     /// winner; a forfeit makes it available again, and is refused while a
     /// draw is pending, because it can change that draw's pool.
-    pub(crate) fn resolve(&mut self, id: &ItemId, outcome: Resolution) -> Result<(), Error> {
-        if outcome.is_forfeit() && self.pending.is_some() {
+    pub(crate) fn resolve(&mut self, id: &ItemId, resolution: Resolution) -> Result<(), Error> {
+        if resolution.is_forfeit() && self.pending.is_some() {
             return Err(Error::DrawInProgress);
         }
         let item = self
@@ -610,7 +610,7 @@ impl Drawing {
         let ItemState::Drawn { k, .. } = item.state else {
             return Err(Error::ItemNotDrawn(id.clone()));
         };
-        self.record(Event::Resolved { k, outcome });
+        self.record(Event::Resolved { k, resolution });
         Ok(())
     }
 
@@ -618,10 +618,10 @@ impl Drawing {
     pub(crate) fn resolve_draw(
         &mut self,
         k: u64,
-        outcome: Resolution,
+        resolution: Resolution,
     ) -> Option<Result<(), Error>> {
         let id = self.item_held_by(k)?.id.clone();
-        Some(self.resolve(&id, outcome))
+        Some(self.resolve(&id, resolution))
     }
 
     /// Withdraws an item that will not be given away.
@@ -687,7 +687,7 @@ impl Drawing {
             }
             Event::Stalled { .. } => {}
             Event::Abandoned { .. } => self.pending = None,
-            Event::Resolved { k, outcome } => {
+            Event::Resolved { k, resolution } => {
                 let item = self
                     .items
                     .iter_mut()
@@ -695,7 +695,7 @@ impl Drawing {
                         |item| matches!(item.state, ItemState::Drawn { k: held, .. } if held == *k),
                     )
                     .ok_or(Error::UnknownDraw(*k))?;
-                item.state = match (&item.state, outcome) {
+                item.state = match (&item.state, resolution) {
                     (ItemState::Drawn { k, winner }, Resolution::Claimed) => ItemState::Claimed {
                         k: *k,
                         winner: winner.clone(),
@@ -1040,7 +1040,7 @@ pub(crate) mod tests {
         draw(&mut s, "item-0", 1);
         let resolve = Decision::Resolve {
             item: "item-0".into(),
-            outcome: Resolution::Claimed,
+            resolution: Resolution::Claimed,
         };
         s.decide(&resolve).unwrap();
         s.decide(&Decision::Void {
@@ -1084,7 +1084,7 @@ pub(crate) mod tests {
 
         let unknown = Event::Resolved {
             k: 9,
-            outcome: Resolution::Claimed,
+            resolution: Resolution::Claimed,
         };
         assert_eq!(Drawing::restore(&m, &[unknown]), Err(Error::UnknownDraw(9)));
     }
@@ -1107,7 +1107,7 @@ pub(crate) mod tests {
         // A log that isn't the drawing's own does not load.
         let bad = serde_json::json!({
             "manifest": serde_json::to_value(&m).unwrap(),
-            "events": [{"type": "resolve", "k": 7, "outcome": "claimed"}],
+            "events": [{"type": "resolved", "k": 7, "resolution": "claimed"}],
         });
         assert!(serde_json::from_value::<Drawing>(bad).is_err());
     }

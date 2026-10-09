@@ -200,7 +200,7 @@ pub fn verify(
                 record_abandoned(&mut report, &state);
                 state.abandon(reason)
             }
-            Event::Resolved { k, outcome } => match state.resolve_draw(*k, *outcome) {
+            Event::Resolved { k, resolution } => match state.resolve_draw(*k, *resolution) {
                 Some(resolved) => resolved,
                 None => {
                     report.errors.push(format!("resolve for unknown draw {k}"));
@@ -426,7 +426,7 @@ mod tests {
         let mut events = s.events().to_vec();
         events.push(Event::Resolved {
             k: 1,
-            outcome: Resolution::NotHere,
+            resolution: Resolution::NotHere,
         });
         assert!(!check(&m, &events).ok());
     }

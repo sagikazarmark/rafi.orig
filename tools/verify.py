@@ -171,12 +171,12 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
             draws.append(d)
             by_k[k] = d
         elif t == "resolved":
-            if pending is not None and ev["outcome"] in ("not_here", "declined"):
-                print(f"FAIL draw {ev['k']}: resolved {ev['outcome']} while draw {pending[0]} was pending")
+            if pending is not None and ev["resolution"] in ("not_here", "declined"):
+                print(f"FAIL draw {ev['k']}: resolved {ev['resolution']} while draw {pending[0]} was pending")
                 ok = False
             if ev["k"] in by_k:
-                by_k[ev["k"]]["outcome"] = ev["outcome"]
-                print(f"     draw {ev['k']}: {ev['outcome'].replace('_', ' ')}")
+                by_k[ev["k"]]["outcome"] = ev["resolution"]
+                print(f"     draw {ev['k']}: {ev['resolution'].replace('_', ' ')}")
         elif t == "stalled":
             print(f"     draw {ev['k']}: round {ev['round']} not available yet ({ev['reason']}); still pending")
         elif t == "abandoned":

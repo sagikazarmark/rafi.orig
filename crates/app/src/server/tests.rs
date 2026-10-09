@@ -345,7 +345,7 @@ async fn full_raffle_flow() {
                 &raffle.id,
                 Decision::Resolve {
                     item: item.clone(),
-                    outcome: Resolution::NotHere,
+                    resolution: Resolution::NotHere,
                 },
                 "nh",
             )
@@ -395,7 +395,7 @@ async fn full_raffle_flow() {
             &raffle.id,
             Decision::Resolve {
                 item: item.clone(),
-                outcome: Resolution::Claimed,
+                resolution: Resolution::Claimed,
             },
             &format!("r{i}"),
         )
@@ -1255,11 +1255,11 @@ async fn only_handing_over_passes_a_waiting_draw() {
             service::command(&app, OWNER, &raffle_id, request, &id).await
         }
     };
-    let resolve = |outcome, id: &str| {
+    let resolve = |resolution, id: &str| {
         let id = id.to_owned();
         let (app, raffle_id, item) = (app.clone(), raffle.id.clone(), items[0].clone());
         async move {
-            let decision = Decision::Resolve { item, outcome };
+            let decision = Decision::Resolve { item, resolution };
             service::command(&app, OWNER, &raffle_id, decision, &id).await
         }
     };

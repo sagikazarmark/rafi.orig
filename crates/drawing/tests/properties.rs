@@ -122,8 +122,8 @@ proptest! {
                     }
                 }
                 Op::Resolve(i, o) => {
-                    let outcome = [Resolution::Claimed, Resolution::NotHere, Resolution::Declined][o as usize];
-                    let _ = s.decide(&Decision::Resolve { item: item(i % items), outcome });
+                    let resolution = [Resolution::Claimed, Resolution::NotHere, Resolution::Declined][o as usize];
+                    let _ = s.decide(&Decision::Resolve { item: item(i % items), resolution });
                 }
                 Op::Void(i) => { let _ = s.decide(&Decision::Void { item: item(i % items) }); }
                 Op::Finish => { let _ = s.decide(&Decision::Finish); }

@@ -480,7 +480,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         });
         events.push(Event::Resolved {
             k,
-            outcome: Resolution::Claimed,
+            resolution: Resolution::Claimed,
         });
     }
     let state = Drawing::restore(&manifest, &events).map_err(fail)?;
