@@ -152,13 +152,13 @@ pub fn verify(
     let mut state = Drawing::open_unchecked(&manifest);
     for event in events {
         let replayed = match event {
-            Event::Announce {
+            Event::Announced {
                 item,
                 round,
                 round_time,
                 ..
             } => state.start(item, *round, *round_time).map(drop),
-            Event::Draw {
+            Event::Drawn {
                 k,
                 item,
                 round,
@@ -199,20 +199,20 @@ pub fn verify(
                     });
                 })
             }
-            Event::Stall { reason, .. } => state.stall(reason),
-            Event::Abandon { reason, .. } => {
+            Event::Stalled { reason, .. } => state.stall(reason),
+            Event::Abandoned { reason, .. } => {
                 record_abandoned(&mut report, &state);
                 state.abandon(reason)
             }
-            Event::Resolve { k, outcome } => match state.resolve_draw(*k, *outcome) {
+            Event::Resolved { k, outcome } => match state.resolve_draw(*k, *outcome) {
                 Some(resolved) => resolved,
                 None => {
                     report.errors.push(format!("resolve for unknown draw {k}"));
                     continue;
                 }
             },
-            Event::Void { item } => state.void(item),
-            Event::Finish => state.finish(),
+            Event::Voided { item } => state.void(item),
+            Event::Finished => state.finish(),
         };
         match replayed {
             Err(e) => report.errors.push(format!("{}: {e}", describe(event))),
@@ -232,13 +232,13 @@ pub fn verify(
 /// An event, briefly, for the report's errors.
 fn describe(event: &Event) -> String {
     match event {
-        Event::Announce { k, .. } => format!("draw {k} (announce)"),
-        Event::Draw { k, .. } => format!("draw {k}"),
-        Event::Stall { k, .. } => format!("draw {k} (stall)"),
-        Event::Abandon { k, .. } => format!("draw {k} (abandon)"),
-        Event::Resolve { k, .. } => format!("draw {k} (resolve)"),
-        Event::Void { item } => format!("void {item}"),
-        Event::Finish => "finish".to_owned(),
+        Event::Announced { k, .. } => format!("draw {k} (announce)"),
+        Event::Drawn { k, .. } => format!("draw {k}"),
+        Event::Stalled { k, .. } => format!("draw {k} (stall)"),
+        Event::Abandoned { k, .. } => format!("draw {k} (abandon)"),
+        Event::Resolved { k, .. } => format!("draw {k} (resolve)"),
+        Event::Voided { item } => format!("void {item}"),
+        Event::Finished => "finish".to_owned(),
     }
 }
 
@@ -326,7 +326,7 @@ mod tests {
         let (m, mut s) = setup();
         draw(&mut s, "item-0", 1);
         let mut events = s.events().to_vec();
-        if let Some(Event::Draw {
+        if let Some(Event::Drawn {
             signature,
             randomness,
             ..
@@ -348,7 +348,7 @@ mod tests {
         let (m, mut s) = setup();
         draw(&mut s, "item-0", 1);
         let mut events = s.events().to_vec();
-        if let Some(Event::Draw { randomness, .. }) = events.last_mut() {
+        if let Some(Event::Drawn { randomness, .. }) = events.last_mut() {
             *randomness = hex::encode([1; 32]);
         }
         assert!(!check(&m, &events).ok());
@@ -377,7 +377,7 @@ mod tests {
         let (m, mut s) = setup();
         draw(&mut s, "item-0", 1);
         let mut events = s.events().to_vec();
-        if let Some(Event::Draw { entrant, .. }) = events.last_mut() {
+        if let Some(Event::Drawn { entrant, .. }) = events.last_mut() {
             *entrant = "f".repeat(32).into();
         }
         assert!(!check(&m, &events).ok());
@@ -388,7 +388,7 @@ mod tests {
         let (m, mut s) = setup();
         draw(&mut s, "item-0", 1);
         let mut events = s.events().to_vec();
-        if let Some(Event::Draw { index, .. }) = events.last_mut() {
+        if let Some(Event::Drawn { index, .. }) = events.last_mut() {
             *index += 1;
         }
         assert!(!check(&m, &events).ok());
@@ -428,7 +428,7 @@ mod tests {
         s.start(&"item-2".into(), 3, 0).unwrap();
         // A forged log: "not here" while the pass-2 draw is pending.
         let mut events = s.events().to_vec();
-        events.push(Event::Resolve {
+        events.push(Event::Resolved {
             k: 1,
             outcome: Resolution::NotHere,
         });

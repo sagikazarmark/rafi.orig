@@ -129,12 +129,12 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
     pending = None  # (k, round) of the announced draw
     for ev in events:
         t = ev["type"]
-        if t == "announce":
+        if t == "announced":
             if pending is not None:
                 print(f"FAIL draw {ev['k']}: announced while draw {pending[0]} is pending")
                 ok = False
             pending = (ev["k"], ev["round"])
-        elif t == "draw":
+        elif t == "drawn":
             k = ev["k"]
             # A draw must settle the announced draw on its committed round
             # (a beacon from another round would be a silent redraw).
@@ -170,22 +170,22 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
             d = {"pass": pass_, "entrant": expected, "outcome": "drawn"}
             draws.append(d)
             by_k[k] = d
-        elif t == "resolve":
+        elif t == "resolved":
             if pending is not None and ev["outcome"] in ("not_here", "declined"):
                 print(f"FAIL draw {ev['k']}: resolved {ev['outcome']} while draw {pending[0]} was pending")
                 ok = False
             if ev["k"] in by_k:
                 by_k[ev["k"]]["outcome"] = ev["outcome"]
                 print(f"     draw {ev['k']}: {ev['outcome'].replace('_', ' ')}")
-        elif t == "stall":
+        elif t == "stalled":
             print(f"     draw {ev['k']}: round {ev['round']} not available yet ({ev['reason']}); still pending")
-        elif t == "fail":
+        elif t == "abandoned":
             if pending != (ev["k"], ev["round"]):
                 print(f"FAIL draw {ev['k']}: abandon does not match the pending draw")
                 ok = False
             would_have_picked(ev["k"], ev["round"], f"ABANDONED ({ev['reason']})")
             pending = None
-        elif t == "void":
+        elif t == "voided":
             print(f"     item {ev['item']} voided")
     return ok
 

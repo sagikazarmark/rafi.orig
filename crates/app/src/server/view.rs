@@ -75,8 +75,8 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
                 prize_id: rafi_core::prize::prize_id(u.id.as_str()).to_owned(),
                 prize_name: u.name.clone(),
                 status: u.status(),
-                display_name: u.entrant().map(|e| name_of(e.as_str())),
-                entrant: u.entrant().cloned(),
+                display_name: u.winner().map(|e| name_of(e.as_str())),
+                entrant: u.winner().cloned(),
             })
             .collect(),
         None => prizes
@@ -86,7 +86,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
                     item: rafi_core::prize::item_id(&i.id, n).into(),
                     prize_id: i.id.clone(),
                     prize_name: i.name.clone(),
-                    status: ItemStatus::Pending,
+                    status: ItemStatus::Available,
                     entrant: None,
                     display_name: None,
                 })
@@ -101,7 +101,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             .get(u.prize_id.as_str())
             .copied()
             .unwrap_or((u.prize_name.as_str(), ""));
-        let open = matches!(u.status, ItemStatus::Pending | ItemStatus::Drawn);
+        let open = matches!(u.status, ItemStatus::Available | ItemStatus::Drawn);
         match prize_views.iter_mut().find(|p| p.prize_id == u.prize_id) {
             Some(p) => {
                 p.qty += 1;
@@ -141,11 +141,11 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         // clears it.
         for e in s.events() {
             match e {
-                Event::Stall { reason, .. } => last_failure = Some(reason.clone()),
-                Event::Abandon { round, reason, .. } => {
+                Event::Stalled { reason, .. } => last_failure = Some(reason.clone()),
+                Event::Abandoned { round, reason, .. } => {
                     last_failure = Some(format!("round {round} abandoned ({reason})"))
                 }
-                Event::Announce { .. } | Event::Draw { .. } => last_failure = None,
+                Event::Announced { .. } | Event::Drawn { .. } => last_failure = None,
                 _ => {}
             }
         }

@@ -1,4 +1,4 @@
-//! The `DrawingEngine` service: what the draw engine says about itself.
+//! The `DrawingEngine` service: what the drawing engine says about itself.
 
 use rafi_drand::DrandClient;
 use rafi_drawing::BeaconSource;

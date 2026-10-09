@@ -1,5 +1,5 @@
 //! A Worker that hosts `RaffleChannel` and lets `scenario.mjs` change a raffle
-//! the way the app and the draw engine would.
+//! the way the app and the drawing engine would.
 //!
 //! ```shell
 //! cd crates/cloudflare-check
@@ -235,11 +235,11 @@ async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
     let Some(item) = state
         .items()
         .iter()
-        .find(|u| u.status() == ItemStatus::Pending)
+        .find(|u| u.status() == ItemStatus::Available)
     else {
         return Err(err("no prize left"));
     };
-    let draw = Event::Draw {
+    let draw = Event::Drawn {
         k: state.draws().len() as u64 + 1,
         item: item.id.clone(),
         round: 1,
@@ -254,7 +254,7 @@ async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
 }
 
 async fn finish(db: &Db, raffle: &str) -> Result<()> {
-    record(db, raffle, Event::Finish).await
+    record(db, raffle, Event::Finished).await
 }
 
 #[event(fetch)]

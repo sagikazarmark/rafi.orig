@@ -467,7 +467,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     // "w" and "d" won and claimed, as their engine logged it.
     let mut events = Vec::new();
     for (k, (item, winner)) in [(1, ("u1", "w")), (2, ("u2", "d"))] {
-        events.push(Event::Draw {
+        events.push(Event::Drawn {
             k,
             item: item.into(),
             round: k,
@@ -478,7 +478,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
             index: 0,
             entrant: winner.into(),
         });
-        events.push(Event::Resolve {
+        events.push(Event::Resolved {
             k,
             outcome: Resolution::Claimed,
         });
@@ -704,7 +704,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         .map_err(fail)?;
     entrants::set_hidden(db, &bence, true).await.map_err(fail)?;
     // Bence drawn, as the engine logged it.
-    let draw = Event::Draw {
+    let draw = Event::Drawn {
         k: 1,
         item: "u1".into(),
         round: 1,

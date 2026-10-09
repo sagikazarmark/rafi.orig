@@ -145,7 +145,8 @@ async fn app_and_restate_rafi_share_the_database() {
     .await
     .unwrap();
     wait_for(&app, &id, |r| {
-        r.drawing().unwrap()
+        r.drawing()
+            .unwrap()
             .is_some_and(|s| s.item(&item).unwrap().status() == ItemStatus::Drawn)
     })
     .await;

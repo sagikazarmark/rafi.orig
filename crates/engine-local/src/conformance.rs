@@ -1,4 +1,4 @@
-//! The engine conformance suite: the scenarios every draw engine must pass,
+//! The engine conformance suite: the scenarios every drawing engine must pass,
 //! through the [`DrawingEngine`] port alone.
 //!
 //! An engine provides an [`EngineHarness`]: it deploys the engine for a
@@ -410,7 +410,7 @@ fn now() -> u64 {
 }
 
 fn is_stall(e: &Event) -> bool {
-    matches!(e, Event::Stall { .. })
+    matches!(e, Event::Stalled { .. })
 }
 
 fn count(s: &Drawing, f: impl Fn(&Event) -> bool) -> usize {
@@ -522,11 +522,11 @@ async fn commands_apply_once(fx: Arc<Fixture>, id: String) -> Result<(), String>
     fx.ok(&id, claimed, "c1").await?;
     let s = fx.store.latest(&id).ok_or("no projection")?;
     ensure!(
-        count(&s, |e| matches!(e, Event::Draw { .. })) == 1,
+        count(&s, |e| matches!(e, Event::Drawn { .. })) == 1,
         "drawn twice"
     );
     ensure!(
-        count(&s, |e| matches!(e, Event::Resolve { .. })) == 1,
+        count(&s, |e| matches!(e, Event::Resolved { .. })) == 1,
         "resolved twice"
     );
     verified(&doc, &s)?;
@@ -642,14 +642,14 @@ async fn the_round_is_committed_before_its_beacon(
         .into_iter()
         .filter(|s| s.id() == id.as_str())
         .find(|s| {
-            s.pending().is_some() && matches!(s.events().last(), Some(Event::Announce { .. }))
+            s.pending().is_some() && matches!(s.events().last(), Some(Event::Announced { .. }))
         })
         .ok_or("the announcement was never projected on its own")?;
     ensure!(
         announced.version() < drawn.version(),
         "announced after the draw"
     );
-    let Some(Event::Announce {
+    let Some(Event::Announced {
         round, round_time, ..
     }) = announced.events().last()
     else {
@@ -660,7 +660,7 @@ async fn the_round_is_committed_before_its_beacon(
         "round {round} was out ({round_time}) before the draw started ({requested})"
     );
     ensure!(
-        matches!(drawn.events().last(), Some(Event::Draw { round: r, .. }) if r == round),
+        matches!(drawn.events().last(), Some(Event::Drawn { round: r, .. }) if r == round),
         "drawn from another round: {:?}",
         drawn.events()
     );
@@ -681,8 +681,8 @@ async fn a_command_waits_for_the_pending_draw(fx: Arc<Fixture>, id: String) -> R
         .events()
         .iter()
         .filter_map(|e| match e {
-            Event::Draw { .. } => Some("draw"),
-            Event::Finish => Some("finish"),
+            Event::Drawn { .. } => Some("draw"),
+            Event::Finished => Some("finish"),
             _ => None,
         })
         .collect();
@@ -707,7 +707,7 @@ async fn a_deadline_leaves_the_command_pending(fx: Arc<Fixture>, id: String) -> 
     fx.ok(&id, Decision::Finish, "f1").await?;
     let latest = fx.store.latest(&id).ok_or("no projection")?;
     ensure!(
-        count(&latest, |e| matches!(e, Event::Finish)) == 1,
+        count(&latest, |e| matches!(e, Event::Finished)) == 1,
         "finished twice"
     );
     ensure!(
@@ -743,14 +743,14 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
         "another draw: {second:?}"
     );
     ensure!(
-        count(&second, |e| matches!(e, Event::Announce { .. })) == 1,
+        count(&second, |e| matches!(e, Event::Announced { .. })) == 1,
         "announced twice"
     );
     ensure!(
         second
             .events()
             .iter()
-            .all(|e| !matches!(e, Event::Stall { round, .. } if *round != pending.round)),
+            .all(|e| !matches!(e, Event::Stalled { round, .. } if *round != pending.round)),
         "stalled on another round"
     );
     // Another item can't start meanwhile; the organizer abandons this one.
@@ -761,7 +761,7 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
         .projected(&id, "abandoned", |s| s.pending().is_none())
         .await?;
     ensure!(
-        matches!(s.events().last(), Some(Event::Abandon { round, .. }) if *round == pending.round),
+        matches!(s.events().last(), Some(Event::Abandoned { round, .. }) if *round == pending.round),
         "{:?}",
         s.events()
     );
@@ -813,7 +813,7 @@ async fn a_forged_beacon_stalls_the_draw(fx: Arc<Fixture>, id: String) -> Result
     let s = fx.stalls(&id, 1).await?;
     ensure!(s.pending().is_some(), "the draw isn't pending");
     ensure!(
-        count(&s, |e| matches!(e, Event::Draw { .. })) == 0,
+        count(&s, |e| matches!(e, Event::Drawn { .. })) == 0,
         "drawn from a forged beacon"
     );
     verified(&doc, &s)?;

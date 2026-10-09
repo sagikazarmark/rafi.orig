@@ -61,7 +61,7 @@ impl Db {
 
     /// Opens the existing database at `url` lazily: the first query connects.
     /// Neither creates the database nor migrates it; that's the app's job, so
-    /// a writer that starts first (the draw engine) fails until the app has
+    /// a writer that starts first (the drawing engine) fails until the app has
     /// run, and is retried.
     pub fn connect_lazy(url: &str) -> Result<Self> {
         let backend = if is_postgres(url) {

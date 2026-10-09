@@ -1,4 +1,4 @@
-//! An in-process draw engine, for tests and development only.
+//! An in-process drawing engine, for tests and development only.
 //!
 //! [`LocalEngine`] keeps the [`DrawingEngine`] contract the way the `Drawing`
 //! Restate virtual object does, without its durability:
@@ -51,7 +51,7 @@ pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 /// How a job ended: refusals keep their kind and message.
 type Outcome = Result<(), (ErrorKind, String)>;
 
-/// The draw engine, in this process. Clones share the engine.
+/// The drawing engine, in this process. Clones share the engine.
 #[derive(Clone)]
 pub struct LocalEngine {
     shared: Arc<Shared>,

@@ -8,9 +8,9 @@ use crate::{beacon::BeaconSource, id::ItemId};
 pub enum Error {
     #[error("the drawing is already open with another manifest")]
     AlreadyOpen,
-    #[error("the drawing draws from {committed}, but the draw engine from {engine}")]
-    BeaconMismatch {
-        committed: BeaconSource,
+    #[error("the drawing draws from {drawing}, but the engine from {engine}")]
+    BeaconSourceMismatch {
+        drawing: BeaconSource,
         engine: BeaconSource,
     },
     #[error("invalid manifest: {0}")]
@@ -20,7 +20,7 @@ pub enum Error {
     #[error("unknown item {0}")]
     UnknownItem(ItemId),
     #[error("item {0} is not available for drawing")]
-    ItemNotPending(ItemId),
+    ItemNotAvailable(ItemId),
     #[error("item {0} has no undecided winner")]
     ItemNotDrawn(ItemId),
     #[error("another draw is in progress")]
@@ -32,7 +32,7 @@ pub enum Error {
     #[error("the beacon is for round {got}, but the draw committed to round {expected}")]
     WrongRound { expected: u64, got: u64 },
     #[error("the beacon is from another source than the drawing's")]
-    WrongBeacon,
+    WrongBeaconSource,
     #[error("draw {0} holds no drawn item")]
     UnknownDraw(u64),
 }
@@ -44,16 +44,16 @@ impl Error {
             Self::UnknownItem(_) => ErrorKind::NotFound,
             Self::InvalidManifest(_) => ErrorKind::BadRequest,
             Self::AlreadyOpen
-            | Self::BeaconMismatch { .. }
+            | Self::BeaconSourceMismatch { .. }
             | Self::Finished
-            | Self::ItemNotPending(_)
+            | Self::ItemNotAvailable(_)
             | Self::ItemNotDrawn(_)
             | Self::DrawInProgress
             | Self::NoDrawInProgress
             | Self::NoEligibleEntrants => ErrorKind::Conflict,
             // A beacon for the wrong round or source only ever stalls a draw:
             // these are engine bugs.
-            Self::WrongRound { .. } | Self::WrongBeacon => ErrorKind::Invariant,
+            Self::WrongRound { .. } | Self::WrongBeaconSource => ErrorKind::Invariant,
             // Only a log that is not the drawing's own names a missing draw.
             Self::UnknownDraw(_) => ErrorKind::Invariant,
         }

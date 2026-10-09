@@ -1,6 +1,6 @@
 //! The drawing: its state machine.
 //!
-//! [`Drawing`] is one drawing's state. Its owner, a draw engine, stores it and
+//! [`Drawing`] is one drawing's state. Its owner, an engine, stores it and
 //! changes it only through its protocol: [`Drawing::open_or_check`] to open
 //! it, [`Drawing::announce`] and [`Drawing::settle`] for a draw, and
 //! [`Drawing::decide`] for every decision. Every change is recorded as an
@@ -37,7 +37,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemStatus {
-    Pending,
+    Available,
     Drawn,
     Claimed,
     Voided,
@@ -47,11 +47,11 @@ pub enum ItemStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ItemState {
     /// Can be drawn.
-    Pending,
-    /// Draw `k` picked `entrant`; the organizer has not resolved it yet.
-    Drawn { k: u64, entrant: EntrantId },
+    Available,
+    /// Draw `k` picked `winner`; the organizer has not resolved it yet.
+    Drawn { k: u64, winner: EntrantId },
     /// Draw `k`'s winner took it.
-    Claimed { k: u64, entrant: EntrantId },
+    Claimed { k: u64, winner: EntrantId },
     /// Withdrawn: it will not be given away.
     Voided,
 }
@@ -65,17 +65,17 @@ pub struct Item {
 }
 
 impl Item {
-    fn pending(item: &ItemRef) -> Self {
+    fn available(item: &ItemRef) -> Self {
         Self {
             id: item.id.clone(),
             name: item.name.clone(),
-            state: ItemState::Pending,
+            state: ItemState::Available,
         }
     }
 
     pub fn status(&self) -> ItemStatus {
         match self.state {
-            ItemState::Pending => ItemStatus::Pending,
+            ItemState::Available => ItemStatus::Available,
             ItemState::Drawn { .. } => ItemStatus::Drawn,
             ItemState::Claimed { .. } => ItemStatus::Claimed,
             ItemState::Voided => ItemStatus::Voided,
@@ -86,15 +86,15 @@ impl Item {
     pub fn k(&self) -> Option<u64> {
         match self.state {
             ItemState::Drawn { k, .. } | ItemState::Claimed { k, .. } => Some(k),
-            ItemState::Pending | ItemState::Voided => None,
+            ItemState::Available | ItemState::Voided => None,
         }
     }
 
     /// The winner holding this item (drawn or claimed).
-    pub fn entrant(&self) -> Option<&EntrantId> {
+    pub fn winner(&self) -> Option<&EntrantId> {
         match &self.state {
-            ItemState::Drawn { entrant, .. } | ItemState::Claimed { entrant, .. } => Some(entrant),
-            ItemState::Pending | ItemState::Voided => None,
+            ItemState::Drawn { winner, .. } | ItemState::Claimed { winner, .. } => Some(winner),
+            ItemState::Available | ItemState::Voided => None,
         }
     }
 }
@@ -120,19 +120,23 @@ impl From<Resolution> for Outcome {
     }
 }
 
-/// An entry in the public draw log.
+/// An entry in the drawing's event log, which is published and which the
+/// verifier replays. Events are what happened, in the past tense; the
+/// commands that cause them are in [`command`](crate::command).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
-    /// A draw was started and committed to a future drand round.
-    Announce {
+    /// A draw was announced: it committed to a future drand round.
+    Announced {
         k: u64,
         item: ItemId,
         round: u64,
         /// Unix time at which the round is published.
         round_time: u64,
     },
-    Draw {
+    /// The announced draw's round arrived, and its randomness picked
+    /// `entrant` from the pool.
+    Drawn {
         k: u64,
         item: ItemId,
         round: u64,
@@ -143,45 +147,42 @@ pub enum Event {
         index: usize,
         entrant: EntrantId,
     },
-    /// The pending draw's beacon could not be fetched (yet). The draw stays
+    /// The announced draw's beacon could not be had (yet). The draw stays
     /// pending on the same round.
-    Stall {
+    Stalled {
         k: u64,
         item: ItemId,
         round: u64,
         reason: String,
     },
     /// The organizer abandoned the pending draw; its item can be drawn again.
-    /// Published logs call it `fail`.
-    #[serde(rename = "fail")]
-    Abandon {
+    /// The verifier shows whom the round would have picked.
+    Abandoned {
         k: u64,
         item: ItemId,
         round: u64,
         reason: String,
     },
-    Resolve {
-        k: u64,
-        outcome: Resolution,
-    },
-    Void {
-        item: ItemId,
-    },
-    Finish,
+    /// The organizer resolved draw `k`'s winner.
+    Resolved { k: u64, outcome: Resolution },
+    /// The organizer withdrew an item.
+    Voided { item: ItemId },
+    /// The drawing ended.
+    Finished,
 }
 
 /// A draw that has been announced but not completed yet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Pending {
+pub struct PendingDraw {
     pub k: u64,
     pub item: ItemId,
     pub round: u64,
     pub round_time: u64,
 }
 
-/// Result of a completed draw.
+/// Whom a completed draw selected, and how.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Drawn {
+pub struct Selection {
     pub k: u64,
     pub item: ItemId,
     pub entrant: EntrantId,
@@ -215,7 +216,7 @@ pub struct Drawing {
     items: Vec<Item>,
     events: Vec<Event>,
     next_k: u64,
-    pending: Option<Pending>,
+    pending: Option<PendingDraw>,
     finished: bool,
 }
 
@@ -243,13 +244,13 @@ impl TryFrom<StoredDrawing> for Drawing {
     }
 }
 
-/// Refuses a drawing committed to another beacon source than the engine's.
-fn check_beacon(committed: &BeaconSource, engine: &BeaconSource) -> Result<(), Error> {
-    if committed == engine {
+/// Refuses to draw from another beacon source than the drawing's.
+fn check_beacon(drawing: &BeaconSource, engine: &BeaconSource) -> Result<(), Error> {
+    if drawing == engine {
         Ok(())
     } else {
-        Err(Error::BeaconMismatch {
-            committed: *committed,
+        Err(Error::BeaconSourceMismatch {
+            drawing: *drawing,
             engine: *engine,
         })
     }
@@ -294,7 +295,7 @@ impl Drawing {
     }
 
     /// The draw announced and waiting for its beacon, if any.
-    pub fn pending(&self) -> Option<&Pending> {
+    pub fn pending(&self) -> Option<&PendingDraw> {
         self.pending.as_ref()
     }
 
@@ -321,8 +322,8 @@ impl Drawing {
             .iter()
             .rev()
             .find_map(|e| match e {
-                Event::Stall { k, .. } if *k == pending.k => Some(true),
-                Event::Announce { k, .. } if *k == pending.k => Some(false),
+                Event::Stalled { k, .. } if *k == pending.k => Some(true),
+                Event::Announced { k, .. } if *k == pending.k => Some(false),
                 _ => None,
             })
             .unwrap_or(false)
@@ -332,14 +333,14 @@ impl Drawing {
     pub fn draws(&self) -> Vec<CompletedDraw> {
         let mut outcomes: HashMap<u64, Outcome> = HashMap::new();
         for e in &self.events {
-            if let Event::Resolve { k, outcome } = e {
+            if let Event::Resolved { k, outcome } = e {
                 outcomes.insert(*k, (*outcome).into());
             }
         }
         self.events
             .iter()
             .filter_map(|e| match e {
-                Event::Draw {
+                Event::Drawn {
                     k,
                     item,
                     round,
@@ -377,7 +378,7 @@ impl Drawing {
     pub fn items_left(&self) -> usize {
         self.items
             .iter()
-            .filter(|item| matches!(item.state, ItemState::Pending | ItemState::Drawn { .. }))
+            .filter(|item| matches!(item.state, ItemState::Available | ItemState::Drawn { .. }))
             .count()
     }
 
@@ -431,7 +432,7 @@ impl Drawing {
         Self {
             manifest: manifest.clone(),
             manifest_hash: manifest.hash(),
-            items: manifest.items.iter().map(Item::pending).collect(),
+            items: manifest.items.iter().map(Item::available).collect(),
             events: Vec::new(),
             next_k: 1,
             pending: None,
@@ -472,7 +473,7 @@ impl Drawing {
         engine_beacon: &BeaconSource,
         round: u64,
         round_time: u64,
-    ) -> Result<Pending, Error> {
+    ) -> Result<PendingDraw, Error> {
         check_beacon(self.beacon(), engine_beacon)?;
         match &self.pending {
             Some(p) if p.item == request.item && !self.finished => Ok(p.clone()),
@@ -486,7 +487,7 @@ impl Drawing {
     /// draw (wrong round or source), an unavailable one and an interrupted
     /// attempt all stall it (`None`): the draw stays pending on its round,
     /// never abandoned, so a retry fetches the same round.
-    pub fn settle(&mut self, fetch: BeaconFetch) -> Result<Option<Drawn>, Error> {
+    pub fn settle(&mut self, fetch: BeaconFetch) -> Result<Option<Selection>, Error> {
         match fetch {
             BeaconFetch::Verified(beacon) => match self.complete(&beacon) {
                 Ok(drawn) => Ok(Some(drawn)),
@@ -523,7 +524,7 @@ impl Drawing {
         item: &ItemId,
         round: u64,
         round_time: u64,
-    ) -> Result<Pending, Error> {
+    ) -> Result<PendingDraw, Error> {
         if self.finished {
             return Err(Error::Finished);
         }
@@ -533,10 +534,10 @@ impl Drawing {
         let item = self
             .item(item)
             .ok_or_else(|| Error::UnknownItem(item.clone()))?;
-        if item.state != ItemState::Pending {
-            return Err(Error::ItemNotPending(item.id.clone()));
+        if item.state != ItemState::Available {
+            return Err(Error::ItemNotAvailable(item.id.clone()));
         }
-        let pending = Pending {
+        let pending = PendingDraw {
             k: self.next_k,
             item: item.id.clone(),
             round,
@@ -545,7 +546,7 @@ impl Drawing {
         if self.pool().1.is_empty() {
             return Err(Error::NoEligibleEntrants);
         }
-        self.record(Event::Announce {
+        self.record(Event::Announced {
             k: pending.k,
             item: pending.item.clone(),
             round,
@@ -555,10 +556,10 @@ impl Drawing {
     }
 
     /// Completes the pending draw with the verified beacon for its committed
-    /// round, from the drawing's drand chain.
-    pub(crate) fn complete(&mut self, beacon: &VerifiedBeacon) -> Result<Drawn, Error> {
+    /// round, from the drawing's beacon source.
+    pub(crate) fn complete(&mut self, beacon: &VerifiedBeacon) -> Result<Selection, Error> {
         if BeaconSource::Drand(beacon.chain_hash()) != *self.beacon() {
-            return Err(Error::WrongBeacon);
+            return Err(Error::WrongBeaconSource);
         }
         self.select(
             beacon.round(),
@@ -573,12 +574,17 @@ impl Drawing {
         &mut self,
         round: u64,
         signature: &[u8],
-    ) -> Result<Drawn, Error> {
+    ) -> Result<Selection, Error> {
         self.select(round, hash::randomness(signature), signature)
     }
 
     /// Selects the pending draw's winner from `round`'s randomness.
-    fn select(&mut self, round: u64, randomness: Hash, signature: &[u8]) -> Result<Drawn, Error> {
+    fn select(
+        &mut self,
+        round: u64,
+        randomness: Hash,
+        signature: &[u8],
+    ) -> Result<Selection, Error> {
         let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
         if round != pending.round {
             return Err(Error::WrongRound {
@@ -598,7 +604,7 @@ impl Drawing {
             pending.k,
             pool.len(),
         );
-        let drawn = Drawn {
+        let drawn = Selection {
             k: pending.k,
             item: pending.item,
             entrant: pool[index].clone(),
@@ -606,7 +612,7 @@ impl Drawing {
             pool_size: pool.len(),
             index,
         };
-        self.record(Event::Draw {
+        self.record(Event::Drawn {
             k: drawn.k,
             item: drawn.item.clone(),
             round,
@@ -624,7 +630,7 @@ impl Drawing {
     /// The draw stays pending on the same round.
     pub(crate) fn stall(&mut self, reason: &str) -> Result<(), Error> {
         let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
-        self.record(Event::Stall {
+        self.record(Event::Stalled {
             k: pending.k,
             item: pending.item,
             round: pending.round,
@@ -638,7 +644,7 @@ impl Drawing {
     /// picked.
     pub(crate) fn abandon(&mut self, reason: &str) -> Result<(), Error> {
         let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
-        self.record(Event::Abandon {
+        self.record(Event::Abandoned {
             k: pending.k,
             item: pending.item,
             round: pending.round,
@@ -660,7 +666,7 @@ impl Drawing {
         let ItemState::Drawn { k, .. } = item.state else {
             return Err(Error::ItemNotDrawn(id.clone()));
         };
-        self.record(Event::Resolve { k, outcome });
+        self.record(Event::Resolved { k, outcome });
         Ok(())
     }
 
@@ -682,10 +688,10 @@ impl Drawing {
         let item = self
             .item(id)
             .ok_or_else(|| Error::UnknownItem(id.clone()))?;
-        if item.state != ItemState::Pending {
-            return Err(Error::ItemNotPending(id.clone()));
+        if item.state != ItemState::Available {
+            return Err(Error::ItemNotAvailable(id.clone()));
         }
-        self.record(Event::Void { item: id.clone() });
+        self.record(Event::Voided { item: id.clone() });
         Ok(())
     }
 
@@ -696,7 +702,7 @@ impl Drawing {
         if self.pending.is_some() {
             return Err(Error::DrawInProgress);
         }
-        self.record(Event::Finish);
+        self.record(Event::Finished);
         Ok(())
     }
 
@@ -712,32 +718,32 @@ impl Drawing {
     /// checked when the event was recorded.
     fn apply(&mut self, event: &Event) -> Result<(), Error> {
         match event {
-            Event::Announce {
+            Event::Announced {
                 k,
                 item,
                 round,
                 round_time,
             } => {
-                self.pending = Some(Pending {
+                self.pending = Some(PendingDraw {
                     k: *k,
                     item: item.clone(),
                     round: *round,
                     round_time: *round_time,
                 });
             }
-            Event::Draw {
+            Event::Drawn {
                 k, item, entrant, ..
             } => {
                 self.item_mut(item)?.state = ItemState::Drawn {
                     k: *k,
-                    entrant: entrant.clone(),
+                    winner: entrant.clone(),
                 };
                 self.pending = None;
                 self.next_k = k + 1;
             }
-            Event::Stall { .. } => {}
-            Event::Abandon { .. } => self.pending = None,
-            Event::Resolve { k, outcome } => {
+            Event::Stalled { .. } => {}
+            Event::Abandoned { .. } => self.pending = None,
+            Event::Resolved { k, outcome } => {
                 let item = self
                     .items
                     .iter_mut()
@@ -746,15 +752,15 @@ impl Drawing {
                     )
                     .ok_or(Error::UnknownDraw(*k))?;
                 item.state = match (&item.state, outcome) {
-                    (ItemState::Drawn { k, entrant }, Resolution::Claimed) => ItemState::Claimed {
+                    (ItemState::Drawn { k, winner }, Resolution::Claimed) => ItemState::Claimed {
                         k: *k,
-                        entrant: entrant.clone(),
+                        winner: winner.clone(),
                     },
-                    _ => ItemState::Pending,
+                    _ => ItemState::Available,
                 };
             }
-            Event::Void { item } => self.item_mut(item)?.state = ItemState::Voided,
-            Event::Finish => self.finished = true,
+            Event::Voided { item } => self.item_mut(item)?.state = ItemState::Voided,
+            Event::Finished => self.finished = true,
         }
         Ok(())
     }
@@ -819,7 +825,7 @@ pub(crate) mod tests {
         Drawing::open(&manifest(entrants, items)).unwrap()
     }
 
-    fn draw(s: &mut Drawing, item: &str, round: u64) -> Drawn {
+    fn draw(s: &mut Drawing, item: &str, round: u64) -> Selection {
         s.start(&item.into(), round, 0).unwrap();
         s.complete(&beacon(round)).unwrap()
     }
@@ -850,7 +856,7 @@ pub(crate) mod tests {
         let mut s = opened(2, 1);
         let first = draw(&mut s, "item-0", 1);
         s.resolve(&"item-0".into(), Resolution::NotHere).unwrap();
-        assert_eq!(status(&s, "item-0"), ItemStatus::Pending);
+        assert_eq!(status(&s, "item-0"), ItemStatus::Available);
         let second = draw(&mut s, "item-0", 2);
         assert_ne!(first.entrant, second.entrant);
         s.resolve(&"item-0".into(), Resolution::NotHere).unwrap();
@@ -904,7 +910,7 @@ pub(crate) mod tests {
         let refused = s
             .announce(&request("item-0"), &BeaconSource::QUICKNET, 10, 0)
             .unwrap_err();
-        assert!(matches!(refused, Error::BeaconMismatch { .. }));
+        assert!(matches!(refused, Error::BeaconSourceMismatch { .. }));
         assert_eq!(refused.kind(), ErrorKind::Conflict);
     }
 
@@ -920,7 +926,7 @@ pub(crate) mod tests {
             })
         );
         s.manifest.beacon = BeaconSource::QUICKNET;
-        assert_eq!(s.complete(&beacon(10)), Err(Error::WrongBeacon));
+        assert_eq!(s.complete(&beacon(10)), Err(Error::WrongBeaconSource));
         assert!(s.pending().is_some());
     }
 
@@ -946,7 +952,7 @@ pub(crate) mod tests {
         s.start(&"item-0".into(), 10, 0).unwrap();
         s.abandon("organizer abandoned the draw").unwrap();
         assert_eq!(s.next_k, 1);
-        assert_eq!(status(&s, "item-0"), ItemStatus::Pending);
+        assert_eq!(status(&s, "item-0"), ItemStatus::Available);
         let d = draw(&mut s, "item-0", 12);
         assert_eq!(d.k, 1);
     }
@@ -979,7 +985,7 @@ pub(crate) mod tests {
         assert_eq!(s.items_left(), 1);
         assert_eq!(
             s.void(&"item-1".into()),
-            Err(Error::ItemNotPending("item-1".into()))
+            Err(Error::ItemNotAvailable("item-1".into()))
         );
         s.finish().unwrap();
         assert!(s.is_finished());
@@ -1030,7 +1036,7 @@ pub(crate) mod tests {
     fn open_or_check_refuses_another_beacon_source_and_invalid_manifests() {
         assert!(matches!(
             Drawing::open_or_check(None, &manifest(3, 1), &BeaconSource::QUICKNET),
-            Err(Error::BeaconMismatch { .. })
+            Err(Error::BeaconSourceMismatch { .. })
         ));
         assert!(matches!(
             Drawing::open_or_check(None, &manifest(0, 1), &source()),
@@ -1056,7 +1062,7 @@ pub(crate) mod tests {
         );
         assert!(matches!(
             s.events().last(),
-            Some(Event::Stall { reason, round: 10, .. }) if reason == "draw cancelled"
+            Some(Event::Stalled { reason, round: 10, .. }) if reason == "draw cancelled"
         ));
 
         let drawn = s
@@ -1132,7 +1138,7 @@ pub(crate) mod tests {
         s.stall("x").unwrap();
         assert_eq!(Drawing::restore(&m, s.events()), Ok(s.clone()));
 
-        let unknown = Event::Resolve {
+        let unknown = Event::Resolved {
             k: 9,
             outcome: Resolution::Claimed,
         };
@@ -1174,19 +1180,38 @@ pub(crate) mod tests {
         );
         assert_eq!(Error::AlreadyOpen.kind(), ErrorKind::Conflict);
         assert_eq!(Error::DrawInProgress.kind(), ErrorKind::Conflict);
-        assert_eq!(Error::WrongBeacon.kind(), ErrorKind::Invariant);
+        assert_eq!(Error::WrongBeaconSource.kind(), ErrorKind::Invariant);
     }
 
     #[test]
-    fn an_abandon_is_published_as_fail() {
-        let e = Event::Abandon {
-            k: 1,
-            item: "item-0".into(),
-            round: 10,
-            reason: "x".into(),
-        };
-        let json = serde_json::to_value(&e).unwrap();
-        assert_eq!(json["type"], "fail");
-        assert_eq!(serde_json::from_value::<Event>(json).unwrap(), e);
+    fn events_are_published_in_the_past_tense() {
+        let mut s = opened(2, 2);
+        s.start(&"item-0".into(), 1, 0).unwrap();
+        s.stall("x").unwrap();
+        s.abandon("y").unwrap();
+        draw(&mut s, "item-0", 2);
+        s.resolve(&"item-0".into(), Resolution::Claimed).unwrap();
+        s.void(&"item-1".into()).unwrap();
+        s.finish().unwrap();
+        let types: Vec<_> = serde_json::to_value(s.events())
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["type"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            types,
+            [
+                "announced",
+                "stalled",
+                "abandoned",
+                "announced",
+                "drawn",
+                "resolved",
+                "voided",
+                "finished"
+            ]
+        );
     }
 }

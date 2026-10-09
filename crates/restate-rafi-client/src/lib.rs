@@ -1,4 +1,4 @@
-//! The Rafi draw engine through the Restate ingress: [`RestateClient`]
+//! The Rafi drawing engine through the Restate ingress: [`RestateClient`]
 //! implements [`DrawingEngine`] by calling the `restate-rafi` service's handlers
 //! over HTTP.
 //!
@@ -61,7 +61,7 @@ impl ClientConfig {
     pub const DEFAULT_TIMEOUT_SECS: u64 = 90;
 }
 
-/// The draw engine through the Restate ingress.
+/// The drawing engine through the Restate ingress.
 #[derive(Clone)]
 pub struct RestateClient {
     http: reqwest::Client,

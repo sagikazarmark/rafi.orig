@@ -77,7 +77,7 @@ fn generate() -> Vectors {
         .enumerate()
     {
         let randomness = h(&format!("randomness-{i}"));
-        let manifest_hash = h(&format!("list-{i}"));
+        let manifest_hash = h(&format!("manifest-{i}"));
         let k = i as u64 + 1;
         select.push(SelectVector {
             randomness: hex::encode(randomness),
@@ -93,20 +93,20 @@ fn generate() -> Vectors {
         .collect();
     let items = vec![
         ItemRef {
-            id: "u-ticket-1".into(),
-            name: "KCD Budapest ticket".into(),
+            id: "book-1".into(),
+            name: "Book".into(),
         },
         ItemRef {
-            id: "u-ticket-2".into(),
-            name: "KCD Budapest ticket".into(),
+            id: "book-2".into(),
+            name: "Book".into(),
         },
         ItemRef {
-            id: "u-voucher-1".into(),
-            name: "CNCF exam voucher".into(),
+            id: "voucher-1".into(),
+            name: "Voucher".into(),
         },
         ItemRef {
-            id: "u-gift-1".into(),
-            name: "Foo gift".into(),
+            id: "mug-1".into(),
+            name: "Mug".into(),
         },
     ];
     let doc = Manifest::new(
@@ -129,16 +129,16 @@ fn generate() -> Vectors {
         item: item.into(),
         outcome,
     };
-    draw(&mut s, "u-voucher-1", 1000);
-    decide(&mut s, resolve("u-voucher-1", Resolution::NotHere));
+    draw(&mut s, "voucher-1", 1000);
+    decide(&mut s, resolve("voucher-1", Resolution::NotHere));
     let voucher = DrawRequest {
-        item: "u-voucher-1".into(),
+        item: "voucher-1".into(),
     };
     s.announce(&voucher, &source, 1003, 0).unwrap();
     decide(
         &mut s,
         Decision::Abandon {
-            item: "u-voucher-1".into(),
+            item: "voucher-1".into(),
         },
     );
     s.announce(&voucher, &source, 1005, 0).unwrap();
@@ -147,19 +147,19 @@ fn generate() -> Vectors {
     s.settle(BeaconFetch::Verified(beacon(1005)))
         .unwrap()
         .unwrap();
-    decide(&mut s, resolve("u-voucher-1", Resolution::Claimed));
-    draw(&mut s, "u-ticket-1", 1010);
-    decide(&mut s, resolve("u-ticket-1", Resolution::Declined));
-    draw(&mut s, "u-ticket-1", 1012);
-    decide(&mut s, resolve("u-ticket-1", Resolution::Claimed));
+    decide(&mut s, resolve("voucher-1", Resolution::Claimed));
+    draw(&mut s, "book-1", 1010);
+    decide(&mut s, resolve("book-1", Resolution::Declined));
+    draw(&mut s, "book-1", 1012);
+    decide(&mut s, resolve("book-1", Resolution::Claimed));
     decide(
         &mut s,
         Decision::Void {
-            item: "u-gift-1".into(),
+            item: "mug-1".into(),
         },
     );
-    draw(&mut s, "u-ticket-2", 1020);
-    decide(&mut s, resolve("u-ticket-2", Resolution::Claimed));
+    draw(&mut s, "book-2", 1020);
+    decide(&mut s, resolve("book-2", Resolution::Claimed));
     decide(&mut s, Decision::Finish);
 
     Vectors {

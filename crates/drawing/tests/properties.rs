@@ -141,7 +141,7 @@ proptest! {
                     None => {
                         let ended = &s.events()[events_before..];
                         prop_assert!(
-                            matches!(ended, [Event::Draw { .. }] | [Event::Abandon { .. }]),
+                            matches!(ended, [Event::Drawn { .. }] | [Event::Abandoned { .. }]),
                             "pending draw ended by {:?}", ended
                         );
                     }
@@ -150,8 +150,8 @@ proptest! {
 
             // A drawn or claimed item's winner is an entrant.
             for item in s.items() {
-                if let ItemState::Drawn { entrant, .. } | ItemState::Claimed { entrant, .. } = &item.state {
-                    prop_assert!(manifest.entrants.contains(entrant));
+                if let ItemState::Drawn { winner, .. } | ItemState::Claimed { winner, .. } = &item.state {
+                    prop_assert!(manifest.entrants.contains(winner));
                 }
             }
 

@@ -17,7 +17,7 @@ pub const SERVICE_NAME: &str = "Drawing";
 /// The key under which the drawing is stored.
 const STATE: &str = "state";
 
-/// The draw engine for one drawing per key.
+/// The drawing engine for one drawing per key.
 pub struct Drawing {
     drand: Drand,
     store: Arc<dyn DrawStore>,

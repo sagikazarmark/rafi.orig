@@ -180,10 +180,10 @@ mod tests {
             let k = self
                 .events
                 .iter()
-                .filter(|e| matches!(e, Event::Draw { .. }))
+                .filter(|e| matches!(e, Event::Drawn { .. }))
                 .count() as u64
                 + 1;
-            self.events.push(Event::Draw {
+            self.events.push(Event::Drawn {
                 k,
                 item: item.into(),
                 round: 1,
@@ -198,7 +198,7 @@ mod tests {
         }
 
         fn resolve(&mut self, k: u64, outcome: Resolution) {
-            self.events.push(Event::Resolve { k, outcome });
+            self.events.push(Event::Resolved { k, outcome });
         }
 
         fn drawing(&self) -> Drawing {

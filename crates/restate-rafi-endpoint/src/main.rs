@@ -1,4 +1,4 @@
-//! Serves the Rafi draw engine (the `Drawing` virtual object and the
+//! Serves the Rafi drawing engine (the `Drawing` virtual object and the
 //! `DrawingEngine` service) for Restate: logging
 //! that survives replays, request identity verification, and a graceful stop
 //! on SIGTERM as well as Ctrl-C.
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(&config.endpoint.listener)
         .await
         .with_context(|| format!("binding {}", config.endpoint.listener))?;
-    info!(address = %listener.local_addr()?, database = config.database.url, "serving the Rafi draw engine");
+    info!(address = %listener.local_addr()?, database = config.database.url, "serving the Rafi drawing engine");
 
     let endpoint = endpoint(config)?;
     HttpServer::new(endpoint)

@@ -1,7 +1,7 @@
-//! The Rafi draw engine on Cloudflare Workers.
+//! The Rafi drawing engine on Cloudflare Workers.
 //!
 //! Restate calls this Worker over HTTPS in request-response mode; each request
-//! is handed to the SDK's [`Endpoint`]. This crate only wires the draw engine
+//! is handed to the SDK's [`Endpoint`]. This crate only wires the drawing engine
 //! to Cloudflare: draw states go to D1 (the record) through rafi-store, then
 //! the raffle's Durable Object is nudged, best effort, through
 //! `rafi-cloudflare`.

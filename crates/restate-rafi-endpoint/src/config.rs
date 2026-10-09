@@ -60,7 +60,7 @@ impl DatabaseConfig {
         PurgeAfter::days(self.retention_nonwinners_days, self.retention_winners_days)
     }
 
-    /// Where the draw engine writes draw states: the app's database, opened
+    /// Where the drawing engine writes draw states: the app's database, opened
     /// lazily. The app owns the schema (and creates the SQLite file); until it
     /// has, writes fail and Restate retries them.
     pub fn draw_store(&self) -> Result<DrawWriter> {
@@ -131,7 +131,7 @@ mod tests {
         .unwrap();
         assert!(
             !path.exists(),
-            "the app creates the database, not the draw engine"
+            "the app creates the database, not the drawing engine"
         );
     }
 

@@ -144,13 +144,13 @@ async fn e2e_raffle() {
     let announces = s
         .events()
         .iter()
-        .filter(|e| matches!(e, Event::Announce { .. }))
+        .filter(|e| matches!(e, Event::Announced { .. }))
         .count();
     assert_eq!(announces, 1, "the idempotency key deduplicated the draw");
     let first = s
         .item(&"ticket-1".into())
         .unwrap()
-        .entrant()
+        .winner()
         .cloned()
         .unwrap();
 
@@ -196,7 +196,7 @@ async fn e2e_raffle() {
             && s.draws().len() == 2
     })
     .await;
-    assert_ne!(s.item(&"ticket-1".into()).unwrap().entrant(), Some(&first));
+    assert_ne!(s.item(&"ticket-1".into()).unwrap().winner(), Some(&first));
     let claim = json!(Decision::Resolve {
         item: "ticket-1".into(),
         outcome: Resolution::Claimed,
@@ -304,7 +304,7 @@ async fn e2e_stalled_draw() {
     let stalls = |s: &Drawing| {
         s.events()
             .iter()
-            .filter(|e| matches!(e, Event::Stall { .. }))
+            .filter(|e| matches!(e, Event::Stalled { .. }))
             .count()
     };
     let draw = json!(DrawRequest {
@@ -413,13 +413,15 @@ async fn e2e_cancelled_draw_stalls() {
     restate.admin().cancel(&id).await;
 
     let s = projected(&store, |s| {
-        s.events().iter().any(|e| matches!(e, Event::Stall { .. }))
+        s.events()
+            .iter()
+            .any(|e| matches!(e, Event::Stalled { .. }))
     })
     .await;
     assert_eq!(s.pending(), Some(&pending), "same draw, same round");
     assert!(
         s.events().iter().any(
-            |e| matches!(e, Event::Stall { reason, round, .. } if reason == "draw cancelled" && *round == pending.round)
+            |e| matches!(e, Event::Stalled { reason, round, .. } if reason == "draw cancelled" && *round == pending.round)
         ),
         "{:#?}",
         s.events()

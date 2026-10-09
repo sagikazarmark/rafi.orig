@@ -75,7 +75,7 @@ const winner = last()?.winners?.[0]?.entrant_id;
 check([`${raffle}-anna`, `${raffle}-bence`].includes(winner), `the winner is an entrant (${winner})`);
 
 const state = await (await fetch(`${ingress}/Drawing/${raffle}/get`, { method: "POST" })).text();
-check(JSON.parse(state)?.events?.some((e) => e.type === "draw"), "Restate's own state has the draw");
+check(JSON.parse(state)?.events?.some((e) => e.type === "drawn"), "Restate's own state has the draw");
 
 ws.close();
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");

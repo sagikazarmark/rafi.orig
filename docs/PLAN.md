@@ -223,7 +223,7 @@ Also ship `tools/verify.py` (about 40 lines, `hashlib` only) and `testdata/draw-
 
 - **More units than eligible entrants:** pass 2, as described in §6.2.
 - **Nobody left at all:** "no eligible entrants", and the unit stays Pending.
-- **drand outage:** the engine retries the beacon fetch up to its timeout; if the beacon can't be had, the draw **stalls**: it stays pending on its committed round, and retrying it fetches the same round, so nobody can force a redraw on a new one. The only way out is an explicit **abandon**: logged publicly (`fail`), the item returns to Pending, and the verifier shows whom the abandoned round would have picked. There is no "offline draw" (server randomness; dropped in revision 6).
+- **drand outage:** the engine retries the beacon fetch up to its timeout; if the beacon can't be had, the draw **stalls**: it stays pending on its committed round, and retrying it fetches the same round, so nobody can force a redraw on a new one. The only way out is an explicit **abandon**: logged publicly (an `abandoned` event), the item can be drawn again, and the verifier shows whom the abandoned round would have picked. There is no "offline draw" (server randomness; dropped in revision 6).
 - **Restate Cloud outage during the event:** ~~the admin view offers "local draw"~~ (dropped in revision 5: a second engine owning the raffle could announce a draw on another round). The app refuses to start a draw while the engine is unreachable; a draw that stalls stays pending on its round, and the organizer retries it or abandons it.
 
 ## 7. Attendee identity and coming back

@@ -532,7 +532,7 @@ fn Header(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
                         div { class: "flex flex-wrap items-center gap-2",
                             StateBadge { state: v.state }
                             if v.test_mode { span { class: "badge badge-warning gap-1 font-semibold", "🧪 test mode" } }
-                            span { class: "badge badge-ghost gap-1", title: "Draw engine", Icon { i: I::Zap, class: "size-3.5" } "{v.engine}" }
+                            span { class: "badge badge-ghost gap-1", title: "Drawing engine", Icon { i: I::Zap, class: "size-3.5" } "{v.engine}" }
                         }
                     }
                     DropdownMenu { align: DropdownMenuAlign::End,
@@ -598,7 +598,7 @@ fn Header(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
                             Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(Lifecycle::Open)); } }, "Reopen registration" }
                         },
                         RaffleState::Frozen if unconfirmed => rsx! {
-                            Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Icon { i: I::Undo } "Retry handing the list to the draw engine" }
+                            Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Icon { i: I::Undo } "Retry handing the list to the drawing engine" }
                         },
                         RaffleState::Finished | RaffleState::Purged if v.live_ended => rsx! {
                             span { class: "badge badge-ghost gap-1", Icon { i: I::Check, class: "size-3.5" } "{t(\"live_ended\")}" }
@@ -747,7 +747,7 @@ fn DrawConsole(
     let items_left = v
         .items
         .iter()
-        .filter(|u| matches!(u.status, ItemStatus::Pending | ItemStatus::Drawn))
+        .filter(|u| matches!(u.status, ItemStatus::Available | ItemStatus::Drawn))
         .count();
     let pending_item = pending.as_ref().map(|p| p.item.clone());
     let offset = v.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
@@ -826,12 +826,12 @@ fn DrawConsole(
                                 ItemStatus::Drawn => "border-success/50 bg-success/10",
                                 ItemStatus::Claimed => "border-base-300 bg-base-200/60",
                                 ItemStatus::Voided => "border-base-300 opacity-50",
-                                ItemStatus::Pending => "border-base-300",
+                                ItemStatus::Available => "border-base-300",
                             };
                             let is_current = pending.as_ref().is_some_and(|p| p.item == u.item);
                             let emoji = match u.status {
-                                ItemStatus::Pending if is_current => "🎲",
-                                ItemStatus::Pending => "🎁",
+                                ItemStatus::Available if is_current => "🎲",
+                                ItemStatus::Available => "🎁",
                                 ItemStatus::Drawn => "🎉",
                                 ItemStatus::Claimed => "✅",
                                 ItemStatus::Voided => "🚫",
@@ -857,7 +857,7 @@ fn DrawConsole(
                                     }
                                     div { class: "flex flex-wrap gap-2",
                                         match u.status {
-                                            ItemStatus::Pending if drawable => rsx! {
+                                            ItemStatus::Available if drawable => rsx! {
                                                 button { class: "btn btn-primary hover-wiggle", disabled: busy, onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone()) },
                                                     Icon { i: I::Dice } "Draw"
                                                 }
@@ -915,7 +915,7 @@ fn DrawConsole(
 
 fn status_label(s: ItemStatus) -> &'static str {
     match s {
-        ItemStatus::Pending => "to be drawn",
+        ItemStatus::Available => "to be drawn",
         ItemStatus::Drawn => "drawn: waiting for the winner",
         ItemStatus::Claimed => "handed over",
         ItemStatus::Voided => "withdrawn",

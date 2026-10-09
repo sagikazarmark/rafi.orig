@@ -26,7 +26,7 @@ pub mod drand {
 pub use beacon::BeaconSource;
 pub use command::{BeaconFetch, Command, Decision, DrawRequest, Resolution};
 pub use drawing::{
-    CompletedDraw, Drawing, Drawn, Event, Item, ItemState, ItemStatus, Outcome, Pending,
+    CompletedDraw, Drawing, Event, Item, ItemState, ItemStatus, Outcome, PendingDraw, Selection,
 };
 pub use error::{Error, ErrorKind};
 pub use hash::{Hash, InvalidHash, ManifestHash};

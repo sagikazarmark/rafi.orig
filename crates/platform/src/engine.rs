@@ -1,4 +1,4 @@
-//! The draw engine, as the app sees it.
+//! The drawing engine, as the app sees it.
 
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ use rafi_drawing::{
 
 use crate::BoxFuture;
 
-/// What the draw engine says about itself.
+/// What the drawing engine says about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineInfo {
     /// Where the engine's randomness comes from. The app decides which
@@ -17,7 +17,7 @@ pub struct EngineInfo {
     pub beacon: BeaconSource,
 }
 
-/// Why the draw engine didn't (or didn't yet) confirm a call.
+/// Why the drawing engine didn't (or didn't yet) confirm a call.
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
     /// The engine refused the command; it was not applied.
@@ -26,11 +26,11 @@ pub enum EngineError {
     /// The engine accepted the command but didn't settle it before the
     /// caller's deadline (it was queued behind a draw waiting for its beacon).
     /// It applies once; its outcome shows in the projection.
-    #[error("the draw engine accepted the command; it applies after the current draw")]
+    #[error("the drawing engine accepted the command; it applies after the current draw")]
     Pending,
     /// The engine couldn't be reached, or failed. The command may still have
     /// been applied: retry with the same command ID.
-    #[error("the draw engine is unavailable: {0:#}")]
+    #[error("the drawing engine is unavailable: {0:#}")]
     Unavailable(anyhow::Error),
 }
 
@@ -84,7 +84,7 @@ impl From<DrawingError> for EngineError {
     }
 }
 
-/// The draw engine: owns each drawing from opening to finish, applies the
+/// The drawing engine: owns each drawing from opening to finish, applies the
 /// draw rules (`rafi_drawing`) and writes every new state to the
 /// projection ([`DrawStore`](crate::DrawStore)), then notifies clients.
 ///

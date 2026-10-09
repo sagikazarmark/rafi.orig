@@ -218,12 +218,12 @@ pub fn Verify(slug: String) -> Element {
 
 fn event_icon(e: &Event) -> I {
     match e {
-        Event::Announce { .. } => I::Lock,
-        Event::Draw { .. } => I::Dice,
-        Event::Stall { .. } | Event::Abandon { .. } => I::Alert,
-        Event::Resolve { .. } => I::Check,
-        Event::Void { .. } => I::X,
-        Event::Finish => I::Flag,
+        Event::Announced { .. } => I::Lock,
+        Event::Drawn { .. } => I::Dice,
+        Event::Stalled { .. } | Event::Abandoned { .. } => I::Alert,
+        Event::Resolved { .. } => I::Check,
+        Event::Voided { .. } => I::X,
+        Event::Finished => I::Flag,
     }
 }
 
@@ -241,11 +241,11 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<ItemId, Stri
     };
     let item_name = |id: &ItemId| items.get(id).cloned().unwrap_or_else(|| id.to_string());
     match e {
-        Event::Announce { k, item, round, .. } => format!(
+        Event::Announced { k, item, round, .. } => format!(
             "Draw {k}: {} committed to drand round {round}",
             item_name(item)
         ),
-        Event::Draw {
+        Event::Drawn {
             k,
             entrant,
             pool_size,
@@ -258,16 +258,16 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<ItemId, Stri
                 name(entrant)
             )
         }
-        Event::Stall {
+        Event::Stalled {
             k, round, reason, ..
         } => format!("Draw {k}: round {round} not available yet ({reason}); still pending"),
-        Event::Abandon {
+        Event::Abandoned {
             k, round, reason, ..
         } => format!("Draw {k}: committed round {round} abandoned ({reason})"),
-        Event::Resolve { k, outcome } => {
+        Event::Resolved { k, outcome } => {
             format!("Draw {k}: {}", format!("{outcome:?}").to_lowercase())
         }
-        Event::Void { item } => format!("{} withdrawn", item_name(item)),
-        Event::Finish => "Finished 🎉".into(),
+        Event::Voided { item } => format!("{} withdrawn", item_name(item)),
+        Event::Finished => "Finished 🎉".into(),
     }
 }

@@ -16,12 +16,12 @@ pub struct Config {
     pub public_url: String,
     /// Skip Clerk and treat every admin request as user `dev`. Never use in production.
     pub dev_auth: bool,
-    /// The draw engine: the `Drawing` virtual object of the `restate-rafi`
+    /// The drawing engine: the `Drawing` virtual object of the `restate-rafi`
     /// service. Without an ingress URL, draws can't start.
     pub restate: RestateConfig,
     /// The drand chain new raffles commit to (`RAFI_DRAND_CHAIN`, a chain
     /// hash; quicknet when unset). The app decides it ([`Config::chain`]); the
-    /// draw engine only checks it. `mock` (or `RAFI_DRAND_MOCK=1`) is the mock
+    /// drawing engine only checks it. `mock` (or `RAFI_DRAND_MOCK=1`) is the mock
     /// chain, in development builds only.
     pub drand_chain: String,
     pub altcha_key: Vec<u8>,
@@ -78,7 +78,7 @@ impl Config {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(RestateConfig::DEFAULT_TIMEOUT_SECS),
             },
-            // Only the chain matters here: the draw engine fetches the beacons.
+            // Only the chain matters here: the drawing engine fetches the beacons.
             drand_chain: var("RAFI_DRAND_CHAIN")
                 .or_else(|| flag("RAFI_DRAND_MOCK").then(|| MOCK.to_owned()))
                 .unwrap_or_else(|| chains::QUICKNET_HASH.to_string()),

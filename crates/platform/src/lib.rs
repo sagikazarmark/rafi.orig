@@ -7,8 +7,8 @@
 //! - [`Notifier`]: "this raffle changed", "end its live updates", and which
 //!   [`LiveTransport`] clients use;
 //! - [`RateLimit`], with the [`Limit`] keys;
-//! - [`DrawingEngine`]: the draw engine, with its contract;
-//! - [`DrawStore`]: where the draw engine writes drawings;
+//! - [`DrawingEngine`]: the drawing engine, with its contract;
+//! - [`DrawStore`]: where the drawing engine writes drawings;
 //! - [`rule::decide`]: when a live channel publishes a participant view;
 //! - [`sendable`]: a `Send` future from one that is only `Send` natively
 //!   (wasm32 is single-threaded).

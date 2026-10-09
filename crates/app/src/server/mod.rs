@@ -37,7 +37,7 @@ pub struct Inner {
     pub db: Db,
     /// The drand chain new raffles commit to ([`Config::chain`]).
     pub chain: ChainHash,
-    /// The draw engine; `None` without one (no `RESTATE_INGRESS_URL`).
+    /// The drawing engine; `None` without one (no `RESTATE_INGRESS_URL`).
     pub engine: Option<Arc<dyn DrawingEngine>>,
     /// Live updates to clients (natively: none, clients poll).
     pub notifier: Arc<dyn Notifier>,
@@ -72,7 +72,7 @@ impl AppState {
         )
     }
 
-    /// The app over a database, a draw engine and the platform's notifier and
+    /// The app over a database, a drawing engine and the platform's notifier and
     /// rate limits.
     pub fn from_parts(
         cfg: Config,
@@ -110,7 +110,7 @@ impl AppState {
     }
 }
 
-/// The draw engine `cfg` points at: the `restate-rafi` service through the
+/// The drawing engine `cfg` points at: the `restate-rafi` service through the
 /// Restate ingress; `None` without `RESTATE_INGRESS_URL`.
 pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn DrawingEngine>> {
     (!cfg.restate.ingress_url.is_empty())

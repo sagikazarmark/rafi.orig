@@ -722,7 +722,7 @@ async fn privacy(
             ]),
             ("Processors".to_owned(), vec![
                 "Hetzner Online GmbH (Germany) hosts the application and database. Backups are stored with an EU object storage provider.".into(),
-                "Restate GmbH (Germany) runs the draw engine; it only receives anonymous IDs, never names or emails.".into(),
+                "Restate GmbH (Germany) runs the drawing engine; it only receives anonymous IDs, never names or emails.".into(),
                 "Clerk, Inc. (USA, EU–US Data Privacy Framework) authenticates the organizers only; participant data is never sent to Clerk.".into(),
                 "The randomness comes from the public drand network; no personal data is sent to it.".into(),
             ]),

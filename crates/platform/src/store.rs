@@ -1,4 +1,4 @@
-//! Where the draw engine writes drawings.
+//! Where the drawing engine writes drawings.
 
 use std::sync::{Arc, Mutex};
 
@@ -6,7 +6,7 @@ use rafi_drawing::Drawing;
 
 use crate::BoxFuture;
 
-/// The draw engine's only write: a drawing, after every change.
+/// The drawing engine's only write: a drawing, after every change.
 pub trait DrawStore: Send + Sync + 'static {
     /// Stores `state`. Called at least once per change (the engine retries),
     /// so it must be idempotent: a state is written only when it is newer

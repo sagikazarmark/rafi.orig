@@ -2,7 +2,7 @@
 //!
 //! Every write that changes what phones see (the participant view) notifies
 //! clients ([`AppState::notifier`]). Joins don't: they never change it. The
-//! draw engine notifies after its own writes.
+//! drawing engine notifies after its own writes.
 
 use std::collections::HashSet;
 
@@ -33,7 +33,7 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
-    /// A service the request needs (the draw engine) is unreachable; retry.
+    /// A service the request needs (the drawing engine) is unreachable; retry.
     #[error("{0}")]
     Unavailable(String),
     #[error(transparent)]
@@ -67,14 +67,14 @@ fn conflict(msg: impl Into<String>) -> AppError {
     AppError::Conflict(msg.into())
 }
 
-/// The draw engine, or a conflict if this server has none.
+/// The drawing engine, or a conflict if this server has none.
 fn engine(app: &AppState) -> Result<&dyn DrawingEngine> {
     app.engine
         .as_deref()
         .ok_or_else(|| conflict("Restate is not configured on this server."))
 }
 
-/// What the organizer sees of a call to the draw engine. A call the engine
+/// What the organizer sees of a call to the drawing engine. A call the engine
 /// accepted but hasn't settled yet ([`EngineError::Pending`]) succeeds: it
 /// applies once, and the screens follow the projection.
 fn engine_result(result: std::result::Result<(), EngineError>) -> Result<()> {
@@ -85,13 +85,13 @@ fn engine_result(result: std::result::Result<(), EngineError>) -> Result<()> {
             ErrorKind::BadRequest => AppError::BadRequest(message),
             ErrorKind::Conflict => AppError::Conflict(message),
             ErrorKind::Invariant => {
-                AppError::Internal(anyhow::anyhow!("draw engine invariant: {message}"))
+                AppError::Internal(anyhow::anyhow!("drawing engine invariant: {message}"))
             }
         }),
         Err(EngineError::Unavailable(e)) => {
-            tracing::warn!(error = %format!("{e:#}"), "draw engine unavailable");
+            tracing::warn!(error = %format!("{e:#}"), "drawing engine unavailable");
             Err(AppError::Unavailable(
-                "The draw engine is not reachable right now. Try again in a moment.".into(),
+                "The drawing engine is not reachable right now. Try again in a moment.".into(),
             ))
         }
     }
@@ -348,7 +348,7 @@ pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle)
     Ok(())
 }
 
-/// Closes registration, freezes and commits the entrant list, and hands it to the draw engine.
+/// Closes registration, freezes and commits the entrant list, and hands it to the drawing engine.
 ///
 /// Calling it again on a frozen raffle re-sends the stored commit document to
 /// the engine (idempotent), which recovers from an engine outage at freeze time.
@@ -358,7 +358,7 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     let engine = engine(app)?;
     let info = engine.info().await.map_err(|e| {
-        tracing::warn!(error = %e, "draw engine unavailable");
+        tracing::warn!(error = %e, "drawing engine unavailable");
         AppError::Unavailable(
             "Restate is not reachable. Check the connection and try again.".into(),
         )
@@ -369,7 +369,7 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let beacon = BeaconSource::Drand(app.chain);
     if info.beacon != beacon {
         return Err(conflict(format!(
-            "The draw engine draws from {}, but raffles here commit to {beacon}. Fix the configuration before starting the draw.",
+            "The drawing engine draws from {}, but raffles here commit to {beacon}. Fix the configuration before starting the draw.",
             info.beacon
         )));
     }
@@ -454,7 +454,7 @@ async fn write_manifest(
         app.notifier.notify(id).await;
         return Err(conflict("Nobody has entered yet."));
     }
-    // The app alone decides the chain; the draw engine refuses a mismatch.
+    // The app alone decides the chain; the drawing engine refuses a mismatch.
     let manifest = Manifest::new(
         id,
         BeaconSource::Drand(app.chain),
@@ -490,7 +490,7 @@ pub async fn command(
     }
     let state = raffle.drawing()?.ok_or_else(|| {
         conflict(
-            "The draw engine has not confirmed the frozen list yet; press “Start the draw” again.",
+            "The drawing engine has not confirmed the frozen list yet; press “Start the draw” again.",
         )
     })?;
 
@@ -530,7 +530,7 @@ fn refusal(cmd: &Command, e: DrawingError) -> AppError {
         (_, DrawingError::UnknownItem(_)) => return AppError::NotFound,
         (_, DrawingError::Finished) => "The raffle is finished.",
         (Command::Draw(_), DrawingError::DrawInProgress) => "A draw is already in progress.",
-        (Command::Draw(_), DrawingError::ItemNotPending(_)) => {
+        (Command::Draw(_), DrawingError::ItemNotAvailable(_)) => {
             "This prize has already been drawn or withdrawn."
         }
         (_, DrawingError::NoEligibleEntrants) => "There are no eligible entrants left.",
@@ -546,7 +546,7 @@ fn refusal(cmd: &Command, e: DrawingError) -> AppError {
         (Command::Decide(Decision::Abandon { .. }), DrawingError::DrawInProgress) => {
             "The draw is still waiting for its drand round; it can be abandoned if it stalls."
         }
-        (Command::Decide(Decision::Void { .. }), DrawingError::ItemNotPending(_)) => {
+        (Command::Decide(Decision::Void { .. }), DrawingError::ItemNotAvailable(_)) => {
             "Only prizes that have not been won can be withdrawn."
         }
         (_, DrawingError::DrawInProgress) => "Wait for the current draw to finish.",
@@ -555,7 +555,7 @@ fn refusal(cmd: &Command, e: DrawingError) -> AppError {
     conflict(message)
 }
 
-/// Audits a validated command and hands it to the draw engine, which writes
+/// Audits a validated command and hands it to the drawing engine, which writes
 /// the new state and nudges the channel itself.
 async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &str) -> Result<()> {
     let engine = engine(app)?;

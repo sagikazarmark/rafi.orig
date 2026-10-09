@@ -1,4 +1,4 @@
-//! The Rafi draw engine as a Restate service.
+//! The Rafi drawing engine as a Restate service.
 //!
 //! [`Drawing`] is a virtual object keyed by the drawing's ID.
 //! It owns the drawing ([`rafi_drawing::Drawing`]) from opening to finish:

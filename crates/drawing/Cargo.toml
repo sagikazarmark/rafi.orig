@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The draw state machine and the verifiable draw algorithm for Rafi"
+description = "Rafi's drawing: a verifiable selection of winners (the state machine, the draw algorithm, the manifest and the verifier)"
 
 [dependencies]
 drand = { workspace = true, features = ["bls12-381"] }

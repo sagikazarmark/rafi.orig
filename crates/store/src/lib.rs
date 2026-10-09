@@ -1,4 +1,4 @@
-//! Rafi's database, shared by the app, the draw engine and the live channel.
+//! Rafi's database, shared by the app, the drawing engine and the live channel.
 //!
 //! The schema lives in `migrations/` at the workspace root. Natively the
 //! database is SQLite or, for self-hosting, PostgreSQL (through sqlx, chosen
@@ -17,7 +17,7 @@
 //!   (erasure, ending live channels, `meta`);
 //! - [`view::Full`]: what the projector and the admin see, and
 //!   [`live::Snapshot`]: what phones see, each read in one snapshot;
-//! - [`save_drawing`], the draw engine's only write; [`DrawWriter`] offers
+//! - [`save_drawing`], the drawing engine's only write; [`DrawWriter`] offers
 //!   it as the engine's [`DrawStore`].
 //!
 //! The SQL is written for SQLite (and D1) and Postgres alike: `?`/`?N`
@@ -93,7 +93,7 @@ impl PurgeAfter {
     }
 }
 
-/// Stores a draw engine's state for a raffle.
+/// Stores a drawing engine's state for a raffle.
 ///
 /// Idempotent and safe to retry: a state is only written when it is newer than
 /// the stored one, and for the entrant list the raffle was frozen with. Moves
@@ -106,7 +106,7 @@ pub async fn save_drawing(db: &Db, state: &Drawing, purge: PurgeAfter) -> Result
     let started = state
         .events()
         .iter()
-        .any(|e| matches!(e, Event::Announce { .. } | Event::Draw { .. }));
+        .any(|e| matches!(e, Event::Announced { .. } | Event::Drawn { .. }));
     let lifecycle = if state.is_finished() {
         "finished"
     } else if started {
@@ -163,7 +163,7 @@ impl StoredDrawing {
             .events()
             .iter()
             .filter_map(|e| match e {
-                Event::Draw { entrant, .. } => Some(entrant),
+                Event::Drawn { entrant, .. } => Some(entrant),
                 _ => None,
             })
             .collect();
@@ -171,7 +171,7 @@ impl StoredDrawing {
             .items()
             .iter()
             .filter_map(|item| match &item.state {
-                ItemState::Claimed { entrant, .. } => Some(entrant),
+                ItemState::Claimed { winner, .. } => Some(winner),
                 _ => None,
             })
             .collect();
@@ -193,7 +193,7 @@ pub(crate) fn parse_drawing(json: &str) -> Result<Drawing> {
     serde_json::from_str(json).map_err(|e| Error::Decode(format!("the stored drawing: {e}")))
 }
 
-/// The draw engine's [`DrawStore`] over this database: [`save_drawing`]
+/// The drawing engine's [`DrawStore`] over this database: [`save_drawing`]
 /// with the configured erasure dates.
 #[derive(Clone)]
 pub struct DrawWriter {
