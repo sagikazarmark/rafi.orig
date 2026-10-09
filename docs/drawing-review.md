@@ -193,8 +193,33 @@ Left as they are:
 - Engines notify clients with the drawing's ID, which is the raffle's (`Notifier` is per raffle);
   `rafi_core::drawing` documents it.
 - `DrawingEngine` takes the drawing ID as `&str`, not `DrawingId`.
-- The verifier's `Report::chain_known` keeps drand's word: the verifier is drand-specific.
 
-Before deploying: run migrations 0004 and 0005. A Restate `Drawing` object stored before this
+Before deploying: run migrations 0004, 0005 and 0006. A Restate `Drawing` object stored before this
 change no longer loads (none exist before the first deploy). The Restate tests skip themselves
 without a server: run them with `RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)`.
+
+## Second pass
+
+A plain reading of the crate, component by component, found three names for one completed draw and a
+few words that said less than they meant. Decided:
+
+- **`DrawRequest` stays.** "Next draw" would be wrong when a stalled draw is re-entered (the same
+  draw, not the next), and the organizer picks the item, not the drawing; "request" says that a draw
+  is accepted and settles later.
+- **`Decision` stays**, and names the split: a drawing's inputs are *draws*, decided by the beacon,
+  and *decisions*, made by the organizer. (`Ruling`, `Action`, `OrganizerCommand` and
+  `Adjudication` were weighed.)
+- **One `CompletedDraw`**: what `settle` returns (was `Selection`), what the history lists, and what
+  the pool rules read (was the private `PastDraw`). A draw's own types are a `draw` module:
+  `PendingDraw`, `CompletedDraw`, `Outcome`.
+- **`AbandonedDraw`** (was `CommittedRound`: every draw commits to a round),
+  **`Report::beacons_verified`** (was `chain_known`), **`ManifestItem`** (was `ItemRef`, which read
+  as a reference).
+- **Decisions are tagged `"type"`**, like events (was `"cmd"`, from when draws and decisions were one
+  tagged command), and the resolution's field is **`resolution`** (was `outcome`) in the decision
+  and the `resolved` event. Migration 0006 renames it in stored drawings.
+
+| Commit |
+|---|
+| `rafi-drawing: one type for a completed draw, and the verifier's words` |
+| `rafi-drawing: decisions are tagged by type, and a resolution is a resolution` |
