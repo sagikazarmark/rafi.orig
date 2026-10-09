@@ -73,7 +73,8 @@ pub trait Deployed: Send + Sync {
 pub enum Profile {
     /// Mock drand, no lead: every round is already out.
     Instant,
-    /// Mock drand, a lead of one period: draws wait for their round.
+    /// Mock drand, a lead of two periods: every draw waits at least a period
+    /// for its round (with one period, the committed round may be due at once).
     Lead,
     /// Quicknet behind a relay that is never reachable: every draw stalls.
     Withheld,
@@ -184,7 +185,7 @@ impl Fixture {
     async fn deploy(harness: &dyn EngineHarness, profile: Profile) -> Result<Self, String> {
         let config = match profile {
             Profile::Instant | Profile::FlakyStore => mock(0),
-            Profile::Lead => mock(3),
+            Profile::Lead => mock(6),
             Profile::Withheld => quicknet("http://127.0.0.1:9".into()),
             Profile::Forged => quicknet(forging_relay().await?),
         };
