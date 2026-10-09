@@ -8,8 +8,11 @@ pub mod commit;
 pub mod drand;
 pub mod draw;
 pub mod engine;
+pub mod error;
 pub mod state;
 pub mod verify;
+
+pub use error::{DrawError, ErrorKind};
 
 /// A SHA-256 digest.
 pub type Hash = [u8; 32];

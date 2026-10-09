@@ -30,8 +30,9 @@ use std::{
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
+    ErrorKind,
     commit::CommitDoc,
-    engine::{Command, ErrorKind},
+    engine::Command,
     state::{DrawMode, DrawState, Event, Outcome, UnitStatus},
     verify::{Replaced, verify},
 };

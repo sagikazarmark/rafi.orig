@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Hash, drand::ChainHash, draw::ALGO, sha256, state::DrawError};
+use crate::{Hash, drand::ChainHash, draw::ALGO, error::DrawError, sha256};
 
 /// A prize unit as committed at freeze time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

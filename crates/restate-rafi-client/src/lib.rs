@@ -24,11 +24,7 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use rafi_drawing::{
-    commit::CommitDoc,
-    drand::ChainHash,
-    engine::{Command, ErrorKind},
-};
+use rafi_drawing::{ErrorKind, commit::CommitDoc, drand::ChainHash, engine::Command};
 use rafi_platform::{BoxFuture, DrawEngine, EngineError, EngineInfo, sendable};
 use serde::{Deserialize, Serialize};
 

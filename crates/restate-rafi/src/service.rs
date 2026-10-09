@@ -5,9 +5,10 @@ use std::{sync::Arc, time::Duration};
 use anyhow::anyhow;
 use rafi_drand::DrandClient;
 use rafi_drawing::{
+    DrawError,
     commit::CommitDoc,
     engine::{BeaconOutcome, Command},
-    state::{DrawError, DrawState},
+    state::DrawState,
 };
 use rafi_platform::{DrawStore, Notifier};
 use restate_drand::{AwaitError, Drand};

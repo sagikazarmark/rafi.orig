@@ -8,9 +8,10 @@ use std::collections::HashSet;
 
 use rafi_core::raffle::{Action, RaffleState};
 use rafi_drawing::{
+    DrawError, ErrorKind,
     commit::{CommitDoc, UnitRef},
-    engine::{Command, ErrorKind},
-    state::{DrawError, Outcome},
+    engine::Command,
+    state::Outcome,
 };
 use rafi_platform::{DrawEngine, EngineError};
 use rafi_store::{RaffleRow, audit, entrants, items, raffles};

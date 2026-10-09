@@ -35,7 +35,8 @@ use crate::{
     commit::{CommitDoc, UnitRef, list_hash},
     drand::{ChainHash, QUICKNET_CHAIN, VerifiedBeacon},
     draw,
-    engine::{BeaconOutcome, Command, ErrorKind},
+    engine::{BeaconOutcome, Command},
+    error::DrawError,
     hash_from_hex,
 };
 
@@ -156,63 +157,6 @@ pub struct DrawState {
     pub finished: bool,
     /// Monotonic version, bumped on every change. Projections keep the highest.
     pub version: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum DrawError {
-    #[error("the raffle is not frozen")]
-    NotFrozen,
-    #[error("the raffle is already frozen with a different entrant list")]
-    AlreadyFrozen,
-    #[error("the raffle commits to drand chain {committed}, but the draw engine uses {engine}")]
-    ChainMismatch { committed: String, engine: String },
-    #[error("invalid commit document: {0}")]
-    InvalidCommit(String),
-    #[error("draws go through the draw step, not as a command")]
-    NotACommand,
-    #[error("the raffle is finished")]
-    Finished,
-    #[error("unknown prize unit {0}")]
-    UnknownUnit(String),
-    #[error("prize unit {0} is not available for drawing")]
-    UnitNotPending(String),
-    #[error("prize unit {0} has no undecided winner")]
-    UnitNotDrawn(String),
-    #[error("another draw is in progress")]
-    DrawInProgress,
-    #[error("no draw is in progress")]
-    NoDrawInProgress,
-    #[error("there are no eligible entrants left")]
-    NoEligibleEntrants,
-    #[error("the beacon is for round {got}, but the draw committed to round {expected}")]
-    WrongRound { expected: u64, got: u64 },
-    #[error("the beacon is from another drand chain")]
-    WrongChain,
-    #[error("invalid list hash")]
-    BadListHash,
-    #[error("invalid resolution outcome")]
-    BadOutcome,
-}
-
-impl DrawError {
-    /// How engines and their callers classify this refusal.
-    pub fn kind(&self) -> ErrorKind {
-        match self {
-            Self::NotFrozen | Self::UnknownUnit(_) => ErrorKind::NotFound,
-            Self::InvalidCommit(_) | Self::NotACommand | Self::BadOutcome => ErrorKind::BadRequest,
-            Self::AlreadyFrozen
-            | Self::ChainMismatch { .. }
-            | Self::Finished
-            | Self::UnitNotPending(_)
-            | Self::UnitNotDrawn(_)
-            | Self::DrawInProgress
-            | Self::NoDrawInProgress
-            | Self::NoEligibleEntrants => ErrorKind::Conflict,
-            // A beacon for the wrong round or chain only ever stalls a draw,
-            // and the list hash is the engine's own: these are engine bugs.
-            Self::WrongRound { .. } | Self::WrongChain | Self::BadListHash => ErrorKind::Invariant,
-        }
-    }
 }
 
 /// Refuses a raffle committed to another drand chain than the engine's.
@@ -700,6 +644,7 @@ pub(crate) mod tests {
     use drand::{Scheme, TestChain, Verifier};
 
     use super::*;
+    use crate::ErrorKind;
 
     /// A signing test chain: real BLS signatures, small round numbers.
     pub(crate) fn test_chain() -> TestChain {

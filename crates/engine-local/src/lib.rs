@@ -37,9 +37,10 @@ use std::{
 
 use rafi_drand::DrandClient;
 use rafi_drawing::{
+    DrawError, ErrorKind,
     commit::CommitDoc,
-    engine::{BeaconOutcome, Command, ErrorKind},
-    state::{DrawError, DrawState},
+    engine::{BeaconOutcome, Command},
+    state::DrawState,
 };
 use rafi_platform::{BoxFuture, DrawEngine, DrawStore, EngineError, EngineInfo, Notifier};
 use tokio::sync::{mpsc, watch};
