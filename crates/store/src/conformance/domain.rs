@@ -2,8 +2,8 @@
 
 use rafi_core::raffle::RaffleState;
 use rafi_drawing::{
-    commit::{CommitDoc, UnitRef},
-    state::{DrawMode, DrawState, Event, UnitStatus},
+    drawing::{DrawMode, DrawState, Event, UnitStatus},
+    manifest::{CommitDoc, UnitRef},
 };
 use rafi_live::Phase;
 

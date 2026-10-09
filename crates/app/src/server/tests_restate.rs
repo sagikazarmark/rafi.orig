@@ -11,8 +11,8 @@
 use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
+use rafi_drawing::drawing::{Outcome, UnitStatus};
 use rafi_drawing::engine::Command;
-use rafi_drawing::state::{Outcome, UnitStatus};
 use rafi_platform::DrawEngine;
 use rafi_platform::Polling;
 use rafi_store::{Db, DrawWriter, PurgeAfter, RaffleRow, raffles};

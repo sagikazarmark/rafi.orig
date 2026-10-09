@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::state::{Event, Outcome, UnitStatus};
+use rafi_drawing::drawing::{Event, Outcome, UnitStatus};
 use rafi_store::view::Full;
 
 use super::AppState;
@@ -82,7 +82,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             .iter()
             .flat_map(|i| {
                 (1..=u64::try_from(i.qty).unwrap_or(0)).map(move |n| UnitView {
-                    unit_id: rafi_drawing::commit::unit_id(&i.id, n),
+                    unit_id: rafi_drawing::manifest::unit_id(&i.id, n),
                     prize_id: i.id.clone(),
                     prize_name: i.name.clone(),
                     status: UnitStatus::Pending,

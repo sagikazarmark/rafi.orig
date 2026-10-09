@@ -3,19 +3,19 @@
 //! beacon turned out. Refusals and their classification are in
 //! [`error`](crate::error).
 //!
-//! The engine owns each raffle's [`DrawState`](crate::state::DrawState); the
+//! The engine owns each raffle's [`DrawState`](crate::drawing::DrawState); the
 //! rules it applies live on the state ([`DrawState::freeze_or_check`],
 //! [`DrawState::conclude`], [`DrawState::apply`]), so every engine (the
 //! `Raffle` Restate virtual object, the local test runner) behaves the same
 //! and only does I/O.
 //!
-//! [`DrawState::freeze_or_check`]: crate::state::DrawState::freeze_or_check
-//! [`DrawState::conclude`]: crate::state::DrawState::conclude
-//! [`DrawState::apply`]: crate::state::DrawState::apply
+//! [`DrawState::freeze_or_check`]: crate::drawing::DrawState::freeze_or_check
+//! [`DrawState::conclude`]: crate::drawing::DrawState::conclude
+//! [`DrawState::apply`]: crate::drawing::DrawState::apply
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Hash, drand::VerifiedBeacon, state::Outcome};
+use crate::{Hash, drand::VerifiedBeacon, drawing::Outcome};
 
 /// A command for the draw engine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,7 +35,7 @@ pub enum Command {
 }
 
 /// How the beacon for a pending draw turned out: the input of
-/// [`DrawState::conclude`](crate::state::DrawState::conclude).
+/// [`DrawState::conclude`](crate::drawing::DrawState::conclude).
 #[derive(Debug, Clone)]
 pub enum BeaconOutcome {
     /// The committed round's beacon, verified against the engine's chain.

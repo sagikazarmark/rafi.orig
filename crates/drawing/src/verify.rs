@@ -9,9 +9,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    commit::{CommitDoc, list_hash},
     drand::{Beacon, ChainHash, ChainInfo, Verifier, chains},
-    state::{DrawMode, DrawState, Event},
+    drawing::{DrawMode, DrawState, Event},
+    manifest::{CommitDoc, list_hash},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -328,11 +328,11 @@ fn record_replaced(report: &mut Report, state: &DrawState, replaced: Replaced) {
 mod tests {
     use super::*;
     use crate::{
-        commit::UnitRef,
-        state::{
+        drawing::{
             Outcome,
             tests::{beacon, test_chain},
         },
+        manifest::UnitRef,
     };
 
     fn resolve(h: &ChainHash) -> Option<ChainInfo> {

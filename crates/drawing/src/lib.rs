@@ -4,12 +4,12 @@
 //! run in the server, inside the Restate virtual object, in the browser
 //! verifier (WASM) and in tests, and always produce identical results.
 
-pub mod commit;
 pub mod drand;
 pub mod draw;
+pub mod drawing;
 pub mod engine;
 pub mod error;
-pub mod state;
+pub mod manifest;
 pub mod verify;
 
 pub use error::{DrawError, ErrorKind};

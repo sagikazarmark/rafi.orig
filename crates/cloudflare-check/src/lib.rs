@@ -13,8 +13,8 @@
 use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleChannel;
 use rafi_drawing::{
-    commit::{CommitDoc, UnitRef},
-    state::{DrawState, Event, UnitStatus},
+    drawing::{DrawState, Event, UnitStatus},
+    manifest::{CommitDoc, UnitRef},
 };
 use rafi_platform::Notifier;
 use rafi_store::{Db, PurgeAfter, live::Snapshot};
@@ -249,7 +249,7 @@ async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
         round: 1,
         signature: String::new(),
         randomness: String::new(),
-        mode: rafi_drawing::state::DrawMode::Beacon,
+        mode: rafi_drawing::drawing::DrawMode::Beacon,
         pass: 1,
         pool_size: 2,
         index: 0,

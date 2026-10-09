@@ -31,9 +31,9 @@ use std::{
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
     ErrorKind,
-    commit::CommitDoc,
+    drawing::{DrawMode, DrawState, Event, Outcome, UnitStatus},
     engine::Command,
-    state::{DrawMode, DrawState, Event, Outcome, UnitStatus},
+    manifest::CommitDoc,
     verify::{Replaced, verify},
 };
 use rafi_platform::{
@@ -223,7 +223,7 @@ impl Fixture {
             raffle_id,
             &self.drand.chain_hash(),
             (0..entrants).map(|i| format!("{i:032x}")).collect(),
-            rafi_drawing::commit::units([("u", "Prize", units)]),
+            rafi_drawing::manifest::units([("u", "Prize", units)]),
         )
     }
 

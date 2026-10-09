@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use rafi_drawing::{
-    state::{DrawMode, Event},
+    drawing::{DrawMode, Event},
     verify::Replaced,
 };
 
@@ -46,7 +46,7 @@ pub fn Verify(slug: String) -> Element {
                 .iter()
                 .map(|(id, n)| (id.as_str(), n.as_str()))
                 .collect();
-            let doc: Option<rafi_drawing::commit::CommitDoc> =
+            let doc: Option<rafi_drawing::manifest::CommitDoc> =
                 serde_json::from_str(&d.commit_doc).ok();
             let unit_names: HashMap<String, String> = doc
                 .as_ref()

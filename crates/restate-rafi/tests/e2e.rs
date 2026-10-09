@@ -11,9 +11,9 @@ use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
-    commit::{CommitDoc, UnitRef},
+    drawing::{DrawState, Event, Outcome, UnitStatus},
     engine::Command,
-    state::{DrawState, Event, Outcome, UnitStatus},
+    manifest::{CommitDoc, UnitRef},
     verify::verify,
 };
 use rafi_platform::{MemoryDrawStore, Recording};

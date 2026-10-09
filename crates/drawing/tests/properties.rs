@@ -6,9 +6,9 @@ use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_drawing::{
     DrawError,
-    commit::{CommitDoc, UnitRef},
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
-    state::{DrawState, Event, Outcome, UnitStatus},
+    drawing::{DrawState, Event, Outcome, UnitStatus},
+    manifest::{CommitDoc, UnitRef},
     verify::verify,
 };
 

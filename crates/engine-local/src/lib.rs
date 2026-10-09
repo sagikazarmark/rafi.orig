@@ -38,9 +38,9 @@ use std::{
 use rafi_drand::DrandClient;
 use rafi_drawing::{
     DrawError, ErrorKind,
-    commit::CommitDoc,
+    drawing::DrawState,
     engine::{BeaconOutcome, Command},
-    state::DrawState,
+    manifest::CommitDoc,
 };
 use rafi_platform::{BoxFuture, DrawEngine, DrawStore, EngineError, EngineInfo, Notifier};
 use tokio::sync::{mpsc, watch};
@@ -337,7 +337,7 @@ impl Io {
 #[cfg(test)]
 mod tests {
     use rafi_drand::DrandConfig;
-    use rafi_drawing::{commit::UnitRef, state::UnitStatus};
+    use rafi_drawing::{drawing::UnitStatus, manifest::UnitRef};
     use rafi_platform::{MemoryDrawStore, Recording};
 
     use super::*;

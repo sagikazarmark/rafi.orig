@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::state::{Outcome, UnitStatus};
+use rafi_drawing::drawing::{Outcome, UnitStatus};
 
 use super::{
     Route, command_id, copy_to_clipboard,

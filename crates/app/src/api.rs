@@ -11,7 +11,7 @@
 use std::fmt;
 
 #[cfg(any(feature = "web", feature = "server"))]
-use rafi_drawing::state::Outcome;
+use rafi_drawing::drawing::Outcome;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "web")]

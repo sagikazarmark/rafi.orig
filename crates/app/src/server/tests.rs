@@ -11,7 +11,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::state::{Outcome, UnitStatus};
+use rafi_drawing::drawing::{Outcome, UnitStatus};
 use rafi_live::LiveTransport;
 use rafi_platform::{Limiter, Notifier, Polling, Recording};
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
@@ -1095,14 +1095,14 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
 
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
-    let doc: rafi_drawing::commit::CommitDoc =
+    let doc: rafi_drawing::manifest::CommitDoc =
         serde_json::from_str(r.manifest.as_deref().expect("commit document")).unwrap();
     assert_eq!(doc.entrant_ids.len(), 3);
     assert_eq!(doc.units.len(), 2);
     assert_eq!(
         r.manifest_hash.as_deref(),
         Some(
-            hex::encode(rafi_drawing::commit::list_hash(
+            hex::encode(rafi_drawing::manifest::list_hash(
                 r.manifest.as_deref().unwrap()
             ))
             .as_str()
@@ -1141,7 +1141,7 @@ async fn fake_entrants_are_added_in_one_batch() {
 /// (offline, abandon) are logged for the verifier.
 #[tokio::test]
 async fn stalled_draw_keeps_its_round() {
-    use rafi_drawing::{state::Event, verify::Replaced};
+    use rafi_drawing::{drawing::Event, verify::Replaced};
 
     let app = unreachable_drand_app().await;
     let raffle = setup_open(&app, &[("Prize", 3)]).await;

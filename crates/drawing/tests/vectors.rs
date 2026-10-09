@@ -13,10 +13,10 @@
 //! (a log doing that fails verification).
 
 use rafi_drawing::{
-    commit::{CommitDoc, UnitRef},
     drand::{Beacon, VerifiedBeacon, Verifier, chains},
     draw,
-    state::{DrawState, Outcome},
+    drawing::{DrawState, Outcome},
+    manifest::{CommitDoc, UnitRef},
     verify::verify_public,
 };
 use serde::{Deserialize, Serialize};

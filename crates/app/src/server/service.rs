@@ -9,9 +9,9 @@ use std::collections::HashSet;
 use rafi_core::raffle::{Action, RaffleState};
 use rafi_drawing::{
     DrawError, ErrorKind,
-    commit::{CommitDoc, UnitRef},
+    drawing::Outcome,
     engine::Command,
-    state::Outcome,
+    manifest::{CommitDoc, UnitRef},
 };
 use rafi_platform::{DrawEngine, EngineError};
 use rafi_store::{RaffleRow, audit, entrants, prizes, raffles};
@@ -411,7 +411,7 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
 /// The prize units of a raffle, in draw order. Errors if there are none.
 async fn units(app: &AppState, id: &str) -> Result<Vec<UnitRef>> {
     let prizes = prizes::list(&app.db, id).await?;
-    let units = rafi_drawing::commit::units(prizes.iter().map(|i| {
+    let units = rafi_drawing::manifest::units(prizes.iter().map(|i| {
         (
             i.id.as_str(),
             i.name.as_str(),
@@ -448,7 +448,7 @@ async fn commit(
     // The app alone decides the chain; the draw engine refuses a mismatch.
     let doc = CommitDoc::new(id, &app.chain, entrant_ids, units);
     let json = doc.canonical_json();
-    let hash = hex::encode(rafi_drawing::commit::list_hash(&json));
+    let hash = hex::encode(rafi_drawing::manifest::list_hash(&json));
     if !raffles::commit(&app.db, id, &json, &hash).await? {
         // Another attempt committed first (or the raffle moved on).
         let stored = raffles::get(&app.db, id)

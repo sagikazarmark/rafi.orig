@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use rafi_drawing::{DrawError, ErrorKind, commit::CommitDoc, drand::ChainHash, engine::Command};
+use rafi_drawing::{DrawError, ErrorKind, drand::ChainHash, engine::Command, manifest::CommitDoc};
 
 use crate::BoxFuture;
 

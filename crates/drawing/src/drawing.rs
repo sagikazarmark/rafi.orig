@@ -32,12 +32,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Hash,
-    commit::{CommitDoc, UnitRef, list_hash},
     drand::{ChainHash, QUICKNET_CHAIN, VerifiedBeacon},
     draw,
     engine::{BeaconOutcome, Command},
     error::DrawError,
     hash_from_hex,
+    manifest::{CommitDoc, UnitRef, list_hash},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

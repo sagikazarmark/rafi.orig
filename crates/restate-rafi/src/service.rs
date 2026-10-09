@@ -6,9 +6,9 @@ use anyhow::anyhow;
 use rafi_drand::DrandClient;
 use rafi_drawing::{
     DrawError,
-    commit::CommitDoc,
+    drawing::DrawState,
     engine::{BeaconOutcome, Command},
-    state::DrawState,
+    manifest::CommitDoc,
 };
 use rafi_platform::{DrawStore, Notifier};
 use restate_drand::{AwaitError, Drand};

@@ -1,7 +1,7 @@
 //! Types shared between the server and the browser.
 
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::state::{DrawMode, Event, Outcome, UnitStatus};
+use rafi_drawing::drawing::{DrawMode, Event, Outcome, UnitStatus};
 use serde::{Deserialize, Serialize};
 
 /// The public, live state of a raffle: the projector's and the admin's full
