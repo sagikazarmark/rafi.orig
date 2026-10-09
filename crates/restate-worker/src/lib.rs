@@ -19,14 +19,13 @@
 
 #![cfg(target_arch = "wasm32")]
 
-use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
+use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_store::{DrawWriter, PurgeAfter};
 use restate_rafi::Raffle;
-use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode};
-use worker::{Context, Env, Request, Response, Result, event};
+use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};
+use worker::{Context, Env, HttpRequest, Result, event};
 
 fn number<T: std::str::FromStr>(env: &Env, name: &str, default: T) -> T {
     lookup(env, name)
@@ -84,43 +83,18 @@ fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
 }
 
 #[event(fetch)]
-async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
-    let endpoint = match endpoint(&env) {
-        Ok(e) => e,
-        Err(e) => {
-            worker::console_error!("rafi-restate-worker: {e:#}");
-            return Response::error("misconfigured", 500);
-        }
-    };
-    let mut builder = http::Request::builder()
-        .method(req.method().as_ref())
-        .uri(req.url()?.as_str());
-    for (name, value) in req.headers() {
-        builder = builder.header(name, value);
-    }
-    let body = req.bytes().await?;
-    let request = builder
-        .body(Full::new(Bytes::from(body)))
-        .map_err(|e| worker::Error::RustError(e.to_string()))?;
-
+async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<http::Response<ResponseBody>> {
+    let endpoint = endpoint(&env).map_err(|e| {
+        worker::console_error!("rafi-restate-worker: {e:#}");
+        worker::Error::RustError("misconfigured".into())
+    })?;
+    // The SDK wants a body whose error is `Send`; a Workers error holds a JS value.
+    let req = req.map(|body| body.map_err(|e| e.to_string()));
     // Identity is verified before any routing, discovery included.
-    let response = endpoint.handle_with_options(
-        request,
+    Ok(endpoint.handle_with_options(
+        req,
         HandleOptions {
             protocol_mode: ProtocolMode::RequestResponse,
         },
-    );
-    let (parts, body) = response.into_parts();
-    let body = body
-        .collect()
-        .await
-        .map_err(|e| worker::Error::RustError(e.to_string()))?
-        .to_bytes();
-    let mut res = Response::from_bytes(body.to_vec())?.with_status(parts.status.as_u16());
-    for (name, value) in &parts.headers {
-        if let Ok(v) = value.to_str() {
-            res.headers_mut().set(name.as_str(), v)?;
-        }
-    }
-    Ok(res)
+    ))
 }

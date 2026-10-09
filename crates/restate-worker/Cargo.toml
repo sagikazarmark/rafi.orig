@@ -20,11 +20,10 @@ rafi-drand = { path = "../drand" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = "1"
-bytes = "1"
 http = "1"
 http-body-util = "0.1"
 rafi-cloudflare = { path = "../cloudflare" }
 rafi-store.workspace = true
 restate-rafi = { path = "../restate-rafi" }
 restate-sdk = { workspace = true, features = ["rust_crypto"] }
-worker = "0.8.7"
+worker = { version = "0.8.7", features = ["http"] }
