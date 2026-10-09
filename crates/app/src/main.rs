@@ -12,9 +12,9 @@ async fn main() -> anyhow::Result<()> {
     if cfg.dev_auth {
         tracing::warn!("RAFI_DEV_AUTH is on: admin pages are NOT protected");
     }
-    if cfg.drand.mock {
+    if cfg.drand_chain.eq_ignore_ascii_case("mock") {
         tracing::warn!(
-            "RAFI_DRAND_MOCK is on: draws use a public test chain and are NOT verifiable as drand"
+            "RAFI_DRAND_CHAIN is the mock chain: draws use a public test chain and are NOT verifiable as drand"
         );
     }
     if cfg.restate.ingress_url.is_empty() {

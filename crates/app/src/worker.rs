@@ -36,9 +36,6 @@ fn app(env: &Env) -> anyhow::Result<(AppState, Option<ClerkAuthLayer>)> {
     if cfg.dev_auth && !dev {
         anyhow::bail!("RAFI_DEV_AUTH is set, but this build has no `worker-dev` feature");
     }
-    if cfg.drand.mock && !dev {
-        anyhow::bail!("RAFI_DRAND_MOCK is set, but this build has no `worker-dev` feature");
-    }
     if lookup(env, "RAFI_ALTCHA_KEY").is_none() {
         anyhow::bail!("RAFI_ALTCHA_KEY is not set");
     }

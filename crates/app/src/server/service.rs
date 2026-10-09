@@ -358,11 +358,19 @@ pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle)
 pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     let engine = engine(app)?;
-    if let Err(e) = engine.info().await {
+    let info = engine.info().await.map_err(|e| {
         tracing::warn!(error = %e, "draw engine unavailable");
-        return Err(AppError::Unavailable(
+        AppError::Unavailable(
             "Restate is not reachable. Check the connection and try again.".into(),
-        ));
+        )
+    })?;
+    // The app decides the chain; the engine would refuse another at freeze,
+    // after the commitment is stored. Refuse before anything is frozen.
+    if info.chain != app.chain {
+        return Err(conflict(format!(
+            "The draw engine draws from drand chain {}, but raffles here commit to {}. Fix the configuration before starting the draw.",
+            info.chain, app.chain
+        )));
     }
 
     let doc = match raffle.state() {
@@ -437,7 +445,7 @@ async fn commit(
         return Err(conflict("Nobody has entered yet."));
     }
     // The app alone decides the chain; the draw engine refuses a mismatch.
-    let doc = CommitDoc::new(id, &app.drand.chain_hash(), entrant_ids, units);
+    let doc = CommitDoc::new(id, &app.chain, entrant_ids, units);
     let json = doc.canonical_json();
     let hash = hex::encode(rafi_core::commit::list_hash(&json));
     if !raffles::commit(&app.db, id, &json, &hash).await? {

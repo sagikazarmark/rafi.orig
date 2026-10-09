@@ -52,7 +52,7 @@ environment variable, `__` separating the levels (`RESTATE_RAFI_DATABASE__URL`);
 | `drand.relays` | `RESTATE_RAFI_DRAND__RELAYS` | api.drand.sh, api2, api3 (v2), drand.cloudflare.com (v1) | Relays to ask in order (a list: `[a, b]`; `v1:`/`v2:` prefixes, a bare URL is v1). Every beacon is BLS-verified |
 | `drand.lead_secs` | `RESTATE_RAFI_DRAND__LEAD_SECS` | `6` | Seconds until the committed round (≥ 3) |
 | `drand.timeout_secs` | `RESTATE_RAFI_DRAND__TIMEOUT_SECS` | `60` | Stop fetching after this; the draw stays pending (stalled) on its round |
-| `drand.mock` | `RESTATE_RAFI_DRAND__MOCK` | `false` | Public test chain for offline development (draws are *not* verifiable; build with `--features mock-drand`). Must match the app's `RAFI_DRAND_MOCK`: raffles committed to another chain are refused |
+| `drand.mock` | `RESTATE_RAFI_DRAND__MOCK` | `false` | Public test chain for offline development (draws are *not* verifiable; build with `--features mock-drand`). Must match the app's `RAFI_DRAND_CHAIN`: the app refuses to start a draw on an engine on another chain, and the engine refuses raffles committed to another chain |
 | | `RUST_LOG` | `info` | Log level |
 
 ```toml

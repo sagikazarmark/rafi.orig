@@ -34,10 +34,28 @@ async fn app_with(cfg: Config) -> AppState {
     app_with_live(cfg, Arc::new(Polling::default())).await
 }
 
-/// An app whose draw engine is the in-process one, writing into the same
-/// database. With `RAFI_TEST_POSTGRES_URL` set, the test database is a
-/// fresh schema there instead of in-memory SQLite.
-async fn app_with_live(mut cfg: Config, live: Arc<dyn Notifier>) -> AppState {
+/// The draw engine's drand: the mock chain, no lead.
+fn mock_drand() -> rafi_drand::DrandConfig {
+    rafi_drand::DrandConfig {
+        relays: vec![],
+        mock: true,
+        lead_secs: 0,
+        timeout_secs: 5,
+    }
+}
+
+async fn app_with_live(cfg: Config, live: Arc<dyn Notifier>) -> AppState {
+    app_with_engine(cfg, mock_drand(), live).await
+}
+
+/// An app whose draw engine is the in-process one (drawing with `drand`),
+/// writing into the same database. With `RAFI_TEST_POSTGRES_URL` set, the
+/// test database is a fresh schema there instead of in-memory SQLite.
+async fn app_with_engine(
+    mut cfg: Config,
+    drand: rafi_drand::DrandConfig,
+    live: Arc<dyn Notifier>,
+) -> AppState {
     if cfg.database_url == Config::for_tests().database_url
         && let Some(url) = rafi_store::testing::postgres_url().await
     {
@@ -49,7 +67,7 @@ async fn app_with_live(mut cfg: Config, live: Arc<dyn Notifier>) -> AppState {
     let purge =
         rafi_store::PurgeAfter::days(cfg.retention_nonwinners_days, cfg.retention_winners_days);
     let engine = rafi_engine_local::LocalEngine::new(
-        rafi_drand::DrandClient::new(cfg.drand.clone()).expect("drand configuration"),
+        rafi_drand::DrandClient::new(drand).expect("drand configuration"),
         rafi_store::DrawWriter::new(db.clone(), purge),
         Polling::default(),
     );
@@ -187,13 +205,14 @@ async fn wait_long<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) ->
 /// (quicknet, 3 s lead, gives up 1 s after the round is due).
 async fn unreachable_drand_app() -> AppState {
     let mut cfg = Config::for_tests();
-    cfg.drand = rafi_drand::DrandConfig {
+    cfg.drand_chain = rafi_core::drand::chains::QUICKNET_HASH.to_string();
+    let drand = rafi_drand::DrandConfig {
         relays: vec!["http://127.0.0.1:9".into()],
         mock: false,
         lead_secs: 3,
         timeout_secs: 1,
     };
-    app_with(cfg).await
+    app_with_engine(cfg, drand, Arc::new(Polling::default())).await
 }
 
 #[tokio::test]
@@ -826,6 +845,26 @@ async fn offline_draw() {
         )
         .ok()
     );
+}
+
+/// The app decides the chain raffles commit to: an engine on another chain
+/// is refused before anything is frozen.
+#[tokio::test]
+async fn an_engine_on_another_chain_is_refused_before_freezing() {
+    let mut cfg = Config::for_tests();
+    cfg.drand_chain = rafi_core::drand::chains::QUICKNET_HASH.to_string();
+    let app = app_with_engine(cfg, mock_drand(), Arc::new(Polling::default())).await;
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
+        .await
+        .unwrap();
+    let err = service::start_draw(&app, OWNER, &raffle.id)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, service::AppError::Conflict(_)), "{err}");
+    let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
+    assert_eq!(r.state(), RaffleState::Open, "nothing was frozen");
+    assert!(r.commit_doc.is_none(), "nothing was committed");
 }
 
 /// Without a draw engine configured, nothing can start.

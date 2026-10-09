@@ -186,11 +186,20 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
     }
 
     let state = raffle.state();
-    // The app picks the chain new raffles commit to, and the engine refuses another.
-    let engine = if app.drand.is_mock() {
-        "restate (mock drand)"
-    } else {
+    // Labelled by the chain the raffle committed to (or will): only a public
+    // drand chain is verifiable.
+    let chain = raffle
+        .draw_state()
+        .map(|s| s.drand_chain)
+        .unwrap_or_else(|| app.chain.to_string());
+    let public = chain
+        .parse::<rafi_core::drand::ChainHash>()
+        .ok()
+        .is_some_and(|c| rafi_core::drand::chains::by_hash(&c).is_some());
+    let engine = if public {
         "restate"
+    } else {
+        "restate (mock drand)"
     }
     .to_owned();
     Ok(Some(RaffleView {

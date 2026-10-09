@@ -111,5 +111,5 @@ RAFI_PUBLIC_URL = "http://127.0.0.1:8787"
 RESTATE_INGRESS_URL = "http://127.0.0.1:18080"
 RAFI_DO_JURISDICTION = "" # workerd doesn't implement jurisdictions
 RAFI_DEV_AUTH = "1"
-RAFI_DRAND_MOCK = "1"
+RAFI_DRAND_CHAIN = "mock"
 RAFI_ALTCHA_KEY = "local-development-only"

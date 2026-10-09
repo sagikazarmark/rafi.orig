@@ -21,9 +21,8 @@ pub mod view;
 use std::path::PathBuf;
 use std::{ops::Deref, sync::Arc};
 
-use anyhow::Context as _;
 use axum::{Extension, Router};
-use rafi_drand::DrandClient;
+use rafi_core::drand::ChainHash;
 use rafi_platform::{DrawEngine, Notifier, RateLimit};
 use rafi_store::Db;
 use restate_rafi_client::RestateClient;
@@ -36,8 +35,8 @@ pub struct AppState(Arc<Inner>);
 pub struct Inner {
     pub cfg: Config,
     pub db: Db,
-    /// The drand chain new raffles commit to.
-    pub drand: DrandClient,
+    /// The drand chain new raffles commit to ([`Config::chain`]).
+    pub chain: ChainHash,
     /// The draw engine; `None` without one (no `RESTATE_INGRESS_URL`).
     pub engine: Option<Arc<dyn DrawEngine>>,
     /// Live updates to clients (natively: none, clients poll).
@@ -58,6 +57,8 @@ impl AppState {
     /// poll), in-memory rate limits.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn new(cfg: Config) -> anyhow::Result<Self> {
+        use anyhow::Context as _;
+
         let db = Db::connect(&cfg.database_url)
             .await
             .context("opening database")?;
@@ -81,7 +82,7 @@ impl AppState {
         limiter: Arc<dyn RateLimit>,
     ) -> anyhow::Result<Self> {
         Ok(Self(Arc::new(Inner {
-            drand: DrandClient::new(cfg.drand.clone()).context("drand configuration")?,
+            chain: cfg.chain()?,
             engine,
             notifier,
             limiter,

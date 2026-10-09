@@ -3,7 +3,9 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::env;
 
-pub use rafi_drand::DrandConfig;
+use anyhow::{anyhow, bail};
+use rafi_core::drand::{ChainHash, chains};
+
 /// How the app reaches the `restate-rafi` service: through the Restate ingress.
 pub use restate_rafi_client::ClientConfig as RestateConfig;
 
@@ -17,8 +19,11 @@ pub struct Config {
     /// The draw engine: the `Raffle` virtual object of the `restate-rafi`
     /// service. Without an ingress URL, draws can't start.
     pub restate: RestateConfig,
-    /// The drand chain new raffles commit to (the draw engine refuses another).
-    pub drand: DrandConfig,
+    /// The drand chain new raffles commit to (`RAFI_DRAND_CHAIN`, a chain
+    /// hash; quicknet when unset). The app decides it ([`Config::chain`]); the
+    /// draw engine only checks it. `mock` (or `RAFI_DRAND_MOCK=1`) is the mock
+    /// chain, in development builds only.
+    pub drand_chain: String,
     pub altcha_key: Vec<u8>,
     /// Maximum proof-of-work number (difficulty).
     pub altcha_max: u64,
@@ -74,10 +79,9 @@ impl Config {
                     .unwrap_or(RestateConfig::DEFAULT_TIMEOUT_SECS),
             },
             // Only the chain matters here: the draw engine fetches the beacons.
-            drand: DrandConfig {
-                mock: flag("RAFI_DRAND_MOCK"),
-                ..DrandConfig::default()
-            },
+            drand_chain: var("RAFI_DRAND_CHAIN")
+                .or_else(|| flag("RAFI_DRAND_MOCK").then(|| MOCK.to_owned()))
+                .unwrap_or_else(|| chains::QUICKNET_HASH.to_string()),
             altcha_key,
             altcha_max: var("RAFI_ALTCHA_MAX")
                 .and_then(|v| v.parse().ok())
@@ -95,9 +99,16 @@ impl Config {
         }
     }
 
+    /// The chain new raffles commit to. Release builds commit only to public
+    /// drand chains; the mock chain (whose key is public: its beacons can be
+    /// forged) needs a development build (`mock-drand`).
+    pub fn chain(&self) -> anyhow::Result<ChainHash> {
+        resolve_chain(&self.drand_chain, mock_chain())
+    }
+
     /// Configuration for tests: in-memory database, mock drand, no Restate
     /// (the tests hand the app their engine).
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub fn for_tests() -> Self {
         Self {
             database_url: "sqlite::memory:".into(),
@@ -108,12 +119,7 @@ impl Config {
                 api_key: String::new(),
                 timeout_secs: RestateConfig::DEFAULT_TIMEOUT_SECS,
             },
-            drand: DrandConfig {
-                relays: vec![],
-                mock: true,
-                lead_secs: 0,
-                timeout_secs: 5,
-            },
+            drand_chain: MOCK.into(),
             altcha_key: b"test-key".to_vec(),
             altcha_max: 50,
             cookie_secure: false,
@@ -122,5 +128,65 @@ impl Config {
             retention_nonwinners_days: 30,
             retention_winners_days: 90,
         }
+    }
+}
+
+/// The alias for the mock chain in `RAFI_DRAND_CHAIN`.
+const MOCK: &str = "mock";
+
+/// The mock chain's hash, in builds that may commit to it.
+fn mock_chain() -> Option<ChainHash> {
+    #[cfg(any(test, feature = "mock-drand"))]
+    return Some(rafi_drand::mock_chain().chain().hash());
+    #[cfg(not(any(test, feature = "mock-drand")))]
+    None
+}
+
+/// The chain `configured` names, by the policy of a build whose mock chain is
+/// `mock` (`None`: no mock chain allowed).
+fn resolve_chain(configured: &str, mock: Option<ChainHash>) -> anyhow::Result<ChainHash> {
+    let configured = configured.trim();
+    if configured.eq_ignore_ascii_case(MOCK) {
+        return mock.ok_or_else(|| {
+            anyhow!(
+                "RAFI_DRAND_CHAIN is the mock chain, but this build has no `mock-drand` feature"
+            )
+        });
+    }
+    let chain: ChainHash = configured
+        .parse()
+        .map_err(|e| anyhow!("RAFI_DRAND_CHAIN {configured:?}: {e}"))?;
+    if chains::by_hash(&chain).is_some() || Some(chain) == mock {
+        return Ok(chain);
+    }
+    bail!("RAFI_DRAND_CHAIN {chain} is not a public drand chain this build knows");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_builds_commit_only_to_public_chains() {
+        let quicknet = chains::QUICKNET_HASH;
+        let mock = rafi_drand::mock_chain().chain().hash();
+        assert_eq!(
+            resolve_chain(&quicknet.to_string(), None).unwrap(),
+            quicknet
+        );
+        assert!(resolve_chain("mock", None).is_err());
+        assert!(resolve_chain(&mock.to_string(), None).is_err());
+        assert!(resolve_chain("not a hash", None).is_err());
+        // Development builds also take the mock chain, by name or hash.
+        assert_eq!(resolve_chain("mock", Some(mock)).unwrap(), mock);
+        assert_eq!(resolve_chain(&mock.to_string(), Some(mock)).unwrap(), mock);
+    }
+
+    #[test]
+    fn the_chain_defaults_to_quicknet() {
+        let cfg = Config::from_lookup(|_| None);
+        assert_eq!(cfg.chain().unwrap(), chains::QUICKNET_HASH);
+        let cfg = Config::from_lookup(|name| (name == "RAFI_DRAND_MOCK").then(|| "1".into()));
+        assert_eq!(cfg.drand_chain, "mock");
     }
 }
