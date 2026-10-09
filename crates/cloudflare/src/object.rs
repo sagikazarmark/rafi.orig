@@ -30,6 +30,12 @@ const REREAD: Duration = Duration::from_secs(15);
 /// The most sockets one raffle accepts; the rest fall back to polling.
 const MAX_SOCKETS: usize = 2_000;
 
+/// The largest participant view the hub publishes. It grows with the winners
+/// (about 100 bytes each), and prizes aren't capped in number, so partyline's
+/// 64 KiB default could refuse a big raffle's view and leave phones on the
+/// last one. Under the 2 MB a Durable Object's SQLite row may hold.
+const MAX_VIEW_BYTES: usize = 1024 * 1024;
+
 const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS rafi_channel (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     raffle_id TEXT NOT NULL,
@@ -187,7 +193,7 @@ impl RaffleChannel {
 
 impl DurableObject for RaffleChannel {
     fn new(state: State, env: Env) -> Self {
-        let hub = Hub::new(state, HubConfig::default());
+        let hub = Hub::new(state, HubConfig::default().max_event_bytes(MAX_VIEW_BYTES));
         if let Err(e) = hub.state().storage().sql().exec(SCHEMA, None) {
             worker::console_error!("RaffleChannel: creating the table failed: {e}");
         }

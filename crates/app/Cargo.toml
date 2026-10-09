@@ -43,7 +43,7 @@ wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
 gloo-timers = { version = "0.3", features = ["futures"], optional = true }
 gloo-net = { version = "0.6", default-features = false, features = ["http", "json"], optional = true }
-partyline-dioxus = { version = "0.2", optional = true }
+partyline-dioxus = { version = "0.3", optional = true }
 dioxus-field = { version = "0.7.0", default-features = false }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components", rev = "bf007c15d0cf4d04d3181cc46cf12325aa773955", version = "0.0.1", default-features = false, features = ["router"] }
 

@@ -16,7 +16,7 @@ base64 = "0.22"
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals"] }
 hex.workspace = true
 hmac = { version = "0.12", optional = true }
-partyline = "0.2"
+partyline = "0.3"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
