@@ -8,8 +8,8 @@ use std::collections::HashSet;
 
 use rafi_core::raffle::{self, RaffleState};
 use rafi_drawing::{
-    BeaconSource, Command, Decision, DrawRequest, EntrantId, Error as DrawingError, ErrorKind,
-    ItemId, ItemRef, Manifest, ManifestHash, Outcome, Resolution,
+    BeaconSource, Command, Decision, DrawRequest, Error as DrawingError, ErrorKind, ItemId,
+    ItemRef, Manifest, ManifestHash, Outcome, Resolution,
 };
 use rafi_platform::{DrawingEngine, EngineError};
 use rafi_store::{RaffleRow, audit, entrants, prizes, raffles};
@@ -414,19 +414,13 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
 /// Errors if there are none.
 async fn items(app: &AppState, id: &str) -> Result<Vec<ItemRef>> {
     let prizes = prizes::list(&app.db, id).await?;
-    let items: Vec<ItemRef> = rafi_core::prize::items(prizes.iter().map(|i| {
+    let items = rafi_core::drawing::items(prizes.iter().map(|i| {
         (
             i.id.as_str(),
             i.name.as_str(),
             u64::try_from(i.qty).unwrap_or(0),
         )
-    }))
-    .into_iter()
-    .map(|(id, name)| ItemRef {
-        id: id.into(),
-        name,
-    })
-    .collect();
+    }));
     if items.is_empty() {
         return Err(conflict("Add at least one prize first."));
     }
@@ -455,12 +449,8 @@ async fn write_manifest(
         return Err(conflict("Nobody has entered yet."));
     }
     // The app alone decides the chain; the drawing engine refuses a mismatch.
-    let manifest = Manifest::new(
-        id,
-        BeaconSource::Drand(app.chain),
-        entrant_ids.into_iter().map(EntrantId::from).collect(),
-        items,
-    );
+    let manifest =
+        rafi_core::drawing::manifest(id, BeaconSource::Drand(app.chain), entrant_ids, items);
     let json = manifest.canonical_json();
     let hash = ManifestHash::of(&json).to_string();
     if !raffles::set_manifest(&app.db, id, &json, &hash).await? {

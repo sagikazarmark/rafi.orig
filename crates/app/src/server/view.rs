@@ -72,26 +72,31 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             .iter()
             .map(|u| ItemView {
                 item: u.id.clone(),
-                prize_id: rafi_core::prize::prize_id(u.id.as_str()).to_owned(),
+                prize_id: rafi_core::drawing::prize_id(&u.id).to_owned(),
                 prize_name: u.name.clone(),
                 status: u.status(),
                 display_name: u.winner().map(|e| name_of(e.as_str())),
                 entrant: u.winner().cloned(),
             })
             .collect(),
-        None => prizes
-            .iter()
-            .flat_map(|i| {
-                (1..=u64::try_from(i.qty).unwrap_or(0)).map(move |n| ItemView {
-                    item: rafi_core::prize::item_id(&i.id, n).into(),
-                    prize_id: i.id.clone(),
-                    prize_name: i.name.clone(),
-                    status: ItemStatus::Available,
-                    entrant: None,
-                    display_name: None,
-                })
-            })
-            .collect(),
+        // Before the freeze: the items the raffle's prizes will become.
+        None => rafi_core::drawing::items(prizes.iter().map(|i| {
+            (
+                i.id.as_str(),
+                i.name.as_str(),
+                u64::try_from(i.qty).unwrap_or(0),
+            )
+        }))
+        .into_iter()
+        .map(|item| ItemView {
+            prize_id: rafi_core::drawing::prize_id(&item.id).to_owned(),
+            item: item.id,
+            prize_name: item.name,
+            status: ItemStatus::Available,
+            entrant: None,
+            display_name: None,
+        })
+        .collect(),
     };
 
     // The raffle's prizes in order, with how many are still to be won.

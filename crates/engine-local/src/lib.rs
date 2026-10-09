@@ -62,13 +62,13 @@ pub struct LocalEngine {
 
 struct Shared {
     io: Arc<Io>,
-    /// Each raffle's queue; its task ends when the engine is dropped.
+    /// Each drawing's queue; its task ends when the engine is dropped.
     queues: Mutex<HashMap<String, mpsc::UnboundedSender<Job>>>,
     /// The outcome of every call by idempotency key, set once applied.
     seen: Mutex<HashMap<String, watch::Sender<Option<Outcome>>>>,
 }
 
-/// What a raffle's task needs.
+/// What a drawing's task needs.
 struct Io {
     drand: DrandClient,
     store: Arc<dyn DrawStore>,
@@ -153,9 +153,14 @@ impl LocalEngine {
         }
     }
 
-    /// Queues `work` for `raffle_id` under `key`, once per key. Returns the
+    /// Queues `work` for `drawing_id` under `key`, once per key. Returns the
     /// key's outcome channel.
-    fn submit(&self, raffle_id: &str, key: String, work: Work) -> watch::Receiver<Option<Outcome>> {
+    fn submit(
+        &self,
+        drawing_id: &str,
+        key: String,
+        work: Work,
+    ) -> watch::Receiver<Option<Outcome>> {
         let mut seen = self.shared.seen.lock().expect("seen lock");
         if let Some(done) = seen.get(&key) {
             return done.subscribe();
@@ -165,15 +170,15 @@ impl LocalEngine {
         drop(seen);
         let job = Job { work, done };
         let mut queues = self.shared.queues.lock().expect("queues lock");
-        let queue = queues.entry(raffle_id.to_owned()).or_insert_with(|| {
+        let queue = queues.entry(drawing_id.to_owned()).or_insert_with(|| {
             let (tx, rx) = mpsc::unbounded_channel();
-            tokio::spawn(run(self.shared.io.clone(), raffle_id.to_owned(), rx));
+            tokio::spawn(run(self.shared.io.clone(), drawing_id.to_owned(), rx));
             tx
         });
         if let Err(mpsc::error::SendError(job)) = queue.send(job) {
             job.done.send_replace(Some(Err((
                 ErrorKind::Invariant,
-                "the raffle's task ended".into(),
+                "the drawing's task ended".into(),
             ))));
         }
         rx
@@ -184,7 +189,7 @@ impl LocalEngine {
         let wait = async {
             match rx.wait_for(Option::is_some).await {
                 Ok(outcome) => outcome.clone().expect("an outcome"),
-                Err(_) => Err((ErrorKind::Invariant, "the raffle's task ended".into())),
+                Err(_) => Err((ErrorKind::Invariant, "the drawing's task ended".into())),
             }
         };
         let outcome = match self.deadline {
@@ -241,12 +246,12 @@ impl DrawingEngine for LocalEngine {
 }
 
 /// A drawing's task: applies its jobs one at a time, in order.
-async fn run(io: Arc<Io>, raffle_id: String, mut jobs: mpsc::UnboundedReceiver<Job>) {
+async fn run(io: Arc<Io>, drawing_id: String, mut jobs: mpsc::UnboundedReceiver<Job>) {
     let mut state: Option<Drawing> = None;
     while let Some(job) = jobs.recv().await {
         let outcome = io.apply(&mut state, job.work).await;
         if let Err((_, message)) = &outcome {
-            tracing::debug!(raffle_id, message, "refused");
+            tracing::debug!(drawing_id, message, "refused");
         }
         job.done.send_replace(Some(outcome));
     }
@@ -309,12 +314,12 @@ impl Io {
             match self.store.save_drawing(state).await {
                 Ok(_) => break,
                 Err(e) if attempt < 10 => {
-                    tracing::warn!(raffle_id = %state.id(), attempt, error = %e, "projecting failed; retrying");
+                    tracing::warn!(drawing_id = %state.id(), attempt, error = %e, "projecting failed; retrying");
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
                 Err(e) => {
-                    tracing::error!(raffle_id = %state.id(), error = %e, "projecting failed; giving up");
+                    tracing::error!(drawing_id = %state.id(), error = %e, "projecting failed; giving up");
                     return;
                 }
             }
@@ -347,8 +352,8 @@ mod tests {
             BeaconSource::Drand(drand.chain_hash()),
             vec!["a".into(), "b".into(), "c".into()],
             vec![ItemRef {
-                id: "u-1".into(),
-                name: "Prize".into(),
+                id: "item-1".into(),
+                name: "Item 1".into(),
             }],
         )
     }
@@ -376,10 +381,12 @@ mod tests {
         assert_eq!(engine.info().await.unwrap().beacon, doc.beacon);
         engine.open(&doc).await.unwrap();
         engine.open(&doc).await.unwrap();
-        let draw = DrawRequest { item: "u-1".into() };
+        let draw = DrawRequest {
+            item: "item-1".into(),
+        };
         engine.draw("r1", &draw, "d1").await.unwrap();
         projected(&store, |s| {
-            s.item(&"u-1".into()).unwrap().status() == ItemStatus::Drawn
+            s.item(&"item-1".into()).unwrap().status() == ItemStatus::Drawn
         })
         .await;
         engine.decide("r1", &Decision::Finish, "f1").await.unwrap();

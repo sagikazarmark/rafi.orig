@@ -5,7 +5,7 @@
 //! [`Deployment`] (drand, store, notifier) and hands out clients of it. The
 //! suite deploys once per [`Profile`] (a drand setup and a store behaviour),
 //! runs that profile's scenarios against it side by side (each on its own
-//! raffle), and observes results only through the projection (the store) and
+//! drawing), and observes results only through the projection (the store) and
 //! the port's replies.
 //!
 //! Besides the contract ([`DrawingEngine`]), the scenarios pin the fairness rules:
@@ -78,7 +78,7 @@ pub enum Profile {
     /// Quicknet behind a relay serving beacons signed by another key: every
     /// draw stalls.
     Forged,
-    /// [`Profile::Instant`] with a store that fails each raffle's first writes.
+    /// [`Profile::Instant`] with a store that fails each drawing's first writes.
     FlakyStore,
 }
 
@@ -92,7 +92,7 @@ impl Profile {
     ];
 }
 
-/// Writes the store fails for each raffle before it accepts any.
+/// Writes the store fails for each drawing before it accepts any.
 const FLAKY_FAILURES: u32 = 2;
 /// How long the suite waits for a projection.
 const PATIENCE: Duration = Duration::from_secs(45);
@@ -152,7 +152,7 @@ fn scenarios(profile: Profile) -> Vec<(&'static str, Scenario)> {
             scenario!(commands_apply_once),
             scenario!(refusals_keep_their_kind),
             scenario!(a_refused_draw_is_silent),
-            scenario!(a_finished_raffle_is_forgotten),
+            scenario!(a_finished_drawing_is_forgotten),
         ],
         Profile::Lead => vec![
             scenario!(the_round_is_committed_before_its_beacon),
@@ -212,32 +212,32 @@ impl Fixture {
         })
     }
 
-    /// A raffle on the engine's chain: `entrants` entrants, prize items
-    /// `u-1` … `u-{items}`.
-    fn doc(&self, raffle_id: &str, entrants: usize, items: u64) -> Manifest {
+    /// A drawing on the engine's chain: `entrants` entrants, items
+    /// `item-1` … `item-{items}`.
+    fn doc(&self, drawing_id: &str, entrants: usize, items: u64) -> Manifest {
         Manifest::new(
-            raffle_id,
+            drawing_id,
             BeaconSource::Drand(self.drand.chain_hash()),
             (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
             (1..=items)
                 .map(|n| ItemRef {
-                    id: format!("u-{n}").into(),
-                    name: "Prize".into(),
+                    id: format!("item-{n}").into(),
+                    name: format!("Item {n}"),
                 })
                 .collect(),
         )
     }
 
-    /// Waits until `raffle_id`'s latest projection satisfies `f`.
+    /// Waits until `drawing_id`'s latest projection satisfies `f`.
     async fn projected(
         &self,
-        raffle_id: &str,
+        drawing_id: &str,
         what: &str,
         f: impl Fn(&Drawing) -> bool,
     ) -> Result<Drawing, String> {
         let start = tokio::time::Instant::now();
         loop {
-            if let Some(s) = self.store.latest(raffle_id)
+            if let Some(s) = self.store.latest(drawing_id)
                 && f(&s)
             {
                 return Ok(s);
@@ -245,7 +245,7 @@ impl Fixture {
             if start.elapsed() > PATIENCE {
                 return Err(format!(
                     "never projected: {what}; latest: {:?}",
-                    self.store.latest(raffle_id).map(|s| s.events().to_vec())
+                    self.store.latest(drawing_id).map(|s| s.events().to_vec())
                 ));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -261,29 +261,29 @@ impl Fixture {
             .await
     }
 
-    async fn send(&self, raffle_id: &str, cmd: Command, id: &str) -> Result<(), EngineError> {
+    async fn send(&self, drawing_id: &str, cmd: Command, id: &str) -> Result<(), EngineError> {
         match &cmd {
-            Command::Draw(request) => self.engine.draw(raffle_id, request, id).await,
-            Command::Decide(decision) => self.engine.decide(raffle_id, decision, id).await,
+            Command::Draw(request) => self.engine.draw(drawing_id, request, id).await,
+            Command::Decide(decision) => self.engine.decide(drawing_id, decision, id).await,
         }
     }
 
-    async fn ok(&self, raffle_id: &str, cmd: impl Into<Command>, id: &str) -> Result<(), String> {
+    async fn ok(&self, drawing_id: &str, cmd: impl Into<Command>, id: &str) -> Result<(), String> {
         let cmd = cmd.into();
-        self.send(raffle_id, cmd.clone(), id)
+        self.send(drawing_id, cmd.clone(), id)
             .await
             .map_err(|e| format!("{cmd:?}: {e}"))
     }
 
     async fn refused(
         &self,
-        raffle_id: &str,
+        drawing_id: &str,
         cmd: impl Into<Command>,
         id: &str,
         expected: ErrorKind,
     ) -> Result<(), String> {
         let cmd = cmd.into();
-        match self.send(raffle_id, cmd.clone(), id).await {
+        match self.send(drawing_id, cmd.clone(), id).await {
             Err(EngineError::Rejected { kind, .. }) if kind == expected => Ok(()),
             other => Err(format!(
                 "{cmd:?}: expected a {expected:?} refusal, got {other:?}"
@@ -291,21 +291,21 @@ impl Fixture {
         }
     }
 
-    async fn draw(&self, raffle_id: &str, item: &str, id: &str) -> Result<(), String> {
+    async fn draw(&self, drawing_id: &str, item: &str, id: &str) -> Result<(), String> {
         let request = DrawRequest { item: item.into() };
-        self.ok(raffle_id, request, id).await
+        self.ok(drawing_id, request, id).await
     }
 
-    async fn drawn(&self, raffle_id: &str, item: &str) -> Result<Drawing, String> {
-        self.projected(raffle_id, &format!("{item} drawn"), |s| {
+    async fn drawn(&self, drawing_id: &str, item: &str) -> Result<Drawing, String> {
+        self.projected(drawing_id, &format!("{item} drawn"), |s| {
             s.item(&item.into())
                 .is_some_and(|u| u.status() == ItemStatus::Drawn)
         })
         .await
     }
 
-    async fn stalls(&self, raffle_id: &str, n: usize) -> Result<Drawing, String> {
-        self.projected(raffle_id, &format!("{n} stall(s)"), |s| {
+    async fn stalls(&self, drawing_id: &str, n: usize) -> Result<Drawing, String> {
+        self.projected(drawing_id, &format!("{n} stall(s)"), |s| {
             count(s, is_stall) >= n
         })
         .await
@@ -375,7 +375,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Fails the first [`FLAKY_FAILURES`] writes of each raffle.
+/// Fails the first [`FLAKY_FAILURES`] writes of each drawing.
 struct FlakyStore {
     inner: MemoryDrawStore,
     failures: Mutex<HashMap<String, u32>>,
@@ -510,11 +510,11 @@ async fn open_is_idempotent_per_manifest(fx: Arc<Fixture>, id: String) -> Result
 async fn commands_apply_once(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 3, 2);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", "d1").await?;
-    fx.draw(&id, "u-1", "d1").await?;
-    fx.drawn(&id, "u-1").await?;
+    fx.draw(&id, "item-1", "d1").await?;
+    fx.draw(&id, "item-1", "d1").await?;
+    fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
-        item: "u-1".into(),
+        item: "item-1".into(),
         outcome: Resolution::Claimed,
     };
     fx.ok(&id, claimed.clone(), "c1").await?;
@@ -561,12 +561,14 @@ async fn refusals_keep_their_kind(fx: Arc<Fixture>, id: String) -> Result<(), St
     }
     fx.refused(
         &id,
-        resolve("u-1", Resolution::Claimed),
+        resolve("item-1", Resolution::Claimed),
         "r3",
         ErrorKind::Conflict,
     )
     .await?;
-    let abandon = Decision::Abandon { item: "u-1".into() };
+    let abandon = Decision::Abandon {
+        item: "item-1".into(),
+    };
     fx.refused(&id, abandon, "a1", ErrorKind::Conflict).await?;
     Ok(())
 }
@@ -577,11 +579,17 @@ async fn a_refused_draw_is_silent(fx: Arc<Fixture>, id: String) -> Result<(), St
     let opened = fx.open(&doc).await?;
     fx.draw(&id, "nope", "d1").await?;
     // A synchronous command behind it, as a barrier.
-    fx.ok(&id, Decision::Void { item: "u-2".into() }, "v1")
-        .await?;
+    fx.ok(
+        &id,
+        Decision::Void {
+            item: "item-2".into(),
+        },
+        "v1",
+    )
+    .await?;
     let s = fx
-        .projected(&id, "u-2 voided", |s| {
-            s.item(&"u-2".into())
+        .projected(&id, "item-2 voided", |s| {
+            s.item(&"item-2".into())
                 .is_some_and(|u| u.status() == ItemStatus::Voided)
         })
         .await?;
@@ -593,14 +601,14 @@ async fn a_refused_draw_is_silent(fx: Arc<Fixture>, id: String) -> Result<(), St
     Ok(())
 }
 
-/// After finish the engine forgets the raffle; the published record stays.
-async fn a_finished_raffle_is_forgotten(fx: Arc<Fixture>, id: String) -> Result<(), String> {
+/// After finish the engine forgets the drawing; the published record stays.
+async fn a_finished_drawing_is_forgotten(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 3, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", "d1").await?;
-    fx.drawn(&id, "u-1").await?;
+    fx.draw(&id, "item-1", "d1").await?;
+    fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
-        item: "u-1".into(),
+        item: "item-1".into(),
         outcome: Resolution::Claimed,
     };
     fx.ok(&id, claimed, "c1").await?;
@@ -634,8 +642,8 @@ async fn the_round_is_committed_before_its_beacon(
     let doc = fx.doc(&id, 5, 1);
     fx.open(&doc).await?;
     let requested = now();
-    fx.draw(&id, "u-1", "d1").await?;
-    let drawn = fx.drawn(&id, "u-1").await?;
+    fx.draw(&id, "item-1", "d1").await?;
+    let drawn = fx.drawn(&id, "item-1").await?;
     let announced = fx
         .store
         .states()
@@ -673,7 +681,7 @@ async fn the_round_is_committed_before_its_beacon(
 async fn a_command_waits_for_the_pending_draw(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", "d1").await?;
+    fx.draw(&id, "item-1", "d1").await?;
     // Refused if it ran before the draw settled (a draw is pending).
     fx.ok(&id, Decision::Finish, "f1").await?;
     let s = fx.projected(&id, "finished", |s| s.is_finished()).await?;
@@ -696,7 +704,7 @@ async fn a_command_waits_for_the_pending_draw(fx: Arc<Fixture>, id: String) -> R
 async fn a_deadline_leaves_the_command_pending(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", "d1").await?;
+    fx.draw(&id, "item-1", "d1").await?;
     let hasty = fx.deployed.engine(Some(Duration::from_millis(300)));
     match hasty.decide(&id, &Decision::Finish, "f1").await {
         Err(EngineError::Pending) => {}
@@ -729,14 +737,14 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
 ) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 2);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", "d1").await?;
+    fx.draw(&id, "item-1", "d1").await?;
     let first = fx.stalls(&id, 1).await?;
     let pending = first
         .pending()
         .cloned()
         .ok_or("the stalled draw isn't pending")?;
     tokio::time::sleep(Duration::from_secs(1)).await;
-    fx.draw(&id, "u-1", "d2").await?;
+    fx.draw(&id, "item-1", "d2").await?;
     let second = fx.stalls(&id, 2).await?;
     ensure!(
         second.pending() == Some(&pending),
@@ -754,9 +762,15 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
         "stalled on another round"
     );
     // Another item can't start meanwhile; the organizer abandons this one.
-    fx.draw(&id, "u-2", "d3").await?;
-    fx.ok(&id, Decision::Abandon { item: "u-1".into() }, "a1")
-        .await?;
+    fx.draw(&id, "item-2", "d3").await?;
+    fx.ok(
+        &id,
+        Decision::Abandon {
+            item: "item-1".into(),
+        },
+        "a1",
+    )
+    .await?;
     let s = fx
         .projected(&id, "abandoned", |s| s.pending().is_none())
         .await?;
@@ -781,19 +795,27 @@ async fn nothing_changes_the_pool_of_a_stalled_draw(
 ) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 2);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-2", "d2").await?;
+    fx.draw(&id, "item-2", "d2").await?;
     fx.stalls(&id, 1).await?;
     fx.refused(
         &id,
-        Decision::Void { item: "u-2".into() },
+        Decision::Void {
+            item: "item-2".into(),
+        },
         "v1",
         ErrorKind::Conflict,
     )
     .await?;
     fx.refused(&id, Decision::Finish, "f1", ErrorKind::Conflict)
         .await?;
-    fx.ok(&id, Decision::Abandon { item: "u-2".into() }, "a1")
-        .await?;
+    fx.ok(
+        &id,
+        Decision::Abandon {
+            item: "item-2".into(),
+        },
+        "a1",
+    )
+    .await?;
     let s = fx
         .projected(&id, "abandoned", |s| s.pending().is_none())
         .await?;
@@ -809,7 +831,7 @@ async fn nothing_changes_the_pool_of_a_stalled_draw(
 async fn a_forged_beacon_stalls_the_draw(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", "d1").await?;
+    fx.draw(&id, "item-1", "d1").await?;
     let s = fx.stalls(&id, 1).await?;
     ensure!(s.pending().is_some(), "the draw isn't pending");
     ensure!(
@@ -828,10 +850,10 @@ async fn a_forged_beacon_stalls_the_draw(fx: Arc<Fixture>, id: String) -> Result
 async fn every_state_reaches_a_flaky_store(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 3, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", "d1").await?;
-    fx.drawn(&id, "u-1").await?;
+    fx.draw(&id, "item-1", "d1").await?;
+    fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
-        item: "u-1".into(),
+        item: "item-1".into(),
         outcome: Resolution::Claimed,
     };
     fx.ok(&id, claimed, "c1").await?;

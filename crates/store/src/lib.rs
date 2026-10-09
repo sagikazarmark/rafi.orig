@@ -103,17 +103,7 @@ impl PurgeAfter {
 /// Returns whether the state was written.
 pub async fn save_drawing(db: &Db, state: &Drawing, purge: PurgeAfter) -> Result<bool> {
     let stored = StoredDrawing::of(state)?;
-    let started = state
-        .events()
-        .iter()
-        .any(|e| matches!(e, Event::Announced { .. } | Event::Drawn { .. }));
-    let lifecycle = if state.is_finished() {
-        "finished"
-    } else if started {
-        "drawing"
-    } else {
-        "frozen"
-    };
+    let lifecycle = rafi_core::drawing::lifecycle(state).as_str();
     let written = db
         .query(
             "UPDATE raffles SET
