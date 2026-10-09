@@ -2,8 +2,9 @@
 //!
 //! `testdata/draw-vectors.json` is checked by this test, by `tools/verify.py`
 //! and (through `rafi-drawing` compiled to WASM) by the browser verifier. Run with
-//! `UPDATE_VECTORS=1` to regenerate after an intentional algorithm change,
-//! which must also bump the algorithm identifier.
+//! `UPDATE_VECTORS=1` to regenerate after an intentional change: an algorithm
+//! change must also bump the algorithm identifier; a manifest format change
+//! changes the manifest hash, and so which entrants the scenario picks.
 //!
 //! The scenario draws from real quicknet beacons (`testdata/quicknet-beacons.json`),
 //! so the browser verifier checks their BLS signatures too. It was regenerated
@@ -15,8 +16,8 @@
 use rafi_drawing::{
     drand::{Beacon, VerifiedBeacon, Verifier, chains},
     draw,
-    drawing::{DrawState, Outcome},
-    manifest::{CommitDoc, UnitRef},
+    drawing::{Drawing, Outcome},
+    manifest::{ItemRef, Manifest},
     verify::verify_public,
 };
 use serde::{Deserialize, Serialize};
@@ -24,7 +25,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct SelectVector {
     randomness: String,
-    list_hash: String,
+    manifest_hash: String,
     k: u64,
     pool_size: usize,
     index: usize,
@@ -32,8 +33,8 @@ struct SelectVector {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct Scenario {
-    commit_doc: String,
-    list_hash: String,
+    manifest: String,
+    manifest_hash: String,
     events: serde_json::Value,
 }
 
@@ -77,44 +78,40 @@ fn generate() -> Vectors {
         .enumerate()
     {
         let randomness = h(&format!("randomness-{i}"));
-        let list_hash = h(&format!("list-{i}"));
+        let manifest_hash = h(&format!("list-{i}"));
         let k = i as u64 + 1;
         select.push(SelectVector {
             randomness: hex::encode(randomness),
-            list_hash: hex::encode(list_hash),
+            manifest_hash: hex::encode(manifest_hash),
             k,
             pool_size: *pool_size,
-            index: draw::select(&randomness, &list_hash, k, *pool_size),
+            index: draw::select(&randomness, &manifest_hash, k, *pool_size),
         });
     }
 
     let entrants = (0..12)
         .map(|i| hex::encode(&h(&format!("entrant-{i}"))[..16]))
         .collect();
-    let units = vec![
-        UnitRef {
-            unit_id: "u-ticket-1".into(),
-            item_id: "ticket".into(),
-            item_name: "KCD Budapest ticket".into(),
+    let items = vec![
+        ItemRef {
+            id: "u-ticket-1".into(),
+            name: "KCD Budapest ticket".into(),
         },
-        UnitRef {
-            unit_id: "u-ticket-2".into(),
-            item_id: "ticket".into(),
-            item_name: "KCD Budapest ticket".into(),
+        ItemRef {
+            id: "u-ticket-2".into(),
+            name: "KCD Budapest ticket".into(),
         },
-        UnitRef {
-            unit_id: "u-voucher-1".into(),
-            item_id: "voucher".into(),
-            item_name: "CNCF exam voucher".into(),
+        ItemRef {
+            id: "u-voucher-1".into(),
+            name: "CNCF exam voucher".into(),
         },
-        UnitRef {
-            unit_id: "u-gift-1".into(),
-            item_id: "gift".into(),
-            item_name: "Foo gift".into(),
+        ItemRef {
+            id: "u-gift-1".into(),
+            name: "Foo gift".into(),
         },
     ];
-    let doc = CommitDoc::new("raffle-vectors", &chains::QUICKNET_HASH, entrants, units);
-    let mut s = DrawState::freeze(&doc);
+    let doc = Manifest::new("raffle-vectors", &chains::QUICKNET_HASH, entrants, items);
+    let mut s = Drawing::open(&doc);
     s.begin("u-voucher-1", 1000, 0).unwrap();
     s.complete(&beacon(1000)).unwrap();
     s.resolve("u-voucher-1", Outcome::NotHere).unwrap();
@@ -140,8 +137,8 @@ fn generate() -> Vectors {
         algo: draw::ALGO.into(),
         select,
         scenario: Scenario {
-            commit_doc: doc.canonical_json(),
-            list_hash: s.list_hash.clone(),
+            manifest: doc.canonical_json(),
+            manifest_hash: s.manifest_hash.clone(),
             events: serde_json::to_value(&s.events).unwrap(),
         },
     }
@@ -170,13 +167,13 @@ fn vectors_match() {
 
     for v in &stored.select {
         let r = rafi_drawing::hash_from_hex(&v.randomness).unwrap();
-        let l = rafi_drawing::hash_from_hex(&v.list_hash).unwrap();
+        let l = rafi_drawing::hash_from_hex(&v.manifest_hash).unwrap();
         assert_eq!(draw::select(&r, &l, v.k, v.pool_size), v.index);
     }
     let events = serde_json::from_value::<Vec<_>>(stored.scenario.events.clone()).unwrap();
     let report = verify_public(
-        &stored.scenario.commit_doc,
-        &stored.scenario.list_hash,
+        &stored.scenario.manifest,
+        &stored.scenario.manifest_hash,
         &events,
     );
     assert!(report.ok(), "{report:#?}");

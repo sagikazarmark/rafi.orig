@@ -8,12 +8,12 @@ use std::collections::HashSet;
 
 use rafi_core::raffle::{Action, RaffleState};
 use rafi_drawing::{
-    DrawError, ErrorKind,
+    Error as DrawingError, ErrorKind,
     drawing::Outcome,
     engine::Command,
-    manifest::{CommitDoc, UnitRef},
+    manifest::{ItemRef, Manifest},
 };
-use rafi_platform::{DrawEngine, EngineError};
+use rafi_platform::{DrawingEngine, EngineError};
 use rafi_store::{RaffleRow, audit, entrants, prizes, raffles};
 
 use super::{AppState, ids};
@@ -48,8 +48,8 @@ impl From<rafi_store::Error> for AppError {
     }
 }
 
-impl From<DrawError> for AppError {
-    fn from(e: DrawError) -> Self {
+impl From<DrawingError> for AppError {
+    fn from(e: DrawingError) -> Self {
         match e.kind() {
             ErrorKind::NotFound => Self::NotFound,
             ErrorKind::BadRequest => Self::BadRequest(e.to_string()),
@@ -70,7 +70,7 @@ fn conflict(msg: impl Into<String>) -> AppError {
 }
 
 /// The draw engine, or a conflict if this server has none.
-fn engine(app: &AppState) -> Result<&dyn DrawEngine> {
+fn engine(app: &AppState) -> Result<&dyn DrawingEngine> {
     app.engine
         .as_deref()
         .ok_or_else(|| conflict("Restate is not configured on this server."))
@@ -374,9 +374,9 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
         )));
     }
 
-    let doc = match raffle.state() {
+    let manifest = match raffle.state() {
         from @ (RaffleState::Open | RaffleState::Closed) => {
-            let units = units(app, id).await?;
+            let items = items(app, id).await?;
             if entrants::count_active(&app.db, id).await? == 0 {
                 return Err(conflict("Nobody has entered yet."));
             }
@@ -387,13 +387,15 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
                 ));
             }
             app.notifier.notify(id).await;
-            commit(app, owner, id, units, from).await?
+            write_manifest(app, owner, id, items, from).await?
         }
         RaffleState::Frozen if raffle.drawing.is_none() => match raffle.manifest.as_deref() {
             Some(json) => serde_json::from_str(json).map_err(anyhow::Error::from)?,
-            // A freeze that stopped before writing its commit document: the
-            // entrant list is fixed since the raffle froze, so commit it now.
-            None => commit(app, owner, id, units(app, id).await?, RaffleState::Closed).await?,
+            // A freeze that stopped before writing its manifest: the entrant
+            // list is fixed since the raffle froze, so write it now.
+            None => {
+                write_manifest(app, owner, id, items(app, id).await?, RaffleState::Closed).await?
+            }
         },
         RaffleState::Frozen | RaffleState::Drawing => return Ok(()),
         s => {
@@ -404,41 +406,45 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
         }
     };
 
-    // The engine writes the frozen draw state and nudges the channel itself.
-    engine_result(engine.freeze(&doc).await)
+    // The engine writes the opened drawing and nudges the channel itself.
+    engine_result(engine.open(&manifest).await)
 }
 
-/// The prize units of a raffle, in draw order. Errors if there are none.
-async fn units(app: &AppState, id: &str) -> Result<Vec<UnitRef>> {
+/// The drawing's items for a raffle's prizes (one per copy), in draw order.
+/// Errors if there are none.
+async fn items(app: &AppState, id: &str) -> Result<Vec<ItemRef>> {
     let prizes = prizes::list(&app.db, id).await?;
-    let units = rafi_drawing::manifest::units(prizes.iter().map(|i| {
+    let items: Vec<ItemRef> = rafi_core::prize::items(prizes.iter().map(|i| {
         (
             i.id.as_str(),
             i.name.as_str(),
             u64::try_from(i.qty).unwrap_or(0),
         )
-    }));
-    if units.is_empty() {
+    }))
+    .into_iter()
+    .map(|(id, name)| ItemRef { id, name })
+    .collect();
+    if items.is_empty() {
         return Err(conflict("Add at least one prize first."));
     }
-    Ok(units)
+    Ok(items)
 }
 
-/// Commits the entrant list of a frozen raffle: builds the commit document
-/// from its entrants and stores it with the list hash.
+/// Writes the manifest of a frozen raffle: builds it from its entrants and
+/// stores it with its hash.
 ///
-/// The store has no interactive transactions, so freezing and committing are
-/// separate writes ([`rafi_store::raffles`]); this is the second, and is safe
-/// to repeat. If another attempt committed first, its document is returned.
-/// If nobody is left to draw from (everyone was removed while freezing), the
-/// raffle goes back to `unfreeze_to`.
-async fn commit(
+/// The store has no interactive transactions, so freezing and writing the
+/// manifest are separate writes ([`rafi_store::raffles`]); this is the second,
+/// and is safe to repeat. If another attempt wrote one first, that one is
+/// returned. If nobody is left to draw from (everyone was removed while
+/// freezing), the raffle goes back to `unfreeze_to`.
+async fn write_manifest(
     app: &AppState,
     owner: &str,
     id: &str,
-    units: Vec<UnitRef>,
+    items: Vec<ItemRef>,
     unfreeze_to: RaffleState,
-) -> Result<CommitDoc> {
+) -> Result<Manifest> {
     let entrant_ids = entrants::active_ids(&app.db, id).await?;
     if entrant_ids.is_empty() {
         raffles::unfreeze(&app.db, id, unfreeze_to).await?;
@@ -446,11 +452,11 @@ async fn commit(
         return Err(conflict("Nobody has entered yet."));
     }
     // The app alone decides the chain; the draw engine refuses a mismatch.
-    let doc = CommitDoc::new(id, &app.chain, entrant_ids, units);
-    let json = doc.canonical_json();
-    let hash = hex::encode(rafi_drawing::manifest::list_hash(&json));
-    if !raffles::commit(&app.db, id, &json, &hash).await? {
-        // Another attempt committed first (or the raffle moved on).
+    let manifest = Manifest::new(id, &app.chain, entrant_ids, items);
+    let json = manifest.canonical_json();
+    let hash = hex::encode(rafi_drawing::manifest::hash(&json));
+    if !raffles::set_manifest(&app.db, id, &json, &hash).await? {
+        // Another attempt wrote one first (or the raffle moved on).
         let stored = raffles::get(&app.db, id)
             .await?
             .and_then(|r| r.manifest)
@@ -458,7 +464,7 @@ async fn commit(
         return Ok(serde_json::from_str(&stored).map_err(anyhow::Error::from)?);
     }
     audit::record(&app.db, id, owner, "freeze", &hash).await?;
-    Ok(doc)
+    Ok(manifest)
 }
 
 /// Sends a draw command to the raffle's engine.
@@ -484,9 +490,9 @@ pub async fn command(
     // asynchronously, so a draw the engine refused would go unnoticed.
     let mut dry = state.clone();
     let checked = match &cmd {
-        // Drawing the pending unit again retries its committed round (or
+        // Drawing the pending item again retries its committed round (or
         // completes it offline); nothing else may start meanwhile.
-        Command::Draw { unit_id, .. } => dry.begin(unit_id, 0, 0).map(|_| ()),
+        Command::Draw { item_id, .. } => dry.begin(item_id, 0, 0).map(|_| ()),
         // While a draw is waiting for its round, the engine would queue the
         // command behind it; only "handed over" is let through (it can't
         // change the draw). The rest waits for the draw to land or stall.
@@ -494,7 +500,7 @@ pub async fn command(
             outcome: Outcome::Claimed,
             ..
         } => dry.apply(&cmd),
-        _ if dry.pending.is_some() && !dry.stalled() => Err(DrawError::DrawInProgress),
+        _ if dry.pending.is_some() && !dry.stalled() => Err(DrawingError::DrawInProgress),
         _ => dry.apply(&cmd),
     };
     checked.map_err(|e| refusal(&cmd, e))?;
@@ -503,31 +509,31 @@ pub async fn command(
 }
 
 /// The organizer-facing message for a command the draw rules refuse.
-fn refusal(cmd: &Command, e: DrawError) -> AppError {
+fn refusal(cmd: &Command, e: DrawingError) -> AppError {
     let message = match (cmd, &e) {
-        (_, DrawError::UnknownUnit(_)) => return AppError::NotFound,
-        (_, DrawError::Finished) => "The raffle is finished.",
-        (Command::Draw { .. }, DrawError::DrawInProgress) => "A draw is already in progress.",
-        (Command::Draw { .. }, DrawError::UnitNotPending(_)) => {
+        (_, DrawingError::UnknownItem(_)) => return AppError::NotFound,
+        (_, DrawingError::Finished) => "The raffle is finished.",
+        (Command::Draw { .. }, DrawingError::DrawInProgress) => "A draw is already in progress.",
+        (Command::Draw { .. }, DrawingError::ItemNotPending(_)) => {
             "This prize has already been drawn or withdrawn."
         }
-        (_, DrawError::NoEligibleEntrants) => "There are no eligible entrants left.",
-        (Command::Resolve { .. }, DrawError::UnitNotDrawn(_)) => {
+        (_, DrawingError::NoEligibleEntrants) => "There are no eligible entrants left.",
+        (Command::Resolve { .. }, DrawingError::ItemNotDrawn(_)) => {
             "This prize has no undecided winner."
         }
-        (Command::Resolve { .. }, DrawError::DrawInProgress) => {
+        (Command::Resolve { .. }, DrawingError::DrawInProgress) => {
             "Wait for the current draw to finish: “not here” and “declined” could change who it can pick."
         }
-        (Command::Abandon { .. }, DrawError::NoDrawInProgress) => {
+        (Command::Abandon { .. }, DrawingError::NoDrawInProgress) => {
             "This prize has no draw in progress."
         }
-        (Command::Abandon { .. }, DrawError::DrawInProgress) => {
+        (Command::Abandon { .. }, DrawingError::DrawInProgress) => {
             "The draw is still waiting for its drand round; it can be abandoned if it stalls."
         }
-        (Command::Void { .. }, DrawError::UnitNotPending(_)) => {
+        (Command::Void { .. }, DrawingError::ItemNotPending(_)) => {
             "Only prizes that have not been won can be withdrawn."
         }
-        (_, DrawError::DrawInProgress) => "Wait for the current draw to finish.",
+        (_, DrawingError::DrawInProgress) => "Wait for the current draw to finish.",
         _ => return AppError::Conflict(e.to_string()),
     };
     conflict(message)
@@ -862,14 +868,9 @@ pub async fn admin(app: &AppState, owner: &str, id: &str) -> Result<RaffleAdmin>
         .drawing()
         .map(|s| s.entrant_outcomes())
         .unwrap_or_default();
-    let unit_names: std::collections::HashMap<String, String> = raffle
+    let item_names: std::collections::HashMap<String, String> = raffle
         .drawing()
-        .map(|s| {
-            s.units
-                .into_iter()
-                .map(|u| (u.unit_id, u.item_name))
-                .collect()
-        })
+        .map(|s| s.items.into_iter().map(|u| (u.id, u.name)).collect())
         .unwrap_or_default();
     let entrants = entrants::list(&app.db, id)
         .await?
@@ -878,7 +879,7 @@ pub async fn admin(app: &AppState, owner: &str, id: &str) -> Result<RaffleAdmin>
             let outcome = outcomes.get(&e.id);
             AdminEntrant {
                 outcome: outcome.map(|o| o.0),
-                prize: outcome.and_then(|o| unit_names.get(&o.1).cloned()),
+                prize: outcome.and_then(|o| item_names.get(&o.1).cloned()),
                 id: e.id,
                 display_name: e.display_name,
                 email: e.email_raw,
@@ -960,7 +961,7 @@ pub async fn verify_data(app: &AppState, slug: &str) -> Result<VerifyData> {
     let raffle = raffles::by_slug(&app.db, slug)
         .await?
         .ok_or(AppError::NotFound)?;
-    let (Some(commit_doc), Some(list_hash)) =
+    let (Some(manifest), Some(manifest_hash)) =
         (raffle.manifest.clone(), raffle.manifest_hash.clone())
     else {
         return Err(AppError::NotFound);
@@ -981,8 +982,8 @@ pub async fn verify_data(app: &AppState, slug: &str) -> Result<VerifyData> {
         title: raffle.title.clone(),
         state: raffle.state(),
         events: raffle.drawing().map(|s| s.events).unwrap_or_default(),
-        commit_doc,
-        list_hash,
+        manifest,
+        manifest_hash,
         names,
     })
 }

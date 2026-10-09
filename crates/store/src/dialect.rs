@@ -11,7 +11,7 @@ pub enum Dialect {
 }
 
 /// A subquery listing the `entrant_id`s of the objects in a drawing's
-/// `list` (`events` or `units`) whose `field` equals `value`. `drawing` is
+/// `list` (`events` or `items`) whose `field` equals `value`. `drawing` is
 /// an SQL expression for the drawing's JSON text: a column (`r.drawing`)
 /// or a scalar subquery.
 ///

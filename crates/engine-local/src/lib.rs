@@ -1,6 +1,6 @@
 //! An in-process draw engine, for tests and development only.
 //!
-//! [`LocalEngine`] keeps the [`DrawEngine`] contract the way the `Raffle`
+//! [`LocalEngine`] keeps the [`DrawingEngine`] contract the way the `Raffle`
 //! Restate virtual object does, without its durability:
 //!
 //! - one queue per raffle, worked off in arrival order by one task, so commands
@@ -12,8 +12,8 @@
 //!   are notified, best effort;
 //! - the raffle is forgotten once it finishes.
 //!
-//! All decisions are `rafi_drawing`'s ([`DrawState::freeze_or_check`],
-//! [`DrawState::begin`], [`DrawState::conclude`], [`DrawState::apply`]); the
+//! All decisions are `rafi_drawing`'s ([`Drawing::open_or_check`],
+//! [`Drawing::begin`], [`Drawing::conclude`], [`Drawing::apply`]); the
 //! committed round comes from [`DrandClient::target_round`]. This engine only
 //! does the I/O, with an injectable clock and randomness.
 //!
@@ -37,12 +37,12 @@ use std::{
 
 use rafi_drand::DrandClient;
 use rafi_drawing::{
-    DrawError, ErrorKind,
-    drawing::DrawState,
+    Error as DrawingError, ErrorKind,
+    drawing::Drawing,
     engine::{BeaconOutcome, Command},
-    manifest::CommitDoc,
+    manifest::Manifest,
 };
-use rafi_platform::{BoxFuture, DrawEngine, DrawStore, EngineError, EngineInfo, Notifier};
+use rafi_platform::{BoxFuture, DrawStore, DrawingEngine, EngineError, EngineInfo, Notifier};
 use tokio::sync::{mpsc, watch};
 
 /// Unix seconds now.
@@ -80,8 +80,8 @@ struct Io {
 }
 
 enum Work {
-    Freeze(CommitDoc),
-    Draw { unit_id: String, offline: bool },
+    Open(Manifest),
+    Draw { item_id: String, offline: bool },
     Command(Command),
 }
 
@@ -212,16 +212,16 @@ impl LocalEngine {
     }
 }
 
-impl DrawEngine for LocalEngine {
+impl DrawingEngine for LocalEngine {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
         let chain = self.shared.io.drand.chain_hash();
         Box::pin(async move { Ok(EngineInfo { chain }) })
     }
 
-    fn freeze<'a>(&'a self, doc: &'a CommitDoc) -> BoxFuture<'a, Result<(), EngineError>> {
+    fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(async move {
-            let key = format!("{}/{}", doc.raffle_id, doc.freeze_key());
-            let rx = self.submit(&doc.raffle_id, key, Work::Freeze(doc.clone()));
+            let key = format!("{}/{}", doc.raffle_id, doc.open_key());
+            let rx = self.submit(&doc.raffle_id, key, Work::Open(doc.clone()));
             self.outcome(rx).await
         })
     }
@@ -236,9 +236,9 @@ impl DrawEngine for LocalEngine {
             let key = format!("{raffle_id}/{command_id}");
             match cmd {
                 // Accepted once queued: progress shows in the projection.
-                Command::Draw { unit_id, offline } => {
+                Command::Draw { item_id, offline } => {
                     let work = Work::Draw {
-                        unit_id: unit_id.clone(),
+                        item_id: item_id.clone(),
                         offline: *offline,
                     };
                     self.submit(raffle_id, key, work);
@@ -255,7 +255,7 @@ impl DrawEngine for LocalEngine {
 
 /// A raffle's task: applies its jobs one at a time, in order.
 async fn run(io: Arc<Io>, raffle_id: String, mut jobs: mpsc::UnboundedReceiver<Job>) {
-    let mut state: Option<DrawState> = None;
+    let mut state: Option<Drawing> = None;
     while let Some(job) = jobs.recv().await {
         let outcome = io
             .apply(&mut state, job.work)
@@ -269,22 +269,22 @@ async fn run(io: Arc<Io>, raffle_id: String, mut jobs: mpsc::UnboundedReceiver<J
 }
 
 impl Io {
-    async fn apply(&self, state: &mut Option<DrawState>, work: Work) -> Result<(), DrawError> {
+    async fn apply(&self, state: &mut Option<Drawing>, work: Work) -> Result<(), DrawingError> {
         let chain = self.drand.chain_hash();
         match work {
-            Work::Freeze(doc) => {
-                if let Some(fresh) = DrawState::freeze_or_check(state.as_ref(), &doc, &chain)? {
+            Work::Open(doc) => {
+                if let Some(fresh) = Drawing::open_or_check(state.as_ref(), &doc, &chain)? {
                     self.project(&fresh).await;
                     *state = Some(fresh);
                 }
                 Ok(())
             }
-            Work::Draw { unit_id, offline } => {
-                let s = state.as_mut().ok_or(DrawError::NotFrozen)?;
+            Work::Draw { item_id, offline } => {
+                let s = state.as_mut().ok_or(DrawingError::NotOpen)?;
                 s.check_chain(&chain)?;
                 let (round, round_time) = self.drand.target_round((self.clock)());
-                // A pending draw for this unit (e.g. stalled) is re-entered on its round.
-                let pending = s.begin(&unit_id, round, round_time)?;
+                // A pending draw for this item (e.g. stalled) is re-entered on its round.
+                let pending = s.begin(&item_id, round, round_time)?;
                 // The commitment is recorded before the beacon is asked for.
                 self.project(s).await;
                 let outcome = if offline {
@@ -300,7 +300,7 @@ impl Io {
                 Ok(())
             }
             Work::Command(cmd) => {
-                let s = state.as_mut().ok_or(DrawError::NotFrozen)?;
+                let s = state.as_mut().ok_or(DrawingError::NotOpen)?;
                 s.apply(&cmd)?;
                 self.project(s).await;
                 if s.finished {
@@ -314,30 +314,30 @@ impl Io {
 
     /// Writes the state, retried with backoff (the database is the record),
     /// then tells clients, best effort.
-    async fn project(&self, state: &DrawState) {
+    async fn project(&self, state: &Drawing) {
         let mut delay = Duration::from_millis(20);
         for attempt in 1.. {
-            match self.store.save_draw_state(state).await {
+            match self.store.save_drawing(state).await {
                 Ok(_) => break,
                 Err(e) if attempt < 10 => {
-                    tracing::warn!(raffle_id = state.raffle_id, attempt, error = %e, "projecting failed; retrying");
+                    tracing::warn!(raffle_id = state.id, attempt, error = %e, "projecting failed; retrying");
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
                 Err(e) => {
-                    tracing::error!(raffle_id = state.raffle_id, error = %e, "projecting failed; giving up");
+                    tracing::error!(raffle_id = state.id, error = %e, "projecting failed; giving up");
                     return;
                 }
             }
         }
-        self.notifier.notify(&state.raffle_id).await;
+        self.notifier.notify(&state.id).await;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use rafi_drand::DrandConfig;
-    use rafi_drawing::{drawing::UnitStatus, manifest::UnitRef};
+    use rafi_drawing::{drawing::ItemStatus, manifest::ItemRef};
     use rafi_platform::{MemoryDrawStore, Recording};
 
     use super::*;
@@ -352,20 +352,19 @@ mod tests {
         .unwrap()
     }
 
-    fn doc(drand: &DrandClient) -> CommitDoc {
-        CommitDoc::new(
+    fn doc(drand: &DrandClient) -> Manifest {
+        Manifest::new(
             "r1",
             &drand.chain_hash(),
             vec!["a".into(), "b".into(), "c".into()],
-            vec![UnitRef {
-                unit_id: "u-1".into(),
-                item_id: "u".into(),
-                item_name: "Prize".into(),
+            vec![ItemRef {
+                id: "u-1".into(),
+                name: "Prize".into(),
             }],
         )
     }
 
-    async fn projected(store: &MemoryDrawStore, f: impl Fn(&DrawState) -> bool) -> DrawState {
+    async fn projected(store: &MemoryDrawStore, f: impl Fn(&Drawing) -> bool) -> Drawing {
         for _ in 0..200 {
             if let Some(s) = store.latest("r1")
                 && f(&s)
@@ -378,7 +377,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_raffle_from_freeze_to_finish() {
+    async fn a_drawing_from_opening_to_finish() {
         let drand = mock_drand();
         let doc = doc(&drand);
         let store = MemoryDrawStore::default();
@@ -389,15 +388,15 @@ mod tests {
             engine.info().await.unwrap().chain,
             doc.drand_chain.parse().unwrap()
         );
-        engine.freeze(&doc).await.unwrap();
-        engine.freeze(&doc).await.unwrap();
+        engine.open(&doc).await.unwrap();
+        engine.open(&doc).await.unwrap();
         let draw = Command::Draw {
-            unit_id: "u-1".into(),
+            item_id: "u-1".into(),
             offline: false,
         };
         engine.command("r1", &draw, "d1").await.unwrap();
         projected(&store, |s| {
-            s.unit("u-1").unwrap().status == UnitStatus::Drawn
+            s.item("u-1").unwrap().status == ItemStatus::Drawn
         })
         .await;
         engine.command("r1", &Command::Finish, "f1").await.unwrap();

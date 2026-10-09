@@ -1,4 +1,6 @@
-//! Rafi drawing: the draw state machine and the verifiable draw algorithm.
+//! Rafi drawing: a verifiable selection of winners for a fixed set of items
+//! from a fixed list of entrants. The state machine, the draw algorithm, the
+//! manifest and the verifier; it knows nothing of raffles.
 //!
 //! Everything in this crate is pure (no IO, no clocks, no randomness) so it can
 //! run in the server, inside the Restate virtual object, in the browser
@@ -12,7 +14,9 @@ pub mod error;
 pub mod manifest;
 pub mod verify;
 
-pub use error::{DrawError, ErrorKind};
+pub use drawing::Drawing;
+pub use error::{Error, ErrorKind};
+pub use manifest::Manifest;
 
 /// A SHA-256 digest.
 pub type Hash = [u8; 32];

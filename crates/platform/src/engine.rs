@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use rafi_drawing::{DrawError, ErrorKind, drand::ChainHash, engine::Command, manifest::CommitDoc};
+use rafi_drawing::{
+    Error as DrawingError, ErrorKind, drand::ChainHash, engine::Command, manifest::Manifest,
+};
 
 use crate::BoxFuture;
 
@@ -10,8 +12,8 @@ use crate::BoxFuture;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineInfo {
     /// The drand chain the engine draws from. The app decides which chain a
-    /// raffle commits to; it only checks this before freezing, and the engine
-    /// refuses a mismatch itself.
+    /// drawing commits to; it only checks this before opening one, and the
+    /// engine refuses a mismatch itself.
     pub chain: ChainHash,
 }
 
@@ -34,7 +36,7 @@ pub enum EngineError {
 
 impl EngineError {
     /// A refusal by the draw rules.
-    pub fn rejected(e: &DrawError) -> Self {
+    pub fn rejected(e: &DrawingError) -> Self {
         Self::Rejected {
             kind: e.kind(),
             message: e.to_string(),
@@ -42,27 +44,27 @@ impl EngineError {
     }
 }
 
-impl From<DrawError> for EngineError {
-    fn from(e: DrawError) -> Self {
+impl From<DrawingError> for EngineError {
+    fn from(e: DrawingError) -> Self {
         Self::rejected(&e)
     }
 }
 
-/// The draw engine: owns each raffle's draw state from freeze to finish,
-/// applies the draw rules (`rafi_drawing`) and writes every new state to the
+/// The draw engine: owns each drawing from opening to finish, applies the
+/// draw rules (`rafi_drawing`) and writes every new state to the
 /// projection ([`DrawStore`](crate::DrawStore)), then notifies clients.
 ///
 /// The contract every engine keeps:
 ///
 /// - **State is read from the projection**, never from the engine.
-/// - **Freeze** is synchronous and idempotent per list
-///   ([`CommitDoc::freeze_key`]): the same list again is a no-op, another list
-///   is refused, and so is another drand chain than the engine's.
+/// - **Opening** is synchronous and idempotent per manifest
+///   ([`Manifest::open_key`]): the same manifest again is a no-op, another
+///   manifest is refused, and so is another drand chain than the engine's.
 /// - **Draws are accepted asynchronously**: `command(Draw)` returns once the
 ///   draw is accepted, not when it is settled. A draw the engine refuses is
 ///   silent (only the projection shows progress), so callers validate against
 ///   the projection first.
-/// - **Commands for one raffle apply one at a time**, in arrival order. A
+/// - **Commands for one drawing apply one at a time**, in arrival order. A
 ///   command sent while a draw waits for its beacon is queued and applies
 ///   after the draw settles, against the settled state. A synchronous command
 ///   may therefore wait up to the engine's drand lead plus fetch timeout; past
@@ -70,15 +72,15 @@ impl From<DrawError> for EngineError {
 /// - **Idempotency**: the same `command_id` (within the engine's retention
 ///   window) is applied once, so retrying after [`EngineError::Pending`] or
 ///   [`EngineError::Unavailable`] is safe.
-/// - **After finish** the engine forgets the raffle: further commands are
-///   refused as not found. A freeze replayed after that never changes the
+/// - **After finish** the engine forgets the drawing: further commands are
+///   refused as not found. An opening replayed after that never changes the
 ///   published projection (the store keeps the newest version).
-pub trait DrawEngine: Send + Sync + 'static {
+pub trait DrawingEngine: Send + Sync + 'static {
     /// The engine's drand chain; also tells whether it is reachable.
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>>;
 
-    /// Freezes the raffle's entrant list: the engine takes over its draw state.
-    fn freeze<'a>(&'a self, doc: &'a CommitDoc) -> BoxFuture<'a, Result<(), EngineError>>;
+    /// Opens a drawing from its manifest: the engine owns it from here.
+    fn open<'a>(&'a self, manifest: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>>;
 
     /// Sends a command (`command_id` deduplicates it).
     fn command<'a>(
@@ -89,13 +91,13 @@ pub trait DrawEngine: Send + Sync + 'static {
     ) -> BoxFuture<'a, Result<(), EngineError>>;
 }
 
-impl<T: DrawEngine + ?Sized> DrawEngine for Arc<T> {
+impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
         (**self).info()
     }
 
-    fn freeze<'a>(&'a self, doc: &'a CommitDoc) -> BoxFuture<'a, Result<(), EngineError>> {
-        (**self).freeze(doc)
+    fn open<'a>(&'a self, manifest: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
+        (**self).open(manifest)
     }
 
     fn command<'a>(

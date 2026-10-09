@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::drawing::{Outcome, UnitStatus};
+use rafi_drawing::drawing::{ItemStatus, Outcome};
 
 use super::{
     Route, command_id, copy_to_clipboard,
@@ -491,7 +491,7 @@ fn Header(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
         }
     };
     let unconfirmed = v.state == RaffleState::Frozen
-        && v.list_hash.is_some()
+        && v.manifest_hash.is_some()
         && v.draws.is_empty()
         && v.current.is_none();
     let join_url = v.join_url.clone();
@@ -573,7 +573,7 @@ fn Header(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
                             }
                         }
                         span { class: "badge badge-lg badge-accent font-mono font-bold tracking-widest", "{v.join_code}" }
-                        if v.list_hash.is_some() {
+                        if v.manifest_hash.is_some() {
                             a { class: "btn btn-ghost btn-sm", href: "{verify_url}", target: "_blank", Icon { i: I::ShieldCheck, class: "size-4" } "Verification page" }
                         }
                     }
@@ -684,10 +684,10 @@ fn DrawConsole(
     let toast = use_toast();
 
     let id = admin.id.clone();
-    let draw = move |unit_id: String, offline: bool| {
+    let draw = move |item_id: String, offline: bool| {
         let id = id.clone();
         async move {
-            match api::draw_unit(id, unit_id, offline, command_id()).await {
+            match api::draw_unit(id, item_id, offline, command_id()).await {
                 Ok(()) => {
                     error.set(None);
                     on_change.call(());
@@ -697,10 +697,10 @@ fn DrawConsole(
         }
     };
     let id = admin.id.clone();
-    let resolve = move |unit_id: String, outcome: Outcome| {
+    let resolve = move |item_id: String, outcome: Outcome| {
         let id = id.clone();
         async move {
-            match api::resolve_unit(id, unit_id, outcome, command_id()).await {
+            match api::resolve_unit(id, item_id, outcome, command_id()).await {
                 Ok(()) => {
                     error.set(None);
                     on_change.call(());
@@ -710,20 +710,20 @@ fn DrawConsole(
         }
     };
     let id = admin.id.clone();
-    let void = move |unit_id: String| {
+    let void = move |item_id: String| {
         let id = id.clone();
         async move {
-            match api::void_unit(id, unit_id, command_id()).await {
+            match api::void_unit(id, item_id, command_id()).await {
                 Ok(()) => on_change.call(()),
                 Err(e) => error.set(Some(err_text(e))),
             }
         }
     };
     let id = admin.id.clone();
-    let abandon = move |unit_id: String| {
+    let abandon = move |item_id: String| {
         let id = id.clone();
         async move {
-            match api::abandon_draw(id, unit_id, command_id()).await {
+            match api::abandon_draw(id, item_id, command_id()).await {
                 Ok(()) => on_change.call(()),
                 Err(e) => error.set(Some(err_text(e))),
             }
@@ -745,12 +745,12 @@ fn DrawConsole(
             }
         }
     };
-    let units_left = v
-        .units
+    let items_left = v
+        .items
         .iter()
-        .filter(|u| matches!(u.status, UnitStatus::Pending | UnitStatus::Drawn))
+        .filter(|u| matches!(u.status, ItemStatus::Pending | ItemStatus::Drawn))
         .count();
-    let pending_unit = pending.as_ref().map(|p| p.unit_id.clone());
+    let pending_unit = pending.as_ref().map(|p| p.item_id.clone());
     let offset = v.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
     // A pending draw whose beacon could not be fetched (or whose fetch was lost,
     // e.g. a restart): it stays on its round; the organizer can retry, draw
@@ -813,33 +813,33 @@ fn DrawConsole(
                 title: "Prizes to draw",
                 icon: I::Dice,
                 actions: rsx! {
-                    if let Some(hash) = &v.list_hash {
+                    if let Some(hash) = &v.manifest_hash {
                         span { class: "tooltip tooltip-left", "data-tip": "Frozen entrant list hash: {hash}",
                             span { class: "badge badge-ghost gap-1 font-mono", Icon { i: I::Lock, class: "size-3.5" } "{&hash[..10]}…" }
                         }
                     }
                 },
                 ul { class: "space-y-2",
-                    for u in v.units.iter() {
+                    for u in v.items.iter() {
                         {
                             let winner = u.entrant_id.as_ref().and_then(|id| by_id.get(id));
-                            let uid = u.unit_id.clone();
+                            let uid = u.item_id.clone();
                             let row = match u.status {
-                                UnitStatus::Drawn => "border-success/50 bg-success/10",
-                                UnitStatus::Claimed => "border-base-300 bg-base-200/60",
-                                UnitStatus::Voided => "border-base-300 opacity-50",
-                                UnitStatus::Pending => "border-base-300",
+                                ItemStatus::Drawn => "border-success/50 bg-success/10",
+                                ItemStatus::Claimed => "border-base-300 bg-base-200/60",
+                                ItemStatus::Voided => "border-base-300 opacity-50",
+                                ItemStatus::Pending => "border-base-300",
                             };
-                            let is_current = pending.as_ref().is_some_and(|p| p.unit_id == u.unit_id);
+                            let is_current = pending.as_ref().is_some_and(|p| p.item_id == u.item_id);
                             let emoji = match u.status {
-                                UnitStatus::Pending if is_current => "🎲",
-                                UnitStatus::Pending => "🎁",
-                                UnitStatus::Drawn => "🎉",
-                                UnitStatus::Claimed => "✅",
-                                UnitStatus::Voided => "🚫",
+                                ItemStatus::Pending if is_current => "🎲",
+                                ItemStatus::Pending => "🎁",
+                                ItemStatus::Drawn => "🎉",
+                                ItemStatus::Claimed => "✅",
+                                ItemStatus::Voided => "🚫",
                             };
                             rsx! {
-                                li { key: "{u.unit_id}", class: "flex flex-wrap items-center gap-3 rounded-box border-2 p-3 transition {row}",
+                                li { key: "{u.item_id}", class: "flex flex-wrap items-center gap-3 rounded-box border-2 p-3 transition {row}",
                                     span { class: "text-2xl", "{emoji}" }
                                     div { class: "min-w-40 flex-1",
                                         p { class: "font-semibold", "{u.prize_name}" }
@@ -859,13 +859,13 @@ fn DrawConsole(
                                     }
                                     div { class: "flex flex-wrap gap-2",
                                         match u.status {
-                                            UnitStatus::Pending if drawable => rsx! {
+                                            ItemStatus::Pending if drawable => rsx! {
                                                 button { class: "btn btn-primary hover-wiggle", disabled: busy, onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone(), false) },
                                                     Icon { i: I::Dice } "Draw"
                                                 }
                                                 button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let void = void.clone(); let uid = uid.clone(); move |_| void(uid.clone()) }, "Withdraw" }
                                             },
-                                            UnitStatus::Drawn if drawable => rsx! {
+                                            ItemStatus::Drawn if drawable => rsx! {
                                                 button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::Claimed) }, Icon { i: I::Check } "Handed over" }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::NotHere) }, "Not here" }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::Declined) }, "Declined" }
@@ -881,11 +881,11 @@ fn DrawConsole(
                 if drawable {
                     div { class: "flex flex-wrap items-center gap-3 border-t border-base-300 pt-4",
                         p { class: "flex-1 text-sm text-base-content/60",
-                            "{units_left} prize(s) left. “Not here” and “Declined” take that person out and put the prize back for a new draw."
+                            "{items_left} prize(s) left. “Not here” and “Declined” take that person out and put the prize back for a new draw."
                         }
                         Button {
-                            color: if units_left == 0 { ButtonColor::Secondary } else { ButtonColor::Default },
-                            class: if units_left == 0 { "hover-wiggle" } else { "btn-ghost" },
+                            color: if items_left == 0 { ButtonColor::Secondary } else { ButtonColor::Default },
+                            class: if items_left == 0 { "hover-wiggle" } else { "btn-ghost" },
                             disabled: busy,
                             onclick: move |_| ask_finish.set(true),
                             Icon { i: I::Flag }
@@ -896,7 +896,7 @@ fn DrawConsole(
             }
             Confirm {
                 open: ask_finish,
-                title: if units_left == 0 { "Finish the raffle?".to_owned() } else { format!("Finish with {units_left} prize(s) left?") },
+                title: if items_left == 0 { "Finish the raffle?".to_owned() } else { format!("Finish with {items_left} prize(s) left?") },
                 body: "The thank-you screen goes up and nothing more can be drawn. Personal data is erased automatically after the retention period.",
                 action: "🎉 Finish",
                 on_confirm: move |_| { spawn(finish()); },
@@ -908,7 +908,7 @@ fn DrawConsole(
                     body: "Server randomness replaces the committed drand round. It can't be verified, and the verification page shows that this draw replaced the round it committed to. Only do this if drand stays unreachable.",
                     action: "Draw offline",
                     danger: true,
-                    on_confirm: { let draw = draw.clone(); let u = cur.unit_id.clone(); move |_| { spawn(draw(u.clone(), true)); } },
+                    on_confirm: { let draw = draw.clone(); let u = cur.item_id.clone(); move |_| { spawn(draw(u.clone(), true)); } },
                 }
                 Confirm {
                     open: ask_abandon,
@@ -916,19 +916,19 @@ fn DrawConsole(
                     body: "The prize goes back to “to be drawn” and a new draw commits to a new round. The verification page lists the abandoned round so anyone can see whom it would have picked.",
                     action: "Abandon",
                     danger: true,
-                    on_confirm: { let abandon = abandon.clone(); let u = cur.unit_id.clone(); move |_| { spawn(abandon(u.clone())); } },
+                    on_confirm: { let abandon = abandon.clone(); let u = cur.item_id.clone(); move |_| { spawn(abandon(u.clone())); } },
                 }
             }
         }
     }
 }
 
-fn status_label(s: UnitStatus) -> &'static str {
+fn status_label(s: ItemStatus) -> &'static str {
     match s {
-        UnitStatus::Pending => "to be drawn",
-        UnitStatus::Drawn => "drawn: waiting for the winner",
-        UnitStatus::Claimed => "handed over",
-        UnitStatus::Voided => "withdrawn",
+        ItemStatus::Pending => "to be drawn",
+        ItemStatus::Drawn => "drawn: waiting for the winner",
+        ItemStatus::Claimed => "handed over",
+        ItemStatus::Voided => "withdrawn",
     }
 }
 
@@ -965,7 +965,7 @@ fn Prizes(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
                     p { class: "mb-3 text-sm font-semibold", "Add a prize" }
                     PrizeForm { raffle_id: admin.id.clone(), position: next_position, on_saved: move |_| on_change.call(()) }
                 }
-                p { class: "text-sm text-base-content/60", "Each unit is drawn on its own, in whatever order you like during the draw." }
+                p { class: "text-sm text-base-content/60", "Each copy is drawn on its own, in whatever order you like during the draw." }
             } else {
                 p { class: "text-sm text-base-content/60", "Prizes are locked because the entrant list is frozen." }
             }

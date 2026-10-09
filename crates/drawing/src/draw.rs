@@ -1,7 +1,7 @@
 //! `rafi-draw-v1`: deterministic, unbiased selection from public randomness.
 //!
 //! ```text
-//! seed_k      = SHA256("rafi-draw-v1" ‖ randomness ‖ list_hash ‖ BE_u64(k))
+//! seed_k      = SHA256("rafi-draw-v1" ‖ randomness ‖ manifest_hash ‖ BE_u64(k))
 //! rand_u64(c) = BE_u64(SHA256(seed_k ‖ BE_u64(c))[0..8])
 //! uniform(n)  = rejection sampling below 2^64 − (2^64 mod n)
 //! winner_k    = pool_k[uniform(|pool_k|)]
@@ -17,8 +17,8 @@ use crate::{Hash, sha256};
 pub const ALGO: &str = "rafi-draw-v1";
 
 /// Derives the seed for draw number `k`.
-pub fn seed(randomness: &Hash, list_hash: &Hash, k: u64) -> Hash {
-    sha256(&[ALGO.as_bytes(), randomness, list_hash, &k.to_be_bytes()])
+pub fn seed(randomness: &Hash, manifest_hash: &Hash, k: u64) -> Hash {
+    sha256(&[ALGO.as_bytes(), randomness, manifest_hash, &k.to_be_bytes()])
 }
 
 /// A deterministic stream of `u64`s derived from a seed.
@@ -62,8 +62,8 @@ impl Stream {
 /// # Panics
 ///
 /// Panics if `pool_len` is zero.
-pub fn select(randomness: &Hash, list_hash: &Hash, k: u64, pool_len: usize) -> usize {
-    Stream::new(seed(randomness, list_hash, k)).uniform(pool_len as u64) as usize
+pub fn select(randomness: &Hash, manifest_hash: &Hash, k: u64, pool_len: usize) -> usize {
+    Stream::new(seed(randomness, manifest_hash, k)).uniform(pool_len as u64) as usize
 }
 
 #[cfg(test)]

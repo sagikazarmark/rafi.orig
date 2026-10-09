@@ -1,7 +1,7 @@
 //! The Rafi draw engine as a Restate service.
 //!
 //! [`Raffle`] is a virtual object keyed by raffle ID. It owns the draw state
-//! ([`DrawState`]) while a raffle is being drawn: handlers for one raffle run one
+//! ([`Drawing`]) while a raffle is being drawn: handlers for one raffle run one
 //! at a time, the committed drand round is journaled before the durable sleep,
 //! and a crash or redeploy replays to the very same result. A beacon that
 //! cannot be fetched leaves the draw pending on its round (never a redraw on a

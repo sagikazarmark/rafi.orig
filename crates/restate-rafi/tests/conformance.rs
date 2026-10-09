@@ -15,7 +15,7 @@ use std::{
 };
 
 use rafi_engine_local::conformance::{self, Deployed, Deployment, EngineHarness};
-use rafi_platform::{BoxFuture, DrawEngine};
+use rafi_platform::{BoxFuture, DrawingEngine};
 use restate_e2e_harness::{Restate, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_rafi::{INFO_SERVICE_NAME, Raffle, RaffleEngine, SERVICE_NAME};
 use restate_rafi_client::{ClientConfig, RestateClient};
@@ -30,7 +30,7 @@ struct Running {
 }
 
 impl Deployed for Running {
-    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn DrawEngine> {
+    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn DrawingEngine> {
         Arc::new(RestateClient::new(ClientConfig {
             ingress_url: self.restate.ingress_url().to_owned(),
             api_key: String::new(),

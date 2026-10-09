@@ -8,14 +8,14 @@ use rafi_engine_local::{
     LocalEngine,
     conformance::{self, Deployed, Deployment, EngineHarness},
 };
-use rafi_platform::{BoxFuture, DrawEngine};
+use rafi_platform::{BoxFuture, DrawingEngine};
 
 struct Local;
 
 struct Running(LocalEngine);
 
 impl Deployed for Running {
-    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn DrawEngine> {
+    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn DrawingEngine> {
         Arc::new(self.0.with_deadline(deadline))
     }
 }

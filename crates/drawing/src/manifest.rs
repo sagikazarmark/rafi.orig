@@ -1,61 +1,41 @@
-//! The commit document published when the entrant list is frozen.
+//! The manifest: everything that decides a drawing's outcome except the
+//! randomness. Published (with its hash) when the drawing opens.
 
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Hash, drand::ChainHash, draw::ALGO, error::DrawError, sha256};
+use crate::{Hash, drand::ChainHash, draw::ALGO, error::Error, sha256};
 
-/// A prize unit as committed at freeze time.
+/// An item as committed in the manifest: one thing one entrant can win.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UnitRef {
-    pub unit_id: String,
-    pub item_id: String,
-    pub item_name: String,
+pub struct ItemRef {
+    pub id: String,
+    pub name: String,
 }
 
-/// The ID of the `n`th unit (from 1) of prize item `item_id`.
-pub fn unit_id(item_id: &str, n: u64) -> String {
-    format!("{item_id}-{n}")
-}
-
-/// Expands prize items `(item_id, item_name, quantity)` into the units that get
-/// committed and drawn one by one, in order.
-pub fn units<'a>(items: impl IntoIterator<Item = (&'a str, &'a str, u64)>) -> Vec<UnitRef> {
-    items
-        .into_iter()
-        .flat_map(|(item_id, item_name, qty)| {
-            (1..=qty).map(move |n| UnitRef {
-                unit_id: unit_id(item_id, n),
-                item_id: item_id.to_owned(),
-                item_name: item_name.to_owned(),
-            })
-        })
-        .collect()
-}
-
-/// The frozen raffle: who is in, and what can be won.
+/// Who is in, what can be won, and how the winners will be drawn.
 ///
 /// Field order is fixed and the document contains no maps or floats, so
 /// `serde_json` serialization is canonical. The exact serialized string is
 /// published alongside the hash, so verifiers never need to re-serialize.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CommitDoc {
+pub struct Manifest {
     pub algo: String,
     pub raffle_id: String,
     pub drand_chain: String,
     /// Sorted, deduplicated, lowercase hex entrant IDs.
     pub entrant_ids: Vec<String>,
-    pub units: Vec<UnitRef>,
+    pub items: Vec<ItemRef>,
 }
 
-impl CommitDoc {
+impl Manifest {
     /// `drand_chain` is the chain whose beacons the draws will use.
     pub fn new(
         raffle_id: impl Into<String>,
         drand_chain: &ChainHash,
         mut entrant_ids: Vec<String>,
-        units: Vec<UnitRef>,
+        items: Vec<ItemRef>,
     ) -> Self {
         for id in &mut entrant_ids {
             *id = id.to_ascii_lowercase();
@@ -67,41 +47,41 @@ impl CommitDoc {
             raffle_id: raffle_id.into(),
             drand_chain: drand_chain.to_string(),
             entrant_ids,
-            units,
+            items,
         }
     }
 
     /// The canonical serialization that gets hashed and published.
     pub fn canonical_json(&self) -> String {
-        serde_json::to_string(self).expect("commit doc serializes")
+        serde_json::to_string(self).expect("manifest serializes")
     }
 
-    /// The hex list hash of this document.
-    pub fn list_hash_hex(&self) -> String {
-        hex::encode(list_hash(&self.canonical_json()))
+    /// The hex hash of this manifest.
+    pub fn hash_hex(&self) -> String {
+        hex::encode(hash(&self.canonical_json()))
     }
 
-    /// The idempotency key for freezing this document: the same list always
-    /// freezes once.
-    pub fn freeze_key(&self) -> String {
-        format!("freeze-{}", self.list_hash_hex())
+    /// The idempotency key for opening a drawing from this manifest: the same
+    /// manifest opens once.
+    pub fn open_key(&self) -> String {
+        format!("open-{}", self.hash_hex())
     }
 
-    /// Checks that the document is one [`CommitDoc::new`] could have built for
-    /// a drawable raffle: the current algorithm, at least one entrant and one
-    /// unit, entrant IDs in canonical form (sorted, deduplicated, lowercase, so
-    /// re-serializing it reproduces the published list hash), and unique unit
+    /// Checks that the document is one [`Manifest::new`] could have built for
+    /// a drawing that can be drawn: the current algorithm, at least one entrant and one
+    /// item, entrant IDs in canonical form (sorted, deduplicated, lowercase, so
+    /// re-serializing it reproduces the published manifest hash), and unique item
     /// IDs.
-    pub fn validate(&self) -> Result<(), DrawError> {
-        let invalid = |why: &str| Err(DrawError::InvalidCommit(why.to_owned()));
+    pub fn validate(&self) -> Result<(), Error> {
+        let invalid = |why: &str| Err(Error::InvalidManifest(why.to_owned()));
         if self.algo != ALGO {
             return invalid("unknown draw algorithm");
         }
         if self.entrant_ids.is_empty() {
             return invalid("nobody has entered");
         }
-        if self.units.is_empty() {
-            return invalid("there are no prizes");
+        if self.items.is_empty() {
+            return invalid("there are no items");
         }
         if self
             .entrant_ids
@@ -112,15 +92,15 @@ impl CommitDoc {
             return invalid("entrant IDs are not sorted, unique and lowercase");
         }
         let mut seen = HashSet::new();
-        if !self.units.iter().all(|u| seen.insert(u.unit_id.as_str())) {
-            return invalid("duplicate prize unit IDs");
+        if !self.items.iter().all(|u| seen.insert(u.id.as_str())) {
+            return invalid("duplicate item IDs");
         }
         Ok(())
     }
 }
 
-/// `list_hash = SHA256(canonical commit document)`.
-pub fn list_hash(canonical_json: &str) -> Hash {
+/// `manifest_hash = SHA256(canonical manifest)`.
+pub fn hash(canonical_json: &str) -> Hash {
     sha256(&[canonical_json.as_bytes()])
 }
 
@@ -131,7 +111,7 @@ mod tests {
 
     #[test]
     fn entrants_are_sorted_and_deduped() {
-        let doc = CommitDoc::new(
+        let doc = Manifest::new(
             "r1",
             &QUICKNET,
             vec!["bb".into(), "AA".into(), "aa".into()],
@@ -140,89 +120,79 @@ mod tests {
         assert_eq!(doc.entrant_ids, vec!["aa", "bb"]);
     }
 
-    fn unit(id: &str) -> UnitRef {
-        UnitRef {
-            unit_id: id.into(),
-            item_id: "i1".into(),
-            item_name: "Ticket".into(),
+    fn item(id: &str) -> ItemRef {
+        ItemRef {
+            id: id.into(),
+            name: "Ticket".into(),
         }
     }
 
     #[test]
-    fn units_expand_items_in_order() {
-        let units = units([("a", "Book", 2), ("b", "Mug", 0), ("c", "Pen", 1)]);
-        let ids: Vec<_> = units.iter().map(|u| u.unit_id.as_str()).collect();
-        assert_eq!(ids, ["a-1", "a-2", "c-1"]);
-        assert_eq!(units[2].item_name, "Pen");
-    }
-
-    #[test]
     fn documents_built_by_new_validate() {
-        let doc = CommitDoc::new(
+        let doc = Manifest::new(
             "r1",
             &QUICKNET,
             vec!["B".into(), "a".into()],
-            vec![unit("u1")],
+            vec![item("u1")],
         );
         assert_eq!(doc.validate(), Ok(()));
-        assert!(doc.freeze_key().starts_with("freeze-"));
-        assert_eq!(doc.freeze_key(), format!("freeze-{}", doc.list_hash_hex()));
+        assert!(doc.open_key().starts_with("open-"));
+        assert_eq!(doc.open_key(), format!("open-{}", doc.hash_hex()));
     }
 
     #[test]
     fn non_canonical_or_empty_documents_are_invalid() {
-        let good = CommitDoc::new(
+        let good = Manifest::new(
             "r1",
             &QUICKNET,
             vec!["a".into(), "b".into()],
-            vec![unit("u1")],
+            vec![item("u1")],
         );
-        let invalid = |doc: CommitDoc| matches!(doc.validate(), Err(DrawError::InvalidCommit(_)));
+        let invalid = |doc: Manifest| matches!(doc.validate(), Err(Error::InvalidManifest(_)));
 
-        assert!(invalid(CommitDoc {
+        assert!(invalid(Manifest {
             algo: "other".into(),
             ..good.clone()
         }));
-        assert!(invalid(CommitDoc {
+        assert!(invalid(Manifest {
             entrant_ids: vec![],
             ..good.clone()
         }));
-        assert!(invalid(CommitDoc {
-            units: vec![],
+        assert!(invalid(Manifest {
+            items: vec![],
             ..good.clone()
         }));
-        assert!(invalid(CommitDoc {
+        assert!(invalid(Manifest {
             entrant_ids: vec!["b".into(), "a".into()],
             ..good.clone()
         }));
-        assert!(invalid(CommitDoc {
+        assert!(invalid(Manifest {
             entrant_ids: vec!["a".into(), "a".into()],
             ..good.clone()
         }));
-        assert!(invalid(CommitDoc {
+        assert!(invalid(Manifest {
             entrant_ids: vec!["A".into()],
             ..good.clone()
         }));
-        assert!(invalid(CommitDoc {
-            units: vec![unit("u1"), unit("u1")],
+        assert!(invalid(Manifest {
+            items: vec![item("u1"), item("u1")],
             ..good
         }));
     }
 
     #[test]
     fn canonical_json_is_stable() {
-        let doc = CommitDoc::new(
+        let doc = Manifest::new(
             "r1",
             &QUICKNET,
             vec!["01".into()],
-            vec![UnitRef {
-                unit_id: "u1".into(),
-                item_id: "i1".into(),
-                item_name: "Ticket".into(),
+            vec![ItemRef {
+                id: "u1".into(),
+                name: "Ticket".into(),
             }],
         );
         let json = doc.canonical_json();
-        let parsed: CommitDoc = serde_json::from_str(&json).unwrap();
+        let parsed: Manifest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.canonical_json(), json);
         assert!(json.starts_with(r#"{"algo":"rafi-draw-v1","raffle_id":"r1""#));
     }

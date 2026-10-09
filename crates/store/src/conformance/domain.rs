@@ -2,8 +2,8 @@
 
 use rafi_core::raffle::RaffleState;
 use rafi_drawing::{
-    drawing::{DrawMode, DrawState, Event, UnitStatus},
-    manifest::{CommitDoc, UnitRef},
+    drawing::{DrawMode, Drawing, Event, ItemStatus},
+    manifest::{ItemRef, Manifest},
 };
 use rafi_live::Phase;
 
@@ -11,7 +11,7 @@ use super::{Outcome, check, fail};
 use crate::{
     Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants,
     live::{HIDDEN_NAME, Snapshot},
-    prizes, raffles, retention, save_draw_state,
+    prizes, raffles, retention, save_drawing,
     view::Full,
 };
 
@@ -21,18 +21,17 @@ const PURGE: PurgeAfter = PurgeAfter {
 };
 
 /// A frozen raffle `id` with two entrants and one prize, and its draw state.
-async fn frozen(db: &Db, id: &str) -> Result<DrawState, String> {
-    let doc = CommitDoc::new(
+async fn frozen(db: &Db, id: &str) -> Result<Drawing, String> {
+    let doc = Manifest::new(
         id,
         &rafi_drawing::drand::chains::QUICKNET_HASH,
         vec!["a".repeat(32), "b".repeat(32)],
-        vec![UnitRef {
-            unit_id: "u1".into(),
-            item_id: "i1".into(),
-            item_name: "Ticket".into(),
+        vec![ItemRef {
+            id: "u1".into(),
+            name: "Ticket".into(),
         }],
     );
-    let state = DrawState::freeze(&doc);
+    let state = Drawing::open(&doc);
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, manifest_hash, created_at, updated_at)
          VALUES (?, 'o', ?, ?, 't', 'frozen', 'restate', ?, 0, 0)",
@@ -40,7 +39,7 @@ async fn frozen(db: &Db, id: &str) -> Result<DrawState, String> {
     .bind(id)
     .bind(format!("slug-{id}"))
     .bind(format!("code-{id}"))
-    .bind(&state.list_hash)
+    .bind(&state.manifest_hash)
     .run()
     .await
     .map_err(fail)?;
@@ -50,17 +49,17 @@ async fn frozen(db: &Db, id: &str) -> Result<DrawState, String> {
 pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     let mut state = frozen(db, "r1").await?;
     check(
-        save_draw_state(db, &state, PURGE).await.map_err(fail)?,
+        save_drawing(db, &state, PURGE).await.map_err(fail)?,
         "first write",
     )?;
     check(
-        !save_draw_state(db, &state, PURGE).await.map_err(fail)?,
+        !save_drawing(db, &state, PURGE).await.map_err(fail)?,
         "a retry is a no-op",
     )?;
 
     state.finish().map_err(fail)?;
     check(
-        save_draw_state(db, &state, PURGE).await.map_err(fail)?,
+        save_drawing(db, &state, PURGE).await.map_err(fail)?,
         "finished write",
     )?;
     let (lifecycle, finished_at, nonwinners, winners): (String, i64, i64, i64) = db
@@ -73,10 +72,10 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     check(winners == finished_at + 90, "winner purge date")?;
 
     let mut other = state.clone();
-    other.list_hash = "0".repeat(64);
+    other.manifest_hash = "0".repeat(64);
     other.version += 1;
     check(
-        !save_draw_state(db, &other, PURGE).await.map_err(fail)?,
+        !save_drawing(db, &other, PURGE).await.map_err(fail)?,
         "a different entrant list",
     )
 }
@@ -195,15 +194,22 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     )?;
     let mut ids = entrants::active_ids(db, "r1").await.map_err(fail)?;
     ids.sort();
-    check(ids == ["a", "b"], &format!("the list to commit: {ids:?}"))?;
+    check(
+        ids == ["a", "b"],
+        &format!("the entrants for the manifest: {ids:?}"),
+    )?;
 
     check(
-        raffles::commit(db, "r1", "{}", "h1").await.map_err(fail)?,
-        "committing",
+        raffles::set_manifest(db, "r1", "{}", "h1")
+            .await
+            .map_err(fail)?,
+        "writing the manifest",
     )?;
     check(
-        !raffles::commit(db, "r1", "{}", "h2").await.map_err(fail)?,
-        "committing again",
+        !raffles::set_manifest(db, "r1", "{}", "h2")
+            .await
+            .map_err(fail)?,
+        "writing the manifest again",
     )?;
     raffles::unfreeze(db, "r1", RaffleState::Closed)
         .await
@@ -440,22 +446,21 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     entrants::set_delivered(db, "d", Some(1))
         .await
         .map_err(fail)?;
-    let doc = CommitDoc::new(
+    let doc = Manifest::new(
         "r1",
         &rafi_drawing::drand::chains::QUICKNET_HASH,
         vec!["w".into(), "d".into(), "n".into()],
         ["u1", "u2"]
-            .map(|u| UnitRef {
-                unit_id: u.into(),
-                item_id: "i".into(),
-                item_name: "Ticket".into(),
+            .map(|u| ItemRef {
+                id: u.into(),
+                name: "Ticket".into(),
             })
             .into(),
     );
-    let mut state = DrawState::freeze(&doc);
-    for (unit, winner) in [(0, "w"), (1, "d")] {
-        state.units[unit].status = UnitStatus::Claimed;
-        state.units[unit].entrant_id = Some(winner.into());
+    let mut state = Drawing::open(&doc);
+    for (item, winner) in [(0, "w"), (1, "d")] {
+        state.items[item].status = ItemStatus::Claimed;
+        state.items[item].entrant_id = Some(winner.into());
     }
     db.query(
         "UPDATE raffles SET state = 'finished', drawing = ?, finished_at = 100,
@@ -677,7 +682,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
     let k = state.next_k;
     state.events.push(Event::Draw {
         k,
-        unit_id: "u1".into(),
+        item_id: "u1".into(),
         round: 1,
         signature: String::new(),
         randomness: String::new(),
@@ -688,12 +693,12 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         entrant_id: bence.clone(),
     });
     state.next_k += 1;
-    state.units[0].status = UnitStatus::Drawn;
-    state.units[0].entrant_id = Some(bence.clone());
-    state.units[0].k = Some(k);
+    state.items[0].status = ItemStatus::Drawn;
+    state.items[0].entrant_id = Some(bence.clone());
+    state.items[0].k = Some(k);
     state.version += 1;
     check(
-        save_draw_state(db, &state, PURGE).await.map_err(fail)?,
+        save_drawing(db, &state, PURGE).await.map_err(fail)?,
         "writing the draw",
     )?;
 

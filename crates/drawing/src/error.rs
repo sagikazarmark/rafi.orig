@@ -1,26 +1,27 @@
 //! How the drawing refuses something, and how every engine and caller
 //! classifies that refusal.
 
+/// Why the drawing refused something.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum DrawError {
-    #[error("the raffle is not frozen")]
-    NotFrozen,
-    #[error("the raffle is already frozen with a different entrant list")]
-    AlreadyFrozen,
-    #[error("the raffle commits to drand chain {committed}, but the draw engine uses {engine}")]
+pub enum Error {
+    #[error("no drawing is open")]
+    NotOpen,
+    #[error("the drawing is already open with another manifest")]
+    AlreadyOpen,
+    #[error("the drawing commits to drand chain {committed}, but the draw engine uses {engine}")]
     ChainMismatch { committed: String, engine: String },
-    #[error("invalid commit document: {0}")]
-    InvalidCommit(String),
+    #[error("invalid manifest: {0}")]
+    InvalidManifest(String),
     #[error("draws go through the draw step, not as a command")]
     NotACommand,
-    #[error("the raffle is finished")]
+    #[error("the drawing is finished")]
     Finished,
-    #[error("unknown prize unit {0}")]
-    UnknownUnit(String),
-    #[error("prize unit {0} is not available for drawing")]
-    UnitNotPending(String),
-    #[error("prize unit {0} has no undecided winner")]
-    UnitNotDrawn(String),
+    #[error("unknown item {0}")]
+    UnknownItem(String),
+    #[error("item {0} is not available for drawing")]
+    ItemNotPending(String),
+    #[error("item {0} has no undecided winner")]
+    ItemNotDrawn(String),
     #[error("another draw is in progress")]
     DrawInProgress,
     #[error("no draw is in progress")]
@@ -31,29 +32,33 @@ pub enum DrawError {
     WrongRound { expected: u64, got: u64 },
     #[error("the beacon is from another drand chain")]
     WrongChain,
-    #[error("invalid list hash")]
-    BadListHash,
+    #[error("invalid manifest hash")]
+    BadManifestHash,
     #[error("invalid resolution outcome")]
     BadOutcome,
 }
 
-impl DrawError {
+impl Error {
     /// How engines and their callers classify this refusal.
     pub fn kind(&self) -> ErrorKind {
         match self {
-            Self::NotFrozen | Self::UnknownUnit(_) => ErrorKind::NotFound,
-            Self::InvalidCommit(_) | Self::NotACommand | Self::BadOutcome => ErrorKind::BadRequest,
-            Self::AlreadyFrozen
+            Self::NotOpen | Self::UnknownItem(_) => ErrorKind::NotFound,
+            Self::InvalidManifest(_) | Self::NotACommand | Self::BadOutcome => {
+                ErrorKind::BadRequest
+            }
+            Self::AlreadyOpen
             | Self::ChainMismatch { .. }
             | Self::Finished
-            | Self::UnitNotPending(_)
-            | Self::UnitNotDrawn(_)
+            | Self::ItemNotPending(_)
+            | Self::ItemNotDrawn(_)
             | Self::DrawInProgress
             | Self::NoDrawInProgress
             | Self::NoEligibleEntrants => ErrorKind::Conflict,
             // A beacon for the wrong round or chain only ever stalls a draw,
-            // and the list hash is the engine's own: these are engine bugs.
-            Self::WrongRound { .. } | Self::WrongChain | Self::BadListHash => ErrorKind::Invariant,
+            // and the manifest hash is the engine's own: these are engine bugs.
+            Self::WrongRound { .. } | Self::WrongChain | Self::BadManifestHash => {
+                ErrorKind::Invariant
+            }
         }
     }
 }
@@ -62,11 +67,11 @@ impl DrawError {
 /// (handler status code, client error, app response).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
-    /// The raffle or prize unit doesn't exist (or the raffle isn't frozen).
+    /// The drawing or item doesn't exist (or no drawing is open).
     NotFound,
     /// The command itself is malformed.
     BadRequest,
-    /// The command doesn't fit the raffle's current state.
+    /// The command doesn't fit the drawing's current state.
     Conflict,
     /// A broken engine invariant: a bug, never the caller's fault.
     Invariant,

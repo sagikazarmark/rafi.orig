@@ -17,7 +17,7 @@
 //! - **`domain.*`, the domain functions:** the freeze's steps, joins (the
 //!   cap, one entry per email, racing joins), fake entrants across
 //!   statements, erasure and its log, retention, ALTCHA replays, the full
-//!   view, the participant snapshot and [`save_draw_state`](crate::save_draw_state).
+//!   view, the participant snapshot and [`save_drawing`](crate::save_drawing).
 //!
 //! Scenarios use only the public API ([`Db`], [`Query`](crate::Query) and the
 //! domain modules), never a backend's internals, and each runs on a fresh,
@@ -198,7 +198,7 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "query.ordering_ties" => query::ordering_ties,
     "query.param_limit" => query::param_limit,
     "query.version_triggers" => query::version_triggers,
-    "domain.save_draw_state" => domain::keeps_the_newest_state,
+    "domain.save_drawing" => domain::keeps_the_newest_state,
     "domain.freeze_steps" => domain::freezes_in_steps,
     "domain.join_cap" => domain::joins_up_to_the_cap_once_per_email,
     "domain.join_cap_race" needs Capabilities::CONCURRENT_SESSIONS

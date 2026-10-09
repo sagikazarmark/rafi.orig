@@ -155,7 +155,7 @@ pub fn Input(
     value: Option<ReadSignal<String>>,
     /// Called with the input's value after user input.
     on_change: Option<EventHandler<String>>,
-    /// Called when the native `change` event ends the interaction unit.
+    /// Called when the native `change` event ends the interaction item.
     on_commit: Option<EventHandler<()>>,
     /// Called after focus leaves the native input.
     on_focus_exit: Option<EventHandler<()>>,
@@ -355,7 +355,7 @@ pub fn InputField(
     value: Option<ReadSignal<String>>,
     /// Called with the input's value after user input.
     on_change: Option<EventHandler<String>>,
-    /// Called when the native `change` event ends the interaction unit.
+    /// Called when the native `change` event ends the interaction item.
     on_commit: Option<EventHandler<()>>,
     /// Called after focus leaves the native input.
     on_focus_exit: Option<EventHandler<()>>,

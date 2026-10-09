@@ -2,12 +2,12 @@
 //!
 //! The freeze is three steps, since D1 has no interactive transactions:
 //! [`freeze`] closes registration, the caller reads the now-fixed entrant list
-//! ([`entrants::active_ids`](crate::entrants::active_ids)), then [`commit`]
-//! stores the commit document (or [`unfreeze`] reverts when nobody is left).
+//! ([`entrants::active_ids`](crate::entrants::active_ids)), then
+//! [`set_manifest`] stores the drawing's manifest (or [`unfreeze`] reverts when nobody is left).
 //! Each step is guarded by the state it expects, so retrying is safe.
 
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::drawing::DrawState;
+use rafi_drawing::drawing::Drawing;
 use serde::Deserialize;
 
 use crate::{Db, Result, now};
@@ -53,7 +53,7 @@ impl RaffleRow {
         RaffleState::parse(&self.state).unwrap_or(RaffleState::Draft)
     }
 
-    pub fn drawing(&self) -> Option<DrawState> {
+    pub fn drawing(&self) -> Option<Drawing> {
         self.drawing
             .as_deref()
             .and_then(|s| serde_json::from_str(s).ok())
@@ -210,7 +210,7 @@ pub async fn freeze(db: &Db, id: &str) -> Result<bool> {
 }
 
 /// Reverts a freeze that found nobody to draw from: a frozen raffle without a
-/// commit document goes back to `to`.
+/// manifest goes back to `to`.
 pub async fn unfreeze(db: &Db, id: &str, to: RaffleState) -> Result<()> {
     db.query(
         "UPDATE raffles SET state = ?, updated_at = ?
@@ -224,17 +224,16 @@ pub async fn unfreeze(db: &Db, id: &str, to: RaffleState) -> Result<()> {
     .map(|_| ())
 }
 
-/// The freeze's last step: stores the commit document and its list hash.
-/// Returns `false` if another attempt committed first (or the raffle isn't
-/// frozen any more).
-pub async fn commit(db: &Db, id: &str, commit_doc: &str, list_hash: &str) -> Result<bool> {
+/// The freeze's last step: stores the manifest and its hash. Returns `false`
+/// if another attempt stored one first (or the raffle isn't frozen any more).
+pub async fn set_manifest(db: &Db, id: &str, manifest: &str, manifest_hash: &str) -> Result<bool> {
     let changed = db
         .query(
             "UPDATE raffles SET manifest = ?, manifest_hash = ?, frozen_at = ?
              WHERE id = ? AND state = 'frozen' AND manifest IS NULL",
         )
-        .bind(commit_doc)
-        .bind(list_hash)
+        .bind(manifest)
+        .bind(manifest_hash)
         .bind(now())
         .bind(id)
         .run()

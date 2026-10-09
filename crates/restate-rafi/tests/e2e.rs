@@ -11,9 +11,9 @@ use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
-    drawing::{DrawState, Event, Outcome, UnitStatus},
+    drawing::{Drawing, Event, ItemStatus, Outcome},
     engine::Command,
-    manifest::{CommitDoc, UnitRef},
+    manifest::{ItemRef, Manifest},
     verify::verify,
 };
 use rafi_platform::{MemoryDrawStore, Recording};
@@ -30,28 +30,26 @@ const SERVER: ServerSpec = ServerSpec {
 
 const RAFFLE: &str = "e2e-raffle";
 
-fn doc(entrants: usize) -> CommitDoc {
-    CommitDoc::new(
+fn doc(entrants: usize) -> Manifest {
+    Manifest::new(
         RAFFLE,
         &rafi_drand::mock_chain().chain().hash(),
         (0..entrants).map(|i| format!("{i:032x}")).collect(),
         vec![
-            UnitRef {
-                unit_id: "ticket-1".into(),
-                item_id: "ticket".into(),
-                item_name: "KCD Budapest ticket".into(),
+            ItemRef {
+                id: "ticket-1".into(),
+                name: "KCD Budapest ticket".into(),
             },
-            UnitRef {
-                unit_id: "voucher-1".into(),
-                item_id: "voucher".into(),
-                item_name: "CNCF exam voucher".into(),
+            ItemRef {
+                id: "voucher-1".into(),
+                name: "CNCF exam voucher".into(),
             },
         ],
     )
 }
 
 /// Waits until the latest projection satisfies `f`.
-async fn projected(store: &MemoryDrawStore, f: impl Fn(&DrawState) -> bool) -> DrawState {
+async fn projected(store: &MemoryDrawStore, f: impl Fn(&Drawing) -> bool) -> Drawing {
     for _ in 0..200 {
         if let Some(s) = store.latest(RAFFLE)
             && f(&s)
@@ -98,17 +96,15 @@ async fn e2e_raffle() {
     // Freeze; the same list again is a no-op, a different one a conflict.
     let doc = doc(5);
     let reply = restate
-        .invoke(&call("freeze"), Some(&json!(doc)), Some("freeze-1"))
+        .invoke(&call("open"), Some(&json!(doc)), Some("open-1"))
         .await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     let frozen = projected(&store, |s| s.events.is_empty()).await;
     assert_eq!(frozen.entrants.len(), 5);
-    let reply = restate
-        .invoke(&call("freeze"), Some(&json!(doc)), None)
-        .await;
+    let reply = restate.invoke(&call("open"), Some(&json!(doc)), None).await;
     assert_eq!(reply.status, 200, "refreezing the same list is idempotent");
     let reply = restate
-        .invoke(&call("freeze"), Some(&json!(self::doc(4))), None)
+        .invoke(&call("open"), Some(&json!(self::doc(4))), None)
         .await;
     assert_eq!(reply.status, 409, "{}", reply.body);
     // A commit to another drand chain than the engine's is refused.
@@ -117,7 +113,7 @@ async fn e2e_raffle() {
     quicknet.drand_chain = rafi_drawing::drand::QUICKNET_CHAIN.into();
     let reply = restate
         .invoke(
-            &Call::object(SERVICE_NAME, "other-raffle", "freeze"),
+            &Call::object(SERVICE_NAME, "other-raffle", "open"),
             Some(&json!(quicknet)),
             None,
         )
@@ -126,7 +122,7 @@ async fn e2e_raffle() {
 
     // Draw; the same idempotency key twice draws once.
     let draw = cmd(Command::Draw {
-        unit_id: "ticket-1".into(),
+        item_id: "ticket-1".into(),
         offline: false,
     });
     let sent = restate
@@ -138,8 +134,8 @@ async fn e2e_raffle() {
         .await;
     assert!(again.status < 300, "{}", again.body);
     let s = projected(&store, |s| {
-        s.unit("ticket-1")
-            .is_some_and(|u| u.status == UnitStatus::Drawn)
+        s.item("ticket-1")
+            .is_some_and(|u| u.status == ItemStatus::Drawn)
     })
     .await;
     let announces = s
@@ -148,7 +144,7 @@ async fn e2e_raffle() {
         .filter(|e| matches!(e, Event::Announce { .. }))
         .count();
     assert_eq!(announces, 1, "the idempotency key deduplicated the draw");
-    let first = s.unit("ticket-1").unwrap().entrant_id.clone().unwrap();
+    let first = s.item("ticket-1").unwrap().entrant_id.clone().unwrap();
 
     // The draw journals the clock, the projections (each followed by the live
     // channel's best-effort notify) and the beacon under stable names. The
@@ -171,12 +167,12 @@ async fn e2e_raffle() {
         ]
     );
 
-    // Not here: that person is out and the unit is drawn again.
+    // Not here: that person is out and the item is drawn again.
     let reply = restate
         .invoke(
             &call("resolve"),
             Some(&cmd(Command::Resolve {
-                unit_id: "ticket-1".into(),
+                item_id: "ticket-1".into(),
                 outcome: Outcome::NotHere,
             })),
             None,
@@ -187,17 +183,17 @@ async fn e2e_raffle() {
         .invoke(&call("draw").send(), Some(&draw), Some("draw-2"))
         .await;
     let s = projected(&store, |s| {
-        s.unit("ticket-1")
-            .is_some_and(|u| u.status == UnitStatus::Drawn)
+        s.item("ticket-1")
+            .is_some_and(|u| u.status == ItemStatus::Drawn)
             && s.next_k == 3
     })
     .await;
     assert_ne!(
-        s.unit("ticket-1").unwrap().entrant_id.as_deref(),
+        s.item("ticket-1").unwrap().entrant_id.as_deref(),
         Some(first.as_str())
     );
     let claim = cmd(Command::Resolve {
-        unit_id: "ticket-1".into(),
+        item_id: "ticket-1".into(),
         outcome: Outcome::Claimed,
     });
     assert_eq!(
@@ -215,7 +211,7 @@ async fn e2e_raffle() {
         .invoke(
             &call("draw"),
             Some(&cmd(Command::Draw {
-                unit_id: "nope".into(),
+                item_id: "nope".into(),
                 offline: false,
             })),
             None,
@@ -228,7 +224,7 @@ async fn e2e_raffle() {
         .invoke(
             &call("resolve"),
             Some(&cmd(Command::Void {
-                unit_id: "voucher-1".into(),
+                item_id: "voucher-1".into(),
             })),
             None,
         )
@@ -254,7 +250,7 @@ async fn e2e_raffle() {
     // The projected log verifies independently.
     let report = verify(
         &doc.canonical_json(),
-        &finished.list_hash,
+        &finished.manifest_hash,
         &finished.events,
         rafi_drand::resolve_chain,
     );
@@ -294,18 +290,18 @@ async fn e2e_stalled_draw() {
     let mut doc = doc(5);
     doc.drand_chain = rafi_drawing::drand::QUICKNET_CHAIN.into();
     let reply = restate
-        .invoke(&call("freeze"), Some(&json!(doc)), Some("freeze-1"))
+        .invoke(&call("open"), Some(&json!(doc)), Some("open-1"))
         .await;
     assert_eq!(reply.status, 200, "{}", reply.body);
 
-    let stalls = |s: &DrawState| {
+    let stalls = |s: &Drawing| {
         s.events
             .iter()
             .filter(|e| matches!(e, Event::Stall { .. }))
             .count()
     };
     let draw = cmd(Command::Draw {
-        unit_id: "ticket-1".into(),
+        item_id: "ticket-1".into(),
         offline: false,
     });
     restate
@@ -314,9 +310,9 @@ async fn e2e_stalled_draw() {
     let s = projected(&store, |s| stalls(s) == 1).await;
     let pending = s.pending.clone().expect("still pending");
 
-    // Another unit is refused; this one retries the same round.
+    // Another item is refused; this one retries the same round.
     let other = cmd(Command::Draw {
-        unit_id: "voucher-1".into(),
+        item_id: "voucher-1".into(),
         offline: false,
     });
     let reply = restate.invoke(&call("draw"), Some(&other), None).await;
@@ -327,12 +323,12 @@ async fn e2e_stalled_draw() {
     let s = projected(&store, |s| stalls(s) == 2).await;
     assert_eq!(s.pending.as_ref(), Some(&pending));
 
-    // Abandon: logged, the unit is free again.
+    // Abandon: logged, the item is free again.
     let reply = restate
         .invoke(
             &call("resolve"),
             Some(&cmd(Command::Abandon {
-                unit_id: "ticket-1".into(),
+                item_id: "ticket-1".into(),
             })),
             None,
         )
@@ -341,7 +337,7 @@ async fn e2e_stalled_draw() {
     let s = projected(&store, |s| s.pending.is_none()).await;
     let report = verify(
         &doc.canonical_json(),
-        &s.list_hash,
+        &s.manifest_hash,
         &s.events,
         rafi_drand::resolve_chain,
     );
@@ -379,12 +375,12 @@ async fn e2e_cancelled_draw_stalls() {
     let call = |handler| Call::object(SERVICE_NAME, RAFFLE, handler);
     let doc = doc(5);
     let reply = restate
-        .invoke(&call("freeze"), Some(&json!(doc)), Some("freeze-1"))
+        .invoke(&call("open"), Some(&json!(doc)), Some("open-1"))
         .await;
     assert_eq!(reply.status, 200, "{}", reply.body);
 
     let draw = serde_json::to_value(Command::Draw {
-        unit_id: "ticket-1".into(),
+        item_id: "ticket-1".into(),
         offline: false,
     })
     .unwrap();
@@ -429,6 +425,6 @@ async fn e2e_cancelled_draw_stalls() {
     assert!(failure.contains("cancelled"), "{failure:?}");
     // The object still holds the pending draw: a retry re-enters it.
     let reply = restate.invoke(&call("get"), None, None).await;
-    let state: DrawState = serde_json::from_value(reply.body).unwrap();
+    let state: Drawing = serde_json::from_value(reply.body).unwrap();
     assert_eq!(state.pending, Some(pending));
 }

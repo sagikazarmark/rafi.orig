@@ -35,9 +35,9 @@ pub fn Verify(slug: String) -> Element {
         Some(Ok(d)) => {
             // Public drand chains only: a test chain is never reported as verified.
             let report =
-                rafi_drawing::verify::verify_public(&d.commit_doc, &d.list_hash, &d.events);
+                rafi_drawing::verify::verify_public(&d.manifest, &d.manifest_hash, &d.events);
             let test_chain = report.chain_unknown()
-                && report.list_hash_ok
+                && report.manifest_hash_ok
                 && report.errors.is_empty()
                 && report.draws.iter().all(|c| c.ok);
             let chain = report.chain.clone();
@@ -46,25 +46,25 @@ pub fn Verify(slug: String) -> Element {
                 .iter()
                 .map(|(id, n)| (id.as_str(), n.as_str()))
                 .collect();
-            let doc: Option<rafi_drawing::manifest::CommitDoc> =
-                serde_json::from_str(&d.commit_doc).ok();
-            let unit_names: HashMap<String, String> = doc
+            let doc: Option<rafi_drawing::manifest::Manifest> =
+                serde_json::from_str(&d.manifest).ok();
+            let item_names: HashMap<String, String> = doc
                 .as_ref()
                 .map(|d| {
-                    d.units
+                    d.items
                         .iter()
-                        .map(|u| (u.unit_id.clone(), u.item_name.clone()))
+                        .map(|u| (u.id.clone(), u.name.clone()))
                         .collect()
                 })
                 .unwrap_or_default();
             let ok = report.ok();
-            let commit_doc = d.commit_doc.clone();
+            let manifest = d.manifest.clone();
             let offline = report.draws.iter().any(|c| c.mode == DrawMode::Offline);
             let entrants = doc
                 .as_ref()
                 .map(|d| d.entrant_ids.len())
                 .unwrap_or_default();
-            let prizes = doc.as_ref().map(|d| d.units.len()).unwrap_or_default();
+            let prizes = doc.as_ref().map(|d| d.items.len()).unwrap_or_default();
             rsx! {
                 div { class: "space-y-2",
                     p { class: "badge badge-soft badge-primary gap-1 font-semibold", Icon { i: I::ShieldCheck, class: "size-3.5" } "Independent verification" }
@@ -100,7 +100,7 @@ pub fn Verify(slug: String) -> Element {
                             ul { class: "list-inside list-disc text-sm",
                                 for r in report.replaced.iter() {
                                     li { key: "{r.k}",
-                                        "Draw {r.k} ({unit_names.get(&r.unit_id).cloned().unwrap_or_else(|| r.unit_id.clone())}): round {r.round} was "
+                                        "Draw {r.k} ({item_names.get(&r.item_id).cloned().unwrap_or_else(|| r.item_id.clone())}): round {r.round} was "
                                         match r.replaced {
                                             Replaced::Abandoned => "abandoned by the organizer",
                                             Replaced::Offline => "replaced by an offline draw",
@@ -130,8 +130,8 @@ pub fn Verify(slug: String) -> Element {
                     }
                     div { class: "stat",
                         div { class: "stat-title", "Entrant list hash" }
-                        div { class: "stat-value font-mono text-base", "{&report.list_hash[..16]}…" }
-                        div { class: "stat-desc", if report.list_hash_ok { "✓ matches the published hash" } else { "✗ does not match" } }
+                        div { class: "stat-value font-mono text-base", "{&report.manifest_hash[..16]}…" }
+                        div { class: "stat-desc", if report.manifest_hash_ok { "✓ matches the published hash" } else { "✗ does not match" } }
                     }
                 }
                 section { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
@@ -144,7 +144,7 @@ pub fn Verify(slug: String) -> Element {
                                     for c in report.draws.iter() {
                                         tr { key: "{c.k}",
                                             td { class: "font-mono", "{c.k}" }
-                                            td { class: "font-semibold", "{unit_names.get(&c.unit_id).cloned().unwrap_or_else(|| c.unit_id.clone())}" }
+                                            td { class: "font-semibold", "{item_names.get(&c.item_id).cloned().unwrap_or_else(|| c.item_id.clone())}" }
                                             td {
                                                 if c.mode == DrawMode::Offline {
                                                     span { class: "badge badge-warning badge-soft", "offline" }
@@ -188,7 +188,7 @@ pub fn Verify(slug: String) -> Element {
                                     li { key: "{i}",
                                         if i > 0 { hr {} }
                                         div { class: "timeline-middle text-primary", Icon { i: event_icon(e), class: "size-4" } }
-                                        div { class: "timeline-end mb-2 text-sm", "{describe(e, &names, &unit_names)}" }
+                                        div { class: "timeline-end mb-2 text-sm", "{describe(e, &names, &item_names)}" }
                                         if i + 1 < d.events.len() { hr {} }
                                     }
                                 }
@@ -209,7 +209,7 @@ pub fn Verify(slug: String) -> Element {
                             details { class: "collapse collapse-arrow mt-2 bg-base-200",
                                 summary { class: "collapse-title text-sm font-semibold", "Commit document" }
                                 div { class: "collapse-content",
-                                    pre { class: "whitespace-pre-wrap break-all font-mono text-xs", "{commit_doc}" }
+                                    pre { class: "whitespace-pre-wrap break-all font-mono text-xs", "{manifest}" }
                                 }
                             }
                         }
@@ -244,20 +244,20 @@ fn event_icon(e: &Event) -> I {
     }
 }
 
-fn describe(e: &Event, names: &HashMap<&str, &str>, units: &HashMap<String, String>) -> String {
+fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<String, String>) -> String {
     let name = |id: &str| {
         names
             .get(id)
             .map(|n| n.to_string())
             .unwrap_or_else(|| id[..8.min(id.len())].to_owned())
     };
-    let unit = |id: &str| units.get(id).cloned().unwrap_or_else(|| id.to_owned());
+    let item = |id: &str| items.get(id).cloned().unwrap_or_else(|| id.to_owned());
     match e {
         Event::Announce {
-            k, unit_id, round, ..
+            k, item_id, round, ..
         } => format!(
             "Draw {k}: {} committed to drand round {round}",
-            unit(unit_id)
+            item(item_id)
         ),
         Event::Draw {
             k,
@@ -281,7 +281,7 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, units: &HashMap<String, Stri
         Event::Resolve { k, outcome } => {
             format!("Draw {k}: {}", format!("{outcome:?}").to_lowercase())
         }
-        Event::Void { unit_id } => format!("{} withdrawn", unit(unit_id)),
+        Event::Void { item_id } => format!("{} withdrawn", item(item_id)),
         Event::Finish => "Finished 🎉".into(),
     }
 }

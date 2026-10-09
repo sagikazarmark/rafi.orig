@@ -13,8 +13,8 @@
 use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleChannel;
 use rafi_drawing::{
-    drawing::{DrawState, Event, UnitStatus},
-    manifest::{CommitDoc, UnitRef},
+    drawing::{Drawing, Event, ItemStatus},
+    manifest::{ItemRef, Manifest},
 };
 use rafi_platform::Notifier;
 use rafi_store::{Db, PurgeAfter, live::Snapshot};
@@ -29,7 +29,7 @@ fn entrant(raffle: &str, name: &str) -> String {
     format!("{raffle}-{name}")
 }
 
-async fn draw_state(db: &Db, raffle: &str) -> Result<DrawState> {
+async fn drawing(db: &Db, raffle: &str) -> Result<Drawing> {
     rafi_store::raffles::get(db, raffle)
         .await
         .map_err(err)?
@@ -61,26 +61,24 @@ async fn reset(db: &Db, raffle: &str) -> Result<()> {
 }
 
 async fn freeze(db: &Db, raffle: &str) -> Result<()> {
-    let doc = CommitDoc::new(
+    let doc = Manifest::new(
         raffle,
         &rafi_drawing::drand::chains::QUICKNET_HASH,
         vec![entrant(raffle, "anna"), entrant(raffle, "bence")],
         vec![
-            UnitRef {
-                unit_id: "book-1".into(),
-                item_id: "book".into(),
-                item_name: "Book".into(),
+            ItemRef {
+                id: "book-1".into(),
+                name: "Book".into(),
             },
-            UnitRef {
-                unit_id: "shirt-1".into(),
-                item_id: "shirt".into(),
-                item_name: "Shirt".into(),
+            ItemRef {
+                id: "shirt-1".into(),
+                name: "Shirt".into(),
             },
         ],
     );
-    let state = DrawState::freeze(&doc);
+    let state = Drawing::open(&doc);
     db.query("UPDATE raffles SET state = 'frozen', manifest_hash = ?, drawing = ?, drawing_version = ? WHERE id = ?")
-        .bind(&state.list_hash)
+        .bind(&state.manifest_hash)
         .bind(serde_json::to_string(&state).map_err(err)?)
         .bind(state.version)
         .bind(raffle)
@@ -100,28 +98,26 @@ async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     })
     .map_err(err)?
     .chain_hash();
-    let doc = CommitDoc::new(
+    let doc = Manifest::new(
         raffle,
         &chain,
         vec![entrant(raffle, "anna"), entrant(raffle, "bence")],
         vec![
-            UnitRef {
-                unit_id: "book-1".into(),
-                item_id: "book".into(),
-                item_name: "Book".into(),
+            ItemRef {
+                id: "book-1".into(),
+                name: "Book".into(),
             },
-            UnitRef {
-                unit_id: "shirt-1".into(),
-                item_id: "shirt".into(),
-                item_name: "Shirt".into(),
+            ItemRef {
+                id: "shirt-1".into(),
+                name: "Shirt".into(),
             },
         ],
     );
-    let state = DrawState::freeze(&doc);
+    let state = Drawing::open(&doc);
     let json = serde_json::to_string(&doc).map_err(err)?;
     db.query("UPDATE raffles SET state = 'frozen', manifest = ?, manifest_hash = ? WHERE id = ?")
         .bind(json.as_str())
-        .bind(&state.list_hash)
+        .bind(&state.manifest_hash)
         .bind(raffle)
         .run()
         .await
@@ -230,22 +226,22 @@ fn altcha_challenge() -> rafi_live::altcha::Challenge {
 
 /// A completed draw for `who`, written the way Restate's projector writes it.
 async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
-    let mut state = draw_state(db, raffle).await?;
-    let Some(unit) = state
-        .units
+    let mut state = drawing(db, raffle).await?;
+    let Some(item) = state
+        .items
         .iter_mut()
-        .find(|u| u.status == UnitStatus::Pending)
+        .find(|u| u.status == ItemStatus::Pending)
     else {
         return Err(err("no prize left"));
     };
     let k = state.next_k;
-    unit.status = UnitStatus::Drawn;
-    unit.entrant_id = Some(entrant(raffle, who));
-    unit.k = Some(k);
-    let unit_id = unit.unit_id.clone();
+    item.status = ItemStatus::Drawn;
+    item.entrant_id = Some(entrant(raffle, who));
+    item.k = Some(k);
+    let item_id = item.id.clone();
     state.events.push(Event::Draw {
         k,
-        unit_id,
+        item_id,
         round: 1,
         signature: String::new(),
         randomness: String::new(),
@@ -257,17 +253,17 @@ async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
     });
     state.next_k += 1;
     state.version += 1;
-    rafi_store::save_draw_state(db, &state, PurgeAfter::days(30, 90))
+    rafi_store::save_drawing(db, &state, PurgeAfter::days(30, 90))
         .await
         .map_err(err)?;
     Ok(())
 }
 
 async fn finish(db: &Db, raffle: &str) -> Result<()> {
-    let mut state = draw_state(db, raffle).await?;
+    let mut state = drawing(db, raffle).await?;
     state.finished = true;
     state.version += 1;
-    rafi_store::save_draw_state(db, &state, PurgeAfter::days(30, 90))
+    rafi_store::save_drawing(db, &state, PurgeAfter::days(30, 90))
         .await
         .map_err(err)?;
     Ok(())

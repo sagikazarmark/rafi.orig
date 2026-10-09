@@ -9,8 +9,8 @@ Usage:
 
 Standard library only. The algorithm:
 
-    list_hash    = SHA256(commit_doc)                    (published canonical JSON string)
-    seed_k       = SHA256("rafi-draw-v1" || randomness || list_hash || BE_u64(k))
+    manifest_hash = SHA256(manifest)                     (published canonical JSON string)
+    seed_k       = SHA256("rafi-draw-v1" || randomness || manifest_hash || BE_u64(k))
     rand_u64(c)  = BE_u64(SHA256(seed_k || BE_u64(c))[0:8])
     uniform(n)   = first rand_u64(c) below 2^64 - (2^64 mod n), taken mod n
     winner_k     = pool_k[uniform(len(pool_k))]
@@ -46,8 +46,8 @@ def sha256(*parts: bytes) -> bytes:
     return h.digest()
 
 
-def select(randomness: bytes, list_hash: bytes, k: int, n: int) -> int:
-    seed = sha256(ALGO, randomness, list_hash, k.to_bytes(8, "big"))
+def select(randomness: bytes, manifest_hash: bytes, k: int, n: int) -> int:
+    seed = sha256(ALGO, randomness, manifest_hash, k.to_bytes(8, "big"))
     limit = 2**64 - (2**64 % n)
     c = 0
     while True:
@@ -78,19 +78,19 @@ def fetch_beacon(chain, round_):
     return None
 
 
-def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> bool:
+def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> bool:
     ok = True
-    list_hash = sha256(commit_doc.encode())
-    if list_hash.hex() != expected_list_hash.lower():
-        print(f"FAIL list hash: computed {list_hash.hex()}, published {expected_list_hash}")
+    manifest_hash = sha256(manifest.encode())
+    if manifest_hash.hex() != expected_manifest_hash.lower():
+        print(f"FAIL manifest hash: computed {manifest_hash.hex()}, published {expected_manifest_hash}")
         ok = False
     else:
-        print(f"ok   list hash {list_hash.hex()}")
-    doc = json.loads(commit_doc)
+        print(f"ok   manifest hash {manifest_hash.hex()}")
+    doc = json.loads(manifest)
     entrants = doc["entrant_ids"]
     chain = doc["drand_chain"]
     name = PUBLIC_CHAINS.get(chain)
-    print(f"     {len(entrants)} entrants, {len(doc['units'])} prize units, chain {chain[:12]}… ({name or 'NOT a public drand chain'})")
+    print(f"     {len(entrants)} entrants, {len(doc['items'])} items, chain {chain[:12]}… ({name or 'NOT a public drand chain'})")
     if name is None:
         print("FAIL draws use a test chain: their randomness is not publicly verifiable")
         ok = False
@@ -103,7 +103,7 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
             if b is None:
                 print(f"WARN draw {k}: could not fetch drand round {round_}")
             else:
-                idx = select(sha256(bytes.fromhex(b["signature"])), list_hash, k, len(p))
+                idx = select(sha256(bytes.fromhex(b["signature"])), manifest_hash, k, len(p))
                 print(f"     draw {k}: round {round_} would have picked index {idx} -> {p[idx]}")
 
     draws = []  # in order
@@ -147,7 +147,7 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
                         ok = False
             else:
                 print(f"WARN draw {k}: OFFLINE mode, randomness is not publicly verifiable")
-            idx = select(randomness, list_hash, k, len(p))
+            idx = select(randomness, manifest_hash, k, len(p))
             expected = p[idx]
             good = expected == ev["entrant_id"] and pass_ == ev["pass"] and len(p) == ev["pool_size"]
             ok &= good
@@ -172,7 +172,7 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
             would_have_picked(ev["k"], ev["round"], f"ABANDONED ({ev['reason']})")
             pending = None
         elif t == "void":
-            print(f"     unit {ev['unit_id']} voided")
+            print(f"     item {ev['item_id']} voided")
     return ok
 
 
@@ -191,19 +191,19 @@ def main(argv):
         data = load(args[0])
         ok = True
         for v in data["select"]:
-            got = select(bytes.fromhex(v["randomness"]), bytes.fromhex(v["list_hash"]), v["k"], v["pool_size"])
+            got = select(bytes.fromhex(v["randomness"]), bytes.fromhex(v["manifest_hash"]), v["k"], v["pool_size"])
             if got != v["index"]:
                 print(f"FAIL select vector k={v['k']} n={v['pool_size']}: {got} != {v['index']}")
                 ok = False
         print(f"{'ok  ' if ok else 'FAIL'} {len(data['select'])} selection vectors")
         s = data["scenario"]
-        ok &= verify(s["commit_doc"], s["list_hash"], s["events"])
+        ok &= verify(s["manifest"], s["manifest_hash"], s["events"])
     else:
         if not args:
             print(__doc__)
             return 2
         data = load(args[0])
-        ok = verify(data["commit_doc"], data["list_hash"], data["events"], fetch=fetch)
+        ok = verify(data["manifest"], data["manifest_hash"], data["events"], fetch=fetch)
     print("VERIFIED" if ok else "VERIFICATION FAILED")
     return 0 if ok else 1
 

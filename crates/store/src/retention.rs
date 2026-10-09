@@ -27,7 +27,7 @@ fn due(dialect: Dialect) -> &'static str {
 }
 
 fn due_sql(dialect: Dialect) -> String {
-    let winners = dialect::drawing_entrants(dialect, "r.drawing", "units", "status", "claimed");
+    let winners = dialect::drawing_entrants(dialect, "r.drawing", "items", "status", "claimed");
     format!(
         "entrants.purged = 0 AND EXISTS (
             SELECT 1 FROM raffles r

@@ -127,17 +127,17 @@ admin_api! {
 
     fn start_draw(id: String) -> () = |app, owner| service::start_draw(app, owner, &id);
 
-    fn draw_unit(id: String, unit_id: String, offline: bool, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Command::Draw { unit_id, offline }, &command_id);
+    fn draw_unit(id: String, item_id: String, offline: bool, command_id: String) -> () =
+        |app, owner| service::command(app, owner, &id, Command::Draw { item_id, offline }, &command_id);
 
-    fn resolve_unit(id: String, unit_id: String, outcome: Outcome, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Command::Resolve { unit_id, outcome }, &command_id);
+    fn resolve_unit(id: String, item_id: String, outcome: Outcome, command_id: String) -> () =
+        |app, owner| service::command(app, owner, &id, Command::Resolve { item_id, outcome }, &command_id);
 
-    fn void_unit(id: String, unit_id: String, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Command::Void { unit_id }, &command_id);
+    fn void_unit(id: String, item_id: String, command_id: String) -> () =
+        |app, owner| service::command(app, owner, &id, Command::Void { item_id }, &command_id);
 
-    fn abandon_draw(id: String, unit_id: String, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Command::Abandon { unit_id }, &command_id);
+    fn abandon_draw(id: String, item_id: String, command_id: String) -> () =
+        |app, owner| service::command(app, owner, &id, Command::Abandon { item_id }, &command_id);
 
     fn finish_raffle(id: String, command_id: String) -> () =
         |app, owner| service::command(app, owner, &id, Command::Finish, &command_id);

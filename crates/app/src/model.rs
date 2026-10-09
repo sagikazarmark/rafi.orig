@@ -1,7 +1,7 @@
 //! Types shared between the server and the browser.
 
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::drawing::{DrawMode, Event, Outcome, UnitStatus};
+use rafi_drawing::drawing::{DrawMode, Event, ItemStatus, Outcome};
 use serde::{Deserialize, Serialize};
 
 /// The public, live state of a raffle: the projector's and the admin's full
@@ -32,12 +32,12 @@ pub struct RaffleView {
     pub entrant_count: usize,
     pub recent_names: Vec<String>,
     pub prizes: Vec<PrizeView>,
-    pub units: Vec<UnitView>,
+    pub items: Vec<ItemView>,
     pub current: Option<CurrentDraw>,
     /// Draws in chronological order.
     pub draws: Vec<DrawView>,
     pub last_failure: Option<String>,
-    pub list_hash: Option<String>,
+    pub manifest_hash: Option<String>,
     pub server_now_ms: u64,
     pub test_mode: bool,
     /// Human-readable description of the draw engine (e.g. "restate", "restate (mock drand)").
@@ -54,11 +54,11 @@ pub struct PrizeView {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UnitView {
-    pub unit_id: String,
+pub struct ItemView {
+    pub item_id: String,
     pub prize_id: String,
     pub prize_name: String,
-    pub status: UnitStatus,
+    pub status: ItemStatus,
     pub entrant_id: Option<String>,
     pub display_name: Option<String>,
 }
@@ -66,7 +66,7 @@ pub struct UnitView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CurrentDraw {
     pub k: u64,
-    pub unit_id: String,
+    pub item_id: String,
     pub prize_name: String,
     pub round: u64,
     /// Unix time (seconds) the round is published.
@@ -76,7 +76,7 @@ pub struct CurrentDraw {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DrawView {
     pub k: u64,
-    pub unit_id: String,
+    pub item_id: String,
     pub prize_name: String,
     pub entrant_id: String,
     pub display_name: String,
@@ -213,8 +213,8 @@ pub struct VerifyData {
     pub title: String,
     pub state: RaffleState,
     /// The canonical commit document, exactly as hashed.
-    pub commit_doc: String,
-    pub list_hash: String,
+    pub manifest: String,
+    pub manifest_hash: String,
     pub events: Vec<Event>,
     /// Entrant ID → display name (until personal data is purged).
     pub names: Vec<(String, String)>,

@@ -1,6 +1,6 @@
 //! Independent verification of a published draw log.
 //!
-//! Replays the events against the commit document and checks that every draw
+//! Replays the events against the manifest and checks that every draw
 //! picked exactly the entrant the algorithm dictates, from a drand beacon that
 //! verifies against the committed chain. This is what the public verification
 //! page runs in the browser (compiled to WASM) and what `tools/verify.py`
@@ -10,14 +10,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     drand::{Beacon, ChainHash, ChainInfo, Verifier, chains},
-    drawing::{DrawMode, DrawState, Event},
-    manifest::{CommitDoc, list_hash},
+    drawing::{DrawMode, Drawing, Event},
+    manifest::{self, Manifest},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrawCheck {
     pub k: u64,
-    pub unit_id: String,
+    pub item_id: String,
     pub round: u64,
     pub mode: DrawMode,
     pub pool_size: usize,
@@ -41,7 +41,7 @@ pub enum Replaced {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommittedRound {
     pub k: u64,
-    pub unit_id: String,
+    pub item_id: String,
     pub round: u64,
     pub pass: u8,
     /// The pool at the time, sorted (as the algorithm indexes it).
@@ -51,9 +51,9 @@ pub struct CommittedRound {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Report {
-    pub list_hash: String,
-    pub list_hash_ok: bool,
-    /// The drand chain hash from the commit document.
+    pub manifest_hash: String,
+    pub manifest_hash_ok: bool,
+    /// The drand chain hash from the manifest.
     pub chain: String,
     /// Whether the chain is known, so every beacon could be BLS-verified.
     /// False for test chains: such a log is never reported as verified.
@@ -67,7 +67,7 @@ pub struct Report {
 
 impl Report {
     pub fn ok(&self) -> bool {
-        self.list_hash_ok
+        self.manifest_hash_ok
             && self.chain_known
             && self.errors.is_empty()
             && self.draws.iter().all(|d| d.ok)
@@ -81,43 +81,50 @@ impl Report {
 }
 
 /// [`verify`] against the public drand chains this build knows.
-pub fn verify_public(commit_json: &str, expected_list_hash: &str, events: &[Event]) -> Report {
-    verify(commit_json, expected_list_hash, events, chains::by_hash)
+pub fn verify_public(
+    manifest_json: &str,
+    expected_manifest_hash: &str,
+    events: &[Event],
+) -> Report {
+    verify(
+        manifest_json,
+        expected_manifest_hash,
+        events,
+        chains::by_hash,
+    )
 }
 
-/// Verifies `events` against the published canonical commit document.
+/// Verifies `events` against the published canonical manifest.
 ///
-/// `expected_list_hash` is the hash that was announced at freeze time;
-/// `resolve` maps the commit document's chain hash to trusted chain info.
+/// `expected_manifest_hash` is the hash that was published when the drawing
+/// opened; `resolve` maps the manifest's chain hash to trusted chain info.
 pub fn verify(
-    commit_json: &str,
-    expected_list_hash: &str,
+    manifest_json: &str,
+    expected_manifest_hash: &str,
     events: &[Event],
     resolve: impl Fn(&ChainHash) -> Option<ChainInfo>,
 ) -> Report {
-    let computed = hex::encode(list_hash(commit_json));
+    let computed = hex::encode(manifest::hash(manifest_json));
     let mut report = Report {
-        list_hash_ok: computed.eq_ignore_ascii_case(expected_list_hash),
-        list_hash: computed,
+        manifest_hash_ok: computed.eq_ignore_ascii_case(expected_manifest_hash),
+        manifest_hash: computed,
         chain: String::new(),
         chain_known: false,
         draws: Vec::new(),
         replaced: Vec::new(),
         errors: Vec::new(),
     };
-    let doc: CommitDoc = match serde_json::from_str(commit_json) {
+    let doc: Manifest = match serde_json::from_str(manifest_json) {
         Ok(doc) => doc,
         Err(e) => {
-            report
-                .errors
-                .push(format!("commit document is not valid: {e}"));
+            report.errors.push(format!("manifest is not valid: {e}"));
             return report;
         }
     };
-    if doc.canonical_json() != commit_json {
+    if doc.canonical_json() != manifest_json {
         report
             .errors
-            .push("commit document is not in canonical form".into());
+            .push("manifest is not in canonical form".into());
     }
     report.chain = doc.drand_chain.clone();
     let verifier = match doc.drand_chain.parse::<ChainHash>() {
@@ -145,12 +152,12 @@ pub fn verify(
     report.chain_known = verifier.is_some();
 
     // Replay into a fresh state, re-deriving each draw from its beacon.
-    let mut state = DrawState::freeze(&doc);
+    let mut state = Drawing::open(&doc);
     for event in events {
         let result = match event {
             Event::Announce {
                 k,
-                unit_id,
+                item_id,
                 round,
                 round_time,
             } => {
@@ -160,7 +167,7 @@ pub fn verify(
                         .push(format!("draw {k}: announced while draw {} is pending", p.k));
                     continue;
                 }
-                match state.begin(unit_id, *round, *round_time) {
+                match state.begin(item_id, *round, *round_time) {
                     Ok(p) if p.k != *k => {
                         report
                             .errors
@@ -172,7 +179,7 @@ pub fn verify(
             }
             Event::Draw {
                 k,
-                unit_id,
+                item_id,
                 round,
                 signature,
                 randomness,
@@ -184,10 +191,10 @@ pub fn verify(
             } => {
                 // A draw must settle the announced draw, on its committed round.
                 match &state.pending {
-                    Some(p) if p.k == *k && p.unit_id == *unit_id && p.round == *round => {}
+                    Some(p) if p.k == *k && p.item_id == *item_id && p.round == *round => {}
                     _ => {
                         report.errors.push(format!(
-                            "draw {k}: does not match the announced draw (unit or round changed)"
+                            "draw {k}: does not match the announced draw (item or round changed)"
                         ));
                         continue;
                     }
@@ -240,7 +247,7 @@ pub fn verify(
                         };
                         report.draws.push(DrawCheck {
                             k: *k,
-                            unit_id: unit_id.clone(),
+                            item_id: item_id.clone(),
                             round: *round,
                             mode: *mode,
                             pool_size: pool,
@@ -269,12 +276,12 @@ pub fn verify(
             },
             Event::Abandon {
                 k,
-                unit_id,
+                item_id,
                 round,
                 reason,
             } => {
                 match &state.pending {
-                    Some(p) if p.k == *k && p.unit_id == *unit_id && p.round == *round => {}
+                    Some(p) if p.k == *k && p.item_id == *item_id && p.round == *round => {}
                     _ => {
                         report
                             .errors
@@ -286,20 +293,20 @@ pub fn verify(
                 state.abandon(reason)
             }
             Event::Resolve { k, outcome } => {
-                let unit = state
-                    .units
+                let item = state
+                    .items
                     .iter()
                     .find(|u| u.k == Some(*k))
-                    .map(|u| u.unit_id.clone());
-                match unit {
-                    Some(unit) => state.resolve(&unit, *outcome),
+                    .map(|u| u.id.clone());
+                match item {
+                    Some(item) => state.resolve(&item, *outcome),
                     None => {
                         report.errors.push(format!("resolve for unknown draw {k}"));
                         continue;
                     }
                 }
             }
-            Event::Void { unit_id } => state.void(unit_id),
+            Event::Void { item_id } => state.void(item_id),
             Event::Finish => state.finish(),
         };
         if let Err(e) = result {
@@ -310,12 +317,12 @@ pub fn verify(
 }
 
 /// Records the pending draw's committed round before it is replaced.
-fn record_replaced(report: &mut Report, state: &DrawState, replaced: Replaced) {
+fn record_replaced(report: &mut Report, state: &Drawing, replaced: Replaced) {
     if let Some(p) = &state.pending {
         let (pass, pool) = state.pool();
         report.replaced.push(CommittedRound {
             k: p.k,
-            unit_id: p.unit_id.clone(),
+            item_id: p.item_id.clone(),
             round: p.round,
             pass,
             pool,
@@ -332,7 +339,7 @@ mod tests {
             Outcome,
             tests::{beacon, test_chain},
         },
-        manifest::UnitRef,
+        manifest::ItemRef,
     };
 
     fn resolve(h: &ChainHash) -> Option<ChainInfo> {
@@ -340,20 +347,19 @@ mod tests {
         (info.hash() == *h).then_some(info)
     }
 
-    fn setup() -> (CommitDoc, DrawState) {
-        let doc = CommitDoc::new(
+    fn setup() -> (Manifest, Drawing) {
+        let doc = Manifest::new(
             "r",
             &test_chain().chain().hash(),
             (0..10).map(|i| format!("{i:032x}")).collect(),
             (0..3)
-                .map(|i| UnitRef {
-                    unit_id: format!("u{i}"),
-                    item_id: "i".into(),
-                    item_name: "Prize".into(),
+                .map(|i| ItemRef {
+                    id: format!("u{i}"),
+                    name: "Prize".into(),
                 })
                 .collect(),
         );
-        let state = DrawState::freeze(&doc);
+        let state = Drawing::open(&doc);
         (doc, state)
     }
 
@@ -375,7 +381,7 @@ mod tests {
         s.complete_offline([5; 32]).unwrap();
         s.finish().unwrap();
 
-        let report = verify(&doc.canonical_json(), &s.list_hash, &s.events, resolve);
+        let report = verify(&doc.canonical_json(), &s.manifest_hash, &s.events, resolve);
         assert!(report.ok(), "{report:#?}");
         assert_eq!(report.draws.len(), 3);
         let replaced: Vec<_> = report
@@ -392,7 +398,7 @@ mod tests {
         let (doc, mut s) = setup();
         s.begin("u0", 1, 0).unwrap();
         s.complete(&beacon(1)).unwrap();
-        let report = verify_public(&doc.canonical_json(), &s.list_hash, &s.events);
+        let report = verify_public(&doc.canonical_json(), &s.manifest_hash, &s.events);
         assert!(report.chain_unknown());
         assert!(!report.ok());
         assert!(report.errors.is_empty(), "{report:#?}");
@@ -417,7 +423,7 @@ mod tests {
             *randomness = hex::encode(crate::sha256(&[&sig]));
             *signature = hex::encode(sig);
         }
-        let report = verify(&doc.canonical_json(), &s.list_hash, &events, resolve);
+        let report = verify(&doc.canonical_json(), &s.manifest_hash, &events, resolve);
         assert!(!report.ok());
         assert!(!report.errors.is_empty());
     }
@@ -429,19 +435,24 @@ mod tests {
         s.complete(&beacon(1)).unwrap();
         // A forged log drawing from round 2 although round 1 was announced:
         // a genuine beacon, but a redraw on a new round.
-        let mut forged = DrawState::freeze(&doc);
+        let mut forged = Drawing::open(&doc);
         forged.begin("u0", 2, 0).unwrap();
         forged.complete(&beacon(2)).unwrap();
         let mut events = s.events[..1].to_vec();
         events.push(forged.events[1].clone());
-        let report = verify(&doc.canonical_json(), &s.list_hash, &events, resolve);
+        let report = verify(&doc.canonical_json(), &s.manifest_hash, &events, resolve);
         assert!(!report.ok());
         // So is a draw without an announcement, or a second announcement.
-        let report = verify(&doc.canonical_json(), &s.list_hash, &s.events[1..], resolve);
+        let report = verify(
+            &doc.canonical_json(),
+            &s.manifest_hash,
+            &s.events[1..],
+            resolve,
+        );
         assert!(!report.ok());
         let mut twice = s.events.clone();
         twice.insert(1, twice[0].clone());
-        assert!(!verify(&doc.canonical_json(), &s.list_hash, &twice, resolve).ok());
+        assert!(!verify(&doc.canonical_json(), &s.manifest_hash, &twice, resolve).ok());
     }
 
     #[test]
@@ -453,7 +464,7 @@ mod tests {
         if let Some(Event::Draw { entrant_id, .. }) = events.last_mut() {
             *entrant_id = "f".repeat(32);
         }
-        let report = verify(&doc.canonical_json(), &s.list_hash, &events, resolve);
+        let report = verify(&doc.canonical_json(), &s.manifest_hash, &events, resolve);
         assert!(!report.ok());
     }
 
@@ -462,25 +473,29 @@ mod tests {
         let (doc, s) = setup();
         let mut other = doc.clone();
         other.entrant_ids.pop();
-        let report = verify(&other.canonical_json(), &s.list_hash, &s.events, resolve);
-        assert!(!report.list_hash_ok);
+        let report = verify(
+            &other.canonical_json(),
+            &s.manifest_hash,
+            &s.events,
+            resolve,
+        );
+        assert!(!report.manifest_hash_ok);
     }
 
     #[test]
     fn pool_change_while_pending_fails_verification() {
-        let doc = CommitDoc::new(
+        let doc = Manifest::new(
             "r",
             &test_chain().chain().hash(),
             (0..2).map(|i| format!("{i:032x}")).collect(),
             (0..3)
-                .map(|i| UnitRef {
-                    unit_id: format!("u{i}"),
-                    item_id: "i".into(),
-                    item_name: "Prize".into(),
+                .map(|i| ItemRef {
+                    id: format!("u{i}"),
+                    name: "Prize".into(),
                 })
                 .collect(),
         );
-        let mut s = DrawState::freeze(&doc);
+        let mut s = Drawing::open(&doc);
         s.begin("u0", 1, 0).unwrap();
         s.complete(&beacon(1)).unwrap();
         s.begin("u1", 2, 0).unwrap();
@@ -492,7 +507,7 @@ mod tests {
             k: 1,
             outcome: Outcome::NotHere,
         });
-        let report = verify(&doc.canonical_json(), &s.list_hash, &events, resolve);
+        let report = verify(&doc.canonical_json(), &s.manifest_hash, &events, resolve);
         assert!(!report.ok());
     }
 }

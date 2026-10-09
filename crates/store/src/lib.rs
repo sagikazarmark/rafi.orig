@@ -17,7 +17,7 @@
 //!   (erasure, ending live channels, `meta`);
 //! - [`view::Full`]: what the projector and the admin see, and
 //!   [`live::Snapshot`]: what phones see, each read in one snapshot;
-//! - [`save_draw_state`], the draw engine's only write; [`DrawWriter`] offers
+//! - [`save_drawing`], the draw engine's only write; [`DrawWriter`] offers
 //!   it as the engine's [`DrawStore`].
 //!
 //! The SQL is written for SQLite (and D1) and Postgres alike: `?`/`?N`
@@ -56,7 +56,7 @@ pub use error::{Error, Result};
 pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
-use rafi_drawing::drawing::{DrawState, Event};
+use rafi_drawing::drawing::{Drawing, Event};
 use rafi_platform::{BoxFuture, DrawStore};
 pub use value::{Row, Value};
 
@@ -99,7 +99,7 @@ impl PurgeAfter {
 /// finishes, dates the erasure of personal data.
 ///
 /// Returns whether the state was written.
-pub async fn save_draw_state(db: &Db, state: &DrawState, purge: PurgeAfter) -> Result<bool> {
+pub async fn save_drawing(db: &Db, state: &Drawing, purge: PurgeAfter) -> Result<bool> {
     let json = serde_json::to_string(state).map_err(|e| Error::Backend(e.to_string()))?;
     let started = state
         .events
@@ -133,14 +133,14 @@ pub async fn save_draw_state(db: &Db, state: &DrawState, purge: PurgeAfter) -> R
         .bind(now())
         .bind(purge.nonwinners_secs)
         .bind(purge.winners_secs)
-        .bind(&state.raffle_id)
-        .bind(&state.list_hash)
+        .bind(&state.id)
+        .bind(&state.manifest_hash)
         .run()
         .await?;
     Ok(written > 0)
 }
 
-/// The draw engine's [`DrawStore`] over this database: [`save_draw_state`]
+/// The draw engine's [`DrawStore`] over this database: [`save_drawing`]
 /// with the configured erasure dates.
 #[derive(Clone)]
 pub struct DrawWriter {
@@ -155,9 +155,9 @@ impl DrawWriter {
 }
 
 impl DrawStore for DrawWriter {
-    fn save_draw_state<'a>(&'a self, state: &'a DrawState) -> BoxFuture<'a, anyhow::Result<bool>> {
+    fn save_drawing<'a>(&'a self, state: &'a Drawing) -> BoxFuture<'a, anyhow::Result<bool>> {
         Box::pin(async move {
-            save_draw_state(&self.db, state, self.purge)
+            save_drawing(&self.db, state, self.purge)
                 .await
                 .map_err(|e| anyhow::anyhow!("writing the draw state: {e}"))
         })
@@ -206,17 +206,14 @@ mod tests {
         let db = Db::connect_lazy(&format!("sqlite://{}", path.display())).unwrap();
         assert!(!path.exists(), "the app creates the database");
         let writer = DrawWriter::new(db, PurgeAfter::days(30, 90));
-        let doc = rafi_drawing::manifest::CommitDoc::new(
+        let doc = rafi_drawing::manifest::Manifest::new(
             "r1",
             &rafi_drawing::drand::chains::QUICKNET_HASH,
             vec!["a".repeat(32)],
             vec![],
         );
         assert!(
-            writer
-                .save_draw_state(&DrawState::freeze(&doc))
-                .await
-                .is_err(),
+            writer.save_drawing(&Drawing::open(&doc)).await.is_err(),
             "no database yet: the engine retries"
         );
         assert!(!path.exists());

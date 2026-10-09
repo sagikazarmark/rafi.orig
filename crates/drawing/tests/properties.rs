@@ -1,14 +1,14 @@
-//! Property tests for the draw state machine.
+//! Property tests for the drawing's state machine.
 
 use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_drawing::{
-    DrawError,
+    Error,
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
-    drawing::{DrawState, Event, Outcome, UnitStatus},
-    manifest::{CommitDoc, UnitRef},
+    drawing::{Drawing, Event, ItemStatus, Outcome},
+    manifest::{ItemRef, Manifest},
     verify::verify,
 };
 
@@ -64,12 +64,12 @@ fn op() -> impl Strategy<Value = Op> {
 }
 
 /// Everything the pending draw's outcome depends on.
-fn draw_inputs(s: &DrawState) -> (u64, (u8, Vec<String>), String, String) {
+fn draw_inputs(s: &Drawing) -> (u64, (u8, Vec<String>), String, String) {
     (
         s.next_k,
         s.pool(),
         s.drand_chain.clone(),
-        s.list_hash.clone(),
+        s.manifest_hash.clone(),
     )
 }
 
@@ -77,14 +77,14 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
     #[test]
-    fn invariants_hold_and_log_verifies(n in 0usize..8, units in 1usize..6, ops in proptest::collection::vec(op(), 0..40)) {
-        let doc = CommitDoc::new(
+    fn invariants_hold_and_log_verifies(n in 0usize..8, items in 1usize..6, ops in proptest::collection::vec(op(), 0..40)) {
+        let doc = Manifest::new(
             "prop",
             &chain().0.chain().hash(),
             (0..n).map(|i| format!("{i:032x}")).collect(),
-            (0..units).map(|i| UnitRef { unit_id: format!("u{i}"), item_id: "i".into(), item_name: "P".into() }).collect(),
+            (0..items).map(|i| ItemRef { id: format!("u{i}"), name: "P".into() }).collect(),
         );
-        let mut s = DrawState::freeze(&doc);
+        let mut s = Drawing::open(&doc);
         let mut round = 1;
         let mut last_version = s.version;
         for op in ops {
@@ -94,7 +94,7 @@ proptest! {
             match op {
                 Op::Begin(u) => {
                     round += 1;
-                    let _ = s.begin(&format!("u{}", u % units), round, 0);
+                    let _ = s.begin(&format!("u{}", u % items), round, 0);
                 }
                 Op::Complete => {
                     if let Some(p) = s.pending.clone() {
@@ -106,9 +106,9 @@ proptest! {
                 Op::Offline => { let _ = s.complete_offline([round as u8; 32]); }
                 Op::Resolve(u, o) => {
                     let outcome = [Outcome::Claimed, Outcome::NotHere, Outcome::Declined][o as usize];
-                    let _ = s.resolve(&format!("u{}", u % units), outcome);
+                    let _ = s.resolve(&format!("u{}", u % items), outcome);
                 }
-                Op::Void(u) => { let _ = s.void(&format!("u{}", u % units)); }
+                Op::Void(u) => { let _ = s.void(&format!("u{}", u % items)); }
                 Op::Finish => { let _ = s.finish(); }
             }
             prop_assert!(s.version >= last_version);
@@ -132,14 +132,14 @@ proptest! {
                 }
             }
 
-            // A claimed unit always has a winner; nobody holds two pass-1 claims.
-            for unit in &s.units {
-                match unit.status {
-                    UnitStatus::Drawn | UnitStatus::Claimed => {
-                        let e = unit.entrant_id.clone().unwrap();
+            // A claimed item always has a winner; nobody holds two pass-1 claims.
+            for item in &s.items {
+                match item.status {
+                    ItemStatus::Drawn | ItemStatus::Claimed => {
+                        let e = item.entrant_id.clone().unwrap();
                         prop_assert!(doc.entrant_ids.contains(&e));
                     }
-                    _ => prop_assert!(unit.entrant_id.is_none()),
+                    _ => prop_assert!(item.entrant_id.is_none()),
                 }
             }
 
@@ -151,14 +151,14 @@ proptest! {
                 }
             }
         }
-        let report = verify(&doc.canonical_json(), &s.list_hash, &s.events, resolve);
+        let report = verify(&doc.canonical_json(), &s.manifest_hash, &s.events, resolve);
         prop_assert!(report.ok(), "{report:#?}");
     }
 
     #[test]
-    fn empty_raffle_cannot_draw(units in 1usize..4) {
-        let doc = CommitDoc::new("e", &chain().0.chain().hash(), vec![], (0..units).map(|i| UnitRef { unit_id: format!("u{i}"), item_id: "i".into(), item_name: "P".into() }).collect());
-        let mut s = DrawState::freeze(&doc);
-        prop_assert_eq!(s.begin("u0", 1, 0), Err(DrawError::NoEligibleEntrants));
+    fn empty_drawing_cannot_draw(items in 1usize..4) {
+        let doc = Manifest::new("e", &chain().0.chain().hash(), vec![], (0..items).map(|i| ItemRef { id: format!("u{i}"), name: "P".into() }).collect());
+        let mut s = Drawing::open(&doc);
+        prop_assert_eq!(s.begin("u0", 1, 0), Err(Error::NoEligibleEntrants));
     }
 }

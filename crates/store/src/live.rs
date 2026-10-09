@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use crate::{Db, Result, dialect};
-use rafi_drawing::drawing::{DrawState, Event, Outcome, UnitStatus};
+use rafi_drawing::drawing::{Drawing, Event, ItemStatus, Outcome};
 use rafi_live::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
 use serde::Deserialize;
 
@@ -22,7 +22,7 @@ pub struct Snapshot {
     pub state: Phase,
     pub version: u64,
     pub live_ended_at: Option<i64>,
-    drawing: Option<DrawState>,
+    drawing: Option<Drawing>,
     /// Names of the drawn entrants only, already masked when hidden.
     names: HashMap<String, String>,
     /// Prizes before the freeze, from the raffle's prizes.
@@ -129,11 +129,11 @@ impl Snapshot {
         let Some(s) = &self.drawing else {
             return ParticipantView::new(self.version, self.state, None, [], self.prize_qty);
         };
-        let unit_name = |unit_id: &str| {
-            s.units
+        let item_name = |item_id: &str| {
+            s.items
                 .iter()
-                .find(|u| u.unit_id == unit_id)
-                .map(|u| u.item_name.clone())
+                .find(|u| u.id == item_id)
+                .map(|u| u.name.clone())
                 .unwrap_or_default()
         };
         let mut outcomes: HashMap<u64, Outcome> = HashMap::new();
@@ -145,7 +145,7 @@ impl Snapshot {
         let draws = s.events.iter().filter_map(|e| match e {
             Event::Draw {
                 k,
-                unit_id,
+                item_id,
                 entrant_id,
                 ..
             } => Some(DrawInput {
@@ -155,7 +155,7 @@ impl Snapshot {
                     .get(entrant_id)
                     .cloned()
                     .unwrap_or_else(|| format!("#{}", &entrant_id[..entrant_id.len().min(6)])),
-                prize_name: unit_name(unit_id),
+                prize_name: item_name(item_id),
                 outcome: match outcomes.get(k).copied().unwrap_or(Outcome::Drawn) {
                     Outcome::Drawn => DrawOutcome::Drawn,
                     Outcome::Claimed => DrawOutcome::Claimed,
@@ -166,14 +166,14 @@ impl Snapshot {
             _ => None,
         });
         let current = s.pending.as_ref().map(|p| Current {
-            prize_name: unit_name(&p.unit_id),
+            prize_name: item_name(&p.item_id),
             round: p.round,
             round_time: p.round_time,
         });
         let prizes_left = s
-            .units
+            .items
             .iter()
-            .filter(|u| matches!(u.status, UnitStatus::Pending | UnitStatus::Drawn))
+            .filter(|u| matches!(u.status, ItemStatus::Pending | ItemStatus::Drawn))
             .count() as u32;
         ParticipantView::new(
             self.version,
@@ -187,34 +187,32 @@ impl Snapshot {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use rafi_drawing::manifest::{CommitDoc, UnitRef};
+    use rafi_drawing::manifest::{ItemRef, Manifest};
 
     use super::*;
 
-    async fn raffle(db: &Db) -> DrawState {
-        let doc = CommitDoc::new(
+    async fn raffle(db: &Db) -> Drawing {
+        let doc = Manifest::new(
             "r1",
             &rafi_drawing::drand::chains::QUICKNET_HASH,
             vec!["a".repeat(32), "b".repeat(32)],
             vec![
-                UnitRef {
-                    unit_id: "u1".into(),
-                    item_id: "i1".into(),
-                    item_name: "Book".into(),
+                ItemRef {
+                    id: "u1".into(),
+                    name: "Book".into(),
                 },
-                UnitRef {
-                    unit_id: "u2".into(),
-                    item_id: "i2".into(),
-                    item_name: "Shirt".into(),
+                ItemRef {
+                    id: "u2".into(),
+                    name: "Shirt".into(),
                 },
             ],
         );
-        let state = DrawState::freeze(&doc);
+        let state = Drawing::open(&doc);
         db.query(
             "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, manifest_hash, created_at, updated_at)
              VALUES ('r1', 'o', 's', 'j', 't', 'open', 'restate', ?, 0, 0)",
         )
-        .bind(&state.list_hash)
+        .bind(&state.manifest_hash)
         .run()
         .await
         .unwrap();
@@ -240,11 +238,11 @@ mod tests {
         state
     }
 
-    fn draw(state: &mut DrawState, entrant: &str, unit: &str) -> u64 {
+    fn draw(state: &mut Drawing, entrant: &str, item: &str) -> u64 {
         let k = state.next_k;
         state.events.push(Event::Draw {
             k,
-            unit_id: unit.into(),
+            item_id: item.into(),
             round: 1,
             signature: String::new(),
             randomness: String::new(),
@@ -255,14 +253,14 @@ mod tests {
             entrant_id: entrant.into(),
         });
         state.next_k += 1;
-        let u = state.units.iter_mut().find(|u| u.unit_id == unit).unwrap();
-        u.status = UnitStatus::Drawn;
+        let u = state.items.iter_mut().find(|u| u.id == item).unwrap();
+        u.status = ItemStatus::Drawn;
         u.entrant_id = Some(entrant.into());
         u.k = Some(k);
         k
     }
 
-    async fn store(db: &Db, state: &DrawState, lifecycle: &str) {
+    async fn store(db: &Db, state: &Drawing, lifecycle: &str) {
         db.query("UPDATE raffles SET state = ?, drawing = ? WHERE id = 'r1'")
             .bind(lifecycle)
             .bind(serde_json::to_string(state).unwrap())
@@ -302,7 +300,7 @@ mod tests {
         assert_eq!(view.winners[0].prize_name, "Book");
         assert_eq!(
             view.prizes_left, 2,
-            "a drawn unit is still open until claimed"
+            "a drawn item is still open until claimed"
         );
     }
 
@@ -315,7 +313,7 @@ mod tests {
             k,
             outcome: Outcome::Claimed,
         });
-        state.units[0].status = UnitStatus::Claimed;
+        state.items[0].status = ItemStatus::Claimed;
         let k = draw(&mut state, &"b".repeat(32), "u2");
         state.events.push(Event::Resolve {
             k,

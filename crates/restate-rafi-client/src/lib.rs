@@ -1,15 +1,15 @@
 //! The Rafi draw engine through the Restate ingress: [`RestateClient`]
-//! implements [`DrawEngine`] by calling the `restate-rafi` service's handlers
+//! implements [`DrawingEngine`] by calling the `restate-rafi` service's handlers
 //! over HTTP.
 //!
 //! Kept apart from `restate-rafi` so the app links only this (reqwest, no
 //! Restate SDK). The handler names are here; `restate-rafi`'s tests check them
 //! against the service.
 //!
-//! - Freeze and commands other than draws are synchronous calls; a draw is sent
-//!   (`/send`) and settles in the background, as the [`DrawEngine`] contract
+//! - Opening and commands other than draws are synchronous calls; a draw is sent
+//!   (`/send`) and settles in the background, as the [`DrawingEngine`] contract
 //!   says.
-//! - Each call carries an `idempotency-key` (the freeze key, or the command
+//! - Each call carries an `idempotency-key` (the open key, or the command
 //!   ID), so a retry applies once.
 //! - A refusal is a handler's terminal error: the ingress marks it
 //!   `x-restate-error-source: invocation` and answers `{"message": ...}` with
@@ -24,8 +24,8 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use rafi_drawing::{ErrorKind, drand::ChainHash, engine::Command, manifest::CommitDoc};
-use rafi_platform::{BoxFuture, DrawEngine, EngineError, EngineInfo, sendable};
+use rafi_drawing::{ErrorKind, drand::ChainHash, engine::Command, manifest::Manifest};
+use rafi_platform::{BoxFuture, DrawingEngine, EngineError, EngineInfo, sendable};
 use serde::{Deserialize, Serialize};
 
 /// The `Raffle` virtual object (keyed by raffle ID).
@@ -33,7 +33,7 @@ pub const RAFFLE_SERVICE: &str = "Raffle";
 /// The keyless `RaffleEngine` service.
 pub const INFO_SERVICE: &str = "RaffleEngine";
 /// `Raffle`'s handlers.
-pub const FREEZE: &str = "freeze";
+pub const OPEN: &str = "open";
 pub const DRAW: &str = "draw";
 pub const RESOLVE: &str = "resolve";
 /// `RaffleEngine`'s handler.
@@ -163,7 +163,7 @@ fn refusal(path: &str, status: u16, from_handler: bool, text: &str) -> EngineErr
     }
 }
 
-impl DrawEngine for RestateClient {
+impl DrawingEngine for RestateClient {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
         Box::pin(sendable(async move {
             let path = format!("{INFO_SERVICE}/{INFO}");
@@ -179,9 +179,9 @@ impl DrawEngine for RestateClient {
         }))
     }
 
-    fn freeze<'a>(&'a self, doc: &'a CommitDoc) -> BoxFuture<'a, Result<(), EngineError>> {
+    fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(sendable(async move {
-            self.call(&doc.raffle_id, FREEZE, false, &doc.freeze_key(), doc)
+            self.call(&doc.raffle_id, OPEN, false, &doc.open_key(), doc)
                 .await
         }))
     }
@@ -224,7 +224,7 @@ mod tests {
             "Raffle/r/resolve",
             500,
             true,
-            r#"{"message":"invalid list hash"}"#,
+            r#"{"message":"invalid manifest hash"}"#,
         );
         assert!(matches!(
             e,

@@ -7,8 +7,8 @@
 //! - [`Notifier`]: "this raffle changed", "end its live updates", and which
 //!   [`LiveTransport`] clients use;
 //! - [`RateLimit`], with the [`Limit`] keys;
-//! - [`DrawEngine`]: the draw engine, with its contract;
-//! - [`DrawStore`]: where the draw engine writes draw states;
+//! - [`DrawingEngine`]: the draw engine, with its contract;
+//! - [`DrawStore`]: where the draw engine writes drawings;
 //! - [`rule::decide`]: when a live channel publishes a participant view;
 //! - [`sendable`]: a `Send` future from one that is only `Send` natively
 //!   (wasm32 is single-threaded).
@@ -24,7 +24,7 @@ mod store;
 
 use std::{future::Future, pin::Pin};
 
-pub use engine::{DrawEngine, EngineError, EngineInfo};
+pub use engine::{DrawingEngine, EngineError, EngineInfo};
 pub use notifier::{Notifier, Polling, Recording};
 pub use rafi_live::LiveTransport;
 #[cfg(not(target_arch = "wasm32"))]

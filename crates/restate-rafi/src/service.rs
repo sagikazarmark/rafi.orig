@@ -5,10 +5,10 @@ use std::{sync::Arc, time::Duration};
 use anyhow::anyhow;
 use rafi_drand::DrandClient;
 use rafi_drawing::{
-    DrawError,
-    drawing::DrawState,
+    Error as DrawingError,
+    drawing::Drawing,
     engine::{BeaconOutcome, Command},
-    manifest::CommitDoc,
+    manifest::Manifest,
 };
 use rafi_platform::{DrawStore, Notifier};
 use restate_drand::{AwaitError, Drand};
@@ -50,7 +50,7 @@ fn rejected(e: impl std::fmt::Display, code: u16) -> HandlerError {
 }
 
 /// A refusal by the draw rules, with its kind's status code.
-fn draw_error(e: DrawError) -> HandlerError {
+fn draw_error(e: DrawingError) -> HandlerError {
     let code = e.kind().status();
     rejected(e, code)
 }
@@ -59,17 +59,17 @@ impl Raffle {
     /// Writes the state to the store, at least once (journaled, retried until
     /// it succeeds: the database is the record), then tells clients, best
     /// effort.
-    async fn project(&self, ctx: &ObjectContext<'_>, state: &DrawState) -> HandlerResult<()> {
+    async fn project(&self, ctx: &ObjectContext<'_>, state: &Drawing) -> HandlerResult<()> {
         let store = &*self.store;
         ctx.run(|| async move {
             let written = store
-                .save_draw_state(state)
+                .save_drawing(state)
                 .await
                 .map_err(HandlerError::from)?;
             if !written {
                 // Already stored (a retry), or for another entrant list.
                 tracing::debug!(
-                    raffle_id = state.raffle_id,
+                    raffle_id = state.id,
                     version = state.version,
                     "draw state not written"
                 );
@@ -88,7 +88,7 @@ impl Raffle {
         // logs and drops its own failures (clients re-read on their own), so a
         // stuck notification can't block the raffle's object; the attempts
         // only cover the step itself failing.
-        let raffle_id = state.raffle_id.as_str();
+        let raffle_id = state.id.as_str();
         let notifier = &*self.notifier;
         let notified = ctx
             .run(|| async move {
@@ -108,11 +108,11 @@ impl Raffle {
         Ok(())
     }
 
-    async fn load(ctx: &ObjectContext<'_>) -> HandlerResult<DrawState> {
-        ctx.get::<Json<DrawState>>(STATE)
+    async fn load(ctx: &ObjectContext<'_>) -> HandlerResult<Drawing> {
+        ctx.get::<Json<Drawing>>(STATE)
             .await?
             .map(Json::into_inner)
-            .ok_or_else(|| draw_error(DrawError::NotFrozen))
+            .ok_or_else(|| draw_error(DrawingError::NotOpen))
     }
 }
 
@@ -124,19 +124,16 @@ impl Raffle {
 impl Raffle {
     /// Freezes the entrant list. Idempotent for the same list; a different list is rejected.
     #[handler]
-    async fn freeze(&self, ctx: ObjectContext<'_>, doc: Json<CommitDoc>) -> HandlerResult<()> {
+    async fn open(&self, ctx: ObjectContext<'_>, doc: Json<Manifest>) -> HandlerResult<()> {
         let doc = doc.into_inner();
         if doc.raffle_id != ctx.key() {
             return Err(rejected("raffle ID does not match the object key", 400));
         }
         // The app and this endpoint configure drand separately; the rules
         // refuse a raffle whose draws would come from another chain.
-        let existing = ctx
-            .get::<Json<DrawState>>(STATE)
-            .await?
-            .map(Json::into_inner);
+        let existing = ctx.get::<Json<Drawing>>(STATE).await?.map(Json::into_inner);
         let Some(fresh) =
-            DrawState::freeze_or_check(existing.as_ref(), &doc, &self.drand.chain().hash())
+            Drawing::open_or_check(existing.as_ref(), &doc, &self.drand.chain().hash())
                 .map_err(draw_error)?
         else {
             return Ok(());
@@ -145,7 +142,7 @@ impl Raffle {
         self.project(&ctx, &fresh).await
     }
 
-    /// Draws a winner for one prize unit.
+    /// Draws a winner for one prize item.
     ///
     /// Journals one clock read, commits to the drand round `lead_secs` later and
     /// projects that commitment *before* the round exists, sleeps durably until
@@ -153,12 +150,12 @@ impl Raffle {
     /// timeout) and settles the draw.
     ///
     /// If the beacon cannot be had, the draw is recorded as stalled and stays
-    /// pending on the same round: drawing the unit again re-enters the same
+    /// pending on the same round: drawing the item again re-enters the same
     /// pending draw and fetches that round, so a withholding relay cannot force
     /// a redraw on a new round.
     #[handler]
     async fn draw(&self, ctx: ObjectContext<'_>, cmd: Json<Command>) -> HandlerResult<()> {
-        let Command::Draw { unit_id, offline } = cmd.into_inner() else {
+        let Command::Draw { item_id, offline } = cmd.into_inner() else {
             return Err(rejected("expected a draw command", 400));
         };
         let mut state = Self::load(&ctx).await?;
@@ -167,12 +164,12 @@ impl Raffle {
             .map_err(draw_error)?;
 
         // Replay-safe: the clock read is journaled, so a resumed invocation
-        // commits to the very same round. A stalled draw for this unit is
+        // commits to the very same round. A stalled draw for this item is
         // re-entered on its own round.
         let commitment = self.drand.commit_round(&ctx).await?;
         let due = u64::try_from(commitment.due_at.as_secs()).unwrap_or_default();
         let pending = state
-            .begin(&unit_id, commitment.round, due)
+            .begin(&item_id, commitment.round, due)
             .map_err(draw_error)?;
         ctx.set(STATE, Json(state.clone()));
         self.project(&ctx, &state).await?;
@@ -219,7 +216,7 @@ impl Raffle {
         self.project(&ctx, &state).await
     }
 
-    /// Resolves a drawn unit, withdraws a unit, or finishes the raffle.
+    /// Resolves a drawn item, withdraws a item, or finishes the raffle.
     ///
     /// Finishing clears the object's state: the app holds the permanent record.
     #[handler]
@@ -236,11 +233,9 @@ impl Raffle {
 
     /// The current state (recovery and debugging; screens read the projection).
     #[handler]
-    async fn get(&self, ctx: SharedObjectContext<'_>) -> HandlerResult<Json<Option<DrawState>>> {
+    async fn get(&self, ctx: SharedObjectContext<'_>) -> HandlerResult<Json<Option<Drawing>>> {
         Ok(Json(
-            ctx.get::<Json<DrawState>>(STATE)
-                .await?
-                .map(Json::into_inner),
+            ctx.get::<Json<Drawing>>(STATE).await?.map(Json::into_inner),
         ))
     }
 }

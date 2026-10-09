@@ -3,7 +3,7 @@
 //!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small
-//! interfaces from `rafi-platform` in [`AppState`] ([`DrawEngine`],
+//! interfaces from `rafi-platform` in [`AppState`] ([`DrawingEngine`],
 //! [`Notifier`], [`RateLimit`]); each deployment plugs in its own.
 
 pub mod admin;
@@ -23,7 +23,7 @@ use std::{ops::Deref, sync::Arc};
 
 use axum::{Extension, Router};
 use rafi_drawing::drand::ChainHash;
-use rafi_platform::{DrawEngine, Notifier, RateLimit};
+use rafi_platform::{DrawingEngine, Notifier, RateLimit};
 use rafi_store::Db;
 use restate_rafi_client::RestateClient;
 
@@ -38,7 +38,7 @@ pub struct Inner {
     /// The drand chain new raffles commit to ([`Config::chain`]).
     pub chain: ChainHash,
     /// The draw engine; `None` without one (no `RESTATE_INGRESS_URL`).
-    pub engine: Option<Arc<dyn DrawEngine>>,
+    pub engine: Option<Arc<dyn DrawingEngine>>,
     /// Live updates to clients (natively: none, clients poll).
     pub notifier: Arc<dyn Notifier>,
     /// The join rate limits.
@@ -77,7 +77,7 @@ impl AppState {
     pub fn from_parts(
         cfg: Config,
         db: Db,
-        engine: Option<Arc<dyn DrawEngine>>,
+        engine: Option<Arc<dyn DrawingEngine>>,
         notifier: Arc<dyn Notifier>,
         limiter: Arc<dyn RateLimit>,
     ) -> anyhow::Result<Self> {
@@ -112,9 +112,9 @@ impl AppState {
 
 /// The draw engine `cfg` points at: the `restate-rafi` service through the
 /// Restate ingress; `None` without `RESTATE_INGRESS_URL`.
-pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn DrawEngine>> {
+pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn DrawingEngine>> {
     (!cfg.restate.ingress_url.is_empty())
-        .then(|| Arc::new(RestateClient::new(cfg.restate.clone())) as Arc<dyn DrawEngine>)
+        .then(|| Arc::new(RestateClient::new(cfg.restate.clone())) as Arc<dyn DrawingEngine>)
 }
 
 /// The server's own routes: attendee pages, public JSON and the admin API.
