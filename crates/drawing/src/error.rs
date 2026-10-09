@@ -17,8 +17,6 @@ pub enum Error {
     },
     #[error("invalid manifest: {0}")]
     InvalidManifest(String),
-    #[error("draws go through the draw step, not as a command")]
-    NotACommand,
     #[error("the drawing is finished")]
     Finished,
     #[error("unknown item {0}")]
@@ -48,9 +46,7 @@ impl Error {
     pub fn kind(&self) -> ErrorKind {
         match self {
             Self::NotOpen | Self::UnknownItem(_) => ErrorKind::NotFound,
-            Self::InvalidManifest(_) | Self::NotACommand | Self::BadOutcome => {
-                ErrorKind::BadRequest
-            }
+            Self::InvalidManifest(_) | Self::BadOutcome => ErrorKind::BadRequest,
             Self::AlreadyOpen
             | Self::BeaconMismatch { .. }
             | Self::Finished

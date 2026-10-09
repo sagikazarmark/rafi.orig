@@ -65,7 +65,7 @@ identity_keys = ["publickeyv1_..."]
 [drand]
 lead_secs = 6
 
-# Restate policy for the Raffle object: timeouts, retention, retry policy, per-handler overrides.
-[services.raffle]
+# Restate policy for the Drawing object: timeouts, retention, retry policy, per-handler overrides.
+[services.drawing]
 inactivity_timeout = "5m"
 ```

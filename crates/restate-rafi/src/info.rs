@@ -1,4 +1,4 @@
-//! The `RaffleEngine` service: what the draw engine says about itself.
+//! The `DrawingEngine` service: what the draw engine says about itself.
 
 use rafi_drand::DrandClient;
 use rafi_drawing::BeaconSource;
@@ -6,7 +6,7 @@ use restate_sdk::prelude::*;
 use serde::Serialize;
 
 /// The Restate service name.
-pub const INFO_SERVICE_NAME: &str = "RaffleEngine";
+pub const INFO_SERVICE_NAME: &str = "DrawingEngine";
 
 /// The `info` handler's answer.
 #[derive(Debug, Clone, Serialize)]
@@ -15,13 +15,13 @@ pub struct Info {
     pub beacon: BeaconSource,
 }
 
-/// Keyless: answers for the whole engine, never blocked by a raffle's draw.
-pub struct RaffleEngine {
+/// Keyless: answers for the whole engine, never blocked by a drawing's draw.
+pub struct DrawingEngine {
     beacon: BeaconSource,
 }
 
-impl RaffleEngine {
-    /// The engine that draws with `drand` (the same client as its `Raffle`).
+impl DrawingEngine {
+    /// The engine that draws with `drand` (the same client as its `Drawing`).
     pub fn new(drand: &DrandClient) -> Self {
         Self {
             beacon: BeaconSource::Drand(drand.chain_hash()),
@@ -29,10 +29,10 @@ impl RaffleEngine {
     }
 }
 
-#[restate_sdk::service(name = "RaffleEngine")]
-impl RaffleEngine {
+#[restate_sdk::service(name = "DrawingEngine")]
+impl DrawingEngine {
     /// The engine's beacon source. The app checks it before opening a
-    /// drawing; the `Raffle` object refuses another source itself.
+    /// drawing; the `Drawing` object refuses another source itself.
     #[handler]
     async fn info(&self, _ctx: Context<'_>) -> HandlerResult<Json<Info>> {
         Ok(Json(Info {

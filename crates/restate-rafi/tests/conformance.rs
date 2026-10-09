@@ -1,4 +1,4 @@
-//! The engine conformance suite on the `Raffle` object: each profile deploys
+//! The engine conformance suite on the `Drawing` object: each profile deploys
 //! the service to its own `restate-server`, and the scenarios drive it through
 //! `restate-rafi-client`, as the app does.
 //!
@@ -17,7 +17,7 @@ use std::{
 use rafi_engine_local::conformance::{self, Deployed, Deployment, EngineHarness};
 use rafi_platform::{BoxFuture, DrawingEngine};
 use restate_e2e_harness::{Restate, ReusePolicy, ServerSpec, launcher_or_skip};
-use restate_rafi::{INFO_SERVICE_NAME, Raffle, RaffleEngine, SERVICE_NAME};
+use restate_rafi::{INFO_SERVICE_NAME, SERVICE_NAME};
 use restate_rafi_client::{ClientConfig, RestateClient};
 use restate_sdk::endpoint::Endpoint;
 
@@ -43,7 +43,7 @@ impl Deployed for Running {
 
 impl EngineHarness for OnRestate {
     fn name(&self) -> &str {
-        "the Raffle object on restate-server"
+        "the Drawing object on restate-server"
     }
 
     fn deploy(&self, d: Deployment) -> BoxFuture<'_, Result<Arc<dyn Deployed>, String>> {
@@ -62,8 +62,8 @@ impl EngineHarness for OnRestate {
             restate
                 .deploy(
                     Endpoint::builder()
-                        .bind(RaffleEngine::new(&d.drand))
-                        .bind(Raffle::new(d.drand, d.store, d.notifier))
+                        .bind(restate_rafi::DrawingEngine::new(&d.drand))
+                        .bind(restate_rafi::Drawing::new(d.drand, d.store, d.notifier))
                         .build(),
                 )
                 .await;
@@ -75,13 +75,13 @@ impl EngineHarness for OnRestate {
 /// The client calls the handlers by these names.
 #[test]
 fn the_client_knows_the_services() {
-    assert_eq!(restate_rafi_client::RAFFLE_SERVICE, SERVICE_NAME);
+    assert_eq!(restate_rafi_client::DRAWING_SERVICE, SERVICE_NAME);
     assert_eq!(restate_rafi_client::INFO_SERVICE, INFO_SERVICE_NAME);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs RESTATE_SERVER_BIN"]
-async fn the_raffle_object_conforms() {
+async fn the_drawing_object_conforms() {
     if launcher_or_skip(ReusePolicy::Never).is_none() {
         return;
     }

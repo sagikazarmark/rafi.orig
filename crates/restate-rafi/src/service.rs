@@ -1,4 +1,4 @@
-//! The `Raffle` virtual object.
+//! The `Drawing` virtual object.
 
 use std::{sync::Arc, time::Duration};
 
@@ -6,8 +6,8 @@ use anyhow::anyhow;
 use rafi_drand::DrandClient;
 use rafi_drawing::{
     BeaconSource, Error as DrawingError,
-    drawing::Drawing,
-    engine::{BeaconOutcome, Command},
+    drawing::Drawing as State,
+    engine::{BeaconOutcome, Decision, DrawRequest},
     manifest::Manifest,
 };
 use rafi_platform::{DrawStore, Notifier};
@@ -15,19 +15,19 @@ use restate_drand::{AwaitError, Drand};
 use restate_sdk::prelude::*;
 
 /// The Restate service name.
-pub const SERVICE_NAME: &str = "Raffle";
+pub const SERVICE_NAME: &str = "Drawing";
 
-/// The key under which the draw state is stored.
+/// The key under which the drawing is stored.
 const STATE: &str = "state";
 
-/// The draw engine for one raffle per key.
-pub struct Raffle {
+/// The draw engine for one drawing per key.
+pub struct Drawing {
     drand: Drand,
     store: Arc<dyn DrawStore>,
     notifier: Arc<dyn Notifier>,
 }
 
-impl Raffle {
+impl Drawing {
     /// Draws with `drand`, writes every state to `store` and tells clients
     /// through `notifier`.
     pub fn new(drand: DrandClient, store: impl DrawStore, notifier: impl Notifier) -> Self {
@@ -60,11 +60,11 @@ fn draw_error(e: DrawingError) -> HandlerError {
     rejected(e, code)
 }
 
-impl Raffle {
-    /// Writes the state to the store, at least once (journaled, retried until
+impl Drawing {
+    /// Writes the drawing to the store, at least once (journaled, retried until
     /// it succeeds: the database is the record), then tells clients, best
     /// effort.
-    async fn project(&self, ctx: &ObjectContext<'_>, state: &Drawing) -> HandlerResult<()> {
+    async fn project(&self, ctx: &ObjectContext<'_>, state: &State) -> HandlerResult<()> {
         let store = &*self.store;
         ctx.run(|| async move {
             let written = store
@@ -72,11 +72,11 @@ impl Raffle {
                 .await
                 .map_err(HandlerError::from)?;
             if !written {
-                // Already stored (a retry), or for another entrant list.
+                // Already stored (a retry), or for another manifest.
                 tracing::debug!(
-                    raffle_id = state.id,
+                    drawing_id = state.id,
                     version = state.version,
-                    "draw state not written"
+                    "drawing not written"
                 );
             }
             Ok(())
@@ -91,13 +91,13 @@ impl Raffle {
         .await?;
         // Its own journaled step, so a replay doesn't notify again. The notifier
         // logs and drops its own failures (clients re-read on their own), so a
-        // stuck notification can't block the raffle's object; the attempts
+        // stuck notification can't block the drawing's object; the attempts
         // only cover the step itself failing.
-        let raffle_id = state.id.as_str();
+        let drawing_id = state.id.as_str();
         let notifier = &*self.notifier;
         let notified = ctx
             .run(|| async move {
-                notifier.notify(raffle_id).await;
+                notifier.notify(drawing_id).await;
                 Ok(())
             })
             .name("notify")
@@ -108,13 +108,13 @@ impl Raffle {
             )
             .await;
         if let Err(e) = notified {
-            tracing::warn!(raffle_id, error = %e, "notifying clients failed");
+            tracing::warn!(drawing_id, error = %e, "notifying clients failed");
         }
         Ok(())
     }
 
-    async fn load(ctx: &ObjectContext<'_>) -> HandlerResult<Drawing> {
-        ctx.get::<Json<Drawing>>(STATE)
+    async fn load(ctx: &ObjectContext<'_>) -> HandlerResult<State> {
+        ctx.get::<Json<State>>(STATE)
             .await?
             .map(Json::into_inner)
             .ok_or_else(|| draw_error(DrawingError::NotOpen))
@@ -122,11 +122,11 @@ impl Raffle {
 }
 
 #[restate_sdk::object(
-    name = "Raffle",
+    name = "Drawing",
     journal_retention = "1h",
     idempotency_retention = "1h"
 )]
-impl Raffle {
+impl Drawing {
     /// Opens the drawing from its manifest. Idempotent for the same manifest;
     /// another manifest is rejected.
     #[handler]
@@ -137,9 +137,9 @@ impl Raffle {
         }
         // The app and this endpoint configure drand separately; the rules
         // refuse a drawing whose draws would come from another source.
-        let existing = ctx.get::<Json<Drawing>>(STATE).await?.map(Json::into_inner);
+        let existing = ctx.get::<Json<State>>(STATE).await?.map(Json::into_inner);
         let Some(fresh) =
-            Drawing::open_or_check(existing.as_ref(), &doc, &self.beacon()).map_err(draw_error)?
+            State::open_or_check(existing.as_ref(), &doc, &self.beacon()).map_err(draw_error)?
         else {
             return Ok(());
         };
@@ -159,10 +159,8 @@ impl Raffle {
     /// pending draw and fetches that round, so a withholding relay cannot force
     /// a redraw on a new round.
     #[handler]
-    async fn draw(&self, ctx: ObjectContext<'_>, cmd: Json<Command>) -> HandlerResult<()> {
-        let Command::Draw { item_id, offline } = cmd.into_inner() else {
-            return Err(rejected("expected a draw command", 400));
-        };
+    async fn draw(&self, ctx: ObjectContext<'_>, request: Json<DrawRequest>) -> HandlerResult<()> {
+        let DrawRequest { item_id, offline } = request.into_inner();
         let mut state = Self::load(&ctx).await?;
         state.check_beacon(&self.beacon()).map_err(draw_error)?;
 
@@ -219,13 +217,14 @@ impl Raffle {
         self.project(&ctx, &state).await
     }
 
-    /// Resolves a drawn item, withdraws a item, or finishes the raffle.
+    /// Applies a decision: resolves a drawn item, withdraws an item, abandons
+    /// the pending draw, or finishes the drawing.
     ///
     /// Finishing clears the object's state: the app holds the permanent record.
     #[handler]
-    async fn resolve(&self, ctx: ObjectContext<'_>, cmd: Json<Command>) -> HandlerResult<()> {
+    async fn decide(&self, ctx: ObjectContext<'_>, decision: Json<Decision>) -> HandlerResult<()> {
         let mut state = Self::load(&ctx).await?;
-        state.apply(&cmd.into_inner()).map_err(draw_error)?;
+        state.decide(&decision.into_inner()).map_err(draw_error)?;
         ctx.set(STATE, Json(state.clone()));
         self.project(&ctx, &state).await?;
         if state.finished {
@@ -234,11 +233,11 @@ impl Raffle {
         Ok(())
     }
 
-    /// The current state (recovery and debugging; screens read the projection).
+    /// The current drawing (recovery and debugging; screens read the projection).
     #[handler]
-    async fn get(&self, ctx: SharedObjectContext<'_>) -> HandlerResult<Json<Option<Drawing>>> {
+    async fn get(&self, ctx: SharedObjectContext<'_>) -> HandlerResult<Json<Option<State>>> {
         Ok(Json(
-            ctx.get::<Json<Drawing>>(STATE).await?.map(Json::into_inner),
+            ctx.get::<Json<State>>(STATE).await?.map(Json::into_inner),
         ))
     }
 }

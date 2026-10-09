@@ -1,5 +1,5 @@
 //! The app and the separate `restate-rafi` service, end to end: the app calls
-//! the `Raffle` object through a real `restate-server`'s ingress, the object
+//! the `Drawing` object through a real `restate-server`'s ingress, the object
 //! writes every state into the app's SQLite file, or Postgres schema with
 //! `RAFI_TEST_POSTGRES_URL` set (through its own connection pool, as the
 //! separate process does), and the screens' view shows it.
@@ -12,12 +12,12 @@ use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::drawing::{ItemStatus, Outcome};
-use rafi_drawing::engine::Command;
+use rafi_drawing::engine::{Decision, DrawRequest};
 use rafi_platform::DrawingEngine;
 use rafi_platform::Polling;
 use rafi_store::{Db, DrawWriter, PurgeAfter, RaffleRow, raffles};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
-use restate_rafi::{Raffle, RaffleEngine};
+use restate_rafi::Drawing;
 use restate_rafi_client::RestateClient;
 use restate_sdk::endpoint::Endpoint;
 
@@ -78,8 +78,8 @@ async fn app_and_restate_rafi_share_the_database() {
     restate
         .deploy(
             Endpoint::builder()
-                .bind(RaffleEngine::new(&drand))
-                .bind(Raffle::new(drand, store, Polling::default()))
+                .bind(restate_rafi::DrawingEngine::new(&drand))
+                .bind(Drawing::new(drand, store, Polling::default()))
                 .build(),
         )
         .await;
@@ -139,7 +139,7 @@ async fn app_and_restate_rafi_share_the_database() {
         &app,
         OWNER,
         &id,
-        Command::Draw {
+        DrawRequest {
             item_id: item.clone(),
             offline: false,
         },
@@ -168,7 +168,7 @@ async fn app_and_restate_rafi_share_the_database() {
         &app,
         OWNER,
         &id,
-        Command::Resolve {
+        Decision::Resolve {
             item_id: item.clone(),
             outcome: Outcome::Claimed,
         },
@@ -176,7 +176,7 @@ async fn app_and_restate_rafi_share_the_database() {
     )
     .await
     .unwrap();
-    service::command(&app, OWNER, &id, Command::Finish, "cmd-3")
+    service::command(&app, OWNER, &id, Decision::Finish, "cmd-3")
         .await
         .unwrap();
     wait_for(&app, &id, |r| r.state == "finished").await;

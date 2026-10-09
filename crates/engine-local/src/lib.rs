@@ -1,24 +1,24 @@
 //! An in-process draw engine, for tests and development only.
 //!
-//! [`LocalEngine`] keeps the [`DrawingEngine`] contract the way the `Raffle`
+//! [`LocalEngine`] keeps the [`DrawingEngine`] contract the way the `Drawing`
 //! Restate virtual object does, without its durability:
 //!
-//! - one queue per raffle, worked off in arrival order by one task, so commands
-//!   for a raffle apply one at a time and a command sent while a draw waits
-//!   for its beacon applies after the draw settles;
+//! - one queue per drawing, worked off in arrival order by one task, so
+//!   commands for a drawing apply one at a time and a decision sent while a
+//!   draw waits for its beacon applies after the draw settles;
 //! - draws are accepted at once (queued) and settle in the background;
 //! - every command ID is applied once;
 //! - every new state is written to the [`DrawStore`] (retried), then clients
 //!   are notified, best effort;
-//! - the raffle is forgotten once it finishes.
+//! - the drawing is forgotten once it finishes.
 //!
 //! All decisions are `rafi_drawing`'s ([`Drawing::open_or_check`],
-//! [`Drawing::begin`], [`Drawing::conclude`], [`Drawing::apply`]); the
+//! [`Drawing::begin`], [`Drawing::conclude`], [`Drawing::decide`]); the
 //! committed round comes from [`DrandClient::target_round`]. This engine only
 //! does the I/O, with an injectable clock and randomness.
 //!
 //! It is never a production engine (nothing survives a restart, and two
-//! engines owning one raffle could announce one draw on two rounds): only
+//! engines owning one drawing could announce one draw on two rounds): only
 //! dev-dependencies use this crate.
 //!
 //! With the `conformance` feature, [`conformance`] is the scenario suite every
@@ -39,7 +39,7 @@ use rafi_drand::DrandClient;
 use rafi_drawing::{
     BeaconSource, Error as DrawingError, ErrorKind,
     drawing::Drawing,
-    engine::{BeaconOutcome, Command},
+    engine::{BeaconOutcome, Decision, DrawRequest},
     manifest::Manifest,
 };
 use rafi_platform::{BoxFuture, DrawStore, DrawingEngine, EngineError, EngineInfo, Notifier};
@@ -81,8 +81,8 @@ struct Io {
 
 enum Work {
     Open(Manifest),
-    Draw { item_id: String, offline: bool },
-    Command(Command),
+    Draw(DrawRequest),
+    Decide(Decision),
 }
 
 struct Job {
@@ -226,34 +226,35 @@ impl DrawingEngine for LocalEngine {
         })
     }
 
-    fn command<'a>(
+    fn draw<'a>(
         &'a self,
-        raffle_id: &'a str,
-        cmd: &'a Command,
+        drawing_id: &'a str,
+        request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(async move {
-            let key = format!("{raffle_id}/{command_id}");
-            match cmd {
-                // Accepted once queued: progress shows in the projection.
-                Command::Draw { item_id, offline } => {
-                    let work = Work::Draw {
-                        item_id: item_id.clone(),
-                        offline: *offline,
-                    };
-                    self.submit(raffle_id, key, work);
-                    Ok(())
-                }
-                _ => {
-                    let rx = self.submit(raffle_id, key, Work::Command(cmd.clone()));
-                    self.outcome(rx).await
-                }
-            }
+            // Accepted once queued: progress shows in the projection.
+            let key = format!("{drawing_id}/{command_id}");
+            self.submit(drawing_id, key, Work::Draw(request.clone()));
+            Ok(())
+        })
+    }
+
+    fn decide<'a>(
+        &'a self,
+        drawing_id: &'a str,
+        decision: &'a Decision,
+        command_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), EngineError>> {
+        Box::pin(async move {
+            let key = format!("{drawing_id}/{command_id}");
+            let rx = self.submit(drawing_id, key, Work::Decide(decision.clone()));
+            self.outcome(rx).await
         })
     }
 }
 
-/// A raffle's task: applies its jobs one at a time, in order.
+/// A drawing's task: applies its jobs one at a time, in order.
 async fn run(io: Arc<Io>, raffle_id: String, mut jobs: mpsc::UnboundedReceiver<Job>) {
     let mut state: Option<Drawing> = None;
     while let Some(job) = jobs.recv().await {
@@ -279,7 +280,7 @@ impl Io {
                 }
                 Ok(())
             }
-            Work::Draw { item_id, offline } => {
+            Work::Draw(DrawRequest { item_id, offline }) => {
                 let s = state.as_mut().ok_or(DrawingError::NotOpen)?;
                 s.check_beacon(&beacon)?;
                 let (round, round_time) = self.drand.target_round((self.clock)());
@@ -299,12 +300,12 @@ impl Io {
                 self.project(s).await;
                 Ok(())
             }
-            Work::Command(cmd) => {
+            Work::Decide(decision) => {
                 let s = state.as_mut().ok_or(DrawingError::NotOpen)?;
-                s.apply(&cmd)?;
+                s.decide(&decision)?;
                 self.project(s).await;
                 if s.finished {
-                    // The app keeps the record; the engine forgets the raffle.
+                    // The app keeps the record; the engine forgets the drawing.
                     *state = None;
                 }
                 Ok(())
@@ -387,22 +388,22 @@ mod tests {
         assert_eq!(engine.info().await.unwrap().beacon, doc.beacon);
         engine.open(&doc).await.unwrap();
         engine.open(&doc).await.unwrap();
-        let draw = Command::Draw {
+        let draw = DrawRequest {
             item_id: "u-1".into(),
             offline: false,
         };
-        engine.command("r1", &draw, "d1").await.unwrap();
+        engine.draw("r1", &draw, "d1").await.unwrap();
         projected(&store, |s| {
             s.item("u-1").unwrap().status == ItemStatus::Drawn
         })
         .await;
-        engine.command("r1", &Command::Finish, "f1").await.unwrap();
+        engine.decide("r1", &Decision::Finish, "f1").await.unwrap();
         let finished = projected(&store, |s| s.finished).await;
         assert!(!notifier.notified().is_empty());
 
         // Forgotten: further commands are refused as not found.
         let err = engine
-            .command("r1", &Command::Finish, "f2")
+            .decide("r1", &Decision::Finish, "f2")
             .await
             .unwrap_err();
         assert!(matches!(

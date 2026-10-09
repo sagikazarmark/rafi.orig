@@ -12,7 +12,7 @@ publish = false
 [features]
 ## The engine conformance suite (`conformance`): the scenarios every draw
 ## engine must pass. This crate's tests run it on the local runner;
-## `restate-rafi`'s on the `Raffle` object through `restate-rafi-client`.
+## `restate-rafi`'s on the `Drawing` object through `restate-rafi-client`.
 conformance = ["dep:serde_json", "rafi-drand/mock"]
 
 [dependencies]

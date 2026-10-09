@@ -1,8 +1,8 @@
 //! The Rafi draw engine as a Restate service.
 //!
-//! [`Raffle`] is a virtual object keyed by raffle ID. It owns the draw state
-//! ([`Drawing`]) while a raffle is being drawn: handlers for one raffle run one
-//! at a time, the committed drand round is journaled before the durable sleep,
+//! [`Drawing`] is a virtual object keyed by the drawing's ID.
+//! It owns the drawing ([`rafi_drawing::Drawing`]) from opening to finish:
+//! handlers for one drawing run one at a time, the committed drand round is journaled before the durable sleep,
 //! and a crash or redeploy replays to the very same result. A beacon that
 //! cannot be fetched leaves the draw pending on its round (never a redraw on a
 //! new one), and every beacon is BLS-verified against the committed chain.
@@ -18,11 +18,11 @@
 //! (Cloudflare Workers) serve it.
 
 //!
-//! [`RaffleEngine`] is a keyless service next to it: `info` reports the
-//! engine's drand chain, which the app checks before freezing a raffle.
+//! [`DrawingEngine`] is a keyless service next to it: `info` reports the
+//! engine's beacon source, which the app checks before opening a drawing.
 
 mod info;
 mod service;
 
-pub use info::{INFO_SERVICE_NAME, Info, RaffleEngine};
-pub use service::{Raffle, SERVICE_NAME};
+pub use info::{DrawingEngine, INFO_SERVICE_NAME, Info};
+pub use service::{Drawing, SERVICE_NAME};

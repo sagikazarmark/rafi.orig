@@ -59,7 +59,7 @@ services:
     volumes:
       - data:/data
 
-  # The draw engine: the `Raffle` virtual object. Writes draw states into the shared database and
+  # The draw engine: the `Drawing` virtual object. Writes drawings into the shared database and
   # only accepts requests signed by your Restate environment (RESTATE_IDENTITY_KEYS).
   restate-rafi:
     build:

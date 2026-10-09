@@ -1,5 +1,5 @@
-//! Deploys the `Raffle` object to a real `restate-server` and drives a whole
-//! raffle through the ingress: freeze, deduplicated draws, a no-show and a
+//! Deploys the `Drawing` object to a real `restate-server` and drives a whole
+//! drawing through the ingress: opening, deduplicated draws, a no-show and a
 //! redraw, terminal errors, finish (state cleared), and an independent
 //! verification of the projected log.
 //!
@@ -13,13 +13,13 @@ use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
     BeaconSource,
     drawing::{Drawing, Event, ItemStatus, Outcome},
-    engine::Command,
+    engine::{Decision, DrawRequest},
     manifest::{ItemRef, Manifest},
     verify::verify,
 };
 use rafi_platform::{MemoryDrawStore, Recording};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
-use restate_rafi::{Raffle, SERVICE_NAME};
+use restate_rafi::SERVICE_NAME;
 use restate_sdk::endpoint::Endpoint;
 use serde_json::{Value, json};
 
@@ -86,13 +86,16 @@ async fn e2e_raffle() {
     restate
         .deploy(
             Endpoint::builder()
-                .bind(Raffle::new(drand, store.clone(), notifier.clone()))
+                .bind(restate_rafi::Drawing::new(
+                    drand,
+                    store.clone(),
+                    notifier.clone(),
+                ))
                 .build(),
         )
         .await;
 
     let call = |handler| Call::object(SERVICE_NAME, RAFFLE, handler);
-    let cmd = |c: Command| serde_json::to_value(c).unwrap();
 
     // Freeze; the same list again is a no-op, a different one a conflict.
     let doc = doc(5);
@@ -125,7 +128,7 @@ async fn e2e_raffle() {
     assert_eq!(reply.status, 409, "{}", reply.body);
 
     // Draw; the same idempotency key twice draws once.
-    let draw = cmd(Command::Draw {
+    let draw = json!(DrawRequest {
         item_id: "ticket-1".into(),
         offline: false,
     });
@@ -174,8 +177,8 @@ async fn e2e_raffle() {
     // Not here: that person is out and the item is drawn again.
     let reply = restate
         .invoke(
-            &call("resolve"),
-            Some(&cmd(Command::Resolve {
+            &call("decide"),
+            Some(&json!(Decision::Resolve {
                 item_id: "ticket-1".into(),
                 outcome: Outcome::NotHere,
             })),
@@ -196,25 +199,25 @@ async fn e2e_raffle() {
         s.item("ticket-1").unwrap().entrant_id.as_deref(),
         Some(first.as_str())
     );
-    let claim = cmd(Command::Resolve {
+    let claim = json!(Decision::Resolve {
         item_id: "ticket-1".into(),
         outcome: Outcome::Claimed,
     });
     assert_eq!(
         restate
-            .invoke(&call("resolve"), Some(&claim), None)
+            .invoke(&call("decide"), Some(&claim), None)
             .await
             .status,
         200
     );
 
     // A rejected command is terminal, with a status the caller can show.
-    let reply = restate.invoke(&call("resolve"), Some(&claim), None).await;
+    let reply = restate.invoke(&call("decide"), Some(&claim), None).await;
     assert_eq!(reply.status, 409, "{}", reply.body);
     let reply = restate
         .invoke(
             &call("draw"),
-            Some(&cmd(Command::Draw {
+            Some(&json!(DrawRequest {
                 item_id: "nope".into(),
                 offline: false,
             })),
@@ -226,8 +229,8 @@ async fn e2e_raffle() {
     // Withdraw the voucher, finish; the object forgets everything.
     let reply = restate
         .invoke(
-            &call("resolve"),
-            Some(&cmd(Command::Void {
+            &call("decide"),
+            Some(&json!(Decision::Void {
                 item_id: "voucher-1".into(),
             })),
             None,
@@ -236,7 +239,7 @@ async fn e2e_raffle() {
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(
         restate
-            .invoke(&call("resolve"), Some(&cmd(Command::Finish)), None)
+            .invoke(&call("decide"), Some(&json!(Decision::Finish)), None)
             .await
             .status,
         200
@@ -285,12 +288,15 @@ async fn e2e_stalled_draw() {
     restate
         .deploy(
             Endpoint::builder()
-                .bind(Raffle::new(drand, store.clone(), notifier.clone()))
+                .bind(restate_rafi::Drawing::new(
+                    drand,
+                    store.clone(),
+                    notifier.clone(),
+                ))
                 .build(),
         )
         .await;
     let call = |handler| Call::object(SERVICE_NAME, RAFFLE, handler);
-    let cmd = |c: Command| serde_json::to_value(c).unwrap();
     let mut doc = doc(5);
     doc.beacon = BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH);
     let reply = restate
@@ -304,7 +310,7 @@ async fn e2e_stalled_draw() {
             .filter(|e| matches!(e, Event::Stall { .. }))
             .count()
     };
-    let draw = cmd(Command::Draw {
+    let draw = json!(DrawRequest {
         item_id: "ticket-1".into(),
         offline: false,
     });
@@ -315,7 +321,7 @@ async fn e2e_stalled_draw() {
     let pending = s.pending.clone().expect("still pending");
 
     // Another item is refused; this one retries the same round.
-    let other = cmd(Command::Draw {
+    let other = json!(DrawRequest {
         item_id: "voucher-1".into(),
         offline: false,
     });
@@ -330,8 +336,8 @@ async fn e2e_stalled_draw() {
     // Abandon: logged, the item is free again.
     let reply = restate
         .invoke(
-            &call("resolve"),
-            Some(&cmd(Command::Abandon {
+            &call("decide"),
+            Some(&json!(Decision::Abandon {
                 item_id: "ticket-1".into(),
             })),
             None,
@@ -372,7 +378,11 @@ async fn e2e_cancelled_draw_stalls() {
     restate
         .deploy(
             Endpoint::builder()
-                .bind(Raffle::new(drand, store.clone(), notifier.clone()))
+                .bind(restate_rafi::Drawing::new(
+                    drand,
+                    store.clone(),
+                    notifier.clone(),
+                ))
                 .build(),
         )
         .await;
@@ -383,7 +393,7 @@ async fn e2e_cancelled_draw_stalls() {
         .await;
     assert_eq!(reply.status, 200, "{}", reply.body);
 
-    let draw = serde_json::to_value(Command::Draw {
+    let draw = serde_json::to_value(DrawRequest {
         item_id: "ticket-1".into(),
         offline: false,
     })

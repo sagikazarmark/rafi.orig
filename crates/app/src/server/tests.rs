@@ -17,7 +17,7 @@ use rafi_platform::{Limiter, Notifier, Polling, Recording};
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
 use tower::ServiceExt;
 
-use rafi_drawing::engine::Command;
+use rafi_drawing::engine::{Decision, DrawRequest};
 
 use super::{AppState, config::Config, routes, service};
 use crate::model::{Lifecycle, PrizeInput};
@@ -318,7 +318,7 @@ async fn full_raffle_flow() {
             &app,
             OWNER,
             &raffle.id,
-            Command::Draw {
+            DrawRequest {
                 item_id: item.clone(),
                 offline: false,
             },
@@ -344,7 +344,7 @@ async fn full_raffle_flow() {
                 &app,
                 OWNER,
                 &raffle.id,
-                Command::Resolve {
+                Decision::Resolve {
                     item_id: item.clone(),
                     outcome: Outcome::NotHere,
                 },
@@ -356,7 +356,7 @@ async fn full_raffle_flow() {
                 &app,
                 OWNER,
                 &raffle.id,
-                Command::Draw {
+                DrawRequest {
                     item_id: item.clone(),
                     offline: false,
                 },
@@ -394,7 +394,7 @@ async fn full_raffle_flow() {
             &app,
             OWNER,
             &raffle.id,
-            Command::Resolve {
+            Decision::Resolve {
                 item_id: item.clone(),
                 outcome: Outcome::Claimed,
             },
@@ -414,7 +414,7 @@ async fn full_raffle_flow() {
             &app,
             OWNER,
             &raffle.id,
-            Command::Draw {
+            DrawRequest {
                 item_id: items[0].clone(),
                 offline: false
             },
@@ -424,7 +424,7 @@ async fn full_raffle_flow() {
         .is_err()
     );
 
-    service::command(&app, OWNER, &raffle.id, Command::Finish, "fin")
+    service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
@@ -519,7 +519,7 @@ async fn public_view_has_no_personal_data() {
         &app,
         OWNER,
         &raffle.id,
-        Command::Draw {
+        DrawRequest {
             item_id: state.items[0].id.clone(),
             offline: false,
         },
@@ -639,7 +639,7 @@ async fn participant_view_has_no_personal_data() {
         &app,
         OWNER,
         &raffle.id,
-        Command::Draw {
+        DrawRequest {
             item_id: item.clone(),
             offline: false,
         },
@@ -819,7 +819,7 @@ async fn offline_draw() {
         &app,
         OWNER,
         &raffle.id,
-        Command::Draw {
+        DrawRequest {
             item_id: item.clone(),
             offline: true,
         },
@@ -1165,7 +1165,7 @@ async fn stalled_draw_keeps_its_round() {
             app,
             OWNER,
             raffle_id,
-            Command::Draw {
+            DrawRequest {
                 item_id: item.to_owned(),
                 offline,
             },
@@ -1211,7 +1211,7 @@ async fn stalled_draw_keeps_its_round() {
         &app,
         OWNER,
         &raffle.id,
-        Command::Abandon {
+        Decision::Abandon {
             item_id: items[0].clone(),
         },
         "a1",
@@ -1247,7 +1247,7 @@ async fn stalled_draw_keeps_its_round() {
         &app,
         OWNER,
         &raffle.id,
-        Command::Resolve {
+        Decision::Resolve {
             item_id: items[0].clone(),
             outcome: Outcome::NotHere,
         },
@@ -1259,7 +1259,7 @@ async fn stalled_draw_keeps_its_round() {
         &app,
         OWNER,
         &raffle.id,
-        Command::Resolve {
+        Decision::Resolve {
             item_id: items[0].clone(),
             outcome: Outcome::Claimed,
         },
@@ -1425,7 +1425,7 @@ async fn finished_raffle(app: &AppState) -> RaffleRow {
             .unwrap();
     }
     service::start_draw(app, OWNER, &raffle.id).await.unwrap();
-    service::command(app, OWNER, &raffle.id, Command::Finish, "fin")
+    service::command(app, OWNER, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
@@ -1515,7 +1515,7 @@ async fn writes_nudge_and_destroy_the_channel() {
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     assert_eq!(nudges(), before + 2, "the freeze nudges");
 
-    service::command(&app, OWNER, &raffle.id, Command::Finish, "fin")
+    service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
     service::purge(&app, OWNER, &raffle.id).await.unwrap();

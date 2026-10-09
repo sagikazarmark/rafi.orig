@@ -3,7 +3,9 @@
 use std::sync::Arc;
 
 use rafi_drawing::{
-    BeaconSource, Error as DrawingError, ErrorKind, engine::Command, manifest::Manifest,
+    BeaconSource, Error as DrawingError, ErrorKind,
+    engine::{Decision, DrawRequest},
+    manifest::Manifest,
 };
 
 use crate::BoxFuture;
@@ -60,15 +62,17 @@ impl From<DrawingError> for EngineError {
 /// - **Opening** is synchronous and idempotent per manifest
 ///   ([`Manifest::open_key`]): the same manifest again is a no-op, another
 ///   manifest is refused, and so is another drand chain than the engine's.
-/// - **Draws are accepted asynchronously**: `command(Draw)` returns once the
-///   draw is accepted, not when it is settled. A draw the engine refuses is
+/// - **Draws are accepted asynchronously**: [`draw`](Self::draw) returns once
+///   the draw is accepted, not when it is settled. A draw the engine refuses is
 ///   silent (only the projection shows progress), so callers validate against
 ///   the projection first.
+/// - **Decisions are applied synchronously**: [`decide`](Self::decide) returns
+///   once the decision is applied.
 /// - **Commands for one drawing apply one at a time**, in arrival order. A
-///   command sent while a draw waits for its beacon is queued and applies
-///   after the draw settles, against the settled state. A synchronous command
-///   may therefore wait up to the engine's drand lead plus fetch timeout; past
-///   the adapter's own deadline it returns [`EngineError::Pending`].
+///   decision sent while a draw waits for its beacon is queued and applies
+///   after the draw settles, against the settled state. It may therefore wait
+///   up to the engine's drand lead plus fetch timeout; past the adapter's own
+///   deadline it returns [`EngineError::Pending`].
 /// - **Idempotency**: the same `command_id` (within the engine's retention
 ///   window) is applied once, so retrying after [`EngineError::Pending`] or
 ///   [`EngineError::Unavailable`] is safe.
@@ -82,11 +86,20 @@ pub trait DrawingEngine: Send + Sync + 'static {
     /// Opens a drawing from its manifest: the engine owns it from here.
     fn open<'a>(&'a self, manifest: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>>;
 
-    /// Sends a command (`command_id` deduplicates it).
-    fn command<'a>(
+    /// Starts a draw: returns once it is accepted; it settles in the
+    /// background (`command_id` deduplicates it).
+    fn draw<'a>(
         &'a self,
-        raffle_id: &'a str,
-        cmd: &'a Command,
+        drawing_id: &'a str,
+        request: &'a DrawRequest,
+        command_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), EngineError>>;
+
+    /// Applies a decision (`command_id` deduplicates it).
+    fn decide<'a>(
+        &'a self,
+        drawing_id: &'a str,
+        decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>>;
 }
@@ -100,12 +113,21 @@ impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
         (**self).open(manifest)
     }
 
-    fn command<'a>(
+    fn draw<'a>(
         &'a self,
-        raffle_id: &'a str,
-        cmd: &'a Command,
+        drawing_id: &'a str,
+        request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
-        (**self).command(raffle_id, cmd, command_id)
+        (**self).draw(drawing_id, request, command_id)
+    }
+
+    fn decide<'a>(
+        &'a self,
+        drawing_id: &'a str,
+        decision: &'a Decision,
+        command_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), EngineError>> {
+        (**self).decide(drawing_id, decision, command_id)
     }
 }

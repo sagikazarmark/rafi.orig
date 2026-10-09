@@ -1,31 +1,57 @@
-//! The draw engine's protocol: the commands it accepts (the wire format of the
-//! Restate handlers, shared by every engine and its callers) and how a draw's
-//! beacon turned out. Refusals and their classification are in
+//! The draw engine's protocol: the commands it accepts (draws and decisions,
+//! the wire format of the Restate handlers, shared by every engine and its
+//! callers) and how a draw's beacon turned out. Refusals and their classification are in
 //! [`error`](crate::error).
 //!
 //! The engine owns each [`Drawing`](crate::drawing::Drawing); the
-//! rules it applies live on the state ([`Drawing::open_or_check`],
-//! [`Drawing::conclude`], [`Drawing::apply`]), so every engine (the
+//! rules it applies live on the drawing ([`Drawing::open_or_check`],
+//! [`Drawing::conclude`], [`Drawing::decide`]), so every engine (the
 //! Restate virtual object, the local engine) behaves the same
 //! and only does I/O.
 //!
 //! [`Drawing::open_or_check`]: crate::drawing::Drawing::open_or_check
 //! [`Drawing::conclude`]: crate::drawing::Drawing::conclude
-//! [`Drawing::apply`]: crate::drawing::Drawing::apply
+//! [`Drawing::decide`]: crate::drawing::Drawing::decide
 
 use serde::{Deserialize, Serialize};
 
 use crate::{Hash, drand::VerifiedBeacon, drawing::Outcome};
 
-/// A command for the draw engine.
+/// A command for the draw engine: a draw, or a decision. They differ in how
+/// they run: a draw is *accepted* and settles later (its round is in the
+/// future), a decision is *applied* when the call returns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Command {
+    Draw(DrawRequest),
+    Decide(Decision),
+}
+
+impl From<DrawRequest> for Command {
+    fn from(request: DrawRequest) -> Self {
+        Self::Draw(request)
+    }
+}
+
+impl From<Decision> for Command {
+    fn from(decision: Decision) -> Self {
+        Self::Decide(decision)
+    }
+}
+
+/// Draws a winner for one item (`offline`: server randomness, not verifiable).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrawRequest {
+    pub item_id: String,
+    pub offline: bool,
+}
+
+/// The organizer's decision about a drawing: every command but a draw.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
-pub enum Command {
-    /// Draws a winner for one item (`offline`: server randomness, not verifiable).
-    Draw { item_id: String, offline: bool },
-    /// Records the organizer's decision about a drawn item.
+pub enum Decision {
+    /// Records the outcome of a drawn item.
     Resolve { item_id: String, outcome: Outcome },
-    /// Withdraws a item that will not be given away.
+    /// Withdraws an item that will not be given away.
     Void { item_id: String },
     /// Abandons the pending draw of this item without its committed beacon.
     /// Logged publicly; the verifier shows what the round would have picked.
@@ -55,13 +81,13 @@ mod tests {
 
     #[test]
     fn wire_format_is_stable() {
-        let json = serde_json::to_string(&Command::Draw {
+        let json = serde_json::to_string(&DrawRequest {
             item_id: "u1".into(),
             offline: false,
         })
         .unwrap();
-        assert_eq!(json, r#"{"cmd":"draw","item_id":"u1","offline":false}"#);
-        let json = serde_json::to_string(&Command::Resolve {
+        assert_eq!(json, r#"{"item_id":"u1","offline":false}"#);
+        let json = serde_json::to_string(&Decision::Resolve {
             item_id: "u1".into(),
             outcome: Outcome::NotHere,
         })
@@ -71,14 +97,14 @@ mod tests {
             r#"{"cmd":"resolve","item_id":"u1","outcome":"not_here"}"#
         );
         assert_eq!(
-            serde_json::to_string(&Command::Abandon {
+            serde_json::to_string(&Decision::Abandon {
                 item_id: "u1".into()
             })
             .unwrap(),
             r#"{"cmd":"abandon","item_id":"u1"}"#
         );
         assert_eq!(
-            serde_json::to_string(&Command::Finish).unwrap(),
+            serde_json::to_string(&Decision::Finish).unwrap(),
             r#"{"cmd":"finish"}"#
         );
     }

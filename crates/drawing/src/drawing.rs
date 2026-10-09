@@ -8,7 +8,7 @@
 //! The engine protocol is here too, so engines only do I/O:
 //! [`Drawing::open_or_check`] to open it, [`Drawing::check_beacon`],
 //! [`Drawing::begin`] and [`Drawing::conclude`] for a draw, and
-//! [`Drawing::apply`] for every other command.
+//! [`Drawing::decide`] for every decision.
 //!
 //! Pool rules:
 //! - Pass 1: everyone who has not been drawn yet. Once drawn, you are out,
@@ -35,7 +35,7 @@ use crate::{
     beacon::BeaconSource,
     drand::VerifiedBeacon,
     draw,
-    engine::{BeaconOutcome, Command},
+    engine::{BeaconOutcome, Decision},
     error::Error,
     hash_from_hex,
     manifest::{self, ItemRef, Manifest},
@@ -265,16 +265,15 @@ impl Drawing {
         }
     }
 
-    /// Applies a command other than a draw (draws go through [`Self::begin`]
-    /// and [`Self::conclude`]). After [`Command::Finish`] the state is
+    /// Applies a decision (draws go through [`Self::begin`] and
+    /// [`Self::conclude`]). After [`Decision::Finish`] the drawing is
     /// `finished` and the engine may forget it.
-    pub fn apply(&mut self, cmd: &Command) -> Result<(), Error> {
-        match cmd {
-            Command::Resolve { item_id, outcome } => self.resolve(item_id, *outcome),
-            Command::Void { item_id } => self.void(item_id),
-            Command::Abandon { item_id } => self.abandon_item(item_id),
-            Command::Finish => self.finish(),
-            Command::Draw { .. } => Err(Error::NotACommand),
+    pub fn decide(&mut self, decision: &Decision) -> Result<(), Error> {
+        match decision {
+            Decision::Resolve { item_id, outcome } => self.resolve(item_id, *outcome),
+            Decision::Void { item_id } => self.void(item_id),
+            Decision::Abandon { item_id } => self.abandon_item(item_id),
+            Decision::Finish => self.finish(),
         }
     }
 
@@ -909,30 +908,25 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn apply_runs_every_command_but_draws() {
+    fn decide_runs_every_decision() {
         let mut s = Drawing::open(&doc(5, 2));
         draw(&mut s, "u0", 1);
-        let resolve = Command::Resolve {
+        let resolve = Decision::Resolve {
             item_id: "u0".into(),
             outcome: Outcome::Claimed,
         };
-        s.apply(&resolve).unwrap();
-        s.apply(&Command::Void {
+        s.decide(&resolve).unwrap();
+        s.decide(&Decision::Void {
             item_id: "u1".into(),
         })
         .unwrap();
-        let draw_cmd = Command::Draw {
-            item_id: "u1".into(),
-            offline: false,
-        };
-        assert_eq!(s.apply(&draw_cmd), Err(Error::NotACommand));
         assert_eq!(
-            s.apply(&Command::Abandon {
+            s.decide(&Decision::Abandon {
                 item_id: "u1".into()
             }),
             Err(Error::NoDrawInProgress)
         );
-        s.apply(&Command::Finish).unwrap();
+        s.decide(&Decision::Finish).unwrap();
         assert!(s.finished);
     }
 

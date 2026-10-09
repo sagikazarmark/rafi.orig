@@ -1,37 +1,34 @@
 # restate-rafi
 
-**The Rafi draw engine: the `Raffle` virtual object for [Restate](https://restate.dev/).**
+**The Rafi draw engine: the `Drawing` virtual object for [Restate](https://restate.dev/).**
 
-One object per raffle (keyed by raffle ID) owns the draw state while the raffle is drawn. Handlers for one
-raffle run one at a time, the committed drand round is journaled before the durable sleep until it is
+One object per drawing (keyed by the drawing's ID) owns the drawing from opening to finish. Handlers for one
+drawing run one at a time, the committed drand round is journaled before the durable sleep until it is
 published, and a crash or redeploy replays to the very same result. The object only ever sees anonymous
-entrant IDs.
+entrant IDs. The rules are `rafi-drawing`'s; the object only does I/O.
 
 | Handler | Kind | |
 |---|---|---|
-| `freeze` | exclusive | Takes the frozen entrant list (the commit document). Idempotent for the same list; refuses a commit to another drand chain than the engine's. |
-| `draw` | exclusive | Commits to a future drand round, sleeps until it is published, fetches and BLS-verifies it, picks the winner. If the beacon can't be had, the draw stalls on that round; drawing the unit again retries the same round. |
-| `resolve` | exclusive | Claimed / not here / declined, void a unit, abandon a stalled draw, or finish (clears the state). |
-| `get` | shared | The current state, for recovery and debugging. |
+| `open` | exclusive | Opens the drawing from its manifest. Idempotent for the same manifest; refuses another manifest, and a beacon source other than the engine's. |
+| `draw` | exclusive | Takes a `DrawRequest`: commits to a future drand round, sleeps until it is published, fetches and BLS-verifies it, picks the winner. If the beacon can't be had, the draw stalls on that round; drawing the item again retries the same round. |
+| `decide` | exclusive | Takes a `Decision`: claimed / not here / declined, void an item, abandon a stalled draw, or finish (clears the state). |
+| `get` | shared | The current drawing, for recovery and debugging. |
 
-Committing to a round and awaiting its beacon go through [`restate-drand`](../restate-drand).
+`DrawingEngine` is a keyless service next to it: `info` reports the engine's beacon source.
 
-After every change the state goes to a `Projector`. `SqliteProjector` writes it into the Rafi app's SQLite
-database through [`rafi-store`](../store), where the app picks it up; `RecordingProjector` keeps it in memory
-for tests.
+Committing to a round and awaiting its beacon go through [`restate-drand`](https://crates.io/crates/restate-drand).
+After every change the drawing goes to a `DrawStore` (the app's database), then clients are told through a
+`Notifier`, best effort; both come from [`rafi-platform`](../platform).
 
 ```rust
 use rafi_drand::{DrandClient, DrandConfig};
-use restate_rafi::{DatabaseConfig, Raffle, SqliteProjector};
+use rafi_platform::{MemoryDrawStore, Polling};
+use restate_rafi::{Drawing, DrawingEngine};
 
-let raffle = Raffle::new(
-    DrandClient::new(DrandConfig::default())?,
-    SqliteProjector::new(&DatabaseConfig {
-        url: "sqlite://rafi.db".into(),
-        ..DatabaseConfig::default()
-    })?,
-);
-let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(raffle).build();
+let drand = DrandClient::new(DrandConfig::default())?;
+let info = DrawingEngine::new(&drand);
+let drawing = Drawing::new(drand, MemoryDrawStore::default(), Polling::default());
+let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(drawing).bind(info).build();
 ```
 
 [`restate-rafi-endpoint`](../restate-rafi-endpoint) is the binary that serves it.

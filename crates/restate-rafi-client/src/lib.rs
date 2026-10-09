@@ -6,9 +6,9 @@
 //! Restate SDK). The handler names are here; `restate-rafi`'s tests check them
 //! against the service.
 //!
-//! - Opening and commands other than draws are synchronous calls; a draw is sent
-//!   (`/send`) and settles in the background, as the [`DrawingEngine`] contract
-//!   says.
+//! - Opening and decisions are synchronous calls; a draw is sent (`/send`) and
+//!   settles in the background, as the [`DrawingEngine`] contract says. Each
+//!   engine method is one handler, so there is nothing to route.
 //! - Each call carries an `idempotency-key` (the open key, or the command
 //!   ID), so a retry applies once.
 //! - A refusal is a handler's terminal error: the ingress marks it
@@ -24,19 +24,23 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use rafi_drawing::{BeaconSource, ErrorKind, engine::Command, manifest::Manifest};
+use rafi_drawing::{
+    BeaconSource, ErrorKind,
+    engine::{Decision, DrawRequest},
+    manifest::Manifest,
+};
 use rafi_platform::{BoxFuture, DrawingEngine, EngineError, EngineInfo, sendable};
 use serde::{Deserialize, Serialize};
 
-/// The `Raffle` virtual object (keyed by raffle ID).
-pub const RAFFLE_SERVICE: &str = "Raffle";
-/// The keyless `RaffleEngine` service.
-pub const INFO_SERVICE: &str = "RaffleEngine";
-/// `Raffle`'s handlers.
+/// The `Drawing` virtual object (keyed by the drawing's ID).
+pub const DRAWING_SERVICE: &str = "Drawing";
+/// The keyless `DrawingEngine` service.
+pub const INFO_SERVICE: &str = "DrawingEngine";
+/// `Drawing`'s handlers.
 pub const OPEN: &str = "open";
 pub const DRAW: &str = "draw";
-pub const RESOLVE: &str = "resolve";
-/// `RaffleEngine`'s handler.
+pub const DECIDE: &str = "decide";
+/// `DrawingEngine`'s handler.
 pub const INFO: &str = "info";
 
 /// How to reach the ingress.
@@ -130,13 +134,13 @@ impl RestateClient {
 
     async fn call(
         &self,
-        raffle_id: &str,
+        drawing_id: &str,
         handler: &str,
         send: bool,
         idempotency_key: &str,
         body: &(impl Serialize + Sync),
     ) -> Result<(), EngineError> {
-        let mut path = format!("{RAFFLE_SERVICE}/{raffle_id}/{handler}");
+        let mut path = format!("{DRAWING_SERVICE}/{drawing_id}/{handler}");
         if send {
             path.push_str("/send");
         }
@@ -185,19 +189,28 @@ impl DrawingEngine for RestateClient {
         }))
     }
 
-    fn command<'a>(
+    fn draw<'a>(
         &'a self,
-        raffle_id: &'a str,
-        cmd: &'a Command,
+        drawing_id: &'a str,
+        request: &'a DrawRequest,
+        command_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), EngineError>> {
+        // Draws take a few seconds (the committed round is in the future):
+        // sent, progress arrives through the projection.
+        Box::pin(sendable(async move {
+            self.call(drawing_id, DRAW, true, command_id, request).await
+        }))
+    }
+
+    fn decide<'a>(
+        &'a self,
+        drawing_id: &'a str,
+        decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(sendable(async move {
-            match cmd {
-                // Draws take a few seconds (the committed round is in the
-                // future): sent, progress arrives through the projection.
-                Command::Draw { .. } => self.call(raffle_id, DRAW, true, command_id, cmd).await,
-                _ => self.call(raffle_id, RESOLVE, false, command_id, cmd).await,
-            }
+            self.call(drawing_id, DECIDE, false, command_id, decision)
+                .await
         }))
     }
 }
@@ -209,7 +222,7 @@ mod tests {
     #[test]
     fn refusals_keep_their_kind_and_message() {
         let e = refusal(
-            "Raffle/r/resolve",
+            "Drawing/r/decide",
             409,
             true,
             r#"{"message":"another draw is in progress"}"#,
@@ -220,7 +233,7 @@ mod tests {
                 if message == "another draw is in progress"
         ));
         let e = refusal(
-            "Raffle/r/resolve",
+            "Drawing/r/decide",
             500,
             true,
             r#"{"message":"invalid manifest hash"}"#,
@@ -233,13 +246,13 @@ mod tests {
             }
         ));
         assert!(matches!(
-            refusal("Raffle/r/resolve", 502, true, "bad gateway"),
+            refusal("Drawing/r/decide", 502, true, "bad gateway"),
             EngineError::Unavailable(_)
         ));
         // The ingress's own 404 (say, an unregistered service) is no refusal.
         assert!(matches!(
             refusal(
-                "RaffleEngine/info",
+                "DrawingEngine/info",
                 404,
                 false,
                 r#"{"message":"service not found"}"#

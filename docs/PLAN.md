@@ -8,6 +8,8 @@ Status: draft plan, 2026-10-05. Versions and platform facts were checked by rese
 
 **Revision 5 (2026-10-09).** The draw engine is a seam: the app talks to it through `DrawEngine` (`crates/platform`), and the engine's rules (freeze, settling a draw with its beacon, every other command, how refusals are classified) live in `rafi-core`, so every engine only does I/O. Production's engine is still the Restate `Raffle` object, reached through `restate-rafi-client`; `rafi-engine-local` is an in-process engine for tests and development, never production. An engine conformance suite runs on both. The app decides the drand chain a raffle commits to (`RAFI_DRAND_CHAIN`); the engine reports its own (`RaffleEngine/info`) only for a check before freezing, and still refuses a mismatch. **The "local draw" fallback (§6.4) is dropped:** two engines owning one raffle could announce one draw on two rounds. When Restate is down, the organizer waits, or completes a stalled draw offline. See [engine-plan.md](engine-plan.md).
 
+**Revision 6 (2026-10-09).** The drawing is its own, raffle-free domain ([drawing-plan.md](drawing-plan.md)): `rafi-drawing` holds the drawing (opened from a published **manifest** naming its entrants, items, algorithm and beacon source), the draw algorithm and the verifier; `rafi-core` keeps the raffle's lifecycle. A raffle's prizes (with quantities) become the drawing's items, one per copy. The engine is `DrawingEngine` (`open`, `draw`, `decide`); the Restate object is `Drawing` with handlers `open`, `draw`, `decide` and `get`, next to the `DrawingEngine` service. Older sections below keep the names of their time.
+
 ## Implementation status (2026-10-06)
 
 Milestones M0–M7 are implemented (see the README for how to run them).

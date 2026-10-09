@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The Rafi draw engine (the `Raffle` Restate virtual object) as a Cloudflare Worker"
+description = "The Rafi draw engine (the `Drawing` Restate virtual object) as a Cloudflare Worker"
 publish = false
 
 [lib]

@@ -16,7 +16,7 @@ pub struct Config {
     pub public_url: String,
     /// Skip Clerk and treat every admin request as user `dev`. Never use in production.
     pub dev_auth: bool,
-    /// The draw engine: the `Raffle` virtual object of the `restate-rafi`
+    /// The draw engine: the `Drawing` virtual object of the `restate-rafi`
     /// service. Without an ingress URL, draws can't start.
     pub restate: RestateConfig,
     /// The drand chain new raffles commit to (`RAFI_DRAND_CHAIN`, a chain

@@ -10,7 +10,7 @@ use rafi_core::raffle::{Action, RaffleState};
 use rafi_drawing::{
     BeaconSource, Error as DrawingError, ErrorKind,
     drawing::Outcome,
-    engine::Command,
+    engine::{Command, Decision, DrawRequest},
     manifest::{ItemRef, Manifest},
 };
 use rafi_platform::{DrawingEngine, EngineError};
@@ -474,9 +474,10 @@ pub async fn command(
     app: &AppState,
     owner: &str,
     id: &str,
-    cmd: Command,
+    cmd: impl Into<Command>,
     command_id: &str,
 ) -> Result<()> {
+    let cmd = cmd.into();
     let raffle = owned(app, owner, id).await?;
     if !raffle.state().drawable() {
         return Err(conflict("The draw has not started (or is already over)."));
@@ -494,16 +495,20 @@ pub async fn command(
     let checked = match &cmd {
         // Drawing the pending item again retries its committed round (or
         // completes it offline); nothing else may start meanwhile.
-        Command::Draw { item_id, .. } => dry.begin(item_id, 0, 0).map(|_| ()),
+        Command::Draw(DrawRequest { item_id, .. }) => dry.begin(item_id, 0, 0).map(|_| ()),
         // While a draw is waiting for its round, the engine would queue the
-        // command behind it; only "handed over" is let through (it can't
+        // decision behind it; only "handed over" is let through (it can't
         // change the draw). The rest waits for the draw to land or stall.
-        Command::Resolve {
-            outcome: Outcome::Claimed,
-            ..
-        } => dry.apply(&cmd),
-        _ if dry.pending.is_some() && !dry.stalled() => Err(DrawingError::DrawInProgress),
-        _ => dry.apply(&cmd),
+        Command::Decide(
+            decision @ Decision::Resolve {
+                outcome: Outcome::Claimed,
+                ..
+            },
+        ) => dry.decide(decision),
+        Command::Decide(_) if dry.pending.is_some() && !dry.stalled() => {
+            Err(DrawingError::DrawInProgress)
+        }
+        Command::Decide(decision) => dry.decide(decision),
     };
     checked.map_err(|e| refusal(&cmd, e))?;
 
@@ -515,24 +520,24 @@ fn refusal(cmd: &Command, e: DrawingError) -> AppError {
     let message = match (cmd, &e) {
         (_, DrawingError::UnknownItem(_)) => return AppError::NotFound,
         (_, DrawingError::Finished) => "The raffle is finished.",
-        (Command::Draw { .. }, DrawingError::DrawInProgress) => "A draw is already in progress.",
-        (Command::Draw { .. }, DrawingError::ItemNotPending(_)) => {
+        (Command::Draw(_), DrawingError::DrawInProgress) => "A draw is already in progress.",
+        (Command::Draw(_), DrawingError::ItemNotPending(_)) => {
             "This prize has already been drawn or withdrawn."
         }
         (_, DrawingError::NoEligibleEntrants) => "There are no eligible entrants left.",
-        (Command::Resolve { .. }, DrawingError::ItemNotDrawn(_)) => {
+        (Command::Decide(Decision::Resolve { .. }), DrawingError::ItemNotDrawn(_)) => {
             "This prize has no undecided winner."
         }
-        (Command::Resolve { .. }, DrawingError::DrawInProgress) => {
+        (Command::Decide(Decision::Resolve { .. }), DrawingError::DrawInProgress) => {
             "Wait for the current draw to finish: “not here” and “declined” could change who it can pick."
         }
-        (Command::Abandon { .. }, DrawingError::NoDrawInProgress) => {
+        (Command::Decide(Decision::Abandon { .. }), DrawingError::NoDrawInProgress) => {
             "This prize has no draw in progress."
         }
-        (Command::Abandon { .. }, DrawingError::DrawInProgress) => {
+        (Command::Decide(Decision::Abandon { .. }), DrawingError::DrawInProgress) => {
             "The draw is still waiting for its drand round; it can be abandoned if it stalls."
         }
-        (Command::Void { .. }, DrawingError::ItemNotPending(_)) => {
+        (Command::Decide(Decision::Void { .. }), DrawingError::ItemNotPending(_)) => {
             "Only prizes that have not been won can be withdrawn."
         }
         (_, DrawingError::DrawInProgress) => "Wait for the current draw to finish.",
@@ -550,10 +555,17 @@ async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &
         id,
         owner,
         "command",
-        &serde_json::to_string(&cmd).unwrap_or_default(),
+        &match &cmd {
+            Command::Draw(request) => serde_json::to_string(request),
+            Command::Decide(decision) => serde_json::to_string(decision),
+        }
+        .unwrap_or_default(),
     )
     .await?;
-    engine_result(engine.command(id, &cmd, command_id).await)
+    engine_result(match &cmd {
+        Command::Draw(request) => engine.draw(id, request, command_id).await,
+        Command::Decide(decision) => engine.decide(id, decision, command_id).await,
+    })
 }
 
 // ---------------------------------------------------------------------------

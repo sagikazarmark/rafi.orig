@@ -687,7 +687,7 @@ fn DrawConsole(
     let draw = move |item_id: String, offline: bool| {
         let id = id.clone();
         async move {
-            match api::draw_unit(id, item_id, offline, command_id()).await {
+            match api::draw_item(id, item_id, offline, command_id()).await {
                 Ok(()) => {
                     error.set(None);
                     on_change.call(());
@@ -700,7 +700,7 @@ fn DrawConsole(
     let resolve = move |item_id: String, outcome: Outcome| {
         let id = id.clone();
         async move {
-            match api::resolve_unit(id, item_id, outcome, command_id()).await {
+            match api::resolve_item(id, item_id, outcome, command_id()).await {
                 Ok(()) => {
                     error.set(None);
                     on_change.call(());
@@ -713,7 +713,7 @@ fn DrawConsole(
     let void = move |item_id: String| {
         let id = id.clone();
         async move {
-            match api::void_unit(id, item_id, command_id()).await {
+            match api::void_item(id, item_id, command_id()).await {
                 Ok(()) => on_change.call(()),
                 Err(e) => error.set(Some(err_text(e))),
             }
@@ -750,7 +750,7 @@ fn DrawConsole(
         .iter()
         .filter(|u| matches!(u.status, ItemStatus::Pending | ItemStatus::Drawn))
         .count();
-    let pending_unit = pending.as_ref().map(|p| p.item_id.clone());
+    let pending_item = pending.as_ref().map(|p| p.item_id.clone());
     let offset = v.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
     // A pending draw whose beacon could not be fetched (or whose fetch was lost,
     // e.g. a restart): it stays on its round; the organizer can retry, draw
@@ -783,7 +783,7 @@ fn DrawConsole(
                     }
                 }
             }
-            if let (true, Some(cur), Some(u)) = (stalled, &pending, pending_unit.clone()) {
+            if let (true, Some(cur), Some(u)) = (stalled, &pending, pending_item.clone()) {
                 div { role: "alert", class: "alert alert-warning alert-soft items-start",
                     Icon { i: I::Alert }
                     div { class: "space-y-2",

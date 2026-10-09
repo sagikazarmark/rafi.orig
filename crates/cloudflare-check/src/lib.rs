@@ -90,7 +90,7 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
 
 /// The app's half of a Restate freeze: the commit document (on the mock drand
 /// chain the Restate Worker uses in development) and the frozen raffle row.
-/// Returns the document to hand to `Raffle/{id}/freeze`.
+/// Returns the manifest to hand to `Drawing/{id}/open`.
 async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     let chain = rafi_drand::DrandClient::new(rafi_drand::DrandConfig {
         mock: true,

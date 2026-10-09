@@ -26,7 +26,7 @@ use crate::server::{
     service::{self, AppError},
 };
 #[cfg(feature = "server")]
-use rafi_drawing::engine::Command;
+use rafi_drawing::engine::{Decision, DrawRequest};
 
 /// An error reply: a message for the organizer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,20 +127,20 @@ admin_api! {
 
     fn start_draw(id: String) -> () = |app, owner| service::start_draw(app, owner, &id);
 
-    fn draw_unit(id: String, item_id: String, offline: bool, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Command::Draw { item_id, offline }, &command_id);
+    fn draw_item(id: String, item_id: String, offline: bool, command_id: String) -> () =
+        |app, owner| service::command(app, owner, &id, DrawRequest { item_id, offline }, &command_id);
 
-    fn resolve_unit(id: String, item_id: String, outcome: Outcome, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Command::Resolve { item_id, outcome }, &command_id);
+    fn resolve_item(id: String, item_id: String, outcome: Outcome, command_id: String) -> () =
+        |app, owner| service::command(app, owner, &id, Decision::Resolve { item_id, outcome }, &command_id);
 
-    fn void_unit(id: String, item_id: String, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Command::Void { item_id }, &command_id);
+    fn void_item(id: String, item_id: String, command_id: String) -> () =
+        |app, owner| service::command(app, owner, &id, Decision::Void { item_id }, &command_id);
 
     fn abandon_draw(id: String, item_id: String, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Command::Abandon { item_id }, &command_id);
+        |app, owner| service::command(app, owner, &id, Decision::Abandon { item_id }, &command_id);
 
     fn finish_raffle(id: String, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Command::Finish, &command_id);
+        |app, owner| service::command(app, owner, &id, Decision::Finish, &command_id);
 
     fn end_live_updates(id: String) -> () = |app, owner| service::end_live(app, owner, &id);
 

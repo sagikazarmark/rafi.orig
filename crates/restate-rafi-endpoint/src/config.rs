@@ -76,8 +76,8 @@ impl DatabaseConfig {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServicesConfig {
-    /// Policy for the `Raffle` virtual object.
-    pub raffle: ServiceOptionsConfig,
+    /// Policy for the `Drawing` virtual object.
+    pub drawing: ServiceOptionsConfig,
 }
 
 impl Config {
@@ -159,7 +159,7 @@ mod tests {
                 url = "sqlite:///data/rafi.db"
                 retention_winners_days = 120
 
-                [services.raffle]
+                [services.drawing]
                 inactivity_timeout = "5m"
                 "#,
             )?;
@@ -185,7 +185,7 @@ mod tests {
                 cfg.endpoint.identity_keys,
                 ["publickeyv1_a", "publickeyv1_b"]
             );
-            assert!(cfg.services.raffle.inactivity_timeout.is_some());
+            assert!(cfg.services.drawing.inactivity_timeout.is_some());
             Ok(())
         });
     }
