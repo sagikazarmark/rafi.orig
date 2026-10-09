@@ -221,10 +221,10 @@ impl Fixture {
         Manifest::new(
             raffle_id,
             BeaconSource::Drand(self.drand.chain_hash()),
-            (0..entrants).map(|i| format!("{i:032x}")).collect(),
+            (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
             (1..=items)
                 .map(|n| ItemRef {
-                    id: format!("u-{n}"),
+                    id: format!("u-{n}").into(),
                     name: "Prize".into(),
                 })
                 .collect(),
@@ -294,15 +294,14 @@ impl Fixture {
     }
 
     async fn draw(&self, raffle_id: &str, item: &str, id: &str) -> Result<(), String> {
-        let request = DrawRequest {
-            item_id: item.to_owned(),
-        };
+        let request = DrawRequest { item: item.into() };
         self.ok(raffle_id, request, id).await
     }
 
     async fn drawn(&self, raffle_id: &str, item: &str) -> Result<Drawing, String> {
         self.projected(raffle_id, &format!("{item} drawn"), |s| {
-            s.item(item).is_some_and(|u| u.status == ItemStatus::Drawn)
+            s.item(&item.into())
+                .is_some_and(|u| u.status == ItemStatus::Drawn)
         })
         .await
     }
@@ -517,7 +516,7 @@ async fn commands_apply_once(fx: Arc<Fixture>, id: String) -> Result<(), String>
     fx.draw(&id, "u-1", "d1").await?;
     fx.drawn(&id, "u-1").await?;
     let claimed = Decision::Resolve {
-        item_id: "u-1".into(),
+        item: "u-1".into(),
         outcome: Outcome::Claimed,
     };
     fx.ok(&id, claimed.clone(), "c1").await?;
@@ -543,7 +542,7 @@ async fn refusals_keep_their_kind(fx: Arc<Fixture>, id: String) -> Result<(), St
     let doc = fx.doc(&id, 3, 2);
     fx.open(&doc).await?;
     let resolve = |item: &str, outcome| Decision::Resolve {
-        item_id: item.into(),
+        item: item.into(),
         outcome,
     };
     fx.refused(
@@ -567,9 +566,7 @@ async fn refusals_keep_their_kind(fx: Arc<Fixture>, id: String) -> Result<(), St
         ErrorKind::Conflict,
     )
     .await?;
-    let abandon = Decision::Abandon {
-        item_id: "u-1".into(),
-    };
+    let abandon = Decision::Abandon { item: "u-1".into() };
     fx.refused(&id, abandon, "a1", ErrorKind::Conflict).await?;
     Ok(())
 }
@@ -580,17 +577,11 @@ async fn a_refused_draw_is_silent(fx: Arc<Fixture>, id: String) -> Result<(), St
     let opened = fx.open(&doc).await?;
     fx.draw(&id, "nope", "d1").await?;
     // A synchronous command behind it, as a barrier.
-    fx.ok(
-        &id,
-        Decision::Void {
-            item_id: "u-2".into(),
-        },
-        "v1",
-    )
-    .await?;
+    fx.ok(&id, Decision::Void { item: "u-2".into() }, "v1")
+        .await?;
     let s = fx
         .projected(&id, "u-2 voided", |s| {
-            s.item("u-2")
+            s.item(&"u-2".into())
                 .is_some_and(|u| u.status == ItemStatus::Voided)
         })
         .await?;
@@ -609,7 +600,7 @@ async fn a_finished_raffle_is_forgotten(fx: Arc<Fixture>, id: String) -> Result<
     fx.draw(&id, "u-1", "d1").await?;
     fx.drawn(&id, "u-1").await?;
     let claimed = Decision::Resolve {
-        item_id: "u-1".into(),
+        item: "u-1".into(),
         outcome: Outcome::Claimed,
     };
     fx.ok(&id, claimed, "c1").await?;
@@ -759,14 +750,8 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
     );
     // Another item can't start meanwhile; the organizer abandons this one.
     fx.draw(&id, "u-2", "d3").await?;
-    fx.ok(
-        &id,
-        Decision::Abandon {
-            item_id: "u-1".into(),
-        },
-        "a1",
-    )
-    .await?;
+    fx.ok(&id, Decision::Abandon { item: "u-1".into() }, "a1")
+        .await?;
     let s = fx
         .projected(&id, "abandoned", |s| s.pending.is_none())
         .await?;
@@ -795,23 +780,15 @@ async fn nothing_changes_the_pool_of_a_stalled_draw(
     fx.stalls(&id, 1).await?;
     fx.refused(
         &id,
-        Decision::Void {
-            item_id: "u-2".into(),
-        },
+        Decision::Void { item: "u-2".into() },
         "v1",
         ErrorKind::Conflict,
     )
     .await?;
     fx.refused(&id, Decision::Finish, "f1", ErrorKind::Conflict)
         .await?;
-    fx.ok(
-        &id,
-        Decision::Abandon {
-            item_id: "u-2".into(),
-        },
-        "a1",
-    )
-    .await?;
+    fx.ok(&id, Decision::Abandon { item: "u-2".into() }, "a1")
+        .await?;
     let s = fx
         .projected(&id, "abandoned", |s| s.pending.is_none())
         .await?;
@@ -849,7 +826,7 @@ async fn every_state_reaches_a_flaky_store(fx: Arc<Fixture>, id: String) -> Resu
     fx.draw(&id, "u-1", "d1").await?;
     fx.drawn(&id, "u-1").await?;
     let claimed = Decision::Resolve {
-        item_id: "u-1".into(),
+        item: "u-1".into(),
         outcome: Outcome::Claimed,
     };
     fx.ok(&id, claimed, "c1").await?;

@@ -15,7 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{drand::VerifiedBeacon, drawing::Outcome};
+use crate::{drand::VerifiedBeacon, drawing::Outcome, id::ItemId};
 
 /// A command for the draw engine: a draw, or a decision. They differ in how
 /// they run: a draw is *accepted* and settles later (its round is in the
@@ -41,7 +41,7 @@ impl From<Decision> for Command {
 /// Draws a winner for one item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrawRequest {
-    pub item_id: String,
+    pub item: ItemId,
 }
 
 /// The organizer's decision about a drawing: every command but a draw.
@@ -49,12 +49,12 @@ pub struct DrawRequest {
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Decision {
     /// Records the outcome of a drawn item.
-    Resolve { item_id: String, outcome: Outcome },
+    Resolve { item: ItemId, outcome: Outcome },
     /// Withdraws an item that will not be given away.
-    Void { item_id: String },
+    Void { item: ItemId },
     /// Abandons the pending draw of this item without its committed beacon.
     /// Logged publicly; the verifier shows what the round would have picked.
-    Abandon { item_id: String },
+    Abandon { item: ItemId },
     /// Ends the drawing.
     Finish,
 }
@@ -78,26 +78,20 @@ mod tests {
 
     #[test]
     fn wire_format_is_stable() {
-        let json = serde_json::to_string(&DrawRequest {
-            item_id: "u1".into(),
-        })
-        .unwrap();
-        assert_eq!(json, r#"{"item_id":"u1"}"#);
+        let json = serde_json::to_string(&DrawRequest { item: "u1".into() }).unwrap();
+        assert_eq!(json, r#"{"item":"u1"}"#);
         let json = serde_json::to_string(&Decision::Resolve {
-            item_id: "u1".into(),
+            item: "u1".into(),
             outcome: Outcome::NotHere,
         })
         .unwrap();
         assert_eq!(
             json,
-            r#"{"cmd":"resolve","item_id":"u1","outcome":"not_here"}"#
+            r#"{"cmd":"resolve","item":"u1","outcome":"not_here"}"#
         );
         assert_eq!(
-            serde_json::to_string(&Decision::Abandon {
-                item_id: "u1".into()
-            })
-            .unwrap(),
-            r#"{"cmd":"abandon","item_id":"u1"}"#
+            serde_json::to_string(&Decision::Abandon { item: "u1".into() }).unwrap(),
+            r#"{"cmd":"abandon","item":"u1"}"#
         );
         assert_eq!(
             serde_json::to_string(&Decision::Finish).unwrap(),

@@ -1,7 +1,7 @@
 //! How the drawing refuses something, and how every engine and caller
 //! classifies that refusal.
 
-use crate::beacon::BeaconSource;
+use crate::{beacon::BeaconSource, id::ItemId};
 
 /// Why the drawing refused something.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -20,11 +20,11 @@ pub enum Error {
     #[error("the drawing is finished")]
     Finished,
     #[error("unknown item {0}")]
-    UnknownItem(String),
+    UnknownItem(ItemId),
     #[error("item {0} is not available for drawing")]
-    ItemNotPending(String),
+    ItemNotPending(ItemId),
     #[error("item {0} has no undecided winner")]
-    ItemNotDrawn(String),
+    ItemNotDrawn(ItemId),
     #[error("another draw is in progress")]
     DrawInProgress,
     #[error("no draw is in progress")]

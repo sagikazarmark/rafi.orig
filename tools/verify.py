@@ -148,10 +148,10 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
                     ok = False
             idx = select(randomness, manifest_hash, k, len(p))
             expected = p[idx]
-            good = expected == ev["entrant_id"] and pass_ == ev["pass"] and len(p) == ev["pool_size"]
+            good = expected == ev["entrant"] and pass_ == ev["pass"] and len(p) == ev["pool_size"]
             ok &= good
             print(f"{'ok  ' if good else 'FAIL'} draw {k}: round {ev['round']}, pass {pass_}, pool {len(p)}, "
-                  f"index {idx} -> {expected}" + ("" if good else f" (published {ev['entrant_id']})"))
+                  f"index {idx} -> {expected}" + ("" if good else f" (published {ev['entrant']})"))
             d = {"pass": pass_, "entrant": expected, "outcome": "drawn"}
             draws.append(d)
             by_k[k] = d
@@ -171,7 +171,7 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
             would_have_picked(ev["k"], ev["round"], f"ABANDONED ({ev['reason']})")
             pending = None
         elif t == "void":
-            print(f"     item {ev['item_id']} voided")
+            print(f"     item {ev['item']} voided")
     return ok
 
 

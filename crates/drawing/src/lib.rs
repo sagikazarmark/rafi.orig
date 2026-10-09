@@ -11,6 +11,7 @@ pub mod draw;
 pub mod drawing;
 pub mod engine;
 pub mod error;
+pub mod id;
 pub mod manifest;
 pub mod verify;
 
@@ -21,6 +22,7 @@ pub use drand;
 pub use beacon::BeaconSource;
 pub use drawing::Drawing;
 pub use error::{Error, ErrorKind};
+pub use id::{EntrantId, ItemId};
 pub use manifest::Manifest;
 
 /// A SHA-256 digest.

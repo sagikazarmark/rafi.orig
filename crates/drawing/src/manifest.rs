@@ -5,12 +5,19 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Hash, beacon::BeaconSource, draw::ALGO, error::Error, sha256};
+use crate::{
+    Hash,
+    beacon::BeaconSource,
+    draw::ALGO,
+    error::Error,
+    id::{EntrantId, ItemId},
+    sha256,
+};
 
 /// An item as committed in the manifest: one thing one entrant can win.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ItemRef {
-    pub id: String,
+    pub id: ItemId,
     pub name: String,
 }
 
@@ -29,7 +36,7 @@ pub struct Manifest {
     /// Where the draws' randomness comes from.
     pub beacon: BeaconSource,
     /// Sorted, deduplicated, lowercase hex entrant IDs.
-    pub entrants: Vec<String>,
+    pub entrants: Vec<EntrantId>,
     pub items: Vec<ItemRef>,
 }
 
@@ -38,12 +45,13 @@ impl Manifest {
     pub fn new(
         drawing: impl Into<String>,
         beacon: BeaconSource,
-        mut entrants: Vec<String>,
+        entrants: Vec<EntrantId>,
         items: Vec<ItemRef>,
     ) -> Self {
-        for id in &mut entrants {
-            *id = id.to_ascii_lowercase();
-        }
+        let mut entrants: Vec<EntrantId> = entrants
+            .into_iter()
+            .map(|id| id.as_str().to_ascii_lowercase().into())
+            .collect();
         entrants.sort();
         entrants.dedup();
         Self {
@@ -90,7 +98,7 @@ impl Manifest {
         if self
             .entrants
             .iter()
-            .any(|id| *id != id.to_ascii_lowercase())
+            .any(|id| id.as_str() != id.as_str().to_ascii_lowercase())
             || self.entrants.windows(2).any(|w| w[0] >= w[1])
         {
             return invalid("entrant IDs are not sorted, unique and lowercase");

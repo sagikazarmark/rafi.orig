@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use rafi_core::raffle::{self, RaffleState};
 use rafi_drawing::{
-    BeaconSource, Error as DrawingError, ErrorKind,
+    BeaconSource, EntrantId, Error as DrawingError, ErrorKind, ItemId,
     drawing::Outcome,
     engine::{Command, Decision, DrawRequest},
     manifest::{ItemRef, Manifest},
@@ -424,7 +424,10 @@ async fn items(app: &AppState, id: &str) -> Result<Vec<ItemRef>> {
         )
     }))
     .into_iter()
-    .map(|(id, name)| ItemRef { id, name })
+    .map(|(id, name)| ItemRef {
+        id: id.into(),
+        name,
+    })
     .collect();
     if items.is_empty() {
         return Err(conflict("Add at least one prize first."));
@@ -454,7 +457,12 @@ async fn write_manifest(
         return Err(conflict("Nobody has entered yet."));
     }
     // The app alone decides the chain; the draw engine refuses a mismatch.
-    let manifest = Manifest::new(id, BeaconSource::Drand(app.chain), entrant_ids, items);
+    let manifest = Manifest::new(
+        id,
+        BeaconSource::Drand(app.chain),
+        entrant_ids.into_iter().map(EntrantId::from).collect(),
+        items,
+    );
     let json = manifest.canonical_json();
     let hash = hex::encode(rafi_drawing::manifest::hash(&json));
     if !raffles::set_manifest(&app.db, id, &json, &hash).await? {
@@ -495,7 +503,7 @@ pub async fn command(
     let checked = match &cmd {
         // Drawing the pending item again retries its committed round; nothing
         // else may start meanwhile.
-        Command::Draw(DrawRequest { item_id, .. }) => dry.begin(item_id, 0, 0).map(|_| ()),
+        Command::Draw(DrawRequest { item }) => dry.begin(item, 0, 0).map(|_| ()),
         // While a draw is waiting for its round, the engine would queue the
         // decision behind it; only "handed over" is let through (it can't
         // change the draw). The rest waits for the draw to land or stall.
@@ -562,18 +570,18 @@ async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &
 /// like every other audit row, and what it was about.
 fn audited(cmd: &Command) -> (&'static str, String) {
     match cmd {
-        Command::Draw(DrawRequest { item_id }) => ("draw", item_id.clone()),
-        Command::Decide(Decision::Resolve { item_id, outcome }) => {
+        Command::Draw(DrawRequest { item }) => ("draw", item.to_string()),
+        Command::Decide(Decision::Resolve { item, outcome }) => {
             let outcome = match outcome {
                 Outcome::Drawn => "drawn",
                 Outcome::Claimed => "claimed",
                 Outcome::NotHere => "not_here",
                 Outcome::Declined => "declined",
             };
-            ("resolve", format!("{item_id} {outcome}"))
+            ("resolve", format!("{item} {outcome}"))
         }
-        Command::Decide(Decision::Void { item_id }) => ("void", item_id.clone()),
-        Command::Decide(Decision::Abandon { item_id }) => ("abandon", item_id.clone()),
+        Command::Decide(Decision::Void { item }) => ("void", item.to_string()),
+        Command::Decide(Decision::Abandon { item }) => ("abandon", item.to_string()),
         Command::Decide(Decision::Finish) => ("finish", String::new()),
     }
 }
@@ -892,7 +900,7 @@ pub async fn admin(app: &AppState, owner: &str, id: &str) -> Result<RaffleAdmin>
         .drawing()
         .map(|s| s.entrant_outcomes())
         .unwrap_or_default();
-    let item_names: std::collections::HashMap<String, String> = raffle
+    let item_names: std::collections::HashMap<ItemId, String> = raffle
         .drawing()
         .map(|s| s.items.into_iter().map(|u| (u.id, u.name)).collect())
         .unwrap_or_default();
@@ -900,7 +908,7 @@ pub async fn admin(app: &AppState, owner: &str, id: &str) -> Result<RaffleAdmin>
         .await?
         .into_iter()
         .map(|e| {
-            let outcome = outcomes.get(&e.id);
+            let outcome = outcomes.get(e.id.as_str());
             AdminEntrant {
                 outcome: outcome.map(|o| o.0),
                 prize: outcome.and_then(|o| item_names.get(&o.1).cloned()),

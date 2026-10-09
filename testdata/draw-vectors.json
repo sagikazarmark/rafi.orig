@@ -77,16 +77,16 @@
     "manifest_hash": "75d94e09118d983dc0bd9fcec459a9c826775b5b0b83cac1ae2192941e0504b1",
     "events": [
       {
-        "item_id": "u-voucher-1",
+        "item": "u-voucher-1",
         "k": 1,
         "round": 1000,
         "round_time": 0,
         "type": "announce"
       },
       {
-        "entrant_id": "4d81a0ebb2bc7469598bc83b76b062d1",
+        "entrant": "4d81a0ebb2bc7469598bc83b76b062d1",
         "index": 5,
-        "item_id": "u-voucher-1",
+        "item": "u-voucher-1",
         "k": 1,
         "pass": 1,
         "pool_size": 12,
@@ -101,37 +101,37 @@
         "type": "resolve"
       },
       {
-        "item_id": "u-voucher-1",
+        "item": "u-voucher-1",
         "k": 2,
         "round": 1003,
         "round_time": 0,
         "type": "announce"
       },
       {
-        "item_id": "u-voucher-1",
+        "item": "u-voucher-1",
         "k": 2,
         "reason": "abandoned by the organizer",
         "round": 1003,
         "type": "fail"
       },
       {
-        "item_id": "u-voucher-1",
+        "item": "u-voucher-1",
         "k": 2,
         "round": 1005,
         "round_time": 0,
         "type": "announce"
       },
       {
-        "item_id": "u-voucher-1",
+        "item": "u-voucher-1",
         "k": 2,
         "reason": "drand unavailable",
         "round": 1005,
         "type": "stall"
       },
       {
-        "entrant_id": "514fd5455cdd9fd3fbb20606fa906d11",
+        "entrant": "514fd5455cdd9fd3fbb20606fa906d11",
         "index": 5,
-        "item_id": "u-voucher-1",
+        "item": "u-voucher-1",
         "k": 2,
         "pass": 1,
         "pool_size": 11,
@@ -146,16 +146,16 @@
         "type": "resolve"
       },
       {
-        "item_id": "u-ticket-1",
+        "item": "u-ticket-1",
         "k": 3,
         "round": 1010,
         "round_time": 0,
         "type": "announce"
       },
       {
-        "entrant_id": "427d1ecf2ccd2f644a5e9cb51114fc9c",
+        "entrant": "427d1ecf2ccd2f644a5e9cb51114fc9c",
         "index": 3,
-        "item_id": "u-ticket-1",
+        "item": "u-ticket-1",
         "k": 3,
         "pass": 1,
         "pool_size": 10,
@@ -170,16 +170,16 @@
         "type": "resolve"
       },
       {
-        "item_id": "u-ticket-1",
+        "item": "u-ticket-1",
         "k": 4,
         "round": 1012,
         "round_time": 0,
         "type": "announce"
       },
       {
-        "entrant_id": "fb8211d765bcdbc2144555dd222ad8cb",
+        "entrant": "fb8211d765bcdbc2144555dd222ad8cb",
         "index": 8,
-        "item_id": "u-ticket-1",
+        "item": "u-ticket-1",
         "k": 4,
         "pass": 1,
         "pool_size": 9,
@@ -194,20 +194,20 @@
         "type": "resolve"
       },
       {
-        "item_id": "u-gift-1",
+        "item": "u-gift-1",
         "type": "void"
       },
       {
-        "item_id": "u-ticket-2",
+        "item": "u-ticket-2",
         "k": 5,
         "round": 1020,
         "round_time": 0,
         "type": "announce"
       },
       {
-        "entrant_id": "381c03af5422411cde3faf643f68584b",
+        "entrant": "381c03af5422411cde3faf643f68584b",
         "index": 2,
-        "item_id": "u-ticket-2",
+        "item": "u-ticket-2",
         "k": 5,
         "pass": 1,
         "pool_size": 8,

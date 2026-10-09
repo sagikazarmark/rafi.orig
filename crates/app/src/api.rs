@@ -128,16 +128,16 @@ admin_api! {
     fn start_draw(id: String) -> () = |app, owner| service::start_draw(app, owner, &id);
 
     fn draw_item(id: String, item_id: String, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, DrawRequest { item_id }, &command_id);
+        |app, owner| service::command(app, owner, &id, DrawRequest { item: item_id.into() }, &command_id);
 
     fn resolve_item(id: String, item_id: String, outcome: Outcome, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Decision::Resolve { item_id, outcome }, &command_id);
+        |app, owner| service::command(app, owner, &id, Decision::Resolve { item: item_id.into(), outcome }, &command_id);
 
     fn void_item(id: String, item_id: String, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Decision::Void { item_id }, &command_id);
+        |app, owner| service::command(app, owner, &id, Decision::Void { item: item_id.into() }, &command_id);
 
     fn abandon_draw(id: String, item_id: String, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Decision::Abandon { item_id }, &command_id);
+        |app, owner| service::command(app, owner, &id, Decision::Abandon { item: item_id.into() }, &command_id);
 
     fn finish_raffle(id: String, command_id: String) -> () =
         |app, owner| service::command(app, owner, &id, Decision::Finish, &command_id);

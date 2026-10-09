@@ -209,7 +209,7 @@ mod tests {
         let doc = rafi_drawing::manifest::Manifest::new(
             "r1",
             rafi_drawing::BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
-            vec!["a".repeat(32)],
+            vec!["a".repeat(32).into()],
             vec![],
         );
         assert!(

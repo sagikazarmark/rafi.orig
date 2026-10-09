@@ -311,16 +311,14 @@ async fn full_raffle_flow() {
 
     // Draw every item; the first winner is not here and the item is redrawn.
     let state = r.drawing().unwrap();
-    let items: Vec<String> = state.items.iter().map(|u| u.id.clone()).collect();
+    let items: Vec<_> = state.items.iter().map(|u| u.id.clone()).collect();
     let mut winners = Vec::new();
     for (i, item) in items.iter().enumerate() {
         service::command(
             &app,
             OWNER,
             &raffle.id,
-            DrawRequest {
-                item_id: item.clone(),
-            },
+            DrawRequest { item: item.clone() },
             &format!("c{i}"),
         )
         .await
@@ -336,7 +334,7 @@ async fn full_raffle_flow() {
                 .unwrap()
                 .item(item)
                 .unwrap()
-                .entrant_id
+                .entrant
                 .clone()
                 .unwrap();
             service::command(
@@ -344,7 +342,7 @@ async fn full_raffle_flow() {
                 OWNER,
                 &raffle.id,
                 Decision::Resolve {
-                    item_id: item.clone(),
+                    item: item.clone(),
                     outcome: Outcome::NotHere,
                 },
                 "nh",
@@ -355,9 +353,7 @@ async fn full_raffle_flow() {
                 &app,
                 OWNER,
                 &raffle.id,
-                DrawRequest {
-                    item_id: item.clone(),
-                },
+                DrawRequest { item: item.clone() },
                 "redraw",
             )
             .await
@@ -372,7 +368,7 @@ async fn full_raffle_flow() {
                     .unwrap()
                     .item(item)
                     .unwrap()
-                    .entrant_id
+                    .entrant
                     .clone()
                     .unwrap(),
                 first
@@ -384,7 +380,7 @@ async fn full_raffle_flow() {
                 .unwrap()
                 .item(item)
                 .unwrap()
-                .entrant_id
+                .entrant
                 .clone()
                 .unwrap(),
         );
@@ -393,7 +389,7 @@ async fn full_raffle_flow() {
             OWNER,
             &raffle.id,
             Decision::Resolve {
-                item_id: item.clone(),
+                item: item.clone(),
                 outcome: Outcome::Claimed,
             },
             &format!("r{i}"),
@@ -413,7 +409,7 @@ async fn full_raffle_flow() {
             OWNER,
             &raffle.id,
             DrawRequest {
-                item_id: items[0].clone(),
+                item: items[0].clone(),
             },
             "x"
         )
@@ -440,7 +436,7 @@ async fn full_raffle_flow() {
     assert!(actions.contains(&"freeze"), "{audit:?}");
     assert!(!actions.contains(&"command"), "{audit:?}");
     assert!(
-        audit.contains(&("draw".into(), items[0].clone())),
+        audit.contains(&("draw".into(), items[0].to_string())),
         "{audit:?}"
     );
     assert!(
@@ -542,7 +538,7 @@ async fn public_view_has_no_personal_data() {
         OWNER,
         &raffle.id,
         DrawRequest {
-            item_id: state.items[0].id.clone(),
+            item: state.items[0].id.clone(),
         },
         "c",
     )
@@ -660,9 +656,7 @@ async fn participant_view_has_no_personal_data() {
         &app,
         OWNER,
         &raffle.id,
-        DrawRequest {
-            item_id: item.clone(),
-        },
+        DrawRequest { item: item.clone() },
         "c",
     )
     .await
@@ -677,12 +671,18 @@ async fn participant_view_has_no_personal_data() {
         .unwrap()
         .item(&item)
         .unwrap()
-        .entrant_id
+        .entrant
         .clone()
         .unwrap();
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
-    let winner = entrants.iter().find(|e| e.id == winner_id).unwrap();
-    let other = entrants.iter().find(|e| e.id != winner_id).unwrap();
+    let winner = entrants
+        .iter()
+        .find(|e| e.id == winner_id.as_str())
+        .unwrap();
+    let other = entrants
+        .iter()
+        .find(|e| e.id != winner_id.as_str())
+        .unwrap();
 
     let (_, _, view) = get_json(&router, &url).await;
     let text = view.to_string();
@@ -705,7 +705,7 @@ async fn participant_view_has_no_personal_data() {
         &app,
         OWNER,
         &raffle.id,
-        &winner_id,
+        winner_id.as_str(),
         crate::model::EntrantPatch {
             hidden: Some(true),
             ..Default::default()
@@ -1119,7 +1119,7 @@ async fn stalled_draw_keeps_its_round() {
     }
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
-    let items: Vec<String> = r
+    let items: Vec<_> = r
         .drawing()
         .unwrap()
         .items
@@ -1132,16 +1132,7 @@ async fn stalled_draw_keeps_its_round() {
         item: &str,
         id: &str,
     ) -> super::service::Result<()> {
-        service::command(
-            app,
-            OWNER,
-            raffle_id,
-            DrawRequest {
-                item_id: item.to_owned(),
-            },
-            id,
-        )
-        .await
+        service::command(app, OWNER, raffle_id, DrawRequest { item: item.into() }, id).await
     }
     let draw = |item: &str, id: &str| {
         let (item, id) = (item.to_owned(), id.to_owned());
@@ -1159,13 +1150,13 @@ async fn stalled_draw_keeps_its_round() {
             .unwrap_or_default()
     };
 
-    draw(&items[0], "d1").await.unwrap();
+    draw(items[0].as_str(), "d1").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 1).await;
     let pending = r.drawing().unwrap().pending.expect("still pending");
 
     // Another item cannot start; this one retries the same round.
-    assert!(draw(&items[1], "d2").await.is_err());
-    draw(&items[0], "d3").await.unwrap();
+    assert!(draw(items[1].as_str(), "d2").await.is_err());
+    draw(items[0].as_str(), "d3").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 2).await;
     let s = r.drawing().unwrap();
     assert_eq!(s.pending.as_ref(), Some(&pending), "same draw, same round");
@@ -1182,14 +1173,14 @@ async fn stalled_draw_keeps_its_round() {
         OWNER,
         &raffle.id,
         Decision::Abandon {
-            item_id: items[0].clone(),
+            item: items[0].clone(),
         },
         "a1",
     )
     .await
     .unwrap();
     // A new draw of the item announces the same draw number on a current round.
-    draw(&items[0], "d4").await.unwrap();
+    draw(items[0].as_str(), "d4").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 3).await;
     let next = r.drawing().unwrap().pending.unwrap();
     assert_eq!(next.k, pending.k, "the abandoned draw's number is reused");
@@ -1230,7 +1221,7 @@ async fn only_handing_over_passes_a_waiting_draw() {
     }
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
-    let items: Vec<String> = r
+    let items: Vec<_> = r
         .drawing()
         .unwrap()
         .items
@@ -1241,29 +1232,29 @@ async fn only_handing_over_passes_a_waiting_draw() {
         let (item, id) = (item.to_owned(), id.to_owned());
         let (app, raffle_id) = (app.clone(), raffle.id.clone());
         async move {
-            let request = DrawRequest { item_id: item };
+            let request = DrawRequest { item: item.into() };
             service::command(&app, OWNER, &raffle_id, request, &id).await
         }
     };
     let resolve = |outcome, id: &str| {
         let id = id.to_owned();
-        let (app, raffle_id, item_id) = (app.clone(), raffle.id.clone(), items[0].clone());
+        let (app, raffle_id, item) = (app.clone(), raffle.id.clone(), items[0].clone());
         async move {
-            let decision = Decision::Resolve { item_id, outcome };
+            let decision = Decision::Resolve { item, outcome };
             service::command(&app, OWNER, &raffle_id, decision, &id).await
         }
     };
 
-    draw(&items[0], "d1").await.unwrap();
+    draw(items[0].as_str(), "d1").await.unwrap();
     wait_long(&app, &raffle.id, |r| {
         r.drawing()
             .is_some_and(|s| s.item(&items[0]).unwrap().status == ItemStatus::Drawn)
     })
     .await;
-    draw(&items[1], "d2").await.unwrap();
+    draw(items[1].as_str(), "d2").await.unwrap();
     wait_for(&app, &raffle.id, |r| {
         r.drawing()
-            .is_some_and(|s| s.pending.as_ref().is_some_and(|p| p.item_id == items[1]))
+            .is_some_and(|s| s.pending.as_ref().is_some_and(|p| p.item == items[1]))
     })
     .await;
     assert!(resolve(Outcome::NotHere, "nh").await.is_err());

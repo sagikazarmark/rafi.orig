@@ -35,7 +35,7 @@ fn doc(entrants: usize) -> Manifest {
     Manifest::new(
         RAFFLE,
         BeaconSource::Drand(rafi_drand::mock_chain().chain().hash()),
-        (0..entrants).map(|i| format!("{i:032x}")).collect(),
+        (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
         vec![
             ItemRef {
                 id: "ticket-1".into(),
@@ -129,7 +129,7 @@ async fn e2e_raffle() {
 
     // Draw; the same idempotency key twice draws once.
     let draw = json!(DrawRequest {
-        item_id: "ticket-1".into(),
+        item: "ticket-1".into(),
     });
     let sent = restate
         .invoke(&call("draw").send(), Some(&draw), Some("draw-1"))
@@ -140,7 +140,7 @@ async fn e2e_raffle() {
         .await;
     assert!(again.status < 300, "{}", again.body);
     let s = projected(&store, |s| {
-        s.item("ticket-1")
+        s.item(&"ticket-1".into())
             .is_some_and(|u| u.status == ItemStatus::Drawn)
     })
     .await;
@@ -150,7 +150,7 @@ async fn e2e_raffle() {
         .filter(|e| matches!(e, Event::Announce { .. }))
         .count();
     assert_eq!(announces, 1, "the idempotency key deduplicated the draw");
-    let first = s.item("ticket-1").unwrap().entrant_id.clone().unwrap();
+    let first = s.item(&"ticket-1".into()).unwrap().entrant.clone().unwrap();
 
     // The draw journals the clock, the projections (each followed by the live
     // channel's best-effort notify) and the beacon under stable names. The
@@ -178,7 +178,7 @@ async fn e2e_raffle() {
         .invoke(
             &call("decide"),
             Some(&json!(Decision::Resolve {
-                item_id: "ticket-1".into(),
+                item: "ticket-1".into(),
                 outcome: Outcome::NotHere,
             })),
             None,
@@ -189,17 +189,17 @@ async fn e2e_raffle() {
         .invoke(&call("draw").send(), Some(&draw), Some("draw-2"))
         .await;
     let s = projected(&store, |s| {
-        s.item("ticket-1")
+        s.item(&"ticket-1".into())
             .is_some_and(|u| u.status == ItemStatus::Drawn)
             && s.next_k == 3
     })
     .await;
     assert_ne!(
-        s.item("ticket-1").unwrap().entrant_id.as_deref(),
-        Some(first.as_str())
+        s.item(&"ticket-1".into()).unwrap().entrant.as_ref(),
+        Some(&first)
     );
     let claim = json!(Decision::Resolve {
-        item_id: "ticket-1".into(),
+        item: "ticket-1".into(),
         outcome: Outcome::Claimed,
     });
     assert_eq!(
@@ -217,7 +217,7 @@ async fn e2e_raffle() {
         .invoke(
             &call("draw"),
             Some(&json!(DrawRequest {
-                item_id: "nope".into(),
+                item: "nope".into(),
             })),
             None,
         )
@@ -229,7 +229,7 @@ async fn e2e_raffle() {
         .invoke(
             &call("decide"),
             Some(&json!(Decision::Void {
-                item_id: "voucher-1".into(),
+                item: "voucher-1".into(),
             })),
             None,
         )
@@ -309,7 +309,7 @@ async fn e2e_stalled_draw() {
             .count()
     };
     let draw = json!(DrawRequest {
-        item_id: "ticket-1".into(),
+        item: "ticket-1".into(),
     });
     restate
         .invoke(&call("draw").send(), Some(&draw), Some("draw-1"))
@@ -319,7 +319,7 @@ async fn e2e_stalled_draw() {
 
     // Another item is refused; this one retries the same round.
     let other = json!(DrawRequest {
-        item_id: "voucher-1".into(),
+        item: "voucher-1".into(),
     });
     let reply = restate.invoke(&call("draw"), Some(&other), None).await;
     assert_eq!(reply.status, 409, "{}", reply.body);
@@ -334,7 +334,7 @@ async fn e2e_stalled_draw() {
         .invoke(
             &call("decide"),
             Some(&json!(Decision::Abandon {
-                item_id: "ticket-1".into(),
+                item: "ticket-1".into(),
             })),
             None,
         )
@@ -390,7 +390,7 @@ async fn e2e_cancelled_draw_stalls() {
     assert_eq!(reply.status, 200, "{}", reply.body);
 
     let draw = serde_json::to_value(DrawRequest {
-        item_id: "ticket-1".into(),
+        item: "ticket-1".into(),
     })
     .unwrap();
     let sent = restate

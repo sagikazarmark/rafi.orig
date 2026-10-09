@@ -39,6 +39,7 @@ use crate::{
     engine::{BeaconOutcome, Decision},
     error::Error,
     hash_from_hex,
+    id::{EntrantId, ItemId},
     manifest::{self, ItemRef, Manifest},
 };
 
@@ -53,12 +54,12 @@ pub enum ItemStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
-    pub id: String,
+    pub id: ItemId,
     pub name: String,
     pub status: ItemStatus,
     /// The draw that currently holds this item (when drawn or claimed).
     pub k: Option<u64>,
-    pub entrant_id: Option<String>,
+    pub entrant: Option<EntrantId>,
 }
 
 /// How a drawn entrant's turn ended.
@@ -79,27 +80,27 @@ pub enum Event {
     /// A draw was started and committed to a future drand round.
     Announce {
         k: u64,
-        item_id: String,
+        item: ItemId,
         round: u64,
         /// Unix time at which the round is published.
         round_time: u64,
     },
     Draw {
         k: u64,
-        item_id: String,
+        item: ItemId,
         round: u64,
         signature: String,
         randomness: String,
         pass: u8,
         pool_size: usize,
         index: usize,
-        entrant_id: String,
+        entrant: EntrantId,
     },
     /// The pending draw's beacon could not be fetched (yet). The draw stays
     /// pending on the same round.
     Stall {
         k: u64,
-        item_id: String,
+        item: ItemId,
         round: u64,
         reason: String,
     },
@@ -108,7 +109,7 @@ pub enum Event {
     #[serde(rename = "fail")]
     Abandon {
         k: u64,
-        item_id: String,
+        item: ItemId,
         round: u64,
         reason: String,
     },
@@ -117,7 +118,7 @@ pub enum Event {
         outcome: Outcome,
     },
     Void {
-        item_id: String,
+        item: ItemId,
     },
     Finish,
 }
@@ -126,7 +127,7 @@ pub enum Event {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pending {
     pub k: u64,
-    pub item_id: String,
+    pub item: ItemId,
     pub round: u64,
     pub round_time: u64,
 }
@@ -139,7 +140,7 @@ pub struct Drawing {
     /// Where the draws' randomness comes from (from the manifest).
     pub beacon: BeaconSource,
     /// Sorted entrant IDs.
-    pub entrants: Vec<String>,
+    pub entrants: Vec<EntrantId>,
     pub items: Vec<Item>,
     pub events: Vec<Event>,
     pub next_k: u64,
@@ -165,8 +166,8 @@ fn check_beacon(committed: &BeaconSource, engine: &BeaconSource) -> Result<(), E
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Drawn {
     pub k: u64,
-    pub item_id: String,
-    pub entrant_id: String,
+    pub item: ItemId,
+    pub entrant: EntrantId,
     pub pass: u8,
 }
 
@@ -260,26 +261,26 @@ impl Drawing {
     /// `finished` and the engine may forget it.
     pub fn decide(&mut self, decision: &Decision) -> Result<(), Error> {
         match decision {
-            Decision::Resolve { item_id, outcome } => self.resolve(item_id, *outcome),
-            Decision::Void { item_id } => self.void(item_id),
-            Decision::Abandon { item_id } => self.abandon_item(item_id),
+            Decision::Resolve { item, outcome } => self.resolve(item, *outcome),
+            Decision::Void { item } => self.void(item),
+            Decision::Abandon { item } => self.abandon_item(item),
             Decision::Finish => self.finish(),
         }
     }
 
-    fn item_mut(&mut self, item_id: &str) -> Result<&mut Item, Error> {
+    fn item_mut(&mut self, id: &ItemId) -> Result<&mut Item, Error> {
         self.items
             .iter_mut()
-            .find(|u| u.id == item_id)
-            .ok_or_else(|| Error::UnknownItem(item_id.to_owned()))
+            .find(|u| u.id == *id)
+            .ok_or_else(|| Error::UnknownItem(id.clone()))
     }
 
-    pub fn item(&self, item_id: &str) -> Option<&Item> {
-        self.items.iter().find(|u| u.id == item_id)
+    pub fn item(&self, id: &ItemId) -> Option<&Item> {
+        self.items.iter().find(|u| u.id == *id)
     }
 
     /// Outcome of every draw so far, keyed by `k`, with the pass and entrant.
-    fn draws(&self) -> Vec<(u64, u8, &str, Outcome)> {
+    fn draws(&self) -> Vec<(u64, u8, &EntrantId, Outcome)> {
         let mut outcomes: HashMap<u64, Outcome> = HashMap::new();
         for e in &self.events {
             if let Event::Resolve { k, outcome } = e {
@@ -290,14 +291,11 @@ impl Drawing {
             .iter()
             .filter_map(|e| match e {
                 Event::Draw {
-                    k,
-                    pass,
-                    entrant_id,
-                    ..
+                    k, pass, entrant, ..
                 } => Some((
                     *k,
                     *pass,
-                    entrant_id.as_str(),
+                    entrant,
                     outcomes.get(k).copied().unwrap_or(Outcome::Drawn),
                 )),
                 _ => None,
@@ -306,29 +304,31 @@ impl Drawing {
     }
 
     /// The pool for the next draw: `(pass, sorted entrant IDs)`.
-    pub fn pool(&self) -> (u8, Vec<String>) {
+    pub fn pool(&self) -> (u8, Vec<EntrantId>) {
         let draws = self.draws();
-        let drawn_pass1: HashSet<&str> = draws.iter().filter(|d| d.1 == 1).map(|d| d.2).collect();
-        let pass1: Vec<String> = self
+        let drawn_pass1: HashSet<&EntrantId> =
+            draws.iter().filter(|d| d.1 == 1).map(|d| d.2).collect();
+        let pass1: Vec<EntrantId> = self
             .entrants
             .iter()
-            .filter(|e| !drawn_pass1.contains(e.as_str()))
+            .filter(|e| !drawn_pass1.contains(e))
             .cloned()
             .collect();
         if !pass1.is_empty() {
             return (1, pass1);
         }
 
-        let winners: HashSet<&str> = draws
+        let winners: HashSet<&EntrantId> = draws
             .iter()
             .filter(|d| d.1 == 1 && matches!(d.3, Outcome::Drawn | Outcome::Claimed))
             .map(|d| d.2)
             .collect();
-        let drawn_pass2: HashSet<&str> = draws.iter().filter(|d| d.1 == 2).map(|d| d.2).collect();
+        let drawn_pass2: HashSet<&EntrantId> =
+            draws.iter().filter(|d| d.1 == 2).map(|d| d.2).collect();
         let pass2 = self
             .entrants
             .iter()
-            .filter(|e| winners.contains(e.as_str()) && !drawn_pass2.contains(e.as_str()))
+            .filter(|e| winners.contains(e) && !drawn_pass2.contains(e))
             .cloned()
             .collect();
         (2, pass2)
@@ -342,38 +342,39 @@ impl Drawing {
             .count()
     }
 
-    /// Starts a draw for `item_id`, committing to drand `round`.
+    /// Starts a draw for `item`, committing to drand `round`.
     ///
     /// Calling it again for the same item while that draw is pending returns
     /// the existing pending draw (idempotent).
-    pub fn begin(&mut self, item_id: &str, round: u64, round_time: u64) -> Result<Pending, Error> {
+    pub fn begin(&mut self, item: &ItemId, round: u64, round_time: u64) -> Result<Pending, Error> {
         if self.finished {
             return Err(Error::Finished);
         }
         if let Some(p) = &self.pending {
-            if p.item_id == item_id {
+            if p.item == *item {
                 return Ok(p.clone());
             }
             return Err(Error::DrawInProgress);
         }
-        let item = self
-            .item(item_id)
-            .ok_or_else(|| Error::UnknownItem(item_id.to_owned()))?;
-        if item.status != ItemStatus::Pending {
-            return Err(Error::ItemNotPending(item_id.to_owned()));
+        let status = self
+            .item(item)
+            .ok_or_else(|| Error::UnknownItem(item.clone()))?
+            .status;
+        if status != ItemStatus::Pending {
+            return Err(Error::ItemNotPending(item.clone()));
         }
         if self.pool().1.is_empty() {
             return Err(Error::NoEligibleEntrants);
         }
         let pending = Pending {
             k: self.next_k,
-            item_id: item_id.to_owned(),
+            item: item.clone(),
             round,
             round_time,
         };
         self.events.push(Event::Announce {
             k: pending.k,
-            item_id: pending.item_id.clone(),
+            item: pending.item.clone(),
             round,
             round_time,
         });
@@ -434,31 +435,31 @@ impl Drawing {
             return Err(Error::NoEligibleEntrants);
         }
         let index = draw::select(&randomness, &manifest_hash, pending.k, pool.len());
-        let entrant_id = pool[index].clone();
+        let entrant = pool[index].clone();
 
-        let item = self.item_mut(&pending.item_id)?;
+        let item = self.item_mut(&pending.item)?;
         item.status = ItemStatus::Drawn;
         item.k = Some(pending.k);
-        item.entrant_id = Some(entrant_id.clone());
+        item.entrant = Some(entrant.clone());
 
         self.events.push(Event::Draw {
             k: pending.k,
-            item_id: pending.item_id.clone(),
+            item: pending.item.clone(),
             round: pending.round,
             signature,
             randomness: hex::encode(randomness),
             pass,
             pool_size: pool.len(),
             index,
-            entrant_id: entrant_id.clone(),
+            entrant: entrant.clone(),
         });
         self.pending = None;
         self.next_k += 1;
         self.version += 1;
         Ok(Drawn {
             k: pending.k,
-            item_id: pending.item_id,
-            entrant_id,
+            item: pending.item,
+            entrant,
             pass,
         })
     }
@@ -471,7 +472,7 @@ impl Drawing {
         let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
         self.events.push(Event::Stall {
             k: pending.k,
-            item_id: pending.item_id,
+            item: pending.item,
             round: pending.round,
             reason: reason.to_owned(),
         });
@@ -486,7 +487,7 @@ impl Drawing {
         let pending = self.pending.take().ok_or(Error::NoDrawInProgress)?;
         self.events.push(Event::Abandon {
             k: pending.k,
-            item_id: pending.item_id,
+            item: pending.item,
             round: pending.round,
             reason: reason.to_owned(),
         });
@@ -495,9 +496,9 @@ impl Drawing {
     }
 
     /// [`Drawing::abandon`] for the organizer's command, which names the item.
-    pub fn abandon_item(&mut self, item_id: &str) -> Result<(), Error> {
+    pub fn abandon_item(&mut self, item: &ItemId) -> Result<(), Error> {
         match &self.pending {
-            Some(p) if p.item_id == item_id => self.abandon("abandoned by the organizer"),
+            Some(p) if p.item == *item => self.abandon("abandoned by the organizer"),
             _ => Err(Error::NoDrawInProgress),
         }
     }
@@ -507,16 +508,16 @@ impl Drawing {
     /// `Claimed` keeps the item with the winner. `NotHere` and `Declined` put
     /// the item back to pending so it can be drawn again; they are refused
     /// while a draw is pending, because they can change its pool.
-    pub fn resolve(&mut self, item_id: &str, outcome: Outcome) -> Result<(), Error> {
+    pub fn resolve(&mut self, id: &ItemId, outcome: Outcome) -> Result<(), Error> {
         if outcome == Outcome::Drawn {
             return Err(Error::BadOutcome);
         }
         if outcome != Outcome::Claimed && self.pending.is_some() {
             return Err(Error::DrawInProgress);
         }
-        let item = self.item_mut(item_id)?;
+        let item = self.item_mut(id)?;
         if item.status != ItemStatus::Drawn {
-            return Err(Error::ItemNotDrawn(item_id.to_owned()));
+            return Err(Error::ItemNotDrawn(id.clone()));
         }
         let k = item.k.expect("drawn item has k");
         match outcome {
@@ -524,7 +525,7 @@ impl Drawing {
             _ => {
                 item.status = ItemStatus::Pending;
                 item.k = None;
-                item.entrant_id = None;
+                item.entrant = None;
             }
         }
         self.events.push(Event::Resolve { k, outcome });
@@ -533,18 +534,16 @@ impl Drawing {
     }
 
     /// Withdraws a item that will not be given away (e.g. the sponsor did not bring it).
-    pub fn void(&mut self, item_id: &str) -> Result<(), Error> {
-        if self.pending.as_ref().is_some_and(|p| p.item_id == item_id) {
+    pub fn void(&mut self, id: &ItemId) -> Result<(), Error> {
+        if self.pending.as_ref().is_some_and(|p| p.item == *id) {
             return Err(Error::DrawInProgress);
         }
-        let item = self.item_mut(item_id)?;
+        let item = self.item_mut(id)?;
         if item.status != ItemStatus::Pending {
-            return Err(Error::ItemNotPending(item_id.to_owned()));
+            return Err(Error::ItemNotPending(id.clone()));
         }
         item.status = ItemStatus::Voided;
-        self.events.push(Event::Void {
-            item_id: item_id.to_owned(),
-        });
+        self.events.push(Event::Void { item: id.clone() });
         self.version += 1;
         Ok(())
     }
@@ -563,21 +562,21 @@ impl Drawing {
     }
 
     /// The final outcome for every entrant who has been drawn (latest draw wins).
-    pub fn entrant_outcomes(&self) -> HashMap<String, (Outcome, String)> {
-        let mut item_by_k: HashMap<u64, &str> = HashMap::new();
+    pub fn entrant_outcomes(&self) -> HashMap<EntrantId, (Outcome, ItemId)> {
+        let mut item_by_k: HashMap<u64, &ItemId> = HashMap::new();
         for e in &self.events {
-            if let Event::Draw { k, item_id, .. } = e {
-                item_by_k.insert(*k, item_id);
+            if let Event::Draw { k, item, .. } = e {
+                item_by_k.insert(*k, item);
             }
         }
         let mut out = HashMap::new();
         for (k, _, entrant, outcome) in self.draws() {
-            let item = item_by_k.get(&k).copied().unwrap_or_default().to_owned();
+            let item = item_by_k[&k].clone();
             // Keep a claimed or undecided outcome over a later pass-2 forfeit.
             match out.get(entrant) {
                 Some((Outcome::Claimed, _)) if outcome != Outcome::Claimed => {}
                 _ => {
-                    out.insert(entrant.to_owned(), (outcome, item));
+                    out.insert(entrant.clone(), (outcome, item));
                 }
             }
         }
@@ -592,7 +591,7 @@ impl Item {
             name: u.name.clone(),
             status: ItemStatus::Pending,
             k: None,
-            entrant_id: None,
+            entrant: None,
         }
     }
 }
@@ -630,10 +629,10 @@ pub(crate) mod tests {
         Manifest::new(
             "drawing",
             source(),
-            (0..n).map(|i| format!("{i:032x}")).collect(),
+            (0..n).map(|i| format!("{i:032x}").into()).collect(),
             (0..items)
                 .map(|i| ItemRef {
-                    id: format!("u{i}"),
+                    id: format!("u{i}").into(),
                     name: "Prize".into(),
                 })
                 .collect(),
@@ -641,7 +640,7 @@ pub(crate) mod tests {
     }
 
     fn draw(s: &mut Drawing, item: &str, round: u64) -> Drawn {
-        s.begin(item, round, 0).unwrap();
+        s.begin(&item.into(), round, 0).unwrap();
         s.complete(&beacon(round)).unwrap()
     }
 
@@ -649,11 +648,11 @@ pub(crate) mod tests {
     fn one_win_per_person() {
         let mut s = Drawing::open(&doc(3, 3));
         let mut winners = HashSet::new();
-        for (i, u) in ["u0", "u1", "u2"].iter().enumerate() {
+        for (i, u) in ["u0", "u1", "u2"].into_iter().enumerate() {
             let d = draw(&mut s, u, 100 + i as u64);
             assert_eq!(d.pass, 1);
-            assert!(winners.insert(d.entrant_id));
-            s.resolve(u, Outcome::Claimed).unwrap();
+            assert!(winners.insert(d.entrant));
+            s.resolve(&u.into(), Outcome::Claimed).unwrap();
         }
         assert_eq!(s.items_left(), 0);
     }
@@ -662,47 +661,47 @@ pub(crate) mod tests {
     fn not_here_is_out_and_unit_is_redrawn() {
         let mut s = Drawing::open(&doc(2, 1));
         let first = draw(&mut s, "u0", 1);
-        s.resolve("u0", Outcome::NotHere).unwrap();
-        assert_eq!(s.item("u0").unwrap().status, ItemStatus::Pending);
+        s.resolve(&"u0".into(), Outcome::NotHere).unwrap();
+        assert_eq!(s.item(&"u0".into()).unwrap().status, ItemStatus::Pending);
         let second = draw(&mut s, "u0", 2);
-        assert_ne!(first.entrant_id, second.entrant_id);
-        s.resolve("u0", Outcome::NotHere).unwrap();
+        assert_ne!(first.entrant, second.entrant);
+        s.resolve(&"u0".into(), Outcome::NotHere).unwrap();
         // Both entrants were drawn and forfeited: nobody is left.
-        assert_eq!(s.begin("u0", 3, 0), Err(Error::NoEligibleEntrants));
+        assert_eq!(s.begin(&"u0".into(), 3, 0), Err(Error::NoEligibleEntrants));
     }
 
     #[test]
     fn pass_two_only_includes_winners() {
         let mut s = Drawing::open(&doc(2, 3));
         let a = draw(&mut s, "u0", 1);
-        s.resolve("u0", Outcome::Claimed).unwrap();
+        s.resolve(&"u0".into(), Outcome::Claimed).unwrap();
         draw(&mut s, "u1", 2);
-        s.resolve("u1", Outcome::Declined).unwrap();
+        s.resolve(&"u1".into(), Outcome::Declined).unwrap();
         // Pass 1 exhausted; only the claimed winner is in pass 2.
         let (pass, pool) = s.pool();
         assert_eq!(pass, 2);
-        assert_eq!(pool, vec![a.entrant_id.clone()]);
+        assert_eq!(pool, vec![a.entrant.clone()]);
         let c = draw(&mut s, "u1", 3);
-        assert_eq!(c.entrant_id, a.entrant_id);
+        assert_eq!(c.entrant, a.entrant);
         assert_eq!(c.pass, 2);
-        s.resolve("u1", Outcome::Claimed).unwrap();
-        assert_eq!(s.begin("u2", 4, 0), Err(Error::NoEligibleEntrants));
+        s.resolve(&"u1".into(), Outcome::Claimed).unwrap();
+        assert_eq!(s.begin(&"u2".into(), 4, 0), Err(Error::NoEligibleEntrants));
     }
 
     #[test]
     fn begin_is_idempotent_and_exclusive() {
         let mut s = Drawing::open(&doc(5, 2));
-        let p1 = s.begin("u0", 10, 0).unwrap();
-        let p2 = s.begin("u0", 11, 0).unwrap();
+        let p1 = s.begin(&"u0".into(), 10, 0).unwrap();
+        let p2 = s.begin(&"u0".into(), 11, 0).unwrap();
         assert_eq!(p1, p2);
-        assert_eq!(s.begin("u1", 10, 0), Err(Error::DrawInProgress));
-        assert_eq!(s.void("u0"), Err(Error::DrawInProgress));
+        assert_eq!(s.begin(&"u1".into(), 10, 0), Err(Error::DrawInProgress));
+        assert_eq!(s.void(&"u0".into()), Err(Error::DrawInProgress));
     }
 
     #[test]
     fn wrong_round_or_chain_beacon_is_rejected() {
         let mut s = Drawing::open(&doc(5, 1));
-        s.begin("u0", 10, 0).unwrap();
+        s.begin(&"u0".into(), 10, 0).unwrap();
         assert_eq!(
             s.complete(&beacon(11)),
             Err(Error::WrongRound {
@@ -718,12 +717,12 @@ pub(crate) mod tests {
     #[test]
     fn a_stall_keeps_the_draw_on_its_round() {
         let mut s = Drawing::open(&doc(5, 2));
-        let p = s.begin("u0", 10, 0).unwrap();
+        let p = s.begin(&"u0".into(), 10, 0).unwrap();
         s.stall("drand unavailable").unwrap();
         assert_eq!(s.pending.as_ref(), Some(&p));
         // Retrying returns the same pending draw, even with a new round asked for.
-        assert_eq!(s.begin("u0", 99, 0).unwrap(), p);
-        assert_eq!(s.begin("u1", 99, 0), Err(Error::DrawInProgress));
+        assert_eq!(s.begin(&"u0".into(), 99, 0).unwrap(), p);
+        assert_eq!(s.begin(&"u1".into(), 99, 0), Err(Error::DrawInProgress));
         let d = s.complete(&beacon(10)).unwrap();
         assert_eq!(d.k, 1);
     }
@@ -731,10 +730,10 @@ pub(crate) mod tests {
     #[test]
     fn abandon_keeps_k_and_returns_unit() {
         let mut s = Drawing::open(&doc(5, 1));
-        s.begin("u0", 10, 0).unwrap();
+        s.begin(&"u0".into(), 10, 0).unwrap();
         s.abandon("organizer abandoned the draw").unwrap();
         assert_eq!(s.next_k, 1);
-        assert_eq!(s.item("u0").unwrap().status, ItemStatus::Pending);
+        assert_eq!(s.item(&"u0".into()).unwrap().status, ItemStatus::Pending);
         let d = draw(&mut s, "u0", 12);
         assert_eq!(d.k, 1);
     }
@@ -745,17 +744,17 @@ pub(crate) mod tests {
         draw(&mut s, "u0", 1);
         draw(&mut s, "u1", 2);
         // Pass 2 is next; its pool depends on the pass-1 outcomes.
-        s.begin("u2", 3, 0).unwrap();
+        s.begin(&"u2".into(), 3, 0).unwrap();
         let before = s.pool();
         assert_eq!(
-            s.resolve("u0", Outcome::NotHere),
+            s.resolve(&"u0".into(), Outcome::NotHere),
             Err(Error::DrawInProgress)
         );
         assert_eq!(
-            s.resolve("u0", Outcome::Declined),
+            s.resolve(&"u0".into(), Outcome::Declined),
             Err(Error::DrawInProgress)
         );
-        s.resolve("u0", Outcome::Claimed).unwrap();
+        s.resolve(&"u0".into(), Outcome::Claimed).unwrap();
         assert_eq!(s.pool(), before);
         assert_eq!(s.finish(), Err(Error::DrawInProgress));
     }
@@ -763,18 +762,21 @@ pub(crate) mod tests {
     #[test]
     fn void_and_finish() {
         let mut s = Drawing::open(&doc(5, 2));
-        s.void("u1").unwrap();
+        s.void(&"u1".into()).unwrap();
         assert_eq!(s.items_left(), 1);
-        assert_eq!(s.void("u1"), Err(Error::ItemNotPending("u1".into())));
+        assert_eq!(
+            s.void(&"u1".into()),
+            Err(Error::ItemNotPending("u1".into()))
+        );
         s.finish().unwrap();
-        assert_eq!(s.begin("u0", 1, 0), Err(Error::Finished));
+        assert_eq!(s.begin(&"u0".into(), 1, 0), Err(Error::Finished));
     }
 
     #[test]
     fn version_increases_on_every_change() {
         let mut s = Drawing::open(&doc(5, 1));
         let v0 = s.version;
-        s.begin("u0", 1, 0).unwrap();
+        s.begin(&"u0".into(), 1, 0).unwrap();
         let v1 = s.version;
         s.stall("x").unwrap();
         let v2 = s.version;
@@ -826,7 +828,7 @@ pub(crate) mod tests {
     #[test]
     fn conclude_completes_or_stalls_on_the_same_round() {
         let mut s = Drawing::open(&doc(5, 2));
-        let p = s.begin("u0", 10, 0).unwrap();
+        let p = s.begin(&"u0".into(), 10, 0).unwrap();
 
         assert_eq!(s.conclude(BeaconOutcome::Verified(beacon(11))), Ok(None));
         assert!(s.stalled());
@@ -860,12 +862,12 @@ pub(crate) mod tests {
     #[test]
     fn a_new_announcement_after_an_abandon_is_not_stalled() {
         let mut s = Drawing::open(&doc(5, 1));
-        s.begin("u0", 10, 0).unwrap();
+        s.begin(&"u0".into(), 10, 0).unwrap();
         s.stall("x").unwrap();
         s.abandon("organizer").unwrap();
         assert!(!s.stalled());
         // The same k, announced again.
-        s.begin("u0", 12, 0).unwrap();
+        s.begin(&"u0".into(), 12, 0).unwrap();
         assert!(!s.stalled());
     }
 
@@ -874,18 +876,13 @@ pub(crate) mod tests {
         let mut s = Drawing::open(&doc(5, 2));
         draw(&mut s, "u0", 1);
         let resolve = Decision::Resolve {
-            item_id: "u0".into(),
+            item: "u0".into(),
             outcome: Outcome::Claimed,
         };
         s.decide(&resolve).unwrap();
-        s.decide(&Decision::Void {
-            item_id: "u1".into(),
-        })
-        .unwrap();
+        s.decide(&Decision::Void { item: "u1".into() }).unwrap();
         assert_eq!(
-            s.decide(&Decision::Abandon {
-                item_id: "u1".into()
-            }),
+            s.decide(&Decision::Abandon { item: "u1".into() }),
             Err(Error::NoDrawInProgress)
         );
         s.decide(&Decision::Finish).unwrap();
@@ -907,7 +904,7 @@ pub(crate) mod tests {
     fn an_abandon_is_published_as_fail() {
         let e = Event::Abandon {
             k: 1,
-            item_id: "u0".into(),
+            item: "u0".into(),
             round: 10,
             reason: "x".into(),
         };

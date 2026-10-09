@@ -9,7 +9,10 @@
 use std::collections::HashMap;
 
 use crate::{Db, Result, dialect};
-use rafi_drawing::drawing::{Drawing, Event, ItemStatus, Outcome};
+use rafi_drawing::{
+    ItemId,
+    drawing::{Drawing, Event, ItemStatus, Outcome},
+};
 use rafi_live::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
 use serde::Deserialize;
 
@@ -129,10 +132,10 @@ impl Snapshot {
         let Some(s) = &self.drawing else {
             return ParticipantView::new(self.version, self.state, None, [], self.prize_qty);
         };
-        let item_name = |item_id: &str| {
+        let item_name = |id: &ItemId| {
             s.items
                 .iter()
-                .find(|u| u.id == item_id)
+                .find(|u| u.id == *id)
                 .map(|u| u.name.clone())
                 .unwrap_or_default()
         };
@@ -144,18 +147,18 @@ impl Snapshot {
         }
         let draws = s.events.iter().filter_map(|e| match e {
             Event::Draw {
-                k,
-                item_id,
-                entrant_id,
-                ..
+                k, item, entrant, ..
             } => Some(DrawInput {
-                entrant_id: entrant_id.clone(),
+                entrant_id: entrant.to_string(),
                 display_name: self
                     .names
-                    .get(entrant_id)
+                    .get(entrant.as_str())
                     .cloned()
-                    .unwrap_or_else(|| format!("#{}", &entrant_id[..entrant_id.len().min(6)])),
-                prize_name: item_name(item_id),
+                    .unwrap_or_else(|| {
+                        let id = entrant.as_str();
+                        format!("#{}", &id[..id.len().min(6)])
+                    }),
+                prize_name: item_name(item),
                 outcome: match outcomes.get(k).copied().unwrap_or(Outcome::Drawn) {
                     Outcome::Drawn => DrawOutcome::Drawn,
                     Outcome::Claimed => DrawOutcome::Claimed,
@@ -166,7 +169,7 @@ impl Snapshot {
             _ => None,
         });
         let current = s.pending.as_ref().map(|p| Current {
-            prize_name: item_name(&p.item_id),
+            prize_name: item_name(&p.item),
             round: p.round,
             round_time: p.round_time,
         });
@@ -195,7 +198,7 @@ mod tests {
         let doc = Manifest::new(
             "r1",
             rafi_drawing::BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
-            vec!["a".repeat(32), "b".repeat(32)],
+            vec!["a".repeat(32).into(), "b".repeat(32).into()],
             vec![
                 ItemRef {
                     id: "u1".into(),
@@ -242,19 +245,19 @@ mod tests {
         let k = state.next_k;
         state.events.push(Event::Draw {
             k,
-            item_id: item.into(),
+            item: item.into(),
             round: 1,
             signature: String::new(),
             randomness: String::new(),
             pass: 1,
             pool_size: 2,
             index: 0,
-            entrant_id: entrant.into(),
+            entrant: entrant.into(),
         });
         state.next_k += 1;
         let u = state.items.iter_mut().find(|u| u.id == item).unwrap();
         u.status = ItemStatus::Drawn;
-        u.entrant_id = Some(entrant.into());
+        u.entrant = Some(entrant.into());
         u.k = Some(k);
         k
     }

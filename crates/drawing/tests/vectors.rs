@@ -91,7 +91,7 @@ fn generate() -> Vectors {
     }
 
     let entrants = (0..12)
-        .map(|i| hex::encode(&h(&format!("entrant-{i}"))[..16]))
+        .map(|i| hex::encode(&h(&format!("entrant-{i}"))[..16]).into())
         .collect();
     let items = vec![
         ItemRef {
@@ -118,25 +118,25 @@ fn generate() -> Vectors {
         items,
     );
     let mut s = Drawing::open(&doc);
-    s.begin("u-voucher-1", 1000, 0).unwrap();
+    s.begin(&"u-voucher-1".into(), 1000, 0).unwrap();
     s.complete(&beacon(1000)).unwrap();
-    s.resolve("u-voucher-1", Outcome::NotHere).unwrap();
-    s.begin("u-voucher-1", 1003, 0).unwrap();
+    s.resolve(&"u-voucher-1".into(), Outcome::NotHere).unwrap();
+    s.begin(&"u-voucher-1".into(), 1003, 0).unwrap();
     s.abandon("abandoned by the organizer").unwrap();
-    s.begin("u-voucher-1", 1005, 0).unwrap();
+    s.begin(&"u-voucher-1".into(), 1005, 0).unwrap();
     s.stall("drand unavailable").unwrap();
     s.complete(&beacon(1005)).unwrap();
-    s.resolve("u-voucher-1", Outcome::Claimed).unwrap();
-    s.begin("u-ticket-1", 1010, 0).unwrap();
+    s.resolve(&"u-voucher-1".into(), Outcome::Claimed).unwrap();
+    s.begin(&"u-ticket-1".into(), 1010, 0).unwrap();
     s.complete(&beacon(1010)).unwrap();
-    s.resolve("u-ticket-1", Outcome::Declined).unwrap();
-    s.begin("u-ticket-1", 1012, 0).unwrap();
+    s.resolve(&"u-ticket-1".into(), Outcome::Declined).unwrap();
+    s.begin(&"u-ticket-1".into(), 1012, 0).unwrap();
     s.complete(&beacon(1012)).unwrap();
-    s.resolve("u-ticket-1", Outcome::Claimed).unwrap();
-    s.void("u-gift-1").unwrap();
-    s.begin("u-ticket-2", 1020, 0).unwrap();
+    s.resolve(&"u-ticket-1".into(), Outcome::Claimed).unwrap();
+    s.void(&"u-gift-1".into()).unwrap();
+    s.begin(&"u-ticket-2".into(), 1020, 0).unwrap();
     s.complete(&beacon(1020)).unwrap();
-    s.resolve("u-ticket-2", Outcome::Claimed).unwrap();
+    s.resolve(&"u-ticket-2".into(), Outcome::Claimed).unwrap();
     s.finish().unwrap();
 
     Vectors {

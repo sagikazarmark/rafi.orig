@@ -12,17 +12,18 @@ use crate::{
     beacon::BeaconSource,
     drand::{Beacon, ChainHash, ChainInfo, Verifier, chains},
     drawing::{Drawing, Event},
+    id::{EntrantId, ItemId},
     manifest::{self, Manifest},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrawCheck {
     pub k: u64,
-    pub item_id: String,
+    pub item: ItemId,
     pub round: u64,
     pub pool_size: usize,
-    pub expected_entrant: String,
-    pub published_entrant: String,
+    pub expected_entrant: EntrantId,
+    pub published_entrant: EntrantId,
     pub ok: bool,
 }
 
@@ -32,11 +33,11 @@ pub struct DrawCheck {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommittedRound {
     pub k: u64,
-    pub item_id: String,
+    pub item: ItemId,
     pub round: u64,
     pub pass: u8,
     /// The pool at the time, sorted (as the algorithm indexes it).
-    pub pool: Vec<String>,
+    pub pool: Vec<EntrantId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,7 +146,7 @@ pub fn verify(
         let result = match event {
             Event::Announce {
                 k,
-                item_id,
+                item,
                 round,
                 round_time,
             } => {
@@ -155,7 +156,7 @@ pub fn verify(
                         .push(format!("draw {k}: announced while draw {} is pending", p.k));
                     continue;
                 }
-                match state.begin(item_id, *round, *round_time) {
+                match state.begin(item, *round, *round_time) {
                     Ok(p) if p.k != *k => {
                         report
                             .errors
@@ -167,18 +168,18 @@ pub fn verify(
             }
             Event::Draw {
                 k,
-                item_id,
+                item,
                 round,
                 signature,
                 randomness,
                 pool_size,
-                entrant_id,
+                entrant,
                 pass,
                 ..
             } => {
                 // A draw must settle the announced draw, on its committed round.
                 match &state.pending {
-                    Some(p) if p.k == *k && p.item_id == *item_id && p.round == *round => {}
+                    Some(p) if p.k == *k && p.item == *item && p.round == *round => {}
                     _ => {
                         report.errors.push(format!(
                             "draw {k}: does not match the announced draw (item or round changed)"
@@ -220,15 +221,15 @@ pub fn verify(
                         };
                         report.draws.push(DrawCheck {
                             k: *k,
-                            item_id: item_id.clone(),
+                            item: item.clone(),
                             round: *round,
                             pool_size: pool,
-                            ok: d.entrant_id == *entrant_id
+                            ok: d.entrant == *entrant
                                 && d.k == *k
                                 && d.pass == *pass
                                 && pool == *pool_size,
-                            expected_entrant: d.entrant_id,
-                            published_entrant: entrant_id.clone(),
+                            expected_entrant: d.entrant,
+                            published_entrant: entrant.clone(),
                         });
                         Ok(())
                     }
@@ -248,12 +249,12 @@ pub fn verify(
             },
             Event::Abandon {
                 k,
-                item_id,
+                item,
                 round,
                 reason,
             } => {
                 match &state.pending {
-                    Some(p) if p.k == *k && p.item_id == *item_id && p.round == *round => {}
+                    Some(p) if p.k == *k && p.item == *item && p.round == *round => {}
                     _ => {
                         report
                             .errors
@@ -278,7 +279,7 @@ pub fn verify(
                     }
                 }
             }
-            Event::Void { item_id } => state.void(item_id),
+            Event::Void { item } => state.void(item),
             Event::Finish => state.finish(),
         };
         if let Err(e) = result {
@@ -294,7 +295,7 @@ fn record_abandoned(report: &mut Report, state: &Drawing) {
         let (pass, pool) = state.pool();
         report.abandoned.push(CommittedRound {
             k: p.k,
-            item_id: p.item_id.clone(),
+            item: p.item.clone(),
             round: p.round,
             pass,
             pool,
@@ -322,10 +323,10 @@ mod tests {
         let doc = Manifest::new(
             "r",
             BeaconSource::Drand(test_chain().chain().hash()),
-            (0..10).map(|i| format!("{i:032x}")).collect(),
+            (0..10).map(|i| format!("{i:032x}").into()).collect(),
             (0..3)
                 .map(|i| ItemRef {
-                    id: format!("u{i}"),
+                    id: format!("u{i}").into(),
                     name: "Prize".into(),
                 })
                 .collect(),
@@ -337,18 +338,18 @@ mod tests {
     #[test]
     fn honest_log_verifies() {
         let (doc, mut s) = setup();
-        s.begin("u0", 1, 0).unwrap();
+        s.begin(&"u0".into(), 1, 0).unwrap();
         s.complete(&beacon(1)).unwrap();
-        s.resolve("u0", Outcome::NotHere).unwrap();
-        s.begin("u0", 2, 0).unwrap();
+        s.resolve(&"u0".into(), Outcome::NotHere).unwrap();
+        s.begin(&"u0".into(), 2, 0).unwrap();
         s.stall("drand unavailable").unwrap();
         s.abandon("abandoned by the organizer").unwrap();
-        s.begin("u0", 3, 0).unwrap();
+        s.begin(&"u0".into(), 3, 0).unwrap();
         s.stall("timeout").unwrap();
         s.complete(&beacon(3)).unwrap();
-        s.resolve("u0", Outcome::Claimed).unwrap();
-        s.void("u1").unwrap();
-        s.begin("u2", 4, 0).unwrap();
+        s.resolve(&"u0".into(), Outcome::Claimed).unwrap();
+        s.void(&"u1".into()).unwrap();
+        s.begin(&"u2".into(), 4, 0).unwrap();
         s.complete(&beacon(4)).unwrap();
         s.finish().unwrap();
 
@@ -363,7 +364,7 @@ mod tests {
     #[test]
     fn unknown_chain_replays_but_is_not_ok() {
         let (doc, mut s) = setup();
-        s.begin("u0", 1, 0).unwrap();
+        s.begin(&"u0".into(), 1, 0).unwrap();
         s.complete(&beacon(1)).unwrap();
         let report = verify_public(&doc.canonical_json(), &s.manifest_hash, &s.events);
         assert!(report.chain_unknown());
@@ -375,7 +376,7 @@ mod tests {
     #[test]
     fn forged_beacon_is_detected() {
         let (doc, mut s) = setup();
-        s.begin("u0", 1, 0).unwrap();
+        s.begin(&"u0".into(), 1, 0).unwrap();
         s.complete(&beacon(1)).unwrap();
         let mut events = s.events.clone();
         if let Some(Event::Draw {
@@ -398,12 +399,12 @@ mod tests {
     #[test]
     fn silent_round_switch_is_detected() {
         let (doc, mut s) = setup();
-        s.begin("u0", 1, 0).unwrap();
+        s.begin(&"u0".into(), 1, 0).unwrap();
         s.complete(&beacon(1)).unwrap();
         // A forged log drawing from round 2 although round 1 was announced:
         // a genuine beacon, but a redraw on a new round.
         let mut forged = Drawing::open(&doc);
-        forged.begin("u0", 2, 0).unwrap();
+        forged.begin(&"u0".into(), 2, 0).unwrap();
         forged.complete(&beacon(2)).unwrap();
         let mut events = s.events[..1].to_vec();
         events.push(forged.events[1].clone());
@@ -425,11 +426,11 @@ mod tests {
     #[test]
     fn tampered_winner_is_detected() {
         let (doc, mut s) = setup();
-        s.begin("u0", 1, 0).unwrap();
+        s.begin(&"u0".into(), 1, 0).unwrap();
         s.complete(&beacon(1)).unwrap();
         let mut events = s.events.clone();
-        if let Some(Event::Draw { entrant_id, .. }) = events.last_mut() {
-            *entrant_id = "f".repeat(32);
+        if let Some(Event::Draw { entrant, .. }) = events.last_mut() {
+            *entrant = "f".repeat(32).into();
         }
         let report = verify(&doc.canonical_json(), &s.manifest_hash, &events, resolve);
         assert!(!report.ok());
@@ -454,20 +455,20 @@ mod tests {
         let doc = Manifest::new(
             "r",
             BeaconSource::Drand(test_chain().chain().hash()),
-            (0..2).map(|i| format!("{i:032x}")).collect(),
+            (0..2).map(|i| format!("{i:032x}").into()).collect(),
             (0..3)
                 .map(|i| ItemRef {
-                    id: format!("u{i}"),
+                    id: format!("u{i}").into(),
                     name: "Prize".into(),
                 })
                 .collect(),
         );
         let mut s = Drawing::open(&doc);
-        s.begin("u0", 1, 0).unwrap();
+        s.begin(&"u0".into(), 1, 0).unwrap();
         s.complete(&beacon(1)).unwrap();
-        s.begin("u1", 2, 0).unwrap();
+        s.begin(&"u1".into(), 2, 0).unwrap();
         s.complete(&beacon(2)).unwrap();
-        s.begin("u2", 3, 0).unwrap();
+        s.begin(&"u2".into(), 3, 0).unwrap();
         // A forged log: "not here" while the pass-2 draw is pending.
         let mut events = s.events.clone();
         events.push(Event::Resolve {

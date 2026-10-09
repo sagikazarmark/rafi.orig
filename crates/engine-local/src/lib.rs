@@ -266,12 +266,12 @@ impl Io {
                 }
                 Ok(())
             }
-            Work::Draw(DrawRequest { item_id }) => {
+            Work::Draw(DrawRequest { item }) => {
                 let s = state.as_mut().ok_or(DrawingError::NotOpen)?;
                 s.check_beacon(&beacon)?;
                 let (round, round_time) = self.drand.target_round((self.clock)());
                 // A pending draw for this item (e.g. stalled) is re-entered on its round.
-                let pending = s.begin(&item_id, round, round_time)?;
+                let pending = s.begin(&item, round, round_time)?;
                 // The commitment is recorded before the beacon is asked for.
                 self.project(s).await;
                 let outcome = match self.drand.wait_for(pending.round).await {
@@ -370,12 +370,10 @@ mod tests {
         assert_eq!(engine.info().await.unwrap().beacon, doc.beacon);
         engine.open(&doc).await.unwrap();
         engine.open(&doc).await.unwrap();
-        let draw = DrawRequest {
-            item_id: "u-1".into(),
-        };
+        let draw = DrawRequest { item: "u-1".into() };
         engine.draw("r1", &draw, "d1").await.unwrap();
         projected(&store, |s| {
-            s.item("u-1").unwrap().status == ItemStatus::Drawn
+            s.item(&"u-1".into()).unwrap().status == ItemStatus::Drawn
         })
         .await;
         engine.decide("r1", &Decision::Finish, "f1").await.unwrap();

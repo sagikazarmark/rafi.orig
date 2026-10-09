@@ -26,7 +26,7 @@ async fn frozen(db: &Db, id: &str) -> Result<Drawing, String> {
     let doc = Manifest::new(
         id,
         BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
-        vec!["a".repeat(32), "b".repeat(32)],
+        vec!["a".repeat(32).into(), "b".repeat(32).into()],
         vec![ItemRef {
             id: "u1".into(),
             name: "Ticket".into(),
@@ -461,7 +461,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     let mut state = Drawing::open(&doc);
     for (item, winner) in [(0, "w"), (1, "d")] {
         state.items[item].status = ItemStatus::Claimed;
-        state.items[item].entrant_id = Some(winner.into());
+        state.items[item].entrant = Some(winner.into());
     }
     db.query(
         "UPDATE raffles SET state = 'finished', drawing = ?, finished_at = 100,
@@ -683,18 +683,18 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
     let k = state.next_k;
     state.events.push(Event::Draw {
         k,
-        item_id: "u1".into(),
+        item: "u1".into(),
         round: 1,
         signature: String::new(),
         randomness: String::new(),
         pass: 1,
         pool_size: 2,
         index: 0,
-        entrant_id: bence.clone(),
+        entrant: bence.clone().into(),
     });
     state.next_k += 1;
     state.items[0].status = ItemStatus::Drawn;
-    state.items[0].entrant_id = Some(bence.clone());
+    state.items[0].entrant = Some(bence.clone().into());
     state.items[0].k = Some(k);
     state.version += 1;
     check(

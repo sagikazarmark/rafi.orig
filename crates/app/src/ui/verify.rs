@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use rafi_drawing::drawing::Event;
+use rafi_drawing::{EntrantId, ItemId, drawing::Event};
 
 use super::{Brand, ThemeToggle};
 use crate::{
@@ -50,7 +50,7 @@ pub fn Verify(slug: String) -> Element {
                 .collect();
             let doc: Option<rafi_drawing::manifest::Manifest> =
                 serde_json::from_str(&d.manifest).ok();
-            let item_names: HashMap<String, String> = doc
+            let item_names: HashMap<ItemId, String> = doc
                 .as_ref()
                 .map(|d| {
                     d.items
@@ -98,7 +98,7 @@ pub fn Verify(slug: String) -> Element {
                             ul { class: "list-inside list-disc text-sm",
                                 for r in report.abandoned.iter() {
                                     li { key: "{r.k}",
-                                        "Draw {r.k} ({item_names.get(&r.item_id).cloned().unwrap_or_else(|| r.item_id.clone())}): round {r.round} was abandoned by the organizer (pool of {r.pool.len()})."
+                                        "Draw {r.k} ({item_names.get(&r.item).cloned().unwrap_or_else(|| r.item.to_string())}): round {r.round} was abandoned by the organizer (pool of {r.pool.len()})."
                                     }
                                 }
                             }
@@ -131,7 +131,7 @@ pub fn Verify(slug: String) -> Element {
                                     for c in report.draws.iter() {
                                         tr { key: "{c.k}",
                                             td { class: "font-mono", "{c.k}" }
-                                            td { class: "font-semibold", "{item_names.get(&c.item_id).cloned().unwrap_or_else(|| c.item_id.clone())}" }
+                                            td { class: "font-semibold", "{item_names.get(&c.item).cloned().unwrap_or_else(|| c.item.to_string())}" }
                                             td {
                                                 if report.chain_known {
                                                     a { class: "link link-primary font-mono", href: "https://api.drand.sh/{chain}/public/{c.round}", target: "_blank", "{c.round}" }
@@ -143,7 +143,7 @@ pub fn Verify(slug: String) -> Element {
                                             td { "{c.pool_size}" }
                                             td {
                                                 span { class: "font-semibold", "{names.get(c.published_entrant.as_str()).copied().unwrap_or(\"\")} " }
-                                                span { class: "font-mono text-xs text-base-content/50", "{&c.published_entrant[..8.min(c.published_entrant.len())]}" }
+                                                span { class: "font-mono text-xs text-base-content/50", "{short(c.published_entrant.as_str())}" }
                                             }
                                             td {
                                                 if c.ok {
@@ -229,24 +229,27 @@ fn event_icon(e: &Event) -> I {
     }
 }
 
-fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<String, String>) -> String {
-    let name = |id: &str| {
+/// The first characters of an entrant ID, enough to tell them apart.
+fn short(id: &str) -> &str {
+    &id[..8.min(id.len())]
+}
+
+fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<ItemId, String>) -> String {
+    let name = |id: &EntrantId| {
         names
-            .get(id)
+            .get(id.as_str())
             .map(|n| n.to_string())
-            .unwrap_or_else(|| id[..8.min(id.len())].to_owned())
+            .unwrap_or_else(|| short(id.as_str()).to_owned())
     };
-    let item = |id: &str| items.get(id).cloned().unwrap_or_else(|| id.to_owned());
+    let item_name = |id: &ItemId| items.get(id).cloned().unwrap_or_else(|| id.to_string());
     match e {
-        Event::Announce {
-            k, item_id, round, ..
-        } => format!(
+        Event::Announce { k, item, round, .. } => format!(
             "Draw {k}: {} committed to drand round {round}",
-            item(item_id)
+            item_name(item)
         ),
         Event::Draw {
             k,
-            entrant_id,
+            entrant,
             pool_size,
             index,
             pass,
@@ -254,7 +257,7 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<String, Stri
         } => {
             format!(
                 "Draw {k}: #{index} of {pool_size} (pass {pass}) → {}",
-                name(entrant_id)
+                name(entrant)
             )
         }
         Event::Stall {
@@ -266,7 +269,7 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<String, Stri
         Event::Resolve { k, outcome } => {
             format!("Draw {k}: {}", format!("{outcome:?}").to_lowercase())
         }
-        Event::Void { item_id } => format!("{} withdrawn", item(item_id)),
+        Event::Void { item } => format!("{} withdrawn", item_name(item)),
         Event::Finish => "Finished 🎉".into(),
     }
 }

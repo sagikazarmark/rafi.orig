@@ -5,7 +5,7 @@ use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_drawing::{
-    BeaconSource, Error,
+    BeaconSource, EntrantId, Error,
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
     drawing::{Drawing, Event, ItemStatus, Outcome},
     manifest::{ItemRef, Manifest},
@@ -62,7 +62,7 @@ fn op() -> impl Strategy<Value = Op> {
 }
 
 /// Everything the pending draw's outcome depends on.
-fn draw_inputs(s: &Drawing) -> (u64, (u8, Vec<String>), BeaconSource, String) {
+fn draw_inputs(s: &Drawing) -> (u64, (u8, Vec<EntrantId>), BeaconSource, String) {
     (s.next_k, s.pool(), s.beacon, s.manifest_hash.clone())
 }
 
@@ -74,8 +74,8 @@ proptest! {
         let doc = Manifest::new(
             "prop",
             BeaconSource::Drand(chain().0.chain().hash()),
-            (0..n).map(|i| format!("{i:032x}")).collect(),
-            (0..items).map(|i| ItemRef { id: format!("u{i}"), name: "P".into() }).collect(),
+            (0..n).map(|i| format!("{i:032x}").into()).collect(),
+            (0..items).map(|i| ItemRef { id: format!("u{i}").into(), name: "P".into() }).collect(),
         );
         let mut s = Drawing::open(&doc);
         let mut round = 1;
@@ -87,7 +87,7 @@ proptest! {
             match op {
                 Op::Begin(u) => {
                     round += 1;
-                    let _ = s.begin(&format!("u{}", u % items), round, 0);
+                    let _ = s.begin(&format!("u{}", u % items).into(), round, 0);
                 }
                 Op::Complete => {
                     if let Some(p) = s.pending.clone() {
@@ -98,9 +98,9 @@ proptest! {
                 Op::Abandon => { let _ = s.abandon("abandoned"); }
                 Op::Resolve(u, o) => {
                     let outcome = [Outcome::Claimed, Outcome::NotHere, Outcome::Declined][o as usize];
-                    let _ = s.resolve(&format!("u{}", u % items), outcome);
+                    let _ = s.resolve(&format!("u{}", u % items).into(), outcome);
                 }
-                Op::Void(u) => { let _ = s.void(&format!("u{}", u % items)); }
+                Op::Void(u) => { let _ = s.void(&format!("u{}", u % items).into()); }
                 Op::Finish => { let _ = s.finish(); }
             }
             prop_assert!(s.version >= last_version);
@@ -128,18 +128,18 @@ proptest! {
             for item in &s.items {
                 match item.status {
                     ItemStatus::Drawn | ItemStatus::Claimed => {
-                        let e = item.entrant_id.clone().unwrap();
+                        let e = item.entrant.clone().unwrap();
                         prop_assert!(doc.entrants.contains(&e));
                     }
-                    _ => prop_assert!(item.entrant_id.is_none()),
+                    _ => prop_assert!(item.entrant.is_none()),
                 }
             }
 
             // Pass-1 draws never repeat an entrant.
             let mut seen = HashSet::new();
             for e in &s.events {
-                if let Event::Draw { pass: 1, entrant_id, .. } = e {
-                    prop_assert!(seen.insert(entrant_id.clone()), "entrant drawn twice in pass 1");
+                if let Event::Draw { pass: 1, entrant, .. } = e {
+                    prop_assert!(seen.insert(entrant.clone()), "entrant drawn twice in pass 1");
                 }
             }
         }
@@ -149,8 +149,8 @@ proptest! {
 
     #[test]
     fn empty_drawing_cannot_draw(items in 1usize..4) {
-        let doc = Manifest::new("e", BeaconSource::Drand(chain().0.chain().hash()), vec![], (0..items).map(|i| ItemRef { id: format!("u{i}"), name: "P".into() }).collect());
+        let doc = Manifest::new("e", BeaconSource::Drand(chain().0.chain().hash()), vec![], (0..items).map(|i| ItemRef { id: format!("u{i}").into(), name: "P".into() }).collect());
         let mut s = Drawing::open(&doc);
-        prop_assert_eq!(s.begin("u0", 1, 0), Err(Error::NoEligibleEntrants));
+        prop_assert_eq!(s.begin(&"u0".into(), 1, 0), Err(Error::NoEligibleEntrants));
     }
 }

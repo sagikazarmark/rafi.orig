@@ -261,6 +261,11 @@ Beyond the plan:
   `verify.py` say "manifest hash".
 - **The test vectors** were regenerated in steps 3 and 4 (the manifest changed shape twice); `verify.py`
   agrees with them.
+- **Afterwards, IDs got types:** `EntrantId` and `ItemId` (`rafi_drawing::id`), and the fields holding them
+  dropped the suffix, in Rust and JSON alike: `Item.entrant`, `Event::Draw { item, entrant }`,
+  `DrawRequest { item }`, `Decision::Resolve { item, .. }`. The type (or, in JSON, a string value) says it
+  is an ID; SQL columns keep `_id` (`erasures.entrant_id`). The vectors were regenerated once more: only
+  the event keys changed, the manifest and its hash did not.
 
 Known, not caused by this work: the Restate conformance scenario `Lead/a_deadline_leaves_the_command_pending`
 fails intermittently (it did before step 1), a 300 ms deadline racing the draw for the object's lock.

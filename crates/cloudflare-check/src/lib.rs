@@ -64,7 +64,10 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
     let doc = Manifest::new(
         raffle,
         rafi_drawing::BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
-        vec![entrant(raffle, "anna"), entrant(raffle, "bence")],
+        vec![
+            entrant(raffle, "anna").into(),
+            entrant(raffle, "bence").into(),
+        ],
         vec![
             ItemRef {
                 id: "book-1".into(),
@@ -101,7 +104,10 @@ async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     let doc = Manifest::new(
         raffle,
         rafi_drawing::BeaconSource::Drand(chain),
-        vec![entrant(raffle, "anna"), entrant(raffle, "bence")],
+        vec![
+            entrant(raffle, "anna").into(),
+            entrant(raffle, "bence").into(),
+        ],
         vec![
             ItemRef {
                 id: "book-1".into(),
@@ -236,19 +242,19 @@ async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
     };
     let k = state.next_k;
     item.status = ItemStatus::Drawn;
-    item.entrant_id = Some(entrant(raffle, who));
+    item.entrant = Some(entrant(raffle, who).into());
     item.k = Some(k);
-    let item_id = item.id.clone();
+    let item = item.id.clone();
     state.events.push(Event::Draw {
         k,
-        item_id,
+        item,
         round: 1,
         signature: String::new(),
         randomness: String::new(),
         pass: 1,
         pool_size: 2,
         index: 0,
-        entrant_id: entrant(raffle, who),
+        entrant: entrant(raffle, who).into(),
     });
     state.next_k += 1;
     state.version += 1;

@@ -139,9 +139,7 @@ async fn app_and_restate_rafi_share_the_database() {
         &app,
         OWNER,
         &id,
-        DrawRequest {
-            item_id: item.clone(),
-        },
+        DrawRequest { item: item.clone() },
         "cmd-1",
     )
     .await
@@ -168,7 +166,7 @@ async fn app_and_restate_rafi_share_the_database() {
         OWNER,
         &id,
         Decision::Resolve {
-            item_id: item.clone(),
+            item: item.clone(),
             outcome: Outcome::Claimed,
         },
         "cmd-2",

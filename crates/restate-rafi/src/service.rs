@@ -159,7 +159,7 @@ impl Drawing {
     /// a redraw on a new round.
     #[handler]
     async fn draw(&self, ctx: ObjectContext<'_>, request: Json<DrawRequest>) -> HandlerResult<()> {
-        let DrawRequest { item_id } = request.into_inner();
+        let DrawRequest { item } = request.into_inner();
         let mut state = Self::load(&ctx).await?;
         state.check_beacon(&self.beacon()).map_err(draw_error)?;
 
@@ -169,7 +169,7 @@ impl Drawing {
         let commitment = self.drand.commit_round(&ctx).await?;
         let due = u64::try_from(commitment.due_at.as_secs()).unwrap_or_default();
         let pending = state
-            .begin(&item_id, commitment.round, due)
+            .begin(&item, commitment.round, due)
             .map_err(draw_error)?;
         ctx.set(STATE, Json(state.clone()));
         self.project(&ctx, &state).await?;
