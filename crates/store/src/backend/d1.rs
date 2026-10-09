@@ -28,7 +28,6 @@ impl Db {
     pub fn d1(db: D1Database) -> Self {
         Self {
             backend: D1 { db: Arc::new(db) },
-            guard: Default::default(),
         }
     }
 }

@@ -286,38 +286,83 @@ impl Harness for Postgres {
     }
 
     async fn fresh(&self) -> Result<Db, String> {
-        let url = crate::testing::fresh_schema(&self.base_url)
-            .await
-            .map_err(|e| format!("creating a schema: {e}"))?;
-        let db = Db::connect(&url).await.map_err(fail)?;
-        check(
-            db.dialect() == crate::Dialect::Postgres,
-            "the URL opened Postgres",
-        )?;
-        Ok(db)
+        fresh_schema(&self.base_url).await
     }
 }
 
-/// An embedded PostgreSQL (pglite-oxide): a fresh in-process server per
-/// scenario, no service needed. It takes a single client, so the pool has
-/// one connection and scenarios that need concurrent sessions are skipped
-/// (the `postgres` harness runs those). `RAFI_TEST_EMBEDDED_POSTGRES=off`
-/// turns it off.
+/// A new, migrated schema in the Postgres database at `base_url`.
+#[cfg(all(feature = "postgres", not(target_arch = "wasm32")))]
+async fn fresh_schema(base_url: &str) -> Result<Db, String> {
+    let url = crate::testing::fresh_schema(base_url)
+        .await
+        .map_err(|e| format!("creating a schema: {e}"))?;
+    let db = Db::connect(&url).await.map_err(fail)?;
+    check(
+        db.dialect() == crate::Dialect::Postgres,
+        "the URL opened Postgres",
+    )?;
+    Ok(db)
+}
+
+/// An embedded PostgreSQL (Oliphaunt: a local server from prebuilt native
+/// binaries, no install needed). One server for the whole run, started on
+/// first use, with a new schema per scenario, as for [`Postgres`].
+/// `RAFI_TEST_EMBEDDED_POSTGRES=off` turns it off.
+///
+/// The server is a child process: [`EmbeddedPostgres::stop`] it when done,
+/// since a runner that ends with `process::exit` drops nothing.
 #[cfg(all(feature = "embedded-postgres", not(target_arch = "wasm32")))]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct EmbeddedPostgres;
+#[derive(Default)]
+pub struct EmbeddedPostgres {
+    url: std::sync::OnceLock<Result<String, String>>,
+    server: std::sync::Mutex<Option<oliphaunt::OliphauntServer>>,
+}
 
 #[cfg(all(feature = "embedded-postgres", not(target_arch = "wasm32")))]
 impl EmbeddedPostgres {
     /// The variable that turns the embedded Postgres off (`off`).
     pub const VAR: &'static str = "RAFI_TEST_EMBEDDED_POSTGRES";
 
-    /// `Err` says it's turned off.
+    /// `Err` says it's turned off. Starts nothing yet.
     pub fn from_env() -> Result<Self, String> {
         match std::env::var(Self::VAR).as_deref() {
             Ok("off" | "0" | "false") => Err(format!("turned off by {}", Self::VAR)),
-            _ => Ok(Self),
+            _ => Ok(Self::default()),
         }
+    }
+
+    /// The server's URL, starting it on the first call (blocking, a few
+    /// seconds). A failed start fails every scenario with the same reason.
+    fn url(&self) -> Result<&str, String> {
+        self.url
+            .get_or_init(|| {
+                let server = oliphaunt::OliphauntServer::builder()
+                    .listen(oliphaunt::ServerListen::tcp())
+                    .start()
+                    .map_err(|e| format!("starting the embedded Postgres: {e}"))?;
+                let url = server.connection_string().to_owned();
+                *self.lock() = Some(server);
+                Ok(url)
+            })
+            .as_deref()
+            .map_err(Clone::clone)
+    }
+
+    /// Stops the server, if it was started.
+    pub fn stop(&self) -> Result<(), String> {
+        let server = self.lock().take();
+        match server {
+            Some(mut server) => server
+                .close()
+                .map_err(|e| format!("stopping the embedded Postgres: {e}")),
+            None => Ok(()),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<oliphaunt::OliphauntServer>> {
+        self.server
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -327,44 +372,12 @@ impl Harness for EmbeddedPostgres {
         "embedded-postgres"
     }
 
-    /// A single client: nothing overlaps.
     fn capabilities(&self) -> Capabilities {
-        Capabilities::NONE
+        Capabilities::CONCURRENT_SESSIONS
     }
 
     async fn fresh(&self) -> Result<Db, String> {
-        // Starting blocks until the server is up, and the server runs on the
-        // calling runtime: start it off this thread, so a single-threaded
-        // runtime can still drive it.
-        let server = tokio::task::spawn_blocking(pglite_oxide::PgliteServer::temporary_tcp)
-            .await
-            .map_err(|e| format!("starting the embedded Postgres: {e}"))?
-            .map_err(|e| format!("starting the embedded Postgres: {e}"))?;
-        let db = Db::connect_postgres(&server.database_url(), 1)
-            .await
-            .map_err(fail)?;
-        check(
-            db.dialect() == crate::Dialect::Postgres,
-            "the embedded server opened Postgres",
-        )?;
-        // The server stops when the last handle to the database is dropped.
-        Ok(db.holding(StopOffThread(Some(server))))
-    }
-}
-
-/// Stops an embedded server on a thread of its own. Stopping waits for its
-/// client to disconnect, and the pool closes its connection asynchronously,
-/// on the runtime that is dropping the database: stopping inline would block
-/// that runtime and never see the disconnect.
-#[cfg(all(feature = "embedded-postgres", not(target_arch = "wasm32")))]
-struct StopOffThread(Option<pglite_oxide::PgliteServer>);
-
-#[cfg(all(feature = "embedded-postgres", not(target_arch = "wasm32")))]
-impl Drop for StopOffThread {
-    fn drop(&mut self) {
-        if let Some(server) = self.0.take() {
-            std::thread::spawn(move || drop(server));
-        }
+        fresh_schema(self.url()?).await
     }
 }
 

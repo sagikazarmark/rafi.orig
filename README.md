@@ -171,7 +171,7 @@ backend lacks, as ignored with the reason. The tiers:
 | Backend | Runs |
 |---|---|
 | SQLite (in memory) | always |
-| embedded Postgres | by default: PGlite (PostgreSQL 17 compiled to WASM, run by `pglite-oxide`), a new server per scenario; no install needed. The first build downloads about 55 MB. `RAFI_TEST_EMBEDDED_POSTGRES=off` skips it |
+| embedded Postgres | by default: a local PostgreSQL 18 from prebuilt binaries ([Oliphaunt](https://oliphaunt.dev)), one server per run (started on first use, about 3 s) with a fresh schema per scenario; no install needed. The first build downloads about 13 MB. `RAFI_TEST_EMBEDDED_POSTGRES=off` skips it |
 | Postgres | when `RAFI_TEST_POSTGRES_URL` names a throwaway database (a fresh schema per scenario); CI sets it |
 | D1 | under `wrangler dev`, through `crates/store-d1-check` (`./scripts/workers-check.sh`, below) |
 

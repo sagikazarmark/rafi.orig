@@ -18,28 +18,9 @@ use crate::{
 #[derive(Clone)]
 pub struct Db {
     pub(crate) backend: Backend,
-    pub(crate) guard: Guard,
-}
-
-/// Something kept alive as long as any clone of a [`Db`], such as an
-/// embedded database server ([`Db::holding`]).
-#[derive(Clone, Default)]
-pub(crate) struct Guard {
-    /// Never read: only dropped with the last clone.
-    _held: Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 impl Db {
-    /// Keeps `guard` alive as long as this handle or any clone of it: for a
-    /// database that lives in a resource of its own, such as an embedded
-    /// server in tests.
-    pub fn holding(mut self, guard: impl std::any::Any + Send + Sync) -> Self {
-        self.guard = Guard {
-            _held: Some(std::sync::Arc::new(guard)),
-        };
-        self
-    }
-
     /// The backend's SQL dialect, for the few statements that differ.
     pub fn dialect(&self) -> Dialect {
         self.backend.dialect()

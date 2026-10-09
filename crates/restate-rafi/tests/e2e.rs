@@ -153,18 +153,13 @@ async fn e2e_raffle() {
     // The draw journals the clock, the projections (each followed by the live
     // channel's best-effort notify) and the beacon under stable names. The
     // projection above can be seen before the last `notify` is journaled, so
-    // wait for the journal to catch up.
-    let expected_steps = 7;
-    let mut runs = restate.admin().runs(sent.invocation_id()).await;
-    for _ in 0..100 {
-        if runs.len() >= expected_steps {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        runs = restate.admin().runs(sent.invocation_id()).await;
-    }
+    // wait for the draw to complete (the journal is retained).
+    restate
+        .admin()
+        .await_status(sent.invocation_id(), &["completed"])
+        .await;
     assert_eq!(
-        runs,
+        restate.admin().runs(sent.invocation_id()).await,
         [
             restate_drand::CLOCK_STEP,
             "project",

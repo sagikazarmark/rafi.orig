@@ -3,10 +3,10 @@
 //! `<backend>::<scenario>` (`sqlite::domain.join_cap`), each on a fresh
 //! database.
 //!
-//! Backends: SQLite (in memory), an embedded Postgres (pglite-oxide; always
-//! on, `RAFI_TEST_EMBEDDED_POSTGRES=off` turns it off), and a real Postgres
-//! when `RAFI_TEST_POSTGRES_URL` names a throwaway database (the only one
-//! with concurrent sessions). A backend that isn't available here, or lacks
+//! Backends: SQLite (in memory), an embedded Postgres (Oliphaunt: one local
+//! server per run, started on first use; `RAFI_TEST_EMBEDDED_POSTGRES=off`
+//! turns it off), and a real Postgres when `RAFI_TEST_POSTGRES_URL` names a
+//! throwaway database. A backend that isn't available here, or lacks
 //! a capability a scenario needs, reports the test as ignored, with the
 //! reason. D1 runs the same scenarios through
 //! `crates/store-d1-check`.
@@ -18,11 +18,10 @@ use rafi_store::conformance::{self, Harness, SCENARIOS, Verdict};
 
 /// One trial per scenario for `harness`, or, if it isn't available, one
 /// ignored trial per scenario saying why.
-fn trials<H>(name: &str, harness: Result<H, String>) -> Vec<Trial>
+fn trials<H>(name: &str, harness: Result<Arc<H>, String>) -> Vec<Trial>
 where
     H: Harness + Send + Sync + 'static,
 {
-    let harness = harness.map(Arc::new);
     SCENARIOS
         .iter()
         .map(|scenario| {
@@ -49,18 +48,28 @@ where
 
 fn main() {
     let args = Arguments::from_args();
-    let mut tests = trials("sqlite", Ok(conformance::Sqlite));
+    let mut tests = trials("sqlite", Ok(Arc::new(conformance::Sqlite)));
     #[cfg(feature = "postgres")]
-    tests.extend(trials("postgres", conformance::Postgres::from_env()));
+    tests.extend(trials(
+        "postgres",
+        conformance::Postgres::from_env().map(Arc::new),
+    ));
     #[cfg(not(feature = "postgres"))]
     tests.extend(trials::<conformance::Sqlite>(
         "postgres",
         Err("rafi-store built without the `postgres` feature".into()),
     ));
     #[cfg(feature = "embedded-postgres")]
-    tests.extend(trials(
-        "embedded-postgres",
-        conformance::EmbeddedPostgres::from_env(),
-    ));
-    libtest_mimic::run(&args, tests).exit();
+    let embedded = conformance::EmbeddedPostgres::from_env().map(Arc::new);
+    #[cfg(feature = "embedded-postgres")]
+    tests.extend(trials("embedded-postgres", embedded.clone()));
+    let conclusion = libtest_mimic::run(&args, tests);
+    // `exit` drops nothing: stop the embedded server's process first.
+    #[cfg(feature = "embedded-postgres")]
+    if let Ok(embedded) = embedded
+        && let Err(e) = embedded.stop()
+    {
+        eprintln!("{e}");
+    }
+    conclusion.exit();
 }

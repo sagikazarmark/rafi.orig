@@ -54,24 +54,7 @@ impl Db {
         } else {
             Native::Sqlite(sqlite::connect(url).await?)
         };
-        let db = Self {
-            backend,
-            guard: Default::default(),
-        };
-        db.migrate().await?;
-        Ok(db)
-    }
-
-    /// Opens and migrates the Postgres database at `url` with at most
-    /// `max_connections` connections ([`Db::connect`] uses 8). One, for a
-    /// server that takes a single client, such as an embedded Postgres in
-    /// tests.
-    #[cfg(feature = "postgres")]
-    pub async fn connect_postgres(url: &str, max_connections: u32) -> Result<Self> {
-        let db = Self {
-            backend: Native::Postgres(postgres::connect_with(url, max_connections).await?),
-            guard: Default::default(),
-        };
+        let db = Self { backend };
         db.migrate().await?;
         Ok(db)
     }
@@ -91,17 +74,13 @@ impl Db {
         } else {
             Native::Sqlite(sqlite::connect_lazy(url)?)
         };
-        Ok(Self {
-            backend,
-            guard: Default::default(),
-        })
+        Ok(Self { backend })
     }
 
     /// Wraps an existing SQLite pool (it must already be migrated).
     pub fn from_pool(pool: SqlitePool) -> Self {
         Self {
             backend: Native::Sqlite(Sqlite { pool }),
-            guard: Default::default(),
         }
     }
 
