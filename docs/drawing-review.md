@@ -150,4 +150,51 @@ after each.
 
 ## What the implementation does differently
 
-(Filled in as the steps land.)
+Done (2026-10-10), one commit per step, in the planned order:
+
+| Step | Commit |
+|---|---|
+| 1 | `rafi-drawing: the verifier checks the manifest and every published field of a draw` |
+| 1 | `rafi: the end-to-end scripts and docs follow the Drawing object, without offline draws` |
+| 2 | `rafi-drawing: a drawing changes only by recording events, behind a flat API` |
+| 3 | `rafi: a drawing is stored as its manifest and event log` |
+| 4 | `rafi-drawing: events in the past tense, available items, and winners` |
+| 5 | `rafi-core: the raffle's side of the drawing in one module` |
+
+- **The engine protocol's names moved in step 2**, since its signatures changed anyway: `begin` and
+  `check_beacon` became one `announce(request, engine_beacon, round, round_time)` (the beacon check
+  can't be forgotten, and announcing a pending item again re-enters it), and `conclude` became
+  `settle(BeaconFetch)`. The strict transitions (`start`, `complete`, `stall`, `abandon`, `resolve`,
+  `void`, `finish`) are crate-private; engines use `open_or_check`, `announce`, `settle` and
+  `decide`, and the verifier replays a log through the transitions. The plan's `complete` → `draw`
+  rename was dropped: the method is no longer public.
+- **`Outcome` stays, as the read model**: where a draw's winner stands (`Drawn`, `Claimed`,
+  `NotHere`, `Declined`), which the app shows. Decisions and events carry a `Resolution`; the field
+  keeps its wire name `outcome` (`{"cmd":"resolve","item":…,"outcome":"claimed"}`).
+- **The verifier compares whole events**: each published event must equal the one the drawing
+  records when replaying it, which covers every field at once (including `index`). Stricter than
+  before: hex must be the lowercase an engine writes.
+- **`Drawing::restore(manifest, events)` came in step 2**, not 3: tests outside the crate needed a
+  supported way to build a drawing with draws. A log naming a draw that holds no item is
+  `Error::UnknownDraw`.
+- **Draw events keep `entrant`** (the entrant drawn, who may still forfeit); items hold a `winner`.
+- **The store**: `StoredDrawing` writes the drawing with its `drawn_entrants` and `winners`;
+  `RaffleRow::drawing()` returns a `Result`. Migration 0004 converts stored drawings to the new
+  shape and fills the columns; 0005 renames stored events to the past tense. Both were run by hand on
+  SQLite and Postgres against rows in the old shape.
+- **The conformance suite**: `a_finished_raffle_is_forgotten` is `a_finished_drawing_is_forgotten`;
+  the "malformed command" refusal is now an invalid manifest (a decision can't be malformed any
+  more).
+- **`rafi_core::prize` became `rafi_core::drawing`** (items, the manifest, the lifecycle a drawing
+  implies), typed in `ItemId` and `ItemRef`.
+
+Left as they are:
+
+- Engines notify clients with the drawing's ID, which is the raffle's (`Notifier` is per raffle);
+  `rafi_core::drawing` documents it.
+- `DrawingEngine` takes the drawing ID as `&str`, not `DrawingId`.
+- The verifier's `Report::chain_known` keeps drand's word: the verifier is drand-specific.
+
+Before deploying: run migrations 0004 and 0005. A Restate `Drawing` object stored before this
+change no longer loads (none exist before the first deploy). The Restate tests skip themselves
+without a server: run them with `RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)`.

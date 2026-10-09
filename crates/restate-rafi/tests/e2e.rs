@@ -114,7 +114,7 @@ async fn e2e_raffle() {
     // A drawing on another beacon source than the engine's is refused.
     let mut quicknet = self::doc(5);
     quicknet.drawing = "other-raffle".into();
-    quicknet.beacon = BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH);
+    quicknet.beacon = BeaconSource::QUICKNET;
     let reply = restate
         .invoke(
             &Call::object(SERVICE_NAME, "other-raffle", "open"),
@@ -295,7 +295,7 @@ async fn e2e_stalled_draw() {
         .await;
     let call = |handler| Call::object(SERVICE_NAME, RAFFLE, handler);
     let mut doc = doc(5);
-    doc.beacon = BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH);
+    doc.beacon = BeaconSource::QUICKNET;
     let reply = restate
         .invoke(&call("open"), Some(&json!(doc)), Some("open-1"))
         .await;
