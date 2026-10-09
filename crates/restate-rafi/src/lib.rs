@@ -17,6 +17,12 @@
 //! the `restate-rafi-endpoint` crate (native) and `rafi-restate-worker`
 //! (Cloudflare Workers) serve it.
 
+//!
+//! [`RaffleEngine`] is a keyless service next to it: `info` reports the
+//! engine's drand chain, which the app checks before freezing a raffle.
+
+mod info;
 mod service;
 
+pub use info::{INFO_SERVICE_NAME, Info, RaffleEngine};
 pub use service::{Raffle, SERVICE_NAME};

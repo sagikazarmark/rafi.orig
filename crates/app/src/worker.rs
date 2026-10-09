@@ -55,9 +55,11 @@ fn app(env: &Env) -> anyhow::Result<(AppState, Option<ClerkAuthLayer>)> {
                 .map_err(|e| anyhow::anyhow!("Clerk configuration: {e:?}"))?,
         )
     };
+    let engine = server::restate_engine(&cfg);
     let app = AppState::from_parts(
         cfg,
         rafi_cloudflare::database(env)?,
+        engine,
         Arc::new(DurableObjects::new(env.clone())),
         Arc::new(RateLimitBindings::new(env.clone())),
     )?;

@@ -23,9 +23,10 @@ use crate::model::{
 #[cfg(feature = "server")]
 use crate::server::{
     AppState,
-    engine::Command,
     service::{self, AppError},
 };
+#[cfg(feature = "server")]
+use rafi_core::engine::Command;
 
 /// An error reply: a message for the organizer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

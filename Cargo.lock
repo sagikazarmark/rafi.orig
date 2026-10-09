@@ -4707,12 +4707,13 @@ dependencies = [
  "rafi-cloudflare",
  "rafi-core",
  "rafi-drand",
+ "rafi-engine-local",
  "rafi-live",
  "rafi-platform",
  "rafi-store",
- "reqwest 0.13.5",
  "restate-e2e-harness",
  "restate-rafi",
+ "restate-rafi-client",
  "restate-sdk",
  "serde",
  "serde_json",
@@ -4805,6 +4806,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rafi-engine-local"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "getrandom 0.3.4",
+ "rafi-core",
+ "rafi-drand",
+ "rafi-engine-local",
+ "rafi-platform",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "rafi-live"
 version = "0.1.0"
 dependencies = [
@@ -4826,6 +4842,7 @@ dependencies = [
  "anyhow",
  "rafi-core",
  "rafi-live",
+ "thiserror 2.0.21",
  "tokio",
 ]
 
@@ -5170,13 +5187,28 @@ dependencies = [
  "getrandom 0.3.4",
  "rafi-core",
  "rafi-drand",
+ "rafi-engine-local",
  "rafi-platform",
  "restate-drand",
  "restate-e2e-harness",
+ "restate-rafi-client",
  "restate-sdk",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "restate-rafi-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rafi-core",
+ "rafi-platform",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

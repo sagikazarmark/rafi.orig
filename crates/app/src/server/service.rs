@@ -8,17 +8,14 @@ use std::collections::HashSet;
 
 use rafi_core::{
     commit::{CommitDoc, UnitRef},
-    engine::ErrorKind,
+    engine::{Command, ErrorKind},
     raffle::{Action, RaffleState},
     state::{DrawError, Outcome},
 };
+use rafi_platform::{DrawEngine, EngineError};
 use rafi_store::{RaffleRow, audit, entrants, items, raffles};
 
-use super::{
-    AppState,
-    engine::{Command, RestateClient},
-    ids,
-};
+use super::{AppState, ids};
 use crate::model::{
     AdminEntrant, EntrantPatch, EntrantSource, Item, ItemInput, Lifecycle, RaffleAdmin,
     RaffleSettings, RaffleSummary, VerifyData,
@@ -37,6 +34,9 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
+    /// A service the request needs (the draw engine) is unreachable; retry.
+    #[error("{0}")]
+    Unavailable(String),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -69,10 +69,33 @@ fn conflict(msg: impl Into<String>) -> AppError {
 }
 
 /// The draw engine, or a conflict if this server has none.
-fn engine(app: &AppState) -> Result<&RestateClient> {
-    app.restate
-        .as_ref()
+fn engine(app: &AppState) -> Result<&dyn DrawEngine> {
+    app.engine
+        .as_deref()
         .ok_or_else(|| conflict("Restate is not configured on this server."))
+}
+
+/// What the organizer sees of a call to the draw engine. A call the engine
+/// accepted but hasn't settled yet ([`EngineError::Pending`]) succeeds: it
+/// applies once, and the screens follow the projection.
+fn engine_result(result: std::result::Result<(), EngineError>) -> Result<()> {
+    match result {
+        Ok(()) | Err(EngineError::Pending) => Ok(()),
+        Err(EngineError::Rejected { kind, message }) => Err(match kind {
+            ErrorKind::NotFound => AppError::NotFound,
+            ErrorKind::BadRequest => AppError::BadRequest(message),
+            ErrorKind::Conflict => AppError::Conflict(message),
+            ErrorKind::Invariant => {
+                AppError::Internal(anyhow::anyhow!("draw engine invariant: {message}"))
+            }
+        }),
+        Err(EngineError::Unavailable(e)) => {
+            tracing::warn!(error = %format!("{e:#}"), "draw engine unavailable");
+            Err(AppError::Unavailable(
+                "The draw engine is not reachable right now. Try again in a moment.".into(),
+            ))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -334,10 +357,11 @@ pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle)
 /// its writes) gets one built from its now-fixed entrant list.
 pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
-    let client = engine(app)?;
-    if !client.healthy().await {
-        return Err(conflict(
-            "Restate is not reachable. Check the connection and try again.",
+    let engine = engine(app)?;
+    if let Err(e) = engine.info().await {
+        tracing::warn!(error = %e, "draw engine unavailable");
+        return Err(AppError::Unavailable(
+            "Restate is not reachable. Check the connection and try again.".into(),
         ));
     }
 
@@ -372,8 +396,7 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
     };
 
     // The engine writes the frozen draw state and nudges the channel itself.
-    client.freeze(&doc).await?;
-    Ok(())
+    engine_result(engine.freeze(&doc).await)
 }
 
 /// The prize units of a raffle, in draw order. Errors if there are none.
@@ -504,7 +527,7 @@ fn refusal(cmd: &Command, e: DrawError) -> AppError {
 /// Audits a validated command and hands it to the draw engine, which writes
 /// the new state and nudges the channel itself.
 async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &str) -> Result<()> {
-    let client = engine(app)?;
+    let engine = engine(app)?;
     audit::record(
         &app.db,
         id,
@@ -513,8 +536,7 @@ async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &
         &serde_json::to_string(&cmd).unwrap_or_default(),
     )
     .await?;
-    client.command(id, &cmd, command_id).await?;
-    Ok(())
+    engine_result(engine.command(id, &cmd, command_id).await)
 }
 
 // ---------------------------------------------------------------------------

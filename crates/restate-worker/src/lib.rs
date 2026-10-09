@@ -23,7 +23,7 @@ use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_store::{DrawWriter, PurgeAfter};
-use restate_rafi::Raffle;
+use restate_rafi::{Raffle, RaffleEngine};
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};
 use worker::{Context, Env, HttpRequest, Result, event};
 
@@ -59,11 +59,9 @@ fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
             number(env, "RAFI_RETENTION_WINNERS_DAYS", 90),
         ),
     );
-    let raffle = Raffle::new(
-        DrandClient::new(drand_config(env))?,
-        store,
-        DurableObjects::new(env.clone()),
-    );
+    let drand = DrandClient::new(drand_config(env))?;
+    let info = RaffleEngine::new(&drand);
+    let raffle = Raffle::new(drand, store, DurableObjects::new(env.clone()));
     let mut builder = Endpoint::builder();
     let keys = lookup(env, "RESTATE_IDENTITY_KEYS").unwrap_or_default();
     let keys: Vec<&str> = keys
@@ -79,7 +77,7 @@ fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
             .identity_key(key)
             .map_err(|e| anyhow::anyhow!("invalid identity key: {e:?}"))?;
     }
-    Ok(builder.bind(raffle).build())
+    Ok(builder.bind(raffle).bind(info).build())
 }
 
 #[event(fetch)]

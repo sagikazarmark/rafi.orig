@@ -7,6 +7,7 @@
 //! - [`Notifier`]: "this raffle changed", "end its live updates", and which
 //!   [`LiveTransport`] clients use;
 //! - [`RateLimit`], with the [`Limit`] keys;
+//! - [`DrawEngine`]: the draw engine, with its contract;
 //! - [`DrawStore`]: where the draw engine writes draw states;
 //! - [`rule::decide`]: when a live channel publishes a participant view;
 //! - [`sendable`]: a `Send` future from one that is only `Send` natively
@@ -14,6 +15,7 @@
 //!
 //! This crate depends on no database and no platform.
 
+mod engine;
 mod notifier;
 mod ratelimit;
 pub mod rule;
@@ -22,6 +24,7 @@ mod store;
 
 use std::{future::Future, pin::Pin};
 
+pub use engine::{DrawEngine, EngineError, EngineInfo};
 pub use notifier::{Notifier, Polling, Recording};
 pub use rafi_live::LiveTransport;
 #[cfg(not(target_arch = "wasm32"))]

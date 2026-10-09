@@ -4,18 +4,8 @@
 use std::env;
 
 pub use rafi_drand::DrandConfig;
-
 /// How the app reaches the `restate-rafi` service: through the Restate ingress.
-#[derive(Debug, Clone)]
-pub struct RestateConfig {
-    /// Ingress base URL: `http://restate-tunnel:8080` (the Cloud tunnel client's
-    /// authenticating proxy), `https://<env>.env.eu.restate.cloud:8080`, or a
-    /// self-hosted `http://localhost:8080`.
-    pub ingress_url: String,
-    /// API key for the ingress (Restate Cloud direct). Empty behind the tunnel
-    /// proxy and for unauthenticated local servers.
-    pub api_key: String,
-}
+pub use restate_rafi_client::ClientConfig as RestateConfig;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -79,6 +69,9 @@ impl Config {
                     .trim_end_matches('/')
                     .to_owned(),
                 api_key: var("RESTATE_API_KEY").unwrap_or_default(),
+                timeout_secs: var("RESTATE_TIMEOUT_SECS")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(RestateConfig::DEFAULT_TIMEOUT_SECS),
             },
             // Only the chain matters here: the draw engine fetches the beacons.
             drand: DrandConfig {
@@ -103,7 +96,7 @@ impl Config {
     }
 
     /// Configuration for tests: in-memory database, mock drand, no Restate
-    /// (the tests point `restate` at their engine).
+    /// (the tests hand the app their engine).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn for_tests() -> Self {
         Self {
@@ -113,6 +106,7 @@ impl Config {
             restate: RestateConfig {
                 ingress_url: String::new(),
                 api_key: String::new(),
+                timeout_secs: RestateConfig::DEFAULT_TIMEOUT_SECS,
             },
             drand: DrandConfig {
                 relays: vec![],

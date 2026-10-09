@@ -40,6 +40,7 @@ fn app_error(name: &str, e: AppError) -> Response {
         AppError::NotFound => StatusCode::NOT_FOUND,
         AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
         AppError::Conflict(_) => StatusCode::CONFLICT,
+        AppError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
         AppError::Internal(e) => {
             tracing::error!(function = name, error = %e, "internal error");
             return error(StatusCode::INTERNAL_SERVER_ERROR, "internal error");

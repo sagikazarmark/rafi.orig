@@ -10,18 +10,20 @@
 
 use std::time::Duration;
 
+use rafi_core::engine::Command;
 use rafi_core::state::{Outcome, UnitStatus};
 use rafi_drand::{DrandClient, DrandConfig};
+use rafi_platform::DrawEngine;
 use rafi_platform::Polling;
 use rafi_store::{Db, DrawWriter, PurgeAfter, RaffleRow, raffles};
-use restate_e2e_harness::{ReusePolicy, ServerSpec, launcher_or_skip};
-use restate_rafi::Raffle;
+use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
+use restate_rafi::{Raffle, RaffleEngine};
+use restate_rafi_client::RestateClient;
 use restate_sdk::endpoint::Endpoint;
 
 use super::{
     AppState,
     config::{Config, RestateConfig},
-    engine::{Command, RestateClient},
     service, view,
 };
 use crate::model::{ItemInput, Lifecycle};
@@ -72,22 +74,23 @@ async fn app_and_restate_rafi_share_the_database() {
     .unwrap();
     // As the native endpoint opens it: lazily, without creating it.
     let store = DrawWriter::new(Db::connect_lazy(&url).unwrap(), PurgeAfter::days(30, 90));
+    let chain = drand.chain_hash();
     restate
         .deploy(
             Endpoint::builder()
+                .bind(RaffleEngine::new(&drand))
                 .bind(Raffle::new(drand, store, Polling::default()))
                 .build(),
         )
         .await;
-    let client = RestateClient::new(RestateConfig {
-        ingress_url: restate.ingress_url().trim_end_matches('/').to_owned(),
-        api_key: String::new(),
-    });
-    assert!(client.healthy().await, "Restate ingress health endpoint");
     cfg.restate = RestateConfig {
-        ingress_url: restate.ingress_url().trim_end_matches('/').to_owned(),
+        ingress_url: restate.ingress_url().to_owned(),
         api_key: String::new(),
+        timeout_secs: RestateConfig::DEFAULT_TIMEOUT_SECS,
     };
+    let client = RestateClient::new(cfg.restate.clone());
+    let info = client.info().await.expect("the engine's info");
+    assert_eq!(info.chain, chain, "the engine reports its drand chain");
     let app = AppState::new(cfg).await.unwrap();
 
     let id = service::create(&app, OWNER, "Shared database")
@@ -180,7 +183,19 @@ async fn app_and_restate_rafi_share_the_database() {
     );
 
     // The object forgot everything; the app keeps the verifiable record.
-    assert_eq!(app.restate.as_ref().unwrap().get(&id).await.unwrap(), None);
+    let state = restate
+        .invoke(
+            &Call::object(restate_rafi::SERVICE_NAME, &id, "get"),
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(state.status, 200, "{}", state.body);
+    assert!(
+        state.body.is_null(),
+        "the object's state is cleared: {}",
+        state.body
+    );
     let data = service::verify_data(&app, &r.slug).await.unwrap();
     let report = rafi_core::verify::verify(
         &data.commit_doc,

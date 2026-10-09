@@ -1,4 +1,5 @@
-//! Serves the Rafi draw engine (`Raffle` virtual object) for Restate: logging
+//! Serves the Rafi draw engine (the `Raffle` virtual object and the
+//! `RaffleEngine` service) for Restate: logging
 //! that survives replays, request identity verification, and a graceful stop
 //! on SIGTERM as well as Ctrl-C.
 
@@ -12,7 +13,7 @@ use rafi_drand::DrandClient;
 use rafi_platform::Polling;
 use restate_config::ConfigureEndpointExt;
 use restate_ext::shutdown_signal;
-use restate_rafi::Raffle;
+use restate_rafi::{Raffle, RaffleEngine};
 use restate_sdk::{endpoint::Endpoint, filter::ReplayAwareFilter, http_server::HttpServer};
 use tokio::net::TcpListener;
 use tracing::{info, warn};
@@ -68,11 +69,14 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// The SDK endpoint: endpoint-wide settings, then the `Raffle` object with its policy.
+/// The SDK endpoint: endpoint-wide settings, then the `Raffle` object with its
+/// policy and the `RaffleEngine` service.
 /// Fails on invalid configuration, so the process exits before accepting requests.
 fn endpoint(config: Config) -> Result<Endpoint> {
+    let drand = DrandClient::new(config.drand).context("invalid drand configuration")?;
+    let info = RaffleEngine::new(&drand);
     let raffle = Raffle::new(
-        DrandClient::new(config.drand).context("invalid drand configuration")?,
+        drand,
         config.database.draw_store()?,
         // Natively there is no push: the app's clients poll the database.
         Polling::default(),
@@ -80,5 +84,6 @@ fn endpoint(config: Config) -> Result<Endpoint> {
     Ok(Endpoint::builder()
         .configure(&config.endpoint)?
         .bind(config.services.raffle.apply(raffle)?)
+        .bind(info)
         .build())
 }

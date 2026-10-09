@@ -1,0 +1,33 @@
+[package]
+name = "rafi-engine-local"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "An in-process Rafi draw engine for tests and development, and the engine conformance suite"
+publish = false
+
+# Never a production engine: only ever a dev-dependency (docs/engine-plan.md).
+
+[features]
+## The engine conformance suite (`conformance`): the scenarios every draw
+## engine must pass. This crate's tests run it on the local runner;
+## `restate-rafi`'s on the `Raffle` object through `restate-rafi-client`.
+conformance = ["dep:serde_json", "rafi-drand/mock"]
+
+[dependencies]
+anyhow = "1"
+getrandom = "0.3"
+rafi-core.workspace = true
+rafi-drand = { path = "../drand" }
+rafi-platform = { path = "../platform" }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net", "io-util"] }
+tracing = "0.1"
+
+# conformance
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+rafi-engine-local = { path = ".", features = ["conformance"] }
+rafi-drand = { path = "../drand", features = ["mock"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

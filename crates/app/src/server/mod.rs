@@ -1,17 +1,16 @@
-//! Server side: attendee pages, public and admin APIs, and the draw engine's
-//! client. The database and all its SQL are in `rafi-store`.
+//! Server side: attendee pages, public and admin APIs. The database and all
+//! its SQL are in `rafi-store`.
 //!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small
-//! interfaces from `rafi-platform` in [`AppState`] ([`Notifier`],
-//! [`RateLimit`]); each deployment plugs in its own.
+//! interfaces from `rafi-platform` in [`AppState`] ([`DrawEngine`],
+//! [`Notifier`], [`RateLimit`]); each deployment plugs in its own.
 
 pub mod admin;
 pub mod altcha;
 pub mod attendee;
 pub mod auth;
 pub mod config;
-pub mod engine;
 pub mod ids;
 pub mod public;
 pub mod retention;
@@ -25,10 +24,11 @@ use std::{ops::Deref, sync::Arc};
 use anyhow::Context as _;
 use axum::{Extension, Router};
 use rafi_drand::DrandClient;
-use rafi_platform::{Notifier, RateLimit};
+use rafi_platform::{DrawEngine, Notifier, RateLimit};
 use rafi_store::Db;
+use restate_rafi_client::RestateClient;
 
-use self::{config::Config, engine::RestateClient};
+use self::config::Config;
 
 #[derive(Clone)]
 pub struct AppState(Arc<Inner>);
@@ -38,8 +38,8 @@ pub struct Inner {
     pub db: Db,
     /// The drand chain new raffles commit to.
     pub drand: DrandClient,
-    /// The draw engine; `None` without `RESTATE_INGRESS_URL`.
-    pub restate: Option<RestateClient>,
+    /// The draw engine; `None` without one (no `RESTATE_INGRESS_URL`).
+    pub engine: Option<Arc<dyn DrawEngine>>,
     /// Live updates to clients (natively: none, clients poll).
     pub notifier: Arc<dyn Notifier>,
     /// The join rate limits.
@@ -61,26 +61,28 @@ impl AppState {
         let db = Db::connect(&cfg.database_url)
             .await
             .context("opening database")?;
+        let engine = restate_engine(&cfg);
         Self::from_parts(
             cfg,
             db,
+            engine,
             Arc::new(rafi_platform::Polling::default()),
             Arc::new(rafi_platform::Limiter::default()),
         )
     }
 
-    /// The app over a database and the platform's notifier and rate limits.
+    /// The app over a database, a draw engine and the platform's notifier and
+    /// rate limits.
     pub fn from_parts(
         cfg: Config,
         db: Db,
+        engine: Option<Arc<dyn DrawEngine>>,
         notifier: Arc<dyn Notifier>,
         limiter: Arc<dyn RateLimit>,
     ) -> anyhow::Result<Self> {
-        let restate =
-            (!cfg.restate.ingress_url.is_empty()).then(|| RestateClient::new(cfg.restate.clone()));
         Ok(Self(Arc::new(Inner {
             drand: DrandClient::new(cfg.drand.clone()).context("drand configuration")?,
-            restate,
+            engine,
             notifier,
             limiter,
             db,
@@ -105,6 +107,13 @@ impl AppState {
             self.cfg.retention_winners_days,
         )
     }
+}
+
+/// The draw engine `cfg` points at: the `restate-rafi` service through the
+/// Restate ingress; `None` without `RESTATE_INGRESS_URL`.
+pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn DrawEngine>> {
+    (!cfg.restate.ingress_url.is_empty())
+        .then(|| Arc::new(RestateClient::new(cfg.restate.clone())) as Arc<dyn DrawEngine>)
 }
 
 /// The server's own routes: attendee pages, public JSON and the admin API.
@@ -158,8 +167,6 @@ pub fn build_router(
     }
 }
 
-#[cfg(test)]
-mod fake_engine;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

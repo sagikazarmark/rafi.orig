@@ -32,7 +32,7 @@ dioform = { version = "0.7", features = ["dioxus-field"] }
 
 # Server only (native and Workers)
 axum = { version = "0.8", default-features = false, features = ["form", "json", "query", "matched-path", "original-uri"], optional = true }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"], optional = true }
+restate-rafi-client = { path = "../restate-rafi-client", optional = true }
 tracing = { version = "0.1", optional = true }
 anyhow = { version = "1", optional = true }
 thiserror = { workspace = true, optional = true }
@@ -62,6 +62,7 @@ http = { version = "1", optional = true }
 
 [dev-dependencies]
 rafi-drand = { path = "../drand", features = ["mock"] }
+rafi-engine-local = { path = "../engine-local" }
 restate-rafi = { path = "../restate-rafi" }
 restate-e2e-harness = "0.3"
 restate-sdk = { workspace = true }
@@ -92,7 +93,7 @@ server = [
     "dep:tokio",
     "dep:axum",
     "dep:tower-http",
-    "dep:reqwest",
+    "dep:restate-rafi-client",
     "dep:rafi-drand",
     "dep:rafi-store",
     "rafi-live/server",

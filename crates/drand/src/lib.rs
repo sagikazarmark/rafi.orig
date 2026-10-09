@@ -291,6 +291,36 @@ mod tests {
         }
     }
 
+    /// The Restate engine commits with `restate_drand::Drand::commit_round`:
+    /// the latest round due at `now + lead`, `now` in milliseconds (its clock
+    /// context is sealed, so its formula is restated here). The local runner
+    /// commits with [`DrandClient::target_round`], in whole seconds. Both must
+    /// pick the same round, and the same due time, at any instant.
+    #[test]
+    fn both_engines_commit_to_the_same_round() {
+        let q = chains::quicknet();
+        let schedule = q.schedule();
+        let genesis_ms = q.genesis_time().as_secs() * 1000;
+        for lead in [3u64, 6, 7] {
+            for offset_ms in (0..20_000).step_by(137) {
+                let now_ms = genesis_ms + 1_000_000_000 + offset_ms;
+                let restate = schedule
+                    .round_at(
+                        UnixTime::from_millis(now_ms).saturating_add(Duration::from_secs(lead)),
+                    )
+                    .unwrap_or(1);
+                let now = u64::try_from(now_ms / 1000).unwrap();
+                let local = rafi_core::drand::target_round(&schedule, now, lead);
+                assert_eq!(local, restate, "lead {lead}, now {now_ms} ms");
+                assert!(
+                    rafi_core::drand::round_time(&schedule, local) * 1000
+                        >= u64::try_from(now_ms).unwrap(),
+                    "a lead of a period or more commits to a round not out yet"
+                );
+            }
+        }
+    }
+
     #[cfg(not(feature = "mock"))]
     #[test]
     fn mock_needs_the_feature() {

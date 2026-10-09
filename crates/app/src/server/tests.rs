@@ -1,6 +1,6 @@
 //! Integration tests: in-memory SQLite (or, with `RAFI_TEST_POSTGRES_URL`
-//! set, a fresh Postgres schema per test), an in-process stand-in for Restate
-//! ([`super::fake_engine`]), mock drand.
+//! set, a fresh Postgres schema per test), the in-process draw engine
+//! (`rafi_engine_local`), mock drand.
 
 use std::{sync::Arc, time::Duration};
 
@@ -19,7 +19,9 @@ use rafi_platform::{Limiter, Notifier, Polling, Recording};
 use rafi_store::{RaffleRow, entrants, items, raffles};
 use tower::ServiceExt;
 
-use super::{AppState, config::Config, engine::Command, fake_engine, routes, service};
+use rafi_core::engine::Command;
+
+use super::{AppState, config::Config, routes, service};
 use crate::model::{ItemInput, Lifecycle};
 
 const OWNER: &str = "user_test";
@@ -32,8 +34,8 @@ async fn app_with(cfg: Config) -> AppState {
     app_with_live(cfg, Arc::new(Polling::default())).await
 }
 
-/// An app whose draw engine is the in-process stand-in for Restate, on the
-/// same database. With `RAFI_TEST_POSTGRES_URL` set, the test database is a
+/// An app whose draw engine is the in-process one, writing into the same
+/// database. With `RAFI_TEST_POSTGRES_URL` set, the test database is a
 /// fresh schema there instead of in-memory SQLite.
 async fn app_with_live(mut cfg: Config, live: Arc<dyn Notifier>) -> AppState {
     if cfg.database_url == Config::for_tests().database_url
@@ -46,8 +48,19 @@ async fn app_with_live(mut cfg: Config, live: Arc<dyn Notifier>) -> AppState {
         .expect("database");
     let purge =
         rafi_store::PurgeAfter::days(cfg.retention_nonwinners_days, cfg.retention_winners_days);
-    cfg.restate.ingress_url = fake_engine::start(db.clone(), cfg.drand.clone(), purge).await;
-    AppState::from_parts(cfg, db, live, Arc::new(Limiter::default())).expect("app state")
+    let engine = rafi_engine_local::LocalEngine::new(
+        rafi_drand::DrandClient::new(cfg.drand.clone()).expect("drand configuration"),
+        rafi_store::DrawWriter::new(db.clone(), purge),
+        Polling::default(),
+    );
+    AppState::from_parts(
+        cfg,
+        db,
+        Some(Arc::new(engine)),
+        live,
+        Arc::new(Limiter::default()),
+    )
+    .expect("app state")
 }
 
 async fn send(router: &Router, req: Request<Body>) -> (StatusCode, header::HeaderMap, String) {
@@ -821,7 +834,7 @@ async fn draws_need_restate() {
     let mut cfg = Config::for_tests();
     cfg.dev_auth = true;
     let app = AppState::new(cfg).await.unwrap();
-    assert!(app.restate.is_none());
+    assert!(app.engine.is_none());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
         .await
@@ -1189,7 +1202,9 @@ async fn stalled_draw_keeps_its_round() {
     })
     .await;
 
-    // While the next draw is pending, "not here" waits; "handed over" doesn't.
+    // While the next draw waits for its round, "not here" is refused; "handed
+    // over" is accepted, and the engine applies it once that draw settles
+    // (here: stalls).
     draw(&units[1], false, "d5").await.unwrap();
     wait_for(&app, &raffle.id, |r| {
         r.draw_state()
@@ -1220,6 +1235,15 @@ async fn stalled_draw_keeps_its_round() {
     )
     .await
     .unwrap();
+    let r = wait_for(&app, &raffle.id, |r| {
+        r.draw_state()
+            .is_some_and(|s| s.unit(&units[0]).unwrap().status == UnitStatus::Claimed)
+    })
+    .await;
+    assert!(
+        r.draw_state().unwrap().stalled(),
+        "applied after the draw stalled"
+    );
 
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     let report = rafi_core::verify::verify(
@@ -1530,6 +1554,7 @@ async fn retention_ends_channels_and_logs_erasures() {
     let app = AppState::from_parts(
         cfg,
         app.db.clone(),
+        app.engine.clone(),
         live.clone(),
         Arc::new(Limiter::default()),
     )

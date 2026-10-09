@@ -15,6 +15,7 @@ anyhow = "1"
 getrandom = "0.3"
 rafi-platform = { path = "../platform" }
 restate-sdk = { workspace = true }
+serde.workspace = true
 tracing = "0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -22,6 +23,8 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
 rafi-drand = { path = "../drand", features = ["mock"] }
+rafi-engine-local = { path = "../engine-local", features = ["conformance"] }
+restate-rafi-client = { path = "../restate-rafi-client" }
 restate-e2e-harness = "0.3"
 serde_json.workspace = true
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
