@@ -22,9 +22,11 @@ pub enum RaffleState {
     Purged,
 }
 
+/// A request to move a raffle through its lifecycle; the rules may refuse it
+/// ([`RaffleState::apply`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Action {
+pub enum Command {
     Publish,
     Unpublish,
     Open,
@@ -63,11 +65,11 @@ impl RaffleState {
         })
     }
 
-    /// The state after `action`, or `None` if the transition is not allowed.
-    pub fn apply(self, action: Action) -> Option<Self> {
-        use Action as A;
+    /// The state after `command`, or `None` if the transition is not allowed.
+    pub fn apply(self, command: Command) -> Option<Self> {
+        use Command as A;
         use RaffleState as S;
-        Some(match (self, action) {
+        Some(match (self, command) {
             (S::Draft, A::Publish) => S::Ready,
             (S::Ready, A::Unpublish) => S::Draft,
             (S::Ready | S::Closed, A::Open) => S::Open,
@@ -108,7 +110,7 @@ impl RaffleState {
 
 #[cfg(test)]
 mod tests {
-    use super::{Action as A, RaffleState as S};
+    use super::{Command as A, RaffleState as S};
 
     #[test]
     fn happy_path() {

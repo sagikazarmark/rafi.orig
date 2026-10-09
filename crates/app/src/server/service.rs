@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use rafi_core::raffle::{Action, RaffleState};
+use rafi_core::raffle::{self, RaffleState};
 use rafi_drawing::{
     BeaconSource, Error as DrawingError, ErrorKind,
     drawing::Outcome,
@@ -327,16 +327,16 @@ pub async fn delete_prize(
 
 pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
-    let action = match action {
-        Lifecycle::Publish => Action::Publish,
-        Lifecycle::Unpublish => Action::Unpublish,
-        Lifecycle::Open => Action::Open,
-        Lifecycle::Close => Action::Close,
+    let command = match action {
+        Lifecycle::Publish => raffle::Command::Publish,
+        Lifecycle::Unpublish => raffle::Command::Unpublish,
+        Lifecycle::Open => raffle::Command::Open,
+        Lifecycle::Close => raffle::Command::Close,
     };
     let from = raffle.state();
-    let to = from.apply(action).ok_or_else(|| {
+    let to = from.apply(command).ok_or_else(|| {
         conflict(format!(
-            "Cannot {action:?} a raffle that is {}.",
+            "Cannot {command:?} a raffle that is {}.",
             from.as_str()
         ))
     })?;
