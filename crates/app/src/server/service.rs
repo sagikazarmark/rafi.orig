@@ -212,7 +212,7 @@ pub async fn update_settings(
 pub async fn delete(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     if raffle.state() == RaffleState::Drawing
-        && raffle.drawing().is_some_and(|s| s.pending().is_some())
+        && raffle.drawing()?.is_some_and(|s| s.pending().is_some())
     {
         return Err(conflict("A draw is in progress."));
     }
@@ -488,7 +488,7 @@ pub async fn command(
     if !raffle.state().drawable() {
         return Err(conflict("The draw has not started (or is already over)."));
     }
-    let state = raffle.drawing().ok_or_else(|| {
+    let state = raffle.drawing()?.ok_or_else(|| {
         conflict(
             "The draw engine has not confirmed the frozen list yet; press “Start the draw” again.",
         )
@@ -896,12 +896,13 @@ pub async fn end_live(app: &AppState, owner: &str, raffle_id: &str) -> Result<()
 pub async fn admin(app: &AppState, owner: &str, id: &str) -> Result<RaffleAdmin> {
     let raffle = owned(app, owner, id).await?;
     let prizes = prizes::list(&app.db, id).await?;
-    let outcomes = raffle
-        .drawing()
+    let drawing = raffle.drawing()?;
+    let outcomes = drawing
+        .as_ref()
         .map(|s| s.entrant_outcomes())
         .unwrap_or_default();
-    let item_names: std::collections::HashMap<ItemId, String> = raffle
-        .drawing()
+    let item_names: std::collections::HashMap<ItemId, String> = drawing
+        .as_ref()
         .map(|s| {
             s.items()
                 .iter()
@@ -1019,7 +1020,7 @@ pub async fn verify_data(app: &AppState, slug: &str) -> Result<VerifyData> {
         title: raffle.title.clone(),
         state: raffle.state(),
         events: raffle
-            .drawing()
+            .drawing()?
             .map(|s| s.events().to_vec())
             .unwrap_or_default(),
         manifest,

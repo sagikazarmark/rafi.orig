@@ -61,12 +61,9 @@ impl Snapshot {
                 db.query(format!(
                     "SELECT e.id, e.display_name, e.hidden FROM entrants e
                      WHERE e.raffle_id = ?1 AND e.id IN ({})",
-                    dialect::drawing_entrants(
+                    dialect::entrants_in(
                         db.dialect(),
-                        "(SELECT drawing FROM raffles WHERE id = ?1)",
-                        "events",
-                        "type",
-                        "draw",
+                        "(SELECT drawn_entrants FROM raffles WHERE id = ?1)",
                     )
                 ))
                 .bind(raffle_id),
@@ -107,7 +104,8 @@ impl Snapshot {
             drawing: raffle
                 .drawing
                 .as_deref()
-                .and_then(|s| serde_json::from_str(s).ok()),
+                .map(crate::parse_drawing)
+                .transpose()?,
             names,
             prize_qty,
         }))
@@ -258,9 +256,11 @@ mod tests {
     }
 
     async fn store(db: &Db, log: &Log, lifecycle: &str) {
-        db.query("UPDATE raffles SET state = ?, drawing = ? WHERE id = 'r1'")
+        let stored = crate::StoredDrawing::of(&log.drawing()).unwrap();
+        db.query("UPDATE raffles SET state = ?, drawing = ?, drawn_entrants = ? WHERE id = 'r1'")
             .bind(lifecycle)
-            .bind(serde_json::to_string(&log.drawing()).unwrap())
+            .bind(stored.json)
+            .bind(stored.drawn_entrants)
             .run()
             .await
             .unwrap();
@@ -318,6 +318,17 @@ mod tests {
             "Anna",
             "the no-show is skipped"
         );
+    }
+
+    #[tokio::test]
+    async fn a_drawing_that_does_not_load_is_an_error() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        raffle(&db).await;
+        db.query(r#"UPDATE raffles SET drawing = '{"items": []}' WHERE id = 'r1'"#)
+            .run()
+            .await
+            .unwrap();
+        assert!(Snapshot::read(&db, "r1").await.is_err());
     }
 
     #[tokio::test]

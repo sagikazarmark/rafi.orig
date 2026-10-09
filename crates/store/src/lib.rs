@@ -56,7 +56,9 @@ pub use error::{Error, Result};
 pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
-use rafi_drawing::{Drawing, Event};
+use std::collections::BTreeSet;
+
+use rafi_drawing::{Drawing, EntrantId, Event, ItemState};
 use rafi_platform::{BoxFuture, DrawStore};
 pub use value::{Row, Value};
 
@@ -100,7 +102,7 @@ impl PurgeAfter {
 ///
 /// Returns whether the state was written.
 pub async fn save_drawing(db: &Db, state: &Drawing, purge: PurgeAfter) -> Result<bool> {
-    let json = serde_json::to_string(state).map_err(|e| Error::Backend(e.to_string()))?;
+    let stored = StoredDrawing::of(state)?;
     let started = state
         .events()
         .iter()
@@ -116,6 +118,8 @@ pub async fn save_drawing(db: &Db, state: &Drawing, purge: PurgeAfter) -> Result
         .query(
             "UPDATE raffles SET
                 drawing = ?1,
+                drawn_entrants = ?10,
+                winners = ?11,
                 drawing_version = ?2,
                 state = CASE WHEN state IN ('frozen', 'drawing') THEN ?3 ELSE state END,
                 finished_at = CASE WHEN ?4 = 1 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
@@ -126,7 +130,7 @@ pub async fn save_drawing(db: &Db, state: &Drawing, purge: PurgeAfter) -> Result
                 updated_at = ?5
              WHERE id = ?8 AND manifest_hash = ?9 AND drawing_version < ?2",
         )
-        .bind(json)
+        .bind(stored.json)
         .bind(state.version())
         .bind(lifecycle)
         .bind(state.is_finished())
@@ -135,9 +139,58 @@ pub async fn save_drawing(db: &Db, state: &Drawing, purge: PurgeAfter) -> Result
         .bind(purge.winners_secs)
         .bind(state.id().as_str())
         .bind(state.manifest_hash().to_string())
+        .bind(stored.drawn_entrants)
+        .bind(stored.winners)
         .run()
         .await?;
     Ok(written > 0)
+}
+
+/// A drawing as the `raffles` row stores it: the drawing (its manifest and
+/// event log), and the entrants the database itself needs from it, as JSON
+/// arrays of IDs.
+pub(crate) struct StoredDrawing {
+    pub json: String,
+    /// Every entrant drawn: only their names may leave the database.
+    pub drawn_entrants: String,
+    /// The entrants holding a claimed item: their data is kept longer.
+    pub winners: String,
+}
+
+impl StoredDrawing {
+    pub fn of(state: &Drawing) -> Result<Self> {
+        let drawn: BTreeSet<&EntrantId> = state
+            .events()
+            .iter()
+            .filter_map(|e| match e {
+                Event::Draw { entrant, .. } => Some(entrant),
+                _ => None,
+            })
+            .collect();
+        let winners: BTreeSet<&EntrantId> = state
+            .items()
+            .iter()
+            .filter_map(|item| match &item.state {
+                ItemState::Claimed { entrant, .. } => Some(entrant),
+                _ => None,
+            })
+            .collect();
+        Ok(Self {
+            json: encode(state)?,
+            drawn_entrants: encode(&drawn)?,
+            winners: encode(&winners)?,
+        })
+    }
+}
+
+fn encode(value: &impl serde::Serialize) -> Result<String> {
+    serde_json::to_string(value).map_err(|e| Error::Backend(e.to_string()))
+}
+
+/// Reads a stored drawing. One that doesn't load (another shape, or a log
+/// that isn't its own) is an error, never "no drawing yet".
+pub(crate) fn parse_drawing(json: &str) -> Result<Drawing> {
+    serde_json::from_str(json).map_err(|e| Error::Decode(format!("the stored drawing: {e}")))
 }
 
 /// The draw engine's [`DrawStore`] over this database: [`save_drawing`]

@@ -53,10 +53,12 @@ impl RaffleRow {
         RaffleState::parse(&self.state).unwrap_or(RaffleState::Draft)
     }
 
-    pub fn drawing(&self) -> Option<Drawing> {
+    /// The drawing, once the engine has opened it.
+    pub fn drawing(&self) -> Result<Option<Drawing>> {
         self.drawing
             .as_deref()
-            .and_then(|s| serde_json::from_str(s).ok())
+            .map(crate::parse_drawing)
+            .transpose()
     }
 }
 

@@ -57,8 +57,7 @@ pub enum ItemState {
 }
 
 /// One item of a drawing, as it stands.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(into = "ItemRepr", try_from = "ItemRepr")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
     pub id: ItemId,
     pub name: String,
@@ -97,47 +96,6 @@ impl Item {
             ItemState::Drawn { entrant, .. } | ItemState::Claimed { entrant, .. } => Some(entrant),
             ItemState::Pending | ItemState::Voided => None,
         }
-    }
-}
-
-/// An item as stored: its status, draw and winner side by side.
-#[derive(Serialize, Deserialize)]
-struct ItemRepr {
-    id: ItemId,
-    name: String,
-    status: ItemStatus,
-    k: Option<u64>,
-    entrant: Option<EntrantId>,
-}
-
-impl From<Item> for ItemRepr {
-    fn from(item: Item) -> Self {
-        Self {
-            status: item.status(),
-            k: item.k(),
-            entrant: item.entrant().cloned(),
-            id: item.id,
-            name: item.name,
-        }
-    }
-}
-
-impl TryFrom<ItemRepr> for Item {
-    type Error = String;
-
-    fn try_from(r: ItemRepr) -> Result<Self, Self::Error> {
-        let state = match (r.status, r.k, r.entrant) {
-            (ItemStatus::Pending, None, None) => ItemState::Pending,
-            (ItemStatus::Voided, None, None) => ItemState::Voided,
-            (ItemStatus::Drawn, Some(k), Some(entrant)) => ItemState::Drawn { k, entrant },
-            (ItemStatus::Claimed, Some(k), Some(entrant)) => ItemState::Claimed { k, entrant },
-            (status, ..) => return Err(format!("item {}: inconsistent {status:?} item", r.id)),
-        };
-        Ok(Self {
-            id: r.id,
-            name: r.name,
-            state,
-        })
     }
 }
 
@@ -245,19 +203,44 @@ pub struct CompletedDraw {
     pub outcome: Outcome,
 }
 
+/// One drawing: opened from its manifest, changed only by recording events.
+///
+/// Stored as its manifest and its event log (`{"manifest": …, "events": […]}`),
+/// both published formats; everything else is rebuilt from them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "StoredDrawing", try_from = "StoredDrawing")]
 pub struct Drawing {
-    id: DrawingId,
+    manifest: Manifest,
     manifest_hash: ManifestHash,
-    beacon: BeaconSource,
-    /// Sorted entrant IDs.
-    entrants: Vec<EntrantId>,
     items: Vec<Item>,
     events: Vec<Event>,
     next_k: u64,
     pending: Option<Pending>,
     finished: bool,
-    version: u64,
+}
+
+/// A drawing as stored.
+#[derive(Serialize, Deserialize)]
+struct StoredDrawing {
+    manifest: Manifest,
+    events: Vec<Event>,
+}
+
+impl From<Drawing> for StoredDrawing {
+    fn from(drawing: Drawing) -> Self {
+        Self {
+            manifest: drawing.manifest,
+            events: drawing.events,
+        }
+    }
+}
+
+impl TryFrom<StoredDrawing> for Drawing {
+    type Error = Error;
+
+    fn try_from(stored: StoredDrawing) -> Result<Self, Error> {
+        Self::restore(&stored.manifest, &stored.events)
+    }
 }
 
 /// Refuses a drawing committed to another beacon source than the engine's.
@@ -275,7 +258,12 @@ fn check_beacon(committed: &BeaconSource, engine: &BeaconSource) -> Result<(), E
 /// Reading a drawing.
 impl Drawing {
     pub fn id(&self) -> &DrawingId {
-        &self.id
+        &self.manifest.drawing
+    }
+
+    /// The manifest the drawing was opened from.
+    pub fn manifest(&self) -> &Manifest {
+        &self.manifest
     }
 
     pub fn manifest_hash(&self) -> &ManifestHash {
@@ -284,12 +272,12 @@ impl Drawing {
 
     /// Where the draws' randomness comes from (from the manifest).
     pub fn beacon(&self) -> &BeaconSource {
-        &self.beacon
+        &self.manifest.beacon
     }
 
     /// The entrants, sorted.
     pub fn entrants(&self) -> &[EntrantId] {
-        &self.entrants
+        &self.manifest.entrants
     }
 
     pub fn items(&self) -> &[Item] {
@@ -315,10 +303,10 @@ impl Drawing {
         self.finished
     }
 
-    /// Monotonic, bumped on every change: of two copies of a drawing, the one
-    /// with the higher version is newer.
+    /// Monotonic, one more on every change: of two copies of a drawing, the
+    /// one with the higher version is newer.
     pub fn version(&self) -> u64 {
-        self.version
+        1 + self.events.len() as u64
     }
 
     /// Whether the pending draw has stalled: its latest attempt couldn't get
@@ -382,7 +370,7 @@ impl Drawing {
                 forfeited: matches!(d.outcome, Outcome::NotHere | Outcome::Declined),
             })
             .collect();
-        algorithm::pool(&self.entrants, &past)
+        algorithm::pool(&self.manifest.entrants, &past)
     }
 
     /// Number of items that can still be given away.
@@ -433,7 +421,6 @@ impl Drawing {
         for event in events {
             drawing.apply(event)?;
             drawing.events.push(event.clone());
-            drawing.version += 1;
         }
         Ok(drawing)
     }
@@ -442,16 +429,13 @@ impl Drawing {
     /// replays it anyway, and reports it).
     pub(crate) fn open_unchecked(manifest: &Manifest) -> Self {
         Self {
-            id: manifest.drawing.clone(),
+            manifest: manifest.clone(),
             manifest_hash: manifest.hash(),
-            beacon: manifest.beacon,
-            entrants: manifest.entrants.clone(),
             items: manifest.items.iter().map(Item::pending).collect(),
             events: Vec::new(),
             next_k: 1,
             pending: None,
             finished: false,
-            version: 1,
         }
     }
 
@@ -468,7 +452,7 @@ impl Drawing {
         engine_beacon: &BeaconSource,
     ) -> Result<Option<Drawing>, Error> {
         let fresh = Self::open(manifest)?;
-        check_beacon(&fresh.beacon, engine_beacon)?;
+        check_beacon(fresh.beacon(), engine_beacon)?;
         match existing {
             Some(existing) if existing.manifest_hash == fresh.manifest_hash => Ok(None),
             Some(_) => Err(Error::AlreadyOpen),
@@ -489,7 +473,7 @@ impl Drawing {
         round: u64,
         round_time: u64,
     ) -> Result<Pending, Error> {
-        check_beacon(&self.beacon, engine_beacon)?;
+        check_beacon(self.beacon(), engine_beacon)?;
         match &self.pending {
             Some(p) if p.item == request.item && !self.finished => Ok(p.clone()),
             _ => self.start(&request.item, round, round_time),
@@ -573,7 +557,7 @@ impl Drawing {
     /// Completes the pending draw with the verified beacon for its committed
     /// round, from the drawing's drand chain.
     pub(crate) fn complete(&mut self, beacon: &VerifiedBeacon) -> Result<Drawn, Error> {
-        if BeaconSource::Drand(beacon.chain_hash()) != self.beacon {
+        if BeaconSource::Drand(beacon.chain_hash()) != *self.beacon() {
             return Err(Error::WrongBeacon);
         }
         self.select(
@@ -721,7 +705,6 @@ impl Drawing {
         self.apply(&event)
             .expect("a transition records an event that applies");
         self.events.push(event);
-        self.version += 1;
     }
 
     /// Applies an event to the state. Only the log's own consistency is
@@ -936,7 +919,7 @@ pub(crate) mod tests {
                 got: 11
             })
         );
-        s.beacon = BeaconSource::QUICKNET;
+        s.manifest.beacon = BeaconSource::QUICKNET;
         assert_eq!(s.complete(&beacon(10)), Err(Error::WrongBeacon));
         assert!(s.pending().is_some());
     }
@@ -1157,21 +1140,26 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn items_keep_their_stored_form() {
-        let mut s = opened(2, 1);
-        let d = draw(&mut s, "item-0", 1);
-        let json = serde_json::to_value(&s.items()[0]).unwrap();
-        assert_eq!(json["status"], "drawn");
-        assert_eq!(json["k"], 1);
-        assert_eq!(json["entrant"], d.entrant.as_str());
-        let back: Item = serde_json::from_value(json).unwrap();
-        assert_eq!(back, s.items()[0]);
-        assert!(
-            serde_json::from_value::<Item>(serde_json::json!({
-                "id": "item-0", "name": "Item", "status": "drawn", "k": null, "entrant": null
-            }))
-            .is_err()
+    fn a_drawing_is_stored_as_its_manifest_and_log() {
+        let m = manifest(2, 1);
+        let mut s = Drawing::open(&m).unwrap();
+        draw(&mut s, "item-0", 1);
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "manifest": serde_json::to_value(&m).unwrap(),
+                "events": serde_json::to_value(s.events()).unwrap(),
+            })
         );
+        assert_eq!(serde_json::from_value::<Drawing>(json).unwrap(), s);
+
+        // A log that isn't the drawing's own does not load.
+        let bad = serde_json::json!({
+            "manifest": serde_json::to_value(&m).unwrap(),
+            "events": [{"type": "resolve", "k": 7, "outcome": "claimed"}],
+        });
+        assert!(serde_json::from_value::<Drawing>(bad).is_err());
     }
 
     #[test]

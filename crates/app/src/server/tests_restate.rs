@@ -133,7 +133,7 @@ async fn app_and_restate_rafi_share_the_database() {
         .await
         .expect("freeze via restate-rafi");
     let r = wait_for(&app, &id, |r| r.drawing.is_some()).await;
-    let item = r.drawing().unwrap().items()[0].id.clone();
+    let item = r.drawing().unwrap().unwrap().items()[0].id.clone();
 
     service::command(
         &app,
@@ -145,7 +145,7 @@ async fn app_and_restate_rafi_share_the_database() {
     .await
     .unwrap();
     wait_for(&app, &id, |r| {
-        r.drawing()
+        r.drawing().unwrap()
             .is_some_and(|s| s.item(&item).unwrap().status() == ItemStatus::Drawn)
     })
     .await;

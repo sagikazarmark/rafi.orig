@@ -30,8 +30,11 @@ async fn drawing(db: &Db, raffle: &str) -> Result<Drawing> {
     rafi_store::raffles::get(db, raffle)
         .await
         .map_err(err)?
-        .and_then(|r| r.drawing())
-        .ok_or_else(|| err("the raffle has no draw state"))
+        .map(|r| r.drawing())
+        .transpose()
+        .map_err(err)?
+        .flatten()
+        .ok_or_else(|| err("the raffle has no drawing"))
 }
 
 async fn reset(db: &Db, raffle: &str) -> Result<()> {

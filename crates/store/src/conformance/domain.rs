@@ -484,11 +484,13 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         });
     }
     let state = Drawing::restore(&manifest, &events).map_err(fail)?;
+    let stored = crate::StoredDrawing::of(&state).map_err(fail)?;
     db.query(
-        "UPDATE raffles SET state = 'finished', drawing = ?, finished_at = 100,
+        "UPDATE raffles SET state = 'finished', drawing = ?, winners = ?, finished_at = 100,
          purge_nonwinners_at = 130, purge_winners_at = 190 WHERE id = 'r1'",
     )
-    .bind(serde_json::to_string(&state).map_err(fail)?)
+    .bind(stored.json)
+    .bind(stored.winners)
     .run()
     .await
     .map_err(fail)?;

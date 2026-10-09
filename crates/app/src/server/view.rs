@@ -60,7 +60,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         .map(|e| e.display_name.clone())
         .collect();
 
-    let drawing = raffle.drawing();
+    let drawing = raffle.drawing()?;
     let prize_meta: HashMap<&str, (&str, &str)> = prizes
         .iter()
         .map(|i| (i.id.as_str(), (i.name.as_str(), i.sponsor.as_str())))
@@ -163,8 +163,8 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
     let state = raffle.state();
     // Labelled by the beacon source the raffle committed to (or will): only
     // a public drand chain is verifiable.
-    let public = raffle
-        .drawing()
+    let public = drawing
+        .as_ref()
         .map_or(BeaconSource::Drand(app.chain), |s| *s.beacon())
         .publicly_verifiable();
     let engine = if public {
