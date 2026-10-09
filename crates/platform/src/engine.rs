@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use rafi_core::{
+use rafi_drawing::{
     commit::CommitDoc,
     drand::ChainHash,
     engine::{Command, ErrorKind},
@@ -54,7 +54,7 @@ impl From<DrawError> for EngineError {
 }
 
 /// The draw engine: owns each raffle's draw state from freeze to finish,
-/// applies the draw rules (`rafi_core`) and writes every new state to the
+/// applies the draw rules (`rafi_drawing`) and writes every new state to the
 /// projection ([`DrawStore`](crate::DrawStore)), then notifies clients.
 ///
 /// The contract every engine keeps:

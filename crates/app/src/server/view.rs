@@ -2,10 +2,8 @@
 
 use std::collections::HashMap;
 
-use rafi_core::{
-    raffle::RaffleState,
-    state::{Event, Outcome, UnitStatus},
-};
+use rafi_core::raffle::RaffleState;
+use rafi_drawing::state::{Event, Outcome, UnitStatus};
 use rafi_store::view::Full;
 
 use super::AppState;
@@ -84,7 +82,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             .iter()
             .flat_map(|i| {
                 (1..=u64::try_from(i.qty).unwrap_or(0)).map(move |n| UnitView {
-                    unit_id: rafi_core::commit::unit_id(&i.id, n),
+                    unit_id: rafi_drawing::commit::unit_id(&i.id, n),
                     item_id: i.id.clone(),
                     item_name: i.name.clone(),
                     status: UnitStatus::Pending,
@@ -193,9 +191,9 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         .map(|s| s.drand_chain)
         .unwrap_or_else(|| app.chain.to_string());
     let public = chain
-        .parse::<rafi_core::drand::ChainHash>()
+        .parse::<rafi_drawing::drand::ChainHash>()
         .ok()
-        .is_some_and(|c| rafi_core::drand::chains::by_hash(&c).is_some());
+        .is_some_and(|c| rafi_drawing::drand::chains::by_hash(&c).is_some());
     let engine = if public {
         "restate"
     } else {

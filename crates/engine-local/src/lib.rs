@@ -12,7 +12,7 @@
 //!   are notified, best effort;
 //! - the raffle is forgotten once it finishes.
 //!
-//! All decisions are `rafi_core`'s ([`DrawState::freeze_or_check`],
+//! All decisions are `rafi_drawing`'s ([`DrawState::freeze_or_check`],
 //! [`DrawState::begin`], [`DrawState::conclude`], [`DrawState::apply`]); the
 //! committed round comes from [`DrandClient::target_round`]. This engine only
 //! does the I/O, with an injectable clock and randomness.
@@ -35,12 +35,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use rafi_core::{
+use rafi_drand::DrandClient;
+use rafi_drawing::{
     commit::CommitDoc,
     engine::{BeaconOutcome, Command, ErrorKind},
     state::{DrawError, DrawState},
 };
-use rafi_drand::DrandClient;
 use rafi_platform::{BoxFuture, DrawEngine, DrawStore, EngineError, EngineInfo, Notifier};
 use tokio::sync::{mpsc, watch};
 
@@ -335,8 +335,8 @@ impl Io {
 
 #[cfg(test)]
 mod tests {
-    use rafi_core::{commit::UnitRef, state::UnitStatus};
     use rafi_drand::DrandConfig;
+    use rafi_drawing::{commit::UnitRef, state::UnitStatus};
     use rafi_platform::{MemoryDrawStore, Recording};
 
     use super::*;

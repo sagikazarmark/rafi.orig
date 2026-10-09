@@ -11,7 +11,7 @@
 //! - [`LiveTransport`]: how clients follow a raffle on this deployment.
 //!
 //! This crate must stay light enough for the phone: it doesn't depend on
-//! `rafi-core` (which pulls in drand and BLS), and it reads no clock and no
+//! `rafi-drawing` (which pulls in drand and BLS), and it reads no clock and no
 //! randomness of its own, so it runs unchanged on `wasm32-unknown-unknown`.
 
 pub mod altcha;

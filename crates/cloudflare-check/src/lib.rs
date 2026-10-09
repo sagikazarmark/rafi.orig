@@ -12,7 +12,7 @@
 
 use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleChannel;
-use rafi_core::{
+use rafi_drawing::{
     commit::{CommitDoc, UnitRef},
     state::{DrawState, Event, UnitStatus},
 };
@@ -63,7 +63,7 @@ async fn reset(db: &Db, raffle: &str) -> Result<()> {
 async fn freeze(db: &Db, raffle: &str) -> Result<()> {
     let doc = CommitDoc::new(
         raffle,
-        &rafi_core::drand::chains::QUICKNET_HASH,
+        &rafi_drawing::drand::chains::QUICKNET_HASH,
         vec![entrant(raffle, "anna"), entrant(raffle, "bence")],
         vec![
             UnitRef {
@@ -249,7 +249,7 @@ async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
         round: 1,
         signature: String::new(),
         randomness: String::new(),
-        mode: rafi_core::state::DrawMode::Beacon,
+        mode: rafi_drawing::state::DrawMode::Beacon,
         pass: 1,
         pool_size: 2,
         index: 0,

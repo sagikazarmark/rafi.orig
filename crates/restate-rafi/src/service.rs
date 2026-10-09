@@ -3,12 +3,12 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use rafi_core::{
+use rafi_drand::DrandClient;
+use rafi_drawing::{
     commit::CommitDoc,
     engine::{BeaconOutcome, Command},
     state::{DrawError, DrawState},
 };
-use rafi_drand::DrandClient;
 use rafi_platform::{DrawStore, Notifier};
 use restate_drand::{AwaitError, Drand};
 use restate_sdk::prelude::*;

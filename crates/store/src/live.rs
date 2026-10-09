@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use crate::{Db, Result, dialect};
-use rafi_core::state::{DrawState, Event, Outcome, UnitStatus};
+use rafi_drawing::state::{DrawState, Event, Outcome, UnitStatus};
 use rafi_live::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
 use serde::Deserialize;
 
@@ -187,14 +187,14 @@ impl Snapshot {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use rafi_core::commit::{CommitDoc, UnitRef};
+    use rafi_drawing::commit::{CommitDoc, UnitRef};
 
     use super::*;
 
     async fn raffle(db: &Db) -> DrawState {
         let doc = CommitDoc::new(
             "r1",
-            &rafi_core::drand::chains::QUICKNET_HASH,
+            &rafi_drawing::drand::chains::QUICKNET_HASH,
             vec!["a".repeat(32), "b".repeat(32)],
             vec![
                 UnitRef {
@@ -248,7 +248,7 @@ mod tests {
             round: 1,
             signature: String::new(),
             randomness: String::new(),
-            mode: rafi_core::state::DrawMode::Beacon,
+            mode: rafi_drawing::state::DrawMode::Beacon,
             pass: 1,
             pool_size: 2,
             index: 0,

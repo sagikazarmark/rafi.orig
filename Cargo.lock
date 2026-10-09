@@ -4707,6 +4707,7 @@ dependencies = [
  "rafi-cloudflare",
  "rafi-core",
  "rafi-drand",
+ "rafi-drawing",
  "rafi-engine-local",
  "rafi-live",
  "rafi-platform",
@@ -4770,8 +4771,8 @@ dependencies = [
  "dioxus",
  "js-sys",
  "rafi-cloudflare",
- "rafi-core",
  "rafi-drand",
+ "rafi-drawing",
  "rafi-live",
  "rafi-platform",
  "rafi-store",
@@ -4781,6 +4782,26 @@ dependencies = [
 
 [[package]]
 name = "rafi-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "rafi-drand"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "drand",
+ "rafi-drawing",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "rafi-drawing"
 version = "0.1.0"
 dependencies = [
  "drand",
@@ -4793,26 +4814,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-drand"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "drand",
- "rafi-core",
- "reqwest 0.13.5",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "rafi-engine-local"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "getrandom 0.3.4",
- "rafi-core",
  "rafi-drand",
+ "rafi-drawing",
  "rafi-engine-local",
  "rafi-platform",
  "serde_json",
@@ -4840,7 +4848,7 @@ name = "rafi-platform"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "rafi-core",
+ "rafi-drawing",
  "rafi-live",
  "thiserror 2.0.21",
  "tokio",
@@ -4871,6 +4879,7 @@ dependencies = [
  "libtest-mimic",
  "oliphaunt",
  "rafi-core",
+ "rafi-drawing",
  "rafi-live",
  "rafi-platform",
  "rafi-store",
@@ -5185,8 +5194,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "getrandom 0.3.4",
- "rafi-core",
  "rafi-drand",
+ "rafi-drawing",
  "rafi-engine-local",
  "rafi-platform",
  "restate-drand",
@@ -5204,7 +5213,7 @@ name = "restate-rafi-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "rafi-core",
+ "rafi-drawing",
  "rafi-platform",
  "reqwest 0.13.5",
  "serde",

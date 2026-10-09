@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use rafi_core::state::DrawState;
+use rafi_drawing::state::DrawState;
 
 use crate::BoxFuture;
 

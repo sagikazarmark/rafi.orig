@@ -25,6 +25,7 @@ embedded-postgres = ["postgres", "conformance", "dep:oliphaunt"]
 [dependencies]
 anyhow = "1"
 rafi-core.workspace = true
+rafi-drawing.workspace = true
 rafi-live = { path = "../live" }
 rafi-platform = { path = "../platform" }
 serde.workspace = true

@@ -205,8 +205,8 @@ impl DrandClient {
     /// The round a draw starting at `now_unix` commits to, and when it is due.
     pub fn target_round(&self, now_unix: u64) -> (u64, u64) {
         let schedule = self.schedule();
-        let round = rafi_core::drand::target_round(&schedule, now_unix, self.cfg.lead_secs);
-        (round, rafi_core::drand::round_time(&schedule, round))
+        let round = rafi_drawing::drand::target_round(&schedule, now_unix, self.cfg.lead_secs);
+        (round, rafi_drawing::drand::round_time(&schedule, round))
     }
 
     /// One attempt across the relays, no sleeping (for a durable retried step).
@@ -310,10 +310,10 @@ mod tests {
                     )
                     .unwrap_or(1);
                 let now = u64::try_from(now_ms / 1000).unwrap();
-                let local = rafi_core::drand::target_round(&schedule, now, lead);
+                let local = rafi_drawing::drand::target_round(&schedule, now, lead);
                 assert_eq!(local, restate, "lead {lead}, now {now_ms} ms");
                 assert!(
-                    rafi_core::drand::round_time(&schedule, local) * 1000
+                    rafi_drawing::drand::round_time(&schedule, local) * 1000
                         >= u64::try_from(now_ms).unwrap(),
                     "a lead of a period or more commits to a round not out yet"
                 );

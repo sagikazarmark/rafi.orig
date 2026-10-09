@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::{ops::Deref, sync::Arc};
 
 use axum::{Extension, Router};
-use rafi_core::drand::ChainHash;
+use rafi_drawing::drand::ChainHash;
 use rafi_platform::{DrawEngine, Notifier, RateLimit};
 use rafi_store::Db;
 use restate_rafi_client::RestateClient;

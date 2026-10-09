@@ -94,7 +94,7 @@ pub struct Winner {
     pub claimed: bool,
 }
 
-/// How a drawn entrant's turn ended. Mirrors `rafi_core::state::Outcome`.
+/// How a drawn entrant's turn ended. Mirrors `rafi_drawing::state::Outcome`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DrawOutcome {

@@ -1,7 +1,7 @@
 //! The `RaffleEngine` service: what the draw engine says about itself.
 
-use rafi_core::drand::ChainHash;
 use rafi_drand::DrandClient;
+use rafi_drawing::drand::ChainHash;
 use restate_sdk::prelude::*;
 use serde::Serialize;
 

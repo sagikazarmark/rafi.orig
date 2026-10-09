@@ -4,7 +4,7 @@ use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
-use rafi_core::{
+use rafi_drawing::{
     commit::{CommitDoc, UnitRef},
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
     state::{DrawError, DrawState, Event, Outcome, UnitStatus},

@@ -8,7 +8,7 @@ description = "The Rafi draw engine: the `Raffle` Restate virtual object"
 publish = false
 
 [dependencies]
-rafi-core.workspace = true
+rafi-drawing.workspace = true
 rafi-drand = { path = "../drand" }
 restate-drand = { workspace = true }
 anyhow = "1"

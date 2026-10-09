@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-rafi-core.workspace = true
+rafi-drawing.workspace = true
 rafi-live = { path = "../live" }
 thiserror.workspace = true
 

@@ -9,13 +9,13 @@
 
 use std::time::Duration;
 
-use rafi_core::{
+use rafi_drand::{DrandClient, DrandConfig};
+use rafi_drawing::{
     commit::{CommitDoc, UnitRef},
     engine::Command,
     state::{DrawState, Event, Outcome, UnitStatus},
     verify::verify,
 };
-use rafi_drand::{DrandClient, DrandConfig};
 use rafi_platform::{MemoryDrawStore, Recording};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_rafi::{Raffle, SERVICE_NAME};
@@ -114,7 +114,7 @@ async fn e2e_raffle() {
     // A commit to another drand chain than the engine's is refused.
     let mut quicknet = self::doc(5);
     quicknet.raffle_id = "other-raffle".into();
-    quicknet.drand_chain = rafi_core::drand::QUICKNET_CHAIN.into();
+    quicknet.drand_chain = rafi_drawing::drand::QUICKNET_CHAIN.into();
     let reply = restate
         .invoke(
             &Call::object(SERVICE_NAME, "other-raffle", "freeze"),
@@ -292,7 +292,7 @@ async fn e2e_stalled_draw() {
     let call = |handler| Call::object(SERVICE_NAME, RAFFLE, handler);
     let cmd = |c: Command| serde_json::to_value(c).unwrap();
     let mut doc = doc(5);
-    doc.drand_chain = rafi_core::drand::QUICKNET_CHAIN.into();
+    doc.drand_chain = rafi_drawing::drand::QUICKNET_CHAIN.into();
     let reply = restate
         .invoke(&call("freeze"), Some(&json!(doc)), Some("freeze-1"))
         .await;

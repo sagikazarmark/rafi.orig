@@ -11,7 +11,7 @@
 use std::fmt;
 
 #[cfg(any(feature = "web", feature = "server"))]
-use rafi_core::state::Outcome;
+use rafi_drawing::state::Outcome;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "web")]
@@ -26,7 +26,7 @@ use crate::server::{
     service::{self, AppError},
 };
 #[cfg(feature = "server")]
-use rafi_core::engine::Command;
+use rafi_drawing::engine::Command;
 
 /// An error reply: a message for the organizer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

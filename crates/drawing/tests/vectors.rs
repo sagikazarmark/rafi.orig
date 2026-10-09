@@ -1,7 +1,7 @@
 //! Shared test vectors for `rafi-draw-v1`.
 //!
 //! `testdata/draw-vectors.json` is checked by this test, by `tools/verify.py`
-//! and (through `rafi-core` compiled to WASM) by the browser verifier. Run with
+//! and (through `rafi-drawing` compiled to WASM) by the browser verifier. Run with
 //! `UPDATE_VECTORS=1` to regenerate after an intentional algorithm change,
 //! which must also bump the algorithm identifier.
 //!
@@ -12,7 +12,7 @@
 //! round, and "not here"/"declined" are never resolved while a draw is pending
 //! (a log doing that fails verification).
 
-use rafi_core::{
+use rafi_drawing::{
     commit::{CommitDoc, UnitRef},
     drand::{Beacon, VerifiedBeacon, Verifier, chains},
     draw,
@@ -169,8 +169,8 @@ fn vectors_match() {
     );
 
     for v in &stored.select {
-        let r = rafi_core::hash_from_hex(&v.randomness).unwrap();
-        let l = rafi_core::hash_from_hex(&v.list_hash).unwrap();
+        let r = rafi_drawing::hash_from_hex(&v.randomness).unwrap();
+        let l = rafi_drawing::hash_from_hex(&v.list_hash).unwrap();
         assert_eq!(draw::select(&r, &l, v.k, v.pool_size), v.index);
     }
     let events = serde_json::from_value::<Vec<_>>(stored.scenario.events.clone()).unwrap();

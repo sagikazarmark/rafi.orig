@@ -10,9 +10,9 @@
 
 use std::time::Duration;
 
-use rafi_core::engine::Command;
-use rafi_core::state::{Outcome, UnitStatus};
 use rafi_drand::{DrandClient, DrandConfig};
+use rafi_drawing::engine::Command;
+use rafi_drawing::state::{Outcome, UnitStatus};
 use rafi_platform::DrawEngine;
 use rafi_platform::Polling;
 use rafi_store::{Db, DrawWriter, PurgeAfter, RaffleRow, raffles};
@@ -197,7 +197,7 @@ async fn app_and_restate_rafi_share_the_database() {
         state.body
     );
     let data = service::verify_data(&app, &r.slug).await.unwrap();
-    let report = rafi_core::verify::verify(
+    let report = rafi_drawing::verify::verify(
         &data.commit_doc,
         &data.list_hash,
         &data.events,

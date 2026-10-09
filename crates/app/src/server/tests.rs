@@ -10,16 +10,14 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use rafi_core::{
-    raffle::RaffleState,
-    state::{Outcome, UnitStatus},
-};
+use rafi_core::raffle::RaffleState;
+use rafi_drawing::state::{Outcome, UnitStatus};
 use rafi_live::LiveTransport;
 use rafi_platform::{Limiter, Notifier, Polling, Recording};
 use rafi_store::{RaffleRow, entrants, items, raffles};
 use tower::ServiceExt;
 
-use rafi_core::engine::Command;
+use rafi_drawing::engine::Command;
 
 use super::{AppState, config::Config, routes, service};
 use crate::model::{ItemInput, Lifecycle};
@@ -205,7 +203,7 @@ async fn wait_long<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) ->
 /// (quicknet, 3 s lead, gives up 1 s after the round is due).
 async fn unreachable_drand_app() -> AppState {
     let mut cfg = Config::for_tests();
-    cfg.drand_chain = rafi_core::drand::chains::QUICKNET_HASH.to_string();
+    cfg.drand_chain = rafi_drawing::drand::chains::QUICKNET_HASH.to_string();
     let drand = rafi_drand::DrandConfig {
         relays: vec!["http://127.0.0.1:9".into()],
         mock: false,
@@ -435,7 +433,7 @@ async fn full_raffle_flow() {
 
     // The public log verifies independently.
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let report = rafi_core::verify::verify(
+    let report = rafi_drawing::verify::verify(
         &data.commit_doc,
         &data.list_hash,
         &data.events,
@@ -487,7 +485,7 @@ async fn full_raffle_flow() {
     assert_eq!(super::retention::run(&app).await.unwrap().erased, 0);
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(
-        rafi_core::verify::verify(
+        rafi_drawing::verify::verify(
             &data.commit_doc,
             &data.list_hash,
             &data.events,
@@ -837,7 +835,7 @@ async fn offline_draw() {
     .await;
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(
-        rafi_core::verify::verify(
+        rafi_drawing::verify::verify(
             &data.commit_doc,
             &data.list_hash,
             &data.events,
@@ -852,7 +850,7 @@ async fn offline_draw() {
 #[tokio::test]
 async fn an_engine_on_another_chain_is_refused_before_freezing() {
     let mut cfg = Config::for_tests();
-    cfg.drand_chain = rafi_core::drand::chains::QUICKNET_HASH.to_string();
+    cfg.drand_chain = rafi_drawing::drand::chains::QUICKNET_HASH.to_string();
     let app = app_with_engine(cfg, mock_drand(), Arc::new(Polling::default())).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
@@ -1097,14 +1095,14 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
 
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.draw_state.is_some()).await;
-    let doc: rafi_core::commit::CommitDoc =
+    let doc: rafi_drawing::commit::CommitDoc =
         serde_json::from_str(r.commit_doc.as_deref().expect("commit document")).unwrap();
     assert_eq!(doc.entrant_ids.len(), 3);
     assert_eq!(doc.units.len(), 2);
     assert_eq!(
         r.list_hash.as_deref(),
         Some(
-            hex::encode(rafi_core::commit::list_hash(
+            hex::encode(rafi_drawing::commit::list_hash(
                 r.commit_doc.as_deref().unwrap()
             ))
             .as_str()
@@ -1143,7 +1141,7 @@ async fn fake_entrants_are_added_in_one_batch() {
 /// (offline, abandon) are logged for the verifier.
 #[tokio::test]
 async fn stalled_draw_keeps_its_round() {
-    use rafi_core::{state::Event, verify::Replaced};
+    use rafi_drawing::{state::Event, verify::Replaced};
 
     let app = unreachable_drand_app().await;
     let raffle = setup_open(&app, &[("Prize", 3)]).await;
@@ -1285,7 +1283,7 @@ async fn stalled_draw_keeps_its_round() {
     );
 
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let report = rafi_core::verify::verify(
+    let report = rafi_drawing::verify::verify(
         &data.commit_doc,
         &data.list_hash,
         &data.events,
@@ -1305,7 +1303,9 @@ async fn stalled_draw_keeps_its_round() {
         ]
     );
     assert_eq!(report.replaced[1].k, pending.k);
-    assert!(rafi_core::verify::verify_public(&data.commit_doc, &data.list_hash, &data.events).ok());
+    assert!(
+        rafi_drawing::verify::verify_public(&data.commit_doc, &data.list_hash, &data.events).ok()
+    );
 }
 
 /// The public page only trusts public drand chains: a mock raffle never passes there.
@@ -1318,7 +1318,8 @@ async fn mock_raffles_are_not_publicly_verified() {
         .unwrap();
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let public = rafi_core::verify::verify_public(&data.commit_doc, &data.list_hash, &data.events);
+    let public =
+        rafi_drawing::verify::verify_public(&data.commit_doc, &data.list_hash, &data.events);
     assert!(public.chain_unknown() && !public.ok());
 }
 

@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-rafi-core.workspace = true
+rafi-drawing.workspace = true
 rafi-platform = { path = "../platform" }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde.workspace = true

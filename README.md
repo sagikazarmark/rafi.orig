@@ -29,7 +29,7 @@ See [`docs/PLAN.md`](docs/PLAN.md) for the design and the reasoning behind it.
    SHA-256 counter-mode rejection sampling, so there is no modulo bias.
 4. One win per person. "Not here" or "Declined" removes that person and the prize is drawn again with a new round
    (not while another draw is pending, since that could change its pool).
-The draw state machine and the draw engine's rules live in [`crates/core`](crates/core) (pure Rust, no IO). The
+The draw state machine and the draw engine's rules live in [`crates/drawing`](crates/drawing) (pure Rust, no IO). The
 app talks to **the draw engine** through one interface (`DrawEngine`, in `crates/platform`; its contract is
 documented there). In production that engine is **`restate-rafi`**, a separate service hosting the **Restate
 virtual object** `Raffle` (keyed by raffle ID): the app calls it through the Restate ingress
@@ -50,7 +50,8 @@ app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ dat
 ## Layout
 
 ```
-crates/core                   rafi-core: draw algorithm, drand math, state machine, verifier (pure, tested, vectors)
+crates/core                   rafi-core: the raffle lifecycle, join and claim codes, email normalization
+crates/drawing                rafi-drawing: draw algorithm, drand math, state machine, verifier (pure, tested, vectors)
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) on the drand crate
 crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the draw state write, the participant snapshot
 crates/restate-rafi           restate-rafi: the `Raffle` virtual object and the `RaffleEngine` service (library)

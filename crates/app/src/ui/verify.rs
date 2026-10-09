@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use rafi_core::{
+use rafi_drawing::{
     state::{DrawMode, Event},
     verify::Replaced,
 };
@@ -34,7 +34,8 @@ pub fn Verify(slug: String) -> Element {
         },
         Some(Ok(d)) => {
             // Public drand chains only: a test chain is never reported as verified.
-            let report = rafi_core::verify::verify_public(&d.commit_doc, &d.list_hash, &d.events);
+            let report =
+                rafi_drawing::verify::verify_public(&d.commit_doc, &d.list_hash, &d.events);
             let test_chain = report.chain_unknown()
                 && report.list_hash_ok
                 && report.errors.is_empty()
@@ -45,7 +46,7 @@ pub fn Verify(slug: String) -> Element {
                 .iter()
                 .map(|(id, n)| (id.as_str(), n.as_str()))
                 .collect();
-            let doc: Option<rafi_core::commit::CommitDoc> =
+            let doc: Option<rafi_drawing::commit::CommitDoc> =
                 serde_json::from_str(&d.commit_doc).ok();
             let unit_names: HashMap<String, String> = doc
                 .as_ref()

@@ -56,7 +56,7 @@ pub use error::{Error, Result};
 pub use items::ItemRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
-use rafi_core::state::{DrawState, Event};
+use rafi_drawing::state::{DrawState, Event};
 use rafi_platform::{BoxFuture, DrawStore};
 pub use value::{Row, Value};
 
@@ -206,9 +206,9 @@ mod tests {
         let db = Db::connect_lazy(&format!("sqlite://{}", path.display())).unwrap();
         assert!(!path.exists(), "the app creates the database");
         let writer = DrawWriter::new(db, PurgeAfter::days(30, 90));
-        let doc = rafi_core::commit::CommitDoc::new(
+        let doc = rafi_drawing::commit::CommitDoc::new(
             "r1",
-            &rafi_core::drand::chains::QUICKNET_HASH,
+            &rafi_drawing::drand::chains::QUICKNET_HASH,
             vec!["a".repeat(32)],
             vec![],
         );

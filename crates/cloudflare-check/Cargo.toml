@@ -16,7 +16,7 @@ js-sys = "0.3"
 rafi-cloudflare = { path = "../cloudflare" }
 rafi-platform = { path = "../platform" }
 rafi-live = { path = "../live", features = ["server"] }
-rafi-core.workspace = true
+rafi-drawing.workspace = true
 rafi-drand = { path = "../drand", features = ["mock"] }
 rafi-store.workspace = true
 serde_json.workspace = true

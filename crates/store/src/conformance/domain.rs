@@ -1,8 +1,8 @@
 //! The `domain.*` scenarios: the domain functions, on every backend.
 
-use rafi_core::{
+use rafi_core::raffle::RaffleState;
+use rafi_drawing::{
     commit::{CommitDoc, UnitRef},
-    raffle::RaffleState,
     state::{DrawMode, DrawState, Event, UnitStatus},
 };
 use rafi_live::Phase;
@@ -24,7 +24,7 @@ const PURGE: PurgeAfter = PurgeAfter {
 async fn frozen(db: &Db, id: &str) -> Result<DrawState, String> {
     let doc = CommitDoc::new(
         id,
-        &rafi_core::drand::chains::QUICKNET_HASH,
+        &rafi_drawing::drand::chains::QUICKNET_HASH,
         vec!["a".repeat(32), "b".repeat(32)],
         vec![UnitRef {
             unit_id: "u1".into(),
@@ -442,7 +442,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         .map_err(fail)?;
     let doc = CommitDoc::new(
         "r1",
-        &rafi_core::drand::chains::QUICKNET_HASH,
+        &rafi_drawing::drand::chains::QUICKNET_HASH,
         vec!["w".into(), "d".into(), "n".into()],
         ["u1", "u2"]
             .map(|u| UnitRef {

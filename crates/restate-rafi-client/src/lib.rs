@@ -24,7 +24,7 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use rafi_core::{
+use rafi_drawing::{
     commit::CommitDoc,
     drand::ChainHash,
     engine::{Command, ErrorKind},

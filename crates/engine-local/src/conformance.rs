@@ -28,13 +28,13 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use rafi_core::{
+use rafi_drand::{DrandClient, DrandConfig};
+use rafi_drawing::{
     commit::CommitDoc,
     engine::{Command, ErrorKind},
     state::{DrawMode, DrawState, Event, Outcome, UnitStatus},
     verify::{Replaced, verify},
 };
-use rafi_drand::{DrandClient, DrandConfig};
 use rafi_platform::{
     BoxFuture, DrawEngine, DrawStore, EngineError, MemoryDrawStore, Notifier, Recording,
 };
@@ -222,7 +222,7 @@ impl Fixture {
             raffle_id,
             &self.drand.chain_hash(),
             (0..entrants).map(|i| format!("{i:032x}")).collect(),
-            rafi_core::commit::units([("u", "Prize", units)]),
+            rafi_drawing::commit::units([("u", "Prize", units)]),
         )
     }
 
@@ -426,7 +426,7 @@ macro_rules! ensure {
 }
 
 /// The public verifier replays the log against the commit document.
-fn verified(doc: &CommitDoc, state: &DrawState) -> Result<rafi_core::verify::Report, String> {
+fn verified(doc: &CommitDoc, state: &DrawState) -> Result<rafi_drawing::verify::Report, String> {
     let report = verify(
         &doc.canonical_json(),
         &state.list_hash,
@@ -478,7 +478,7 @@ async fn freeze_is_idempotent_per_list(fx: Arc<Fixture>, id: String) -> Result<(
         r => return Err(format!("another list: {r:?}")),
     }
     let mut chain = fx.doc(&format!("{id}-chain"), 3, 1);
-    chain.drand_chain = rafi_core::drand::QUICKNET_CHAIN.into();
+    chain.drand_chain = rafi_drawing::drand::QUICKNET_CHAIN.into();
     if fx.drand.chain_hash().to_string() == chain.drand_chain {
         chain.drand_chain = rafi_drand::mock_chain().chain().hash().to_string();
     }
