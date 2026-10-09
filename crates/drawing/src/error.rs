@@ -64,8 +64,8 @@ impl Error {
     }
 }
 
-/// How a refused command is classified, in every engine and at every hop
-/// (handler status code, client error, app response).
+/// How a refused command is classified, in every engine and at every hop:
+/// callers map it onto their own errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
     /// The drawing or item doesn't exist (or no drawing is open).

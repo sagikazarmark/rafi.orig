@@ -2,9 +2,9 @@
 //! from a fixed list of entrants. The state machine, the draw algorithm, the
 //! manifest and the verifier; it knows nothing of raffles.
 //!
-//! Everything in this crate is pure (no IO, no clocks, no randomness) so it can
-//! run in the server, inside the Restate virtual object, in the browser
-//! verifier (WASM) and in tests, and always produce identical results.
+//! Everything in this crate is pure (no IO, no clocks, no randomness), so every
+//! engine and every verifier computes identical results. It also builds for
+//! WASM, so the verifier can run in a browser.
 
 pub mod beacon;
 pub mod draw;

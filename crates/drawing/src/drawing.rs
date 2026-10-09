@@ -1,9 +1,8 @@
 //! The drawing: its state machine.
 //!
-//! [`Drawing`] is owned by the draw engine (the Restate virtual object; the
-//! local runner in tests) and projected into the app database after every step.
-//! All changes are recorded as [`Event`]s, which is also what the public
-//! verifier replays.
+//! [`Drawing`] is one drawing's state. Its owner, a draw engine, stores it and
+//! changes it only through these methods. Every change is recorded as an
+//! [`Event`], and the event log is what the public verifier replays.
 //!
 //! The engine protocol is here too, so engines only do I/O:
 //! [`Drawing::open_or_check`] to open it, [`Drawing::check_beacon`],
@@ -105,7 +104,7 @@ pub enum Event {
         reason: String,
     },
     /// The organizer abandoned the pending draw (its item goes back to pending).
-    /// Published logs (and `tools/verify.py`) call it `fail`.
+    /// Published logs call it `fail`.
     #[serde(rename = "fail")]
     Abandon {
         k: u64,
@@ -146,7 +145,8 @@ pub struct Drawing {
     pub next_k: u64,
     pub pending: Option<Pending>,
     pub finished: bool,
-    /// Monotonic version, bumped on every change. Projections keep the highest.
+    /// Monotonic version, bumped on every change: of two copies of a
+    /// drawing, the one with the higher version is newer.
     pub version: u64,
 }
 

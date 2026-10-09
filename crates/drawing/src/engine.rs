@@ -1,13 +1,12 @@
 //! The draw engine's protocol: the commands it accepts (draws and decisions,
-//! the wire format of the Restate handlers, shared by every engine and its
-//! callers) and how a draw's beacon turned out. Refusals and their classification are in
+//! with their wire format, shared by every engine and its callers) and how a
+//! draw's beacon turned out. Refusals and their classification are in
 //! [`error`](crate::error).
 //!
 //! The engine owns each [`Drawing`](crate::drawing::Drawing); the
 //! rules it applies live on the drawing ([`Drawing::open_or_check`],
-//! [`Drawing::conclude`], [`Drawing::decide`]), so every engine (the
-//! Restate virtual object, the local engine) behaves the same
-//! and only does I/O.
+//! [`Drawing::conclude`], [`Drawing::decide`]), so every engine behaves the
+//! same and only does I/O.
 //!
 //! [`Drawing::open_or_check`]: crate::drawing::Drawing::open_or_check
 //! [`Drawing::conclude`]: crate::drawing::Drawing::conclude
