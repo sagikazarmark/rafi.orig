@@ -4,7 +4,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::drand::ChainHash;
+use drand::ChainHash;
 
 /// The source of a drawing's randomness, as its manifest names it:
 /// `{"drand": "<chain hash>"}`.
@@ -40,7 +40,7 @@ impl fmt::Display for BeaconSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::drand::chains::QUICKNET_HASH;
+    use drand::chains::QUICKNET_HASH;
 
     #[test]
     fn serializes_tagged_by_kind() {

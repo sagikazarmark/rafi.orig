@@ -111,7 +111,7 @@ pub fn hash(canonical_json: &str) -> Hash {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::drand::chains::QUICKNET_HASH;
+    use drand::chains::QUICKNET_HASH;
 
     const QUICKNET: BeaconSource = BeaconSource::Drand(QUICKNET_HASH);
 

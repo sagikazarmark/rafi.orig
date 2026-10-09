@@ -734,7 +734,7 @@ pub(crate) mod tests {
                 got: 11
             })
         );
-        s.beacon = BeaconSource::Drand(crate::drand::chains::QUICKNET_HASH);
+        s.beacon = BeaconSource::Drand(drand::chains::QUICKNET_HASH);
         assert_eq!(s.complete(&beacon(10)), Err(Error::WrongBeacon));
         assert!(s.pending.is_some());
     }
@@ -830,7 +830,7 @@ pub(crate) mod tests {
 
     #[test]
     fn open_or_check_refuses_another_beacon_source_and_invalid_manifests() {
-        let quicknet = BeaconSource::Drand(crate::drand::chains::QUICKNET_HASH);
+        let quicknet = BeaconSource::Drand(drand::chains::QUICKNET_HASH);
         assert!(matches!(
             Drawing::open_or_check(None, &doc(3, 1), &quicknet),
             Err(Error::BeaconMismatch { .. })

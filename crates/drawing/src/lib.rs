@@ -7,13 +7,16 @@
 //! verifier (WASM) and in tests, and always produce identical results.
 
 pub mod beacon;
-pub mod drand;
 pub mod draw;
 pub mod drawing;
 pub mod engine;
 pub mod error;
 pub mod manifest;
 pub mod verify;
+
+/// The drand crate this one is built on: its types are part of this crate's
+/// API (`BeaconSource::Drand(ChainHash)`, the verifier's chain lookup).
+pub use drand;
 
 pub use beacon::BeaconSource;
 pub use drawing::Drawing;
