@@ -11,7 +11,7 @@
 //!
 //! All of rafi's SQL lives here, as domain functions over a [`Db`]:
 //!
-//! - [`raffles`], [`items`], [`entrants`]: the organizer's and attendees'
+//! - [`raffles`], [`prizes`], [`entrants`]: the organizer's and attendees'
 //!   reads and writes, the freeze's steps included;
 //! - [`audit`], [`altcha`] (redeemed proof-of-work challenges), [`retention`]
 //!   (erasure, ending live channels, `meta`);
@@ -40,8 +40,8 @@ mod backend;
 mod dialect;
 pub mod entrants;
 mod error;
-pub mod items;
 pub mod live;
+pub mod prizes;
 mod query;
 pub mod raffles;
 pub mod retention;
@@ -53,7 +53,7 @@ pub use backend::options;
 pub use dialect::Dialect;
 pub use entrants::EntrantRow;
 pub use error::{Error, Result};
-pub use items::ItemRow;
+pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
 use rafi_drawing::state::{DrawState, Event};
@@ -115,8 +115,8 @@ pub async fn save_draw_state(db: &Db, state: &DrawState, purge: PurgeAfter) -> R
     let written = db
         .query(
             "UPDATE raffles SET
-                draw_state = ?1,
-                draw_version = ?2,
+                drawing = ?1,
+                drawing_version = ?2,
                 state = CASE WHEN state IN ('frozen', 'drawing') THEN ?3 ELSE state END,
                 finished_at = CASE WHEN ?4 = 1 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
                 purge_nonwinners_at = CASE WHEN ?4 = 1 AND purge_nonwinners_at IS NULL
@@ -124,7 +124,7 @@ pub async fn save_draw_state(db: &Db, state: &DrawState, purge: PurgeAfter) -> R
                 purge_winners_at = CASE WHEN ?4 = 1 AND purge_winners_at IS NULL
                     THEN COALESCE(finished_at, ?5) + ?7 ELSE purge_winners_at END,
                 updated_at = ?5
-             WHERE id = ?8 AND list_hash = ?9 AND draw_version < ?2",
+             WHERE id = ?8 AND manifest_hash = ?9 AND drawing_version < ?2",
         )
         .bind(json)
         .bind(state.version)

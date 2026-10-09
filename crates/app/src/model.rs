@@ -46,7 +46,7 @@ pub struct RaffleView {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrizeView {
-    pub item_id: String,
+    pub prize_id: String,
     pub name: String,
     pub sponsor: String,
     pub qty: u32,
@@ -56,8 +56,8 @@ pub struct PrizeView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UnitView {
     pub unit_id: String,
-    pub item_id: String,
-    pub item_name: String,
+    pub prize_id: String,
+    pub prize_name: String,
     pub status: UnitStatus,
     pub entrant_id: Option<String>,
     pub display_name: Option<String>,
@@ -67,7 +67,7 @@ pub struct UnitView {
 pub struct CurrentDraw {
     pub k: u64,
     pub unit_id: String,
-    pub item_name: String,
+    pub prize_name: String,
     pub round: u64,
     /// Unix time (seconds) the round is published.
     pub round_time: u64,
@@ -77,7 +77,7 @@ pub struct CurrentDraw {
 pub struct DrawView {
     pub k: u64,
     pub unit_id: String,
-    pub item_name: String,
+    pub prize_name: String,
     pub entrant_id: String,
     pub display_name: String,
     pub outcome: Outcome,
@@ -115,7 +115,7 @@ pub struct RaffleSettings {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Item {
+pub struct Prize {
     pub id: String,
     pub name: String,
     pub sponsor: String,
@@ -125,8 +125,8 @@ pub struct Item {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ItemInput {
-    /// `None` creates a new item.
+pub struct PrizeInput {
+    /// `None` creates a new prize.
     pub id: Option<String>,
     pub name: String,
     pub sponsor: String,
@@ -192,7 +192,7 @@ pub struct EntrantPatch {
 pub struct RaffleAdmin {
     pub id: String,
     pub settings: RaffleSettings,
-    pub items: Vec<Item>,
+    pub prizes: Vec<Prize>,
     pub entrants: Vec<AdminEntrant>,
     pub view: RaffleView,
     pub public_url: String,

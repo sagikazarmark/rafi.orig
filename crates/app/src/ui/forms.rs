@@ -17,7 +17,7 @@ use crate::{
         toast::{ToastOptions, use_toast},
     },
     icons::{I, Icon},
-    model::{ItemInput, RaffleSettings},
+    model::{PrizeInput, RaffleSettings},
 };
 
 pub fn err_text(e: ApiError) -> String {
@@ -173,11 +173,11 @@ fn prize_form(namespace: String, initial: Prize) -> FormHandle<Prize> {
     handle
 }
 
-/// Adds a prize, or edits an existing one when `item_id` is set.
+/// Adds a prize, or edits an existing one when `prize_id` is set.
 #[component]
 pub fn PrizeForm(
     raffle_id: String,
-    #[props(default)] item_id: Option<String>,
+    #[props(default)] prize_id: Option<String>,
     #[props(default)] name: String,
     #[props(default)] sponsor: String,
     #[props(default = 1)] qty: u32,
@@ -185,7 +185,7 @@ pub fn PrizeForm(
     on_saved: EventHandler<()>,
     #[props(default)] on_cancel: Option<EventHandler<()>>,
 ) -> Element {
-    let namespace = format!("prize-{}", item_id.as_deref().unwrap_or("new"));
+    let namespace = format!("prize-{}", prize_id.as_deref().unwrap_or("new"));
     let initial = Prize {
         name: name.clone(),
         sponsor: sponsor.clone(),
@@ -195,7 +195,7 @@ pub fn PrizeForm(
     let fields = Prize::fields();
     let qty_binding = use_number(&form, fields.qty());
     let submit = form.managed_submit();
-    let editing = item_id.is_some();
+    let editing = prize_id.is_some();
     let busy = form.is_submitting();
     let form_err = messages(form.visible_form_validation_errors());
     let reset = form.clone();
@@ -206,20 +206,20 @@ pub fn PrizeForm(
             class: "grid gap-x-3 sm:grid-cols-[1fr_12rem_7rem_auto] sm:items-start",
             novalidate: true,
             onsubmit: move |event| {
-                let (raffle_id, item_id, reset) = (raffle_id.clone(), item_id.clone(), reset.clone());
+                let (raffle_id, prize_id, reset) = (raffle_id.clone(), prize_id.clone(), reset.clone());
                 let _ = submit.on_submit_async(event, move |s: SubmissionSnapshot<Prize>| async move {
                     let v = s.value().clone();
-                    let input = ItemInput {
-                        id: item_id.clone(),
+                    let input = PrizeInput {
+                        id: prize_id.clone(),
                         name: v.name.clone(),
                         sponsor: v.sponsor,
                         description: String::new(),
                         qty: v.qty,
                         position,
                     };
-                    match api::save_item(raffle_id, input).await {
+                    match api::save_prize(raffle_id, input).await {
                         Ok(_) => {
-                            if item_id.is_none() {
+                            if prize_id.is_none() {
                                 reset.reinitialize(Prize::default());
                                 toast.success(format!("🎁 {} added", v.name), ToastOptions::new());
                             }

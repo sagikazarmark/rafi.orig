@@ -80,8 +80,8 @@ impl RaffleState {
         })
     }
 
-    /// Whether prize items and quantities can still change.
-    pub fn items_editable(self) -> bool {
+    /// Whether prizes and their quantities can still change.
+    pub fn prizes_editable(self) -> bool {
         matches!(self, Self::Draft | Self::Ready | Self::Open | Self::Closed)
     }
 
@@ -127,7 +127,7 @@ mod tests {
         assert_eq!(S::Frozen.apply(A::Open), None);
         assert_eq!(S::Drawing.apply(A::Open), None);
         assert_eq!(S::Draft.apply(A::Freeze), None);
-        assert!(!S::Frozen.items_editable());
+        assert!(!S::Frozen.prizes_editable());
         assert!(!S::Frozen.entrants_editable());
     }
 

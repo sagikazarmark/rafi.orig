@@ -49,7 +49,7 @@
       if (announce) won.setAttribute("role", "alert");
       won.appendChild(el("p", "text-5xl", "🏆"));
       won.appendChild(el("p", "font-display text-5xl font-black tracking-tight", S.you_won));
-      won.appendChild(el("p", "text-lg font-semibold", win.item_name));
+      won.appendChild(el("p", "text-lg font-semibold", win.prize_name));
       if (cfg.claim_code) won.appendChild(el("span", "claim-code mt-1 rounded-2xl bg-base-100 px-5 py-2 text-4xl text-success shadow-sm", cfg.claim_code));
       won.appendChild(el("p", "text-sm opacity-90", win.claimed || isOver(v.state) ? S.thanks_won : S.go_to_organizer));
       live.appendChild(won);
@@ -61,7 +61,7 @@
       card.appendChild(el("p", "font-display text-2xl font-extrabold", S.thanks));
     } else if (v.current) {
       card.appendChild(el("span", "badge badge-primary badge-soft font-semibold", "🎲 " + S.drawing));
-      card.appendChild(el("p", "font-display text-2xl font-extrabold", v.current.item_name));
+      card.appendChild(el("p", "font-display text-2xl font-extrabold", v.current.prize_name));
       var cd = el("div", "font-display text-6xl font-black text-primary", "");
       card.appendChild(cd);
       card.appendChild(el("p", "text-xs text-base-content/60", S.locking + " · " + S.drand_round + " " + v.current.round));
@@ -73,7 +73,7 @@
       countdownTimer = setInterval(tick, 250);
     } else if (v.state === "frozen" || v.state === "drawing") {
       if (v.last) {
-        card.appendChild(el("p", "text-sm text-base-content/60", "🎉 " + v.last.display_name + " → " + v.last.item_name));
+        card.appendChild(el("p", "text-sm text-base-content/60", "🎉 " + v.last.display_name + " → " + v.last.prize_name));
         card.appendChild(el("p", "text-xl font-bold", me ? S.not_this_time + " 🤞" : S.drawing));
       } else {
         card.appendChild(el("p", "text-3xl", "🥁"));

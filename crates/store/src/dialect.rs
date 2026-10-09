@@ -10,29 +10,29 @@ pub enum Dialect {
     Postgres,
 }
 
-/// A subquery listing the `entrant_id`s of the objects in a draw state's
-/// `list` (`events` or `units`) whose `field` equals `value`. `draw_state` is
-/// an SQL expression for the draw state's JSON text: a column (`r.draw_state`)
+/// A subquery listing the `entrant_id`s of the objects in a drawing's
+/// `list` (`events` or `units`) whose `field` equals `value`. `drawing` is
+/// an SQL expression for the drawing's JSON text: a column (`r.drawing`)
 /// or a scalar subquery.
 ///
 /// `list`, `field` and `value` are SQL literals written by the store itself,
 /// never input.
-pub(crate) fn draw_state_entrants(
+pub(crate) fn drawing_entrants(
     dialect: Dialect,
-    draw_state: &str,
+    drawing: &str,
     list: &str,
     field: &str,
     value: &str,
 ) -> String {
     match dialect {
         Dialect::Sqlite => format!(
-            "SELECT json_extract(x.value, '$.entrant_id') FROM json_each({draw_state}, '$.{list}') x
+            "SELECT json_extract(x.value, '$.entrant_id') FROM json_each({drawing}, '$.{list}') x
              WHERE json_extract(x.value, '$.{field}') = '{value}'"
         ),
-        // `draw_state` is TEXT, so it is cast to `jsonb` (NULL stays NULL, and
+        // `drawing` is TEXT, so it is cast to `jsonb` (NULL stays NULL, and
         // a NULL list has no elements).
         Dialect::Postgres => format!(
-            "SELECT x.value ->> 'entrant_id' FROM jsonb_array_elements(({draw_state})::jsonb -> '{list}') AS x(value)
+            "SELECT x.value ->> 'entrant_id' FROM jsonb_array_elements(({drawing})::jsonb -> '{list}') AS x(value)
              WHERE x.value ->> '{field}' = '{value}'"
         ),
     }

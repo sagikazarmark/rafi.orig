@@ -11,7 +11,7 @@ pub enum Screen {
     Reload,
     /// This phone's entrant holds a prize.
     Won {
-        item_name: String,
+        prize_name: String,
         /// The organizer has handed the prize over.
         claimed: bool,
         /// The raffle is over.
@@ -21,7 +21,7 @@ pub enum Screen {
     Thanks,
     /// A draw is in progress.
     Countdown {
-        item_name: String,
+        prize_name: String,
         round: u64,
         /// Whole seconds until the round, rounded up; 0 once it's due.
         secs_left: u64,
@@ -50,7 +50,7 @@ pub fn screen(view: &ParticipantView, me: Option<&str>, page_state: Phase, now_m
     }
     if let Some(w) = me.and_then(|me| view.win_of(me)) {
         return Screen::Won {
-            item_name: w.item_name.clone(),
+            prize_name: w.prize_name.clone(),
             claimed: w.claimed,
             done: view.state.is_over(),
         };
@@ -60,7 +60,7 @@ pub fn screen(view: &ParticipantView, me: Option<&str>, page_state: Phase, now_m
     }
     if let Some(c) = &view.current {
         return Screen::Countdown {
-            item_name: c.item_name.clone(),
+            prize_name: c.prize_name.clone(),
             round: c.round,
             secs_left: c
                 .round_time
@@ -90,11 +90,11 @@ mod tests {
 
     const T: u64 = 1_700_000_000;
 
-    fn draw(id: &str, item: &str, outcome: DrawOutcome) -> DrawInput {
+    fn draw(id: &str, prize: &str, outcome: DrawOutcome) -> DrawInput {
         DrawInput {
             entrant_id: id.into(),
             display_name: format!("Name {id}"),
-            item_name: item.into(),
+            prize_name: prize.into(),
             outcome,
         }
     }
@@ -105,7 +105,7 @@ mod tests {
 
     fn current() -> Option<Current> {
         Some(Current {
-            item_name: "Mug".into(),
+            prize_name: "Mug".into(),
             round: 42,
             round_time: T,
         })
@@ -135,7 +135,7 @@ mod tests {
         let v = view(Phase::Drawing, current(), vec![]);
         let at = |now_ms| screen(&v, Some("a"), Phase::Drawing, now_ms);
         let cd = |secs_left| Screen::Countdown {
-            item_name: "Mug".into(),
+            prize_name: "Mug".into(),
             round: 42,
             secs_left,
         };
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(
             screen(&v, Some("a"), Phase::Drawing, 0),
             Screen::Won {
-                item_name: "Book".into(),
+                prize_name: "Book".into(),
                 claimed: false,
                 done: false
             }
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(
             screen(&v, Some("b"), Phase::Drawing, 0),
             Screen::Won {
-                item_name: "Mug".into(),
+                prize_name: "Mug".into(),
                 claimed: true,
                 done: false
             },
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(
             screen(&v, Some("a"), Phase::Drawing, 0),
             Screen::Won {
-                item_name: "Book".into(),
+                prize_name: "Book".into(),
                 claimed: false,
                 done: true
             }
@@ -203,7 +203,7 @@ mod tests {
         );
         let last = Some(LastDraw {
             display_name: "Name a".into(),
-            item_name: "Book".into(),
+            prize_name: "Book".into(),
         });
         assert_eq!(
             screen(&v, Some("c"), Phase::Drawing, 0),
@@ -234,7 +234,7 @@ mod tests {
         );
         let last = Some(LastDraw {
             display_name: "Name a".into(),
-            item_name: "Book".into(),
+            prize_name: "Book".into(),
         });
         assert_eq!(
             screen(&v, Some("x"), Phase::Drawing, 0),

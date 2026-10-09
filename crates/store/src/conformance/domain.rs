@@ -9,9 +9,9 @@ use rafi_live::Phase;
 
 use super::{Outcome, check, fail};
 use crate::{
-    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants, items,
+    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants,
     live::{HIDDEN_NAME, Snapshot},
-    raffles, retention, save_draw_state,
+    prizes, raffles, retention, save_draw_state,
     view::Full,
 };
 
@@ -34,7 +34,7 @@ async fn frozen(db: &Db, id: &str) -> Result<DrawState, String> {
     );
     let state = DrawState::freeze(&doc);
     db.query(
-        "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, list_hash, created_at, updated_at)
+        "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, manifest_hash, created_at, updated_at)
          VALUES (?, 'o', ?, ?, 't', 'frozen', 'restate', ?, 0, 0)",
     )
     .bind(id)
@@ -211,8 +211,8 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     let r = raffle(db, "r1").await?;
     check(
         r.state() == RaffleState::Frozen
-            && r.list_hash.as_deref() == Some("h1")
-            && r.commit_doc.is_some()
+            && r.manifest_hash.as_deref() == Some("h1")
+            && r.manifest.is_some()
             && r.frozen_at.is_some(),
         "the first commit stays, and a committed raffle stays frozen",
     )?;
@@ -458,7 +458,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         state.units[unit].entrant_id = Some(winner.into());
     }
     db.query(
-        "UPDATE raffles SET state = 'finished', draw_state = ?, finished_at = 100,
+        "UPDATE raffles SET state = 'finished', drawing = ?, finished_at = 100,
          purge_nonwinners_at = 130, purge_winners_at = 190 WHERE id = 'r1'",
     )
     .bind(serde_json::to_string(&state).map_err(fail)?)
@@ -584,33 +584,33 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
         "no such raffle",
     )?;
     raffle_in(db, "r1", RaffleState::Open).await?;
-    let item = |name, position| items::ItemFields {
+    let prize = |name, position| prizes::PrizeFields {
         name,
         sponsor: "",
         description: "",
         qty: 1,
         position,
     };
-    items::insert(db, "i2", "r1", &item("Shirt", 1))
+    prizes::insert(db, "i2", "r1", &prize("Shirt", 1))
         .await
         .map_err(fail)?;
-    items::insert(db, "i1", "r1", &item("Book", 0))
+    prizes::insert(db, "i1", "r1", &prize("Book", 0))
         .await
         .map_err(fail)?;
-    items::insert(db, "i0", "r1", &item("Mug", 1))
+    prizes::insert(db, "i0", "r1", &prize("Mug", 1))
         .await
         .map_err(fail)?;
     check(
-        items::update(db, "i2", "r1", &item("T-shirt", 1))
+        prizes::update(db, "i2", "r1", &prize("T-shirt", 1))
             .await
             .map_err(fail)?,
-        "updating an item",
+        "updating a prize",
     )?;
     check(
-        !items::update(db, "i9", "r1", &item("Hat", 2))
+        !prizes::update(db, "i9", "r1", &prize("Hat", 2))
             .await
             .map_err(fail)?,
-        "updating a missing item",
+        "updating a missing prize",
     )?;
     join(db, "r1", "z", "z@x", 10).await?;
     entrants::insert_fakes(
@@ -631,10 +631,10 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
         .await
         .map_err(fail)?
         .ok_or("the raffle is gone")?;
-    let item_ids: Vec<_> = full.items.iter().map(|i| i.id.as_str()).collect();
+    let prize_ids: Vec<_> = full.prizes.iter().map(|i| i.id.as_str()).collect();
     check(
-        item_ids == ["i1", "i0", "i2"] && full.items[2].name == "T-shirt",
-        &format!("items by position, then ID: {item_ids:?}"),
+        prize_ids == ["i1", "i0", "i2"] && full.prizes[2].name == "T-shirt",
+        &format!("prizes by position, then ID: {prize_ids:?}"),
     )?;
     let entrant_ids: Vec<_> = full.entrants.iter().map(|e| e.id.as_str()).collect();
     check(
@@ -646,16 +646,16 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
         "the raffle's version",
     )?;
     check(
-        items::list(db, "r1").await.map_err(fail)?.len() == 3,
-        "the same items",
+        prizes::list(db, "r1").await.map_err(fail)?.len() == 3,
+        "the same prizes",
     )?;
-    items::delete(db, "i1", "r1").await.map_err(fail)?;
+    prizes::delete(db, "i1", "r1").await.map_err(fail)?;
     check(
         Full::read(db, "r1")
             .await
             .map_err(fail)?
-            .is_some_and(|f| f.items.len() == 2 && f.raffle.version > full.raffle.version),
-        "a deleted item is gone, and the version moved",
+            .is_some_and(|f| f.prizes.len() == 2 && f.raffle.version > full.raffle.version),
+        "a deleted prize is gone, and the version moved",
     )
 }
 

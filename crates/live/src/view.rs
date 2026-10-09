@@ -71,7 +71,7 @@ pub struct ParticipantView {
 /// The draw in progress.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Current {
-    pub item_name: String,
+    pub prize_name: String,
     /// The committed drand round.
     pub round: u64,
     /// Unix seconds the drand round is published.
@@ -82,14 +82,14 @@ pub struct Current {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LastDraw {
     pub display_name: String,
-    pub item_name: String,
+    pub prize_name: String,
 }
 
 /// An entrant holding a prize.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Winner {
     pub entrant_id: String,
-    pub item_name: String,
+    pub prize_name: String,
     /// The organizer has handed the prize over.
     pub claimed: bool,
 }
@@ -118,7 +118,7 @@ pub struct DrawInput {
     pub entrant_id: String,
     /// The name shown on the screen (already masked if the organizer hid it).
     pub display_name: String,
-    pub item_name: String,
+    pub prize_name: String,
     pub outcome: DrawOutcome,
 }
 
@@ -144,12 +144,12 @@ impl ParticipantView {
             }
             winners.push(Winner {
                 entrant_id: d.entrant_id,
-                item_name: d.item_name.clone(),
+                prize_name: d.prize_name.clone(),
                 claimed: d.outcome == DrawOutcome::Claimed,
             });
             last = Some(LastDraw {
                 display_name: d.display_name,
-                item_name: d.item_name,
+                prize_name: d.prize_name,
             });
         }
         Self {
@@ -193,11 +193,11 @@ impl ParticipantView {
 mod tests {
     use super::*;
 
-    fn draw(id: &str, item: &str, outcome: DrawOutcome) -> DrawInput {
+    fn draw(id: &str, prize: &str, outcome: DrawOutcome) -> DrawInput {
         DrawInput {
             entrant_id: id.into(),
             display_name: format!("Name {id}"),
-            item_name: item.into(),
+            prize_name: prize.into(),
             outcome,
         }
     }
@@ -238,12 +238,12 @@ mod tests {
             [
                 Winner {
                     entrant_id: "a".into(),
-                    item_name: "Book".into(),
+                    prize_name: "Book".into(),
                     claimed: true
                 },
                 Winner {
                     entrant_id: "b".into(),
-                    item_name: "Mug".into(),
+                    prize_name: "Mug".into(),
                     claimed: false
                 },
             ]
@@ -252,7 +252,7 @@ mod tests {
             v.last,
             Some(LastDraw {
                 display_name: "Name b".into(),
-                item_name: "Mug".into()
+                prize_name: "Mug".into()
             }),
             "the no-show and the decline are skipped"
         );
@@ -284,7 +284,7 @@ mod tests {
         let mut c = a.clone();
         c.winners.push(Winner {
             entrant_id: "x".into(),
-            item_name: "y".into(),
+            prize_name: "y".into(),
             claimed: false,
         });
         assert!(!a.same_content(&c));
@@ -299,7 +299,7 @@ mod tests {
             3,
             Phase::Drawing,
             Some(Current {
-                item_name: "Mug".into(),
+                prize_name: "Mug".into(),
                 round: 42,
                 round_time: 1_700_000_000,
             }),
@@ -312,9 +312,9 @@ mod tests {
             serde_json::json!({
                 "v": 3,
                 "state": "drawing",
-                "current": { "item_name": "Mug", "round": 42, "round_time": 1_700_000_000 },
-                "last": { "display_name": "Name a", "item_name": "Book" },
-                "winners": [{ "entrant_id": "a", "item_name": "Book", "claimed": true }],
+                "current": { "prize_name": "Mug", "round": 42, "round_time": 1_700_000_000 },
+                "last": { "display_name": "Name a", "prize_name": "Book" },
+                "winners": [{ "entrant_id": "a", "prize_name": "Book", "claimed": true }],
                 "prizes_left": 1,
             })
         );

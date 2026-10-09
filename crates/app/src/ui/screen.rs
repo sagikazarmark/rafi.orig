@@ -116,7 +116,7 @@ fn PrizeList(view: RaffleView) -> Element {
             ul { class: "space-y-[0.5em]",
                 for p in view.prizes.iter() {
                     li {
-                        key: "{p.item_id}",
+                        key: "{p.prize_id}",
                         class: if p.left == 0 { "flex items-center gap-[0.6em] rounded-box bg-base-200/70 px-[0.8em] py-[0.5em] opacity-40 line-through" } else { "flex items-center gap-[0.6em] rounded-box bg-base-200/70 px-[0.8em] py-[0.5em]" },
                         span { class: "grid min-w-[2.4em] place-items-center rounded-xl bg-secondary px-[0.4em] py-[0.15em] font-display font-extrabold text-secondary-content", "{p.left}×" }
                         span { class: "flex-1 font-semibold", "{p.name}" }
@@ -207,10 +207,10 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
         Some(p) => (
             p.current
                 .as_ref()
-                .map(|c| (c.item_name.clone(), c.round, c.round_time)),
+                .map(|c| (c.prize_name.clone(), c.round, c.round_time)),
             p.last.as_ref().map(|l| Reveal {
                 display_name: l.display_name.clone(),
-                item_name: l.item_name.clone(),
+                prize_name: l.prize_name.clone(),
                 round: None,
                 offline: false,
             }),
@@ -218,26 +218,26 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
         None => (
             view.current
                 .as_ref()
-                .map(|c| (c.item_name.clone(), c.round, c.round_time)),
+                .map(|c| (c.prize_name.clone(), c.round, c.round_time)),
             view.draws
                 .last()
                 .filter(|d| d.outcome == Outcome::Drawn || d.outcome == Outcome::Claimed)
                 .map(|d| Reveal {
                     display_name: d.display_name.clone(),
-                    item_name: d.item_name.clone(),
+                    prize_name: d.prize_name.clone(),
                     round: Some(d.round),
                     offline: d.mode == DrawMode::Offline,
                 }),
         ),
     };
 
-    let stage = if let Some((item_name, round, round_time)) = current {
+    let stage = if let Some((prize_name, round, round_time)) = current {
         let remaining_ms = (round_time as i64 * 1000) - (now() as i64 + offset);
         let secs = ((remaining_ms.max(0) + 999) / 1000).min(99);
         rsx! {
             div { class: "flex flex-col items-center gap-[0.8em] text-center", role: "status",
                 p { class: "badge badge-primary badge-lg gap-2 font-bold uppercase tracking-widest", Icon { i: I::Dice, class: "size-[1.1em]" } "{t(\"drawing\")}" }
-                h2 { class: "text-[2.8em] font-extrabold leading-tight", "{item_name}" }
+                h2 { class: "text-[2.8em] font-extrabold leading-tight", "{prize_name}" }
                 div { class: "bounce-dots flex gap-[0.5em]", aria_hidden: "true",
                     for i in 0..7 {
                         span { key: "{i}", style: "--i: {i}" }
@@ -288,7 +288,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
 #[derive(Debug, Clone, PartialEq)]
 struct Reveal {
     display_name: String,
-    item_name: String,
+    prize_name: String,
     /// The drand round, once the full view has it.
     round: Option<u64>,
     offline: bool,
@@ -299,7 +299,7 @@ fn Winner(reveal: Reveal, lang: String) -> Element {
     let lang = Lang::parse(&lang);
     // Keyed by who and what, so the full view catching up with the live
     // channel doesn't replay the animation.
-    let key = format!("{}→{}", reveal.display_name, reveal.item_name);
+    let key = format!("{}→{}", reveal.display_name, reveal.prize_name);
     rsx! {
         div { class: "relative flex flex-col items-center gap-[0.4em] text-center", key: "{key}",
             div { class: "confetti", aria_hidden: "true",
@@ -307,7 +307,7 @@ fn Winner(reveal: Reveal, lang: String) -> Element {
                     span { key: "{i}", style: "--i: {i}" }
                 }
             }
-            span { class: "badge badge-secondary badge-lg gap-2 font-bold", Icon { i: I::Trophy, class: "size-[1.1em]" } "{reveal.item_name}" }
+            span { class: "badge badge-secondary badge-lg gap-2 font-bold", Icon { i: I::Trophy, class: "size-[1.1em]" } "{reveal.prize_name}" }
             h2 { class: "gradient-text animate-reveal py-[0.1em] text-[clamp(3rem,9vw,11rem)] font-black leading-none", "{reveal.display_name}" }
             if let Some(round) = reveal.round {
                 p { class: "text-[0.9em] text-base-content/60",
@@ -339,7 +339,7 @@ fn History(draws: Vec<DrawView>, lang: String) -> Element {
                             }
                         }
                         span { class: if matches!(d.outcome, Outcome::NotHere | Outcome::Declined) { "font-bold line-through opacity-50" } else { "font-bold" }, "{d.display_name}" }
-                        span { class: "truncate text-[0.85em] text-base-content/60", "{d.item_name}" }
+                        span { class: "truncate text-[0.85em] text-base-content/60", "{d.prize_name}" }
                         match d.outcome {
                             Outcome::NotHere => rsx! { span { class: "badge badge-ghost badge-sm", "{lang.t(\"not_here\")}" } },
                             Outcome::Declined => rsx! { span { class: "badge badge-ghost badge-sm", "{lang.t(\"declined\")}" } },
@@ -376,7 +376,7 @@ fn Finished(view: RaffleView) -> Element {
                     for d in winners {
                         div { key: "{d.k}", class: "card bg-base-200 px-[1em] py-[0.6em] ring-1 ring-base-300",
                             p { class: "font-display text-[1.2em] font-extrabold", "🏆 {d.display_name}" }
-                            p { class: "text-[0.8em] text-base-content/60", "{d.item_name}" }
+                            p { class: "text-[0.8em] text-base-content/60", "{d.prize_name}" }
                         }
                     }
                 }

@@ -12,18 +12,18 @@ fn strings() -> CardStrings {
     CardStrings::from_lookup(|k| format!("[{k}]"))
 }
 
-fn draw(id: &str, item: &str, outcome: DrawOutcome) -> DrawInput {
+fn draw(id: &str, prize: &str, outcome: DrawOutcome) -> DrawInput {
     DrawInput {
         entrant_id: id.into(),
         display_name: format!("Name {id}"),
-        item_name: item.into(),
+        prize_name: prize.into(),
         outcome,
     }
 }
 
 fn mug() -> Option<Current> {
     Some(Current {
-        item_name: "Mug".into(),
+        prize_name: "Mug".into(),
         round: 42,
         round_time: T,
     })

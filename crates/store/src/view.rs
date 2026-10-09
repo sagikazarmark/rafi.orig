@@ -1,20 +1,20 @@
 //! Reading what the projector and the admin see: the raffle with all its
-//! items and entrants, in one snapshot.
+//! prizes and entrants, in one snapshot.
 
 use crate::{
     Db, Result, Row,
     entrants::{self, EntrantRow},
-    items::{self, ItemRow},
+    prizes::{self, PrizeRow},
     raffles::RaffleRow,
 };
 
-/// A raffle, its items (in draw order) and its entrants (in the order they
+/// A raffle, its prizes (in draw order) and its entrants (in the order they
 /// entered), read in one [`Db::batch_rows`], so the raffle's version and the
 /// content agree.
 #[derive(Debug, Clone)]
 pub struct Full {
     pub raffle: RaffleRow,
-    pub items: Vec<ItemRow>,
+    pub prizes: Vec<PrizeRow>,
     pub entrants: Vec<EntrantRow>,
 }
 
@@ -26,8 +26,8 @@ impl Full {
                 db.query("SELECT * FROM raffles WHERE id = ?")
                     .bind(raffle_id),
                 db.query(format!(
-                    "SELECT * FROM items WHERE raffle_id = ? {}",
-                    items::ORDER
+                    "SELECT * FROM prizes WHERE raffle_id = ? {}",
+                    prizes::ORDER
                 ))
                 .bind(raffle_id),
                 db.query(format!(
@@ -38,7 +38,7 @@ impl Full {
             ])
             .await?
             .into_iter();
-        let (Some(raffle), Some(items), Some(entrants)) = (sets.next(), sets.next(), sets.next())
+        let (Some(raffle), Some(prizes), Some(entrants)) = (sets.next(), sets.next(), sets.next())
         else {
             return Ok(None);
         };
@@ -47,7 +47,7 @@ impl Full {
         };
         Ok(Some(Self {
             raffle: raffle.decode()?,
-            items: decode_all(items)?,
+            prizes: decode_all(prizes)?,
             entrants: decode_all(entrants)?,
         }))
     }

@@ -96,7 +96,7 @@ pub fn Card(
     match screen(&view, me.as_deref(), page_state, now_ms) {
         Screen::Reload | Screen::Blank => rsx! {},
         Screen::Won {
-            item_name,
+            prize_name,
             claimed,
             done,
         } => {
@@ -114,7 +114,7 @@ pub fn Card(
                 div { class, role: if announce { "alert" },
                     p { class: "text-5xl", "🏆" }
                     p { class: "font-display text-5xl font-black tracking-tight", "{s.you_won}" }
-                    p { class: "text-lg font-semibold", "{item_name}" }
+                    p { class: "text-lg font-semibold", "{prize_name}" }
                     if let Some(code) = claim_code {
                         span { class: "claim-code mt-1 rounded-2xl bg-base-100 px-5 py-2 text-4xl text-success shadow-sm",
                             "{code}"
@@ -131,7 +131,7 @@ pub fn Card(
             }
         },
         Screen::Countdown {
-            item_name,
+            prize_name,
             round,
             secs_left,
         } => {
@@ -143,7 +143,7 @@ pub fn Card(
             rsx! {
                 div { class: CARD,
                     span { class: "badge badge-primary badge-soft font-semibold", "🎲 {s.drawing}" }
-                    p { class: "font-display text-2xl font-extrabold", "{item_name}" }
+                    p { class: "font-display text-2xl font-extrabold", "{prize_name}" }
                     div { class: "font-display text-6xl font-black text-primary", "{secs}" }
                     p { class: "text-xs text-base-content/60", "{s.locking} · {s.drand_round} {round}" }
                 }
@@ -156,7 +156,7 @@ pub fn Card(
         } => rsx! {
             div { class: CARD,
                 if let Some(l) = last {
-                    p { class: "text-sm text-base-content/60", "🎉 {l.display_name} → {l.item_name}" }
+                    p { class: "text-sm text-base-content/60", "🎉 {l.display_name} → {l.prize_name}" }
                     p { class: "text-xl font-bold",
                         if entered {
                             "{s.not_this_time} 🤞"

@@ -22,11 +22,11 @@ pub struct Snapshot {
     pub state: Phase,
     pub version: u64,
     pub live_ended_at: Option<i64>,
-    draw_state: Option<DrawState>,
+    drawing: Option<DrawState>,
     /// Names of the drawn entrants only, already masked when hidden.
     names: HashMap<String, String>,
-    /// Prizes before the freeze, from the items.
-    item_qty: u32,
+    /// Prizes before the freeze, from the raffle's prizes.
+    prize_qty: u32,
 }
 
 #[derive(Deserialize)]
@@ -34,7 +34,7 @@ struct RaffleRow {
     state: String,
     version: i64,
     live_ended_at: Option<i64>,
-    draw_state: Option<String>,
+    drawing: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -54,23 +54,23 @@ impl Snapshot {
         let mut sets = db
             .batch_rows(vec![
                 db.query(
-                    "SELECT state, version, live_ended_at, draw_state FROM raffles WHERE id = ?1",
+                    "SELECT state, version, live_ended_at, drawing FROM raffles WHERE id = ?1",
                 )
                 .bind(raffle_id),
                 // Only the entrants that were drawn: no other names leave the database.
                 db.query(format!(
                     "SELECT e.id, e.display_name, e.hidden FROM entrants e
                      WHERE e.raffle_id = ?1 AND e.id IN ({})",
-                    dialect::draw_state_entrants(
+                    dialect::drawing_entrants(
                         db.dialect(),
-                        "(SELECT draw_state FROM raffles WHERE id = ?1)",
+                        "(SELECT drawing FROM raffles WHERE id = ?1)",
                         "events",
                         "type",
                         "draw",
                     )
                 ))
                 .bind(raffle_id),
-                db.query("SELECT COALESCE(SUM(qty), 0) FROM items WHERE raffle_id = ?1")
+                db.query("SELECT COALESCE(SUM(qty), 0) FROM prizes WHERE raffle_id = ?1")
                     .bind(raffle_id),
             ])
             .await?;
@@ -94,7 +94,7 @@ impl Snapshot {
                 (n.id, name)
             })
             .collect();
-        let item_qty = qty_rows
+        let prize_qty = qty_rows
             .into_iter()
             .next()
             .map(|r| r.decode::<(i64,)>())
@@ -104,12 +104,12 @@ impl Snapshot {
             state: phase(&raffle.state),
             version: raffle.version.max(0) as u64,
             live_ended_at: raffle.live_ended_at,
-            draw_state: raffle
-                .draw_state
+            drawing: raffle
+                .drawing
                 .as_deref()
                 .and_then(|s| serde_json::from_str(s).ok()),
             names,
-            item_qty,
+            prize_qty,
         }))
     }
 
@@ -126,8 +126,8 @@ impl Snapshot {
 
     /// The participant view.
     pub fn view(&self) -> ParticipantView {
-        let Some(s) = &self.draw_state else {
-            return ParticipantView::new(self.version, self.state, None, [], self.item_qty);
+        let Some(s) = &self.drawing else {
+            return ParticipantView::new(self.version, self.state, None, [], self.prize_qty);
         };
         let unit_name = |unit_id: &str| {
             s.units
@@ -155,7 +155,7 @@ impl Snapshot {
                     .get(entrant_id)
                     .cloned()
                     .unwrap_or_else(|| format!("#{}", &entrant_id[..entrant_id.len().min(6)])),
-                item_name: unit_name(unit_id),
+                prize_name: unit_name(unit_id),
                 outcome: match outcomes.get(k).copied().unwrap_or(Outcome::Drawn) {
                     Outcome::Drawn => DrawOutcome::Drawn,
                     Outcome::Claimed => DrawOutcome::Claimed,
@@ -166,7 +166,7 @@ impl Snapshot {
             _ => None,
         });
         let current = s.pending.as_ref().map(|p| Current {
-            item_name: unit_name(&p.unit_id),
+            prize_name: unit_name(&p.unit_id),
             round: p.round,
             round_time: p.round_time,
         });
@@ -211,7 +211,7 @@ mod tests {
         );
         let state = DrawState::freeze(&doc);
         db.query(
-            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, list_hash, created_at, updated_at)
+            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, manifest_hash, created_at, updated_at)
              VALUES ('r1', 'o', 's', 'j', 't', 'open', 'restate', ?, 0, 0)",
         )
         .bind(&state.list_hash)
@@ -233,7 +233,7 @@ mod tests {
             .await
             .unwrap();
         }
-        db.query("INSERT INTO items (id, raffle_id, name, qty) VALUES ('i1', 'r1', 'Book', 1), ('i2', 'r1', 'Shirt', 1)")
+        db.query("INSERT INTO prizes (id, raffle_id, name, qty) VALUES ('i1', 'r1', 'Book', 1), ('i2', 'r1', 'Shirt', 1)")
             .run()
             .await
             .unwrap();
@@ -263,7 +263,7 @@ mod tests {
     }
 
     async fn store(db: &Db, state: &DrawState, lifecycle: &str) {
-        db.query("UPDATE raffles SET state = ?, draw_state = ? WHERE id = 'r1'")
+        db.query("UPDATE raffles SET state = ?, drawing = ? WHERE id = 'r1'")
             .bind(lifecycle)
             .bind(serde_json::to_string(state).unwrap())
             .run()
@@ -272,7 +272,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn before_the_freeze_counts_items() {
+    async fn before_the_freeze_counts_prizes() {
         let db = Db::connect("sqlite::memory:").await.unwrap();
         raffle(&db).await;
         let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
@@ -299,7 +299,7 @@ mod tests {
         );
         let view = snap.view();
         assert_eq!(view.last.as_ref().unwrap().display_name, HIDDEN_NAME);
-        assert_eq!(view.winners[0].item_name, "Book");
+        assert_eq!(view.winners[0].prize_name, "Book");
         assert_eq!(
             view.prizes_left, 2,
             "a drawn unit is still open until claimed"

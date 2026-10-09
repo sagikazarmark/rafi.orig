@@ -14,11 +14,11 @@ use rafi_drawing::{
     state::Outcome,
 };
 use rafi_platform::{DrawEngine, EngineError};
-use rafi_store::{RaffleRow, audit, entrants, items, raffles};
+use rafi_store::{RaffleRow, audit, entrants, prizes, raffles};
 
 use super::{AppState, ids};
 use crate::model::{
-    AdminEntrant, EntrantPatch, EntrantSource, Item, ItemInput, Lifecycle, RaffleAdmin,
+    AdminEntrant, EntrantPatch, EntrantSource, Lifecycle, Prize, PrizeInput, RaffleAdmin,
     RaffleSettings, RaffleSummary, VerifyData,
 };
 
@@ -214,7 +214,7 @@ pub async fn update_settings(
 pub async fn delete(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     if raffle.state() == RaffleState::Drawing
-        && raffle.draw_state().is_some_and(|s| s.pending.is_some())
+        && raffle.drawing().is_some_and(|s| s.pending.is_some())
     {
         return Err(conflict("A draw is in progress."));
     }
@@ -245,18 +245,18 @@ pub async fn duplicate(app: &AppState, owner: &str, id: &str) -> Result<String> 
         raffle.title.chars().take(110).collect::<String>()
     );
     update_settings(app, owner, &new_id, s).await?;
-    for item in items::list(&app.db, id).await? {
-        upsert_item(
+    for prize in prizes::list(&app.db, id).await? {
+        upsert_prize(
             app,
             owner,
             &new_id,
-            ItemInput {
+            PrizeInput {
                 id: None,
-                name: item.name,
-                sponsor: item.sponsor,
-                description: item.description,
-                qty: item.qty.max(0) as u32,
-                position: item.position,
+                name: prize.name,
+                sponsor: prize.sponsor,
+                description: prize.description,
+                qty: prize.qty.max(0) as u32,
+                position: prize.position,
             },
         )
         .await?;
@@ -264,14 +264,14 @@ pub async fn duplicate(app: &AppState, owner: &str, id: &str) -> Result<String> 
     Ok(new_id)
 }
 
-pub async fn upsert_item(
+pub async fn upsert_prize(
     app: &AppState,
     owner: &str,
     raffle_id: &str,
-    input: ItemInput,
+    input: PrizeInput,
 ) -> Result<String> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if !raffle.state().items_editable() {
+    if !raffle.state().prizes_editable() {
         return Err(conflict(
             "Prizes cannot change after the entrant list is frozen.",
         ));
@@ -283,7 +283,7 @@ pub async fn upsert_item(
     if input.qty == 0 || input.qty > 500 {
         return Err(bad("The quantity must be between 1 and 500."));
     }
-    let fields = items::ItemFields {
+    let fields = prizes::PrizeFields {
         name,
         sponsor: input.sponsor.trim(),
         description: input.description.trim(),
@@ -292,35 +292,35 @@ pub async fn upsert_item(
     };
     let id = match &input.id {
         Some(id) => {
-            if !items::update(&app.db, id, raffle_id, &fields).await? {
+            if !prizes::update(&app.db, id, raffle_id, &fields).await? {
                 return Err(AppError::NotFound);
             }
             id.clone()
         }
         None => {
             let id = ids::code(6).to_lowercase();
-            items::insert(&app.db, &id, raffle_id, &fields).await?;
+            prizes::insert(&app.db, &id, raffle_id, &fields).await?;
             id
         }
     };
-    // Before the freeze, phones count the prizes from the items.
+    // Before the freeze, phones count the prizes from their quantities.
     app.notifier.notify(raffle_id).await;
     Ok(id)
 }
 
-pub async fn delete_item(
+pub async fn delete_prize(
     app: &AppState,
     owner: &str,
     raffle_id: &str,
-    item_id: &str,
+    prize_id: &str,
 ) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if !raffle.state().items_editable() {
+    if !raffle.state().prizes_editable() {
         return Err(conflict(
             "Prizes cannot change after the entrant list is frozen.",
         ));
     }
-    items::delete(&app.db, item_id, raffle_id).await?;
+    prizes::delete(&app.db, prize_id, raffle_id).await?;
     app.notifier.notify(raffle_id).await;
     Ok(())
 }
@@ -389,7 +389,7 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
             app.notifier.notify(id).await;
             commit(app, owner, id, units, from).await?
         }
-        RaffleState::Frozen if raffle.draw_state.is_none() => match raffle.commit_doc.as_deref() {
+        RaffleState::Frozen if raffle.drawing.is_none() => match raffle.manifest.as_deref() {
             Some(json) => serde_json::from_str(json).map_err(anyhow::Error::from)?,
             // A freeze that stopped before writing its commit document: the
             // entrant list is fixed since the raffle froze, so commit it now.
@@ -410,8 +410,8 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
 
 /// The prize units of a raffle, in draw order. Errors if there are none.
 async fn units(app: &AppState, id: &str) -> Result<Vec<UnitRef>> {
-    let items = items::list(&app.db, id).await?;
-    let units = rafi_drawing::commit::units(items.iter().map(|i| {
+    let prizes = prizes::list(&app.db, id).await?;
+    let units = rafi_drawing::commit::units(prizes.iter().map(|i| {
         (
             i.id.as_str(),
             i.name.as_str(),
@@ -453,7 +453,7 @@ async fn commit(
         // Another attempt committed first (or the raffle moved on).
         let stored = raffles::get(&app.db, id)
             .await?
-            .and_then(|r| r.commit_doc)
+            .and_then(|r| r.manifest)
             .ok_or_else(|| conflict("The raffle changed in the meantime; reload and try again."))?;
         return Ok(serde_json::from_str(&stored).map_err(anyhow::Error::from)?);
     }
@@ -473,7 +473,7 @@ pub async fn command(
     if !raffle.state().drawable() {
         return Err(conflict("The draw has not started (or is already over)."));
     }
-    let state = raffle.draw_state().ok_or_else(|| {
+    let state = raffle.drawing().ok_or_else(|| {
         conflict(
             "The draw engine has not confirmed the frozen list yet; press “Start the draw” again.",
         )
@@ -857,13 +857,13 @@ pub async fn end_live(app: &AppState, owner: &str, raffle_id: &str) -> Result<()
 
 pub async fn admin(app: &AppState, owner: &str, id: &str) -> Result<RaffleAdmin> {
     let raffle = owned(app, owner, id).await?;
-    let items = items::list(&app.db, id).await?;
+    let prizes = prizes::list(&app.db, id).await?;
     let outcomes = raffle
-        .draw_state()
+        .drawing()
         .map(|s| s.entrant_outcomes())
         .unwrap_or_default();
     let unit_names: std::collections::HashMap<String, String> = raffle
-        .draw_state()
+        .drawing()
         .map(|s| {
             s.units
                 .into_iter()
@@ -898,9 +898,9 @@ pub async fn admin(app: &AppState, owner: &str, id: &str) -> Result<RaffleAdmin>
     Ok(RaffleAdmin {
         id: raffle.id.clone(),
         settings: settings_of(&raffle),
-        items: items
+        prizes: prizes
             .into_iter()
-            .map(|i| Item {
+            .map(|i| Prize {
                 id: i.id,
                 name: i.name,
                 sponsor: i.sponsor,
@@ -960,7 +960,8 @@ pub async fn verify_data(app: &AppState, slug: &str) -> Result<VerifyData> {
     let raffle = raffles::by_slug(&app.db, slug)
         .await?
         .ok_or(AppError::NotFound)?;
-    let (Some(commit_doc), Some(list_hash)) = (raffle.commit_doc.clone(), raffle.list_hash.clone())
+    let (Some(commit_doc), Some(list_hash)) =
+        (raffle.manifest.clone(), raffle.manifest_hash.clone())
     else {
         return Err(AppError::NotFound);
     };
@@ -979,7 +980,7 @@ pub async fn verify_data(app: &AppState, slug: &str) -> Result<VerifyData> {
     Ok(VerifyData {
         title: raffle.title.clone(),
         state: raffle.state(),
-        events: raffle.draw_state().map(|s| s.events).unwrap_or_default(),
+        events: raffle.drawing().map(|s| s.events).unwrap_or_default(),
         commit_doc,
         list_hash,
         names,

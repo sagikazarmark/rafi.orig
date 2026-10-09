@@ -18,7 +18,7 @@ use axum::{
 use dioxus::prelude::*;
 use rafi_live::{Card, CardStrings, LiveTransport, ParticipantView, Phase};
 use rafi_platform::Limit;
-use rafi_store::{EntrantRow, RaffleRow, entrants, items, live::Snapshot, raffles};
+use rafi_store::{EntrantRow, RaffleRow, entrants, live::Snapshot, prizes, raffles};
 use serde::{Deserialize, Serialize};
 
 use super::{AppState, altcha, ids, service};
@@ -604,8 +604,8 @@ async fn rules(
         return not_found(pick_lang(&q, &headers, None));
     }
     let lang = pick_lang(&q, &headers, Some(&r));
-    let items = items::list(&app.db, &r.id).await.unwrap_or_default();
-    let prizes: Vec<String> = items
+    let prizes = prizes::list(&app.db, &r.id).await.unwrap_or_default();
+    let prizes: Vec<String> = prizes
         .iter()
         .map(|i| {
             let sponsor = if i.sponsor.is_empty() {

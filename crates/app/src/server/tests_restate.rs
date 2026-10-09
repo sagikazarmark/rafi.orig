@@ -26,7 +26,7 @@ use super::{
     config::{Config, RestateConfig},
     service, view,
 };
-use crate::model::{ItemInput, Lifecycle};
+use crate::model::{Lifecycle, PrizeInput};
 
 const OWNER: &str = "user_restate";
 const SERVER: ServerSpec = ServerSpec {
@@ -96,11 +96,11 @@ async fn app_and_restate_rafi_share_the_database() {
     let id = service::create(&app, OWNER, "Shared database")
         .await
         .unwrap();
-    service::upsert_item(
+    service::upsert_prize(
         &app,
         OWNER,
         &id,
-        ItemInput {
+        PrizeInput {
             name: "Ticket".into(),
             qty: 1,
             ..Default::default()
@@ -128,8 +128,8 @@ async fn app_and_restate_rafi_share_the_database() {
     service::start_draw(&app, OWNER, &id)
         .await
         .expect("freeze via restate-rafi");
-    let r = wait_for(&app, &id, |r| r.draw_state.is_some()).await;
-    let unit = r.draw_state().unwrap().units[0].unit_id.clone();
+    let r = wait_for(&app, &id, |r| r.drawing.is_some()).await;
+    let unit = r.drawing().unwrap().units[0].unit_id.clone();
 
     service::command(
         &app,
@@ -144,7 +144,7 @@ async fn app_and_restate_rafi_share_the_database() {
     .await
     .unwrap();
     wait_for(&app, &id, |r| {
-        r.draw_state()
+        r.drawing()
             .is_some_and(|s| s.unit(&unit).unwrap().status == UnitStatus::Drawn)
     })
     .await;

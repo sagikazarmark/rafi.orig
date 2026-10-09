@@ -39,11 +39,11 @@ async fn entrant(db: &Db, raffle_id: &str, id: &str, created_at: i64) -> Outcome
     .map_err(fail)
 }
 
-async fn item(db: &Db, raffle_id: &str, id: &str, qty: i64, position: i64) -> Outcome {
-    db.query("INSERT INTO items (id, raffle_id, name, qty, position) VALUES (?, ?, ?, ?, ?)")
+async fn prize(db: &Db, raffle_id: &str, id: &str, qty: i64, position: i64) -> Outcome {
+    db.query("INSERT INTO prizes (id, raffle_id, name, qty, position) VALUES (?, ?, ?, ?, ?)")
         .bind(id)
         .bind(raffle_id)
-        .bind(format!("Item {id}"))
+        .bind(format!("Prize {id}"))
         .bind(qty)
         .bind(position)
         .run()
@@ -174,15 +174,15 @@ pub(super) async fn decode_types(db: &Db) -> Outcome {
     )?;
 
     // Aggregates: `SUM` over a `BIGINT` is `NUMERIC` in Postgres.
-    item(db, "r1", "i1", 2, 0).await?;
-    item(db, "r1", "i2", 3, 1).await?;
+    prize(db, "r1", "i1", 2, 0).await?;
+    prize(db, "r1", "i2", 3, 1).await?;
     let sums: (i64, i64, i64, f64, Option<i64>, i64) = db
         .query(
             "SELECT SUM(qty) AS s, SUM(-qty) AS neg, SUM(qty * 1000000000000) AS big,
                     AVG(qty) AS avg,
-                    (SELECT SUM(qty) FROM items WHERE raffle_id = 'none') AS missing,
-                    (SELECT COALESCE(SUM(qty), 0) FROM items WHERE raffle_id = 'none') AS zero
-             FROM items WHERE raffle_id = ?",
+                    (SELECT SUM(qty) FROM prizes WHERE raffle_id = 'none') AS missing,
+                    (SELECT COALESCE(SUM(qty), 0) FROM prizes WHERE raffle_id = 'none') AS zero
+             FROM prizes WHERE raffle_id = ?",
         )
         .bind("r1")
         .one()
@@ -362,7 +362,7 @@ pub(super) async fn batch_atomicity(db: &Db) -> Outcome {
     let res = db
         .batch(vec![
             db.query("UPDATE raffles SET title = 'changed' WHERE id = 'r1'"),
-            db.query("INSERT INTO items (id, raffle_id, name) VALUES ('i1', 'r1', 'Book')"),
+            db.query("INSERT INTO prizes (id, raffle_id, name) VALUES ('i1', 'r1', 'Book')"),
             db.query(
                 "INSERT INTO raffles (id, owner_id, slug, join_code, title, created_at, updated_at)
                  VALUES ('r2', 'o', 'slug-r1', 'k', 't', 0, 0)",
@@ -380,7 +380,7 @@ pub(super) async fn batch_atomicity(db: &Db) -> Outcome {
         .map_err(fail)?;
     check(title == "t", "the update rolled back")?;
     check(
-        count(db, "SELECT COUNT(*) FROM items").await? == 0,
+        count(db, "SELECT COUNT(*) FROM prizes").await? == 0,
         "the insert rolled back",
     )?;
     check(
@@ -391,8 +391,8 @@ pub(super) async fn batch_atomicity(db: &Db) -> Outcome {
     // A failure that isn't a unique violation (NOT NULL) rolls back too.
     let res = db
         .batch(vec![
-            db.query("INSERT INTO items (id, raffle_id, name) VALUES ('i2', 'r1', 'Mug')"),
-            db.query("INSERT INTO items (id, raffle_id) VALUES ('i3', 'r1')"),
+            db.query("INSERT INTO prizes (id, raffle_id, name) VALUES ('i2', 'r1', 'Mug')"),
+            db.query("INSERT INTO prizes (id, raffle_id) VALUES ('i3', 'r1')"),
         ])
         .await;
     check(
@@ -400,17 +400,17 @@ pub(super) async fn batch_atomicity(db: &Db) -> Outcome {
         &format!("a NOT NULL violation: {res:?}"),
     )?;
     check(
-        count(db, "SELECT COUNT(*) FROM items").await? == 0,
+        count(db, "SELECT COUNT(*) FROM prizes").await? == 0,
         "nothing was inserted",
     )?;
 
     // A batch that succeeds applies everything, in order.
     db.batch(vec![
-        db.query("INSERT INTO items (id, raffle_id, name) VALUES ('i4', 'r1', 'Hat')"),
-        db.query("UPDATE items SET qty = qty + 3 WHERE id = 'i4'"),
+        db.query("INSERT INTO prizes (id, raffle_id, name) VALUES ('i4', 'r1', 'Hat')"),
+        db.query("UPDATE prizes SET qty = qty + 3 WHERE id = 'i4'"),
         db.query(
             "INSERT INTO entrants (id, raffle_id, display_name, claim_code, created_at)
-             SELECT 'e', 'r1', name, 'K2P9', qty FROM items WHERE id = 'i4'",
+             SELECT 'e', 'r1', name, 'K2P9', qty FROM prizes WHERE id = 'i4'",
         ),
     ])
     .await
@@ -434,16 +434,16 @@ pub(super) async fn batch_atomicity(db: &Db) -> Outcome {
 /// included, and fails as a whole if one statement does.
 pub(super) async fn batch_rows_snapshot(db: &Db) -> Outcome {
     raffle(db, "r1").await?;
-    item(db, "r1", "i", 3, 0).await?;
+    prize(db, "r1", "i", 3, 0).await?;
     let mut sets = db
         .batch_rows(vec![
             db.query("SELECT version, title FROM raffles WHERE id = ?")
                 .bind("r1"),
-            db.query("SELECT SUM(qty) FROM items WHERE raffle_id = ?")
+            db.query("SELECT SUM(qty) FROM prizes WHERE raffle_id = ?")
                 .bind("r1"),
             db.query("SELECT id FROM entrants WHERE raffle_id = ?")
                 .bind("r1"),
-            db.query("SELECT id FROM items WHERE raffle_id = ? ORDER BY id")
+            db.query("SELECT id FROM prizes WHERE raffle_id = ? ORDER BY id")
                 .bind("r1"),
         ])
         .await
@@ -466,7 +466,7 @@ pub(super) async fn batch_rows_snapshot(db: &Db) -> Outcome {
     check(broken.is_err(), "a failing statement fails the batch")
 }
 
-/// `batch_rows` reads one snapshot while another session writes: an item
+/// `batch_rows` reads one snapshot while another session writes: an prize
 /// count and the title written in the same batch always agree.
 pub(super) async fn batch_rows_under_writes(db: &Db) -> Outcome {
     raffle(db, "r1").await?;
@@ -478,7 +478,7 @@ pub(super) async fn batch_rows_under_writes(db: &Db) -> Outcome {
     let writer = async {
         for n in 1..=WRITES {
             db.batch(vec![
-                db.query("INSERT INTO items (id, raffle_id, name) VALUES (?, 'r1', 'x')")
+                db.query("INSERT INTO prizes (id, raffle_id, name) VALUES (?, 'r1', 'x')")
                     .bind(format!("i{n:03}")),
                 db.query("UPDATE raffles SET title = ? WHERE id = 'r1'")
                     .bind(n.to_string()),
@@ -493,21 +493,21 @@ pub(super) async fn batch_rows_under_writes(db: &Db) -> Outcome {
         loop {
             let sets = db
                 .batch_rows(vec![
-                    db.query("SELECT COUNT(*) FROM items WHERE raffle_id = 'r1'"),
+                    db.query("SELECT COUNT(*) FROM prizes WHERE raffle_id = 'r1'"),
                     db.query("SELECT title FROM raffles WHERE id = 'r1'"),
                 ])
                 .await
                 .map_err(fail)?;
-            let [items, title] = <[Vec<crate::Row>; 2]>::try_from(sets)
+            let [prizes, title] = <[Vec<crate::Row>; 2]>::try_from(sets)
                 .map_err(|s| format!("{} row sets", s.len()))?;
-            let (items,): (i64,) = items[0].clone().decode().map_err(fail)?;
+            let (prizes,): (i64,) = prizes[0].clone().decode().map_err(fail)?;
             let (title,): (String,) = title[0].clone().decode().map_err(fail)?;
             check(
-                title == items.to_string(),
-                &format!("read {items} items but title {title:?}"),
+                title == prizes.to_string(),
+                &format!("read {prizes} prizes but title {title:?}"),
             )?;
             reads += 1;
-            if items == WRITES as i64 {
+            if prizes == WRITES as i64 {
                 return Ok::<_, String>(reads);
             }
             // The writer failed (its error is reported) or never got a turn.
@@ -591,11 +591,11 @@ pub(super) async fn unique_violation(db: &Db) -> Outcome {
     for (what, sql) in [
         (
             "NOT NULL",
-            "INSERT INTO items (id, raffle_id) VALUES ('i', 'r1')",
+            "INSERT INTO prizes (id, raffle_id) VALUES ('i', 'r1')",
         ),
         (
             "a foreign key",
-            "INSERT INTO items (id, raffle_id, name) VALUES ('i', 'nope', 'Book')",
+            "INSERT INTO prizes (id, raffle_id, name) VALUES ('i', 'nope', 'Book')",
         ),
         ("bad SQL", "INSERT INTO nowhere (id) VALUES ('i')"),
     ] {
@@ -620,14 +620,14 @@ pub(super) async fn unique_violation(db: &Db) -> Outcome {
 /// the rows triggers changed.
 pub(super) async fn change_counts(db: &Db) -> Outcome {
     raffle(db, "r1").await?;
-    item(db, "r1", "i", 1, 0).await?;
+    prize(db, "r1", "i", 1, 0).await?;
     let run = |sql: &'static str| async move { db.query(sql).run().await.map_err(fail) };
     for (sql, changes) in [
         ("UPDATE raffles SET title = 'x' WHERE id = 'r1'", true),
         ("UPDATE raffles SET title = title WHERE id = 'r1'", true),
         ("UPDATE raffles SET title = 'x' WHERE id = 'nope'", false),
-        ("UPDATE items SET qty = 2 WHERE id = 'i'", true),
-        ("UPDATE items SET qty = 2 WHERE id = 'nope'", false),
+        ("UPDATE prizes SET qty = 2 WHERE id = 'i'", true),
+        ("UPDATE prizes SET qty = 2 WHERE id = 'nope'", false),
         (
             "INSERT INTO entrants (id, raffle_id, display_name, claim_code, created_at)
              SELECT 'e', 'r1', 'x', 'K2P9', 0 WHERE 1 = 0",
@@ -656,10 +656,10 @@ pub(super) async fn change_counts(db: &Db) -> Outcome {
     }
     let changes = db
         .batch(vec![
-            db.query("UPDATE items SET qty = 3 WHERE id = 'i'"),
-            db.query("UPDATE items SET qty = 3 WHERE id = 'nope'"),
+            db.query("UPDATE prizes SET qty = 3 WHERE id = 'i'"),
+            db.query("UPDATE prizes SET qty = 3 WHERE id = 'nope'"),
             db.query("DELETE FROM altcha_used WHERE challenge = 'nope'"),
-            db.query("DELETE FROM items WHERE id = 'i'"),
+            db.query("DELETE FROM prizes WHERE id = 'i'"),
         ])
         .await
         .map_err(fail)?;
@@ -680,7 +680,7 @@ pub(super) async fn change_counts(db: &Db) -> Outcome {
 pub(super) async fn ordering_ties(db: &Db) -> Outcome {
     raffle(db, "r1").await?;
     for (id, position) in [("c", 1), ("b", 0), ("a", 1), ("d", 0)] {
-        item(db, "r1", id, 1, position).await?;
+        prize(db, "r1", id, 1, position).await?;
     }
     let ids = |sql: &'static str| async move {
         db.query(sql)
@@ -689,13 +689,13 @@ pub(super) async fn ordering_ties(db: &Db) -> Outcome {
             .map(|rows| rows.into_iter().map(|(id,)| id).collect::<Vec<_>>())
             .map_err(fail)
     };
-    let asc = ids("SELECT id FROM items WHERE raffle_id = 'r1' ORDER BY position, id").await?;
+    let asc = ids("SELECT id FROM prizes WHERE raffle_id = 'r1' ORDER BY position, id").await?;
     check(
         asc == ["b", "d", "a", "c"],
         &format!("by position, then ID: {asc:?}"),
     )?;
     let desc =
-        ids("SELECT id FROM items WHERE raffle_id = 'r1' ORDER BY position DESC, id DESC").await?;
+        ids("SELECT id FROM prizes WHERE raffle_id = 'r1' ORDER BY position DESC, id DESC").await?;
     check(
         desc == ["c", "a", "d", "b"],
         &format!("descending: {desc:?}"),
@@ -783,7 +783,7 @@ pub(super) async fn param_limit(db: &Db) -> Outcome {
     )
 }
 
-/// The version triggers: every write to a raffle, its items or its entrants
+/// The version triggers: every write to a raffle, its prizes or its entrants
 /// bumps `raffles.version` once; a write that sets the version itself keeps
 /// it; a write that matches nothing bumps nothing.
 pub(super) async fn version_triggers(db: &Db) -> Outcome {
@@ -797,11 +797,11 @@ pub(super) async fn version_triggers(db: &Db) -> Outcome {
     let v1 = version(db, "r1").await?;
     check(v1 == v0 + 1, "a raffle update bumps once")?;
     for sql in [
-        "INSERT INTO items (id, raffle_id, name) VALUES ('i', 'r1', 'Book')",
-        "UPDATE items SET qty = 2 WHERE id = 'i'",
+        "INSERT INTO prizes (id, raffle_id, name) VALUES ('i', 'r1', 'Book')",
+        "UPDATE prizes SET qty = 2 WHERE id = 'i'",
         "INSERT INTO entrants (id, raffle_id, display_name, claim_code, created_at) VALUES ('e', 'r1', 'Anna', 'K2P9', 0)",
         "UPDATE entrants SET hidden = 1 WHERE id = 'e'",
-        "DELETE FROM items WHERE id = 'i'",
+        "DELETE FROM prizes WHERE id = 'i'",
         "DELETE FROM entrants WHERE id = 'e'",
     ] {
         db.query(sql).run().await.map_err(fail)?;
@@ -809,7 +809,7 @@ pub(super) async fn version_triggers(db: &Db) -> Outcome {
     let v2 = version(db, "r1").await?;
     check(
         v2 == v1 + 6,
-        &format!("item and entrant writes bump once each: {v1} -> {v2}"),
+        &format!("prize and entrant writes bump once each: {v1} -> {v2}"),
     )?;
     check(
         version(db, "r2").await? == 0,
@@ -826,7 +826,7 @@ pub(super) async fn version_triggers(db: &Db) -> Outcome {
     )?;
     for sql in [
         "UPDATE raffles SET title = 'y' WHERE id = 'nope'",
-        "UPDATE items SET qty = 3 WHERE id = 'nope'",
+        "UPDATE prizes SET qty = 3 WHERE id = 'nope'",
         "DELETE FROM entrants WHERE id = 'nope'",
     ] {
         db.query(sql).run().await.map_err(fail)?;

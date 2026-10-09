@@ -25,7 +25,7 @@ pub fn join_url(app: &AppState, join_code: &str) -> String {
 pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<RaffleView>> {
     let Some(Full {
         raffle,
-        items,
+        prizes,
         entrants,
     }) = Full::read(&app.db, raffle_id).await?
     else {
@@ -59,32 +59,32 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         .map(|e| e.display_name.clone())
         .collect();
 
-    let draw_state = raffle.draw_state();
-    let item_meta: HashMap<&str, (&str, &str)> = items
+    let drawing = raffle.drawing();
+    let prize_meta: HashMap<&str, (&str, &str)> = prizes
         .iter()
         .map(|i| (i.id.as_str(), (i.name.as_str(), i.sponsor.as_str())))
         .collect();
 
-    let units: Vec<UnitView> = match &draw_state {
+    let units: Vec<UnitView> = match &drawing {
         Some(s) => s
             .units
             .iter()
             .map(|u| UnitView {
                 unit_id: u.unit_id.clone(),
-                item_id: u.item_id.clone(),
-                item_name: u.item_name.clone(),
+                prize_id: u.item_id.clone(),
+                prize_name: u.item_name.clone(),
                 status: u.status,
                 display_name: u.entrant_id.as_deref().map(name_of),
                 entrant_id: u.entrant_id.clone(),
             })
             .collect(),
-        None => items
+        None => prizes
             .iter()
             .flat_map(|i| {
                 (1..=u64::try_from(i.qty).unwrap_or(0)).map(move |n| UnitView {
                     unit_id: rafi_drawing::commit::unit_id(&i.id, n),
-                    item_id: i.id.clone(),
-                    item_name: i.name.clone(),
+                    prize_id: i.id.clone(),
+                    prize_name: i.name.clone(),
                     status: UnitStatus::Pending,
                     entrant_id: None,
                     display_name: None,
@@ -93,21 +93,21 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             .collect(),
     };
 
-    // Prizes: original items in order, with how many are still to be won.
-    let mut prizes: Vec<PrizeView> = Vec::new();
+    // The raffle's prizes in order, with how many are still to be won.
+    let mut prize_views: Vec<PrizeView> = Vec::new();
     for u in &units {
-        let (name, sponsor) = item_meta
-            .get(u.item_id.as_str())
+        let (name, sponsor) = prize_meta
+            .get(u.prize_id.as_str())
             .copied()
-            .unwrap_or((u.item_name.as_str(), ""));
+            .unwrap_or((u.prize_name.as_str(), ""));
         let open = matches!(u.status, UnitStatus::Pending | UnitStatus::Drawn);
-        match prizes.iter_mut().find(|p| p.item_id == u.item_id) {
+        match prize_views.iter_mut().find(|p| p.prize_id == u.prize_id) {
             Some(p) => {
                 p.qty += 1;
                 p.left += open as u32;
             }
-            None => prizes.push(PrizeView {
-                item_id: u.item_id.clone(),
+            None => prize_views.push(PrizeView {
+                prize_id: u.prize_id.clone(),
                 name: name.to_owned(),
                 sponsor: sponsor.to_owned(),
                 qty: 1,
@@ -119,7 +119,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
     let mut draws = Vec::new();
     let mut current = None;
     let mut last_failure = None;
-    if let Some(s) = &draw_state {
+    if let Some(s) = &drawing {
         let mut outcomes: HashMap<u64, Outcome> = HashMap::new();
         for e in &s.events {
             if let Event::Resolve { k, outcome } = e {
@@ -146,7 +146,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
                     draws.push(DrawView {
                         k: *k,
                         unit_id: unit_id.clone(),
-                        item_name: unit_name
+                        prize_name: unit_name
                             .get(unit_id.as_str())
                             .copied()
                             .unwrap_or_default()
@@ -172,7 +172,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             current = Some(CurrentDraw {
                 k: p.k,
                 unit_id: p.unit_id.clone(),
-                item_name: unit_name
+                prize_name: unit_name
                     .get(p.unit_id.as_str())
                     .copied()
                     .unwrap_or_default()
@@ -187,7 +187,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
     // Labelled by the chain the raffle committed to (or will): only a public
     // drand chain is verifiable.
     let chain = raffle
-        .draw_state()
+        .drawing()
         .map(|s| s.drand_chain)
         .unwrap_or_else(|| app.chain.to_string());
     let public = chain
@@ -216,12 +216,12 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             .filter(|e| !e.purged || state != RaffleState::Purged)
             .count(),
         recent_names,
-        prizes,
+        prizes: prize_views,
         units,
         current,
         draws,
         last_failure,
-        list_hash: raffle.list_hash.clone(),
+        list_hash: raffle.manifest_hash.clone(),
         server_now_ms: crate::model::now_unix_ms(),
         test_mode: raffle.test_mode,
         engine,

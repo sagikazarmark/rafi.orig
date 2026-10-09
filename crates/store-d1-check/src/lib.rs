@@ -35,7 +35,7 @@ impl Harness for D1 {
         for table in [
             "audit",
             "entrants",
-            "items",
+            "prizes",
             "raffles",
             "altcha_used",
             "erasures",

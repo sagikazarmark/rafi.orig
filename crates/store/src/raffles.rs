@@ -30,11 +30,11 @@ pub struct RaffleRow {
     pub state: String,
     pub test_mode: bool,
     pub engine: String,
-    pub commit_doc: Option<String>,
-    pub list_hash: Option<String>,
+    pub manifest: Option<String>,
+    pub manifest_hash: Option<String>,
     pub frozen_at: Option<i64>,
-    pub draw_state: Option<String>,
-    pub draw_version: i64,
+    pub drawing: Option<String>,
+    pub drawing_version: i64,
     pub finished_at: Option<i64>,
     pub purge_nonwinners_at: Option<i64>,
     pub purge_winners_at: Option<i64>,
@@ -53,8 +53,8 @@ impl RaffleRow {
         RaffleState::parse(&self.state).unwrap_or(RaffleState::Draft)
     }
 
-    pub fn draw_state(&self) -> Option<DrawState> {
-        self.draw_state
+    pub fn drawing(&self) -> Option<DrawState> {
+        self.drawing
             .as_deref()
             .and_then(|s| serde_json::from_str(s).ok())
     }
@@ -171,7 +171,7 @@ pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<()> 
     .map(|_| ())
 }
 
-/// Deletes the raffle with its items and entrants.
+/// Deletes the raffle with its prizes and entrants.
 pub async fn delete(db: &Db, id: &str) -> Result<()> {
     db.query("DELETE FROM raffles WHERE id = ?")
         .bind(id)
@@ -214,7 +214,7 @@ pub async fn freeze(db: &Db, id: &str) -> Result<bool> {
 pub async fn unfreeze(db: &Db, id: &str, to: RaffleState) -> Result<()> {
     db.query(
         "UPDATE raffles SET state = ?, updated_at = ?
-         WHERE id = ? AND state = 'frozen' AND commit_doc IS NULL",
+         WHERE id = ? AND state = 'frozen' AND manifest IS NULL",
     )
     .bind(to.as_str())
     .bind(now())
@@ -230,8 +230,8 @@ pub async fn unfreeze(db: &Db, id: &str, to: RaffleState) -> Result<()> {
 pub async fn commit(db: &Db, id: &str, commit_doc: &str, list_hash: &str) -> Result<bool> {
     let changed = db
         .query(
-            "UPDATE raffles SET commit_doc = ?, list_hash = ?, frozen_at = ?
-             WHERE id = ? AND state = 'frozen' AND commit_doc IS NULL",
+            "UPDATE raffles SET manifest = ?, manifest_hash = ?, frozen_at = ?
+             WHERE id = ? AND state = 'frozen' AND manifest IS NULL",
         )
         .bind(commit_doc)
         .bind(list_hash)

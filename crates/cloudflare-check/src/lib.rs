@@ -33,7 +33,7 @@ async fn draw_state(db: &Db, raffle: &str) -> Result<DrawState> {
     rafi_store::raffles::get(db, raffle)
         .await
         .map_err(err)?
-        .and_then(|r| r.draw_state())
+        .and_then(|r| r.drawing())
         .ok_or_else(|| err("the raffle has no draw state"))
 }
 
@@ -52,7 +52,7 @@ async fn reset(db: &Db, raffle: &str) -> Result<()> {
         .bind(raffle)
         .bind(entrant(raffle, "bence"))
         .bind(raffle),
-        db.query("INSERT INTO items (id, raffle_id, name, qty) VALUES (?1 || '-book', ?1, 'Book', 1), (?1 || '-shirt', ?1, 'Shirt', 1)")
+        db.query("INSERT INTO prizes (id, raffle_id, name, qty) VALUES (?1 || '-book', ?1, 'Book', 1), (?1 || '-shirt', ?1, 'Shirt', 1)")
             .bind(raffle),
     ])
     .await
@@ -79,7 +79,7 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
         ],
     );
     let state = DrawState::freeze(&doc);
-    db.query("UPDATE raffles SET state = 'frozen', list_hash = ?, draw_state = ?, draw_version = ? WHERE id = ?")
+    db.query("UPDATE raffles SET state = 'frozen', manifest_hash = ?, drawing = ?, drawing_version = ? WHERE id = ?")
         .bind(&state.list_hash)
         .bind(serde_json::to_string(&state).map_err(err)?)
         .bind(state.version)
@@ -119,7 +119,7 @@ async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     );
     let state = DrawState::freeze(&doc);
     let json = serde_json::to_string(&doc).map_err(err)?;
-    db.query("UPDATE raffles SET state = 'frozen', commit_doc = ?, list_hash = ? WHERE id = ?")
+    db.query("UPDATE raffles SET state = 'frozen', manifest = ?, manifest_hash = ? WHERE id = ?")
         .bind(json.as_str())
         .bind(&state.list_hash)
         .bind(raffle)

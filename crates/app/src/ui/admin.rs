@@ -29,7 +29,7 @@ use crate::{
     i18n::Lang,
     icons::{I, Icon},
     model::{
-        AdminEntrant, EntrantPatch, EntrantSource, Item, Lifecycle, RaffleAdmin as AdminData,
+        AdminEntrant, EntrantPatch, EntrantSource, Lifecycle, Prize, RaffleAdmin as AdminData,
         RaffleView,
     },
 };
@@ -775,7 +775,7 @@ fn DrawConsole(
                                 }
                                 div { class: "space-y-1",
                                     p { class: "text-sm font-semibold uppercase tracking-widest opacity-80", if stalled { "Retrying round {cur.round}" } else { "Drawing now" } }
-                                    p { class: "font-display text-2xl font-extrabold", "{cur.item_name}" }
+                                    p { class: "font-display text-2xl font-extrabold", "{cur.prize_name}" }
                                     p { class: "text-sm opacity-80", "Waiting for public drand round {cur.round}, committed before it exists." }
                                 }
                             }
@@ -842,7 +842,7 @@ fn DrawConsole(
                                 li { key: "{u.unit_id}", class: "flex flex-wrap items-center gap-3 rounded-box border-2 p-3 transition {row}",
                                     span { class: "text-2xl", "{emoji}" }
                                     div { class: "min-w-40 flex-1",
-                                        p { class: "font-semibold", "{u.item_name}" }
+                                        p { class: "font-semibold", "{u.prize_name}" }
                                         p { class: "text-sm text-base-content/60", "{status_label(u.status)}" }
                                     }
                                     if let Some(w) = winner {
@@ -938,9 +938,9 @@ fn status_label(s: UnitStatus) -> &'static str {
 
 #[component]
 fn Prizes(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandler<()>) -> Element {
-    let editable = admin.view.state.items_editable();
-    let next_position = admin.items.iter().map(|i| i.position).max().unwrap_or(0) + 1;
-    let total: u32 = admin.items.iter().map(|i| i.qty).sum();
+    let editable = admin.view.state.prizes_editable();
+    let next_position = admin.prizes.iter().map(|i| i.position).max().unwrap_or(0) + 1;
+    let total: u32 = admin.prizes.iter().map(|i| i.qty).sum();
     rsx! {
         Panel {
             title: "Prizes",
@@ -949,15 +949,15 @@ fn Prizes(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
                 span { class: "badge badge-soft badge-secondary", "{total} to give away" }
                 if !editable { span { class: "badge badge-ghost gap-1", Icon { i: I::Lock, class: "size-3.5" } "locked" } }
             },
-            if admin.items.is_empty() {
+            if admin.prizes.is_empty() {
                 div { class: "rounded-box border-2 border-dashed border-base-300 py-10 text-center",
                     p { class: "text-4xl", "🎁" }
                     p { class: "mt-2 text-base-content/60", "No prizes yet. What are you giving away?" }
                 }
             }
             ul { class: "space-y-2",
-                for item in admin.items.iter() {
-                    PrizeRow { key: "{item.id}", raffle_id: admin.id.clone(), item: item.clone(), editable, error, on_change }
+                for prize in admin.prizes.iter() {
+                    PrizeRow { key: "{prize.id}", raffle_id: admin.id.clone(), prize: prize.clone(), editable, error, on_change }
                 }
             }
             if editable {
@@ -976,17 +976,17 @@ fn Prizes(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
 #[component]
 fn PrizeRow(
     raffle_id: String,
-    item: Item,
+    prize: Prize,
     editable: bool,
     error: Signal<Option<String>>,
     on_change: EventHandler<()>,
 ) -> Element {
     let mut editing = use_signal(|| false);
-    let (rid, iid) = (raffle_id.clone(), item.id.clone());
+    let (rid, iid) = (raffle_id.clone(), prize.id.clone());
     let remove = move |_| {
         let (rid, iid) = (rid.clone(), iid.clone());
         async move {
-            match api::delete_item(rid, iid).await {
+            match api::delete_prize(rid, iid).await {
                 Ok(()) => on_change.call(()),
                 Err(e) => error.set(Some(err_text(e))),
             }
@@ -997,11 +997,11 @@ fn PrizeRow(
             li { class: "rounded-box bg-base-200 p-3",
                 PrizeForm {
                     raffle_id,
-                    item_id: Some(item.id.clone()),
-                    name: item.name.clone(),
-                    sponsor: item.sponsor.clone(),
-                    qty: item.qty,
-                    position: item.position,
+                    prize_id: Some(prize.id.clone()),
+                    name: prize.name.clone(),
+                    sponsor: prize.sponsor.clone(),
+                    qty: prize.qty,
+                    position: prize.position,
                     on_saved: move |_| { editing.set(false); on_change.call(()); },
                     on_cancel: move |_| editing.set(false),
                 }
@@ -1010,14 +1010,14 @@ fn PrizeRow(
     }
     rsx! {
         li { class: "flex items-center gap-3 rounded-box border-2 border-base-300 p-3",
-            span { class: "grid size-11 shrink-0 place-items-center rounded-xl bg-secondary/15 font-display text-lg font-extrabold text-secondary", "{item.qty}×" }
+            span { class: "grid size-11 shrink-0 place-items-center rounded-xl bg-secondary/15 font-display text-lg font-extrabold text-secondary", "{prize.qty}×" }
             div { class: "min-w-0 flex-1",
-                p { class: "truncate font-semibold", "{item.name}" }
-                if !item.sponsor.is_empty() { p { class: "text-sm text-base-content/60", "by {item.sponsor}" } }
+                p { class: "truncate font-semibold", "{prize.name}" }
+                if !prize.sponsor.is_empty() { p { class: "text-sm text-base-content/60", "by {prize.sponsor}" } }
             }
             if editable {
-                button { class: "btn btn-ghost btn-sm btn-square", title: "Edit", aria_label: "Edit {item.name}", onclick: move |_| editing.set(true), Icon { i: I::Pencil, class: "size-4" } }
-                button { class: "btn btn-ghost btn-sm btn-square text-error", title: "Remove", aria_label: "Remove {item.name}", onclick: remove, Icon { i: I::Trash, class: "size-4" } }
+                button { class: "btn btn-ghost btn-sm btn-square", title: "Edit", aria_label: "Edit {prize.name}", onclick: move |_| editing.set(true), Icon { i: I::Pencil, class: "size-4" } }
+                button { class: "btn btn-ghost btn-sm btn-square text-error", title: "Remove", aria_label: "Remove {prize.name}", onclick: remove, Icon { i: I::Trash, class: "size-4" } }
             }
         }
     }
