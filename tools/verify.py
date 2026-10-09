@@ -23,7 +23,7 @@ This script checks the algorithm and, with --fetch, that each signature is the
 one the public drand relays serve for that round. It does not check the BLS
 signature itself (that needs pairing-friendly curve code); the browser
 verifier on the raffle's verify page does. With --fetch it also shows whom
-the committed round of an abandoned or offline-replaced draw would have picked.
+the committed round of an abandoned draw would have picked.
 """
 
 import hashlib
@@ -128,8 +128,6 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
                 print(f"FAIL draw {k}: round {ev['round']} is not the announced round"
                       + ("" if pending is None else f" {pending[1]}"))
                 ok = False
-            if ev["mode"] != "beacon" and pending is not None:
-                would_have_picked(k, pending[1], "replaced by an OFFLINE draw")
             pending = None
             pass_, p = pool(entrants, draws)
             if not p:
@@ -138,19 +136,16 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
                 continue
             sig = bytes.fromhex(ev["signature"])
             randomness = bytes.fromhex(ev["randomness"])
-            if ev["mode"] == "beacon":
-                if sha256(sig) != randomness:
-                    print(f"FAIL draw {k}: randomness != SHA256(signature)")
+            if sha256(sig) != randomness:
+                print(f"FAIL draw {k}: randomness != SHA256(signature)")
+                ok = False
+            if fetch and name:
+                b = fetch_beacon(chain, ev["round"])
+                if b is None:
+                    print(f"WARN draw {k}: could not fetch drand round {ev['round']}")
+                elif b["signature"].lower() != ev["signature"].lower():
+                    print(f"FAIL draw {k}: signature differs from drand round {ev['round']}")
                     ok = False
-                if fetch and name:
-                    b = fetch_beacon(chain, ev["round"])
-                    if b is None:
-                        print(f"WARN draw {k}: could not fetch drand round {ev['round']}")
-                    elif b["signature"].lower() != ev["signature"].lower():
-                        print(f"FAIL draw {k}: signature differs from drand round {ev['round']}")
-                        ok = False
-            else:
-                print(f"WARN draw {k}: OFFLINE mode, randomness is not publicly verifiable")
             idx = select(randomness, manifest_hash, k, len(p))
             expected = p[idx]
             good = expected == ev["entrant_id"] and pass_ == ev["pass"] and len(p) == ev["pool_size"]

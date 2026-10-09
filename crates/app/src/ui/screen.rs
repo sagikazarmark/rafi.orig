@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::drawing::{DrawMode, Outcome};
+use rafi_drawing::drawing::Outcome;
 
 use rafi_live::ParticipantView;
 
@@ -212,7 +212,6 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
                 display_name: l.display_name.clone(),
                 prize_name: l.prize_name.clone(),
                 round: None,
-                offline: false,
             }),
         ),
         None => (
@@ -226,7 +225,6 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
                     display_name: d.display_name.clone(),
                     prize_name: d.prize_name.clone(),
                     round: Some(d.round),
-                    offline: d.mode == DrawMode::Offline,
                 }),
         ),
     };
@@ -291,7 +289,6 @@ struct Reveal {
     prize_name: String,
     /// The drand round, once the full view has it.
     round: Option<u64>,
-    offline: bool,
 }
 
 #[component]
@@ -312,7 +309,6 @@ fn Winner(reveal: Reveal, lang: String) -> Element {
             if let Some(round) = reveal.round {
                 p { class: "text-[0.9em] text-base-content/60",
                     "{lang.t(\"drand_round\")} {round}"
-                    if reveal.offline { " · OFFLINE (not verifiable)" }
                 }
             }
         }

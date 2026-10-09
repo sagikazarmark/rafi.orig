@@ -2,7 +2,6 @@
 
 use std::{sync::Arc, time::Duration};
 
-use anyhow::anyhow;
 use rafi_drand::DrandClient;
 use rafi_drawing::{
     BeaconSource, Error as DrawingError,
@@ -160,7 +159,7 @@ impl Drawing {
     /// a redraw on a new round.
     #[handler]
     async fn draw(&self, ctx: ObjectContext<'_>, request: Json<DrawRequest>) -> HandlerResult<()> {
-        let DrawRequest { item_id, offline } = request.into_inner();
+        let DrawRequest { item_id } = request.into_inner();
         let mut state = Self::load(&ctx).await?;
         state.check_beacon(&self.beacon()).map_err(draw_error)?;
 
@@ -175,41 +174,26 @@ impl Drawing {
         ctx.set(STATE, Json(state.clone()));
         self.project(&ctx, &state).await?;
 
-        let outcome = if offline {
-            let randomness = ctx
-                .run(|| async {
-                    let mut buf = [0u8; 32];
-                    getrandom::fill(&mut buf).map_err(|e| anyhow!("randomness: {e}"))?;
-                    Ok(buf.to_vec())
-                })
-                .name("offline-randomness")
-                .await?;
-            let randomness: [u8; 32] = randomness
-                .try_into()
-                .map_err(|_| rejected("bad randomness", 500))?;
-            BeaconOutcome::Offline(randomness)
-        } else {
-            // Sleeps until the round is due, fetches it (journaled, retried) and
-            // verifies it. If it can't be had, the draw stalls on its round.
-            match self.drand.await_beacon(&ctx, pending.round).await {
-                Ok(beacon) => BeaconOutcome::Verified(beacon),
-                Err(AwaitError::Unavailable { reason, .. }) => BeaconOutcome::Unavailable(reason),
-                // Cancelled (or a step failed): the draw stays pending on its
-                // round. Record why, so the organizer sees the retry, offline and
-                // abandon controls right away, then fail the invocation.
-                Err(e) => {
-                    let reason = if e.is_cancelled() {
-                        "draw cancelled".to_owned()
-                    } else {
-                        format!("draw failed: {e}")
-                    };
-                    state
-                        .conclude(BeaconOutcome::Interrupted(reason))
-                        .map_err(draw_error)?;
-                    ctx.set(STATE, Json(state.clone()));
-                    self.project(&ctx, &state).await?;
-                    return Err(e.into_handler_error());
-                }
+        // Sleeps until the round is due, fetches it (journaled, retried) and
+        // verifies it. If it can't be had, the draw stalls on its round.
+        let outcome = match self.drand.await_beacon(&ctx, pending.round).await {
+            Ok(beacon) => BeaconOutcome::Verified(beacon),
+            Err(AwaitError::Unavailable { reason, .. }) => BeaconOutcome::Unavailable(reason),
+            // Cancelled (or a step failed): the draw stays pending on its
+            // round. Record why, so the organizer sees the retry and abandon
+            // controls right away, then fail the invocation.
+            Err(e) => {
+                let reason = if e.is_cancelled() {
+                    "draw cancelled".to_owned()
+                } else {
+                    format!("draw failed: {e}")
+                };
+                state
+                    .conclude(BeaconOutcome::Interrupted(reason))
+                    .map_err(draw_error)?;
+                ctx.set(STATE, Json(state.clone()));
+                self.project(&ctx, &state).await?;
+                return Err(e.into_handler_error());
             }
         };
         state.conclude(outcome).map_err(draw_error)?;

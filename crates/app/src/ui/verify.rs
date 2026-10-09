@@ -3,10 +3,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use rafi_drawing::{
-    drawing::{DrawMode, Event},
-    verify::Replaced,
-};
+use rafi_drawing::drawing::Event;
 
 use super::{Brand, ThemeToggle};
 use crate::{
@@ -64,7 +61,6 @@ pub fn Verify(slug: String) -> Element {
                 .unwrap_or_default();
             let ok = report.ok();
             let manifest = d.manifest.clone();
-            let offline = report.draws.iter().any(|c| c.mode == DrawMode::Offline);
             let entrants = doc.as_ref().map(|d| d.entrants.len()).unwrap_or_default();
             let prizes = doc.as_ref().map(|d| d.items.len()).unwrap_or_default();
             rsx! {
@@ -94,31 +90,20 @@ pub fn Verify(slug: String) -> Element {
                         p { class: "font-display text-xl font-extrabold", "Verification failed." }
                     }
                 }
-                if !report.replaced.is_empty() {
+                if !report.abandoned.is_empty() {
                     div { role: "alert", class: "alert alert-warning alert-soft items-start",
                         Icon { i: I::Alert }
                         div { class: "space-y-1",
                             p { class: "font-semibold", "Some committed rounds did not decide their draw:" }
                             ul { class: "list-inside list-disc text-sm",
-                                for r in report.replaced.iter() {
+                                for r in report.abandoned.iter() {
                                     li { key: "{r.k}",
-                                        "Draw {r.k} ({item_names.get(&r.item_id).cloned().unwrap_or_else(|| r.item_id.clone())}): round {r.round} was "
-                                        match r.replaced {
-                                            Replaced::Abandoned => "abandoned by the organizer",
-                                            Replaced::Offline => "replaced by an offline draw",
-                                        }
-                                        " (pool of {r.pool.len()})."
+                                        "Draw {r.k} ({item_names.get(&r.item_id).cloned().unwrap_or_else(|| r.item_id.clone())}): round {r.round} was abandoned by the organizer (pool of {r.pool.len()})."
                                     }
                                 }
                             }
                             p { class: "text-sm", "Run the independent verifier with --fetch to see whom each of those rounds would have picked." }
                         }
-                    }
-                }
-                if offline {
-                    div { role: "alert", class: "alert alert-warning alert-soft",
-                        Icon { i: I::Alert }
-                        "Some draws used offline server randomness (drand was unreachable), so they can't be checked independently."
                     }
                 }
                 div { class: "stats stats-vertical w-full bg-base-100 shadow-sm ring-1 ring-base-300 sm:stats-horizontal",
@@ -148,9 +133,7 @@ pub fn Verify(slug: String) -> Element {
                                             td { class: "font-mono", "{c.k}" }
                                             td { class: "font-semibold", "{item_names.get(&c.item_id).cloned().unwrap_or_else(|| c.item_id.clone())}" }
                                             td {
-                                                if c.mode == DrawMode::Offline {
-                                                    span { class: "badge badge-warning badge-soft", "offline" }
-                                                } else if report.chain_known {
+                                                if report.chain_known {
                                                     a { class: "link link-primary font-mono", href: "https://api.drand.sh/{chain}/public/{c.round}", target: "_blank", "{c.round}" }
                                                 } else {
                                                     span { class: "font-mono", "{c.round} " }

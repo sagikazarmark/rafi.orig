@@ -246,7 +246,6 @@ mod tests {
             round: 1,
             signature: String::new(),
             randomness: String::new(),
-            mode: rafi_drawing::drawing::DrawMode::Beacon,
             pass: 1,
             pool_size: 2,
             index: 0,

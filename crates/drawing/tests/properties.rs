@@ -44,7 +44,6 @@ enum Op {
     Complete,
     Stall,
     Abandon,
-    Offline,
     Resolve(usize, u8),
     Void(usize),
     Finish,
@@ -56,7 +55,6 @@ fn op() -> impl Strategy<Value = Op> {
         3 => Just(Op::Complete),
         2 => Just(Op::Stall),
         1 => Just(Op::Abandon),
-        1 => Just(Op::Offline),
         4 => (0..6usize, 0..3u8).prop_map(|(u, o)| Op::Resolve(u, o)),
         1 => (0..6usize).prop_map(Op::Void),
         1 => Just(Op::Finish),
@@ -98,7 +96,6 @@ proptest! {
                 }
                 Op::Stall => { let _ = s.stall("unavailable"); }
                 Op::Abandon => { let _ = s.abandon("abandoned"); }
-                Op::Offline => { let _ = s.complete_offline([round as u8; 32]); }
                 Op::Resolve(u, o) => {
                     let outcome = [Outcome::Claimed, Outcome::NotHere, Outcome::Declined][o as usize];
                     let _ = s.resolve(&format!("u{}", u % items), outcome);

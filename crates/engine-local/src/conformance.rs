@@ -11,8 +11,7 @@
 //! Besides the contract ([`DrawingEngine`]), the scenarios pin the fairness rules:
 //! the commitment (Announce) is recorded before the beacon is asked for; a
 //! withheld or invalid beacon stalls the draw on its round and a retry fetches
-//! the same round; the only exits without the beacon (offline, abandon) are
-//! logged; nothing changes a pending draw's pool; and every log the engine
+//! the same round; the only exit without the beacon (abandon) is logged; nothing changes a pending draw's pool; and every log the engine
 //! produces passes the public verifier.
 //!
 //! ```ignore
@@ -31,10 +30,10 @@ use std::{
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
     BeaconSource, ErrorKind,
-    drawing::{DrawMode, Drawing, Event, ItemStatus, Outcome},
+    drawing::{Drawing, Event, ItemStatus, Outcome},
     engine::{Command, Decision, DrawRequest},
     manifest::{ItemRef, Manifest},
-    verify::{Replaced, verify},
+    verify::verify,
 };
 use rafi_platform::{
     BoxFuture, DrawStore, DrawingEngine, EngineError, MemoryDrawStore, Notifier, Recording,
@@ -164,7 +163,6 @@ fn scenarios(profile: Profile) -> Vec<(&'static str, Scenario)> {
         ],
         Profile::Withheld => vec![
             scenario!(a_withheld_beacon_stalls_on_the_same_round),
-            scenario!(an_offline_draw_replaces_a_stalled_round),
             scenario!(nothing_changes_the_pool_of_a_stalled_draw),
         ],
         Profile::Forged => vec![scenario!(a_forged_beacon_stalls_the_draw)],
@@ -294,16 +292,9 @@ impl Fixture {
         }
     }
 
-    async fn draw(
-        &self,
-        raffle_id: &str,
-        item: &str,
-        offline: bool,
-        id: &str,
-    ) -> Result<(), String> {
+    async fn draw(&self, raffle_id: &str, item: &str, id: &str) -> Result<(), String> {
         let request = DrawRequest {
             item_id: item.to_owned(),
-            offline,
         };
         self.ok(raffle_id, request, id).await
     }
@@ -521,8 +512,8 @@ async fn open_is_idempotent_per_manifest(fx: Arc<Fixture>, id: String) -> Result
 async fn commands_apply_once(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 3, 2);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", false, "d1").await?;
-    fx.draw(&id, "u-1", false, "d1").await?;
+    fx.draw(&id, "u-1", "d1").await?;
+    fx.draw(&id, "u-1", "d1").await?;
     fx.drawn(&id, "u-1").await?;
     let claimed = Decision::Resolve {
         item_id: "u-1".into(),
@@ -586,7 +577,7 @@ async fn refusals_keep_their_kind(fx: Arc<Fixture>, id: String) -> Result<(), St
 async fn a_refused_draw_is_silent(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 3, 2);
     let opened = fx.open(&doc).await?;
-    fx.draw(&id, "nope", false, "d1").await?;
+    fx.draw(&id, "nope", "d1").await?;
     // A synchronous command behind it, as a barrier.
     fx.ok(
         &id,
@@ -614,7 +605,7 @@ async fn a_refused_draw_is_silent(fx: Arc<Fixture>, id: String) -> Result<(), St
 async fn a_finished_raffle_is_forgotten(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 3, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", false, "d1").await?;
+    fx.draw(&id, "u-1", "d1").await?;
     fx.drawn(&id, "u-1").await?;
     let claimed = Decision::Resolve {
         item_id: "u-1".into(),
@@ -651,7 +642,7 @@ async fn the_round_is_committed_before_its_beacon(
     let doc = fx.doc(&id, 5, 1);
     fx.open(&doc).await?;
     let requested = now();
-    fx.draw(&id, "u-1", false, "d1").await?;
+    fx.draw(&id, "u-1", "d1").await?;
     let drawn = fx.drawn(&id, "u-1").await?;
     let announced = fx
         .store
@@ -675,7 +666,7 @@ async fn the_round_is_committed_before_its_beacon(
         "round {round} was out ({round_time}) before the draw started ({requested})"
     );
     ensure!(
-        matches!(drawn.events.last(), Some(Event::Draw { round: r, mode: DrawMode::Beacon, .. }) if r == round),
+        matches!(drawn.events.last(), Some(Event::Draw { round: r, .. }) if r == round),
         "drawn from another round: {:?}",
         drawn.events
     );
@@ -688,7 +679,7 @@ async fn the_round_is_committed_before_its_beacon(
 async fn a_command_waits_for_the_pending_draw(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", false, "d1").await?;
+    fx.draw(&id, "u-1", "d1").await?;
     // Refused if it ran before the draw settled (a draw is pending).
     fx.ok(&id, Decision::Finish, "f1").await?;
     let s = fx.projected(&id, "finished", |s| s.finished).await?;
@@ -711,7 +702,7 @@ async fn a_command_waits_for_the_pending_draw(fx: Arc<Fixture>, id: String) -> R
 async fn a_deadline_leaves_the_command_pending(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", false, "d1").await?;
+    fx.draw(&id, "u-1", "d1").await?;
     let hasty = fx.deployed.engine(Some(Duration::from_millis(300)));
     match hasty.decide(&id, &Decision::Finish, "f1").await {
         Err(EngineError::Pending) => {}
@@ -741,14 +732,14 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
 ) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 2);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", false, "d1").await?;
+    fx.draw(&id, "u-1", "d1").await?;
     let first = fx.stalls(&id, 1).await?;
     let pending = first
         .pending
         .clone()
         .ok_or("the stalled draw isn't pending")?;
     tokio::time::sleep(Duration::from_secs(1)).await;
-    fx.draw(&id, "u-1", false, "d2").await?;
+    fx.draw(&id, "u-1", "d2").await?;
     let second = fx.stalls(&id, 2).await?;
     ensure!(
         second.pending.as_ref() == Some(&pending),
@@ -766,7 +757,7 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
         "stalled on another round"
     );
     // Another item can't start meanwhile; the organizer abandons this one.
-    fx.draw(&id, "u-2", false, "d3").await?;
+    fx.draw(&id, "u-2", "d3").await?;
     fx.ok(
         &id,
         Decision::Abandon {
@@ -785,41 +776,9 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
     );
     let report = verified(&doc, &s)?;
     ensure!(
-        report
-            .replaced
-            .iter()
-            .any(|c| c.round == pending.round && c.replaced == Replaced::Abandoned),
+        report.abandoned.iter().any(|c| c.round == pending.round),
         "the abandoned round isn't reported: {:?}",
-        report.replaced
-    );
-    Ok(())
-}
-
-/// An offline draw settles a stalled draw; its round is reported as replaced.
-async fn an_offline_draw_replaces_a_stalled_round(
-    fx: Arc<Fixture>,
-    id: String,
-) -> Result<(), String> {
-    let doc = fx.doc(&id, 5, 1);
-    fx.open(&doc).await?;
-    fx.draw(&id, "u-1", false, "d1").await?;
-    let stalled = fx.stalls(&id, 1).await?;
-    let pending = stalled.pending.clone().ok_or("not pending")?;
-    fx.draw(&id, "u-1", true, "o1").await?;
-    let s = fx.drawn(&id, "u-1").await?;
-    ensure!(
-        matches!(s.events.last(), Some(Event::Draw { mode: DrawMode::Offline, k, .. }) if *k == pending.k),
-        "{:?}",
-        s.events
-    );
-    let report = verified(&doc, &s)?;
-    ensure!(
-        report
-            .replaced
-            .iter()
-            .any(|c| c.round == pending.round && c.replaced == Replaced::Offline),
-        "the replaced round isn't reported: {:?}",
-        report.replaced
+        report.abandoned
     );
     Ok(())
 }
@@ -831,18 +790,8 @@ async fn nothing_changes_the_pool_of_a_stalled_draw(
 ) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 2);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", true, "o1").await?;
-    fx.drawn(&id, "u-1").await?;
-    fx.draw(&id, "u-2", false, "d2").await?;
+    fx.draw(&id, "u-2", "d2").await?;
     fx.stalls(&id, 1).await?;
-    let resolve = |outcome| Decision::Resolve {
-        item_id: "u-1".into(),
-        outcome,
-    };
-    fx.refused(&id, resolve(Outcome::NotHere), "r1", ErrorKind::Conflict)
-        .await?;
-    fx.refused(&id, resolve(Outcome::Declined), "r2", ErrorKind::Conflict)
-        .await?;
     fx.refused(
         &id,
         Decision::Void {
@@ -854,8 +803,6 @@ async fn nothing_changes_the_pool_of_a_stalled_draw(
     .await?;
     fx.refused(&id, Decision::Finish, "f1", ErrorKind::Conflict)
         .await?;
-    // Handing over can't change the pool.
-    fx.ok(&id, resolve(Outcome::Claimed), "c1").await?;
     fx.ok(
         &id,
         Decision::Abandon {
@@ -879,7 +826,7 @@ async fn nothing_changes_the_pool_of_a_stalled_draw(
 async fn a_forged_beacon_stalls_the_draw(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 5, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", false, "d1").await?;
+    fx.draw(&id, "u-1", "d1").await?;
     let s = fx.stalls(&id, 1).await?;
     ensure!(s.pending.is_some(), "the draw isn't pending");
     ensure!(
@@ -898,7 +845,7 @@ async fn a_forged_beacon_stalls_the_draw(fx: Arc<Fixture>, id: String) -> Result
 async fn every_state_reaches_a_flaky_store(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 3, 1);
     fx.open(&doc).await?;
-    fx.draw(&id, "u-1", false, "d1").await?;
+    fx.draw(&id, "u-1", "d1").await?;
     fx.drawn(&id, "u-1").await?;
     let claimed = Decision::Resolve {
         item_id: "u-1".into(),

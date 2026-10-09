@@ -130,7 +130,6 @@ async fn e2e_raffle() {
     // Draw; the same idempotency key twice draws once.
     let draw = json!(DrawRequest {
         item_id: "ticket-1".into(),
-        offline: false,
     });
     let sent = restate
         .invoke(&call("draw").send(), Some(&draw), Some("draw-1"))
@@ -219,7 +218,6 @@ async fn e2e_raffle() {
             &call("draw"),
             Some(&json!(DrawRequest {
                 item_id: "nope".into(),
-                offline: false,
             })),
             None,
         )
@@ -312,7 +310,6 @@ async fn e2e_stalled_draw() {
     };
     let draw = json!(DrawRequest {
         item_id: "ticket-1".into(),
-        offline: false,
     });
     restate
         .invoke(&call("draw").send(), Some(&draw), Some("draw-1"))
@@ -323,7 +320,6 @@ async fn e2e_stalled_draw() {
     // Another item is refused; this one retries the same round.
     let other = json!(DrawRequest {
         item_id: "voucher-1".into(),
-        offline: false,
     });
     let reply = restate.invoke(&call("draw"), Some(&other), None).await;
     assert_eq!(reply.status, 409, "{}", reply.body);
@@ -352,8 +348,8 @@ async fn e2e_stalled_draw() {
         rafi_drand::resolve_chain,
     );
     assert!(report.ok(), "{report:#?}");
-    assert_eq!(report.replaced.len(), 1);
-    assert_eq!(report.replaced[0].round, pending.round);
+    assert_eq!(report.abandoned.len(), 1);
+    assert_eq!(report.abandoned[0].round, pending.round);
 }
 
 /// Cancelling a draw in Restate fails the invocation but records a stall on
@@ -395,7 +391,6 @@ async fn e2e_cancelled_draw_stalls() {
 
     let draw = serde_json::to_value(DrawRequest {
         item_id: "ticket-1".into(),
-        offline: false,
     })
     .unwrap();
     let sent = restate

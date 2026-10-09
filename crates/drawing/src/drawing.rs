@@ -23,8 +23,9 @@
 //! - Nothing may change the draw's inputs (`k`, pass, pool, chain) while it is
 //!   pending: other draws, voiding it, finishing, and "not here"/"declined"
 //!   resolutions are refused.
-//! - The only exits without its beacon are an offline draw and an explicit,
-//!   logged [`Drawing::abandon`]; the public verifier flags both.
+//! - The only exit without its beacon is an explicit, logged
+//!   [`Drawing::abandon`]; the public verifier shows what the round would have
+//!   picked.
 
 use std::collections::{HashMap, HashSet};
 
@@ -71,15 +72,6 @@ pub enum Outcome {
     Declined,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DrawMode {
-    /// Randomness from a drand beacon round committed in advance.
-    Beacon,
-    /// Emergency mode: server randomness. Not publicly verifiable.
-    Offline,
-}
-
 /// An entry in the public draw log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -98,7 +90,6 @@ pub enum Event {
         round: u64,
         signature: String,
         randomness: String,
-        mode: DrawMode,
         pass: u8,
         pool_size: usize,
         index: usize,
@@ -246,9 +237,9 @@ impl Drawing {
 
     /// Settles the pending draw with its beacon's outcome.
     ///
-    /// A verified beacon completes it (`Some`); offline randomness completes it
-    /// as an offline draw. A beacon that doesn't fit the draw (wrong round or
-    /// chain), an unavailable one and an interrupted attempt all stall it
+    /// A verified beacon completes it (`Some`). A beacon that doesn't fit the
+    /// draw (wrong round or chain), an unavailable one and an interrupted
+    /// attempt all stall it
     /// (`None`): the draw stays pending on its round, never abandoned, so a
     /// retry fetches the same round.
     pub fn conclude(&mut self, outcome: BeaconOutcome) -> Result<Option<Drawn>, Error> {
@@ -257,7 +248,6 @@ impl Drawing {
                 Ok(drawn) => Ok(Some(drawn)),
                 Err(e) => self.stall(&format!("invalid beacon: {e}")).map(|()| None),
             },
-            BeaconOutcome::Offline(randomness) => self.complete_offline(randomness).map(Some),
             BeaconOutcome::Unavailable(reason) => self
                 .stall(&format!("drand unavailable: {reason}"))
                 .map(|()| None),
@@ -409,7 +399,6 @@ impl Drawing {
             pending,
             *beacon.randomness(),
             hex::encode(&beacon.beacon().signature),
-            DrawMode::Beacon,
         )
     }
 
@@ -428,18 +417,7 @@ impl Drawing {
             });
         }
         let randomness = crate::sha256(&[signature]);
-        self.settle(
-            pending,
-            randomness,
-            hex::encode(signature),
-            DrawMode::Beacon,
-        )
-    }
-
-    /// Completes the pending draw with server randomness (emergency mode).
-    pub fn complete_offline(&mut self, randomness: Hash) -> Result<Drawn, Error> {
-        let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
-        self.settle(pending, randomness, String::new(), DrawMode::Offline)
+        self.settle(pending, randomness, hex::encode(signature))
     }
 
     fn settle(
@@ -447,7 +425,6 @@ impl Drawing {
         pending: Pending,
         randomness: Hash,
         signature: String,
-        mode: DrawMode,
     ) -> Result<Drawn, Error> {
         let manifest_hash = hash_from_hex(&self.manifest_hash).ok_or(Error::BadManifestHash)?;
         let (pass, pool) = self.pool();
@@ -470,7 +447,6 @@ impl Drawing {
             round: pending.round,
             signature,
             randomness: hex::encode(randomness),
-            mode,
             pass,
             pool_size: pool.len(),
             index,
@@ -875,20 +851,6 @@ pub(crate) mod tests {
         assert_eq!(drawn.k, 1);
         assert!(!s.stalled());
 
-        s.begin("u1", 20, 0).unwrap();
-        assert!(!s.stalled());
-        let offline = s
-            .conclude(BeaconOutcome::Offline([7; 32]))
-            .unwrap()
-            .unwrap();
-        assert_eq!(offline.k, 2);
-        assert!(matches!(
-            s.events.last(),
-            Some(Event::Draw {
-                mode: DrawMode::Offline,
-                ..
-            })
-        ));
         assert_eq!(
             s.conclude(BeaconOutcome::Unavailable("x".into())),
             Err(Error::NoDrawInProgress)

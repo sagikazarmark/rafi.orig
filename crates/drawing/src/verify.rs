@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     beacon::BeaconSource,
     drand::{Beacon, ChainHash, ChainInfo, Verifier, chains},
-    drawing::{DrawMode, Drawing, Event},
+    drawing::{Drawing, Event},
     manifest::{self, Manifest},
 };
 
@@ -20,25 +20,15 @@ pub struct DrawCheck {
     pub k: u64,
     pub item_id: String,
     pub round: u64,
-    pub mode: DrawMode,
     pub pool_size: usize,
     pub expected_entrant: String,
     pub published_entrant: String,
     pub ok: bool,
 }
 
-/// How a committed round ended without its beacon deciding the draw.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Replaced {
-    /// The organizer abandoned the draw.
-    Abandoned,
-    /// The draw was completed offline (server randomness) instead.
-    Offline,
-}
-
-/// A round a draw committed to that did not decide it. Anyone can fetch the
-/// round and run the algorithm on `pool` to see whom it would have picked.
+/// A round a draw committed to before the organizer abandoned it. Anyone can
+/// fetch the round and run the algorithm on `pool` to see whom it would have
+/// picked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommittedRound {
     pub k: u64,
@@ -47,7 +37,6 @@ pub struct CommittedRound {
     pub pass: u8,
     /// The pool at the time, sorted (as the algorithm indexes it).
     pub pool: Vec<String>,
-    pub replaced: Replaced,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,8 +50,8 @@ pub struct Report {
     /// False for test chains: such a log is never reported as verified.
     pub chain_known: bool,
     pub draws: Vec<DrawCheck>,
-    /// Committed rounds that were abandoned or replaced by an offline draw.
-    pub replaced: Vec<CommittedRound>,
+    /// Committed rounds that were abandoned.
+    pub abandoned: Vec<CommittedRound>,
     /// Problems found while replaying, if any.
     pub errors: Vec<String>,
 }
@@ -113,7 +102,7 @@ pub fn verify(
         beacon: None,
         chain_known: false,
         draws: Vec::new(),
-        replaced: Vec::new(),
+        abandoned: Vec::new(),
         errors: Vec::new(),
     };
     let doc: Manifest = match serde_json::from_str(manifest_json) {
@@ -182,7 +171,6 @@ pub fn verify(
                 round,
                 signature,
                 randomness,
-                mode,
                 pool_size,
                 entrant_id,
                 pass,
@@ -198,45 +186,31 @@ pub fn verify(
                         continue;
                     }
                 }
-                let drawn = match mode {
-                    DrawMode::Beacon => {
-                        let beacon = match Beacon::from_hex(*round, signature, None) {
-                            Ok(b)
-                                if hex::encode(crate::sha256(&[&b.signature]))
-                                    .eq_ignore_ascii_case(randomness) =>
-                            {
-                                b
-                            }
-                            _ => {
-                                report.errors.push(format!(
-                                    "draw {k}: published randomness does not match the signature"
-                                ));
-                                continue;
-                            }
-                        };
-                        match &verifier {
-                            Some(v) => match v.verify_round(*round, &beacon) {
-                                Ok(verified) => state.complete(&verified),
-                                Err(e) => {
-                                    report.errors.push(format!(
-                                        "draw {k}: drand round {round} does not verify: {e}"
-                                    ));
-                                    continue;
-                                }
-                            },
-                            None => state.complete_unverified(*round, &beacon.signature),
-                        }
+                let beacon = match Beacon::from_hex(*round, signature, None) {
+                    Ok(b)
+                        if hex::encode(crate::sha256(&[&b.signature]))
+                            .eq_ignore_ascii_case(randomness) =>
+                    {
+                        b
                     }
-                    DrawMode::Offline => match crate::hash_from_hex(randomness) {
-                        Some(r) => {
-                            record_replaced(&mut report, &state, Replaced::Offline);
-                            state.complete_offline(r)
-                        }
-                        None => {
-                            report.errors.push(format!("draw {k}: invalid randomness"));
+                    _ => {
+                        report.errors.push(format!(
+                            "draw {k}: published randomness does not match the signature"
+                        ));
+                        continue;
+                    }
+                };
+                let drawn = match &verifier {
+                    Some(v) => match v.verify_round(*round, &beacon) {
+                        Ok(verified) => state.complete(&verified),
+                        Err(e) => {
+                            report.errors.push(format!(
+                                "draw {k}: drand round {round} does not verify: {e}"
+                            ));
                             continue;
                         }
                     },
+                    None => state.complete_unverified(*round, &beacon.signature),
                 };
                 match drawn {
                     Ok(d) => {
@@ -248,7 +222,6 @@ pub fn verify(
                             k: *k,
                             item_id: item_id.clone(),
                             round: *round,
-                            mode: *mode,
                             pool_size: pool,
                             ok: d.entrant_id == *entrant_id
                                 && d.k == *k
@@ -288,7 +261,7 @@ pub fn verify(
                         continue;
                     }
                 }
-                record_replaced(&mut report, &state, Replaced::Abandoned);
+                record_abandoned(&mut report, &state);
                 state.abandon(reason)
             }
             Event::Resolve { k, outcome } => {
@@ -315,17 +288,16 @@ pub fn verify(
     report
 }
 
-/// Records the pending draw's committed round before it is replaced.
-fn record_replaced(report: &mut Report, state: &Drawing, replaced: Replaced) {
+/// Records the pending draw's committed round before it is abandoned.
+fn record_abandoned(report: &mut Report, state: &Drawing) {
     if let Some(p) = &state.pending {
         let (pass, pool) = state.pool();
-        report.replaced.push(CommittedRound {
+        report.abandoned.push(CommittedRound {
             k: p.k,
             item_id: p.item_id.clone(),
             round: p.round,
             pass,
             pool,
-            replaced,
         });
     }
 }
@@ -377,19 +349,15 @@ mod tests {
         s.resolve("u0", Outcome::Claimed).unwrap();
         s.void("u1").unwrap();
         s.begin("u2", 4, 0).unwrap();
-        s.complete_offline([5; 32]).unwrap();
+        s.complete(&beacon(4)).unwrap();
         s.finish().unwrap();
 
         let report = verify(&doc.canonical_json(), &s.manifest_hash, &s.events, resolve);
         assert!(report.ok(), "{report:#?}");
         assert_eq!(report.draws.len(), 3);
-        let replaced: Vec<_> = report
-            .replaced
-            .iter()
-            .map(|r| (r.round, r.replaced))
-            .collect();
-        assert_eq!(replaced, [(2, Replaced::Abandoned), (4, Replaced::Offline)]);
-        assert_eq!(report.replaced[0].pool.len(), 9);
+        let abandoned: Vec<_> = report.abandoned.iter().map(|r| r.round).collect();
+        assert_eq!(abandoned, [2]);
+        assert_eq!(report.abandoned[0].pool.len(), 9);
     }
 
     #[test]

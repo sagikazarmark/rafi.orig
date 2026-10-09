@@ -15,7 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Hash, drand::VerifiedBeacon, drawing::Outcome};
+use crate::{drand::VerifiedBeacon, drawing::Outcome};
 
 /// A command for the draw engine: a draw, or a decision. They differ in how
 /// they run: a draw is *accepted* and settles later (its round is in the
@@ -38,11 +38,10 @@ impl From<Decision> for Command {
     }
 }
 
-/// Draws a winner for one item (`offline`: server randomness, not verifiable).
+/// Draws a winner for one item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrawRequest {
     pub item_id: String,
-    pub offline: bool,
 }
 
 /// The organizer's decision about a drawing: every command but a draw.
@@ -66,8 +65,6 @@ pub enum Decision {
 pub enum BeaconOutcome {
     /// The committed round's beacon, verified against the engine's chain.
     Verified(VerifiedBeacon),
-    /// The organizer drew offline: server randomness, not publicly verifiable.
-    Offline(Hash),
     /// The beacon could not be had (relays down or withholding it).
     Unavailable(String),
     /// The draw was interrupted (cancelled, or a step failed) before its beacon
@@ -83,10 +80,9 @@ mod tests {
     fn wire_format_is_stable() {
         let json = serde_json::to_string(&DrawRequest {
             item_id: "u1".into(),
-            offline: false,
         })
         .unwrap();
-        assert_eq!(json, r#"{"item_id":"u1","offline":false}"#);
+        assert_eq!(json, r#"{"item_id":"u1"}"#);
         let json = serde_json::to_string(&Decision::Resolve {
             item_id: "u1".into(),
             outcome: Outcome::NotHere,

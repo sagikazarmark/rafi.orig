@@ -679,15 +679,14 @@ fn DrawConsole(
     let busy = pending.is_some();
     let drawable = matches!(v.state, RaffleState::Frozen | RaffleState::Drawing);
     let mut ask_finish = use_signal(|| false);
-    let mut ask_offline = use_signal(|| false);
     let mut ask_abandon = use_signal(|| false);
     let toast = use_toast();
 
     let id = admin.id.clone();
-    let draw = move |item_id: String, offline: bool| {
+    let draw = move |item_id: String| {
         let id = id.clone();
         async move {
-            match api::draw_item(id, item_id, offline, command_id()).await {
+            match api::draw_item(id, item_id, command_id()).await {
                 Ok(()) => {
                     error.set(None);
                     on_change.call(());
@@ -753,8 +752,8 @@ fn DrawConsole(
     let pending_item = pending.as_ref().map(|p| p.item_id.clone());
     let offset = v.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
     // A pending draw whose beacon could not be fetched (or whose fetch was lost,
-    // e.g. a restart): it stays on its round; the organizer can retry, draw
-    // offline, or abandon.
+    // e.g. a restart): it stays on its round; the organizer can retry or
+    // abandon it.
     let overdue = pending
         .as_ref()
         .is_some_and(|c| now() as i64 + offset > c.round_time as i64 * 1000 + 90_000);
@@ -794,11 +793,10 @@ fn DrawConsole(
                         p { class: "text-sm",
                             "The draw stays on round {cur.round}, so retrying can't change the result. "
                             "A retry queues behind the current attempt and may take up to a minute. "
-                            "If drand stays unreachable, draw offline (server randomness, not verifiable) or abandon this draw; both are shown on the public verification page."
+                            "If drand stays unreachable, abandon this draw; the public verification page shows that it was abandoned and whom its round would have picked."
                         }
                         div { class: "flex flex-wrap gap-2",
-                            button { class: "btn btn-sm btn-warning", onclick: { let draw = draw.clone(); let u = u.clone(); move |_| draw(u.clone(), false) }, "Retry round {cur.round}" }
-                            button { class: "btn btn-sm btn-outline btn-warning", onclick: move |_| ask_offline.set(true), "Offline draw (not verifiable)" }
+                            button { class: "btn btn-sm btn-warning", onclick: { let draw = draw.clone(); let u = u.clone(); move |_| draw(u.clone()) }, "Retry round {cur.round}" }
                             button { class: "btn btn-sm btn-ghost", onclick: move |_| ask_abandon.set(true), "Abandon this draw" }
                         }
                     }
@@ -860,7 +858,7 @@ fn DrawConsole(
                                     div { class: "flex flex-wrap gap-2",
                                         match u.status {
                                             ItemStatus::Pending if drawable => rsx! {
-                                                button { class: "btn btn-primary hover-wiggle", disabled: busy, onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone(), false) },
+                                                button { class: "btn btn-primary hover-wiggle", disabled: busy, onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone()) },
                                                     Icon { i: I::Dice } "Draw"
                                                 }
                                                 button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let void = void.clone(); let uid = uid.clone(); move |_| void(uid.clone()) }, "Withdraw" }
@@ -902,14 +900,6 @@ fn DrawConsole(
                 on_confirm: move |_| { spawn(finish()); },
             }
             if let Some(cur) = &pending {
-                Confirm {
-                    open: ask_offline,
-                    title: format!("Draw offline instead of round {}?", cur.round),
-                    body: "Server randomness replaces the committed drand round. It can't be verified, and the verification page shows that this draw replaced the round it committed to. Only do this if drand stays unreachable.",
-                    action: "Draw offline",
-                    danger: true,
-                    on_confirm: { let draw = draw.clone(); let u = cur.item_id.clone(); move |_| { spawn(draw(u.clone(), true)); } },
-                }
                 Confirm {
                     open: ask_abandon,
                     title: format!("Abandon the draw on round {}?", cur.round),

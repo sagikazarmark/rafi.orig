@@ -141,7 +141,6 @@ async fn app_and_restate_rafi_share_the_database() {
         &id,
         DrawRequest {
             item_id: item.clone(),
-            offline: false,
         },
         "cmd-1",
     )

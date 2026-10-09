@@ -320,7 +320,6 @@ async fn full_raffle_flow() {
             &raffle.id,
             DrawRequest {
                 item_id: item.clone(),
-                offline: false,
             },
             &format!("c{i}"),
         )
@@ -358,7 +357,6 @@ async fn full_raffle_flow() {
                 &raffle.id,
                 DrawRequest {
                     item_id: item.clone(),
-                    offline: false,
                 },
                 "redraw",
             )
@@ -416,7 +414,6 @@ async fn full_raffle_flow() {
             &raffle.id,
             DrawRequest {
                 item_id: items[0].clone(),
-                offline: false
             },
             "x"
         )
@@ -546,7 +543,6 @@ async fn public_view_has_no_personal_data() {
         &raffle.id,
         DrawRequest {
             item_id: state.items[0].id.clone(),
-            offline: false,
         },
         "c",
     )
@@ -666,7 +662,6 @@ async fn participant_view_has_no_personal_data() {
         &raffle.id,
         DrawRequest {
             item_id: item.clone(),
-            offline: false,
         },
         "c",
     )
@@ -820,53 +815,6 @@ async fn join_requires_proof_of_work_and_consent() {
             .await
             .unwrap()
             .is_empty()
-    );
-}
-
-#[tokio::test]
-async fn offline_draw() {
-    let app = app().await;
-    let router = routes(app.clone());
-    let raffle = setup_open(&app, &[("Prize", 2)]).await;
-    for i in 0..3 {
-        join(
-            &router,
-            &raffle.join_code,
-            &format!("P{i}"),
-            &format!("p{i}@example.com"),
-        )
-        .await;
-    }
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
-    let item = r.drawing().unwrap().items[0].id.clone();
-    service::command(
-        &app,
-        OWNER,
-        &raffle.id,
-        DrawRequest {
-            item_id: item.clone(),
-            offline: true,
-        },
-        "o",
-    )
-    .await
-    .unwrap();
-    // Draws run asynchronously in the engine.
-    wait_for(&app, &raffle.id, |r| {
-        r.drawing()
-            .is_some_and(|s| s.item(&item).unwrap().status == ItemStatus::Drawn)
-    })
-    .await;
-    let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    assert!(
-        rafi_drawing::verify::verify(
-            &data.manifest,
-            &data.manifest_hash,
-            &data.events,
-            rafi_drand::resolve_chain
-        )
-        .ok()
     );
 }
 
@@ -1157,11 +1105,10 @@ async fn fake_entrants_are_added_in_one_batch() {
 }
 
 /// A draw whose round never arrives in time stalls on that round: retrying
-/// keeps the round, pool-changing resolutions wait, and the only exits
-/// (offline, abandon) are logged for the verifier.
+/// keeps the round, and the only exit (abandon) is logged for the verifier.
 #[tokio::test]
 async fn stalled_draw_keeps_its_round() {
-    use rafi_drawing::{drawing::Event, verify::Replaced};
+    use rafi_drawing::drawing::Event;
 
     let app = unreachable_drand_app().await;
     let raffle = setup_open(&app, &[("Prize", 3)]).await;
@@ -1183,7 +1130,6 @@ async fn stalled_draw_keeps_its_round() {
         app: &AppState,
         raffle_id: &str,
         item: &str,
-        offline: bool,
         id: &str,
     ) -> super::service::Result<()> {
         service::command(
@@ -1192,16 +1138,15 @@ async fn stalled_draw_keeps_its_round() {
             raffle_id,
             DrawRequest {
                 item_id: item.to_owned(),
-                offline,
             },
             id,
         )
         .await
     }
-    let draw = |item: &str, offline: bool, id: &str| {
+    let draw = |item: &str, id: &str| {
         let (item, id) = (item.to_owned(), id.to_owned());
         let (app, raffle_id) = (app.clone(), raffle.id.clone());
-        async move { draw_cmd(&app, &raffle_id, &item, offline, &id).await }
+        async move { draw_cmd(&app, &raffle_id, &item, &id).await }
     };
     let stalls = |r: &RaffleRow| {
         r.drawing()
@@ -1214,13 +1159,13 @@ async fn stalled_draw_keeps_its_round() {
             .unwrap_or_default()
     };
 
-    draw(&items[0], false, "d1").await.unwrap();
+    draw(&items[0], "d1").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 1).await;
     let pending = r.drawing().unwrap().pending.expect("still pending");
 
     // Another item cannot start; this one retries the same round.
-    assert!(draw(&items[1], false, "d2").await.is_err());
-    draw(&items[0], false, "d3").await.unwrap();
+    assert!(draw(&items[1], "d2").await.is_err());
+    draw(&items[0], "d3").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 2).await;
     let s = r.drawing().unwrap();
     assert_eq!(s.pending.as_ref(), Some(&pending), "same draw, same round");
@@ -1243,63 +1188,14 @@ async fn stalled_draw_keeps_its_round() {
     )
     .await
     .unwrap();
-    // Then completes the next draw offline instead of waiting for its round.
-    draw(&items[0], false, "d4").await.unwrap();
+    // A new draw of the item announces the same draw number on a current round.
+    draw(&items[0], "d4").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 3).await;
     let next = r.drawing().unwrap().pending.unwrap();
     assert_eq!(next.k, pending.k, "the abandoned draw's number is reused");
     assert!(
         next.round >= pending.round,
         "a new draw commits to a current round"
-    );
-    draw(&items[0], true, "o1").await.unwrap();
-    wait_for(&app, &raffle.id, |r| {
-        r.drawing()
-            .is_some_and(|s| s.item(&items[0]).unwrap().status == ItemStatus::Drawn)
-    })
-    .await;
-
-    // While the next draw waits for its round, "not here" is refused; "handed
-    // over" is accepted, and the engine applies it once that draw settles
-    // (here: stalls).
-    draw(&items[1], false, "d5").await.unwrap();
-    wait_for(&app, &raffle.id, |r| {
-        r.drawing()
-            .is_some_and(|s| s.pending.as_ref().is_some_and(|p| p.item_id == items[1]))
-    })
-    .await;
-    let not_here = service::command(
-        &app,
-        OWNER,
-        &raffle.id,
-        Decision::Resolve {
-            item_id: items[0].clone(),
-            outcome: Outcome::NotHere,
-        },
-        "nh",
-    )
-    .await;
-    assert!(not_here.is_err());
-    service::command(
-        &app,
-        OWNER,
-        &raffle.id,
-        Decision::Resolve {
-            item_id: items[0].clone(),
-            outcome: Outcome::Claimed,
-        },
-        "cl",
-    )
-    .await
-    .unwrap();
-    let r = wait_for(&app, &raffle.id, |r| {
-        r.drawing()
-            .is_some_and(|s| s.item(&items[0]).unwrap().status == ItemStatus::Claimed)
-    })
-    .await;
-    assert!(
-        r.drawing().unwrap().stalled(),
-        "applied after the draw stalled"
     );
 
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
@@ -1310,21 +1206,77 @@ async fn stalled_draw_keeps_its_round() {
         rafi_drand::resolve_chain,
     );
     assert!(report.ok(), "{report:#?}");
-    let replaced: Vec<_> = report
-        .replaced
-        .iter()
-        .map(|c| (c.round, c.replaced))
-        .collect();
-    assert_eq!(
-        replaced,
-        [
-            (pending.round, Replaced::Abandoned),
-            (next.round, Replaced::Offline)
-        ]
-    );
-    assert_eq!(report.replaced[1].k, pending.k);
+    let abandoned: Vec<_> = report.abandoned.iter().map(|c| c.round).collect();
+    assert_eq!(abandoned, [pending.round]);
     assert!(
         rafi_drawing::verify::verify_public(&data.manifest, &data.manifest_hash, &data.events).ok()
+    );
+}
+
+/// While a draw waits for its round, "not here" is refused; "handed over" is
+/// accepted, and the engine applies it once that draw settles.
+#[tokio::test]
+async fn only_handing_over_passes_a_waiting_draw() {
+    let drand = rafi_drand::DrandConfig {
+        lead_secs: 3,
+        ..mock_drand()
+    };
+    let app = app_with_engine(Config::for_tests(), drand, Arc::new(Polling::default())).await;
+    let raffle = setup_open(&app, &[("Prize", 2)]).await;
+    for i in 0..3 {
+        service::add_manual(&app, OWNER, &raffle.id, &format!("Person {i}"), None)
+            .await
+            .unwrap();
+    }
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
+    let items: Vec<String> = r
+        .drawing()
+        .unwrap()
+        .items
+        .iter()
+        .map(|u| u.id.clone())
+        .collect();
+    let draw = |item: &str, id: &str| {
+        let (item, id) = (item.to_owned(), id.to_owned());
+        let (app, raffle_id) = (app.clone(), raffle.id.clone());
+        async move {
+            let request = DrawRequest { item_id: item };
+            service::command(&app, OWNER, &raffle_id, request, &id).await
+        }
+    };
+    let resolve = |outcome, id: &str| {
+        let id = id.to_owned();
+        let (app, raffle_id, item_id) = (app.clone(), raffle.id.clone(), items[0].clone());
+        async move {
+            let decision = Decision::Resolve { item_id, outcome };
+            service::command(&app, OWNER, &raffle_id, decision, &id).await
+        }
+    };
+
+    draw(&items[0], "d1").await.unwrap();
+    wait_long(&app, &raffle.id, |r| {
+        r.drawing()
+            .is_some_and(|s| s.item(&items[0]).unwrap().status == ItemStatus::Drawn)
+    })
+    .await;
+    draw(&items[1], "d2").await.unwrap();
+    wait_for(&app, &raffle.id, |r| {
+        r.drawing()
+            .is_some_and(|s| s.pending.as_ref().is_some_and(|p| p.item_id == items[1]))
+    })
+    .await;
+    assert!(resolve(Outcome::NotHere, "nh").await.is_err());
+    resolve(Outcome::Claimed, "cl").await.unwrap();
+    let r = wait_long(&app, &raffle.id, |r| {
+        r.drawing()
+            .is_some_and(|s| s.item(&items[0]).unwrap().status == ItemStatus::Claimed)
+    })
+    .await;
+    assert_eq!(
+        r.drawing().unwrap().item(&items[1]).unwrap().status,
+        ItemStatus::Drawn,
+        "applied after the draw settled"
     );
 }
 

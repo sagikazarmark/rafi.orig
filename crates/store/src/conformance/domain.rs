@@ -3,7 +3,7 @@
 use rafi_core::raffle::RaffleState;
 use rafi_drawing::{
     BeaconSource,
-    drawing::{DrawMode, Drawing, Event, ItemStatus},
+    drawing::{Drawing, Event, ItemStatus},
     manifest::{ItemRef, Manifest},
 };
 use rafi_live::Phase;
@@ -687,7 +687,6 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         round: 1,
         signature: String::new(),
         randomness: String::new(),
-        mode: DrawMode::Beacon,
         pass: 1,
         pool_size: 2,
         index: 0,

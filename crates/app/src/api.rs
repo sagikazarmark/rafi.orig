@@ -127,8 +127,8 @@ admin_api! {
 
     fn start_draw(id: String) -> () = |app, owner| service::start_draw(app, owner, &id);
 
-    fn draw_item(id: String, item_id: String, offline: bool, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, DrawRequest { item_id, offline }, &command_id);
+    fn draw_item(id: String, item_id: String, command_id: String) -> () =
+        |app, owner| service::command(app, owner, &id, DrawRequest { item_id }, &command_id);
 
     fn resolve_item(id: String, item_id: String, outcome: Outcome, command_id: String) -> () =
         |app, owner| service::command(app, owner, &id, Decision::Resolve { item_id, outcome }, &command_id);

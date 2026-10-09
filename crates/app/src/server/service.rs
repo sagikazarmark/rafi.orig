@@ -493,8 +493,8 @@ pub async fn command(
     // asynchronously, so a draw the engine refused would go unnoticed.
     let mut dry = state.clone();
     let checked = match &cmd {
-        // Drawing the pending item again retries its committed round (or
-        // completes it offline); nothing else may start meanwhile.
+        // Drawing the pending item again retries its committed round; nothing
+        // else may start meanwhile.
         Command::Draw(DrawRequest { item_id, .. }) => dry.begin(item_id, 0, 0).map(|_| ()),
         // While a draw is waiting for its round, the engine would queue the
         // decision behind it; only "handed over" is let through (it can't
@@ -562,14 +562,7 @@ async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &
 /// like every other audit row, and what it was about.
 fn audited(cmd: &Command) -> (&'static str, String) {
     match cmd {
-        Command::Draw(DrawRequest { item_id, offline }) => (
-            "draw",
-            if *offline {
-                format!("{item_id} offline")
-            } else {
-                item_id.clone()
-            },
-        ),
+        Command::Draw(DrawRequest { item_id }) => ("draw", item_id.clone()),
         Command::Decide(Decision::Resolve { item_id, outcome }) => {
             let outcome = match outcome {
                 Outcome::Drawn => "drawn",

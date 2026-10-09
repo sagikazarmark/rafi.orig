@@ -139,7 +139,6 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
                     item_id,
                     entrant_id,
                     pass,
-                    mode,
                     round,
                     ..
                 } => {
@@ -156,7 +155,6 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
                         display_name: name_of(entrant_id),
                         outcome: outcomes.get(k).copied().unwrap_or(Outcome::Drawn),
                         pass: *pass,
-                        mode: *mode,
                         round: *round,
                     });
                 }

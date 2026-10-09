@@ -25,7 +25,7 @@ See [`docs/PLAN.md`](docs/PLAN.md) for the design and the reasoning behind it.
    fetches the beacon from the public relays and verifies its BLS signature against the quicknet key
    ([`drand`](https://crates.io/crates/drand)); `randomness = SHA256(signature)`. A beacon that can't be had
    leaves the draw pending on round `R`: retrying fetches the same round, so nobody can force a redraw.
-   The only ways out are an offline draw or an explicit abandon, and the verification page shows both.
+   The only way out is an explicit abandon, and the verification page shows whom the round would have picked.
 3. `seed = SHA256("rafi-draw-v1" ‖ randomness ‖ manifest_hash ‖ k)`. The winner is `pool[uniform(|pool|)]`, using
    SHA-256 counter-mode rejection sampling, so there is no modulo bias.
 4. One win per person. "Not here" or "Declined" removes that person and the prize is drawn again with a new round
@@ -188,8 +188,8 @@ database per scenario) and passes the suite; see the module's documentation.
 
 **The engine conformance suite** (`rafi_engine_local::conformance`) is the contract every draw engine must pass,
 through the `DrawingEngine` interface alone: the fairness rules (the round is committed before its beacon is asked for;
-a withheld or forged beacon stalls the draw on its round and a retry fetches the same round; offline draws and
-abandons are logged; nothing changes a pending draw's pool; every log passes the verifier) and the contract
+a withheld or forged beacon stalls the draw on its round and a retry fetches the same round; abandons are
+logged; nothing changes a pending draw's pool; every log passes the verifier) and the contract
 (idempotency, one command at a time per raffle, asynchronous draws, refusals with their kind, a raffle forgotten
 once finished). It deploys once per drand profile (instant, with a lead, a withheld relay, a forging relay, a flaky
 store) and runs on the local runner (`cargo test -p rafi-engine-local`) and on the `Drawing` object through

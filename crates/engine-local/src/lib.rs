@@ -15,7 +15,7 @@
 //! All decisions are `rafi_drawing`'s ([`Drawing::open_or_check`],
 //! [`Drawing::begin`], [`Drawing::conclude`], [`Drawing::decide`]); the
 //! committed round comes from [`DrandClient::target_round`]. This engine only
-//! does the I/O, with an injectable clock and randomness.
+//! does the I/O, with an injectable clock.
 //!
 //! It is never a production engine (nothing survives a restart, and two
 //! engines owning one drawing could announce one draw on two rounds): only
@@ -47,8 +47,6 @@ use tokio::sync::{mpsc, watch};
 
 /// Unix seconds now.
 pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
-/// 32 random bytes (an offline draw's randomness).
-pub type Randomness = Arc<dyn Fn() -> [u8; 32] + Send + Sync>;
 
 /// How a job ended: refusals keep their kind and message.
 type Outcome = Result<(), (ErrorKind, String)>;
@@ -76,7 +74,6 @@ struct Io {
     store: Arc<dyn DrawStore>,
     notifier: Arc<dyn Notifier>,
     clock: Clock,
-    randomness: Randomness,
 }
 
 enum Work {
@@ -103,12 +100,6 @@ impl Builder {
         self
     }
 
-    /// Takes offline draws' randomness from `randomness`.
-    pub fn randomness(mut self, randomness: impl Fn() -> [u8; 32] + Send + Sync + 'static) -> Self {
-        self.io.randomness = Arc::new(randomness);
-        self
-    }
-
     /// Gives up waiting for a synchronous call after `deadline`: it returns
     /// [`EngineError::Pending`] and still applies (once).
     pub fn deadline(mut self, deadline: Duration) -> Self {
@@ -130,7 +121,7 @@ impl Builder {
 
 impl LocalEngine {
     /// Draws with `drand`, writes every state to `store` and tells clients
-    /// through `notifier`. System clock and randomness; no deadline.
+    /// through `notifier`. System clock; no deadline.
     pub fn new(drand: DrandClient, store: impl DrawStore, notifier: impl Notifier) -> Self {
         Self::builder(drand, store, notifier).build()
     }
@@ -147,11 +138,6 @@ impl LocalEngine {
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or_default()
-                }),
-                randomness: Arc::new(|| {
-                    let mut buf = [0u8; 32];
-                    getrandom::fill(&mut buf).expect("OS randomness is available");
-                    buf
                 }),
             },
             deadline: None,
@@ -280,7 +266,7 @@ impl Io {
                 }
                 Ok(())
             }
-            Work::Draw(DrawRequest { item_id, offline }) => {
+            Work::Draw(DrawRequest { item_id }) => {
                 let s = state.as_mut().ok_or(DrawingError::NotOpen)?;
                 s.check_beacon(&beacon)?;
                 let (round, round_time) = self.drand.target_round((self.clock)());
@@ -288,13 +274,9 @@ impl Io {
                 let pending = s.begin(&item_id, round, round_time)?;
                 // The commitment is recorded before the beacon is asked for.
                 self.project(s).await;
-                let outcome = if offline {
-                    BeaconOutcome::Offline((self.randomness)())
-                } else {
-                    match self.drand.wait_for(pending.round).await {
-                        Ok(beacon) => BeaconOutcome::Verified(beacon),
-                        Err(e) => BeaconOutcome::Unavailable(e.to_string()),
-                    }
+                let outcome = match self.drand.wait_for(pending.round).await {
+                    Ok(beacon) => BeaconOutcome::Verified(beacon),
+                    Err(e) => BeaconOutcome::Unavailable(e.to_string()),
                 };
                 s.conclude(outcome)?;
                 self.project(s).await;
@@ -390,7 +372,6 @@ mod tests {
         engine.open(&doc).await.unwrap();
         let draw = DrawRequest {
             item_id: "u-1".into(),
-            offline: false,
         };
         engine.draw("r1", &draw, "d1").await.unwrap();
         projected(&store, |s| {

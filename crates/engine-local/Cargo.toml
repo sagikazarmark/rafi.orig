@@ -17,7 +17,6 @@ conformance = ["dep:serde_json", "rafi-drand/mock"]
 
 [dependencies]
 anyhow = "1"
-getrandom = "0.3"
 rafi-drawing.workspace = true
 rafi-drand = { path = "../drand" }
 rafi-platform = { path = "../platform" }

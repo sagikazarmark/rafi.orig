@@ -1,7 +1,7 @@
 //! Types shared between the server and the browser.
 
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::drawing::{DrawMode, Event, ItemStatus, Outcome};
+use rafi_drawing::drawing::{Event, ItemStatus, Outcome};
 use serde::{Deserialize, Serialize};
 
 /// The public, live state of a raffle: the projector's and the admin's full
@@ -82,7 +82,6 @@ pub struct DrawView {
     pub display_name: String,
     pub outcome: Outcome,
     pub pass: u8,
-    pub mode: DrawMode,
     pub round: u64,
 }
 
