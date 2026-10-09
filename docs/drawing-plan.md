@@ -1,7 +1,8 @@
 # Drawing domain plan — a raffle-free `rafi-drawing`
 
 Repo: /Users/mark/Projects/ventures/rafi (branch `cloudflare`). Crates in `crates/`.
-Follows [engine-plan.md](engine-plan.md), which made the draw engine a seam. Not started.
+Follows [engine-plan.md](engine-plan.md), which made the draw engine a seam. Done (2026-10-09); see
+"What the implementation does differently" at the end.
 
 ## Goal
 
@@ -226,3 +227,45 @@ Inside `rafi-drawing` and its callers:
 - Renaming the `restate-rafi*` crates.
 - Renaming `rafi-core` to `rafi-raffle` (it only holds the raffle's lifecycle, codes and email
   normalization after step 1; can follow later).
+
+## What the implementation does differently
+
+One commit per step, in this order (step 7 moved up, step 3 split in two):
+
+| Step | Commit |
+|---|---|
+| 1 | `rafi-drawing: the drawing moves out of rafi-core` |
+| 2 | `rafi-drawing: refusals in one error module` |
+| 7 | `rafi: the raffle's items are prizes` — before step 3, so "item" never means two things in the app |
+| 3 | `rafi-drawing: the modules are drawing and manifest` (files only), then `rafi-drawing: the drawing's vocabulary` |
+| 4 | `rafi-drawing: the manifest names a beacon source` |
+| 5 | `rafi: draws and decisions, and the Restate Drawing object` |
+| 6 | `rafi: the audit log records commands by their verb` |
+| 8 | `rafi-core: a raffle's lifecycle requests are commands` |
+| 9 | `rafi: attendees are participants` |
+
+Beyond the plan:
+
+- **Items lost their prize reference in step 3**, not 4: renaming unit → item collided with the old `item_id`
+  (the prize). Which prize an item came from is now `rafi_core::prize` (`item_id(prize, n)`, `prize_id(item)`,
+  `items(prizes)`), the raffle's bookkeeping; the expansion left `rafi-drawing`.
+- **Names the plan didn't fix:** `manifest::hash` (the free function), `Manifest::hash_hex`, the drawing's
+  `id` (was `raffle_id`), `rafi_store::raffles::set_manifest` (was `commit`), the app's `write_manifest`,
+  `DrawStore::save_drawing`, the app API's `draw_item` / `resolve_item` / `void_item`, and the Restate
+  endpoint's policy key `services.drawing` (was `services.raffle`). Outside the drawing crate its error is
+  imported as `Error as DrawingError`; inside the Restate object module the domain `Drawing` is `State`.
+- **The migration (step 7) also renames** `raffles.draw_version` → `drawing_version`.
+- **`Command` has no serde** any more (step 5): `DrawRequest` and `Decision` are the wire format; `Command` is
+  only the app's and the tests' way to hold either (`From` both).
+- **The verify report** names the `beacon` source instead of a chain string; the verify page and
+  `verify.py` say "manifest hash".
+- **The test vectors** were regenerated in steps 3 and 4 (the manifest changed shape twice); `verify.py`
+  agrees with them.
+
+Known, not caused by this work: the Restate conformance scenario `Lead/a_deadline_leaves_the_command_pending`
+fails intermittently (it did before step 1), a 300 ms deadline racing the draw for the object's lock.
+
+Before deploying: run migration 0003; register the Restate deployment again (the object is `Drawing`, the
+service `DrawingEngine`; a drawing still open in a `Raffle` object is orphaned, so finish open raffles
+first); `RAFI_ATTENDEE_DIR` is now `RAFI_PARTICIPANT_DIR` (the image sets it); rebuild the participant page
+(`./scripts/participant.sh`). Raffles published before this change no longer verify.
