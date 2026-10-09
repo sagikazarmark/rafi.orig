@@ -431,6 +431,31 @@ async fn full_raffle_flow() {
     assert_eq!(r.state(), RaffleState::Finished);
     assert!(r.purge_nonwinners_at.is_some());
 
+    // The audit log names each command by its verb, with what it was about.
+    let audit: Vec<(String, String)> = app
+        .db
+        .query("SELECT action, detail FROM audit WHERE raffle_id = ? ORDER BY id")
+        .bind(&raffle.id)
+        .all()
+        .await
+        .unwrap();
+    let actions: Vec<&str> = audit.iter().map(|(a, _)| a.as_str()).collect();
+    assert!(actions.contains(&"freeze"), "{audit:?}");
+    assert!(!actions.contains(&"command"), "{audit:?}");
+    assert!(
+        audit.contains(&("draw".into(), items[0].clone())),
+        "{audit:?}"
+    );
+    assert!(
+        audit.contains(&("resolve".into(), format!("{} not_here", items[0]))),
+        "{audit:?}"
+    );
+    assert!(
+        audit.contains(&("resolve".into(), format!("{} claimed", items[0]))),
+        "{audit:?}"
+    );
+    assert_eq!(audit.last(), Some(&("finish".into(), String::new())));
+
     // The public log verifies independently.
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     let report = rafi_drawing::verify::verify(

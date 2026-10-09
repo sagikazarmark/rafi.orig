@@ -550,22 +550,39 @@ fn refusal(cmd: &Command, e: DrawingError) -> AppError {
 /// the new state and nudges the channel itself.
 async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &str) -> Result<()> {
     let engine = engine(app)?;
-    audit::record(
-        &app.db,
-        id,
-        owner,
-        "command",
-        &match &cmd {
-            Command::Draw(request) => serde_json::to_string(request),
-            Command::Decide(decision) => serde_json::to_string(decision),
-        }
-        .unwrap_or_default(),
-    )
-    .await?;
+    let (action, detail) = audited(&cmd);
+    audit::record(&app.db, id, owner, action, &detail).await?;
     engine_result(match &cmd {
         Command::Draw(request) => engine.draw(id, request, command_id).await,
         Command::Decide(decision) => engine.decide(id, decision, command_id).await,
     })
+}
+
+/// How the audit log records a command: the organizer's request as a verb,
+/// like every other audit row, and what it was about.
+fn audited(cmd: &Command) -> (&'static str, String) {
+    match cmd {
+        Command::Draw(DrawRequest { item_id, offline }) => (
+            "draw",
+            if *offline {
+                format!("{item_id} offline")
+            } else {
+                item_id.clone()
+            },
+        ),
+        Command::Decide(Decision::Resolve { item_id, outcome }) => {
+            let outcome = match outcome {
+                Outcome::Drawn => "drawn",
+                Outcome::Claimed => "claimed",
+                Outcome::NotHere => "not_here",
+                Outcome::Declined => "declined",
+            };
+            ("resolve", format!("{item_id} {outcome}"))
+        }
+        Command::Decide(Decision::Void { item_id }) => ("void", item_id.clone()),
+        Command::Decide(Decision::Abandon { item_id }) => ("abandon", item_id.clone()),
+        Command::Decide(Decision::Finish) => ("finish", String::new()),
+    }
 }
 
 // ---------------------------------------------------------------------------
