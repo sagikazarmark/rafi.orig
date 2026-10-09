@@ -202,11 +202,18 @@ impl DrandClient {
         &self.client
     }
 
-    /// The round a draw starting at `now_unix` commits to, and when it is due.
+    /// The round a draw starting at `now_unix` commits to
+    /// ([`Schedule::commit_round`], the same rule as the Restate engine's), and
+    /// when it is due (Unix seconds).
     pub fn target_round(&self, now_unix: u64) -> (u64, u64) {
         let schedule = self.schedule();
-        let round = rafi_drawing::drand::target_round(&schedule, now_unix, self.cfg.lead_secs);
-        (round, rafi_drawing::drand::round_time(&schedule, round))
+        let now = UnixTime::from_secs(i64::try_from(now_unix).unwrap_or(i64::MAX));
+        let round = schedule.commit_round(now, Duration::from_secs(self.cfg.lead_secs));
+        let due = schedule
+            .round_time(round)
+            .and_then(|t| u64::try_from(t.as_secs()).ok())
+            .unwrap_or_default();
+        (round, due)
     }
 
     /// One attempt across the relays, no sleeping (for a durable retried step).
@@ -291,30 +298,30 @@ mod tests {
         }
     }
 
-    /// The Restate engine commits with `restate_drand::Drand::commit_round`:
-    /// the latest round due at `now + lead`, `now` in milliseconds (its clock
-    /// context is sealed, so its formula is restated here). The local runner
-    /// commits with [`DrandClient::target_round`], in whole seconds. Both must
-    /// pick the same round, and the same due time, at any instant.
+    /// Both engines commit with [`Schedule::commit_round`]: the Restate engine
+    /// (`restate_drand::Drand::commit_round`) reads its clock in milliseconds,
+    /// the local engine ([`DrandClient::target_round`]) in whole seconds. Both
+    /// must pick the same round, and a due time not yet past, at any instant.
     #[test]
     fn both_engines_commit_to_the_same_round() {
         let q = chains::quicknet();
-        let schedule = q.schedule();
         let genesis_ms = q.genesis_time().as_secs() * 1000;
-        for lead in [3u64, 6, 7] {
+        for lead_secs in [3u64, 6, 7] {
+            let client = DrandClient::new(DrandConfig {
+                lead_secs,
+                ..DrandConfig::default()
+            })
+            .unwrap();
             for offset_ms in (0..20_000).step_by(137) {
                 let now_ms = genesis_ms + 1_000_000_000 + offset_ms;
-                let restate = schedule
-                    .round_at(
-                        UnixTime::from_millis(now_ms).saturating_add(Duration::from_secs(lead)),
-                    )
-                    .unwrap_or(1);
-                let now = u64::try_from(now_ms / 1000).unwrap();
-                let local = rafi_drawing::drand::target_round(&schedule, now, lead);
-                assert_eq!(local, restate, "lead {lead}, now {now_ms} ms");
+                let restate = q.schedule().commit_round(
+                    UnixTime::from_millis(now_ms),
+                    Duration::from_secs(lead_secs),
+                );
+                let (local, due) = client.target_round(u64::try_from(now_ms / 1000).unwrap());
+                assert_eq!(local, restate, "lead {lead_secs}, now {now_ms} ms");
                 assert!(
-                    rafi_drawing::drand::round_time(&schedule, local) * 1000
-                        >= u64::try_from(now_ms).unwrap(),
+                    due * 1000 >= u64::try_from(now_ms).unwrap(),
                     "a lead of a period or more commits to a round not out yet"
                 );
             }

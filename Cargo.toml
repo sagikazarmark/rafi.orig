@@ -12,8 +12,8 @@ rust-version = "1.92"
 rafi-core = { path = "crates/core" }
 rafi-drawing = { path = "crates/drawing" }
 rafi-drand = { path = "crates/drand" }
-drand = { version = "0.2", default-features = false }
-restate-drand = { version = "0.2", default-features = false }
+drand = { version = "0.3", default-features = false }
+restate-drand = { version = "0.3", default-features = false }
 rafi-store = { path = "crates/store" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
