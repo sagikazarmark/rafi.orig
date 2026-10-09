@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use rafi_core::raffle::{self, RaffleState};
 use rafi_drawing::{
     BeaconSource, Command, Decision, DrawRequest, Error as DrawingError, ErrorKind, ItemId,
-    ItemRef, Manifest, ManifestHash, Outcome, Resolution,
+    Manifest, ManifestHash, ManifestItem, Outcome, Resolution,
 };
 use rafi_platform::{DrawingEngine, EngineError};
 use rafi_store::{RaffleRow, audit, entrants, prizes, raffles};
@@ -412,7 +412,7 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
 
 /// The drawing's items for a raffle's prizes (one per copy), in draw order.
 /// Errors if there are none.
-async fn items(app: &AppState, id: &str) -> Result<Vec<ItemRef>> {
+async fn items(app: &AppState, id: &str) -> Result<Vec<ManifestItem>> {
     let prizes = prizes::list(&app.db, id).await?;
     let items = rafi_core::drawing::items(prizes.iter().map(|i| {
         (
@@ -439,7 +439,7 @@ async fn write_manifest(
     app: &AppState,
     owner: &str,
     id: &str,
-    items: Vec<ItemRef>,
+    items: Vec<ManifestItem>,
     unfreeze_to: RaffleState,
 ) -> Result<Manifest> {
     let entrant_ids = entrants::active_ids(&app.db, id).await?;

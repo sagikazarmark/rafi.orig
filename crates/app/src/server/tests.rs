@@ -1309,7 +1309,7 @@ async fn mock_raffles_are_not_publicly_verified() {
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     let public = rafi_drawing::verify_public(&data.manifest, &data.manifest_hash, &data.events);
-    assert!(public.chain_unknown() && !public.ok());
+    assert!(!public.beacons_verified && !public.ok());
 }
 
 /// The hard limit: the join's `INSERT` refuses entrants beyond the cap, with

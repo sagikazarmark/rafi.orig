@@ -9,6 +9,7 @@
 pub mod algorithm;
 mod beacon;
 mod command;
+mod draw;
 mod drawing;
 mod error;
 mod hash;
@@ -25,11 +26,10 @@ pub mod drand {
 
 pub use beacon::BeaconSource;
 pub use command::{BeaconFetch, Command, Decision, DrawRequest, Resolution};
-pub use drawing::{
-    CompletedDraw, Drawing, Event, Item, ItemState, ItemStatus, Outcome, PendingDraw, Selection,
-};
+pub use draw::{CompletedDraw, Outcome, PendingDraw};
+pub use drawing::{Drawing, Event, Item, ItemState, ItemStatus};
 pub use error::{Error, ErrorKind};
 pub use hash::{Hash, InvalidHash, ManifestHash};
 pub use id::{DrawingId, EntrantId, ItemId};
-pub use manifest::{ItemRef, Manifest};
-pub use verify::{CommittedRound, DrawCheck, Report, verify, verify_public};
+pub use manifest::{Manifest, ManifestItem};
+pub use verify::{AbandonedDraw, DrawCheck, Report, verify, verify_public};

@@ -15,7 +15,7 @@ use crate::{
 
 /// An item as the manifest lists it: one thing one entrant can win.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ItemRef {
+pub struct ManifestItem {
     pub id: ItemId,
     pub name: String,
 }
@@ -36,7 +36,7 @@ pub struct Manifest {
     pub beacon: BeaconSource,
     /// Sorted, deduplicated, lowercase hex entrant IDs.
     pub entrants: Vec<EntrantId>,
-    pub items: Vec<ItemRef>,
+    pub items: Vec<ManifestItem>,
 }
 
 impl Manifest {
@@ -45,7 +45,7 @@ impl Manifest {
         drawing: impl Into<DrawingId>,
         beacon: BeaconSource,
         entrants: Vec<EntrantId>,
-        items: Vec<ItemRef>,
+        items: Vec<ManifestItem>,
     ) -> Self {
         let mut entrants: Vec<EntrantId> = entrants
             .into_iter()
@@ -128,8 +128,8 @@ mod tests {
         assert_eq!(manifest.entrants, vec!["aa", "bb"]);
     }
 
-    fn item(id: &str) -> ItemRef {
-        ItemRef {
+    fn item(id: &str) -> ManifestItem {
+        ManifestItem {
             id: id.into(),
             name: "Item".into(),
         }

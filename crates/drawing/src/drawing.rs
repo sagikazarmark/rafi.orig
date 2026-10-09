@@ -23,14 +23,15 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    algorithm::{self, PastDraw},
+    algorithm,
     beacon::BeaconSource,
     command::{BeaconFetch, Decision, DrawRequest, Resolution},
     drand::VerifiedBeacon,
+    draw::{CompletedDraw, Outcome, PendingDraw},
     error::Error,
     hash::{self, Hash, ManifestHash},
     id::{DrawingId, EntrantId, ItemId},
-    manifest::{ItemRef, Manifest},
+    manifest::{Manifest, ManifestItem},
 };
 
 /// Where an item stands, without its draw.
@@ -65,7 +66,7 @@ pub struct Item {
 }
 
 impl Item {
-    fn available(item: &ItemRef) -> Self {
+    fn available(item: &ManifestItem) -> Self {
         Self {
             id: item.id.clone(),
             name: item.name.clone(),
@@ -95,27 +96,6 @@ impl Item {
         match &self.state {
             ItemState::Drawn { winner, .. } | ItemState::Claimed { winner, .. } => Some(winner),
             ItemState::Available | ItemState::Voided => None,
-        }
-    }
-}
-
-/// Where a draw's winner stands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Outcome {
-    /// Drawn, not yet resolved by the organizer.
-    Drawn,
-    Claimed,
-    NotHere,
-    Declined,
-}
-
-impl From<Resolution> for Outcome {
-    fn from(resolution: Resolution) -> Self {
-        match resolution {
-            Resolution::Claimed => Self::Claimed,
-            Resolution::NotHere => Self::NotHere,
-            Resolution::Declined => Self::Declined,
         }
     }
 }
@@ -169,39 +149,6 @@ pub enum Event {
     Voided { item: ItemId },
     /// The drawing ended.
     Finished,
-}
-
-/// A draw that has been announced but not completed yet.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PendingDraw {
-    pub k: u64,
-    pub item: ItemId,
-    pub round: u64,
-    pub round_time: u64,
-}
-
-/// Whom a completed draw selected, and how.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Selection {
-    pub k: u64,
-    pub item: ItemId,
-    pub entrant: EntrantId,
-    pub pass: u8,
-    /// How many entrants the pool held.
-    pub pool_size: usize,
-    /// The winner's position in the pool.
-    pub index: usize,
-}
-
-/// A completed draw and where its winner stands.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompletedDraw {
-    pub k: u64,
-    pub item: ItemId,
-    pub round: u64,
-    pub pass: u8,
-    pub entrant: EntrantId,
-    pub outcome: Outcome,
 }
 
 /// One drawing: opened from its manifest, changed only by recording events.
@@ -345,6 +292,8 @@ impl Drawing {
                     item,
                     round,
                     pass,
+                    pool_size,
+                    index,
                     entrant,
                     ..
                 } => Some(CompletedDraw {
@@ -352,6 +301,8 @@ impl Drawing {
                     item: item.clone(),
                     round: *round,
                     pass: *pass,
+                    pool_size: *pool_size,
+                    index: *index,
                     entrant: entrant.clone(),
                     outcome: outcomes.get(k).copied().unwrap_or(Outcome::Drawn),
                 }),
@@ -362,16 +313,7 @@ impl Drawing {
 
     /// The pool for the next draw: `(pass, sorted entrant IDs)`.
     pub fn pool(&self) -> (u8, Vec<EntrantId>) {
-        let draws = self.draws();
-        let past: Vec<PastDraw<'_>> = draws
-            .iter()
-            .map(|d| PastDraw {
-                pass: d.pass,
-                entrant: &d.entrant,
-                forfeited: matches!(d.outcome, Outcome::NotHere | Outcome::Declined),
-            })
-            .collect();
-        algorithm::pool(&self.manifest.entrants, &past)
+        algorithm::pool(&self.manifest.entrants, &self.draws())
     }
 
     /// Number of items that can still be given away.
@@ -487,7 +429,7 @@ impl Drawing {
     /// draw (wrong round or source), an unavailable one and an interrupted
     /// attempt all stall it (`None`): the draw stays pending on its round,
     /// never abandoned, so a retry fetches the same round.
-    pub fn settle(&mut self, fetch: BeaconFetch) -> Result<Option<Selection>, Error> {
+    pub fn settle(&mut self, fetch: BeaconFetch) -> Result<Option<CompletedDraw>, Error> {
         match fetch {
             BeaconFetch::Verified(beacon) => match self.complete(&beacon) {
                 Ok(drawn) => Ok(Some(drawn)),
@@ -557,7 +499,7 @@ impl Drawing {
 
     /// Completes the pending draw with the verified beacon for its committed
     /// round, from the drawing's beacon source.
-    pub(crate) fn complete(&mut self, beacon: &VerifiedBeacon) -> Result<Selection, Error> {
+    pub(crate) fn complete(&mut self, beacon: &VerifiedBeacon) -> Result<CompletedDraw, Error> {
         if BeaconSource::Drand(beacon.chain_hash()) != *self.beacon() {
             return Err(Error::WrongBeaconSource);
         }
@@ -574,7 +516,7 @@ impl Drawing {
         &mut self,
         round: u64,
         signature: &[u8],
-    ) -> Result<Selection, Error> {
+    ) -> Result<CompletedDraw, Error> {
         self.select(round, hash::randomness(signature), signature)
     }
 
@@ -584,7 +526,7 @@ impl Drawing {
         round: u64,
         randomness: Hash,
         signature: &[u8],
-    ) -> Result<Selection, Error> {
+    ) -> Result<CompletedDraw, Error> {
         let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
         if round != pending.round {
             return Err(Error::WrongRound {
@@ -604,13 +546,15 @@ impl Drawing {
             pending.k,
             pool.len(),
         );
-        let drawn = Selection {
+        let drawn = CompletedDraw {
             k: pending.k,
             item: pending.item,
-            entrant: pool[index].clone(),
+            round,
             pass,
             pool_size: pool.len(),
             index,
+            entrant: pool[index].clone(),
+            outcome: Outcome::Drawn,
         };
         self.record(Event::Drawn {
             k: drawn.k,
@@ -813,7 +757,7 @@ pub(crate) mod tests {
             source(),
             (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
             (0..items)
-                .map(|i| ItemRef {
+                .map(|i| ManifestItem {
                     id: format!("item-{i}").into(),
                     name: format!("Item {i}"),
                 })
@@ -825,7 +769,7 @@ pub(crate) mod tests {
         Drawing::open(&manifest(entrants, items)).unwrap()
     }
 
-    fn draw(s: &mut Drawing, item: &str, round: u64) -> Selection {
+    fn draw(s: &mut Drawing, item: &str, round: u64) -> CompletedDraw {
         s.start(&item.into(), round, 0).unwrap();
         s.complete(&beacon(round)).unwrap()
     }

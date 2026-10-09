@@ -253,7 +253,7 @@ mod tests {
             "r1",
             rafi_drawing::BeaconSource::QUICKNET,
             vec!["a".repeat(32).into()],
-            vec![rafi_drawing::ItemRef {
+            vec![rafi_drawing::ManifestItem {
                 id: "u1".into(),
                 name: "Book".into(),
             }],

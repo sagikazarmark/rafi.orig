@@ -164,7 +164,7 @@ impl Snapshot {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use rafi_drawing::{BeaconSource, Event, ItemRef, Manifest, Resolution};
+    use rafi_drawing::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
 
     use super::*;
 
@@ -212,11 +212,11 @@ mod tests {
             BeaconSource::QUICKNET,
             vec!["a".repeat(32).into(), "b".repeat(32).into()],
             vec![
-                ItemRef {
+                ManifestItem {
                     id: "u1".into(),
                     name: "Book".into(),
                 },
-                ItemRef {
+                ManifestItem {
                     id: "u2".into(),
                     name: "Shirt".into(),
                 },

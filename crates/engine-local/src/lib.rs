@@ -331,7 +331,7 @@ impl Io {
 #[cfg(test)]
 mod tests {
     use rafi_drand::DrandConfig;
-    use rafi_drawing::{ItemRef, ItemStatus};
+    use rafi_drawing::{ItemStatus, ManifestItem};
     use rafi_platform::{MemoryDrawStore, Recording};
 
     use super::*;
@@ -351,7 +351,7 @@ mod tests {
             "r1",
             BeaconSource::Drand(drand.chain_hash()),
             vec!["a".into(), "b".into(), "c".into()],
-            vec![ItemRef {
+            vec![ManifestItem {
                 id: "item-1".into(),
                 name: "Item 1".into(),
             }],

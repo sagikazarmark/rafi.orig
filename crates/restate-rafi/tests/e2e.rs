@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
-    BeaconSource, Decision, DrawRequest, Drawing, Event, ItemRef, ItemStatus, Manifest, Resolution,
-    verify,
+    BeaconSource, Decision, DrawRequest, Drawing, Event, ItemStatus, Manifest, ManifestItem,
+    Resolution, verify,
 };
 use rafi_platform::{MemoryDrawStore, Recording};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
@@ -34,11 +34,11 @@ fn doc(entrants: usize) -> Manifest {
         BeaconSource::Drand(rafi_drand::mock_chain().chain().hash()),
         (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
         vec![
-            ItemRef {
+            ManifestItem {
                 id: "ticket-1".into(),
                 name: "KCD Budapest ticket".into(),
             },
-            ItemRef {
+            ManifestItem {
                 id: "voucher-1".into(),
                 name: "CNCF exam voucher".into(),
             },

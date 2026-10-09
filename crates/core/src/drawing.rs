@@ -2,7 +2,7 @@
 //! with quantities, its lifecycle) meet the drawing's (items, the manifest, the
 //! events). A raffle's drawing has the raffle's ID.
 
-use rafi_drawing::{BeaconSource, Drawing, EntrantId, Event, ItemId, ItemRef, Manifest};
+use rafi_drawing::{BeaconSource, Drawing, EntrantId, Event, ItemId, Manifest, ManifestItem};
 
 use crate::raffle::RaffleState;
 
@@ -19,11 +19,11 @@ pub fn prize_id(item: &ItemId) -> &str {
 
 /// Expands prizes `(prize_id, name, quantity)` into the drawing's items: one
 /// per copy, in order.
-pub fn items<'a>(prizes: impl IntoIterator<Item = (&'a str, &'a str, u64)>) -> Vec<ItemRef> {
+pub fn items<'a>(prizes: impl IntoIterator<Item = (&'a str, &'a str, u64)>) -> Vec<ManifestItem> {
     prizes
         .into_iter()
         .flat_map(|(prize_id, name, qty)| {
-            (1..=qty).map(move |n| ItemRef {
+            (1..=qty).map(move |n| ManifestItem {
                 id: item_id(prize_id, n),
                 name: name.to_owned(),
             })
@@ -37,7 +37,7 @@ pub fn manifest(
     raffle_id: &str,
     beacon: BeaconSource,
     entrants: impl IntoIterator<Item = String>,
-    items: Vec<ItemRef>,
+    items: Vec<ManifestItem>,
 ) -> Manifest {
     Manifest::new(
         raffle_id,

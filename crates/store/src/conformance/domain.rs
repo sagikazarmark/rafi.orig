@@ -1,7 +1,7 @@
 //! The `domain.*` scenarios: the domain functions, on every backend.
 
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::{BeaconSource, Decision, Drawing, Event, ItemRef, Manifest, Resolution};
+use rafi_drawing::{BeaconSource, Decision, Drawing, Event, Manifest, ManifestItem, Resolution};
 use rafi_live::Phase;
 
 use super::{Outcome, check, fail};
@@ -40,7 +40,7 @@ fn manifest<const N: usize>(id: &str, entrants: [String; N]) -> Manifest {
         id,
         BeaconSource::QUICKNET,
         entrants.map(Into::into).into(),
-        vec![ItemRef {
+        vec![ManifestItem {
             id: "u1".into(),
             name: "Book".into(),
         }],
@@ -458,7 +458,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         BeaconSource::QUICKNET,
         vec!["w".into(), "d".into(), "n".into()],
         ["u1", "u2"]
-            .map(|u| ItemRef {
+            .map(|u| ManifestItem {
                 id: u.into(),
                 name: "Book".into(),
             })

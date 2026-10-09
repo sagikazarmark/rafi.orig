@@ -14,7 +14,7 @@
 //! (a log doing that fails verification).
 
 use rafi_drawing::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, ItemRef, Manifest, Resolution,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Manifest, ManifestItem, Resolution,
     algorithm,
     drand::{Beacon, VerifiedBeacon, Verifier, chains},
     verify_public,
@@ -92,19 +92,19 @@ fn generate() -> Vectors {
         .map(|i| hex::encode(&h(&format!("entrant-{i}"))[..16]).into())
         .collect();
     let items = vec![
-        ItemRef {
+        ManifestItem {
             id: "book-1".into(),
             name: "Book".into(),
         },
-        ItemRef {
+        ManifestItem {
             id: "book-2".into(),
             name: "Book".into(),
         },
-        ItemRef {
+        ManifestItem {
             id: "voucher-1".into(),
             name: "Voucher".into(),
         },
-        ItemRef {
+        ManifestItem {
             id: "mug-1".into(),
             name: "Mug".into(),
         },

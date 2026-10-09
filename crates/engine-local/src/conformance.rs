@@ -29,8 +29,8 @@ use std::{
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
-    BeaconSource, Command, Decision, DrawRequest, Drawing, ErrorKind, Event, ItemRef, ItemStatus,
-    Manifest, Resolution, verify,
+    BeaconSource, Command, Decision, DrawRequest, Drawing, ErrorKind, Event, ItemStatus, Manifest,
+    ManifestItem, Resolution, verify,
 };
 use rafi_platform::{
     BoxFuture, DrawStore, DrawingEngine, EngineError, MemoryDrawStore, Notifier, Recording,
@@ -220,7 +220,7 @@ impl Fixture {
             BeaconSource::Drand(self.drand.chain_hash()),
             (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
             (1..=items)
-                .map(|n| ItemRef {
+                .map(|n| ManifestItem {
                     id: format!("item-{n}").into(),
                     name: format!("Item {n}"),
                 })

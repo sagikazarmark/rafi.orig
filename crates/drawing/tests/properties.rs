@@ -5,8 +5,8 @@ use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_drawing::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, EntrantId, Error, Event, ItemRef,
-    ItemState, Manifest, ManifestHash, Resolution,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, EntrantId, Error, Event, ItemState,
+    Manifest, ManifestHash, ManifestItem, Resolution,
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
     verify,
 };
@@ -95,7 +95,7 @@ proptest! {
             "prop",
             source(),
             (0..n).map(|i| format!("{i:032x}").into()).collect(),
-            (0..items).map(|i| ItemRef { id: item(i), name: format!("Item {i}") }).collect(),
+            (0..items).map(|i| ManifestItem { id: item(i), name: format!("Item {i}") }).collect(),
         );
         let mut s = Drawing::open(&manifest).unwrap();
         let mut round = 1;
@@ -173,7 +173,7 @@ proptest! {
             "e",
             source(),
             vec![],
-            (0..items).map(|i| ItemRef { id: item(i), name: format!("Item {i}") }).collect(),
+            (0..items).map(|i| ManifestItem { id: item(i), name: format!("Item {i}") }).collect(),
         );
         prop_assert!(matches!(Drawing::open(&manifest), Err(Error::InvalidManifest(_))));
     }

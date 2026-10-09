@@ -32,7 +32,7 @@ pub fn Verify(slug: String) -> Element {
         Some(Ok(d)) => {
             // Public drand chains only: a test chain is never reported as verified.
             let report = rafi_drawing::verify_public(&d.manifest, &d.manifest_hash, &d.events);
-            let test_chain = report.chain_unknown()
+            let test_chain = !report.beacons_verified
                 && report.manifest_hash_ok
                 && report.errors.is_empty()
                 && report.draws.iter().all(|c| c.ok);
@@ -131,7 +131,7 @@ pub fn Verify(slug: String) -> Element {
                                             td { class: "font-mono", "{c.k}" }
                                             td { class: "font-semibold", "{item_names.get(&c.item).cloned().unwrap_or_else(|| c.item.to_string())}" }
                                             td {
-                                                if report.chain_known {
+                                                if report.beacons_verified {
                                                     a { class: "link link-primary font-mono", href: "https://api.drand.sh/{chain}/public/{c.round}", target: "_blank", "{c.round}" }
                                                 } else {
                                                     span { class: "font-mono", "{c.round} " }

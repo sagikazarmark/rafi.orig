@@ -12,7 +12,7 @@
 
 use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleChannel;
-use rafi_drawing::{BeaconSource, Drawing, Event, ItemRef, ItemStatus, Manifest};
+use rafi_drawing::{BeaconSource, Drawing, Event, ItemStatus, Manifest, ManifestItem};
 use rafi_platform::Notifier;
 use rafi_store::{Db, PurgeAfter, live::Snapshot};
 use worker::{Context, Env, Method, Request, Response, Result, event};
@@ -70,11 +70,11 @@ fn manifest(raffle: &str, beacon: BeaconSource) -> Manifest {
             entrant(raffle, "bence").into(),
         ],
         vec![
-            ItemRef {
+            ManifestItem {
                 id: "book-1".into(),
                 name: "Book".into(),
             },
-            ItemRef {
+            ManifestItem {
                 id: "shirt-1".into(),
                 name: "Shirt".into(),
             },

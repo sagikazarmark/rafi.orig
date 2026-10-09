@@ -23,6 +23,7 @@
 use std::collections::HashSet;
 
 use crate::{
+    draw::CompletedDraw,
     hash::{Hash, sha256},
     id::EntrantId,
 };
@@ -80,23 +81,14 @@ pub fn select(randomness: &Hash, manifest_hash: &Hash, k: u64, pool_len: usize) 
     Stream::new(seed(randomness, manifest_hash, k)).uniform(pool_len as u64) as usize
 }
 
-/// A completed draw, as the pool rules see it.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct PastDraw<'a> {
-    pub pass: u8,
-    pub entrant: &'a EntrantId,
-    /// Resolved "not here" or "declined".
-    pub forfeited: bool,
-}
-
 /// The pool for the next draw: `(pass, entrants)`, in the order of
 /// `entrants` (the manifest's, sorted).
-pub(crate) fn pool(entrants: &[EntrantId], draws: &[PastDraw<'_>]) -> (u8, Vec<EntrantId>) {
+pub(crate) fn pool(entrants: &[EntrantId], draws: &[CompletedDraw]) -> (u8, Vec<EntrantId>) {
     let drawn = |pass: u8| -> HashSet<&EntrantId> {
         draws
             .iter()
             .filter(|d| d.pass == pass)
-            .map(|d| d.entrant)
+            .map(|d| &d.entrant)
             .collect()
     };
     let drawn_pass1 = drawn(1);
@@ -111,8 +103,8 @@ pub(crate) fn pool(entrants: &[EntrantId], draws: &[PastDraw<'_>]) -> (u8, Vec<E
 
     let winners: HashSet<&EntrantId> = draws
         .iter()
-        .filter(|d| d.pass == 1 && !d.forfeited)
-        .map(|d| d.entrant)
+        .filter(|d| d.pass == 1 && !d.forfeited())
+        .map(|d| &d.entrant)
         .collect();
     let drawn_pass2 = drawn(2);
     let pass2 = entrants

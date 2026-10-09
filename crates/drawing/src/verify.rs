@@ -28,11 +28,11 @@ pub struct DrawCheck {
     pub ok: bool,
 }
 
-/// A round a draw committed to before the organizer abandoned it. Anyone can
-/// fetch the round and run the algorithm on `pool` to see whom it would have
-/// picked.
+/// A draw the organizer abandoned before its round's beacon completed it.
+/// Anyone can fetch the round and run the algorithm on `pool` to see whom it
+/// would have picked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CommittedRound {
+pub struct AbandonedDraw {
     pub k: u64,
     pub item: ItemId,
     pub round: u64,
@@ -48,12 +48,14 @@ pub struct Report {
     /// Where the randomness came from, per the manifest (`None` if the
     /// manifest could not be read).
     pub beacon: Option<BeaconSource>,
-    /// Whether the chain is known, so every beacon could be BLS-verified.
-    /// False for test chains: such a log is never reported as verified.
-    pub chain_known: bool,
+    /// Whether every beacon was BLS-verified against a drand chain the
+    /// verifier knows. False for test chains: the draws replay, but their
+    /// randomness is not publicly verifiable, so the log is never reported
+    /// as verified.
+    pub beacons_verified: bool,
     pub draws: Vec<DrawCheck>,
-    /// Committed rounds that were abandoned.
-    pub abandoned: Vec<CommittedRound>,
+    /// The draws the organizer abandoned.
+    pub abandoned: Vec<AbandonedDraw>,
     /// Problems found while replaying, if any.
     pub errors: Vec<String>,
 }
@@ -61,15 +63,9 @@ pub struct Report {
 impl Report {
     pub fn ok(&self) -> bool {
         self.manifest_hash_ok
-            && self.chain_known
+            && self.beacons_verified
             && self.errors.is_empty()
             && self.draws.iter().all(|d| d.ok)
-    }
-
-    /// The chain is not a public drand chain (e.g. a test chain): the draws
-    /// replay, but their randomness is not publicly verifiable.
-    pub fn chain_unknown(&self) -> bool {
-        !self.chain_known
     }
 }
 
@@ -107,7 +103,7 @@ pub fn verify(
         manifest_hash_ok: expected_manifest_hash.parse() == Ok(computed),
         manifest_hash: computed,
         beacon: None,
-        chain_known: false,
+        beacons_verified: false,
         draws: Vec::new(),
         abandoned: Vec::new(),
         errors: Vec::new(),
@@ -147,7 +143,7 @@ pub fn verify(
         },
         None => None,
     };
-    report.chain_known = verifier.is_some();
+    report.beacons_verified = verifier.is_some();
 
     let mut state = Drawing::open_unchecked(&manifest);
     for event in events {
@@ -242,11 +238,11 @@ fn describe(event: &Event) -> String {
     }
 }
 
-/// Records the pending draw's committed round before it is abandoned.
+/// Records the pending draw, with its pool, before it is abandoned.
 fn record_abandoned(report: &mut Report, state: &Drawing) {
     if let Some(p) = state.pending() {
         let (pass, pool) = state.pool();
-        report.abandoned.push(CommittedRound {
+        report.abandoned.push(AbandonedDraw {
             k: p.k,
             item: p.item.clone(),
             round: p.round,
@@ -311,11 +307,11 @@ mod tests {
     }
 
     #[test]
-    fn unknown_chain_replays_but_is_not_ok() {
+    fn a_test_chain_replays_but_is_not_ok() {
         let (m, mut s) = setup();
         draw(&mut s, "item-0", 1);
         let report = verify_public(&m.canonical_json(), &m.hash().to_string(), s.events());
-        assert!(report.chain_unknown());
+        assert!(!report.beacons_verified);
         assert!(!report.ok());
         assert!(report.errors.is_empty(), "{report:#?}");
         assert!(report.draws.iter().all(|d| d.ok));
