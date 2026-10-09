@@ -118,6 +118,9 @@ pub fn verify(
             .errors
             .push("manifest is not in canonical form".into());
     }
+    if let Err(e) = doc.validate() {
+        report.errors.push(e.to_string());
+    }
     report.beacon = Some(doc.beacon);
     let verifier = match doc.beacon.drand_chain() {
         Some(&hash) => match resolve(&hash) {
@@ -173,9 +176,9 @@ pub fn verify(
                 signature,
                 randomness,
                 pool_size,
+                index,
                 entrant,
                 pass,
-                ..
             } => {
                 // A draw must settle the announced draw, on its committed round.
                 match &state.pending {
@@ -215,19 +218,16 @@ pub fn verify(
                 };
                 match drawn {
                     Ok(d) => {
-                        let pool = match state.events.last() {
-                            Some(Event::Draw { pool_size, .. }) => *pool_size,
-                            _ => 0,
-                        };
                         report.draws.push(DrawCheck {
                             k: *k,
                             item: item.clone(),
                             round: *round,
-                            pool_size: pool,
+                            pool_size: d.pool_size,
                             ok: d.entrant == *entrant
                                 && d.k == *k
                                 && d.pass == *pass
-                                && pool == *pool_size,
+                                && d.pool_size == *pool_size
+                                && d.index == *index,
                             expected_entrant: d.entrant,
                             published_entrant: entrant.clone(),
                         });
@@ -434,6 +434,32 @@ mod tests {
         }
         let report = verify(&doc.canonical_json(), &s.manifest_hash, &events, resolve);
         assert!(!report.ok());
+    }
+
+    #[test]
+    fn tampered_index_is_detected() {
+        let (doc, mut s) = setup();
+        s.begin(&"u0".into(), 1, 0).unwrap();
+        s.complete(&beacon(1)).unwrap();
+        let mut events = s.events.clone();
+        if let Some(Event::Draw { index, .. }) = events.last_mut() {
+            *index += 1;
+        }
+        let report = verify(&doc.canonical_json(), &s.manifest_hash, &events, resolve);
+        assert!(!report.ok());
+    }
+
+    #[test]
+    fn an_invalid_manifest_is_detected() {
+        // Canonical and hashing to the published hash, but not one an engine
+        // would open: another algorithm.
+        let (mut doc, _) = setup();
+        doc.algo = "rafi-draw-v2".into();
+        let json = doc.canonical_json();
+        let hash = hex::encode(manifest::hash(&json));
+        let report = verify(&json, &hash, &[], resolve);
+        assert!(report.manifest_hash_ok);
+        assert!(!report.ok(), "{report:#?}");
     }
 
     #[test]

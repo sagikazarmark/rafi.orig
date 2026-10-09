@@ -70,7 +70,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
     #[test]
-    fn invariants_hold_and_log_verifies(n in 0usize..8, items in 1usize..6, ops in proptest::collection::vec(op(), 0..40)) {
+    fn invariants_hold_and_log_verifies(n in 1usize..8, items in 1usize..6, ops in proptest::collection::vec(op(), 0..40)) {
         let doc = Manifest::new(
             "prop",
             BeaconSource::Drand(chain().0.chain().hash()),

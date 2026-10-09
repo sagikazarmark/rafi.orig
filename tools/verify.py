@@ -88,6 +88,20 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
         print(f"ok   manifest hash {manifest_hash.hex()}")
     doc = json.loads(manifest)
     entrants = doc["entrants"]
+    # A manifest an engine would open: the algorithm this script implements,
+    # entrants in canonical form (sorted, unique, lowercase), unique item IDs.
+    item_ids = [u["id"] for u in doc["items"]]
+    for problem, bad in [
+        (f"algorithm is {doc['algo']!r}, not {ALGO.decode()!r}", doc["algo"] != ALGO.decode()),
+        ("nobody has entered", not entrants),
+        ("there are no items", not item_ids),
+        ("entrant IDs are not sorted, unique and lowercase",
+         any(e != e.lower() for e in entrants) or any(a >= b for a, b in zip(entrants, entrants[1:]))),
+        ("duplicate item IDs", len(set(item_ids)) != len(item_ids)),
+    ]:
+        if bad:
+            print(f"FAIL manifest: {problem}")
+            ok = False
     # The beacon source is tagged by kind: {"drand": "<chain hash>"}.
     chain = doc["beacon"].get("drand")
     if chain is None:
@@ -148,7 +162,8 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
                     ok = False
             idx = select(randomness, manifest_hash, k, len(p))
             expected = p[idx]
-            good = expected == ev["entrant"] and pass_ == ev["pass"] and len(p) == ev["pool_size"]
+            good = (expected == ev["entrant"] and pass_ == ev["pass"] and len(p) == ev["pool_size"]
+                    and idx == ev["index"])
             ok &= good
             print(f"{'ok  ' if good else 'FAIL'} draw {k}: round {ev['round']}, pass {pass_}, pool {len(p)}, "
                   f"index {idx} -> {expected}" + ("" if good else f" (published {ev['entrant']})"))

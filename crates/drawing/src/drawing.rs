@@ -26,7 +26,7 @@
 //!   [`Drawing::abandon`]; the public verifier shows what the round would have
 //!   picked.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -169,6 +169,10 @@ pub struct Drawn {
     pub item: ItemId,
     pub entrant: EntrantId,
     pub pass: u8,
+    /// How many entrants the pool held.
+    pub pool_size: usize,
+    /// The winner's position in the sorted pool.
+    pub index: usize,
 }
 
 impl Drawing {
@@ -461,6 +465,8 @@ impl Drawing {
             item: pending.item,
             entrant,
             pass,
+            pool_size: pool.len(),
+            index,
         })
     }
 
@@ -562,14 +568,14 @@ impl Drawing {
     }
 
     /// The final outcome for every entrant who has been drawn (latest draw wins).
-    pub fn entrant_outcomes(&self) -> HashMap<EntrantId, (Outcome, ItemId)> {
+    pub fn entrant_outcomes(&self) -> BTreeMap<EntrantId, (Outcome, ItemId)> {
         let mut item_by_k: HashMap<u64, &ItemId> = HashMap::new();
         for e in &self.events {
             if let Event::Draw { k, item, .. } = e {
                 item_by_k.insert(*k, item);
             }
         }
-        let mut out = HashMap::new();
+        let mut out = BTreeMap::new();
         for (k, _, entrant, outcome) in self.draws() {
             let item = item_by_k[&k].clone();
             // Keep a claimed or undecided outcome over a later pass-2 forfeit.
