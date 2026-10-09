@@ -17,8 +17,8 @@ use rafi_live::{ParticipantView, RaffleLive};
 use rafi_platform::rule::{Decision, decide};
 use rafi_store::{Db, live::Snapshot};
 use worker::{
-    DurableObject, Env, Method, Request, Response, Result, SqlStorageValue, State, WebSocket,
-    WebSocketIncomingMessage, durable_object, wasm_bindgen,
+    DurableObject, Env, Method, Request, Response, Result, SqlStorageValue, State, durable_object,
+    wasm_bindgen,
 };
 
 /// The header carrying the raffle ID on requests to the object.
@@ -230,27 +230,8 @@ impl DurableObject for RaffleChannel {
         }
     }
 
-    async fn websocket_message(
-        &self,
-        ws: WebSocket,
-        message: WebSocketIncomingMessage,
-    ) -> Result<()> {
-        self.hub.on_message(ws, message).await
-    }
-
-    async fn websocket_close(
-        &self,
-        ws: WebSocket,
-        code: usize,
-        reason: String,
-        was_clean: bool,
-    ) -> Result<()> {
-        self.hub.on_close(ws, code, reason, was_clean).await
-    }
-
-    async fn websocket_error(&self, ws: WebSocket, error: worker::Error) -> Result<()> {
-        self.hub.on_error(ws, error).await
-    }
+    // The socket handlers are the hub's; the alarm below is the object's own.
+    partyline_worker::hub_websocket_handlers!(hub);
 
     /// The periodic re-read. It reschedules itself only while sockets are open
     /// and the raffle still takes them. Not handed to the hub: Latest channels
