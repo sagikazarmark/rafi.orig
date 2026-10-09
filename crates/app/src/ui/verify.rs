@@ -40,7 +40,12 @@ pub fn Verify(slug: String) -> Element {
                 && report.manifest_hash_ok
                 && report.errors.is_empty()
                 && report.draws.iter().all(|c| c.ok);
-            let chain = report.chain.clone();
+            let chain = report
+                .beacon
+                .as_ref()
+                .and_then(|b| b.drand_chain())
+                .map(ToString::to_string)
+                .unwrap_or_default();
             let names: HashMap<&str, &str> = d
                 .names
                 .iter()
@@ -60,10 +65,7 @@ pub fn Verify(slug: String) -> Element {
             let ok = report.ok();
             let manifest = d.manifest.clone();
             let offline = report.draws.iter().any(|c| c.mode == DrawMode::Offline);
-            let entrants = doc
-                .as_ref()
-                .map(|d| d.entrant_ids.len())
-                .unwrap_or_default();
+            let entrants = doc.as_ref().map(|d| d.entrants.len()).unwrap_or_default();
             let prizes = doc.as_ref().map(|d| d.items.len()).unwrap_or_default();
             rsx! {
                 div { class: "space-y-2",
@@ -129,7 +131,7 @@ pub fn Verify(slug: String) -> Element {
                         div { class: "stat-value text-secondary", "{prizes}" }
                     }
                     div { class: "stat",
-                        div { class: "stat-title", "Entrant list hash" }
+                        div { class: "stat-title", "Manifest hash" }
                         div { class: "stat-value font-mono text-base", "{&report.manifest_hash[..16]}…" }
                         div { class: "stat-desc", if report.manifest_hash_ok { "✓ matches the published hash" } else { "✗ does not match" } }
                     }

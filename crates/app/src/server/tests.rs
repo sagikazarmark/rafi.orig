@@ -1097,7 +1097,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
     let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
     let doc: rafi_drawing::manifest::Manifest =
         serde_json::from_str(r.manifest.as_deref().expect("commit document")).unwrap();
-    assert_eq!(doc.entrant_ids.len(), 3);
+    assert_eq!(doc.entrants.len(), 3);
     assert_eq!(doc.items.len(), 2);
     assert_eq!(
         r.manifest_hash.as_deref(),

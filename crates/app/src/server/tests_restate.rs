@@ -90,7 +90,11 @@ async fn app_and_restate_rafi_share_the_database() {
     };
     let client = RestateClient::new(cfg.restate.clone());
     let info = client.info().await.expect("the engine's info");
-    assert_eq!(info.chain, chain, "the engine reports its drand chain");
+    assert_eq!(
+        info.beacon,
+        rafi_drawing::BeaconSource::Drand(chain),
+        "the engine reports its beacon source"
+    );
     let app = AppState::new(cfg).await.unwrap();
 
     let id = service::create(&app, OWNER, "Shared database")

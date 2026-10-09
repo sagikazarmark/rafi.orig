@@ -37,7 +37,7 @@ use std::{
 
 use rafi_drand::DrandClient;
 use rafi_drawing::{
-    Error as DrawingError, ErrorKind,
+    BeaconSource, Error as DrawingError, ErrorKind,
     drawing::Drawing,
     engine::{BeaconOutcome, Command},
     manifest::Manifest,
@@ -214,14 +214,14 @@ impl LocalEngine {
 
 impl DrawingEngine for LocalEngine {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
-        let chain = self.shared.io.drand.chain_hash();
-        Box::pin(async move { Ok(EngineInfo { chain }) })
+        let beacon = BeaconSource::Drand(self.shared.io.drand.chain_hash());
+        Box::pin(async move { Ok(EngineInfo { beacon }) })
     }
 
     fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(async move {
-            let key = format!("{}/{}", doc.raffle_id, doc.open_key());
-            let rx = self.submit(&doc.raffle_id, key, Work::Open(doc.clone()));
+            let key = format!("{}/{}", doc.drawing, doc.open_key());
+            let rx = self.submit(&doc.drawing, key, Work::Open(doc.clone()));
             self.outcome(rx).await
         })
     }
@@ -270,10 +270,10 @@ async fn run(io: Arc<Io>, raffle_id: String, mut jobs: mpsc::UnboundedReceiver<J
 
 impl Io {
     async fn apply(&self, state: &mut Option<Drawing>, work: Work) -> Result<(), DrawingError> {
-        let chain = self.drand.chain_hash();
+        let beacon = BeaconSource::Drand(self.drand.chain_hash());
         match work {
             Work::Open(doc) => {
-                if let Some(fresh) = Drawing::open_or_check(state.as_ref(), &doc, &chain)? {
+                if let Some(fresh) = Drawing::open_or_check(state.as_ref(), &doc, &beacon)? {
                     self.project(&fresh).await;
                     *state = Some(fresh);
                 }
@@ -281,7 +281,7 @@ impl Io {
             }
             Work::Draw { item_id, offline } => {
                 let s = state.as_mut().ok_or(DrawingError::NotOpen)?;
-                s.check_chain(&chain)?;
+                s.check_beacon(&beacon)?;
                 let (round, round_time) = self.drand.target_round((self.clock)());
                 // A pending draw for this item (e.g. stalled) is re-entered on its round.
                 let pending = s.begin(&item_id, round, round_time)?;
@@ -355,7 +355,7 @@ mod tests {
     fn doc(drand: &DrandClient) -> Manifest {
         Manifest::new(
             "r1",
-            &drand.chain_hash(),
+            BeaconSource::Drand(drand.chain_hash()),
             vec!["a".into(), "b".into(), "c".into()],
             vec![ItemRef {
                 id: "u-1".into(),
@@ -384,10 +384,7 @@ mod tests {
         let notifier = Arc::new(Recording::default());
         let engine = LocalEngine::new(drand, store.clone(), notifier.clone());
 
-        assert_eq!(
-            engine.info().await.unwrap().chain,
-            doc.drand_chain.parse().unwrap()
-        );
+        assert_eq!(engine.info().await.unwrap().beacon, doc.beacon);
         engine.open(&doc).await.unwrap();
         engine.open(&doc).await.unwrap();
         let draw = Command::Draw {

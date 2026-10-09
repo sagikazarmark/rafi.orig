@@ -6,7 +6,7 @@
 //! verifier replays.
 //!
 //! The engine protocol is here too, so engines only do I/O:
-//! [`Drawing::open_or_check`] to open it, [`Drawing::check_chain`],
+//! [`Drawing::open_or_check`] to open it, [`Drawing::check_beacon`],
 //! [`Drawing::begin`] and [`Drawing::conclude`] for a draw, and
 //! [`Drawing::apply`] for every other command.
 //!
@@ -32,7 +32,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Hash,
-    drand::{ChainHash, QUICKNET_CHAIN, VerifiedBeacon},
+    beacon::BeaconSource,
+    drand::VerifiedBeacon,
     draw,
     engine::{BeaconOutcome, Command},
     error::Error,
@@ -144,9 +145,8 @@ pub struct Drawing {
     pub id: String,
     /// Hex `SHA256` of the canonical manifest.
     pub manifest_hash: String,
-    /// Hex hash of the drand chain the draws use (from the manifest).
-    #[serde(default = "quicknet_chain")]
-    pub drand_chain: String,
+    /// Where the draws' randomness comes from (from the manifest).
+    pub beacon: BeaconSource,
     /// Sorted entrant IDs.
     pub entrants: Vec<String>,
     pub items: Vec<Item>,
@@ -158,15 +158,14 @@ pub struct Drawing {
     pub version: u64,
 }
 
-/// Refuses a drawing committed to another drand chain than the engine's.
-fn check_chain(committed: &str, engine: &ChainHash) -> Result<(), Error> {
-    let engine = engine.to_string();
-    if committed.eq_ignore_ascii_case(&engine) {
+/// Refuses a drawing committed to another beacon source than the engine's.
+fn check_beacon(committed: &BeaconSource, engine: &BeaconSource) -> Result<(), Error> {
+    if committed == engine {
         Ok(())
     } else {
-        Err(Error::ChainMismatch {
-            committed: committed.to_owned(),
-            engine,
+        Err(Error::BeaconMismatch {
+            committed: *committed,
+            engine: *engine,
         })
     }
 }
@@ -180,19 +179,15 @@ pub struct Drawn {
     pub pass: u8,
 }
 
-fn quicknet_chain() -> String {
-    QUICKNET_CHAIN.to_owned()
-}
-
 impl Drawing {
     /// Opens a drawing from its manifest.
     pub fn open(manifest: &Manifest) -> Self {
         let json = manifest.canonical_json();
         Self {
-            id: manifest.raffle_id.clone(),
+            id: manifest.drawing.clone(),
             manifest_hash: hex::encode(manifest::hash(&json)),
-            drand_chain: manifest.drand_chain.clone(),
-            entrants: manifest.entrant_ids.clone(),
+            beacon: manifest.beacon,
+            entrants: manifest.entrants.clone(),
             items: manifest.items.iter().map(Item::pending).collect(),
             events: Vec::new(),
             next_k: 1,
@@ -205,16 +200,17 @@ impl Drawing {
     /// Opening, as every engine applies it: `existing` is the engine's
     /// drawing for this ID, if any.
     ///
-    /// Validates the manifest and refuses another chain than the engine's.
+    /// Validates the manifest and refuses another beacon source than the
+    /// engine's.
     /// Opening with the same manifest again is a no-op (`None`); another
     /// manifest is refused. Otherwise returns the fresh drawing to store.
     pub fn open_or_check(
         existing: Option<&Drawing>,
         manifest: &Manifest,
-        engine_chain: &ChainHash,
+        engine_beacon: &BeaconSource,
     ) -> Result<Option<Drawing>, Error> {
         manifest.validate()?;
-        check_chain(&manifest.drand_chain, engine_chain)?;
+        check_beacon(&manifest.beacon, engine_beacon)?;
         let fresh = Self::open(manifest);
         match existing {
             Some(existing) if existing.manifest_hash == fresh.manifest_hash => Ok(None),
@@ -223,10 +219,10 @@ impl Drawing {
         }
     }
 
-    /// Refuses to draw with an engine on another drand chain than the one the
-    /// drawing committed to.
-    pub fn check_chain(&self, engine_chain: &ChainHash) -> Result<(), Error> {
-        check_chain(&self.drand_chain, engine_chain)
+    /// Refuses to draw with an engine on another beacon source than the one
+    /// the drawing committed to.
+    pub fn check_beacon(&self, engine_beacon: &BeaconSource) -> Result<(), Error> {
+        check_beacon(&self.beacon, engine_beacon)
     }
 
     /// Whether the pending draw has stalled: its latest attempt couldn't get
@@ -407,12 +403,8 @@ impl Drawing {
                 got: beacon.round(),
             });
         }
-        if !beacon
-            .chain_hash()
-            .to_string()
-            .eq_ignore_ascii_case(&self.drand_chain)
-        {
-            return Err(Error::WrongChain);
+        if BeaconSource::Drand(beacon.chain_hash()) != self.beacon {
+            return Err(Error::WrongBeacon);
         }
         self.settle(
             pending,
@@ -661,8 +653,8 @@ pub(crate) mod tests {
 
     fn doc(n: usize, items: usize) -> Manifest {
         Manifest::new(
-            "raffle",
-            &test_chain().chain().hash(),
+            "drawing",
+            source(),
             (0..n).map(|i| format!("{i:032x}")).collect(),
             (0..items)
                 .map(|i| ItemRef {
@@ -743,8 +735,8 @@ pub(crate) mod tests {
                 got: 11
             })
         );
-        s.drand_chain = QUICKNET_CHAIN.into();
-        assert_eq!(s.complete(&beacon(10)), Err(Error::WrongChain));
+        s.beacon = BeaconSource::Drand(crate::drand::chains::QUICKNET_HASH);
+        assert_eq!(s.complete(&beacon(10)), Err(Error::WrongBeacon));
         assert!(s.pending.is_some());
     }
 
@@ -816,37 +808,42 @@ pub(crate) mod tests {
         assert!(v0 < v1 && v1 < v2 && v2 < v3);
     }
 
-    fn chain() -> ChainHash {
-        test_chain().chain().hash()
+    fn source() -> BeaconSource {
+        BeaconSource::Drand(test_chain().chain().hash())
     }
 
     #[test]
     fn open_or_check_is_idempotent_per_manifest() {
         let d = doc(3, 1);
-        let fresh = Drawing::open_or_check(None, &d, &chain()).unwrap().unwrap();
+        let fresh = Drawing::open_or_check(None, &d, &source())
+            .unwrap()
+            .unwrap();
         assert_eq!(fresh, Drawing::open(&d));
-        assert_eq!(Drawing::open_or_check(Some(&fresh), &d, &chain()), Ok(None));
         assert_eq!(
-            Drawing::open_or_check(Some(&fresh), &doc(4, 1), &chain()),
+            Drawing::open_or_check(Some(&fresh), &d, &source()),
+            Ok(None)
+        );
+        assert_eq!(
+            Drawing::open_or_check(Some(&fresh), &doc(4, 1), &source()),
             Err(Error::AlreadyOpen)
         );
     }
 
     #[test]
-    fn open_or_check_refuses_another_chain_and_invalid_manifests() {
-        let quicknet = crate::drand::chains::QUICKNET_HASH;
+    fn open_or_check_refuses_another_beacon_source_and_invalid_manifests() {
+        let quicknet = BeaconSource::Drand(crate::drand::chains::QUICKNET_HASH);
         assert!(matches!(
             Drawing::open_or_check(None, &doc(3, 1), &quicknet),
-            Err(Error::ChainMismatch { .. })
+            Err(Error::BeaconMismatch { .. })
         ));
         assert!(matches!(
-            Drawing::open_or_check(None, &doc(0, 1), &chain()),
+            Drawing::open_or_check(None, &doc(0, 1), &source()),
             Err(Error::InvalidManifest(_))
         ));
         let s = Drawing::open(&doc(3, 1));
-        assert_eq!(s.check_chain(&chain()), Ok(()));
+        assert_eq!(s.check_beacon(&source()), Ok(()));
         assert_eq!(
-            s.check_chain(&quicknet).unwrap_err().kind(),
+            s.check_beacon(&quicknet).unwrap_err().kind(),
             ErrorKind::Conflict
         );
     }
@@ -946,7 +943,7 @@ pub(crate) mod tests {
         assert_eq!(Error::BadOutcome.kind(), ErrorKind::BadRequest);
         assert_eq!(Error::AlreadyOpen.kind(), ErrorKind::Conflict);
         assert_eq!(Error::DrawInProgress.kind(), ErrorKind::Conflict);
-        assert_eq!(Error::WrongChain.kind(), ErrorKind::Invariant);
+        assert_eq!(Error::WrongBeacon.kind(), ErrorKind::Invariant);
         assert_eq!(Error::BadManifestHash.kind(), ErrorKind::Invariant);
     }
 
@@ -961,13 +958,5 @@ pub(crate) mod tests {
         let json = serde_json::to_value(&e).unwrap();
         assert_eq!(json["type"], "fail");
         assert_eq!(serde_json::from_value::<Event>(json).unwrap(), e);
-    }
-
-    #[test]
-    fn states_without_a_chain_default_to_quicknet() {
-        let mut v = serde_json::to_value(Drawing::open(&doc(1, 1))).unwrap();
-        v.as_object_mut().unwrap().remove("drand_chain");
-        let s: Drawing = serde_json::from_value(v).unwrap();
-        assert_eq!(s.drand_chain, QUICKNET_CHAIN);
     }
 }

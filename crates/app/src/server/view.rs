@@ -1,5 +1,6 @@
 //! Builds the public [`RaffleView`] from the database.
 
+use rafi_drawing::BeaconSource;
 use std::collections::HashMap;
 
 use rafi_core::raffle::RaffleState;
@@ -184,16 +185,15 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
     }
 
     let state = raffle.state();
-    // Labelled by the chain the raffle committed to (or will): only a public
-    // drand chain is verifiable.
-    let chain = raffle
+    // Labelled by the beacon source the raffle committed to (or will): only
+    // a public drand chain is verifiable.
+    let beacon = raffle
         .drawing()
-        .map(|s| s.drand_chain)
-        .unwrap_or_else(|| app.chain.to_string());
-    let public = chain
-        .parse::<rafi_drawing::drand::ChainHash>()
-        .ok()
-        .is_some_and(|c| rafi_drawing::drand::chains::by_hash(&c).is_some());
+        .map(|s| s.beacon)
+        .unwrap_or(BeaconSource::Drand(app.chain));
+    let public = beacon
+        .drand_chain()
+        .is_some_and(|c| rafi_drawing::drand::chains::by_hash(c).is_some());
     let engine = if public {
         "restate"
     } else {

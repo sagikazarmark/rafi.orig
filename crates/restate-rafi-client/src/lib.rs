@@ -24,7 +24,7 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use rafi_drawing::{ErrorKind, drand::ChainHash, engine::Command, manifest::Manifest};
+use rafi_drawing::{BeaconSource, ErrorKind, engine::Command, manifest::Manifest};
 use rafi_platform::{BoxFuture, DrawingEngine, EngineError, EngineInfo, sendable};
 use serde::{Deserialize, Serialize};
 
@@ -70,7 +70,7 @@ pub struct RestateClient {
 
 #[derive(Deserialize)]
 struct InfoReply {
-    chain: String,
+    beacon: BeaconSource,
 }
 
 impl RestateClient {
@@ -172,16 +172,15 @@ impl DrawingEngine for RestateClient {
                 .json()
                 .await
                 .map_err(|e| EngineError::Unavailable(anyhow!("reading {path}: {e}")))?;
-            let chain: ChainHash = reply.chain.parse().map_err(|e| {
-                EngineError::Unavailable(anyhow!("the engine reports chain {:?}: {e}", reply.chain))
-            })?;
-            Ok(EngineInfo { chain })
+            Ok(EngineInfo {
+                beacon: reply.beacon,
+            })
         }))
     }
 
     fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(sendable(async move {
-            self.call(&doc.raffle_id, OPEN, false, &doc.open_key(), doc)
+            self.call(&doc.drawing, OPEN, false, &doc.open_key(), doc)
                 .await
         }))
     }

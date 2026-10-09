@@ -194,7 +194,7 @@ mod tests {
     async fn raffle(db: &Db) -> Drawing {
         let doc = Manifest::new(
             "r1",
-            &rafi_drawing::drand::chains::QUICKNET_HASH,
+            rafi_drawing::BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
             vec!["a".repeat(32), "b".repeat(32)],
             vec![
                 ItemRef {

@@ -14,6 +14,7 @@
 //! (a log doing that fails verification).
 
 use rafi_drawing::{
+    BeaconSource,
     drand::{Beacon, VerifiedBeacon, Verifier, chains},
     draw,
     drawing::{Drawing, Outcome},
@@ -110,7 +111,12 @@ fn generate() -> Vectors {
             name: "Foo gift".into(),
         },
     ];
-    let doc = Manifest::new("raffle-vectors", &chains::QUICKNET_HASH, entrants, items);
+    let doc = Manifest::new(
+        "drawing-vectors",
+        BeaconSource::Drand(chains::QUICKNET_HASH),
+        entrants,
+        items,
+    );
     let mut s = Drawing::open(&doc);
     s.begin("u-voucher-1", 1000, 0).unwrap();
     s.complete(&beacon(1000)).unwrap();

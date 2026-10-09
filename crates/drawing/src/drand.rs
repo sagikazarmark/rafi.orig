@@ -8,9 +8,6 @@ pub use drand::{
     Verifier, chains,
 };
 
-/// The chain every drawing used before the chain became configurable (quicknet).
-pub const QUICKNET_CHAIN: &str = "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971";
-
 /// The round a draw starting at `now_unix` commits to: the latest round due at
 /// `now + lead_secs`.
 ///

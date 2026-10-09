@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    beacon::BeaconSource,
     drand::{Beacon, ChainHash, ChainInfo, Verifier, chains},
     drawing::{DrawMode, Drawing, Event},
     manifest::{self, Manifest},
@@ -53,8 +54,9 @@ pub struct CommittedRound {
 pub struct Report {
     pub manifest_hash: String,
     pub manifest_hash_ok: bool,
-    /// The drand chain hash from the manifest.
-    pub chain: String,
+    /// Where the randomness came from, per the manifest (`None` if the
+    /// manifest could not be read).
+    pub beacon: Option<BeaconSource>,
     /// Whether the chain is known, so every beacon could be BLS-verified.
     /// False for test chains: such a log is never reported as verified.
     pub chain_known: bool,
@@ -108,7 +110,7 @@ pub fn verify(
     let mut report = Report {
         manifest_hash_ok: computed.eq_ignore_ascii_case(expected_manifest_hash),
         manifest_hash: computed,
-        chain: String::new(),
+        beacon: None,
         chain_known: false,
         draws: Vec::new(),
         replaced: Vec::new(),
@@ -126,9 +128,9 @@ pub fn verify(
             .errors
             .push("manifest is not in canonical form".into());
     }
-    report.chain = doc.drand_chain.clone();
-    let verifier = match doc.drand_chain.parse::<ChainHash>() {
-        Ok(hash) => match resolve(&hash) {
+    report.beacon = Some(doc.beacon);
+    let verifier = match doc.beacon.drand_chain() {
+        Some(&hash) => match resolve(&hash) {
             Some(info) if info.hash() == hash => match Verifier::new(&info) {
                 Ok(v) => Some(v),
                 Err(e) => {
@@ -144,10 +146,7 @@ pub fn verify(
             }
             None => None,
         },
-        Err(_) => {
-            report.errors.push("invalid drand chain hash".into());
-            None
-        }
+        None => None,
     };
     report.chain_known = verifier.is_some();
 
@@ -350,7 +349,7 @@ mod tests {
     fn setup() -> (Manifest, Drawing) {
         let doc = Manifest::new(
             "r",
-            &test_chain().chain().hash(),
+            BeaconSource::Drand(test_chain().chain().hash()),
             (0..10).map(|i| format!("{i:032x}")).collect(),
             (0..3)
                 .map(|i| ItemRef {
@@ -472,7 +471,7 @@ mod tests {
     fn tampered_list_is_detected() {
         let (doc, s) = setup();
         let mut other = doc.clone();
-        other.entrant_ids.pop();
+        other.entrants.pop();
         let report = verify(
             &other.canonical_json(),
             &s.manifest_hash,
@@ -486,7 +485,7 @@ mod tests {
     fn pool_change_while_pending_fails_verification() {
         let doc = Manifest::new(
             "r",
-            &test_chain().chain().hash(),
+            BeaconSource::Drand(test_chain().chain().hash()),
             (0..2).map(|i| format!("{i:032x}")).collect(),
             (0..3)
                 .map(|i| ItemRef {

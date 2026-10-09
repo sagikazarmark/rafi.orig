@@ -5,7 +5,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::anyhow;
 use rafi_drand::DrandClient;
 use rafi_drawing::{
-    Error as DrawingError,
+    BeaconSource, Error as DrawingError,
     drawing::Drawing,
     engine::{BeaconOutcome, Command},
     manifest::Manifest,
@@ -40,6 +40,11 @@ impl Raffle {
             store: Arc::new(store),
             notifier: Arc::new(notifier),
         }
+    }
+
+    /// Where this engine's randomness comes from.
+    fn beacon(&self) -> BeaconSource {
+        BeaconSource::Drand(self.drand.chain().hash())
     }
 }
 
@@ -122,19 +127,19 @@ impl Raffle {
     idempotency_retention = "1h"
 )]
 impl Raffle {
-    /// Freezes the entrant list. Idempotent for the same list; a different list is rejected.
+    /// Opens the drawing from its manifest. Idempotent for the same manifest;
+    /// another manifest is rejected.
     #[handler]
     async fn open(&self, ctx: ObjectContext<'_>, doc: Json<Manifest>) -> HandlerResult<()> {
         let doc = doc.into_inner();
-        if doc.raffle_id != ctx.key() {
-            return Err(rejected("raffle ID does not match the object key", 400));
+        if doc.drawing != ctx.key() {
+            return Err(rejected("drawing ID does not match the object key", 400));
         }
         // The app and this endpoint configure drand separately; the rules
-        // refuse a raffle whose draws would come from another chain.
+        // refuse a drawing whose draws would come from another source.
         let existing = ctx.get::<Json<Drawing>>(STATE).await?.map(Json::into_inner);
         let Some(fresh) =
-            Drawing::open_or_check(existing.as_ref(), &doc, &self.drand.chain().hash())
-                .map_err(draw_error)?
+            Drawing::open_or_check(existing.as_ref(), &doc, &self.beacon()).map_err(draw_error)?
         else {
             return Ok(());
         };
@@ -159,9 +164,7 @@ impl Raffle {
             return Err(rejected("expected a draw command", 400));
         };
         let mut state = Self::load(&ctx).await?;
-        state
-            .check_chain(&self.drand.chain().hash())
-            .map_err(draw_error)?;
+        state.check_beacon(&self.beacon()).map_err(draw_error)?;
 
         // Replay-safe: the clock read is journaled, so a resumed invocation
         // commits to the very same round. A stalled draw for this item is

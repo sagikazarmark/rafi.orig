@@ -6,6 +6,7 @@
 //! run in the server, inside the Restate virtual object, in the browser
 //! verifier (WASM) and in tests, and always produce identical results.
 
+pub mod beacon;
 pub mod drand;
 pub mod draw;
 pub mod drawing;
@@ -14,6 +15,7 @@ pub mod error;
 pub mod manifest;
 pub mod verify;
 
+pub use beacon::BeaconSource;
 pub use drawing::Drawing;
 pub use error::{Error, ErrorKind};
 pub use manifest::Manifest;

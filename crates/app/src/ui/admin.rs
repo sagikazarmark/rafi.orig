@@ -814,7 +814,7 @@ fn DrawConsole(
                 icon: I::Dice,
                 actions: rsx! {
                     if let Some(hash) = &v.manifest_hash {
-                        span { class: "tooltip tooltip-left", "data-tip": "Frozen entrant list hash: {hash}",
+                        span { class: "tooltip tooltip-left", "data-tip": "Manifest hash: {hash}",
                             span { class: "badge badge-ghost gap-1 font-mono", Icon { i: I::Lock, class: "size-3.5" } "{&hash[..10]}…" }
                         }
                     }

@@ -5,7 +5,7 @@ use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_drawing::{
-    Error,
+    BeaconSource, Error,
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
     drawing::{Drawing, Event, ItemStatus, Outcome},
     manifest::{ItemRef, Manifest},
@@ -64,13 +64,8 @@ fn op() -> impl Strategy<Value = Op> {
 }
 
 /// Everything the pending draw's outcome depends on.
-fn draw_inputs(s: &Drawing) -> (u64, (u8, Vec<String>), String, String) {
-    (
-        s.next_k,
-        s.pool(),
-        s.drand_chain.clone(),
-        s.manifest_hash.clone(),
-    )
+fn draw_inputs(s: &Drawing) -> (u64, (u8, Vec<String>), BeaconSource, String) {
+    (s.next_k, s.pool(), s.beacon, s.manifest_hash.clone())
 }
 
 proptest! {
@@ -80,7 +75,7 @@ proptest! {
     fn invariants_hold_and_log_verifies(n in 0usize..8, items in 1usize..6, ops in proptest::collection::vec(op(), 0..40)) {
         let doc = Manifest::new(
             "prop",
-            &chain().0.chain().hash(),
+            BeaconSource::Drand(chain().0.chain().hash()),
             (0..n).map(|i| format!("{i:032x}")).collect(),
             (0..items).map(|i| ItemRef { id: format!("u{i}"), name: "P".into() }).collect(),
         );
@@ -137,7 +132,7 @@ proptest! {
                 match item.status {
                     ItemStatus::Drawn | ItemStatus::Claimed => {
                         let e = item.entrant_id.clone().unwrap();
-                        prop_assert!(doc.entrant_ids.contains(&e));
+                        prop_assert!(doc.entrants.contains(&e));
                     }
                     _ => prop_assert!(item.entrant_id.is_none()),
                 }
@@ -157,7 +152,7 @@ proptest! {
 
     #[test]
     fn empty_drawing_cannot_draw(items in 1usize..4) {
-        let doc = Manifest::new("e", &chain().0.chain().hash(), vec![], (0..items).map(|i| ItemRef { id: format!("u{i}"), name: "P".into() }).collect());
+        let doc = Manifest::new("e", BeaconSource::Drand(chain().0.chain().hash()), vec![], (0..items).map(|i| ItemRef { id: format!("u{i}"), name: "P".into() }).collect());
         let mut s = Drawing::open(&doc);
         prop_assert_eq!(s.begin("u0", 1, 0), Err(Error::NoEligibleEntrants));
     }

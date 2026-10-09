@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use rafi_drawing::{
-    Error as DrawingError, ErrorKind, drand::ChainHash, engine::Command, manifest::Manifest,
+    BeaconSource, Error as DrawingError, ErrorKind, engine::Command, manifest::Manifest,
 };
 
 use crate::BoxFuture;
@@ -11,10 +11,10 @@ use crate::BoxFuture;
 /// What the draw engine says about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineInfo {
-    /// The drand chain the engine draws from. The app decides which chain a
-    /// drawing commits to; it only checks this before opening one, and the
-    /// engine refuses a mismatch itself.
-    pub chain: ChainHash,
+    /// Where the engine's randomness comes from. The app decides which
+    /// source a drawing commits to; it only checks this before opening one,
+    /// and the engine refuses a mismatch itself.
+    pub beacon: BeaconSource,
 }
 
 /// Why the draw engine didn't (or didn't yet) confirm a call.
@@ -76,7 +76,7 @@ impl From<DrawingError> for EngineError {
 ///   refused as not found. An opening replayed after that never changes the
 ///   published projection (the store keeps the newest version).
 pub trait DrawingEngine: Send + Sync + 'static {
-    /// The engine's drand chain; also tells whether it is reachable.
+    /// The engine's beacon source; also tells whether it is reachable.
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>>;
 
     /// Opens a drawing from its manifest: the engine owns it from here.

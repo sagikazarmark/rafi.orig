@@ -17,15 +17,16 @@ See [`docs/PLAN.md`](docs/PLAN.md) for the design and the reasoning behind it.
 
 ## How the draw works
 
-1. **Start the draw** closes registration, freezes the entrant list (random IDs only) and publishes
-   `list_hash = SHA256(commit document)`.
-2. For each prize unit the organizer presses **Draw**. The draw engine commits to drand
+1. **Start the draw** closes registration, freezes the entrant list (random IDs only) and opens the
+   drawing from its **manifest**: the entrants, one item per prize copy, the algorithm and the beacon
+   source (`{"drand": "<chain hash>"}`). It publishes the manifest and `manifest_hash = SHA256(manifest)`.
+2. For each item the organizer presses **Draw**. The draw engine commits to drand
    quicknet round `R` (about 6 s in the future), announces it on screen, waits durably until it is published,
    fetches the beacon from the public relays and verifies its BLS signature against the quicknet key
    ([`drand`](https://crates.io/crates/drand)); `randomness = SHA256(signature)`. A beacon that can't be had
    leaves the draw pending on round `R`: retrying fetches the same round, so nobody can force a redraw.
    The only ways out are an offline draw or an explicit abandon, and the verification page shows both.
-3. `seed = SHA256("rafi-draw-v1" ‖ randomness ‖ list_hash ‖ k)`. The winner is `pool[uniform(|pool|)]`, using
+3. `seed = SHA256("rafi-draw-v1" ‖ randomness ‖ manifest_hash ‖ k)`. The winner is `pool[uniform(|pool|)]`, using
    SHA-256 counter-mode rejection sampling, so there is no modulo bias.
 4. One win per person. "Not here" or "Declined" removes that person and the prize is drawn again with a new round
    (not while another draw is pending, since that could change its pool).

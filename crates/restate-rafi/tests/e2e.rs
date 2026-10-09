@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
+    BeaconSource,
     drawing::{Drawing, Event, ItemStatus, Outcome},
     engine::Command,
     manifest::{ItemRef, Manifest},
@@ -33,7 +34,7 @@ const RAFFLE: &str = "e2e-raffle";
 fn doc(entrants: usize) -> Manifest {
     Manifest::new(
         RAFFLE,
-        &rafi_drand::mock_chain().chain().hash(),
+        BeaconSource::Drand(rafi_drand::mock_chain().chain().hash()),
         (0..entrants).map(|i| format!("{i:032x}")).collect(),
         vec![
             ItemRef {
@@ -102,15 +103,18 @@ async fn e2e_raffle() {
     let frozen = projected(&store, |s| s.events.is_empty()).await;
     assert_eq!(frozen.entrants.len(), 5);
     let reply = restate.invoke(&call("open"), Some(&json!(doc)), None).await;
-    assert_eq!(reply.status, 200, "refreezing the same list is idempotent");
+    assert_eq!(
+        reply.status, 200,
+        "reopening with the same manifest is idempotent"
+    );
     let reply = restate
         .invoke(&call("open"), Some(&json!(self::doc(4))), None)
         .await;
     assert_eq!(reply.status, 409, "{}", reply.body);
-    // A commit to another drand chain than the engine's is refused.
+    // A drawing on another beacon source than the engine's is refused.
     let mut quicknet = self::doc(5);
-    quicknet.raffle_id = "other-raffle".into();
-    quicknet.drand_chain = rafi_drawing::drand::QUICKNET_CHAIN.into();
+    quicknet.drawing = "other-raffle".into();
+    quicknet.beacon = BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH);
     let reply = restate
         .invoke(
             &Call::object(SERVICE_NAME, "other-raffle", "open"),
@@ -288,7 +292,7 @@ async fn e2e_stalled_draw() {
     let call = |handler| Call::object(SERVICE_NAME, RAFFLE, handler);
     let cmd = |c: Command| serde_json::to_value(c).unwrap();
     let mut doc = doc(5);
-    doc.drand_chain = rafi_drawing::drand::QUICKNET_CHAIN.into();
+    doc.beacon = BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH);
     let reply = restate
         .invoke(&call("open"), Some(&json!(doc)), Some("open-1"))
         .await;

@@ -1,6 +1,8 @@
 //! How the drawing refuses something, and how every engine and caller
 //! classifies that refusal.
 
+use crate::beacon::BeaconSource;
+
 /// Why the drawing refused something.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
@@ -8,8 +10,11 @@ pub enum Error {
     NotOpen,
     #[error("the drawing is already open with another manifest")]
     AlreadyOpen,
-    #[error("the drawing commits to drand chain {committed}, but the draw engine uses {engine}")]
-    ChainMismatch { committed: String, engine: String },
+    #[error("the drawing draws from {committed}, but the draw engine from {engine}")]
+    BeaconMismatch {
+        committed: BeaconSource,
+        engine: BeaconSource,
+    },
     #[error("invalid manifest: {0}")]
     InvalidManifest(String),
     #[error("draws go through the draw step, not as a command")]
@@ -30,8 +35,8 @@ pub enum Error {
     NoEligibleEntrants,
     #[error("the beacon is for round {got}, but the draw committed to round {expected}")]
     WrongRound { expected: u64, got: u64 },
-    #[error("the beacon is from another drand chain")]
-    WrongChain,
+    #[error("the beacon is from another source than the drawing's")]
+    WrongBeacon,
     #[error("invalid manifest hash")]
     BadManifestHash,
     #[error("invalid resolution outcome")]
@@ -47,16 +52,16 @@ impl Error {
                 ErrorKind::BadRequest
             }
             Self::AlreadyOpen
-            | Self::ChainMismatch { .. }
+            | Self::BeaconMismatch { .. }
             | Self::Finished
             | Self::ItemNotPending(_)
             | Self::ItemNotDrawn(_)
             | Self::DrawInProgress
             | Self::NoDrawInProgress
             | Self::NoEligibleEntrants => ErrorKind::Conflict,
-            // A beacon for the wrong round or chain only ever stalls a draw,
+            // A beacon for the wrong round or source only ever stalls a draw,
             // and the manifest hash is the engine's own: these are engine bugs.
-            Self::WrongRound { .. } | Self::WrongChain | Self::BadManifestHash => {
+            Self::WrongRound { .. } | Self::WrongBeacon | Self::BadManifestHash => {
                 ErrorKind::Invariant
             }
         }

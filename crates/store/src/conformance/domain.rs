@@ -2,6 +2,7 @@
 
 use rafi_core::raffle::RaffleState;
 use rafi_drawing::{
+    BeaconSource,
     drawing::{DrawMode, Drawing, Event, ItemStatus},
     manifest::{ItemRef, Manifest},
 };
@@ -24,7 +25,7 @@ const PURGE: PurgeAfter = PurgeAfter {
 async fn frozen(db: &Db, id: &str) -> Result<Drawing, String> {
     let doc = Manifest::new(
         id,
-        &rafi_drawing::drand::chains::QUICKNET_HASH,
+        BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
         vec!["a".repeat(32), "b".repeat(32)],
         vec![ItemRef {
             id: "u1".into(),
@@ -448,7 +449,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         .map_err(fail)?;
     let doc = Manifest::new(
         "r1",
-        &rafi_drawing::drand::chains::QUICKNET_HASH,
+        BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
         vec!["w".into(), "d".into(), "n".into()],
         ["u1", "u2"]
             .map(|u| ItemRef {

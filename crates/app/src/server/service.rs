@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use rafi_core::raffle::{Action, RaffleState};
 use rafi_drawing::{
-    Error as DrawingError, ErrorKind,
+    BeaconSource, Error as DrawingError, ErrorKind,
     drawing::Outcome,
     engine::Command,
     manifest::{ItemRef, Manifest},
@@ -365,12 +365,14 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
             "Restate is not reachable. Check the connection and try again.".into(),
         )
     })?;
-    // The app decides the chain; the engine would refuse another at freeze,
-    // after the commitment is stored. Refuse before anything is frozen.
-    if info.chain != app.chain {
+    // The app decides the beacon source; the engine would refuse another
+    // when the drawing opens, after the manifest is stored. Refuse before
+    // anything is frozen.
+    let beacon = BeaconSource::Drand(app.chain);
+    if info.beacon != beacon {
         return Err(conflict(format!(
-            "The draw engine draws from drand chain {}, but raffles here commit to {}. Fix the configuration before starting the draw.",
-            info.chain, app.chain
+            "The draw engine draws from {}, but raffles here commit to {beacon}. Fix the configuration before starting the draw.",
+            info.beacon
         )));
     }
 
@@ -452,7 +454,7 @@ async fn write_manifest(
         return Err(conflict("Nobody has entered yet."));
     }
     // The app alone decides the chain; the draw engine refuses a mismatch.
-    let manifest = Manifest::new(id, &app.chain, entrant_ids, items);
+    let manifest = Manifest::new(id, BeaconSource::Drand(app.chain), entrant_ids, items);
     let json = manifest.canonical_json();
     let hash = hex::encode(rafi_drawing::manifest::hash(&json));
     if !raffles::set_manifest(&app.db, id, &json, &hash).await? {

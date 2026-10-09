@@ -187,16 +187,16 @@ Draft ──publish──▶ Ready ──open──▶ Open ◀──reopen─�
 ### 6.2 Algorithm
 
 ```
-freeze:   entrant_ids = sorted hex IDs (random 128-bit)
-          commit_doc  = canonical JSON {algo:"rafi-draw-v1", raffle_id, entrant_ids, units:[{unit_id,item_name}], drand_chain}
-          list_hash   = SHA256(commit_doc)                         — published at /v/{slug} before the first draw
+freeze:   entrants      = sorted hex IDs (random 128-bit)
+          manifest      = canonical JSON {algo:"rafi-draw-v1", drawing, beacon:{drand:<chain hash>}, entrants, items:[{id,name}]}
+          manifest_hash = SHA256(manifest)                         — published at /v/{slug} before the first draw
 
 draw k:   R            = floor((now + 6s − 1692803367) / 3) + 1    — quicknet, journaled via ctx.run
           beacon       = GET {relay}/{chain}/public/{R} from api.drand.sh AND drand.cloudflare.com (425 → retry)
                          require both equal; randomness = SHA256(signature) (BLS verify: later, `drand_core`)
           pool_k       = sorted(entrant_ids − everyone drawn in draws 1..k−1)
-                         (if empty and units remain → pass 2: pool = Claimed winners not yet drawn in pass 2)
-          seed_k       = SHA256("rafi-draw-v1" ‖ randomness ‖ list_hash ‖ BE_u64(k))
+                         (if empty and items remain → pass 2: pool = Claimed winners not yet drawn in pass 2)
+          seed_k       = SHA256("rafi-draw-v1" ‖ randomness ‖ manifest_hash ‖ BE_u64(k))
           rand_u64(c)  = BE_u64(SHA256(seed_k ‖ BE_u64(c))[0..8])
           uniform(n)   : limit = 2^64 − (2^64 mod n); c = 0; loop { x = rand_u64(c++); if x < limit return x mod n }
           winner_k     = pool_k[uniform(|pool_k|)]
@@ -211,8 +211,8 @@ draw k:   R            = floor((now + 6s − 1692803367) / 3) + 1    — quickne
 ### 6.3 Verification
 
 `/v/{slug}` publishes:
-- the commit document (entrant IDs plus display names until the purge, so people can check they're in);
-- every draw: `k`, unit, R, signature, randomness, pool size, winner index, winner ID and outcome;
+- the manifest (entrant IDs, plus display names until the purge, so people can check they're in);
+- every draw: `k`, item, R, signature, randomness, pool size, winner index, winner ID and outcome;
 - an in-browser **re-run** (WebCrypto + BigInt).
 
 Also ship `tools/verify.py` (about 40 lines, `hashlib` only) and `testdata/draw-vectors.json`. CI checks the Rust code and the Python verifier against the same test vectors.

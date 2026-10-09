@@ -87,10 +87,14 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
     else:
         print(f"ok   manifest hash {manifest_hash.hex()}")
     doc = json.loads(manifest)
-    entrants = doc["entrant_ids"]
-    chain = doc["drand_chain"]
+    entrants = doc["entrants"]
+    # The beacon source is tagged by kind: {"drand": "<chain hash>"}.
+    chain = doc["beacon"].get("drand")
+    if chain is None:
+        print(f"FAIL unknown beacon source {doc['beacon']}")
+        return False
     name = PUBLIC_CHAINS.get(chain)
-    print(f"     {len(entrants)} entrants, {len(doc['items'])} items, chain {chain[:12]}… ({name or 'NOT a public drand chain'})")
+    print(f"     {len(entrants)} entrants, {len(doc['items'])} items, drand chain {chain[:12]}… ({name or 'NOT a public drand chain'})")
     if name is None:
         print("FAIL draws use a test chain: their randomness is not publicly verifiable")
         ok = False

@@ -63,7 +63,7 @@ async fn reset(db: &Db, raffle: &str) -> Result<()> {
 async fn freeze(db: &Db, raffle: &str) -> Result<()> {
     let doc = Manifest::new(
         raffle,
-        &rafi_drawing::drand::chains::QUICKNET_HASH,
+        rafi_drawing::BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
         vec![entrant(raffle, "anna"), entrant(raffle, "bence")],
         vec![
             ItemRef {
@@ -100,7 +100,7 @@ async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     .chain_hash();
     let doc = Manifest::new(
         raffle,
-        &chain,
+        rafi_drawing::BeaconSource::Drand(chain),
         vec![entrant(raffle, "anna"), entrant(raffle, "bence")],
         vec![
             ItemRef {

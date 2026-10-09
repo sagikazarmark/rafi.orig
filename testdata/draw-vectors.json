@@ -73,8 +73,8 @@
     }
   ],
   "scenario": {
-    "manifest": "{\"algo\":\"rafi-draw-v1\",\"raffle_id\":\"raffle-vectors\",\"drand_chain\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\",\"entrant_ids\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"u-ticket-1\",\"name\":\"KCD Budapest ticket\"},{\"id\":\"u-ticket-2\",\"name\":\"KCD Budapest ticket\"},{\"id\":\"u-voucher-1\",\"name\":\"CNCF exam voucher\"},{\"id\":\"u-gift-1\",\"name\":\"Foo gift\"}]}",
-    "manifest_hash": "8e8a64ed65513dcb6a12b7ceadfd7bf20c57da3845e56309001c95f5af44452f",
+    "manifest": "{\"algo\":\"rafi-draw-v1\",\"drawing\":\"drawing-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"u-ticket-1\",\"name\":\"KCD Budapest ticket\"},{\"id\":\"u-ticket-2\",\"name\":\"KCD Budapest ticket\"},{\"id\":\"u-voucher-1\",\"name\":\"CNCF exam voucher\"},{\"id\":\"u-gift-1\",\"name\":\"Foo gift\"}]}",
+    "manifest_hash": "75d94e09118d983dc0bd9fcec459a9c826775b5b0b83cac1ae2192941e0504b1",
     "events": [
       {
         "item_id": "u-voucher-1",
@@ -84,8 +84,8 @@
         "type": "announce"
       },
       {
-        "entrant_id": "514fd5455cdd9fd3fbb20606fa906d11",
-        "index": 6,
+        "entrant_id": "4d81a0ebb2bc7469598bc83b76b062d1",
+        "index": 5,
         "item_id": "u-voucher-1",
         "k": 1,
         "mode": "beacon",
@@ -130,8 +130,8 @@
         "type": "stall"
       },
       {
-        "entrant_id": "fb8211d765bcdbc2144555dd222ad8cb",
-        "index": 10,
+        "entrant_id": "514fd5455cdd9fd3fbb20606fa906d11",
+        "index": 5,
         "item_id": "u-voucher-1",
         "k": 2,
         "mode": "beacon",
@@ -155,8 +155,8 @@
         "type": "announce"
       },
       {
-        "entrant_id": "7ce73e0728d9b67e49eaf098ca4581b0",
-        "index": 7,
+        "entrant_id": "427d1ecf2ccd2f644a5e9cb51114fc9c",
+        "index": 3,
         "item_id": "u-ticket-1",
         "k": 3,
         "mode": "beacon",
@@ -180,8 +180,8 @@
         "type": "announce"
       },
       {
-        "entrant_id": "4a9036e8027f57e1ae64a1d399dcd095",
-        "index": 4,
+        "entrant_id": "fb8211d765bcdbc2144555dd222ad8cb",
+        "index": 8,
         "item_id": "u-ticket-1",
         "k": 4,
         "mode": "beacon",
@@ -209,8 +209,8 @@
         "type": "announce"
       },
       {
-        "entrant_id": "4d81a0ebb2bc7469598bc83b76b062d1",
-        "index": 4,
+        "entrant_id": "381c03af5422411cde3faf643f68584b",
+        "index": 2,
         "item_id": "u-ticket-2",
         "k": 5,
         "mode": "beacon",

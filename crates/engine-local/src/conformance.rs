@@ -30,7 +30,7 @@ use std::{
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
-    ErrorKind,
+    BeaconSource, ErrorKind,
     drawing::{DrawMode, Drawing, Event, ItemStatus, Outcome},
     engine::Command,
     manifest::{ItemRef, Manifest},
@@ -221,7 +221,7 @@ impl Fixture {
     fn doc(&self, raffle_id: &str, entrants: usize, items: u64) -> Manifest {
         Manifest::new(
             raffle_id,
-            &self.drand.chain_hash(),
+            BeaconSource::Drand(self.drand.chain_hash()),
             (0..entrants).map(|i| format!("{i:032x}")).collect(),
             (1..=items)
                 .map(|n| ItemRef {
@@ -261,7 +261,7 @@ impl Fixture {
             .open(doc)
             .await
             .map_err(|e| format!("open: {e}"))?;
-        self.projected(&doc.raffle_id, "opened", |_| true).await
+        self.projected(&doc.drawing, "opened", |_| true).await
     }
 
     async fn send(&self, raffle_id: &str, cmd: Command, id: &str) -> Result<(), EngineError> {
@@ -484,9 +484,10 @@ async fn open_is_idempotent_per_manifest(fx: Arc<Fixture>, id: String) -> Result
         r => return Err(format!("another list: {r:?}")),
     }
     let mut chain = fx.doc(&format!("{id}-chain"), 3, 1);
-    chain.drand_chain = rafi_drawing::drand::QUICKNET_CHAIN.into();
-    if fx.drand.chain_hash().to_string() == chain.drand_chain {
-        chain.drand_chain = rafi_drand::mock_chain().chain().hash().to_string();
+    let quicknet = rafi_drawing::drand::chains::QUICKNET_HASH;
+    chain.beacon = BeaconSource::Drand(quicknet);
+    if fx.drand.chain_hash() == quicknet {
+        chain.beacon = BeaconSource::Drand(rafi_drand::mock_chain().chain().hash());
     }
     match fx.engine.open(&chain).await {
         Err(EngineError::Rejected {
