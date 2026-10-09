@@ -6,8 +6,6 @@ use crate::{beacon::BeaconSource, id::ItemId};
 /// Why the drawing refused something.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    #[error("no drawing is open")]
-    NotOpen,
     #[error("the drawing is already open with another manifest")]
     AlreadyOpen,
     #[error("the drawing draws from {committed}, but the draw engine from {engine}")]
@@ -35,18 +33,16 @@ pub enum Error {
     WrongRound { expected: u64, got: u64 },
     #[error("the beacon is from another source than the drawing's")]
     WrongBeacon,
-    #[error("invalid manifest hash")]
-    BadManifestHash,
-    #[error("invalid resolution outcome")]
-    BadOutcome,
+    #[error("draw {0} holds no drawn item")]
+    UnknownDraw(u64),
 }
 
 impl Error {
     /// How engines and their callers classify this refusal.
     pub fn kind(&self) -> ErrorKind {
         match self {
-            Self::NotOpen | Self::UnknownItem(_) => ErrorKind::NotFound,
-            Self::InvalidManifest(_) | Self::BadOutcome => ErrorKind::BadRequest,
+            Self::UnknownItem(_) => ErrorKind::NotFound,
+            Self::InvalidManifest(_) => ErrorKind::BadRequest,
             Self::AlreadyOpen
             | Self::BeaconMismatch { .. }
             | Self::Finished
@@ -55,11 +51,11 @@ impl Error {
             | Self::DrawInProgress
             | Self::NoDrawInProgress
             | Self::NoEligibleEntrants => ErrorKind::Conflict,
-            // A beacon for the wrong round or source only ever stalls a draw,
-            // and the manifest hash is the engine's own: these are engine bugs.
-            Self::WrongRound { .. } | Self::WrongBeacon | Self::BadManifestHash => {
-                ErrorKind::Invariant
-            }
+            // A beacon for the wrong round or source only ever stalls a draw:
+            // these are engine bugs.
+            Self::WrongRound { .. } | Self::WrongBeacon => ErrorKind::Invariant,
+            // Only a log that is not the drawing's own names a missing draw.
+            Self::UnknownDraw(_) => ErrorKind::Invariant,
         }
     }
 }
@@ -76,46 +72,4 @@ pub enum ErrorKind {
     Conflict,
     /// A broken engine invariant: a bug, never the caller's fault.
     Invariant,
-}
-
-impl ErrorKind {
-    /// The HTTP status code an engine answers with.
-    pub fn status(self) -> u16 {
-        match self {
-            Self::NotFound => 404,
-            Self::BadRequest => 400,
-            Self::Conflict => 409,
-            Self::Invariant => 500,
-        }
-    }
-
-    /// The kind an engine's status code stands for; `None` for anything an
-    /// engine never refuses with (the engine is unavailable).
-    pub fn from_status(status: u16) -> Option<Self> {
-        match status {
-            404 => Some(Self::NotFound),
-            400 => Some(Self::BadRequest),
-            409 => Some(Self::Conflict),
-            500 => Some(Self::Invariant),
-            _ => None,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn error_kinds_round_trip_through_status_codes() {
-        for kind in [
-            ErrorKind::NotFound,
-            ErrorKind::BadRequest,
-            ErrorKind::Conflict,
-            ErrorKind::Invariant,
-        ] {
-            assert_eq!(ErrorKind::from_status(kind.status()), Some(kind));
-        }
-        assert_eq!(ErrorKind::from_status(502), None);
-    }
 }

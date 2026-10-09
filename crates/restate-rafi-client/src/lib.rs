@@ -13,7 +13,7 @@
 //!   ID), so a retry applies once.
 //! - A refusal is a handler's terminal error: the ingress marks it
 //!   `x-restate-error-source: invocation` and answers `{"message": ...}` with
-//!   the kind's status code ([`ErrorKind::from_status`]). Anything else (the
+//!   the kind's status code ([`refusal_kind`]). Anything else (the
 //!   ingress's own errors included, such as an unregistered service) means the
 //!   engine is unavailable.
 //! - Natively a call that outlasts the configured timeout (queued behind a draw
@@ -24,12 +24,8 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use rafi_drawing::{
-    BeaconSource, ErrorKind,
-    engine::{Decision, DrawRequest},
-    manifest::Manifest,
-};
-use rafi_platform::{BoxFuture, DrawingEngine, EngineError, EngineInfo, sendable};
+use rafi_drawing::{BeaconSource, Decision, DrawRequest, Manifest};
+use rafi_platform::{BoxFuture, DrawingEngine, EngineError, EngineInfo, refusal_kind, sendable};
 use serde::{Deserialize, Serialize};
 
 /// The `Drawing` virtual object (keyed by the drawing's ID).
@@ -161,7 +157,7 @@ fn refusal(path: &str, status: u16, from_handler: bool, text: &str) -> EngineErr
         .ok()
         .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_owned))
         .unwrap_or_else(|| text.to_owned());
-    match ErrorKind::from_status(status).filter(|_| from_handler) {
+    match refusal_kind(status).filter(|_| from_handler) {
         Some(kind) => EngineError::Rejected { kind, message },
         None => EngineError::Unavailable(anyhow!("{message} (Restate {path}: HTTP {status})")),
     }
@@ -184,7 +180,7 @@ impl DrawingEngine for RestateClient {
 
     fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(sendable(async move {
-            self.call(&doc.drawing, OPEN, false, &doc.open_key(), doc)
+            self.call(doc.drawing.as_str(), OPEN, false, &doc.open_key(), doc)
                 .await
         }))
     }
@@ -217,6 +213,8 @@ impl DrawingEngine for RestateClient {
 
 #[cfg(test)]
 mod tests {
+    use rafi_drawing::ErrorKind;
+
     use super::*;
 
     #[test]

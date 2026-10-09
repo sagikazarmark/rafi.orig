@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::drawing::Outcome;
+use rafi_drawing::Outcome;
 
 use rafi_live::ParticipantView;
 

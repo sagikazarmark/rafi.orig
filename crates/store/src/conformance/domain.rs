@@ -1,11 +1,7 @@
 //! The `domain.*` scenarios: the domain functions, on every backend.
 
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::{
-    BeaconSource,
-    drawing::{Drawing, Event, ItemStatus},
-    manifest::{ItemRef, Manifest},
-};
+use rafi_drawing::{BeaconSource, Decision, Drawing, Event, ItemRef, Manifest, Resolution};
 use rafi_live::Phase;
 
 use super::{Outcome, check, fail};
@@ -23,16 +19,7 @@ const PURGE: PurgeAfter = PurgeAfter {
 
 /// A frozen raffle `id` with two entrants and one prize, and its draw state.
 async fn frozen(db: &Db, id: &str) -> Result<Drawing, String> {
-    let doc = Manifest::new(
-        id,
-        BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
-        vec!["a".repeat(32).into(), "b".repeat(32).into()],
-        vec![ItemRef {
-            id: "u1".into(),
-            name: "Ticket".into(),
-        }],
-    );
-    let state = Drawing::open(&doc);
+    let state = Drawing::open(&manifest(id, ["a".repeat(32), "b".repeat(32)])).map_err(fail)?;
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, manifest_hash, created_at, updated_at)
          VALUES (?, 'o', ?, ?, 't', 'frozen', 'restate', ?, 0, 0)",
@@ -40,11 +27,24 @@ async fn frozen(db: &Db, id: &str) -> Result<Drawing, String> {
     .bind(id)
     .bind(format!("slug-{id}"))
     .bind(format!("code-{id}"))
-    .bind(&state.manifest_hash)
+    .bind(state.manifest_hash().to_string())
     .run()
     .await
     .map_err(fail)?;
     Ok(state)
+}
+
+/// A manifest for drawing `id`: `entrants`, and one item `u1`.
+fn manifest<const N: usize>(id: &str, entrants: [String; N]) -> Manifest {
+    Manifest::new(
+        id,
+        BeaconSource::QUICKNET,
+        entrants.map(Into::into).into(),
+        vec![ItemRef {
+            id: "u1".into(),
+            name: "Book".into(),
+        }],
+    )
 }
 
 pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
@@ -58,7 +58,7 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
         "a retry is a no-op",
     )?;
 
-    state.finish().map_err(fail)?;
+    state.decide(&Decision::Finish).map_err(fail)?;
     check(
         save_drawing(db, &state, PURGE).await.map_err(fail)?,
         "finished write",
@@ -72,9 +72,15 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     check(nonwinners == finished_at + 30, "non-winner purge date")?;
     check(winners == finished_at + 90, "winner purge date")?;
 
-    let mut other = state.clone();
-    other.manifest_hash = "0".repeat(64);
-    other.version += 1;
+    // Newer, but opened from another entrant list.
+    let mut other = Drawing::open(&manifest("r1", ["c".repeat(32)])).map_err(fail)?;
+    for decision in [Decision::Void { item: "u1".into() }, Decision::Finish] {
+        other.decide(&decision).map_err(fail)?;
+    }
+    check(
+        other.version() > state.version(),
+        "the other drawing is newer",
+    )?;
     check(
         !save_drawing(db, &other, PURGE).await.map_err(fail)?,
         "a different entrant list",
@@ -447,22 +453,37 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     entrants::set_delivered(db, "d", Some(1))
         .await
         .map_err(fail)?;
-    let doc = Manifest::new(
+    let manifest = Manifest::new(
         "r1",
-        BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
+        BeaconSource::QUICKNET,
         vec!["w".into(), "d".into(), "n".into()],
         ["u1", "u2"]
             .map(|u| ItemRef {
                 id: u.into(),
-                name: "Ticket".into(),
+                name: "Book".into(),
             })
             .into(),
     );
-    let mut state = Drawing::open(&doc);
-    for (item, winner) in [(0, "w"), (1, "d")] {
-        state.items[item].status = ItemStatus::Claimed;
-        state.items[item].entrant = Some(winner.into());
+    // "w" and "d" won and claimed, as their engine logged it.
+    let mut events = Vec::new();
+    for (k, (item, winner)) in [(1, ("u1", "w")), (2, ("u2", "d"))] {
+        events.push(Event::Draw {
+            k,
+            item: item.into(),
+            round: k,
+            signature: String::new(),
+            randomness: String::new(),
+            pass: 1,
+            pool_size: 3,
+            index: 0,
+            entrant: winner.into(),
+        });
+        events.push(Event::Resolve {
+            k,
+            outcome: Resolution::Claimed,
+        });
     }
+    let state = Drawing::restore(&manifest, &events).map_err(fail)?;
     db.query(
         "UPDATE raffles SET state = 'finished', drawing = ?, finished_at = 100,
          purge_nonwinners_at = 130, purge_winners_at = 190 WHERE id = 'r1'",
@@ -666,7 +687,7 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
 }
 
 pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
-    let mut state = frozen(db, "r1").await?;
+    frozen(db, "r1").await?;
     let (anna, bence) = ("a".repeat(32), "b".repeat(32));
     for id in [&anna, &bence] {
         entrants::insert_manual(db, &manual("r1", id, None))
@@ -680,9 +701,9 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         .await
         .map_err(fail)?;
     entrants::set_hidden(db, &bence, true).await.map_err(fail)?;
-    let k = state.next_k;
-    state.events.push(Event::Draw {
-        k,
+    // Bence drawn, as the engine logged it.
+    let draw = Event::Draw {
+        k: 1,
         item: "u1".into(),
         round: 1,
         signature: String::new(),
@@ -691,12 +712,10 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         pool_size: 2,
         index: 0,
         entrant: bence.clone().into(),
-    });
-    state.next_k += 1;
-    state.items[0].status = ItemStatus::Drawn;
-    state.items[0].entrant = Some(bence.clone().into());
-    state.items[0].k = Some(k);
-    state.version += 1;
+    };
+    let state =
+        Drawing::restore(&manifest("r1", [anna.clone(), bence.clone()]), &[draw]).map_err(fail)?;
+    check(state.version() == 2, "one event")?;
     check(
         save_drawing(db, &state, PURGE).await.map_err(fail)?,
         "writing the draw",

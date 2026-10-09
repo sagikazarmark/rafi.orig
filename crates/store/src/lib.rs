@@ -56,7 +56,7 @@ pub use error::{Error, Result};
 pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
-use rafi_drawing::drawing::{Drawing, Event};
+use rafi_drawing::{Drawing, Event};
 use rafi_platform::{BoxFuture, DrawStore};
 pub use value::{Row, Value};
 
@@ -102,10 +102,10 @@ impl PurgeAfter {
 pub async fn save_drawing(db: &Db, state: &Drawing, purge: PurgeAfter) -> Result<bool> {
     let json = serde_json::to_string(state).map_err(|e| Error::Backend(e.to_string()))?;
     let started = state
-        .events
+        .events()
         .iter()
         .any(|e| matches!(e, Event::Announce { .. } | Event::Draw { .. }));
-    let lifecycle = if state.finished {
+    let lifecycle = if state.is_finished() {
         "finished"
     } else if started {
         "drawing"
@@ -127,14 +127,14 @@ pub async fn save_drawing(db: &Db, state: &Drawing, purge: PurgeAfter) -> Result
              WHERE id = ?8 AND manifest_hash = ?9 AND drawing_version < ?2",
         )
         .bind(json)
-        .bind(state.version)
+        .bind(state.version())
         .bind(lifecycle)
-        .bind(state.finished)
+        .bind(state.is_finished())
         .bind(now())
         .bind(purge.nonwinners_secs)
         .bind(purge.winners_secs)
-        .bind(&state.id)
-        .bind(&state.manifest_hash)
+        .bind(state.id().as_str())
+        .bind(state.manifest_hash().to_string())
         .run()
         .await?;
     Ok(written > 0)
@@ -206,14 +206,18 @@ mod tests {
         let db = Db::connect_lazy(&format!("sqlite://{}", path.display())).unwrap();
         assert!(!path.exists(), "the app creates the database");
         let writer = DrawWriter::new(db, PurgeAfter::days(30, 90));
-        let doc = rafi_drawing::manifest::Manifest::new(
+        let manifest = rafi_drawing::Manifest::new(
             "r1",
-            rafi_drawing::BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
+            rafi_drawing::BeaconSource::QUICKNET,
             vec!["a".repeat(32).into()],
-            vec![],
+            vec![rafi_drawing::ItemRef {
+                id: "u1".into(),
+                name: "Book".into(),
+            }],
         );
+        let drawing = Drawing::open(&manifest).unwrap();
         assert!(
-            writer.save_drawing(&Drawing::open(&doc)).await.is_err(),
+            writer.save_drawing(&drawing).await.is_err(),
             "no database yet: the engine retries"
         );
         assert!(!path.exists());

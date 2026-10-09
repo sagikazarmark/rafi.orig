@@ -14,12 +14,10 @@
 //! (a log doing that fails verification).
 
 use rafi_drawing::{
-    BeaconSource,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, ItemRef, Manifest, Resolution,
+    algorithm,
     drand::{Beacon, VerifiedBeacon, Verifier, chains},
-    draw,
-    drawing::{Drawing, Outcome},
-    manifest::{ItemRef, Manifest},
-    verify::verify_public,
+    verify_public,
 };
 use serde::{Deserialize, Serialize};
 
@@ -86,7 +84,7 @@ fn generate() -> Vectors {
             manifest_hash: hex::encode(manifest_hash),
             k,
             pool_size: *pool_size,
-            index: draw::select(&randomness, &manifest_hash, k, *pool_size),
+            index: algorithm::select(&randomness, &manifest_hash, k, *pool_size),
         });
     }
 
@@ -117,35 +115,60 @@ fn generate() -> Vectors {
         entrants,
         items,
     );
-    let mut s = Drawing::open(&doc);
-    s.begin(&"u-voucher-1".into(), 1000, 0).unwrap();
-    s.complete(&beacon(1000)).unwrap();
-    s.resolve(&"u-voucher-1".into(), Outcome::NotHere).unwrap();
-    s.begin(&"u-voucher-1".into(), 1003, 0).unwrap();
-    s.abandon("abandoned by the organizer").unwrap();
-    s.begin(&"u-voucher-1".into(), 1005, 0).unwrap();
-    s.stall("drand unavailable").unwrap();
-    s.complete(&beacon(1005)).unwrap();
-    s.resolve(&"u-voucher-1".into(), Outcome::Claimed).unwrap();
-    s.begin(&"u-ticket-1".into(), 1010, 0).unwrap();
-    s.complete(&beacon(1010)).unwrap();
-    s.resolve(&"u-ticket-1".into(), Outcome::Declined).unwrap();
-    s.begin(&"u-ticket-1".into(), 1012, 0).unwrap();
-    s.complete(&beacon(1012)).unwrap();
-    s.resolve(&"u-ticket-1".into(), Outcome::Claimed).unwrap();
-    s.void(&"u-gift-1".into()).unwrap();
-    s.begin(&"u-ticket-2".into(), 1020, 0).unwrap();
-    s.complete(&beacon(1020)).unwrap();
-    s.resolve(&"u-ticket-2".into(), Outcome::Claimed).unwrap();
-    s.finish().unwrap();
+    let mut s = Drawing::open(&doc).unwrap();
+    let source = BeaconSource::QUICKNET;
+    let draw = |s: &mut Drawing, item: &str, round: u64| {
+        let request = DrawRequest { item: item.into() };
+        s.announce(&request, &source, round, 0).unwrap();
+        s.settle(BeaconFetch::Verified(beacon(round)))
+            .unwrap()
+            .unwrap();
+    };
+    let decide = |s: &mut Drawing, decision: Decision| s.decide(&decision).unwrap();
+    let resolve = |item: &str, outcome| Decision::Resolve {
+        item: item.into(),
+        outcome,
+    };
+    draw(&mut s, "u-voucher-1", 1000);
+    decide(&mut s, resolve("u-voucher-1", Resolution::NotHere));
+    let voucher = DrawRequest {
+        item: "u-voucher-1".into(),
+    };
+    s.announce(&voucher, &source, 1003, 0).unwrap();
+    decide(
+        &mut s,
+        Decision::Abandon {
+            item: "u-voucher-1".into(),
+        },
+    );
+    s.announce(&voucher, &source, 1005, 0).unwrap();
+    s.settle(BeaconFetch::Interrupted("drand unavailable".into()))
+        .unwrap();
+    s.settle(BeaconFetch::Verified(beacon(1005)))
+        .unwrap()
+        .unwrap();
+    decide(&mut s, resolve("u-voucher-1", Resolution::Claimed));
+    draw(&mut s, "u-ticket-1", 1010);
+    decide(&mut s, resolve("u-ticket-1", Resolution::Declined));
+    draw(&mut s, "u-ticket-1", 1012);
+    decide(&mut s, resolve("u-ticket-1", Resolution::Claimed));
+    decide(
+        &mut s,
+        Decision::Void {
+            item: "u-gift-1".into(),
+        },
+    );
+    draw(&mut s, "u-ticket-2", 1020);
+    decide(&mut s, resolve("u-ticket-2", Resolution::Claimed));
+    decide(&mut s, Decision::Finish);
 
     Vectors {
-        algo: draw::ALGO.into(),
+        algo: algorithm::ALGO.into(),
         select,
         scenario: Scenario {
             manifest: doc.canonical_json(),
-            manifest_hash: s.manifest_hash.clone(),
-            events: serde_json::to_value(&s.events).unwrap(),
+            manifest_hash: s.manifest_hash().to_string(),
+            events: serde_json::to_value(s.events()).unwrap(),
         },
     }
 }
@@ -172,9 +195,9 @@ fn vectors_match() {
     );
 
     for v in &stored.select {
-        let r = rafi_drawing::hash_from_hex(&v.randomness).unwrap();
-        let l = rafi_drawing::hash_from_hex(&v.manifest_hash).unwrap();
-        assert_eq!(draw::select(&r, &l, v.k, v.pool_size), v.index);
+        let r = hex::decode(&v.randomness).unwrap().try_into().unwrap();
+        let l = hex::decode(&v.manifest_hash).unwrap().try_into().unwrap();
+        assert_eq!(algorithm::select(&r, &l, v.k, v.pool_size), v.index);
     }
     let events = serde_json::from_value::<Vec<_>>(stored.scenario.events.clone()).unwrap();
     let report = verify_public(

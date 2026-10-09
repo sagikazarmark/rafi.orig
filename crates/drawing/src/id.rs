@@ -1,4 +1,4 @@
-//! The IDs a drawing refers to its entrants and items by.
+//! The IDs of a drawing, its entrants and its items.
 
 use std::{borrow::Borrow, fmt};
 
@@ -73,6 +73,11 @@ macro_rules! id {
             }
         }
     };
+}
+
+id! {
+    /// A drawing, as its manifest names it.
+    DrawingId
 }
 
 id! {

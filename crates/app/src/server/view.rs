@@ -4,7 +4,7 @@ use rafi_drawing::BeaconSource;
 use std::collections::HashMap;
 
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::drawing::{Event, ItemStatus, Outcome};
+use rafi_drawing::{Event, ItemId, ItemStatus};
 use rafi_store::view::Full;
 
 use super::AppState;
@@ -68,15 +68,15 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
 
     let items: Vec<ItemView> = match &drawing {
         Some(s) => s
-            .items
+            .items()
             .iter()
             .map(|u| ItemView {
                 item: u.id.clone(),
                 prize_id: rafi_core::prize::prize_id(u.id.as_str()).to_owned(),
                 prize_name: u.name.clone(),
-                status: u.status,
-                display_name: u.entrant.as_ref().map(|e| name_of(e.as_str())),
-                entrant: u.entrant.clone(),
+                status: u.status(),
+                display_name: u.entrant().map(|e| name_of(e.as_str())),
+                entrant: u.entrant().cloned(),
             })
             .collect(),
         None => prizes
@@ -121,61 +121,39 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
     let mut current = None;
     let mut last_failure = None;
     if let Some(s) = &drawing {
-        let mut outcomes: HashMap<u64, Outcome> = HashMap::new();
-        for e in &s.events {
-            if let Event::Resolve { k, outcome } = e {
-                outcomes.insert(*k, *outcome);
-            }
-        }
-        let item_name: HashMap<&str, &str> = s
-            .items
-            .iter()
-            .map(|u| (u.id.as_str(), u.name.as_str()))
+        let item_name = |id: &ItemId| s.item(id).map(|i| i.name.clone()).unwrap_or_default();
+        draws = s
+            .draws()
+            .into_iter()
+            .map(|d| DrawView {
+                k: d.k,
+                prize_name: item_name(&d.item),
+                item: d.item,
+                display_name: name_of(d.entrant.as_str()),
+                entrant: d.entrant,
+                outcome: d.outcome,
+                pass: d.pass,
+                round: d.round,
+            })
             .collect();
-        for e in &s.events {
+        // The latest attempt's trouble: a stalled draw stays pending on its
+        // round; an abandoned one is over. A new announcement or a draw
+        // clears it.
+        for e in s.events() {
             match e {
-                Event::Draw {
-                    k,
-                    item,
-                    entrant,
-                    pass,
-                    round,
-                    ..
-                } => {
-                    last_failure = None;
-                    draws.push(DrawView {
-                        k: *k,
-                        item: item.clone(),
-                        prize_name: item_name
-                            .get(item.as_str())
-                            .copied()
-                            .unwrap_or_default()
-                            .to_owned(),
-                        entrant: entrant.clone(),
-                        display_name: name_of(entrant.as_str()),
-                        outcome: outcomes.get(k).copied().unwrap_or(Outcome::Drawn),
-                        pass: *pass,
-                        round: *round,
-                    });
-                }
-                // A stalled draw stays pending on its round; an abandoned one is over.
                 Event::Stall { reason, .. } => last_failure = Some(reason.clone()),
                 Event::Abandon { round, reason, .. } => {
                     last_failure = Some(format!("round {round} abandoned ({reason})"))
                 }
-                Event::Announce { .. } => last_failure = None,
+                Event::Announce { .. } | Event::Draw { .. } => last_failure = None,
                 _ => {}
             }
         }
-        if let Some(p) = &s.pending {
+        if let Some(p) = s.pending() {
             current = Some(CurrentDraw {
                 k: p.k,
                 item: p.item.clone(),
-                prize_name: item_name
-                    .get(p.item.as_str())
-                    .copied()
-                    .unwrap_or_default()
-                    .to_owned(),
+                prize_name: item_name(&p.item),
                 round: p.round,
                 round_time: p.round_time,
             });
@@ -185,13 +163,10 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
     let state = raffle.state();
     // Labelled by the beacon source the raffle committed to (or will): only
     // a public drand chain is verifiable.
-    let beacon = raffle
+    let public = raffle
         .drawing()
-        .map(|s| s.beacon)
-        .unwrap_or(BeaconSource::Drand(app.chain));
-    let public = beacon
-        .drand_chain()
-        .is_some_and(|c| rafi_drawing::drand::chains::by_hash(c).is_some());
+        .map_or(BeaconSource::Drand(app.chain), |s| *s.beacon())
+        .publicly_verifiable();
     let engine = if public {
         "restate"
     } else {

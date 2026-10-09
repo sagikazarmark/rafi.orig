@@ -24,7 +24,7 @@ mod store;
 
 use std::{future::Future, pin::Pin};
 
-pub use engine::{DrawingEngine, EngineError, EngineInfo};
+pub use engine::{DrawingEngine, EngineError, EngineInfo, NOT_OPEN, refusal_kind, status_code};
 pub use notifier::{Notifier, Polling, Recording};
 pub use rafi_live::LiveTransport;
 #[cfg(not(target_arch = "wasm32"))]

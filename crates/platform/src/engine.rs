@@ -3,9 +3,7 @@
 use std::sync::Arc;
 
 use rafi_drawing::{
-    BeaconSource, Error as DrawingError, ErrorKind,
-    engine::{Decision, DrawRequest},
-    manifest::Manifest,
+    BeaconSource, Decision, DrawRequest, Error as DrawingError, ErrorKind, Manifest,
 };
 
 use crate::BoxFuture;
@@ -43,6 +41,40 @@ impl EngineError {
             kind: e.kind(),
             message: e.to_string(),
         }
+    }
+
+    /// The engine has no open drawing by that ID (never opened, or finished
+    /// and forgotten).
+    pub fn not_open() -> Self {
+        Self::Rejected {
+            kind: ErrorKind::NotFound,
+            message: NOT_OPEN.to_owned(),
+        }
+    }
+}
+
+/// Why a command for a drawing the engine doesn't hold is refused.
+pub const NOT_OPEN: &str = "no drawing is open";
+
+/// The HTTP status code an engine answers a refusal of this kind with.
+pub fn status_code(kind: ErrorKind) -> u16 {
+    match kind {
+        ErrorKind::NotFound => 404,
+        ErrorKind::BadRequest => 400,
+        ErrorKind::Conflict => 409,
+        ErrorKind::Invariant => 500,
+    }
+}
+
+/// The refusal kind an engine's status code stands for; `None` for anything
+/// an engine never refuses with (the engine is unavailable).
+pub fn refusal_kind(status: u16) -> Option<ErrorKind> {
+    match status {
+        404 => Some(ErrorKind::NotFound),
+        400 => Some(ErrorKind::BadRequest),
+        409 => Some(ErrorKind::Conflict),
+        500 => Some(ErrorKind::Invariant),
+        _ => None,
     }
 }
 
@@ -129,5 +161,23 @@ impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
         (**self).decide(drawing_id, decision, command_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refusal_kinds_round_trip_through_status_codes() {
+        for kind in [
+            ErrorKind::NotFound,
+            ErrorKind::BadRequest,
+            ErrorKind::Conflict,
+            ErrorKind::Invariant,
+        ] {
+            assert_eq!(refusal_kind(status_code(kind)), Some(kind));
+        }
+        assert_eq!(refusal_kind(502), None);
     }
 }

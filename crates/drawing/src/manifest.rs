@@ -6,15 +6,14 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Hash,
+    algorithm::ALGO,
     beacon::BeaconSource,
-    draw::ALGO,
     error::Error,
-    id::{EntrantId, ItemId},
-    sha256,
+    hash::ManifestHash,
+    id::{DrawingId, EntrantId, ItemId},
 };
 
-/// An item as committed in the manifest: one thing one entrant can win.
+/// An item as the manifest lists it: one thing one entrant can win.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ItemRef {
     pub id: ItemId,
@@ -23,7 +22,7 @@ pub struct ItemRef {
 
 /// Who is in, what can be won, and how the winners will be drawn.
 ///
-/// Field order is fixed and the document contains no maps or floats, so
+/// Field order is fixed and the manifest contains no maps or floats, so
 /// `serde_json` serialization is canonical. The exact serialized string is
 /// published alongside the hash, so verifiers never need to re-serialize.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,7 +31,7 @@ pub struct Manifest {
     pub algo: String,
     /// The drawing this manifest opens (its ID). Binds the manifest to one
     /// drawing; the manifest's own identity is its hash.
-    pub drawing: String,
+    pub drawing: DrawingId,
     /// Where the draws' randomness comes from.
     pub beacon: BeaconSource,
     /// Sorted, deduplicated, lowercase hex entrant IDs.
@@ -43,7 +42,7 @@ pub struct Manifest {
 impl Manifest {
     /// `beacon` is where the draws' randomness will come from.
     pub fn new(
-        drawing: impl Into<String>,
+        drawing: impl Into<DrawingId>,
         beacon: BeaconSource,
         entrants: Vec<EntrantId>,
         items: Vec<ItemRef>,
@@ -68,18 +67,18 @@ impl Manifest {
         serde_json::to_string(self).expect("manifest serializes")
     }
 
-    /// The hex hash of this manifest.
-    pub fn hash_hex(&self) -> String {
-        hex::encode(hash(&self.canonical_json()))
+    /// The hash of this manifest's canonical JSON.
+    pub fn hash(&self) -> ManifestHash {
+        ManifestHash::of(&self.canonical_json())
     }
 
     /// The idempotency key for opening a drawing from this manifest: the same
     /// manifest opens once.
     pub fn open_key(&self) -> String {
-        format!("open-{}", self.hash_hex())
+        format!("open-{}", self.hash())
     }
 
-    /// Checks that the document is one [`Manifest::new`] could have built for
+    /// Checks that the manifest is one [`Manifest::new`] could have built for
     /// a drawing that can be drawn: the current algorithm, at least one entrant and one
     /// item, entrant IDs in canonical form (sorted, deduplicated, lowercase, so
     /// re-serializing it reproduces the published manifest hash), and unique item
@@ -104,16 +103,11 @@ impl Manifest {
             return invalid("entrant IDs are not sorted, unique and lowercase");
         }
         let mut seen = HashSet::new();
-        if !self.items.iter().all(|u| seen.insert(u.id.as_str())) {
+        if !self.items.iter().all(|item| seen.insert(&item.id)) {
             return invalid("duplicate item IDs");
         }
         Ok(())
     }
-}
-
-/// `manifest_hash = SHA256(canonical manifest)`.
-pub fn hash(canonical_json: &str) -> Hash {
-    sha256(&[canonical_json.as_bytes()])
 }
 
 #[cfg(test)]
@@ -121,48 +115,47 @@ mod tests {
     use super::*;
     use drand::chains::QUICKNET_HASH;
 
-    const QUICKNET: BeaconSource = BeaconSource::Drand(QUICKNET_HASH);
+    const QUICKNET: BeaconSource = BeaconSource::QUICKNET;
 
     #[test]
     fn entrants_are_sorted_and_deduped() {
-        let doc = Manifest::new(
-            "r1",
+        let manifest = Manifest::new(
+            "d1",
             QUICKNET,
             vec!["bb".into(), "AA".into(), "aa".into()],
             vec![],
         );
-        assert_eq!(doc.entrants, vec!["aa", "bb"]);
+        assert_eq!(manifest.entrants, vec!["aa", "bb"]);
     }
 
     fn item(id: &str) -> ItemRef {
         ItemRef {
             id: id.into(),
-            name: "Ticket".into(),
+            name: "Item".into(),
         }
     }
 
     #[test]
-    fn documents_built_by_new_validate() {
-        let doc = Manifest::new(
-            "r1",
+    fn manifests_built_by_new_validate() {
+        let manifest = Manifest::new(
+            "d1",
             QUICKNET,
             vec!["B".into(), "a".into()],
-            vec![item("u1")],
+            vec![item("item-1")],
         );
-        assert_eq!(doc.validate(), Ok(()));
-        assert!(doc.open_key().starts_with("open-"));
-        assert_eq!(doc.open_key(), format!("open-{}", doc.hash_hex()));
+        assert_eq!(manifest.validate(), Ok(()));
+        assert_eq!(manifest.open_key(), format!("open-{}", manifest.hash()));
     }
 
     #[test]
-    fn non_canonical_or_empty_documents_are_invalid() {
+    fn non_canonical_or_empty_manifests_are_invalid() {
         let good = Manifest::new(
-            "r1",
+            "d1",
             QUICKNET,
             vec!["a".into(), "b".into()],
-            vec![item("u1")],
+            vec![item("item-1")],
         );
-        let invalid = |doc: Manifest| matches!(doc.validate(), Err(Error::InvalidManifest(_)));
+        let invalid = |m: Manifest| matches!(m.validate(), Err(Error::InvalidManifest(_)));
 
         assert!(invalid(Manifest {
             algo: "other".into(),
@@ -189,29 +182,21 @@ mod tests {
             ..good.clone()
         }));
         assert!(invalid(Manifest {
-            items: vec![item("u1"), item("u1")],
+            items: vec![item("item-1"), item("item-1")],
             ..good
         }));
     }
 
     #[test]
     fn canonical_json_is_stable() {
-        let doc = Manifest::new(
-            "r1",
-            QUICKNET,
-            vec!["01".into()],
-            vec![ItemRef {
-                id: "u1".into(),
-                name: "Ticket".into(),
-            }],
-        );
-        let json = doc.canonical_json();
+        let manifest = Manifest::new("d1", QUICKNET, vec!["01".into()], vec![item("item-1")]);
+        let json = manifest.canonical_json();
         let parsed: Manifest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.canonical_json(), json);
         assert_eq!(
             json,
             format!(
-                r#"{{"algo":"rafi-draw-v1","drawing":"r1","beacon":{{"drand":"{QUICKNET_HASH}"}},"entrants":["01"],"items":[{{"id":"u1","name":"Ticket"}}]}}"#
+                r#"{{"algo":"rafi-draw-v1","drawing":"d1","beacon":{{"drand":"{QUICKNET_HASH}"}},"entrants":["01"],"items":[{{"id":"item-1","name":"Item"}}]}}"#
             )
         );
     }

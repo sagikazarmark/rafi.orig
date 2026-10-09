@@ -11,11 +11,8 @@ use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
-    BeaconSource,
-    drawing::{Drawing, Event, ItemStatus, Outcome},
-    engine::{Decision, DrawRequest},
-    manifest::{ItemRef, Manifest},
-    verify::verify,
+    BeaconSource, Decision, DrawRequest, Drawing, Event, ItemRef, ItemStatus, Manifest, Resolution,
+    verify,
 };
 use rafi_platform::{MemoryDrawStore, Recording};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
@@ -103,8 +100,8 @@ async fn e2e_raffle() {
         .invoke(&call("open"), Some(&json!(doc)), Some("open-1"))
         .await;
     assert_eq!(reply.status, 200, "{}", reply.body);
-    let frozen = projected(&store, |s| s.events.is_empty()).await;
-    assert_eq!(frozen.entrants.len(), 5);
+    let frozen = projected(&store, |s| s.events().is_empty()).await;
+    assert_eq!(frozen.entrants().len(), 5);
     let reply = restate.invoke(&call("open"), Some(&json!(doc)), None).await;
     assert_eq!(
         reply.status, 200,
@@ -141,16 +138,21 @@ async fn e2e_raffle() {
     assert!(again.status < 300, "{}", again.body);
     let s = projected(&store, |s| {
         s.item(&"ticket-1".into())
-            .is_some_and(|u| u.status == ItemStatus::Drawn)
+            .is_some_and(|u| u.status() == ItemStatus::Drawn)
     })
     .await;
     let announces = s
-        .events
+        .events()
         .iter()
         .filter(|e| matches!(e, Event::Announce { .. }))
         .count();
     assert_eq!(announces, 1, "the idempotency key deduplicated the draw");
-    let first = s.item(&"ticket-1".into()).unwrap().entrant.clone().unwrap();
+    let first = s
+        .item(&"ticket-1".into())
+        .unwrap()
+        .entrant()
+        .cloned()
+        .unwrap();
 
     // The draw journals the clock, the projections (each followed by the live
     // channel's best-effort notify) and the beacon under stable names. The
@@ -179,7 +181,7 @@ async fn e2e_raffle() {
             &call("decide"),
             Some(&json!(Decision::Resolve {
                 item: "ticket-1".into(),
-                outcome: Outcome::NotHere,
+                outcome: Resolution::NotHere,
             })),
             None,
         )
@@ -190,17 +192,14 @@ async fn e2e_raffle() {
         .await;
     let s = projected(&store, |s| {
         s.item(&"ticket-1".into())
-            .is_some_and(|u| u.status == ItemStatus::Drawn)
-            && s.next_k == 3
+            .is_some_and(|u| u.status() == ItemStatus::Drawn)
+            && s.draws().len() == 2
     })
     .await;
-    assert_ne!(
-        s.item(&"ticket-1".into()).unwrap().entrant.as_ref(),
-        Some(&first)
-    );
+    assert_ne!(s.item(&"ticket-1".into()).unwrap().entrant(), Some(&first));
     let claim = json!(Decision::Resolve {
         item: "ticket-1".into(),
-        outcome: Outcome::Claimed,
+        outcome: Resolution::Claimed,
     });
     assert_eq!(
         restate
@@ -242,7 +241,7 @@ async fn e2e_raffle() {
             .status,
         200
     );
-    let finished = projected(&store, |s| s.finished).await;
+    let finished = projected(&store, |s| s.is_finished()).await;
     let reply = restate.invoke(&call("get"), None, None).await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.body, Value::Null, "state is cleared after finishing");
@@ -255,8 +254,8 @@ async fn e2e_raffle() {
     // The projected log verifies independently.
     let report = verify(
         &doc.canonical_json(),
-        &finished.manifest_hash,
-        &finished.events,
+        &finished.manifest_hash().to_string(),
+        finished.events(),
         rafi_drand::resolve_chain,
     );
     assert!(report.ok(), "{report:#?}");
@@ -303,7 +302,7 @@ async fn e2e_stalled_draw() {
     assert_eq!(reply.status, 200, "{}", reply.body);
 
     let stalls = |s: &Drawing| {
-        s.events
+        s.events()
             .iter()
             .filter(|e| matches!(e, Event::Stall { .. }))
             .count()
@@ -315,7 +314,7 @@ async fn e2e_stalled_draw() {
         .invoke(&call("draw").send(), Some(&draw), Some("draw-1"))
         .await;
     let s = projected(&store, |s| stalls(s) == 1).await;
-    let pending = s.pending.clone().expect("still pending");
+    let pending = s.pending().cloned().expect("still pending");
 
     // Another item is refused; this one retries the same round.
     let other = json!(DrawRequest {
@@ -327,7 +326,7 @@ async fn e2e_stalled_draw() {
         .invoke(&call("draw").send(), Some(&draw), Some("draw-2"))
         .await;
     let s = projected(&store, |s| stalls(s) == 2).await;
-    assert_eq!(s.pending.as_ref(), Some(&pending));
+    assert_eq!(s.pending(), Some(&pending));
 
     // Abandon: logged, the item is free again.
     let reply = restate
@@ -340,11 +339,11 @@ async fn e2e_stalled_draw() {
         )
         .await;
     assert_eq!(reply.status, 200, "{}", reply.body);
-    let s = projected(&store, |s| s.pending.is_none()).await;
+    let s = projected(&store, |s| s.pending().is_none()).await;
     let report = verify(
         &doc.canonical_json(),
-        &s.manifest_hash,
-        &s.events,
+        &s.manifest_hash().to_string(),
+        s.events(),
         rafi_drand::resolve_chain,
     );
     assert!(report.ok(), "{report:#?}");
@@ -398,9 +397,10 @@ async fn e2e_cancelled_draw_stalls() {
         .await;
     assert!(sent.status < 300, "{}", sent.body);
     let id = sent.invocation_id().to_owned();
-    let pending = projected(&store, |s| s.pending.is_some())
+    let pending = projected(&store, |s| s.pending().is_some())
         .await
-        .pending
+        .pending()
+        .cloned()
         .unwrap();
     // Wait until the draw sleeps towards its round, then cancel it.
     for _ in 0..300 {
@@ -413,16 +413,16 @@ async fn e2e_cancelled_draw_stalls() {
     restate.admin().cancel(&id).await;
 
     let s = projected(&store, |s| {
-        s.events.iter().any(|e| matches!(e, Event::Stall { .. }))
+        s.events().iter().any(|e| matches!(e, Event::Stall { .. }))
     })
     .await;
-    assert_eq!(s.pending.as_ref(), Some(&pending), "same draw, same round");
+    assert_eq!(s.pending(), Some(&pending), "same draw, same round");
     assert!(
-        s.events.iter().any(
+        s.events().iter().any(
             |e| matches!(e, Event::Stall { reason, round, .. } if reason == "draw cancelled" && *round == pending.round)
         ),
         "{:#?}",
-        s.events
+        s.events()
     );
     restate.admin().await_status(&id, &["completed"]).await;
     let failure = restate
@@ -435,5 +435,5 @@ async fn e2e_cancelled_draw_stalls() {
     // The object still holds the pending draw: a retry re-enters it.
     let reply = restate.invoke(&call("get"), None, None).await;
     let state: Drawing = serde_json::from_value(reply.body).unwrap();
-    assert_eq!(state.pending, Some(pending));
+    assert_eq!(state.pending(), Some(&pending));
 }

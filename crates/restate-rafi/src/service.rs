@@ -4,12 +4,10 @@ use std::{sync::Arc, time::Duration};
 
 use rafi_drand::DrandClient;
 use rafi_drawing::{
-    BeaconSource, Error as DrawingError,
-    drawing::Drawing as State,
-    engine::{BeaconOutcome, Decision, DrawRequest},
-    manifest::Manifest,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing as State, Error as DrawingError,
+    ErrorKind, Manifest,
 };
-use rafi_platform::{DrawStore, Notifier};
+use rafi_platform::{DrawStore, NOT_OPEN, Notifier, status_code};
 use restate_drand::{AwaitError, Drand};
 use restate_sdk::prelude::*;
 
@@ -55,7 +53,7 @@ fn rejected(e: impl std::fmt::Display, code: u16) -> HandlerError {
 
 /// A refusal by the draw rules, with its kind's status code.
 fn draw_error(e: DrawingError) -> HandlerError {
-    let code = e.kind().status();
+    let code = status_code(e.kind());
     rejected(e, code)
 }
 
@@ -73,8 +71,8 @@ impl Drawing {
             if !written {
                 // Already stored (a retry), or for another manifest.
                 tracing::debug!(
-                    drawing_id = state.id,
-                    version = state.version,
+                    drawing_id = %state.id(),
+                    version = state.version(),
                     "drawing not written"
                 );
             }
@@ -92,7 +90,7 @@ impl Drawing {
         // logs and drops its own failures (clients re-read on their own), so a
         // stuck notification can't block the drawing's object; the attempts
         // only cover the step itself failing.
-        let drawing_id = state.id.as_str();
+        let drawing_id = state.id().as_str();
         let notifier = &*self.notifier;
         let notified = ctx
             .run(|| async move {
@@ -116,7 +114,7 @@ impl Drawing {
         ctx.get::<Json<State>>(STATE)
             .await?
             .map(Json::into_inner)
-            .ok_or_else(|| draw_error(DrawingError::NotOpen))
+            .ok_or_else(|| rejected(NOT_OPEN, status_code(ErrorKind::NotFound)))
     }
 }
 
@@ -131,7 +129,7 @@ impl Drawing {
     #[handler]
     async fn open(&self, ctx: ObjectContext<'_>, doc: Json<Manifest>) -> HandlerResult<()> {
         let doc = doc.into_inner();
-        if doc.drawing != ctx.key() {
+        if doc.drawing.as_str() != ctx.key() {
             return Err(rejected("drawing ID does not match the object key", 400));
         }
         // The app and this endpoint configure drand separately; the rules
@@ -159,9 +157,8 @@ impl Drawing {
     /// a redraw on a new round.
     #[handler]
     async fn draw(&self, ctx: ObjectContext<'_>, request: Json<DrawRequest>) -> HandlerResult<()> {
-        let DrawRequest { item } = request.into_inner();
+        let request = request.into_inner();
         let mut state = Self::load(&ctx).await?;
-        state.check_beacon(&self.beacon()).map_err(draw_error)?;
 
         // Replay-safe: the clock read is journaled, so a resumed invocation
         // commits to the very same round. A stalled draw for this item is
@@ -169,7 +166,7 @@ impl Drawing {
         let commitment = self.drand.commit_round(&ctx).await?;
         let due = u64::try_from(commitment.due_at.as_secs()).unwrap_or_default();
         let pending = state
-            .begin(&item, commitment.round, due)
+            .announce(&request, &self.beacon(), commitment.round, due)
             .map_err(draw_error)?;
         ctx.set(STATE, Json(state.clone()));
         self.project(&ctx, &state).await?;
@@ -177,8 +174,8 @@ impl Drawing {
         // Sleeps until the round is due, fetches it (journaled, retried) and
         // verifies it. If it can't be had, the draw stalls on its round.
         let outcome = match self.drand.await_beacon(&ctx, pending.round).await {
-            Ok(beacon) => BeaconOutcome::Verified(beacon),
-            Err(AwaitError::Unavailable { reason, .. }) => BeaconOutcome::Unavailable(reason),
+            Ok(beacon) => BeaconFetch::Verified(beacon),
+            Err(AwaitError::Unavailable { reason, .. }) => BeaconFetch::Unavailable(reason),
             // Cancelled (or a step failed): the draw stays pending on its
             // round. Record why, so the organizer sees the retry and abandon
             // controls right away, then fail the invocation.
@@ -189,14 +186,14 @@ impl Drawing {
                     format!("draw failed: {e}")
                 };
                 state
-                    .conclude(BeaconOutcome::Interrupted(reason))
+                    .settle(BeaconFetch::Interrupted(reason))
                     .map_err(draw_error)?;
                 ctx.set(STATE, Json(state.clone()));
                 self.project(&ctx, &state).await?;
                 return Err(e.into_handler_error());
             }
         };
-        state.conclude(outcome).map_err(draw_error)?;
+        state.settle(outcome).map_err(draw_error)?;
         ctx.set(STATE, Json(state.clone()));
         self.project(&ctx, &state).await
     }
@@ -211,7 +208,7 @@ impl Drawing {
         state.decide(&decision.into_inner()).map_err(draw_error)?;
         ctx.set(STATE, Json(state.clone()));
         self.project(&ctx, &state).await?;
-        if state.finished {
+        if state.is_finished() {
             ctx.clear_all();
         }
         Ok(())

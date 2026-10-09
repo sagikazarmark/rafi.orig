@@ -1,47 +1,39 @@
 //! The drawing: its state machine.
 //!
 //! [`Drawing`] is one drawing's state. Its owner, a draw engine, stores it and
-//! changes it only through these methods. Every change is recorded as an
+//! changes it only through its protocol: [`Drawing::open_or_check`] to open
+//! it, [`Drawing::announce`] and [`Drawing::settle`] for a draw, and
+//! [`Drawing::decide`] for every decision. Every change is recorded as an
 //! [`Event`], and the event log is what the public verifier replays.
 //!
-//! The engine protocol is here too, so engines only do I/O:
-//! [`Drawing::open_or_check`] to open it, [`Drawing::check_beacon`],
-//! [`Drawing::begin`] and [`Drawing::conclude`] for a draw, and
-//! [`Drawing::decide`] for every decision.
-//!
-//! Pool rules:
-//! - Pass 1: everyone who has not been drawn yet. Once drawn, you are out,
-//!   whatever the outcome (claimed, not here, declined): one win per person.
-//! - Pass 2 (only when pass 1 is exhausted and items remain): pass-1 winners
-//!   whose draw was not forfeited or declined and who were not yet drawn in
-//!   pass 2.
+//! The pool rules are part of the algorithm ([`algorithm`](crate::algorithm)).
 //!
 //! Fairness rules for a pending draw (its round may already be public):
 //! - A beacon that cannot be fetched or verified never clears the pending draw
-//!   ([`Drawing::stall`]); the next attempt fetches the *same* round.
-//! - Nothing may change the draw's inputs (`k`, pass, pool, chain) while it is
-//!   pending: other draws, voiding it, finishing, and "not here"/"declined"
-//!   resolutions are refused.
+//!   (it stalls); the next attempt fetches the *same* round.
+//! - Nothing may change the draw's inputs (`k`, pass, pool, beacon source)
+//!   while it is pending: other draws, voiding it, finishing, and forfeits
+//!   ("not here"/"declined") are refused.
 //! - The only exit without its beacon is an explicit, logged
-//!   [`Drawing::abandon`]; the public verifier shows what the round would have
-//!   picked.
+//!   [`Decision::Abandon`]; the public verifier shows what the round would
+//!   have picked.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Hash,
+    algorithm::{self, PastDraw},
     beacon::BeaconSource,
+    command::{BeaconFetch, Decision, DrawRequest, Resolution},
     drand::VerifiedBeacon,
-    draw,
-    engine::{BeaconOutcome, Decision},
     error::Error,
-    hash_from_hex,
-    id::{EntrantId, ItemId},
-    manifest::{self, ItemRef, Manifest},
+    hash::{self, Hash, ManifestHash},
+    id::{DrawingId, EntrantId, ItemId},
+    manifest::{ItemRef, Manifest},
 };
 
+/// Where an item stands, without its draw.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemStatus {
@@ -51,17 +43,105 @@ pub enum ItemStatus {
     Voided,
 }
 
+/// Where an item stands, with the draw that holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ItemState {
+    /// Can be drawn.
+    Pending,
+    /// Draw `k` picked `entrant`; the organizer has not resolved it yet.
+    Drawn { k: u64, entrant: EntrantId },
+    /// Draw `k`'s winner took it.
+    Claimed { k: u64, entrant: EntrantId },
+    /// Withdrawn: it will not be given away.
+    Voided,
+}
+
+/// One item of a drawing, as it stands.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "ItemRepr", try_from = "ItemRepr")]
 pub struct Item {
     pub id: ItemId,
     pub name: String,
-    pub status: ItemStatus,
-    /// The draw that currently holds this item (when drawn or claimed).
-    pub k: Option<u64>,
-    pub entrant: Option<EntrantId>,
+    pub state: ItemState,
 }
 
-/// How a drawn entrant's turn ended.
+impl Item {
+    fn pending(item: &ItemRef) -> Self {
+        Self {
+            id: item.id.clone(),
+            name: item.name.clone(),
+            state: ItemState::Pending,
+        }
+    }
+
+    pub fn status(&self) -> ItemStatus {
+        match self.state {
+            ItemState::Pending => ItemStatus::Pending,
+            ItemState::Drawn { .. } => ItemStatus::Drawn,
+            ItemState::Claimed { .. } => ItemStatus::Claimed,
+            ItemState::Voided => ItemStatus::Voided,
+        }
+    }
+
+    /// The draw that holds this item (drawn or claimed).
+    pub fn k(&self) -> Option<u64> {
+        match self.state {
+            ItemState::Drawn { k, .. } | ItemState::Claimed { k, .. } => Some(k),
+            ItemState::Pending | ItemState::Voided => None,
+        }
+    }
+
+    /// The winner holding this item (drawn or claimed).
+    pub fn entrant(&self) -> Option<&EntrantId> {
+        match &self.state {
+            ItemState::Drawn { entrant, .. } | ItemState::Claimed { entrant, .. } => Some(entrant),
+            ItemState::Pending | ItemState::Voided => None,
+        }
+    }
+}
+
+/// An item as stored: its status, draw and winner side by side.
+#[derive(Serialize, Deserialize)]
+struct ItemRepr {
+    id: ItemId,
+    name: String,
+    status: ItemStatus,
+    k: Option<u64>,
+    entrant: Option<EntrantId>,
+}
+
+impl From<Item> for ItemRepr {
+    fn from(item: Item) -> Self {
+        Self {
+            status: item.status(),
+            k: item.k(),
+            entrant: item.entrant().cloned(),
+            id: item.id,
+            name: item.name,
+        }
+    }
+}
+
+impl TryFrom<ItemRepr> for Item {
+    type Error = String;
+
+    fn try_from(r: ItemRepr) -> Result<Self, Self::Error> {
+        let state = match (r.status, r.k, r.entrant) {
+            (ItemStatus::Pending, None, None) => ItemState::Pending,
+            (ItemStatus::Voided, None, None) => ItemState::Voided,
+            (ItemStatus::Drawn, Some(k), Some(entrant)) => ItemState::Drawn { k, entrant },
+            (ItemStatus::Claimed, Some(k), Some(entrant)) => ItemState::Claimed { k, entrant },
+            (status, ..) => return Err(format!("item {}: inconsistent {status:?} item", r.id)),
+        };
+        Ok(Self {
+            id: r.id,
+            name: r.name,
+            state,
+        })
+    }
+}
+
+/// Where a draw's winner stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
@@ -70,6 +150,16 @@ pub enum Outcome {
     Claimed,
     NotHere,
     Declined,
+}
+
+impl From<Resolution> for Outcome {
+    fn from(resolution: Resolution) -> Self {
+        match resolution {
+            Resolution::Claimed => Self::Claimed,
+            Resolution::NotHere => Self::NotHere,
+            Resolution::Declined => Self::Declined,
+        }
+    }
 }
 
 /// An entry in the public draw log.
@@ -103,7 +193,7 @@ pub enum Event {
         round: u64,
         reason: String,
     },
-    /// The organizer abandoned the pending draw (its item goes back to pending).
+    /// The organizer abandoned the pending draw; its item can be drawn again.
     /// Published logs call it `fail`.
     #[serde(rename = "fail")]
     Abandon {
@@ -114,7 +204,7 @@ pub enum Event {
     },
     Resolve {
         k: u64,
-        outcome: Outcome,
+        outcome: Resolution,
     },
     Void {
         item: ItemId,
@@ -131,23 +221,43 @@ pub struct Pending {
     pub round_time: u64,
 }
 
+/// Result of a completed draw.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Drawn {
+    pub k: u64,
+    pub item: ItemId,
+    pub entrant: EntrantId,
+    pub pass: u8,
+    /// How many entrants the pool held.
+    pub pool_size: usize,
+    /// The winner's position in the pool.
+    pub index: usize,
+}
+
+/// A completed draw and where its winner stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletedDraw {
+    pub k: u64,
+    pub item: ItemId,
+    pub round: u64,
+    pub pass: u8,
+    pub entrant: EntrantId,
+    pub outcome: Outcome,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Drawing {
-    pub id: String,
-    /// Hex `SHA256` of the canonical manifest.
-    pub manifest_hash: String,
-    /// Where the draws' randomness comes from (from the manifest).
-    pub beacon: BeaconSource,
+    id: DrawingId,
+    manifest_hash: ManifestHash,
+    beacon: BeaconSource,
     /// Sorted entrant IDs.
-    pub entrants: Vec<EntrantId>,
-    pub items: Vec<Item>,
-    pub events: Vec<Event>,
-    pub next_k: u64,
-    pub pending: Option<Pending>,
-    pub finished: bool,
-    /// Monotonic version, bumped on every change: of two copies of a
-    /// drawing, the one with the higher version is newer.
-    pub version: u64,
+    entrants: Vec<EntrantId>,
+    items: Vec<Item>,
+    events: Vec<Event>,
+    next_k: u64,
+    pending: Option<Pending>,
+    finished: bool,
+    version: u64,
 }
 
 /// Refuses a drawing committed to another beacon source than the engine's.
@@ -162,63 +272,53 @@ fn check_beacon(committed: &BeaconSource, engine: &BeaconSource) -> Result<(), E
     }
 }
 
-/// Result of a completed draw.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Drawn {
-    pub k: u64,
-    pub item: ItemId,
-    pub entrant: EntrantId,
-    pub pass: u8,
-    /// How many entrants the pool held.
-    pub pool_size: usize,
-    /// The winner's position in the sorted pool.
-    pub index: usize,
-}
-
+/// Reading a drawing.
 impl Drawing {
-    /// Opens a drawing from its manifest.
-    pub fn open(manifest: &Manifest) -> Self {
-        let json = manifest.canonical_json();
-        Self {
-            id: manifest.drawing.clone(),
-            manifest_hash: hex::encode(manifest::hash(&json)),
-            beacon: manifest.beacon,
-            entrants: manifest.entrants.clone(),
-            items: manifest.items.iter().map(Item::pending).collect(),
-            events: Vec::new(),
-            next_k: 1,
-            pending: None,
-            finished: false,
-            version: 1,
-        }
+    pub fn id(&self) -> &DrawingId {
+        &self.id
     }
 
-    /// Opening, as every engine applies it: `existing` is the engine's
-    /// drawing for this ID, if any.
-    ///
-    /// Validates the manifest and refuses another beacon source than the
-    /// engine's.
-    /// Opening with the same manifest again is a no-op (`None`); another
-    /// manifest is refused. Otherwise returns the fresh drawing to store.
-    pub fn open_or_check(
-        existing: Option<&Drawing>,
-        manifest: &Manifest,
-        engine_beacon: &BeaconSource,
-    ) -> Result<Option<Drawing>, Error> {
-        manifest.validate()?;
-        check_beacon(&manifest.beacon, engine_beacon)?;
-        let fresh = Self::open(manifest);
-        match existing {
-            Some(existing) if existing.manifest_hash == fresh.manifest_hash => Ok(None),
-            Some(_) => Err(Error::AlreadyOpen),
-            None => Ok(Some(fresh)),
-        }
+    pub fn manifest_hash(&self) -> &ManifestHash {
+        &self.manifest_hash
     }
 
-    /// Refuses to draw with an engine on another beacon source than the one
-    /// the drawing committed to.
-    pub fn check_beacon(&self, engine_beacon: &BeaconSource) -> Result<(), Error> {
-        check_beacon(&self.beacon, engine_beacon)
+    /// Where the draws' randomness comes from (from the manifest).
+    pub fn beacon(&self) -> &BeaconSource {
+        &self.beacon
+    }
+
+    /// The entrants, sorted.
+    pub fn entrants(&self) -> &[EntrantId] {
+        &self.entrants
+    }
+
+    pub fn items(&self) -> &[Item] {
+        &self.items
+    }
+
+    pub fn item(&self, id: &ItemId) -> Option<&Item> {
+        self.items.iter().find(|item| item.id == *id)
+    }
+
+    /// The event log, oldest first.
+    pub fn events(&self) -> &[Event] {
+        &self.events
+    }
+
+    /// The draw announced and waiting for its beacon, if any.
+    pub fn pending(&self) -> Option<&Pending> {
+        self.pending.as_ref()
+    }
+
+    /// Whether the drawing is finished: the engine may forget it.
+    pub fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    /// Monotonic, bumped on every change: of two copies of a drawing, the one
+    /// with the higher version is newer.
+    pub fn version(&self) -> u64 {
+        self.version
     }
 
     /// Whether the pending draw has stalled: its latest attempt couldn't get
@@ -240,68 +340,32 @@ impl Drawing {
             .unwrap_or(false)
     }
 
-    /// Settles the pending draw with its beacon's outcome.
-    ///
-    /// A verified beacon completes it (`Some`). A beacon that doesn't fit the
-    /// draw (wrong round or chain), an unavailable one and an interrupted
-    /// attempt all stall it
-    /// (`None`): the draw stays pending on its round, never abandoned, so a
-    /// retry fetches the same round.
-    pub fn conclude(&mut self, outcome: BeaconOutcome) -> Result<Option<Drawn>, Error> {
-        match outcome {
-            BeaconOutcome::Verified(beacon) => match self.complete(&beacon) {
-                Ok(drawn) => Ok(Some(drawn)),
-                Err(e) => self.stall(&format!("invalid beacon: {e}")).map(|()| None),
-            },
-            BeaconOutcome::Unavailable(reason) => self
-                .stall(&format!("drand unavailable: {reason}"))
-                .map(|()| None),
-            BeaconOutcome::Interrupted(reason) => self.stall(&reason).map(|()| None),
-        }
-    }
-
-    /// Applies a decision (draws go through [`Self::begin`] and
-    /// [`Self::conclude`]). After [`Decision::Finish`] the drawing is
-    /// `finished` and the engine may forget it.
-    pub fn decide(&mut self, decision: &Decision) -> Result<(), Error> {
-        match decision {
-            Decision::Resolve { item, outcome } => self.resolve(item, *outcome),
-            Decision::Void { item } => self.void(item),
-            Decision::Abandon { item } => self.abandon_item(item),
-            Decision::Finish => self.finish(),
-        }
-    }
-
-    fn item_mut(&mut self, id: &ItemId) -> Result<&mut Item, Error> {
-        self.items
-            .iter_mut()
-            .find(|u| u.id == *id)
-            .ok_or_else(|| Error::UnknownItem(id.clone()))
-    }
-
-    pub fn item(&self, id: &ItemId) -> Option<&Item> {
-        self.items.iter().find(|u| u.id == *id)
-    }
-
-    /// Outcome of every draw so far, keyed by `k`, with the pass and entrant.
-    fn draws(&self) -> Vec<(u64, u8, &EntrantId, Outcome)> {
+    /// Every completed draw so far, in order, with where its winner stands.
+    pub fn draws(&self) -> Vec<CompletedDraw> {
         let mut outcomes: HashMap<u64, Outcome> = HashMap::new();
         for e in &self.events {
             if let Event::Resolve { k, outcome } = e {
-                outcomes.insert(*k, *outcome);
+                outcomes.insert(*k, (*outcome).into());
             }
         }
         self.events
             .iter()
             .filter_map(|e| match e {
                 Event::Draw {
-                    k, pass, entrant, ..
-                } => Some((
-                    *k,
-                    *pass,
+                    k,
+                    item,
+                    round,
+                    pass,
                     entrant,
-                    outcomes.get(k).copied().unwrap_or(Outcome::Drawn),
-                )),
+                    ..
+                } => Some(CompletedDraw {
+                    k: *k,
+                    item: item.clone(),
+                    round: *round,
+                    pass: *pass,
+                    entrant: entrant.clone(),
+                    outcome: outcomes.get(k).copied().unwrap_or(Outcome::Drawn),
+                }),
                 _ => None,
             })
             .collect()
@@ -310,100 +374,212 @@ impl Drawing {
     /// The pool for the next draw: `(pass, sorted entrant IDs)`.
     pub fn pool(&self) -> (u8, Vec<EntrantId>) {
         let draws = self.draws();
-        let drawn_pass1: HashSet<&EntrantId> =
-            draws.iter().filter(|d| d.1 == 1).map(|d| d.2).collect();
-        let pass1: Vec<EntrantId> = self
-            .entrants
+        let past: Vec<PastDraw<'_>> = draws
             .iter()
-            .filter(|e| !drawn_pass1.contains(e))
-            .cloned()
+            .map(|d| PastDraw {
+                pass: d.pass,
+                entrant: &d.entrant,
+                forfeited: matches!(d.outcome, Outcome::NotHere | Outcome::Declined),
+            })
             .collect();
-        if !pass1.is_empty() {
-            return (1, pass1);
-        }
-
-        let winners: HashSet<&EntrantId> = draws
-            .iter()
-            .filter(|d| d.1 == 1 && matches!(d.3, Outcome::Drawn | Outcome::Claimed))
-            .map(|d| d.2)
-            .collect();
-        let drawn_pass2: HashSet<&EntrantId> =
-            draws.iter().filter(|d| d.1 == 2).map(|d| d.2).collect();
-        let pass2 = self
-            .entrants
-            .iter()
-            .filter(|e| winners.contains(e) && !drawn_pass2.contains(e))
-            .cloned()
-            .collect();
-        (2, pass2)
+        algorithm::pool(&self.entrants, &past)
     }
 
     /// Number of items that can still be given away.
     pub fn items_left(&self) -> usize {
         self.items
             .iter()
-            .filter(|u| matches!(u.status, ItemStatus::Pending | ItemStatus::Drawn))
+            .filter(|item| matches!(item.state, ItemState::Pending | ItemState::Drawn { .. }))
             .count()
     }
 
-    /// Starts a draw for `item`, committing to drand `round`.
+    /// Where every drawn entrant stands, with the item of that draw: a claim
+    /// over anything else, otherwise their latest draw.
+    pub fn entrant_outcomes(&self) -> BTreeMap<EntrantId, (Outcome, ItemId)> {
+        let mut out = BTreeMap::new();
+        for draw in self.draws() {
+            match out.get(&draw.entrant) {
+                // Keep a claim over a later pass-2 forfeit.
+                Some((Outcome::Claimed, _)) if draw.outcome != Outcome::Claimed => {}
+                _ => {
+                    out.insert(draw.entrant, (draw.outcome, draw.item));
+                }
+            }
+        }
+        out
+    }
+
+    /// The item draw `k` currently holds (drawn or claimed).
+    fn item_held_by(&self, k: u64) -> Option<&Item> {
+        self.items.iter().find(|item| item.k() == Some(k))
+    }
+}
+
+/// The engine protocol.
+impl Drawing {
+    /// Opens a drawing from its manifest, which must be valid.
+    pub fn open(manifest: &Manifest) -> Result<Self, Error> {
+        manifest.validate()?;
+        Ok(Self::open_unchecked(manifest))
+    }
+
+    /// Rebuilds a drawing from its manifest and its own event log.
     ///
-    /// Calling it again for the same item while that draw is pending returns
-    /// the existing pending draw (idempotent).
-    pub fn begin(&mut self, item: &ItemId, round: u64, round_time: u64) -> Result<Pending, Error> {
+    /// The log is trusted: only its consistency is checked (that it names
+    /// items and draws that exist), not the rules or the draws' randomness.
+    /// [`verify`](crate::verify) is what checks a published log.
+    pub fn restore(manifest: &Manifest, events: &[Event]) -> Result<Self, Error> {
+        let mut drawing = Self::open(manifest)?;
+        for event in events {
+            drawing.apply(event)?;
+            drawing.events.push(event.clone());
+            drawing.version += 1;
+        }
+        Ok(drawing)
+    }
+
+    /// Opens a drawing from a manifest that may be invalid (the verifier
+    /// replays it anyway, and reports it).
+    pub(crate) fn open_unchecked(manifest: &Manifest) -> Self {
+        Self {
+            id: manifest.drawing.clone(),
+            manifest_hash: manifest.hash(),
+            beacon: manifest.beacon,
+            entrants: manifest.entrants.clone(),
+            items: manifest.items.iter().map(Item::pending).collect(),
+            events: Vec::new(),
+            next_k: 1,
+            pending: None,
+            finished: false,
+            version: 1,
+        }
+    }
+
+    /// Opening, as every engine applies it: `existing` is the engine's
+    /// drawing for this ID, if any.
+    ///
+    /// Validates the manifest and refuses another beacon source than the
+    /// engine's. Opening with the same manifest again is a no-op (`None`);
+    /// another manifest is refused. Otherwise returns the fresh drawing to
+    /// store.
+    pub fn open_or_check(
+        existing: Option<&Drawing>,
+        manifest: &Manifest,
+        engine_beacon: &BeaconSource,
+    ) -> Result<Option<Drawing>, Error> {
+        let fresh = Self::open(manifest)?;
+        check_beacon(&fresh.beacon, engine_beacon)?;
+        match existing {
+            Some(existing) if existing.manifest_hash == fresh.manifest_hash => Ok(None),
+            Some(_) => Err(Error::AlreadyOpen),
+            None => Ok(Some(fresh)),
+        }
+    }
+
+    /// Announces a draw: commits it to drand `round`, published at
+    /// `round_time`. Refused with an engine on another beacon source than
+    /// the drawing's.
+    ///
+    /// Announcing the item whose draw is pending again re-enters that draw on
+    /// its own round (a retry after a stall), whatever `round` is now.
+    pub fn announce(
+        &mut self,
+        request: &DrawRequest,
+        engine_beacon: &BeaconSource,
+        round: u64,
+        round_time: u64,
+    ) -> Result<Pending, Error> {
+        check_beacon(&self.beacon, engine_beacon)?;
+        match &self.pending {
+            Some(p) if p.item == request.item && !self.finished => Ok(p.clone()),
+            _ => self.start(&request.item, round, round_time),
+        }
+    }
+
+    /// Settles the pending draw with how its beacon fetch turned out.
+    ///
+    /// A verified beacon completes it (`Some`). A beacon that doesn't fit the
+    /// draw (wrong round or source), an unavailable one and an interrupted
+    /// attempt all stall it (`None`): the draw stays pending on its round,
+    /// never abandoned, so a retry fetches the same round.
+    pub fn settle(&mut self, fetch: BeaconFetch) -> Result<Option<Drawn>, Error> {
+        match fetch {
+            BeaconFetch::Verified(beacon) => match self.complete(&beacon) {
+                Ok(drawn) => Ok(Some(drawn)),
+                Err(e) => self.stall(&format!("invalid beacon: {e}")).map(|()| None),
+            },
+            BeaconFetch::Unavailable(reason) => self
+                .stall(&format!("drand unavailable: {reason}"))
+                .map(|()| None),
+            BeaconFetch::Interrupted(reason) => self.stall(&reason).map(|()| None),
+        }
+    }
+
+    /// Applies a decision. After [`Decision::Finish`] the drawing is finished
+    /// and the engine may forget it.
+    pub fn decide(&mut self, decision: &Decision) -> Result<(), Error> {
+        match decision {
+            Decision::Resolve { item, outcome } => self.resolve(item, *outcome),
+            Decision::Void { item } => self.void(item),
+            Decision::Abandon { item } => match &self.pending {
+                Some(p) if p.item == *item => self.abandon("abandoned by the organizer"),
+                _ => Err(Error::NoDrawInProgress),
+            },
+            Decision::Finish => self.finish(),
+        }
+    }
+}
+
+/// The transitions: each checks the rules, then records its event. The
+/// verifier replays a log through these.
+impl Drawing {
+    /// Starts a draw for `item`, committing to drand `round`.
+    pub(crate) fn start(
+        &mut self,
+        item: &ItemId,
+        round: u64,
+        round_time: u64,
+    ) -> Result<Pending, Error> {
         if self.finished {
             return Err(Error::Finished);
         }
-        if let Some(p) = &self.pending {
-            if p.item == *item {
-                return Ok(p.clone());
-            }
+        if self.pending.is_some() {
             return Err(Error::DrawInProgress);
         }
-        let status = self
+        let item = self
             .item(item)
-            .ok_or_else(|| Error::UnknownItem(item.clone()))?
-            .status;
-        if status != ItemStatus::Pending {
-            return Err(Error::ItemNotPending(item.clone()));
-        }
-        if self.pool().1.is_empty() {
-            return Err(Error::NoEligibleEntrants);
+            .ok_or_else(|| Error::UnknownItem(item.clone()))?;
+        if item.state != ItemState::Pending {
+            return Err(Error::ItemNotPending(item.id.clone()));
         }
         let pending = Pending {
             k: self.next_k,
-            item: item.clone(),
+            item: item.id.clone(),
             round,
             round_time,
         };
-        self.events.push(Event::Announce {
+        if self.pool().1.is_empty() {
+            return Err(Error::NoEligibleEntrants);
+        }
+        self.record(Event::Announce {
             k: pending.k,
             item: pending.item.clone(),
             round,
             round_time,
         });
-        self.pending = Some(pending.clone());
-        self.version += 1;
         Ok(pending)
     }
 
     /// Completes the pending draw with the verified beacon for its committed
     /// round, from the drawing's drand chain.
-    pub fn complete(&mut self, beacon: &VerifiedBeacon) -> Result<Drawn, Error> {
-        let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
-        if beacon.round() != pending.round {
-            return Err(Error::WrongRound {
-                expected: pending.round,
-                got: beacon.round(),
-            });
-        }
+    pub(crate) fn complete(&mut self, beacon: &VerifiedBeacon) -> Result<Drawn, Error> {
         if BeaconSource::Drand(beacon.chain_hash()) != self.beacon {
             return Err(Error::WrongBeacon);
         }
-        self.settle(
-            pending,
+        self.select(
+            beacon.round(),
             *beacon.randomness(),
-            hex::encode(&beacon.beacon().signature),
+            &beacon.beacon().signature,
         )
     }
 
@@ -414,6 +590,11 @@ impl Drawing {
         round: u64,
         signature: &[u8],
     ) -> Result<Drawn, Error> {
+        self.select(round, hash::randomness(signature), signature)
+    }
+
+    /// Selects the pending draw's winner from `round`'s randomness.
+    fn select(&mut self, round: u64, randomness: Hash, signature: &[u8]) -> Result<Drawn, Error> {
         let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
         if round != pending.round {
             return Err(Error::WrongRound {
@@ -421,190 +602,191 @@ impl Drawing {
                 got: round,
             });
         }
-        let randomness = crate::sha256(&[signature]);
-        self.settle(pending, randomness, hex::encode(signature))
-    }
-
-    fn settle(
-        &mut self,
-        pending: Pending,
-        randomness: Hash,
-        signature: String,
-    ) -> Result<Drawn, Error> {
-        let manifest_hash = hash_from_hex(&self.manifest_hash).ok_or(Error::BadManifestHash)?;
         let (pass, pool) = self.pool();
         if pool.is_empty() {
             // Unreachable while nothing may change a pending draw's pool; the
             // draw stays pending (only the organizer abandons it).
             return Err(Error::NoEligibleEntrants);
         }
-        let index = draw::select(&randomness, &manifest_hash, pending.k, pool.len());
-        let entrant = pool[index].clone();
-
-        let item = self.item_mut(&pending.item)?;
-        item.status = ItemStatus::Drawn;
-        item.k = Some(pending.k);
-        item.entrant = Some(entrant.clone());
-
-        self.events.push(Event::Draw {
-            k: pending.k,
-            item: pending.item.clone(),
-            round: pending.round,
-            signature,
-            randomness: hex::encode(randomness),
-            pass,
-            pool_size: pool.len(),
-            index,
-            entrant: entrant.clone(),
-        });
-        self.pending = None;
-        self.next_k += 1;
-        self.version += 1;
-        Ok(Drawn {
+        let index = algorithm::select(
+            &randomness,
+            self.manifest_hash.as_bytes(),
+            pending.k,
+            pool.len(),
+        );
+        let drawn = Drawn {
             k: pending.k,
             item: pending.item,
-            entrant,
+            entrant: pool[index].clone(),
             pass,
             pool_size: pool.len(),
             index,
-        })
+        };
+        self.record(Event::Draw {
+            k: drawn.k,
+            item: drawn.item.clone(),
+            round,
+            signature: hex::encode(signature),
+            randomness: hex::encode(randomness),
+            pass,
+            pool_size: drawn.pool_size,
+            index,
+            entrant: drawn.entrant.clone(),
+        });
+        Ok(drawn)
     }
 
     /// Records that the pending draw's beacon could not be fetched or verified.
-    ///
-    /// The draw stays pending on the same round; drawing that item again
-    /// fetches the same round.
-    pub fn stall(&mut self, reason: &str) -> Result<(), Error> {
+    /// The draw stays pending on the same round.
+    pub(crate) fn stall(&mut self, reason: &str) -> Result<(), Error> {
         let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
-        self.events.push(Event::Stall {
+        self.record(Event::Stall {
             k: pending.k,
             item: pending.item,
             round: pending.round,
             reason: reason.to_owned(),
         });
-        self.version += 1;
         Ok(())
     }
 
-    /// Abandons the pending draw on the organizer's explicit request (the item
-    /// goes back to pending). Logged publicly: the verifier shows what the
-    /// committed round would have picked.
-    pub fn abandon(&mut self, reason: &str) -> Result<(), Error> {
-        let pending = self.pending.take().ok_or(Error::NoDrawInProgress)?;
-        self.events.push(Event::Abandon {
+    /// Abandons the pending draw; its item can be drawn again. Logged
+    /// publicly: the verifier shows what the committed round would have
+    /// picked.
+    pub(crate) fn abandon(&mut self, reason: &str) -> Result<(), Error> {
+        let pending = self.pending.clone().ok_or(Error::NoDrawInProgress)?;
+        self.record(Event::Abandon {
             k: pending.k,
             item: pending.item,
             round: pending.round,
             reason: reason.to_owned(),
         });
-        self.version += 1;
         Ok(())
     }
 
-    /// [`Drawing::abandon`] for the organizer's command, which names the item.
-    pub fn abandon_item(&mut self, item: &ItemId) -> Result<(), Error> {
-        match &self.pending {
-            Some(p) if p.item == *item => self.abandon("abandoned by the organizer"),
-            _ => Err(Error::NoDrawInProgress),
-        }
-    }
-
-    /// Records the organizer's decision about a drawn item.
-    ///
-    /// `Claimed` keeps the item with the winner. `NotHere` and `Declined` put
-    /// the item back to pending so it can be drawn again; they are refused
-    /// while a draw is pending, because they can change its pool.
-    pub fn resolve(&mut self, id: &ItemId, outcome: Outcome) -> Result<(), Error> {
-        if outcome == Outcome::Drawn {
-            return Err(Error::BadOutcome);
-        }
-        if outcome != Outcome::Claimed && self.pending.is_some() {
+    /// Resolves a drawn item's winner. A claim keeps the item with the
+    /// winner; a forfeit makes it available again, and is refused while a
+    /// draw is pending, because it can change that draw's pool.
+    pub(crate) fn resolve(&mut self, id: &ItemId, outcome: Resolution) -> Result<(), Error> {
+        if outcome.is_forfeit() && self.pending.is_some() {
             return Err(Error::DrawInProgress);
         }
-        let item = self.item_mut(id)?;
-        if item.status != ItemStatus::Drawn {
+        let item = self
+            .item(id)
+            .ok_or_else(|| Error::UnknownItem(id.clone()))?;
+        let ItemState::Drawn { k, .. } = item.state else {
             return Err(Error::ItemNotDrawn(id.clone()));
-        }
-        let k = item.k.expect("drawn item has k");
-        match outcome {
-            Outcome::Claimed => item.status = ItemStatus::Claimed,
-            _ => {
-                item.status = ItemStatus::Pending;
-                item.k = None;
-                item.entrant = None;
-            }
-        }
-        self.events.push(Event::Resolve { k, outcome });
-        self.version += 1;
+        };
+        self.record(Event::Resolve { k, outcome });
         Ok(())
     }
 
-    /// Withdraws a item that will not be given away (e.g. the sponsor did not bring it).
-    pub fn void(&mut self, id: &ItemId) -> Result<(), Error> {
+    /// Resolves the item draw `k` holds, as a published log names it.
+    pub(crate) fn resolve_draw(
+        &mut self,
+        k: u64,
+        outcome: Resolution,
+    ) -> Option<Result<(), Error>> {
+        let id = self.item_held_by(k)?.id.clone();
+        Some(self.resolve(&id, outcome))
+    }
+
+    /// Withdraws an item that will not be given away.
+    pub(crate) fn void(&mut self, id: &ItemId) -> Result<(), Error> {
         if self.pending.as_ref().is_some_and(|p| p.item == *id) {
             return Err(Error::DrawInProgress);
         }
-        let item = self.item_mut(id)?;
-        if item.status != ItemStatus::Pending {
+        let item = self
+            .item(id)
+            .ok_or_else(|| Error::UnknownItem(id.clone()))?;
+        if item.state != ItemState::Pending {
             return Err(Error::ItemNotPending(id.clone()));
         }
-        item.status = ItemStatus::Voided;
-        self.events.push(Event::Void { item: id.clone() });
-        self.version += 1;
+        self.record(Event::Void { item: id.clone() });
         Ok(())
     }
 
-    pub fn finish(&mut self) -> Result<(), Error> {
+    pub(crate) fn finish(&mut self) -> Result<(), Error> {
         if self.finished {
             return Ok(());
         }
         if self.pending.is_some() {
             return Err(Error::DrawInProgress);
         }
-        self.finished = true;
-        self.events.push(Event::Finish);
-        self.version += 1;
+        self.record(Event::Finish);
         Ok(())
     }
 
-    /// The final outcome for every entrant who has been drawn (latest draw wins).
-    pub fn entrant_outcomes(&self) -> BTreeMap<EntrantId, (Outcome, ItemId)> {
-        let mut item_by_k: HashMap<u64, &ItemId> = HashMap::new();
-        for e in &self.events {
-            if let Event::Draw { k, item, .. } = e {
-                item_by_k.insert(*k, item);
-            }
-        }
-        let mut out = BTreeMap::new();
-        for (k, _, entrant, outcome) in self.draws() {
-            let item = item_by_k[&k].clone();
-            // Keep a claimed or undecided outcome over a later pass-2 forfeit.
-            match out.get(entrant) {
-                Some((Outcome::Claimed, _)) if outcome != Outcome::Claimed => {}
-                _ => {
-                    out.insert(entrant.clone(), (outcome, item));
-                }
-            }
-        }
-        out
+    /// Records an event the rules allowed: applies it and logs it.
+    fn record(&mut self, event: Event) {
+        self.apply(&event)
+            .expect("a transition records an event that applies");
+        self.events.push(event);
+        self.version += 1;
     }
-}
 
-impl Item {
-    fn pending(u: &ItemRef) -> Self {
-        Self {
-            id: u.id.clone(),
-            name: u.name.clone(),
-            status: ItemStatus::Pending,
-            k: None,
-            entrant: None,
+    /// Applies an event to the state. Only the log's own consistency is
+    /// checked (that it names items and draws that exist); the rules were
+    /// checked when the event was recorded.
+    fn apply(&mut self, event: &Event) -> Result<(), Error> {
+        match event {
+            Event::Announce {
+                k,
+                item,
+                round,
+                round_time,
+            } => {
+                self.pending = Some(Pending {
+                    k: *k,
+                    item: item.clone(),
+                    round: *round,
+                    round_time: *round_time,
+                });
+            }
+            Event::Draw {
+                k, item, entrant, ..
+            } => {
+                self.item_mut(item)?.state = ItemState::Drawn {
+                    k: *k,
+                    entrant: entrant.clone(),
+                };
+                self.pending = None;
+                self.next_k = k + 1;
+            }
+            Event::Stall { .. } => {}
+            Event::Abandon { .. } => self.pending = None,
+            Event::Resolve { k, outcome } => {
+                let item = self
+                    .items
+                    .iter_mut()
+                    .find(
+                        |item| matches!(item.state, ItemState::Drawn { k: held, .. } if held == *k),
+                    )
+                    .ok_or(Error::UnknownDraw(*k))?;
+                item.state = match (&item.state, outcome) {
+                    (ItemState::Drawn { k, entrant }, Resolution::Claimed) => ItemState::Claimed {
+                        k: *k,
+                        entrant: entrant.clone(),
+                    },
+                    _ => ItemState::Pending,
+                };
+            }
+            Event::Void { item } => self.item_mut(item)?.state = ItemState::Voided,
+            Event::Finish => self.finished = true,
         }
+        Ok(())
+    }
+
+    fn item_mut(&mut self, id: &ItemId) -> Result<&mut Item, Error> {
+        self.items
+            .iter_mut()
+            .find(|item| item.id == *id)
+            .ok_or_else(|| Error::UnknownItem(id.clone()))
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::num::NonZeroU32;
+    use std::{collections::HashSet, num::NonZeroU32};
 
     use drand::{Scheme, TestChain, Verifier};
 
@@ -618,7 +800,7 @@ pub(crate) mod tests {
             Scheme::BlsUnchainedG1Rfc9380,
             NonZeroU32::new(3).unwrap(),
             0,
-            "rafi-core-test",
+            "rafi-drawing-test",
         )
         .unwrap()
     }
@@ -631,83 +813,122 @@ pub(crate) mod tests {
             .unwrap()
     }
 
-    fn doc(n: usize, items: usize) -> Manifest {
+    pub(crate) fn source() -> BeaconSource {
+        BeaconSource::Drand(test_chain().chain().hash())
+    }
+
+    /// `entrants` entrants and `items` items, `item-0`, `item-1`, ….
+    pub(crate) fn manifest(entrants: usize, items: usize) -> Manifest {
         Manifest::new(
             "drawing",
             source(),
-            (0..n).map(|i| format!("{i:032x}").into()).collect(),
+            (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
             (0..items)
                 .map(|i| ItemRef {
-                    id: format!("u{i}").into(),
-                    name: "Prize".into(),
+                    id: format!("item-{i}").into(),
+                    name: format!("Item {i}"),
                 })
                 .collect(),
         )
     }
 
+    pub(crate) fn opened(entrants: usize, items: usize) -> Drawing {
+        Drawing::open(&manifest(entrants, items)).unwrap()
+    }
+
     fn draw(s: &mut Drawing, item: &str, round: u64) -> Drawn {
-        s.begin(&item.into(), round, 0).unwrap();
+        s.start(&item.into(), round, 0).unwrap();
         s.complete(&beacon(round)).unwrap()
     }
 
+    fn status(s: &Drawing, item: &str) -> ItemStatus {
+        s.item(&item.into()).unwrap().status()
+    }
+
+    fn request(item: &str) -> DrawRequest {
+        DrawRequest { item: item.into() }
+    }
+
     #[test]
-    fn one_win_per_person() {
-        let mut s = Drawing::open(&doc(3, 3));
+    fn one_win_per_entrant() {
+        let mut s = opened(3, 3);
         let mut winners = HashSet::new();
-        for (i, u) in ["u0", "u1", "u2"].into_iter().enumerate() {
-            let d = draw(&mut s, u, 100 + i as u64);
+        for (i, item) in ["item-0", "item-1", "item-2"].into_iter().enumerate() {
+            let d = draw(&mut s, item, 100 + i as u64);
             assert_eq!(d.pass, 1);
             assert!(winners.insert(d.entrant));
-            s.resolve(&u.into(), Outcome::Claimed).unwrap();
+            s.resolve(&item.into(), Resolution::Claimed).unwrap();
         }
         assert_eq!(s.items_left(), 0);
     }
 
     #[test]
-    fn not_here_is_out_and_unit_is_redrawn() {
-        let mut s = Drawing::open(&doc(2, 1));
-        let first = draw(&mut s, "u0", 1);
-        s.resolve(&"u0".into(), Outcome::NotHere).unwrap();
-        assert_eq!(s.item(&"u0".into()).unwrap().status, ItemStatus::Pending);
-        let second = draw(&mut s, "u0", 2);
+    fn not_here_is_out_and_the_item_is_drawn_again() {
+        let mut s = opened(2, 1);
+        let first = draw(&mut s, "item-0", 1);
+        s.resolve(&"item-0".into(), Resolution::NotHere).unwrap();
+        assert_eq!(status(&s, "item-0"), ItemStatus::Pending);
+        let second = draw(&mut s, "item-0", 2);
         assert_ne!(first.entrant, second.entrant);
-        s.resolve(&"u0".into(), Outcome::NotHere).unwrap();
+        s.resolve(&"item-0".into(), Resolution::NotHere).unwrap();
         // Both entrants were drawn and forfeited: nobody is left.
-        assert_eq!(s.begin(&"u0".into(), 3, 0), Err(Error::NoEligibleEntrants));
+        assert_eq!(
+            s.start(&"item-0".into(), 3, 0),
+            Err(Error::NoEligibleEntrants)
+        );
     }
 
     #[test]
     fn pass_two_only_includes_winners() {
-        let mut s = Drawing::open(&doc(2, 3));
-        let a = draw(&mut s, "u0", 1);
-        s.resolve(&"u0".into(), Outcome::Claimed).unwrap();
-        draw(&mut s, "u1", 2);
-        s.resolve(&"u1".into(), Outcome::Declined).unwrap();
+        let mut s = opened(2, 3);
+        let a = draw(&mut s, "item-0", 1);
+        s.resolve(&"item-0".into(), Resolution::Claimed).unwrap();
+        draw(&mut s, "item-1", 2);
+        s.resolve(&"item-1".into(), Resolution::Declined).unwrap();
         // Pass 1 exhausted; only the claimed winner is in pass 2.
         let (pass, pool) = s.pool();
         assert_eq!(pass, 2);
         assert_eq!(pool, vec![a.entrant.clone()]);
-        let c = draw(&mut s, "u1", 3);
+        let c = draw(&mut s, "item-1", 3);
         assert_eq!(c.entrant, a.entrant);
         assert_eq!(c.pass, 2);
-        s.resolve(&"u1".into(), Outcome::Claimed).unwrap();
-        assert_eq!(s.begin(&"u2".into(), 4, 0), Err(Error::NoEligibleEntrants));
+        s.resolve(&"item-1".into(), Resolution::Claimed).unwrap();
+        assert_eq!(
+            s.start(&"item-2".into(), 4, 0),
+            Err(Error::NoEligibleEntrants)
+        );
     }
 
     #[test]
-    fn begin_is_idempotent_and_exclusive() {
-        let mut s = Drawing::open(&doc(5, 2));
-        let p1 = s.begin(&"u0".into(), 10, 0).unwrap();
-        let p2 = s.begin(&"u0".into(), 11, 0).unwrap();
+    fn announcing_again_re_enters_the_pending_draw() {
+        let mut s = opened(5, 2);
+        let p1 = s.announce(&request("item-0"), &source(), 10, 0).unwrap();
+        let p2 = s.announce(&request("item-0"), &source(), 11, 0).unwrap();
         assert_eq!(p1, p2);
-        assert_eq!(s.begin(&"u1".into(), 10, 0), Err(Error::DrawInProgress));
-        assert_eq!(s.void(&"u0".into()), Err(Error::DrawInProgress));
+        assert_eq!(s.events().len(), 1);
+        assert_eq!(
+            s.announce(&request("item-1"), &source(), 10, 0),
+            Err(Error::DrawInProgress)
+        );
+        assert_eq!(s.void(&"item-0".into()), Err(Error::DrawInProgress));
+        // The strict transition (what a replayed log goes through) refuses it.
+        assert_eq!(s.start(&"item-0".into(), 10, 0), Err(Error::DrawInProgress));
     }
 
     #[test]
-    fn wrong_round_or_chain_beacon_is_rejected() {
-        let mut s = Drawing::open(&doc(5, 1));
-        s.begin(&"u0".into(), 10, 0).unwrap();
+    fn announcing_refuses_another_beacon_source() {
+        let mut s = opened(5, 1);
+        let refused = s
+            .announce(&request("item-0"), &BeaconSource::QUICKNET, 10, 0)
+            .unwrap_err();
+        assert!(matches!(refused, Error::BeaconMismatch { .. }));
+        assert_eq!(refused.kind(), ErrorKind::Conflict);
+    }
+
+    #[test]
+    fn a_beacon_for_another_round_or_source_is_rejected() {
+        let mut s = opened(5, 1);
+        s.start(&"item-0".into(), 10, 0).unwrap();
         assert_eq!(
             s.complete(&beacon(11)),
             Err(Error::WrongRound {
@@ -715,202 +936,264 @@ pub(crate) mod tests {
                 got: 11
             })
         );
-        s.beacon = BeaconSource::Drand(drand::chains::QUICKNET_HASH);
+        s.beacon = BeaconSource::QUICKNET;
         assert_eq!(s.complete(&beacon(10)), Err(Error::WrongBeacon));
-        assert!(s.pending.is_some());
+        assert!(s.pending().is_some());
     }
 
     #[test]
     fn a_stall_keeps_the_draw_on_its_round() {
-        let mut s = Drawing::open(&doc(5, 2));
-        let p = s.begin(&"u0".into(), 10, 0).unwrap();
+        let mut s = opened(5, 2);
+        let p = s.announce(&request("item-0"), &source(), 10, 0).unwrap();
         s.stall("drand unavailable").unwrap();
-        assert_eq!(s.pending.as_ref(), Some(&p));
+        assert_eq!(s.pending(), Some(&p));
         // Retrying returns the same pending draw, even with a new round asked for.
-        assert_eq!(s.begin(&"u0".into(), 99, 0).unwrap(), p);
-        assert_eq!(s.begin(&"u1".into(), 99, 0), Err(Error::DrawInProgress));
+        assert_eq!(s.announce(&request("item-0"), &source(), 99, 0).unwrap(), p);
+        assert_eq!(
+            s.announce(&request("item-1"), &source(), 99, 0),
+            Err(Error::DrawInProgress)
+        );
         let d = s.complete(&beacon(10)).unwrap();
         assert_eq!(d.k, 1);
     }
 
     #[test]
-    fn abandon_keeps_k_and_returns_unit() {
-        let mut s = Drawing::open(&doc(5, 1));
-        s.begin(&"u0".into(), 10, 0).unwrap();
+    fn an_abandon_keeps_k_and_makes_the_item_available() {
+        let mut s = opened(5, 1);
+        s.start(&"item-0".into(), 10, 0).unwrap();
         s.abandon("organizer abandoned the draw").unwrap();
         assert_eq!(s.next_k, 1);
-        assert_eq!(s.item(&"u0".into()).unwrap().status, ItemStatus::Pending);
-        let d = draw(&mut s, "u0", 12);
+        assert_eq!(status(&s, "item-0"), ItemStatus::Pending);
+        let d = draw(&mut s, "item-0", 12);
         assert_eq!(d.k, 1);
     }
 
     #[test]
-    fn pool_changing_resolutions_wait_for_the_pending_draw() {
-        let mut s = Drawing::open(&doc(2, 3));
-        draw(&mut s, "u0", 1);
-        draw(&mut s, "u1", 2);
+    fn forfeits_wait_for_the_pending_draw() {
+        let mut s = opened(2, 3);
+        draw(&mut s, "item-0", 1);
+        draw(&mut s, "item-1", 2);
         // Pass 2 is next; its pool depends on the pass-1 outcomes.
-        s.begin(&"u2".into(), 3, 0).unwrap();
+        s.start(&"item-2".into(), 3, 0).unwrap();
         let before = s.pool();
         assert_eq!(
-            s.resolve(&"u0".into(), Outcome::NotHere),
+            s.resolve(&"item-0".into(), Resolution::NotHere),
             Err(Error::DrawInProgress)
         );
         assert_eq!(
-            s.resolve(&"u0".into(), Outcome::Declined),
+            s.resolve(&"item-0".into(), Resolution::Declined),
             Err(Error::DrawInProgress)
         );
-        s.resolve(&"u0".into(), Outcome::Claimed).unwrap();
+        s.resolve(&"item-0".into(), Resolution::Claimed).unwrap();
         assert_eq!(s.pool(), before);
         assert_eq!(s.finish(), Err(Error::DrawInProgress));
     }
 
     #[test]
     fn void_and_finish() {
-        let mut s = Drawing::open(&doc(5, 2));
-        s.void(&"u1".into()).unwrap();
+        let mut s = opened(5, 2);
+        s.void(&"item-1".into()).unwrap();
         assert_eq!(s.items_left(), 1);
         assert_eq!(
-            s.void(&"u1".into()),
-            Err(Error::ItemNotPending("u1".into()))
+            s.void(&"item-1".into()),
+            Err(Error::ItemNotPending("item-1".into()))
         );
         s.finish().unwrap();
-        assert_eq!(s.begin(&"u0".into(), 1, 0), Err(Error::Finished));
+        assert!(s.is_finished());
+        assert_eq!(s.start(&"item-0".into(), 1, 0), Err(Error::Finished));
+        assert_eq!(
+            s.announce(&request("item-0"), &source(), 1, 0),
+            Err(Error::Finished)
+        );
     }
 
     #[test]
-    fn version_increases_on_every_change() {
-        let mut s = Drawing::open(&doc(5, 1));
-        let v0 = s.version;
-        s.begin(&"u0".into(), 1, 0).unwrap();
-        let v1 = s.version;
+    fn the_version_counts_the_events() {
+        let mut s = opened(5, 1);
+        assert_eq!(s.version(), 1);
+        s.start(&"item-0".into(), 1, 0).unwrap();
         s.stall("x").unwrap();
-        let v2 = s.version;
         s.complete(&beacon(1)).unwrap();
-        let v3 = s.version;
-        assert!(v0 < v1 && v1 < v2 && v2 < v3);
+        assert_eq!(s.version(), 4);
+        assert_eq!(s.version(), 1 + s.events().len() as u64);
     }
 
-    fn source() -> BeaconSource {
-        BeaconSource::Drand(test_chain().chain().hash())
+    #[test]
+    fn opening_validates_the_manifest() {
+        assert!(matches!(
+            Drawing::open(&manifest(0, 1)),
+            Err(Error::InvalidManifest(_))
+        ));
     }
 
     #[test]
     fn open_or_check_is_idempotent_per_manifest() {
-        let d = doc(3, 1);
-        let fresh = Drawing::open_or_check(None, &d, &source())
+        let m = manifest(3, 1);
+        let fresh = Drawing::open_or_check(None, &m, &source())
             .unwrap()
             .unwrap();
-        assert_eq!(fresh, Drawing::open(&d));
+        assert_eq!(fresh, Drawing::open(&m).unwrap());
         assert_eq!(
-            Drawing::open_or_check(Some(&fresh), &d, &source()),
+            Drawing::open_or_check(Some(&fresh), &m, &source()),
             Ok(None)
         );
         assert_eq!(
-            Drawing::open_or_check(Some(&fresh), &doc(4, 1), &source()),
+            Drawing::open_or_check(Some(&fresh), &manifest(4, 1), &source()),
             Err(Error::AlreadyOpen)
         );
     }
 
     #[test]
     fn open_or_check_refuses_another_beacon_source_and_invalid_manifests() {
-        let quicknet = BeaconSource::Drand(drand::chains::QUICKNET_HASH);
         assert!(matches!(
-            Drawing::open_or_check(None, &doc(3, 1), &quicknet),
+            Drawing::open_or_check(None, &manifest(3, 1), &BeaconSource::QUICKNET),
             Err(Error::BeaconMismatch { .. })
         ));
         assert!(matches!(
-            Drawing::open_or_check(None, &doc(0, 1), &source()),
+            Drawing::open_or_check(None, &manifest(0, 1), &source()),
             Err(Error::InvalidManifest(_))
         ));
-        let s = Drawing::open(&doc(3, 1));
-        assert_eq!(s.check_beacon(&source()), Ok(()));
-        assert_eq!(
-            s.check_beacon(&quicknet).unwrap_err().kind(),
-            ErrorKind::Conflict
-        );
     }
 
     #[test]
-    fn conclude_completes_or_stalls_on_the_same_round() {
-        let mut s = Drawing::open(&doc(5, 2));
-        let p = s.begin(&"u0".into(), 10, 0).unwrap();
+    fn settling_completes_or_stalls_on_the_same_round() {
+        let mut s = opened(5, 2);
+        let p = s.announce(&request("item-0"), &source(), 10, 0).unwrap();
 
-        assert_eq!(s.conclude(BeaconOutcome::Verified(beacon(11))), Ok(None));
+        assert_eq!(s.settle(BeaconFetch::Verified(beacon(11))), Ok(None));
         assert!(s.stalled());
-        assert_eq!(s.pending.as_ref(), Some(&p));
+        assert_eq!(s.pending(), Some(&p));
         assert_eq!(
-            s.conclude(BeaconOutcome::Unavailable("relays down".into())),
+            s.settle(BeaconFetch::Unavailable("relays down".into())),
             Ok(None)
         );
         assert_eq!(
-            s.conclude(BeaconOutcome::Interrupted("draw cancelled".into())),
+            s.settle(BeaconFetch::Interrupted("draw cancelled".into())),
             Ok(None)
         );
         assert!(matches!(
-            s.events.last(),
+            s.events().last(),
             Some(Event::Stall { reason, round: 10, .. }) if reason == "draw cancelled"
         ));
 
         let drawn = s
-            .conclude(BeaconOutcome::Verified(beacon(10)))
+            .settle(BeaconFetch::Verified(beacon(10)))
             .unwrap()
             .unwrap();
         assert_eq!(drawn.k, 1);
         assert!(!s.stalled());
 
         assert_eq!(
-            s.conclude(BeaconOutcome::Unavailable("x".into())),
+            s.settle(BeaconFetch::Unavailable("x".into())),
             Err(Error::NoDrawInProgress)
         );
     }
 
     #[test]
     fn a_new_announcement_after_an_abandon_is_not_stalled() {
-        let mut s = Drawing::open(&doc(5, 1));
-        s.begin(&"u0".into(), 10, 0).unwrap();
+        let mut s = opened(5, 1);
+        s.start(&"item-0".into(), 10, 0).unwrap();
         s.stall("x").unwrap();
         s.abandon("organizer").unwrap();
         assert!(!s.stalled());
         // The same k, announced again.
-        s.begin(&"u0".into(), 12, 0).unwrap();
+        s.start(&"item-0".into(), 12, 0).unwrap();
         assert!(!s.stalled());
     }
 
     #[test]
     fn decide_runs_every_decision() {
-        let mut s = Drawing::open(&doc(5, 2));
-        draw(&mut s, "u0", 1);
+        let mut s = opened(5, 2);
+        draw(&mut s, "item-0", 1);
         let resolve = Decision::Resolve {
-            item: "u0".into(),
-            outcome: Outcome::Claimed,
+            item: "item-0".into(),
+            outcome: Resolution::Claimed,
         };
         s.decide(&resolve).unwrap();
-        s.decide(&Decision::Void { item: "u1".into() }).unwrap();
+        s.decide(&Decision::Void {
+            item: "item-1".into(),
+        })
+        .unwrap();
         assert_eq!(
-            s.decide(&Decision::Abandon { item: "u1".into() }),
+            s.decide(&Decision::Abandon {
+                item: "item-1".into()
+            }),
             Err(Error::NoDrawInProgress)
         );
         s.decide(&Decision::Finish).unwrap();
-        assert!(s.finished);
+        assert!(s.is_finished());
+    }
+
+    #[test]
+    fn draws_and_entrant_outcomes() {
+        let mut s = opened(2, 2);
+        let a = draw(&mut s, "item-0", 1);
+        s.resolve(&"item-0".into(), Resolution::Claimed).unwrap();
+        let b = draw(&mut s, "item-1", 2);
+        let draws = s.draws();
+        assert_eq!(draws.len(), 2);
+        assert_eq!(draws[0].outcome, Outcome::Claimed);
+        assert_eq!(draws[1].outcome, Outcome::Drawn);
+        let outcomes = s.entrant_outcomes();
+        assert_eq!(outcomes[&a.entrant], (Outcome::Claimed, "item-0".into()));
+        assert_eq!(outcomes[&b.entrant], (Outcome::Drawn, "item-1".into()));
+    }
+
+    #[test]
+    fn a_drawing_restores_from_its_log() {
+        let m = manifest(3, 2);
+        let mut s = Drawing::open(&m).unwrap();
+        draw(&mut s, "item-0", 1);
+        s.resolve(&"item-0".into(), Resolution::Claimed).unwrap();
+        s.start(&"item-1".into(), 2, 0).unwrap();
+        s.stall("x").unwrap();
+        assert_eq!(Drawing::restore(&m, s.events()), Ok(s.clone()));
+
+        let unknown = Event::Resolve {
+            k: 9,
+            outcome: Resolution::Claimed,
+        };
+        assert_eq!(Drawing::restore(&m, &[unknown]), Err(Error::UnknownDraw(9)));
+    }
+
+    #[test]
+    fn items_keep_their_stored_form() {
+        let mut s = opened(2, 1);
+        let d = draw(&mut s, "item-0", 1);
+        let json = serde_json::to_value(&s.items()[0]).unwrap();
+        assert_eq!(json["status"], "drawn");
+        assert_eq!(json["k"], 1);
+        assert_eq!(json["entrant"], d.entrant.as_str());
+        let back: Item = serde_json::from_value(json).unwrap();
+        assert_eq!(back, s.items()[0]);
+        assert!(
+            serde_json::from_value::<Item>(serde_json::json!({
+                "id": "item-0", "name": "Item", "status": "drawn", "k": null, "entrant": null
+            }))
+            .is_err()
+        );
     }
 
     #[test]
     fn error_kinds() {
-        assert_eq!(Error::NotOpen.kind(), ErrorKind::NotFound);
-        assert_eq!(Error::UnknownItem("u".into()).kind(), ErrorKind::NotFound);
-        assert_eq!(Error::BadOutcome.kind(), ErrorKind::BadRequest);
+        assert_eq!(
+            Error::UnknownItem("item".into()).kind(),
+            ErrorKind::NotFound
+        );
+        assert_eq!(
+            Error::InvalidManifest("x".into()).kind(),
+            ErrorKind::BadRequest
+        );
         assert_eq!(Error::AlreadyOpen.kind(), ErrorKind::Conflict);
         assert_eq!(Error::DrawInProgress.kind(), ErrorKind::Conflict);
         assert_eq!(Error::WrongBeacon.kind(), ErrorKind::Invariant);
-        assert_eq!(Error::BadManifestHash.kind(), ErrorKind::Invariant);
     }
 
     #[test]
     fn an_abandon_is_published_as_fail() {
         let e = Event::Abandon {
             k: 1,
-            item: "u0".into(),
+            item: "item-0".into(),
             round: 10,
             reason: "x".into(),
         };

@@ -5,11 +5,10 @@ use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_drawing::{
-    BeaconSource, EntrantId, Error,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, EntrantId, Error, Event, ItemRef,
+    ItemState, Manifest, ManifestHash, Resolution,
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
-    drawing::{Drawing, Event, ItemStatus, Outcome},
-    manifest::{ItemRef, Manifest},
-    verify::verify,
+    verify,
 };
 
 fn chain() -> &'static (TestChain, Verifier) {
@@ -38,9 +37,18 @@ fn resolve(h: &ChainHash) -> Option<ChainInfo> {
     (info.hash() == *h).then_some(info)
 }
 
+fn source() -> BeaconSource {
+    BeaconSource::Drand(chain().0.chain().hash())
+}
+
+fn item(i: usize) -> rafi_drawing::ItemId {
+    format!("item-{i}").into()
+}
+
+/// The engine protocol's calls, as an engine makes them.
 #[derive(Debug, Clone)]
 enum Op {
-    Begin(usize),
+    Announce(usize),
     Complete,
     Stall,
     Abandon,
@@ -51,7 +59,7 @@ enum Op {
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
-        4 => (0..6usize).prop_map(Op::Begin),
+        4 => (0..6usize).prop_map(Op::Announce),
         3 => Just(Op::Complete),
         2 => Just(Op::Stall),
         1 => Just(Op::Abandon),
@@ -62,8 +70,20 @@ fn op() -> impl Strategy<Value = Op> {
 }
 
 /// Everything the pending draw's outcome depends on.
-fn draw_inputs(s: &Drawing) -> (u64, (u8, Vec<EntrantId>), BeaconSource, String) {
-    (s.next_k, s.pool(), s.beacon, s.manifest_hash.clone())
+fn draw_inputs(
+    s: &Drawing,
+) -> (
+    Option<u64>,
+    (u8, Vec<EntrantId>),
+    BeaconSource,
+    ManifestHash,
+) {
+    (
+        s.pending().map(|p| p.k),
+        s.pool(),
+        *s.beacon(),
+        *s.manifest_hash(),
+    )
 }
 
 proptest! {
@@ -71,51 +91,55 @@ proptest! {
 
     #[test]
     fn invariants_hold_and_log_verifies(n in 1usize..8, items in 1usize..6, ops in proptest::collection::vec(op(), 0..40)) {
-        let doc = Manifest::new(
+        let manifest = Manifest::new(
             "prop",
-            BeaconSource::Drand(chain().0.chain().hash()),
+            source(),
             (0..n).map(|i| format!("{i:032x}").into()).collect(),
-            (0..items).map(|i| ItemRef { id: format!("u{i}").into(), name: "P".into() }).collect(),
+            (0..items).map(|i| ItemRef { id: item(i), name: format!("Item {i}") }).collect(),
         );
-        let mut s = Drawing::open(&doc);
+        let mut s = Drawing::open(&manifest).unwrap();
         let mut round = 1;
-        let mut last_version = s.version;
         for op in ops {
-            let pending_before = s.pending.clone();
+            let pending_before = s.pending().cloned();
             let inputs_before = draw_inputs(&s);
-            let events_before = s.events.len();
+            let events_before = s.events().len();
+            let version_before = s.version();
             match op {
-                Op::Begin(u) => {
+                Op::Announce(i) => {
                     round += 1;
-                    let _ = s.begin(&format!("u{}", u % items).into(), round, 0);
+                    let request = DrawRequest { item: item(i % items) };
+                    let _ = s.announce(&request, &source(), round, 0);
                 }
                 Op::Complete => {
-                    if let Some(p) = s.pending.clone() {
-                        let _ = s.complete(&beacon(p.round));
+                    if let Some(p) = s.pending().cloned() {
+                        let _ = s.settle(BeaconFetch::Verified(beacon(p.round)));
                     }
                 }
-                Op::Stall => { let _ = s.stall("unavailable"); }
-                Op::Abandon => { let _ = s.abandon("abandoned"); }
-                Op::Resolve(u, o) => {
-                    let outcome = [Outcome::Claimed, Outcome::NotHere, Outcome::Declined][o as usize];
-                    let _ = s.resolve(&format!("u{}", u % items).into(), outcome);
+                Op::Stall => { let _ = s.settle(BeaconFetch::Unavailable("relays down".into())); }
+                Op::Abandon => {
+                    if let Some(p) = s.pending().cloned() {
+                        let _ = s.decide(&Decision::Abandon { item: p.item });
+                    }
                 }
-                Op::Void(u) => { let _ = s.void(&format!("u{}", u % items).into()); }
-                Op::Finish => { let _ = s.finish(); }
+                Op::Resolve(i, o) => {
+                    let outcome = [Resolution::Claimed, Resolution::NotHere, Resolution::Declined][o as usize];
+                    let _ = s.decide(&Decision::Resolve { item: item(i % items), outcome });
+                }
+                Op::Void(i) => { let _ = s.decide(&Decision::Void { item: item(i % items) }); }
+                Op::Finish => { let _ = s.decide(&Decision::Finish); }
             }
-            prop_assert!(s.version >= last_version);
-            last_version = s.version;
+            prop_assert_eq!(s.version() - version_before, (s.events().len() - events_before) as u64);
 
             // While a draw is pending, nothing may change its inputs, and it
             // only ends by a draw event or an explicit abandon.
             if let Some(p) = &pending_before {
-                match &s.pending {
+                match s.pending() {
                     Some(now) => {
                         prop_assert_eq!(now, p);
                         prop_assert_eq!(&draw_inputs(&s), &inputs_before);
                     }
                     None => {
-                        let ended = &s.events[events_before..];
+                        let ended = &s.events()[events_before..];
                         prop_assert!(
                             matches!(ended, [Event::Draw { .. }] | [Event::Abandon { .. }]),
                             "pending draw ended by {:?}", ended
@@ -124,33 +148,33 @@ proptest! {
                 }
             }
 
-            // A claimed item always has a winner; nobody holds two pass-1 claims.
-            for item in &s.items {
-                match item.status {
-                    ItemStatus::Drawn | ItemStatus::Claimed => {
-                        let e = item.entrant.clone().unwrap();
-                        prop_assert!(doc.entrants.contains(&e));
-                    }
-                    _ => prop_assert!(item.entrant.is_none()),
+            // A drawn or claimed item's winner is an entrant.
+            for item in s.items() {
+                if let ItemState::Drawn { entrant, .. } | ItemState::Claimed { entrant, .. } = &item.state {
+                    prop_assert!(manifest.entrants.contains(entrant));
                 }
             }
 
             // Pass-1 draws never repeat an entrant.
             let mut seen = HashSet::new();
-            for e in &s.events {
-                if let Event::Draw { pass: 1, entrant, .. } = e {
-                    prop_assert!(seen.insert(entrant.clone()), "entrant drawn twice in pass 1");
+            for d in s.draws() {
+                if d.pass == 1 {
+                    prop_assert!(seen.insert(d.entrant.clone()), "entrant drawn twice in pass 1");
                 }
             }
         }
-        let report = verify(&doc.canonical_json(), &s.manifest_hash, &s.events, resolve);
+        let report = verify(&manifest.canonical_json(), &manifest.hash().to_string(), s.events(), resolve);
         prop_assert!(report.ok(), "{report:#?}");
     }
 
     #[test]
-    fn empty_drawing_cannot_draw(items in 1usize..4) {
-        let doc = Manifest::new("e", BeaconSource::Drand(chain().0.chain().hash()), vec![], (0..items).map(|i| ItemRef { id: format!("u{i}").into(), name: "P".into() }).collect());
-        let mut s = Drawing::open(&doc);
-        prop_assert_eq!(s.begin(&"u0".into(), 1, 0), Err(Error::NoEligibleEntrants));
+    fn a_drawing_without_entrants_does_not_open(items in 1usize..4) {
+        let manifest = Manifest::new(
+            "e",
+            source(),
+            vec![],
+            (0..items).map(|i| ItemRef { id: item(i), name: format!("Item {i}") }).collect(),
+        );
+        prop_assert!(matches!(Drawing::open(&manifest), Err(Error::InvalidManifest(_))));
     }
 }

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use rafi_drawing::{EntrantId, ItemId, drawing::Event};
+use rafi_drawing::{EntrantId, Event, ItemId};
 
 use super::{Brand, ThemeToggle};
 use crate::{
@@ -31,8 +31,7 @@ pub fn Verify(slug: String) -> Element {
         },
         Some(Ok(d)) => {
             // Public drand chains only: a test chain is never reported as verified.
-            let report =
-                rafi_drawing::verify::verify_public(&d.manifest, &d.manifest_hash, &d.events);
+            let report = rafi_drawing::verify_public(&d.manifest, &d.manifest_hash, &d.events);
             let test_chain = report.chain_unknown()
                 && report.manifest_hash_ok
                 && report.errors.is_empty()
@@ -48,8 +47,7 @@ pub fn Verify(slug: String) -> Element {
                 .iter()
                 .map(|(id, n)| (id.as_str(), n.as_str()))
                 .collect();
-            let doc: Option<rafi_drawing::manifest::Manifest> =
-                serde_json::from_str(&d.manifest).ok();
+            let doc: Option<rafi_drawing::Manifest> = serde_json::from_str(&d.manifest).ok();
             let item_names: HashMap<ItemId, String> = doc
                 .as_ref()
                 .map(|d| {
@@ -117,7 +115,7 @@ pub fn Verify(slug: String) -> Element {
                     }
                     div { class: "stat",
                         div { class: "stat-title", "Manifest hash" }
-                        div { class: "stat-value font-mono text-base", "{&report.manifest_hash[..16]}…" }
+                        div { class: "stat-value font-mono text-base", "{&report.manifest_hash.to_string()[..16]}…" }
                         div { class: "stat-desc", if report.manifest_hash_ok { "✓ matches the published hash" } else { "✗ does not match" } }
                     }
                 }

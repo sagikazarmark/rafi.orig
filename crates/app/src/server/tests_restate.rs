@@ -11,8 +11,8 @@
 use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_drawing::drawing::{ItemStatus, Outcome};
-use rafi_drawing::engine::{Decision, DrawRequest};
+use rafi_drawing::{Decision, DrawRequest};
+use rafi_drawing::{ItemStatus, Resolution};
 use rafi_platform::DrawingEngine;
 use rafi_platform::Polling;
 use rafi_store::{Db, DrawWriter, PurgeAfter, RaffleRow, raffles};
@@ -133,7 +133,7 @@ async fn app_and_restate_rafi_share_the_database() {
         .await
         .expect("freeze via restate-rafi");
     let r = wait_for(&app, &id, |r| r.drawing.is_some()).await;
-    let item = r.drawing().unwrap().items[0].id.clone();
+    let item = r.drawing().unwrap().items()[0].id.clone();
 
     service::command(
         &app,
@@ -146,7 +146,7 @@ async fn app_and_restate_rafi_share_the_database() {
     .unwrap();
     wait_for(&app, &id, |r| {
         r.drawing()
-            .is_some_and(|s| s.item(&item).unwrap().status == ItemStatus::Drawn)
+            .is_some_and(|s| s.item(&item).unwrap().status() == ItemStatus::Drawn)
     })
     .await;
 
@@ -167,7 +167,7 @@ async fn app_and_restate_rafi_share_the_database() {
         &id,
         Decision::Resolve {
             item: item.clone(),
-            outcome: Outcome::Claimed,
+            outcome: Resolution::Claimed,
         },
         "cmd-2",
     )
@@ -198,7 +198,7 @@ async fn app_and_restate_rafi_share_the_database() {
         state.body
     );
     let data = service::verify_data(&app, &r.slug).await.unwrap();
-    let report = rafi_drawing::verify::verify(
+    let report = rafi_drawing::verify(
         &data.manifest,
         &data.manifest_hash,
         &data.events,

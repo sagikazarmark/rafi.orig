@@ -9,10 +9,7 @@
 use std::collections::HashMap;
 
 use crate::{Db, Result, dialect};
-use rafi_drawing::{
-    ItemId,
-    drawing::{Drawing, Event, ItemStatus, Outcome},
-};
+use rafi_drawing::{Drawing, ItemId, Outcome};
 use rafi_live::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
 use serde::Deserialize;
 
@@ -132,52 +129,31 @@ impl Snapshot {
         let Some(s) = &self.drawing else {
             return ParticipantView::new(self.version, self.state, None, [], self.prize_qty);
         };
-        let item_name = |id: &ItemId| {
-            s.items
-                .iter()
-                .find(|u| u.id == *id)
-                .map(|u| u.name.clone())
-                .unwrap_or_default()
-        };
-        let mut outcomes: HashMap<u64, Outcome> = HashMap::new();
-        for e in &s.events {
-            if let Event::Resolve { k, outcome } = e {
-                outcomes.insert(*k, *outcome);
-            }
-        }
-        let draws = s.events.iter().filter_map(|e| match e {
-            Event::Draw {
-                k, item, entrant, ..
-            } => Some(DrawInput {
-                entrant_id: entrant.to_string(),
-                display_name: self
-                    .names
-                    .get(entrant.as_str())
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        let id = entrant.as_str();
-                        format!("#{}", &id[..id.len().min(6)])
-                    }),
-                prize_name: item_name(item),
-                outcome: match outcomes.get(k).copied().unwrap_or(Outcome::Drawn) {
-                    Outcome::Drawn => DrawOutcome::Drawn,
-                    Outcome::Claimed => DrawOutcome::Claimed,
-                    Outcome::NotHere => DrawOutcome::NotHere,
-                    Outcome::Declined => DrawOutcome::Declined,
-                },
-            }),
-            _ => None,
+        let item_name = |id: &ItemId| s.item(id).map(|i| i.name.clone()).unwrap_or_default();
+        let draws = s.draws().into_iter().map(|d| DrawInput {
+            display_name: self
+                .names
+                .get(d.entrant.as_str())
+                .cloned()
+                .unwrap_or_else(|| {
+                    let id = d.entrant.as_str();
+                    format!("#{}", &id[..id.len().min(6)])
+                }),
+            entrant_id: d.entrant.into_string(),
+            prize_name: item_name(&d.item),
+            outcome: match d.outcome {
+                Outcome::Drawn => DrawOutcome::Drawn,
+                Outcome::Claimed => DrawOutcome::Claimed,
+                Outcome::NotHere => DrawOutcome::NotHere,
+                Outcome::Declined => DrawOutcome::Declined,
+            },
         });
-        let current = s.pending.as_ref().map(|p| Current {
+        let current = s.pending().map(|p| Current {
             prize_name: item_name(&p.item),
             round: p.round,
             round_time: p.round_time,
         });
-        let prizes_left = s
-            .items
-            .iter()
-            .filter(|u| matches!(u.status, ItemStatus::Pending | ItemStatus::Drawn))
-            .count() as u32;
+        let prizes_left = s.items_left() as u32;
         ParticipantView::new(
             self.version,
             self.state,
@@ -190,14 +166,52 @@ impl Snapshot {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use rafi_drawing::manifest::{ItemRef, Manifest};
+    use rafi_drawing::{BeaconSource, Event, ItemRef, Manifest, Resolution};
 
     use super::*;
 
-    async fn raffle(db: &Db) -> Drawing {
-        let doc = Manifest::new(
+    /// A drawing as its engine would have logged it.
+    struct Log {
+        manifest: Manifest,
+        events: Vec<Event>,
+    }
+
+    impl Log {
+        /// Logs a completed draw of `item` for `entrant`; returns its `k`.
+        fn draw(&mut self, entrant: &str, item: &str) -> u64 {
+            let k = self
+                .events
+                .iter()
+                .filter(|e| matches!(e, Event::Draw { .. }))
+                .count() as u64
+                + 1;
+            self.events.push(Event::Draw {
+                k,
+                item: item.into(),
+                round: 1,
+                signature: String::new(),
+                randomness: String::new(),
+                pass: 1,
+                pool_size: 2,
+                index: 0,
+                entrant: entrant.into(),
+            });
+            k
+        }
+
+        fn resolve(&mut self, k: u64, outcome: Resolution) {
+            self.events.push(Event::Resolve { k, outcome });
+        }
+
+        fn drawing(&self) -> Drawing {
+            Drawing::restore(&self.manifest, &self.events).unwrap()
+        }
+    }
+
+    async fn raffle(db: &Db) -> Log {
+        let manifest = Manifest::new(
             "r1",
-            rafi_drawing::BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
+            BeaconSource::QUICKNET,
             vec!["a".repeat(32).into(), "b".repeat(32).into()],
             vec![
                 ItemRef {
@@ -210,12 +224,11 @@ mod tests {
                 },
             ],
         );
-        let state = Drawing::open(&doc);
         db.query(
             "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, manifest_hash, created_at, updated_at)
              VALUES ('r1', 'o', 's', 'j', 't', 'open', 'restate', ?, 0, 0)",
         )
-        .bind(&state.manifest_hash)
+        .bind(manifest.hash().to_string())
         .run()
         .await
         .unwrap();
@@ -238,34 +251,16 @@ mod tests {
             .run()
             .await
             .unwrap();
-        state
+        Log {
+            manifest,
+            events: Vec::new(),
+        }
     }
 
-    fn draw(state: &mut Drawing, entrant: &str, item: &str) -> u64 {
-        let k = state.next_k;
-        state.events.push(Event::Draw {
-            k,
-            item: item.into(),
-            round: 1,
-            signature: String::new(),
-            randomness: String::new(),
-            pass: 1,
-            pool_size: 2,
-            index: 0,
-            entrant: entrant.into(),
-        });
-        state.next_k += 1;
-        let u = state.items.iter_mut().find(|u| u.id == item).unwrap();
-        u.status = ItemStatus::Drawn;
-        u.entrant = Some(entrant.into());
-        u.k = Some(k);
-        k
-    }
-
-    async fn store(db: &Db, state: &Drawing, lifecycle: &str) {
+    async fn store(db: &Db, log: &Log, lifecycle: &str) {
         db.query("UPDATE raffles SET state = ?, drawing = ? WHERE id = 'r1'")
             .bind(lifecycle)
-            .bind(serde_json::to_string(state).unwrap())
+            .bind(serde_json::to_string(&log.drawing()).unwrap())
             .run()
             .await
             .unwrap();
@@ -288,9 +283,9 @@ mod tests {
     #[tokio::test]
     async fn draws_carry_only_drawn_names_masked_when_hidden() {
         let db = Db::connect("sqlite::memory:").await.unwrap();
-        let mut state = raffle(&db).await;
-        let _ = draw(&mut state, &"b".repeat(32), "u1");
-        store(&db, &state, "drawing").await;
+        let mut log = raffle(&db).await;
+        log.draw(&"b".repeat(32), "u1");
+        store(&db, &log, "drawing").await;
         let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
         assert_eq!(
             snap.names.len(),
@@ -309,19 +304,12 @@ mod tests {
     #[tokio::test]
     async fn no_shows_drop_out_and_claims_show() {
         let db = Db::connect("sqlite::memory:").await.unwrap();
-        let mut state = raffle(&db).await;
-        let k = draw(&mut state, &"a".repeat(32), "u1");
-        state.events.push(Event::Resolve {
-            k,
-            outcome: Outcome::Claimed,
-        });
-        state.items[0].status = ItemStatus::Claimed;
-        let k = draw(&mut state, &"b".repeat(32), "u2");
-        state.events.push(Event::Resolve {
-            k,
-            outcome: Outcome::NotHere,
-        });
-        store(&db, &state, "drawing").await;
+        let mut log = raffle(&db).await;
+        let k = log.draw(&"a".repeat(32), "u1");
+        log.resolve(k, Resolution::Claimed);
+        let k = log.draw(&"b".repeat(32), "u2");
+        log.resolve(k, Resolution::NotHere);
+        store(&db, &log, "drawing").await;
         let view = Snapshot::read(&db, "r1").await.unwrap().unwrap().view();
         assert_eq!(view.winners.len(), 1);
         assert!(view.winners[0].claimed);

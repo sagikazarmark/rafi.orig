@@ -12,10 +12,7 @@
 
 use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleChannel;
-use rafi_drawing::{
-    drawing::{Drawing, Event, ItemStatus},
-    manifest::{ItemRef, Manifest},
-};
+use rafi_drawing::{BeaconSource, Drawing, Event, ItemRef, ItemStatus, Manifest};
 use rafi_platform::Notifier;
 use rafi_store::{Db, PurgeAfter, live::Snapshot};
 use worker::{Context, Env, Method, Request, Response, Result, event};
@@ -60,10 +57,11 @@ async fn reset(db: &Db, raffle: &str) -> Result<()> {
     Ok(())
 }
 
-async fn freeze(db: &Db, raffle: &str) -> Result<()> {
-    let doc = Manifest::new(
+/// The raffle's manifest: Anna and Bence, a book and a shirt.
+fn manifest(raffle: &str, beacon: BeaconSource) -> Manifest {
+    Manifest::new(
         raffle,
-        rafi_drawing::BeaconSource::Drand(rafi_drawing::drand::chains::QUICKNET_HASH),
+        beacon,
         vec![
             entrant(raffle, "anna").into(),
             entrant(raffle, "bence").into(),
@@ -78,12 +76,15 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
                 name: "Shirt".into(),
             },
         ],
-    );
-    let state = Drawing::open(&doc);
+    )
+}
+
+async fn freeze(db: &Db, raffle: &str) -> Result<()> {
+    let state = Drawing::open(&manifest(raffle, BeaconSource::QUICKNET)).map_err(err)?;
     db.query("UPDATE raffles SET state = 'frozen', manifest_hash = ?, drawing = ?, drawing_version = ? WHERE id = ?")
-        .bind(&state.manifest_hash)
+        .bind(state.manifest_hash().to_string())
         .bind(serde_json::to_string(&state).map_err(err)?)
-        .bind(state.version)
+        .bind(state.version())
         .bind(raffle)
         .run()
         .await
@@ -101,29 +102,11 @@ async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     })
     .map_err(err)?
     .chain_hash();
-    let doc = Manifest::new(
-        raffle,
-        rafi_drawing::BeaconSource::Drand(chain),
-        vec![
-            entrant(raffle, "anna").into(),
-            entrant(raffle, "bence").into(),
-        ],
-        vec![
-            ItemRef {
-                id: "book-1".into(),
-                name: "Book".into(),
-            },
-            ItemRef {
-                id: "shirt-1".into(),
-                name: "Shirt".into(),
-            },
-        ],
-    );
-    let state = Drawing::open(&doc);
-    let json = serde_json::to_string(&doc).map_err(err)?;
+    let doc = manifest(raffle, BeaconSource::Drand(chain));
+    let json = doc.canonical_json();
     db.query("UPDATE raffles SET state = 'frozen', manifest = ?, manifest_hash = ? WHERE id = ?")
         .bind(json.as_str())
-        .bind(&state.manifest_hash)
+        .bind(doc.hash().to_string())
         .bind(raffle)
         .run()
         .await
@@ -230,24 +213,32 @@ fn altcha_challenge() -> rafi_live::altcha::Challenge {
     rafi_live::altcha::issue(b"check-key", 30_000, now, random() % 30_000, salt)
 }
 
-/// A completed draw for `who`, written the way Restate's projector writes it.
+/// Appends `event` to the stored drawing, the way the engine's projection
+/// writes it.
+async fn record(db: &Db, raffle: &str, event: Event) -> Result<()> {
+    let mut events = drawing(db, raffle).await?.events().to_vec();
+    events.push(event);
+    let state =
+        Drawing::restore(&manifest(raffle, BeaconSource::QUICKNET), &events).map_err(err)?;
+    rafi_store::save_drawing(db, &state, PurgeAfter::days(30, 90))
+        .await
+        .map_err(err)?;
+    Ok(())
+}
+
+/// A completed draw of the next prize for `who`.
 async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
-    let mut state = drawing(db, raffle).await?;
+    let state = drawing(db, raffle).await?;
     let Some(item) = state
-        .items
-        .iter_mut()
-        .find(|u| u.status == ItemStatus::Pending)
+        .items()
+        .iter()
+        .find(|u| u.status() == ItemStatus::Pending)
     else {
         return Err(err("no prize left"));
     };
-    let k = state.next_k;
-    item.status = ItemStatus::Drawn;
-    item.entrant = Some(entrant(raffle, who).into());
-    item.k = Some(k);
-    let item = item.id.clone();
-    state.events.push(Event::Draw {
-        k,
-        item,
+    let draw = Event::Draw {
+        k: state.draws().len() as u64 + 1,
+        item: item.id.clone(),
         round: 1,
         signature: String::new(),
         randomness: String::new(),
@@ -255,23 +246,12 @@ async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
         pool_size: 2,
         index: 0,
         entrant: entrant(raffle, who).into(),
-    });
-    state.next_k += 1;
-    state.version += 1;
-    rafi_store::save_drawing(db, &state, PurgeAfter::days(30, 90))
-        .await
-        .map_err(err)?;
-    Ok(())
+    };
+    record(db, raffle, draw).await
 }
 
 async fn finish(db: &Db, raffle: &str) -> Result<()> {
-    let mut state = drawing(db, raffle).await?;
-    state.finished = true;
-    state.version += 1;
-    rafi_store::save_drawing(db, &state, PurgeAfter::days(30, 90))
-        .await
-        .map_err(err)?;
-    Ok(())
+    record(db, raffle, Event::Finish).await
 }
 
 #[event(fetch)]

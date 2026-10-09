@@ -1,4 +1,13 @@
-//! `rafi-draw-v1`: deterministic, unbiased selection from public randomness.
+//! `rafi-draw-v1`: who can be drawn, and a deterministic, unbiased selection
+//! from public randomness.
+//!
+//! The pool for draw `k`:
+//! - Pass 1: every entrant not drawn in pass 1 yet, whatever their draw's
+//!   outcome: one win per entrant.
+//! - Pass 2, once pass 1 is exhausted: pass-1 winners whose draw was not
+//!   forfeited (resolved "not here" or "declined"), not drawn in pass 2 yet.
+//!
+//! The selection:
 //!
 //! ```text
 //! seed_k      = SHA256("rafi-draw-v1" ‖ randomness ‖ manifest_hash ‖ BE_u64(k))
@@ -11,7 +20,12 @@
 //! not guaranteed across versions and a verifier in another language would have
 //! to reimplement it. This needs nothing but SHA-256.
 
-use crate::{Hash, sha256};
+use std::collections::HashSet;
+
+use crate::{
+    hash::{Hash, sha256},
+    id::EntrantId,
+};
 
 /// Algorithm identifier, also used as the domain separation tag.
 pub const ALGO: &str = "rafi-draw-v1";
@@ -23,17 +37,17 @@ pub fn seed(randomness: &Hash, manifest_hash: &Hash, k: u64) -> Hash {
 
 /// A deterministic stream of `u64`s derived from a seed.
 #[derive(Debug, Clone)]
-pub struct Stream {
+struct Stream {
     seed: Hash,
     counter: u64,
 }
 
 impl Stream {
-    pub fn new(seed: Hash) -> Self {
+    fn new(seed: Hash) -> Self {
         Self { seed, counter: 0 }
     }
 
-    pub fn next_u64(&mut self) -> u64 {
+    fn next_u64(&mut self) -> u64 {
         let digest = sha256(&[&self.seed, &self.counter.to_be_bytes()]);
         self.counter += 1;
         u64::from_be_bytes(digest[..8].try_into().expect("8 bytes"))
@@ -44,7 +58,7 @@ impl Stream {
     /// # Panics
     ///
     /// Panics if `n` is zero.
-    pub fn uniform(&mut self, n: u64) -> u64 {
+    fn uniform(&mut self, n: u64) -> u64 {
         assert!(n > 0, "uniform(0) is undefined");
         let span = 1u128 << 64;
         let limit = span - (span % n as u128);
@@ -64,6 +78,49 @@ impl Stream {
 /// Panics if `pool_len` is zero.
 pub fn select(randomness: &Hash, manifest_hash: &Hash, k: u64, pool_len: usize) -> usize {
     Stream::new(seed(randomness, manifest_hash, k)).uniform(pool_len as u64) as usize
+}
+
+/// A completed draw, as the pool rules see it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PastDraw<'a> {
+    pub pass: u8,
+    pub entrant: &'a EntrantId,
+    /// Resolved "not here" or "declined".
+    pub forfeited: bool,
+}
+
+/// The pool for the next draw: `(pass, entrants)`, in the order of
+/// `entrants` (the manifest's, sorted).
+pub(crate) fn pool(entrants: &[EntrantId], draws: &[PastDraw<'_>]) -> (u8, Vec<EntrantId>) {
+    let drawn = |pass: u8| -> HashSet<&EntrantId> {
+        draws
+            .iter()
+            .filter(|d| d.pass == pass)
+            .map(|d| d.entrant)
+            .collect()
+    };
+    let drawn_pass1 = drawn(1);
+    let pass1: Vec<EntrantId> = entrants
+        .iter()
+        .filter(|e| !drawn_pass1.contains(e))
+        .cloned()
+        .collect();
+    if !pass1.is_empty() {
+        return (1, pass1);
+    }
+
+    let winners: HashSet<&EntrantId> = draws
+        .iter()
+        .filter(|d| d.pass == 1 && !d.forfeited)
+        .map(|d| d.entrant)
+        .collect();
+    let drawn_pass2 = drawn(2);
+    let pass2 = entrants
+        .iter()
+        .filter(|e| winners.contains(e) && !drawn_pass2.contains(e))
+        .cloned()
+        .collect();
+    (2, pass2)
 }
 
 #[cfg(test)]

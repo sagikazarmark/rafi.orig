@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use rafi_drawing::drawing::Drawing;
+use rafi_drawing::Drawing;
 
 use crate::BoxFuture;
 
@@ -33,20 +33,20 @@ impl MemoryDrawStore {
         self.states.lock().expect("store lock").clone()
     }
 
-    /// The latest state of `raffle_id`.
-    pub fn latest(&self, raffle_id: &str) -> Option<Drawing> {
+    /// The latest state of drawing `drawing_id`.
+    pub fn latest(&self, drawing_id: &str) -> Option<Drawing> {
         self.states()
             .into_iter()
-            .filter(|s| s.id == raffle_id)
-            .max_by_key(|s| s.version)
+            .filter(|s| s.id() == drawing_id)
+            .max_by_key(Drawing::version)
     }
 }
 
 impl DrawStore for MemoryDrawStore {
     fn save_drawing<'a>(&'a self, state: &'a Drawing) -> BoxFuture<'a, anyhow::Result<bool>> {
         let newer = self
-            .latest(&state.id)
-            .is_none_or(|s| s.version < state.version);
+            .latest(state.id().as_str())
+            .is_none_or(|s| s.version() < state.version());
         self.states.lock().expect("store lock").push(state.clone());
         Box::pin(async move { Ok(newer) })
     }

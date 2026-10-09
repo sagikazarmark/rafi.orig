@@ -6,39 +6,30 @@
 //! engine and every verifier computes identical results. It also builds for
 //! WASM, so the verifier can run in a browser.
 
-pub mod beacon;
-pub mod draw;
-pub mod drawing;
-pub mod engine;
-pub mod error;
-pub mod id;
-pub mod manifest;
-pub mod verify;
+pub mod algorithm;
+mod beacon;
+mod command;
+mod drawing;
+mod error;
+mod hash;
+mod id;
+mod manifest;
+mod verify;
 
-/// The drand crate this one is built on: its types are part of this crate's
-/// API (`BeaconSource::Drand(ChainHash)`, the verifier's chain lookup).
-pub use drand;
+/// The drand types this crate's API is made of (a [`BeaconSource`] names a
+/// drand chain; a draw completes with a verified beacon), and the public
+/// chains the verifier knows.
+pub mod drand {
+    pub use drand::{Beacon, ChainHash, ChainInfo, VerifiedBeacon, Verifier, chains};
+}
 
 pub use beacon::BeaconSource;
-pub use drawing::Drawing;
+pub use command::{BeaconFetch, Command, Decision, DrawRequest, Resolution};
+pub use drawing::{
+    CompletedDraw, Drawing, Drawn, Event, Item, ItemState, ItemStatus, Outcome, Pending,
+};
 pub use error::{Error, ErrorKind};
-pub use id::{EntrantId, ItemId};
-pub use manifest::Manifest;
-
-/// A SHA-256 digest.
-pub type Hash = [u8; 32];
-
-pub(crate) fn sha256(parts: &[&[u8]]) -> Hash {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    for part in parts {
-        hasher.update(part);
-    }
-    hasher.finalize().into()
-}
-
-/// Decodes a 32-byte hex string.
-pub fn hash_from_hex(s: &str) -> Option<Hash> {
-    let bytes = hex::decode(s).ok()?;
-    bytes.try_into().ok()
-}
+pub use hash::{Hash, InvalidHash, ManifestHash};
+pub use id::{DrawingId, EntrantId, ItemId};
+pub use manifest::{ItemRef, Manifest};
+pub use verify::{CommittedRound, DrawCheck, Report, verify, verify_public};

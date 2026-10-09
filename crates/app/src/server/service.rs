@@ -8,10 +8,8 @@ use std::collections::HashSet;
 
 use rafi_core::raffle::{self, RaffleState};
 use rafi_drawing::{
-    BeaconSource, EntrantId, Error as DrawingError, ErrorKind, ItemId,
-    drawing::Outcome,
-    engine::{Command, Decision, DrawRequest},
-    manifest::{ItemRef, Manifest},
+    BeaconSource, Command, Decision, DrawRequest, EntrantId, Error as DrawingError, ErrorKind,
+    ItemId, ItemRef, Manifest, ManifestHash, Outcome, Resolution,
 };
 use rafi_platform::{DrawingEngine, EngineError};
 use rafi_store::{RaffleRow, audit, entrants, prizes, raffles};
@@ -214,7 +212,7 @@ pub async fn update_settings(
 pub async fn delete(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     if raffle.state() == RaffleState::Drawing
-        && raffle.drawing().is_some_and(|s| s.pending.is_some())
+        && raffle.drawing().is_some_and(|s| s.pending().is_some())
     {
         return Err(conflict("A draw is in progress."));
     }
@@ -464,7 +462,7 @@ async fn write_manifest(
         items,
     );
     let json = manifest.canonical_json();
-    let hash = hex::encode(rafi_drawing::manifest::hash(&json));
+    let hash = ManifestHash::of(&json).to_string();
     if !raffles::set_manifest(&app.db, id, &json, &hash).await? {
         // Another attempt wrote one first (or the raffle moved on).
         let stored = raffles::get(&app.db, id)
@@ -503,17 +501,20 @@ pub async fn command(
     let checked = match &cmd {
         // Drawing the pending item again retries its committed round; nothing
         // else may start meanwhile.
-        Command::Draw(DrawRequest { item }) => dry.begin(item, 0, 0).map(|_| ()),
+        Command::Draw(request) => {
+            let source = *dry.beacon();
+            dry.announce(request, &source, 0, 0).map(|_| ())
+        }
         // While a draw is waiting for its round, the engine would queue the
         // decision behind it; only "handed over" is let through (it can't
         // change the draw). The rest waits for the draw to land or stall.
         Command::Decide(
             decision @ Decision::Resolve {
-                outcome: Outcome::Claimed,
+                outcome: Resolution::Claimed,
                 ..
             },
         ) => dry.decide(decision),
-        Command::Decide(_) if dry.pending.is_some() && !dry.stalled() => {
+        Command::Decide(_) if dry.pending().is_some() && !dry.stalled() => {
             Err(DrawingError::DrawInProgress)
         }
         Command::Decide(decision) => dry.decide(decision),
@@ -573,10 +574,9 @@ fn audited(cmd: &Command) -> (&'static str, String) {
         Command::Draw(DrawRequest { item }) => ("draw", item.to_string()),
         Command::Decide(Decision::Resolve { item, outcome }) => {
             let outcome = match outcome {
-                Outcome::Drawn => "drawn",
-                Outcome::Claimed => "claimed",
-                Outcome::NotHere => "not_here",
-                Outcome::Declined => "declined",
+                Resolution::Claimed => "claimed",
+                Resolution::NotHere => "not_here",
+                Resolution::Declined => "declined",
             };
             ("resolve", format!("{item} {outcome}"))
         }
@@ -902,7 +902,12 @@ pub async fn admin(app: &AppState, owner: &str, id: &str) -> Result<RaffleAdmin>
         .unwrap_or_default();
     let item_names: std::collections::HashMap<ItemId, String> = raffle
         .drawing()
-        .map(|s| s.items.into_iter().map(|u| (u.id, u.name)).collect())
+        .map(|s| {
+            s.items()
+                .iter()
+                .map(|item| (item.id.clone(), item.name.clone()))
+                .collect()
+        })
         .unwrap_or_default();
     let entrants = entrants::list(&app.db, id)
         .await?
@@ -1013,7 +1018,10 @@ pub async fn verify_data(app: &AppState, slug: &str) -> Result<VerifyData> {
     Ok(VerifyData {
         title: raffle.title.clone(),
         state: raffle.state(),
-        events: raffle.drawing().map(|s| s.events).unwrap_or_default(),
+        events: raffle
+            .drawing()
+            .map(|s| s.events().to_vec())
+            .unwrap_or_default(),
         manifest,
         manifest_hash,
         names,

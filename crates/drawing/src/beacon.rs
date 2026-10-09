@@ -4,7 +4,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use drand::ChainHash;
+use drand::{ChainHash, chains};
 
 /// The source of a drawing's randomness, as its manifest names it:
 /// `{"drand": "<chain hash>"}`.
@@ -21,6 +21,18 @@ pub enum BeaconSource {
 }
 
 impl BeaconSource {
+    /// drand's quicknet: the public chain drawings use.
+    pub const QUICKNET: Self = Self::Drand(chains::QUICKNET_HASH);
+
+    /// Whether anyone can verify this source's beacons: a public drand chain
+    /// this build knows ([`verify_public`](crate::verify_public) checks
+    /// against these).
+    pub fn publicly_verifiable(&self) -> bool {
+        match self {
+            Self::Drand(chain) => chains::by_hash(chain).is_some(),
+        }
+    }
+
     /// The drand chain, when the source is drand.
     pub fn drand_chain(&self) -> Option<&ChainHash> {
         match self {
@@ -41,6 +53,12 @@ impl fmt::Display for BeaconSource {
 mod tests {
     use super::*;
     use drand::chains::QUICKNET_HASH;
+
+    #[test]
+    fn quicknet_is_publicly_verifiable() {
+        assert!(BeaconSource::QUICKNET.publicly_verifiable());
+        assert!(!BeaconSource::Drand(ChainHash::from_bytes([7; 32])).publicly_verifiable());
+    }
 
     #[test]
     fn serializes_tagged_by_kind() {

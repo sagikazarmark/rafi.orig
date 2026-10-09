@@ -4,10 +4,7 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::{
-    ItemId,
-    drawing::{ItemStatus, Outcome},
-};
+use rafi_drawing::{ItemId, ItemStatus, Outcome, Resolution};
 
 use super::{
     Route, command_id, copy_to_clipboard,
@@ -699,7 +696,7 @@ fn DrawConsole(
         }
     };
     let id = admin.id.clone();
-    let resolve = move |item: ItemId, outcome: Outcome| {
+    let resolve = move |item: ItemId, outcome: Resolution| {
         let id = id.clone();
         async move {
             match api::resolve_item(id, item, outcome, command_id()).await {
@@ -867,9 +864,9 @@ fn DrawConsole(
                                                 button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let void = void.clone(); let uid = uid.clone(); move |_| void(uid.clone()) }, "Withdraw" }
                                             },
                                             ItemStatus::Drawn if drawable => rsx! {
-                                                button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::Claimed) }, Icon { i: I::Check } "Handed over" }
-                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::NotHere) }, "Not here" }
-                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Outcome::Declined) }, "Declined" }
+                                                button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Icon { i: I::Check } "Handed over" }
+                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::NotHere) }, "Not here" }
+                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Declined) }, "Declined" }
                                             },
                                             _ => rsx! {},
                                         }

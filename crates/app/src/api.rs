@@ -11,7 +11,7 @@
 use std::fmt;
 
 #[cfg(any(feature = "web", feature = "server"))]
-use rafi_drawing::{ItemId, drawing::Outcome};
+use rafi_drawing::{ItemId, Resolution};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "web")]
@@ -26,7 +26,7 @@ use crate::server::{
     service::{self, AppError},
 };
 #[cfg(feature = "server")]
-use rafi_drawing::engine::{Decision, DrawRequest};
+use rafi_drawing::{Decision, DrawRequest};
 
 /// An error reply: a message for the organizer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,7 +130,7 @@ admin_api! {
     fn draw_item(id: String, item: ItemId, command_id: String) -> () =
         |app, owner| service::command(app, owner, &id, DrawRequest { item }, &command_id);
 
-    fn resolve_item(id: String, item: ItemId, outcome: Outcome, command_id: String) -> () =
+    fn resolve_item(id: String, item: ItemId, outcome: Resolution, command_id: String) -> () =
         |app, owner| service::command(app, owner, &id, Decision::Resolve { item, outcome }, &command_id);
 
     fn void_item(id: String, item: ItemId, command_id: String) -> () =

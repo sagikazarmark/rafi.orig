@@ -29,11 +29,8 @@ use std::{
 
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
-    BeaconSource, ErrorKind,
-    drawing::{Drawing, Event, ItemStatus, Outcome},
-    engine::{Command, Decision, DrawRequest},
-    manifest::{ItemRef, Manifest},
-    verify::verify,
+    BeaconSource, Command, Decision, DrawRequest, Drawing, ErrorKind, Event, ItemRef, ItemStatus,
+    Manifest, Resolution, verify,
 };
 use rafi_platform::{
     BoxFuture, DrawStore, DrawingEngine, EngineError, MemoryDrawStore, Notifier, Recording,
@@ -248,7 +245,7 @@ impl Fixture {
             if start.elapsed() > PATIENCE {
                 return Err(format!(
                     "never projected: {what}; latest: {:?}",
-                    self.store.latest(raffle_id).map(|s| s.events)
+                    self.store.latest(raffle_id).map(|s| s.events().to_vec())
                 ));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -260,7 +257,8 @@ impl Fixture {
             .open(doc)
             .await
             .map_err(|e| format!("open: {e}"))?;
-        self.projected(&doc.drawing, "opened", |_| true).await
+        self.projected(doc.drawing.as_str(), "opened", |_| true)
+            .await
     }
 
     async fn send(&self, raffle_id: &str, cmd: Command, id: &str) -> Result<(), EngineError> {
@@ -301,7 +299,7 @@ impl Fixture {
     async fn drawn(&self, raffle_id: &str, item: &str) -> Result<Drawing, String> {
         self.projected(raffle_id, &format!("{item} drawn"), |s| {
             s.item(&item.into())
-                .is_some_and(|u| u.status == ItemStatus::Drawn)
+                .is_some_and(|u| u.status() == ItemStatus::Drawn)
         })
         .await
     }
@@ -387,7 +385,7 @@ impl DrawStore for FlakyStore {
     fn save_drawing<'a>(&'a self, state: &'a Drawing) -> BoxFuture<'a, anyhow::Result<bool>> {
         let failed = {
             let mut failures = self.failures.lock().expect("failures lock");
-            let n = failures.entry(state.id.clone()).or_default();
+            let n = failures.entry(state.id().to_string()).or_default();
             *n += 1;
             *n <= FLAKY_FAILURES
         };
@@ -416,7 +414,7 @@ fn is_stall(e: &Event) -> bool {
 }
 
 fn count(s: &Drawing, f: impl Fn(&Event) -> bool) -> usize {
-    s.events.iter().filter(|e| f(e)).count()
+    s.events().iter().filter(|e| f(e)).count()
 }
 
 macro_rules! ensure {
@@ -428,11 +426,11 @@ macro_rules! ensure {
 }
 
 /// The public verifier replays the log against the manifest.
-fn verified(doc: &Manifest, state: &Drawing) -> Result<rafi_drawing::verify::Report, String> {
+fn verified(doc: &Manifest, state: &Drawing) -> Result<rafi_drawing::Report, String> {
     let report = verify(
         &doc.canonical_json(),
-        &state.manifest_hash,
-        &state.events,
+        &state.manifest_hash().to_string(),
+        state.events(),
         rafi_drand::resolve_chain,
     );
     ensure!(report.manifest_hash_ok, "the manifest hash doesn't verify");
@@ -459,7 +457,7 @@ async fn open_is_idempotent_per_manifest(fx: Arc<Fixture>, id: String) -> Result
     let doc = fx.doc(&id, 3, 1);
     let opened = fx.open(&doc).await?;
     ensure!(
-        opened.events.is_empty() && opened.entrants.len() == 3,
+        opened.events().is_empty() && opened.entrants().len() == 3,
         "{opened:?}"
     );
     ensure!(
@@ -502,7 +500,7 @@ async fn open_is_idempotent_per_manifest(fx: Arc<Fixture>, id: String) -> Result
     }
     let latest = fx.store.latest(&id).ok_or("no projection")?;
     ensure!(
-        latest.version == opened.version,
+        latest.version() == opened.version(),
         "the refusals changed the state"
     );
     Ok(())
@@ -517,7 +515,7 @@ async fn commands_apply_once(fx: Arc<Fixture>, id: String) -> Result<(), String>
     fx.drawn(&id, "u-1").await?;
     let claimed = Decision::Resolve {
         item: "u-1".into(),
-        outcome: Outcome::Claimed,
+        outcome: Resolution::Claimed,
     };
     fx.ok(&id, claimed.clone(), "c1").await?;
     // Applied again, it would be refused (no undecided winner).
@@ -547,21 +545,23 @@ async fn refusals_keep_their_kind(fx: Arc<Fixture>, id: String) -> Result<(), St
     };
     fx.refused(
         &id,
-        resolve("nope", Outcome::Claimed),
+        resolve("nope", Resolution::Claimed),
         "r1",
         ErrorKind::NotFound,
     )
     .await?;
+    let mut invalid = doc.clone();
+    invalid.entrants.clear();
+    match fx.engine.open(&invalid).await {
+        Err(EngineError::Rejected {
+            kind: ErrorKind::BadRequest,
+            ..
+        }) => {}
+        other => return Err(format!("opening an invalid manifest: {other:?}")),
+    }
     fx.refused(
         &id,
-        resolve("u-1", Outcome::Drawn),
-        "r2",
-        ErrorKind::BadRequest,
-    )
-    .await?;
-    fx.refused(
-        &id,
-        resolve("u-1", Outcome::Claimed),
+        resolve("u-1", Resolution::Claimed),
         "r3",
         ErrorKind::Conflict,
     )
@@ -582,14 +582,14 @@ async fn a_refused_draw_is_silent(fx: Arc<Fixture>, id: String) -> Result<(), St
     let s = fx
         .projected(&id, "u-2 voided", |s| {
             s.item(&"u-2".into())
-                .is_some_and(|u| u.status == ItemStatus::Voided)
+                .is_some_and(|u| u.status() == ItemStatus::Voided)
         })
         .await?;
     ensure!(
-        s.version == opened.version + 1,
+        s.version() == opened.version() + 1,
         "the refused draw changed the state: {s:?}"
     );
-    ensure!(s.events.len() == 1, "{:?}", s.events);
+    ensure!(s.events().len() == 1, "{:?}", s.events());
     Ok(())
 }
 
@@ -601,11 +601,11 @@ async fn a_finished_raffle_is_forgotten(fx: Arc<Fixture>, id: String) -> Result<
     fx.drawn(&id, "u-1").await?;
     let claimed = Decision::Resolve {
         item: "u-1".into(),
-        outcome: Outcome::Claimed,
+        outcome: Resolution::Claimed,
     };
     fx.ok(&id, claimed, "c1").await?;
     fx.ok(&id, Decision::Finish, "f1").await?;
-    let finished = fx.projected(&id, "finished", |s| s.finished).await?;
+    let finished = fx.projected(&id, "finished", |s| s.is_finished()).await?;
     fx.refused(&id, Decision::Finish, "f2", ErrorKind::NotFound)
         .await?;
     // The opening replayed: never a change to what was published.
@@ -614,7 +614,7 @@ async fn a_finished_raffle_is_forgotten(fx: Arc<Fixture>, id: String) -> Result<
         .await?;
     let latest = fx.store.latest(&id).ok_or("no projection")?;
     ensure!(
-        latest.version == finished.version && latest.finished,
+        latest.version() == finished.version() && latest.is_finished(),
         "a replayed opening changed the record: {latest:?}"
     );
     verified(&doc, &latest)?;
@@ -640,16 +640,18 @@ async fn the_round_is_committed_before_its_beacon(
         .store
         .states()
         .into_iter()
-        .filter(|s| s.id == id)
-        .find(|s| s.pending.is_some() && matches!(s.events.last(), Some(Event::Announce { .. })))
+        .filter(|s| s.id() == id.as_str())
+        .find(|s| {
+            s.pending().is_some() && matches!(s.events().last(), Some(Event::Announce { .. }))
+        })
         .ok_or("the announcement was never projected on its own")?;
     ensure!(
-        announced.version < drawn.version,
+        announced.version() < drawn.version(),
         "announced after the draw"
     );
     let Some(Event::Announce {
         round, round_time, ..
-    }) = announced.events.last()
+    }) = announced.events().last()
     else {
         unreachable!()
     };
@@ -658,9 +660,9 @@ async fn the_round_is_committed_before_its_beacon(
         "round {round} was out ({round_time}) before the draw started ({requested})"
     );
     ensure!(
-        matches!(drawn.events.last(), Some(Event::Draw { round: r, .. }) if r == round),
+        matches!(drawn.events().last(), Some(Event::Draw { round: r, .. }) if r == round),
         "drawn from another round: {:?}",
-        drawn.events
+        drawn.events()
     );
     verified(&doc, &drawn)?;
     Ok(())
@@ -674,9 +676,9 @@ async fn a_command_waits_for_the_pending_draw(fx: Arc<Fixture>, id: String) -> R
     fx.draw(&id, "u-1", "d1").await?;
     // Refused if it ran before the draw settled (a draw is pending).
     fx.ok(&id, Decision::Finish, "f1").await?;
-    let s = fx.projected(&id, "finished", |s| s.finished).await?;
+    let s = fx.projected(&id, "finished", |s| s.is_finished()).await?;
     let order: Vec<_> = s
-        .events
+        .events()
         .iter()
         .filter_map(|e| match e {
             Event::Draw { .. } => Some("draw"),
@@ -700,7 +702,7 @@ async fn a_deadline_leaves_the_command_pending(fx: Arc<Fixture>, id: String) -> 
         Err(EngineError::Pending) => {}
         r => return Err(format!("expected Pending, got {r:?}")),
     }
-    let s = fx.projected(&id, "finished", |s| s.finished).await?;
+    let s = fx.projected(&id, "finished", |s| s.is_finished()).await?;
     // Retrying with the same ID applies nothing new.
     fx.ok(&id, Decision::Finish, "f1").await?;
     let latest = fx.store.latest(&id).ok_or("no projection")?;
@@ -708,7 +710,10 @@ async fn a_deadline_leaves_the_command_pending(fx: Arc<Fixture>, id: String) -> 
         count(&latest, |e| matches!(e, Event::Finish)) == 1,
         "finished twice"
     );
-    ensure!(latest.version == s.version, "the retry changed the state");
+    ensure!(
+        latest.version() == s.version(),
+        "the retry changed the state"
+    );
     Ok(())
 }
 
@@ -727,14 +732,14 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
     fx.draw(&id, "u-1", "d1").await?;
     let first = fx.stalls(&id, 1).await?;
     let pending = first
-        .pending
-        .clone()
+        .pending()
+        .cloned()
         .ok_or("the stalled draw isn't pending")?;
     tokio::time::sleep(Duration::from_secs(1)).await;
     fx.draw(&id, "u-1", "d2").await?;
     let second = fx.stalls(&id, 2).await?;
     ensure!(
-        second.pending.as_ref() == Some(&pending),
+        second.pending() == Some(&pending),
         "another draw: {second:?}"
     );
     ensure!(
@@ -743,7 +748,7 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
     );
     ensure!(
         second
-            .events
+            .events()
             .iter()
             .all(|e| !matches!(e, Event::Stall { round, .. } if *round != pending.round)),
         "stalled on another round"
@@ -753,12 +758,12 @@ async fn a_withheld_beacon_stalls_on_the_same_round(
     fx.ok(&id, Decision::Abandon { item: "u-1".into() }, "a1")
         .await?;
     let s = fx
-        .projected(&id, "abandoned", |s| s.pending.is_none())
+        .projected(&id, "abandoned", |s| s.pending().is_none())
         .await?;
     ensure!(
-        matches!(s.events.last(), Some(Event::Abandon { round, .. }) if *round == pending.round),
+        matches!(s.events().last(), Some(Event::Abandon { round, .. }) if *round == pending.round),
         "{:?}",
-        s.events
+        s.events()
     );
     let report = verified(&doc, &s)?;
     ensure!(
@@ -790,7 +795,7 @@ async fn nothing_changes_the_pool_of_a_stalled_draw(
     fx.ok(&id, Decision::Abandon { item: "u-2".into() }, "a1")
         .await?;
     let s = fx
-        .projected(&id, "abandoned", |s| s.pending.is_none())
+        .projected(&id, "abandoned", |s| s.pending().is_none())
         .await?;
     verified(&doc, &s)?;
     Ok(())
@@ -806,7 +811,7 @@ async fn a_forged_beacon_stalls_the_draw(fx: Arc<Fixture>, id: String) -> Result
     fx.open(&doc).await?;
     fx.draw(&id, "u-1", "d1").await?;
     let s = fx.stalls(&id, 1).await?;
-    ensure!(s.pending.is_some(), "the draw isn't pending");
+    ensure!(s.pending().is_some(), "the draw isn't pending");
     ensure!(
         count(&s, |e| matches!(e, Event::Draw { .. })) == 0,
         "drawn from a forged beacon"
@@ -827,21 +832,21 @@ async fn every_state_reaches_a_flaky_store(fx: Arc<Fixture>, id: String) -> Resu
     fx.drawn(&id, "u-1").await?;
     let claimed = Decision::Resolve {
         item: "u-1".into(),
-        outcome: Outcome::Claimed,
+        outcome: Resolution::Claimed,
     };
     fx.ok(&id, claimed, "c1").await?;
     fx.ok(&id, Decision::Finish, "f1").await?;
-    let finished = fx.projected(&id, "finished", |s| s.finished).await?;
+    let finished = fx.projected(&id, "finished", |s| s.is_finished()).await?;
     let mut versions: Vec<u64> = fx
         .store
         .states()
         .into_iter()
-        .filter(|s| s.id == id)
-        .map(|s| s.version)
+        .filter(|s| s.id() == id.as_str())
+        .map(|s| s.version())
         .collect();
     versions.sort_unstable();
     versions.dedup();
-    let expected: Vec<u64> = (1..=finished.version).collect();
+    let expected: Vec<u64> = (1..=finished.version()).collect();
     ensure!(versions == expected, "versions written: {versions:?}");
     verified(&doc, &finished)?;
     Ok(())

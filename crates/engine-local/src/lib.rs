@@ -13,7 +13,7 @@
 //! - the drawing is forgotten once it finishes.
 //!
 //! All decisions are `rafi_drawing`'s ([`Drawing::open_or_check`],
-//! [`Drawing::begin`], [`Drawing::conclude`], [`Drawing::decide`]); the
+//! [`Drawing::announce`], [`Drawing::settle`], [`Drawing::decide`]); the
 //! committed round comes from [`DrandClient::target_round`]. This engine only
 //! does the I/O, with an injectable clock.
 //!
@@ -37,12 +37,12 @@ use std::{
 
 use rafi_drand::DrandClient;
 use rafi_drawing::{
-    BeaconSource, Error as DrawingError, ErrorKind,
-    drawing::Drawing,
-    engine::{BeaconOutcome, Decision, DrawRequest},
-    manifest::Manifest,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Error as DrawingError, ErrorKind,
+    Manifest,
 };
-use rafi_platform::{BoxFuture, DrawStore, DrawingEngine, EngineError, EngineInfo, Notifier};
+use rafi_platform::{
+    BoxFuture, DrawStore, DrawingEngine, EngineError, EngineInfo, NOT_OPEN, Notifier,
+};
 use tokio::sync::{mpsc, watch};
 
 /// Unix seconds now.
@@ -207,7 +207,7 @@ impl DrawingEngine for LocalEngine {
     fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(async move {
             let key = format!("{}/{}", doc.drawing, doc.open_key());
-            let rx = self.submit(&doc.drawing, key, Work::Open(doc.clone()));
+            let rx = self.submit(doc.drawing.as_str(), key, Work::Open(doc.clone()));
             self.outcome(rx).await
         })
     }
@@ -244,10 +244,7 @@ impl DrawingEngine for LocalEngine {
 async fn run(io: Arc<Io>, raffle_id: String, mut jobs: mpsc::UnboundedReceiver<Job>) {
     let mut state: Option<Drawing> = None;
     while let Some(job) = jobs.recv().await {
-        let outcome = io
-            .apply(&mut state, job.work)
-            .await
-            .map_err(|e| (e.kind(), e.to_string()));
+        let outcome = io.apply(&mut state, job.work).await;
         if let Err((_, message)) = &outcome {
             tracing::debug!(raffle_id, message, "refused");
         }
@@ -255,38 +252,47 @@ async fn run(io: Arc<Io>, raffle_id: String, mut jobs: mpsc::UnboundedReceiver<J
     }
 }
 
+/// A refusal by the draw rules, with its kind.
+fn refused(e: DrawingError) -> (ErrorKind, String) {
+    (e.kind(), e.to_string())
+}
+
 impl Io {
-    async fn apply(&self, state: &mut Option<Drawing>, work: Work) -> Result<(), DrawingError> {
+    async fn apply(&self, state: &mut Option<Drawing>, work: Work) -> Outcome {
         let beacon = BeaconSource::Drand(self.drand.chain_hash());
+        let not_open = || (ErrorKind::NotFound, NOT_OPEN.to_owned());
         match work {
             Work::Open(doc) => {
-                if let Some(fresh) = Drawing::open_or_check(state.as_ref(), &doc, &beacon)? {
+                if let Some(fresh) =
+                    Drawing::open_or_check(state.as_ref(), &doc, &beacon).map_err(refused)?
+                {
                     self.project(&fresh).await;
                     *state = Some(fresh);
                 }
                 Ok(())
             }
-            Work::Draw(DrawRequest { item }) => {
-                let s = state.as_mut().ok_or(DrawingError::NotOpen)?;
-                s.check_beacon(&beacon)?;
+            Work::Draw(request) => {
+                let s = state.as_mut().ok_or_else(not_open)?;
                 let (round, round_time) = self.drand.target_round((self.clock)());
                 // A pending draw for this item (e.g. stalled) is re-entered on its round.
-                let pending = s.begin(&item, round, round_time)?;
+                let pending = s
+                    .announce(&request, &beacon, round, round_time)
+                    .map_err(refused)?;
                 // The commitment is recorded before the beacon is asked for.
                 self.project(s).await;
                 let outcome = match self.drand.wait_for(pending.round).await {
-                    Ok(beacon) => BeaconOutcome::Verified(beacon),
-                    Err(e) => BeaconOutcome::Unavailable(e.to_string()),
+                    Ok(beacon) => BeaconFetch::Verified(beacon),
+                    Err(e) => BeaconFetch::Unavailable(e.to_string()),
                 };
-                s.conclude(outcome)?;
+                s.settle(outcome).map_err(refused)?;
                 self.project(s).await;
                 Ok(())
             }
             Work::Decide(decision) => {
-                let s = state.as_mut().ok_or(DrawingError::NotOpen)?;
-                s.decide(&decision)?;
+                let s = state.as_mut().ok_or_else(not_open)?;
+                s.decide(&decision).map_err(refused)?;
                 self.project(s).await;
-                if s.finished {
+                if s.is_finished() {
                     // The app keeps the record; the engine forgets the drawing.
                     *state = None;
                 }
@@ -303,24 +309,24 @@ impl Io {
             match self.store.save_drawing(state).await {
                 Ok(_) => break,
                 Err(e) if attempt < 10 => {
-                    tracing::warn!(raffle_id = state.id, attempt, error = %e, "projecting failed; retrying");
+                    tracing::warn!(raffle_id = %state.id(), attempt, error = %e, "projecting failed; retrying");
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
                 Err(e) => {
-                    tracing::error!(raffle_id = state.id, error = %e, "projecting failed; giving up");
+                    tracing::error!(raffle_id = %state.id(), error = %e, "projecting failed; giving up");
                     return;
                 }
             }
         }
-        self.notifier.notify(&state.id).await;
+        self.notifier.notify(state.id().as_str()).await;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use rafi_drand::DrandConfig;
-    use rafi_drawing::{drawing::ItemStatus, manifest::ItemRef};
+    use rafi_drawing::{ItemRef, ItemStatus};
     use rafi_platform::{MemoryDrawStore, Recording};
 
     use super::*;
@@ -373,11 +379,11 @@ mod tests {
         let draw = DrawRequest { item: "u-1".into() };
         engine.draw("r1", &draw, "d1").await.unwrap();
         projected(&store, |s| {
-            s.item(&"u-1".into()).unwrap().status == ItemStatus::Drawn
+            s.item(&"u-1".into()).unwrap().status() == ItemStatus::Drawn
         })
         .await;
         engine.decide("r1", &Decision::Finish, "f1").await.unwrap();
-        let finished = projected(&store, |s| s.finished).await;
+        let finished = projected(&store, |s| s.is_finished()).await;
         assert!(!notifier.notified().is_empty());
 
         // Forgotten: further commands are refused as not found.
@@ -392,6 +398,6 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(store.latest("r1").unwrap().version, finished.version);
+        assert_eq!(store.latest("r1").unwrap().version(), finished.version());
     }
 }
