@@ -62,7 +62,7 @@ jobs:
         run: |
           cargo clippy --target wasm32-unknown-unknown \
             -p rafi-store -p rafi-store-d1-check -p rafi-live -p rafi-platform -p rafi-cloudflare -p rafi-cloudflare-check \
-            -p restate-rafi -p restate-rafi-client -p rafi-attendee -- -D warnings
+            -p restate-rafi -p restate-rafi-client -p rafi-participant -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker --features dev -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi --features worker -- -D warnings
@@ -91,7 +91,7 @@ jobs:
           npm install -g wrangler@4.94.0
       - name: Download restate-server
         run: echo "RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)" >> "$GITHUB_ENV"
-      - name: D1, the live channel, the attendee page in Chrome, a draw through Restate, an evening on the app
+      - name: D1, the live channel, the participant page in Chrome, a draw through Restate, an evening on the app
         run: CHROMIUM=$(command -v google-chrome) ./scripts/workers-check.sh
 
 

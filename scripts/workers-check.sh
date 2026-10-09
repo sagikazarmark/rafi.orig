@@ -4,7 +4,7 @@
 #   1. rafi-store's conformance suite against D1 (crates/store-d1-check), failing
 #      if any scenario fails;
 #   2. the live channel driven over real WebSockets (crates/cloudflare-check/scenario.mjs);
-#   3. the attendee page in headless Chromium (crates/attendee/smoke.mjs), when
+#   3. the participant page in headless Chromium (crates/participant/smoke.mjs), when
 #      CHROMIUM (or `chromium`) is available;
 #   4. a draw through Restate into the live channel (crates/restate-worker/e2e.mjs),
 #      when RESTATE_SERVER_BIN is set (./scripts/restate-server.sh prints it);
@@ -13,7 +13,7 @@
 #      Needs RESTATE_SERVER_BIN, Chromium and dx (for the web app bundle).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node,
-# wasm-bindgen-cli at the lockfile's version and wasm-opt (for the attendee page).
+# wasm-bindgen-cli at the lockfile's version and wasm-opt (for the participant page).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -53,7 +53,7 @@ migrate() {
 }
 
 step "build"
-"$ROOT/scripts/attendee.sh" "$ROOT/crates/cloudflare-check/site/attendee"
+"$ROOT/scripts/participant.sh" "$ROOT/crates/cloudflare-check/site/participant"
 for crate in store-d1-check cloudflare-check; do
   (cd "$ROOT/crates/$crate" && worker-build --release) >"$LOGS/build-$crate.log" 2>&1
 done
@@ -73,10 +73,10 @@ node "$ROOT/crates/cloudflare-check/scenario.mjs" http://127.0.0.1:8790
 
 CHROMIUM="${CHROMIUM:-$(command -v chromium || command -v google-chrome || true)}"
 if [ -n "$CHROMIUM" ]; then
-  step "the attendee page in Chromium"
-  CHROMIUM="$CHROMIUM" BASE=http://127.0.0.1:8790 node "$ROOT/crates/attendee/smoke.mjs" "$STATE/chrome"
+  step "the participant page in Chromium"
+  CHROMIUM="$CHROMIUM" BASE=http://127.0.0.1:8790 node "$ROOT/crates/participant/smoke.mjs" "$STATE/chrome"
 else
-  step "the attendee page: skipped (no Chromium)"
+  step "the participant page: skipped (no Chromium)"
 fi
 
 if [ -n "${RESTATE_SERVER_BIN:-}" ]; then

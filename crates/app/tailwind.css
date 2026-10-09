@@ -8,10 +8,10 @@
 @import "tailwindcss" source(none);
 
 @source "./src/**/*.rs";
-/* The attendee page's card, its WebAssembly and its JavaScript fallback. */
+/* The participant page's card, its WebAssembly and its JavaScript fallback. */
 @source "../live/src/**/*.rs";
-@source "../attendee/src/**/*.rs";
-@source "../attendee/fallback.js";
+@source "../participant/src/**/*.rs";
+@source "../participant/fallback.js";
 
 @plugin "./vendor/daisyui.mjs" {
   themes: false;

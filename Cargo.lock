@@ -4732,24 +4732,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-attendee"
-version = "0.1.0"
-dependencies = [
- "dioxus",
- "futures-channel",
- "futures-util",
- "gloo-timers 0.3.0",
- "js-sys",
- "partyline-dioxus",
- "rafi-live",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "rafi-cloudflare"
 version = "0.1.0"
 dependencies = [
@@ -4841,6 +4823,24 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "rafi-participant"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "futures-channel",
+ "futures-util",
+ "gloo-timers 0.3.0",
+ "js-sys",
+ "partyline-dioxus",
+ "rafi-live",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

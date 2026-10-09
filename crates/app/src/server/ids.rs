@@ -46,7 +46,7 @@ pub fn slug(title: &str) -> String {
     }
 }
 
-/// A secret token for the attendee cookie.
+/// A secret token for the participant cookie.
 pub fn token() -> String {
     hex::encode(random_bytes::<16>())
 }

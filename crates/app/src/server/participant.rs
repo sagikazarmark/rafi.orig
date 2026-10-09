@@ -1,10 +1,10 @@
-//! The attendee phone page.
+//! The participant phone page.
 //!
 //! The server renders the whole page, including the live card
 //! ([`rafi_live::Card`], the same component the phone's WebAssembly mounts),
 //! and embeds the page's state as JSON in `#rafi-config` (see
-//! `crates/attendee/src/config.rs`, `PageConfig`). An inline loader then
-//! starts the WebAssembly from `/attendee/` (`./scripts/attendee.sh`), or the
+//! `crates/participant/src/config.rs`, `PageConfig`). An inline loader then
+//! starts the WebAssembly from `/participant/` (`./scripts/participant.sh`), or the
 //! JavaScript fallback when it can't run. They keep the card current, solve
 //! the join form's proof-of-work and enable its button.
 
@@ -115,12 +115,12 @@ async fn current_entrant(
 /// scheme (shared with the Dioxus app).
 const HEAD_SCRIPT: &str = r#"window.__rafiT0=Date.now();try{var t=localStorage.getItem("rafi-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}"#;
 
-/// Starts the attendee WebAssembly, or the JavaScript fallback when there is
+/// Starts the participant WebAssembly, or the JavaScript fallback when there is
 /// no WebAssembly, the module fails to load, or it isn't ready within 8 s
 /// (the module's panic hook also calls `rafiFallback`).
-const LOADER: &str = r#"window.rafiFallback=function(){if(window.__rafiFallback)return;window.__rafiFallback=1;var s=document.createElement("script");s.src="/attendee/fallback.js";document.body.appendChild(s)};
+const LOADER: &str = r#"window.rafiFallback=function(){if(window.__rafiFallback)return;window.__rafiFallback=1;var s=document.createElement("script");s.src="/participant/fallback.js";document.body.appendChild(s)};
 setTimeout(function(){if(!window.__rafiReady)window.rafiFallback()},8000);
-if(typeof WebAssembly!=="object"){window.rafiFallback()}else{import("/attendee/rafi_attendee.js").then(function(m){return m.default()}).catch(function(e){console.error(e);window.rafiFallback()})}"#;
+if(typeof WebAssembly!=="object"){window.rafiFallback()}else{import("/participant/rafi_participant.js").then(function(m){return m.default()}).catch(function(e){console.error(e);window.rafiFallback()})}"#;
 
 /// A page: `tail` is raw HTML appended to the body (scripts).
 fn document(lang: Lang, title: &str, body: String, tail: Option<String>) -> String {
@@ -138,7 +138,7 @@ fn document(lang: Lang, title: &str, body: String, tail: Option<String>) -> Stri
     )
 }
 
-/// Header shared by the attendee pages: logo, language switch, theme toggle.
+/// Header shared by the participant pages: logo, language switch, theme toggle.
 fn header_bar(lang: Lang, switch_href: &str, test_mode: bool) -> Element {
     let other = lang.other();
     let ticket = I::Ticket.svg("size-4");
@@ -196,8 +196,8 @@ struct PageCtx<'a> {
     form: JoinForm,
 }
 
-/// What the page embeds in `#rafi-config`, for the attendee WebAssembly and
-/// its fallback (`crates/attendee/src/config.rs`, `PageConfig`).
+/// What the page embeds in `#rafi-config`, for the participant WebAssembly and
+/// its fallback (`crates/participant/src/config.rs`, `PageConfig`).
 #[derive(Serialize)]
 struct PageConfig<'a> {
     raffle_id: &'a str,
@@ -546,7 +546,7 @@ async fn try_join(
     }
 }
 
-/// The current attendee's own entry (cookie-authenticated, never cached).
+/// The current participant's own entry (cookie-authenticated, never cached).
 async fn me(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
@@ -723,7 +723,7 @@ async fn privacy(
             ("Processors".to_owned(), vec![
                 "Hetzner Online GmbH (Germany) hosts the application and database. Backups are stored with an EU object storage provider.".into(),
                 "Restate GmbH (Germany) runs the draw engine; it only receives anonymous IDs, never names or emails.".into(),
-                "Clerk, Inc. (USA, EU–US Data Privacy Framework) authenticates the organizers only; attendee data is never sent to Clerk.".into(),
+                "Clerk, Inc. (USA, EU–US Data Privacy Framework) authenticates the organizers only; participant data is never sent to Clerk.".into(),
                 "The randomness comes from the public drand network; no personal data is sent to it.".into(),
             ]),
             ("How long we keep it".to_owned(), vec![

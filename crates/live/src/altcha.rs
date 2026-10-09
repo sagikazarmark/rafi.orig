@@ -185,7 +185,7 @@ mod tests {
         }
     }
 
-    /// A challenge built the way `attendee.js` and today's server do, by hand.
+    /// A challenge built the way `participant.js` and today's server do, by hand.
     #[test]
     fn solves_a_hand_made_challenge() {
         let salt = "prototype?expires=9999999999";
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(solve(&c), None);
     }
 
-    /// The payload `attendee.js` posts: `btoa(JSON.stringify({...}))`.
+    /// The payload `participant.js` posts: `btoa(JSON.stringify({...}))`.
     #[test]
     fn decodes_the_js_payload() {
         let json = r#"{"algorithm":"SHA-256","challenge":"ab","number":3,"salt":"s?expires=5","signature":"cd"}"#;

@@ -48,7 +48,7 @@ impl Phase {
 ///
 /// The Durable Object builds it from one consistent read of the database (see
 /// [`ParticipantView::new`]) and publishes it on [`RaffleLive`](crate::RaffleLive);
-/// the server also embeds it in the attendee page. It has no time-dependent
+/// the server also embeds it in the participant page. It has no time-dependent
 /// fields, so [`v`](Self::v) alone orders views.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParticipantView {

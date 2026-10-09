@@ -88,7 +88,7 @@ web = [
     "dep:gloo-net",
     "dep:partyline-dioxus",
 ]
-# The native server: attendee pages (`dioxus::ssr`), the admin's JSON routes, the web app's files.
+# The native server: participant pages (`dioxus::ssr`), the admin's JSON routes, the web app's files.
 server = [
     "dioxus/ssr",
     "dioxus-clerk/server",

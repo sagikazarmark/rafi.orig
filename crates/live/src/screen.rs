@@ -1,4 +1,4 @@
-//! Which card a phone shows: a port of `render` in `attendee.js`, as a pure
+//! Which card a phone shows: a port of `render` in `participant.js`, as a pure
 //! function.
 
 use crate::view::{LastDraw, ParticipantView, Phase};

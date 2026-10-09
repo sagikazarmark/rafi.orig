@@ -21,7 +21,7 @@
     # Rafi
     python3 # tools/verify.py
     sqlite
-    binaryen # wasm-opt for scripts/attendee.sh
+    binaryen # wasm-opt for scripts/participant.sh
     wrangler # Cloudflare Workers: wrangler dev, D1 migrations, deploys
 
     scaleway-cli

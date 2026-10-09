@@ -104,7 +104,7 @@ pub async fn email_taken(db: &Db, raffle_id: &str, email_norm: &str) -> Result<b
     Ok(found.is_some())
 }
 
-/// A self-service entry from the attendee page.
+/// A self-service entry from the participant page.
 #[derive(Debug, Clone)]
 pub struct Join<'a> {
     pub id: &'a str,

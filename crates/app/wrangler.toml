@@ -20,7 +20,7 @@ preview_urls = false
 [build]
 command = "worker-build --release --features worker"
 
-# The web app (admin, projector, verification page) and the attendee scripts.
+# The web app (admin, projector, verification page) and the participant scripts.
 # Paths the Worker answers go to it first; anything else is a file, or the web
 # app's index.html (single-page routing).
 [assets]

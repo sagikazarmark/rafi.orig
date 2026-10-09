@@ -2,14 +2,14 @@
 
 **Live, verifiable raffles for meetups.**
 
-Attendees scan a QR code and join on their phone with a display name and
+Participants scan a QR code and join on their phone with a display name and
 email: no app, no account. The organizer draws each prize live. Every draw
 commits to a future [drand](https://drand.love) randomness round before it
 exists, so nobody (the organizer included) can predict or steer the result,
 and anyone can re-run every draw afterwards.
 
 - **Projector screen** (`/s/<slug>`): intro, prizes, QR code, live entrant count, countdown, winner reveal.
-- **Attendee page** (`/j/<CODE>`): server-rendered, works on bad venue wifi; a small WebAssembly (with a JavaScript fallback) keeps it live. It shows "you won" with a private claim code.
+- **Participant page** (`/j/<CODE>`): server-rendered, works on bad venue wifi; a small WebAssembly (with a JavaScript fallback) keeps it live. It shows "you won" with a private claim code.
 - **Organizer admin** (`/admin`): raffles, prizes, people without a smartphone, draw console (Draw / Handed over / Not here / Declined), CSV export.
 - **Verification** (`/v/<slug>`): re-runs every draw in the browser; [`tools/verify.py`](tools/verify.py) does the same independently.
 
@@ -51,7 +51,7 @@ app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ dat
 ## Layout
 
 ```
-crates/core                   rafi-core: the raffle lifecycle, join and claim codes, email normalization
+crates/core                   rafi-core: the raffle lifecycle, prizes as drawing items, join and claim codes, email normalization
 crates/drawing                rafi-drawing: draw algorithm, drand math, state machine, verifier (pure, tested, vectors)
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) on the drand crate
 crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the draw state write, the participant snapshot
@@ -62,9 +62,9 @@ crates/engine-local           rafi-engine-local: an in-process draw engine (test
 crates/live                   rafi-live: what a phone sees (participant view, card, proof-of-work, live transport)
 crates/platform               rafi-platform: what a deployment provides (DrawingEngine, Notifier, RateLimit, DrawStore, publish rule)
 crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleChannel Durable Object, notifier, rate limits, config)
-crates/attendee               rafi-attendee: the attendee page's WebAssembly, and its JavaScript fallback
-crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (attendee pages, JSON APIs)
-                              src/server: attendee SSR pages, the JSON APIs, proof-of-work, retention
+crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
+crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (participant pages, JSON APIs)
+                              src/server: participant SSR pages, the JSON APIs, proof-of-work, retention
 migrations                    SQLite (and D1) schema; migrations/postgres: the same for Postgres
 tools                         verify.py: independent verifier (Python standard library only)
 testdata                      shared test vectors
@@ -90,24 +90,24 @@ registry (fields, select, switch, buttons, alert dialogs, dropdown menu, tabs, t
 vendored: update it by re-installing (`--force`), not by editing.
 
 The app is two builds of one crate (`crates/app`, package `rafi`): the **web app** (admin, projector and
-verification page; a Dioxus single-page app built by `dx`, `--features web`) and the **server** (attendee pages,
+verification page; a Dioxus single-page app built by `dx`, `--features web`) and the **server** (participant pages,
 the public and admin JSON APIs, and the web app's files; plain `cargo`, `--features server`). The web app calls
 the server's JSON routes (`POST /api/admin/<function>`) on the same origin.
 
-The attendee page's WebAssembly and its fallback are built into `crates/attendee/dist`, which the server serves at
-`/attendee/` (`RAFI_ATTENDEE_DIR`). Without it the attendee page still renders, but phones can't join or follow the
-draw. Build it once, and again when `crates/attendee` or `crates/live` change (it needs `wasm-bindgen-cli` at the
+The participant page's WebAssembly and its fallback are built into `crates/participant/dist`, which the server serves at
+`/participant/` (`RAFI_PARTICIPANT_DIR`). Without it the participant page still renders, but phones can't join or follow the
+draw. Build it once, and again when `crates/participant` or `crates/live` change (it needs `wasm-bindgen-cli` at the
 version in `Cargo.lock`, and `wasm-opt` from binaryen):
 
 ```sh
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
-./scripts/attendee.sh
+./scripts/participant.sh
 ```
 
 Draws need Restate (see below). For the admin and the pages alone, run without Clerk, in two terminals:
 
 ```sh
-# the server; dx proxies /api/, /j/, /rules/, /privacy/ and /attendee/ to it (crates/app/Dioxus.toml)
+# the server; dx proxies /api/, /j/, /rules/, /privacy/ and /participant/ to it (crates/app/Dioxus.toml)
 RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi --features server
 
 # the web app, with hot reload
@@ -123,12 +123,12 @@ The server alone serves everything once the web app is bundled (this is what the
 
 ```sh
 (cd crates/app && dx bundle --platform web --release)   # -> target/dx/rafi/release/web/public
-./scripts/attendee.sh                                    # -> crates/attendee/dist
+./scripts/participant.sh                                 # -> crates/participant/dist
 RAFI_DEV_AUTH=1 cargo run --release -p rafi --features server   # http://localhost:8080
 ```
 
-It listens on `IP`:`PORT` (default `127.0.0.1:8080`), serves the attendee scripts at `/attendee/` from
-`RAFI_ATTENDEE_DIR` (default `crates/attendee/dist`), and the web app from `RAFI_PUBLIC_DIR`
+It listens on `IP`:`PORT` (default `127.0.0.1:8080`), serves the participant scripts at `/participant/` from
+`RAFI_PARTICIPANT_DIR` (default `crates/participant/dist`), and the web app from `RAFI_PUBLIC_DIR`
 (default `target/dx/rafi/release/web/public`), both relative to the working directory, falling back to the web
 app's `index.html` for its own routes.
 
@@ -213,7 +213,7 @@ The app:
 |---|---|---|
 | `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address (the image sets `0.0.0.0`) |
 | `RAFI_PUBLIC_DIR` | `target/dx/rafi/release/web/public` | The bundled web app (the image sets `/usr/local/app/public`) |
-| `RAFI_ATTENDEE_DIR` | `crates/attendee/dist` | The attendee page's WebAssembly and fallback, from `./scripts/attendee.sh` (the image sets `/usr/local/app/attendee`) |
+| `RAFI_PARTICIPANT_DIR` | `crates/participant/dist` | The participant page's WebAssembly and fallback, from `./scripts/participant.sh` (the image sets `/usr/local/app/participant`) |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL (QR codes, links) |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `restate-rafi`: SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`, the database must exist). The app applies the migrations on start |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |
@@ -277,7 +277,7 @@ Local development, everything under `wrangler dev` (the tools are in `devenv.nix
 `Cargo.lock`):
 
 ```sh
-./scripts/app-assets.sh                                   # web app bundle + attendee scripts -> crates/app/worker-assets
+./scripts/app-assets.sh                                   # web app bundle + participant scripts -> crates/app/worker-assets
 (cd crates/app && wrangler d1 migrations apply rafi --local --env dev)
 (cd crates/app && wrangler dev --env dev)                 # http://127.0.0.1:8787, dev auth, mock drand
 (cd crates/restate-worker && wrangler dev --env dev --port 8791)
@@ -286,7 +286,7 @@ restate deployments register http://127.0.0.1:8791 --use-http1.1
 ```
 
 `./scripts/workers-check.sh` runs every Workers check locally: rafi-store's conformance suite on D1, the live channel over WebSockets
-(`crates/cloudflare-check`), the attendee page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
+(`crates/cloudflare-check`), the participant page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
 job runs it.
 
 Deploying (needs a Cloudflare account and Restate Cloud): see the comments at the top of `crates/app/wrangler.toml` and

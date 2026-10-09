@@ -499,7 +499,7 @@ pub fn SettingsForm(
                         }
                     }
                 }
-                FieldDescription { "Of the projector screen and the attendee page (attendees can switch)." }
+                FieldDescription { "Of the projector screen and the participant page (participants can switch)." }
                 FieldError {}
             }
             div { class: "md:col-span-2",

@@ -1,4 +1,4 @@
-//! Server side: attendee pages, public and admin APIs. The database and all
+//! Server side: participant pages, public and admin APIs. The database and all
 //! its SQL are in `rafi-store`.
 //!
 //! The server keeps no state of its own between requests: everything is in
@@ -8,10 +8,10 @@
 
 pub mod admin;
 pub mod altcha;
-pub mod attendee;
 pub mod auth;
 pub mod config;
 pub mod ids;
+pub mod participant;
 pub mod public;
 pub mod retention;
 pub mod service;
@@ -117,10 +117,10 @@ pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn DrawingEngine>> {
         .then(|| Arc::new(RestateClient::new(cfg.restate.clone())) as Arc<dyn DrawingEngine>)
 }
 
-/// The server's own routes: attendee pages, public JSON and the admin API.
+/// The server's own routes: participant pages, public JSON and the admin API.
 pub fn routes(app: AppState) -> Router {
     Router::new()
-        .merge(attendee::routes())
+        .merge(participant::routes())
         .merge(public::routes())
         .merge(admin::routes())
         .layer(Extension(app))
@@ -140,13 +140,13 @@ pub fn spawn_background(app: &AppState) {
 pub struct Dirs {
     /// The web app (admin, projector, verification page): `dx bundle`'s output.
     pub public: PathBuf,
-    /// The attendee page's WebAssembly and fallback: `./scripts/attendee.sh`'s
-    /// output, served at `/attendee/`.
-    pub attendee: PathBuf,
+    /// The participant page's WebAssembly and fallback: `./scripts/participant.sh`'s
+    /// output, served at `/participant/`.
+    pub participant: PathBuf,
 }
 
-/// The complete HTTP router: [`routes`], the attendee scripts at
-/// `/attendee/`, then the web app from [`Dirs::public`] with a single-page
+/// The complete HTTP router: [`routes`], the participant scripts at
+/// `/participant/`, then the web app from [`Dirs::public`] with a single-page
 /// fallback to its `index.html`, all behind the Clerk auth layer unless dev
 /// auth is on. On Workers, Workers Assets serves the files instead.
 #[cfg(not(target_arch = "wasm32"))]
@@ -160,7 +160,7 @@ pub fn build_router(
     let web_app =
         ServeDir::new(&dirs.public).fallback(ServeFile::new(dirs.public.join("index.html")));
     let router = routes(app)
-        .nest_service("/attendee", ServeDir::new(&dirs.attendee))
+        .nest_service("/participant", ServeDir::new(&dirs.participant))
         .fallback_service(web_app);
     match auth {
         Some(layer) => router.layer(layer),

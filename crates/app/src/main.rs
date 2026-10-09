@@ -38,15 +38,15 @@ async fn main() -> anyhow::Result<()> {
     if !public_dir.join("index.html").is_file() {
         tracing::warn!(
             dir = %public_dir.display(),
-            "no web app in RAFI_PUBLIC_DIR: only the attendee pages and APIs are served"
+            "no web app in RAFI_PUBLIC_DIR: only the participant pages and APIs are served"
         );
     }
-    // The attendee page's WebAssembly and fallback: `./scripts/attendee.sh` writes them here.
-    let attendee_dir = dir("RAFI_ATTENDEE_DIR", "crates/attendee/dist");
-    if !attendee_dir.join("fallback.js").is_file() {
+    // The participant page's WebAssembly and fallback: `./scripts/participant.sh` writes them here.
+    let participant_dir = dir("RAFI_PARTICIPANT_DIR", "crates/participant/dist");
+    if !participant_dir.join("fallback.js").is_file() {
         tracing::warn!(
-            dir = %attendee_dir.display(),
-            "no attendee scripts in RAFI_ATTENDEE_DIR (./scripts/attendee.sh): phones can't join or follow the draw"
+            dir = %participant_dir.display(),
+            "no participant scripts in RAFI_PARTICIPANT_DIR (./scripts/participant.sh): phones can't join or follow the draw"
         );
     }
     let router = server::build_router(
@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
         auth,
         &server::Dirs {
             public: public_dir,
-            attendee: attendee_dir,
+            participant: participant_dir,
         },
     );
 

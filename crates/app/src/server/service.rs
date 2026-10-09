@@ -1,4 +1,4 @@
-//! Raffle operations shared by the admin API and the attendee routes.
+//! Raffle operations shared by the admin API and the participant routes.
 //!
 //! Every write that changes what phones see (the participant view) notifies
 //! clients ([`AppState::notifier`]). Joins don't: they never change it. The
@@ -631,7 +631,7 @@ pub enum JoinOutcome {
     AlreadyIn,
 }
 
-/// Self-service join from the attendee page. Errors are i18n keys.
+/// Self-service join from the participant page. Errors are i18n keys.
 pub async fn join(
     app: &AppState,
     raffle: &RaffleRow,

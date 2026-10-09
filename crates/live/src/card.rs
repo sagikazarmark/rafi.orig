@@ -8,10 +8,10 @@ use crate::{
     view::{ParticipantView, Phase},
 };
 
-/// The card's classes (daisyUI), as in `attendee.js`.
+/// The card's classes (daisyUI), as in `participant.js`.
 pub const CARD: &str = "card bg-base-100 shadow-sm ring-1 ring-base-300 min-h-28 items-center justify-center gap-1 p-6 text-center";
 
-/// The winning card's classes. `attendee.js` also adds `animate-pop`; here
+/// The winning card's classes. `participant.js` also adds `animate-pop`; here
 /// that comes with [`Card`]'s `announce`.
 pub const WON: &str =
     "card bg-success text-success-content shadow-xl items-center gap-2 p-7 text-center";

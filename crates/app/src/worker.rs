@@ -3,7 +3,7 @@
 //! - `fetch`: phones' live-channel sockets (`/partyline/raffle/{id}`) go to the
 //!   raffle's [`RaffleChannel`]; everything else is the same axum routes as the
 //!   native server ([`server::routes`]) behind Clerk. Workers Assets serves the
-//!   web app and the attendee scripts before the Worker is called
+//!   web app and the participant scripts before the Worker is called
 //!   (`run_worker_first` in `wrangler.toml` lists the Worker's paths).
 //! - `scheduled`: the Cron Trigger runs [`server::retention::run`].
 //! - [`RaffleChannel`] is exported from here, so the class lives in this Worker.

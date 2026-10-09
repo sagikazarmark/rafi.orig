@@ -1,5 +1,5 @@
 //! Inline SVG icons (Lucide-style, 24×24, stroke-based). Shared by the Dioxus
-//! app and the server-rendered attendee page.
+//! app and the server-rendered participant page.
 
 use dioxus::prelude::*;
 

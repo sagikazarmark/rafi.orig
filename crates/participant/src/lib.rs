@@ -1,4 +1,4 @@
-//! The attendee phone page's WebAssembly.
+//! The participant phone page's WebAssembly.
 //!
 //! The server renders the whole page, including the live card (the same
 //! [`rafi_live::Card`]), and embeds the page's state as JSON in

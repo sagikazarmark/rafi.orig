@@ -1,7 +1,7 @@
 //! Reading what phones see from the database, and building the participant view.
 //!
 //! Whatever pushes live updates (a live channel, the polling endpoint, the
-//! attendee page) reads the raffle through [`Snapshot`], so every one of them
+//! participant page) reads the raffle through [`Snapshot`], so every one of them
 //! shows the same thing. Everything comes from one [`Db::batch_rows`], so the version and the
 //! content are one consistent snapshot: a write can't land between them and
 //! leave a view labelled newer than what it holds.

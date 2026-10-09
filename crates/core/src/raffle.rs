@@ -92,7 +92,7 @@ impl RaffleState {
         matches!(self, Self::Draft | Self::Ready | Self::Open | Self::Closed)
     }
 
-    /// Whether attendees can join on their own.
+    /// Whether participants can join on their own.
     pub fn joinable(self) -> bool {
         self == Self::Open
     }

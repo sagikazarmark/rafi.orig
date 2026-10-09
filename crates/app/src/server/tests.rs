@@ -117,7 +117,7 @@ fn form(fields: &[(&str, &str)]) -> String {
         .join("&")
 }
 
-/// Joins through the attendee page; returns the entrant cookie (if set) and the response.
+/// Joins through the participant page; returns the entrant cookie (if set) and the response.
 async fn join(
     router: &Router,
     code: &str,
@@ -237,7 +237,7 @@ async fn full_raffle_flow() {
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("name=\"email\""));
 
-    // Attendees join; the cookie brings them back to their entry.
+    // Participants join; the cookie brings them back to their entry.
     let mut cookies = Vec::new();
     for i in 0..5 {
         let (status, cookie, _) = join(
@@ -721,7 +721,7 @@ async fn participant_view_has_no_personal_data() {
     let (_, _, view) = get_json(&router, &url).await;
     assert!(!view.to_string().contains(&winner.display_name));
 
-    // The attendee page embeds the same view and renders its card.
+    // The participant page embeds the same view and renders its card.
     let (_, _, page) = send(
         &router,
         Request::get(format!("/j/{}", raffle.join_code))
@@ -937,21 +937,21 @@ async fn admin_requires_clerk_session() {
         "<!doctype html><html><head></head><body><div id=\"main\"></div></body></html>",
     )
     .unwrap();
-    // And for the attendee scripts.
-    let attendee = public.join("attendee-dist");
-    std::fs::create_dir_all(&attendee).unwrap();
-    std::fs::write(attendee.join("fallback.js"), "// fallback").unwrap();
+    // And for the participant scripts.
+    let participant = public.join("participant-dist");
+    std::fs::create_dir_all(&participant).unwrap();
+    std::fs::write(participant.join("fallback.js"), "// fallback").unwrap();
     let router = super::build_router(
         app.clone(),
         Some(clerk.layer().unwrap()),
         &super::Dirs {
             public: public.clone(),
-            attendee,
+            participant,
         },
     );
     let (status, _, body) = send(
         &router,
-        Request::get("/attendee/fallback.js")
+        Request::get("/participant/fallback.js")
             .body(Body::empty())
             .unwrap(),
     )

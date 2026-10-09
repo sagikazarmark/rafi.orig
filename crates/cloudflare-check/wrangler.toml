@@ -6,7 +6,7 @@ compatibility_date = "2026-05-01"
 [build]
 command = "worker-build --release"
 
-# The attendee WASM (scripts/attendee.sh site/attendee), served at /attendee/.
+# The participant WASM (scripts/participant.sh site/participant), served at /participant/.
 [assets]
 directory = "./site"
 

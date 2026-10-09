@@ -139,7 +139,7 @@ const STRINGS: &[(&str, &str)] = &[
     ("drand_round", "drand round"),
 ];
 
-/// A stand-in for the attendee page: the server-rendered card, the embedded
+/// A stand-in for the participant page: the server-rendered card, the embedded
 /// config, the inline loader with its fallback, and the WASM. `me` picks the
 /// entrant (`anna`, `bence`, or none for a visitor); `nowasm=1` removes
 /// `WebAssembly` to exercise the fallback.
@@ -206,9 +206,9 @@ async fn page(
 <script type="application/json" id="rafi-config">{config}</script>
 {nowasm}
 <script>
-window.rafiFallback=function(){{if(window.__rafiFallback)return;window.__rafiFallback=1;var s=document.createElement("script");s.src="/attendee/fallback.js";document.body.appendChild(s)}};
+window.rafiFallback=function(){{if(window.__rafiFallback)return;window.__rafiFallback=1;var s=document.createElement("script");s.src="/participant/fallback.js";document.body.appendChild(s)}};
 setTimeout(function(){{if(!window.__rafiReady)window.rafiFallback()}},8000);
-if(typeof WebAssembly!=="object"){{window.rafiFallback()}}else{{import("/attendee/rafi_attendee.js").then(function(m){{return m.default()}}).catch(function(e){{console.error(e);window.rafiFallback()}})}}
+if(typeof WebAssembly!=="object"){{window.rafiFallback()}}else{{import("/participant/rafi_participant.js").then(function(m){{return m.default()}}).catch(function(e){{console.error(e);window.rafiFallback()}})}}
 </script></body></html>"#
     );
     Response::from_html(html)

@@ -17,7 +17,7 @@ use crate::{
     icons::{I, Icon},
 };
 
-/// Bundled without a hash, at [`crate::style::STYLESHEET_URL`], so the attendee pages and
+/// Bundled without a hash, at [`crate::style::STYLESHEET_URL`], so the participant pages and
 /// `index.html` can link it too. Generic options: dx (0.7.9) ignores the hash flag for CSS options.
 const TAILWIND_CSS: Asset = asset!(
     "/assets/tailwind.css",

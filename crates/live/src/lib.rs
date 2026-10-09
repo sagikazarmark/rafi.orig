@@ -1,5 +1,5 @@
 //! What a phone sees live, shared by the raffle's Durable Object, the app
-//! server and the attendee WASM.
+//! server and the participant WASM.
 //!
 //! - [`ParticipantView`]: the slim view pushed to phones, and [`Phase`], a
 //!   lightweight mirror of the raffle state;

@@ -11,7 +11,7 @@
 //!
 //! All of rafi's SQL lives here, as domain functions over a [`Db`]:
 //!
-//! - [`raffles`], [`prizes`], [`entrants`]: the organizer's and attendees'
+//! - [`raffles`], [`prizes`], [`entrants`]: the organizer's and participants'
 //!   reads and writes, the freeze's steps included;
 //! - [`audit`], [`altcha`] (redeemed proof-of-work challenges), [`retention`]
 //!   (erasure, ending live channels, `meta`);

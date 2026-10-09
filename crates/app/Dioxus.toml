@@ -24,4 +24,4 @@ backend = "http://127.0.0.1:8788/rules/"
 backend = "http://127.0.0.1:8788/privacy/"
 
 [[web.proxy]]
-backend = "http://127.0.0.1:8788/attendee/"
+backend = "http://127.0.0.1:8788/participant/"
