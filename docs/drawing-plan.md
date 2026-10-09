@@ -261,6 +261,12 @@ Beyond the plan:
   `verify.py` say "manifest hash".
 - **The test vectors** were regenerated in steps 3 and 4 (the manifest changed shape twice); `verify.py`
   agrees with them.
+- **Afterwards, offline draws were dropped** (`7b8721f`), superseding the decision that they stay the
+  fallback: they were the one way to settle a draw nobody can verify. `DrawRequest` is just the item
+  (step 5's `offline` flag is gone), as are `BeaconOutcome::Offline`, `DrawMode` and the `Draw` event's
+  `mode`. There is no fallback when drand is down: a stalled draw stays pending on its round, a retry
+  fetches the same round, and the only way out is to abandon it (logged; the verifier's
+  `Report::abandoned` shows whom the round would have picked). The vectors lost their `mode` fields.
 - **Afterwards, IDs got types:** `EntrantId` and `ItemId` (`rafi_drawing::id`), and the fields holding them
   dropped the suffix, in Rust and JSON alike: `Item.entrant`, `Event::Draw { item, entrant }`,
   `DrawRequest { item }`, `Decision::Resolve { item, .. }`. The type (or, in JSON, a string value) says it

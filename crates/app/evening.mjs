@@ -1,6 +1,6 @@
 // A whole evening against the app on Workers, locally: the admin API (dev
 // auth), a phone in headless Chromium joining through the real form, draws
-// through Restate, the live channel, and the end. See scripts/app-check.sh.
+// through Restate, the live channel, and the end. Step 5 of scripts/workers-check.sh.
 //
 //   node crates/app/evening.mjs "$(mktemp -d)"
 
@@ -28,7 +28,7 @@ const commandId = () => `cmd-${Date.now()}-${Math.random().toString(16).slice(2)
 
 // The organizer sets up a raffle with one prize and opens registration.
 const id = await api("create_raffle", { title: `Workers evening ${Date.now()}` });
-await api("save_item", { id, item: { id: null, name: "Rust in Action", sponsor: "Sponsor Kft.", description: "", qty: 1, position: 0 } });
+await api("save_prize", { id, prize: { id: null, name: "Rust in Action", sponsor: "Sponsor Kft.", description: "", qty: 1, position: 0 } });
 await api("lifecycle", { id, action: "publish" });
 await api("lifecycle", { id, action: "open" });
 let admin = await api("get_raffle", { id });
@@ -99,12 +99,12 @@ await api("lifecycle", { id, action: "close" });
 await api("start_draw", { id });
 check(await until(async () => /draw is starting|starting/i.test(await card()), 15000), "the freeze reaches the phone");
 admin = await api("get_raffle", { id });
-const unit = admin.view.units[0].unit_id;
+const item = admin.view.items[0].item;
 const screen = await tab(`${base}/s/${slug}`);
 // Read defensively: the projector loads the web app first (a large bundle).
 const screenText = async () => (await screen.js(`(document.body?.innerText ?? "").replace(/\\s+/g, " ")`)) ?? "";
 check(await until(async () => (await screenText()).includes("Rust in Action"), 45000), "the projector shows the raffle");
-await api("draw_unit", { id, unit_id: unit, offline: false, command_id: commandId() });
+await api("draw_item", { id, item, command_id: commandId() });
 check(await until(async () => /Rust in Action/.test(await card()) && /\d|…/.test(await card()), 15000), "the phone shows the countdown");
 check(await until(() => screen.js(`!!document.querySelector(".countdown")`), 15000), "the projector shows the countdown");
 // The reveal: when does each screen show the winner?

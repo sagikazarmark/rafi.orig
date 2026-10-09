@@ -57,14 +57,14 @@ await call(`${app}/reset?r=${raffle}&nudge=0`);
 connect();
 check(await until(() => last()?.state === "open", 5000), "the phone starts from the open raffle");
 
-// The app's half of the freeze, then the draw engine's.
+// The app's half of the freeze (the manifest), then the drawing opened on it.
 const doc = await call(`${app}/prepare?r=${raffle}`);
-await call(`${ingress}/Raffle/${raffle}/freeze`, doc);
-check(await until(() => last()?.state === "frozen", 5000), "after Restate's freeze the phone sees the raffle frozen");
+await call(`${ingress}/Drawing/${raffle}/open`, doc);
+check(await until(() => last()?.state === "frozen", 5000), "after Restate opens the drawing the phone sees the raffle frozen");
 
 // A draw: announced on a future drand round, then completed after a durable sleep.
-await call(`${ingress}/Raffle/${raffle}/draw/send`, { cmd: "draw", unit_id: "book-1", offline: false });
-check(await until(() => last()?.current?.item_name === "Book", 10000), "the phone sees the countdown for the Book");
+await call(`${ingress}/Drawing/${raffle}/draw/send`, { item: "book-1" });
+check(await until(() => last()?.current?.prize_name === "Book", 10000), "the phone sees the countdown for the Book");
 const round = last()?.current?.round;
 check(Number.isInteger(round) && round > 0, `the draw commits to a drand round (${round})`);
 check(
@@ -74,7 +74,7 @@ check(
 const winner = last()?.winners?.[0]?.entrant_id;
 check([`${raffle}-anna`, `${raffle}-bence`].includes(winner), `the winner is an entrant (${winner})`);
 
-const state = await (await fetch(`${ingress}/Raffle/${raffle}/get`, { method: "POST" })).text();
+const state = await (await fetch(`${ingress}/Drawing/${raffle}/get`, { method: "POST" })).text();
 check(JSON.parse(state)?.events?.some((e) => e.type === "draw"), "Restate's own state has the draw");
 
 ws.close();

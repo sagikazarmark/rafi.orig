@@ -38,8 +38,9 @@ participant app, the Restate implementation, store implementations, glue.
 - **The organizer's app decides the chain, never the engine.** The engine checks; it does not choose.
 - **The local runner is never a production engine.** The "local draw" fallback in PLAN.md §6 is
   dropped explicitly (two engines owning one raffle = round-shopping risk; Workers can't sleep a draw;
-  conflicts with "Restate for draws"). Offline draws (server randomness, flagged unverifiable) remain
-  the organizer's fallback when drand is unavailable.
+  conflicts with "Restate for draws"). Offline draws (server randomness, flagged unverifiable) were
+  kept as the organizer's fallback when drand is unavailable; they were dropped later (see
+  "Implementation status").
 
 ## Plan
 
@@ -370,3 +371,7 @@ Where the implementation differs from the plan:
 - **Deadline on wasm32:** not raced yet; on Workers a call waits out the bound.
 - **Config:** the client timeout is `RESTATE_TIMEOUT_SECS` (default 90).
 - `Event::Fail` is `Event::Abandon`, still `"fail"` on the wire.
+- **Offline draws were dropped later** (`7b8721f`): no `BeaconOutcome::Offline`, no scenario 4, no
+  offline branch in either engine. When drand is down a draw stalls on its round; a retry fetches the
+  same round and the organizer's only way out is to abandon it (logged; the verifier shows whom the
+  round would have picked).

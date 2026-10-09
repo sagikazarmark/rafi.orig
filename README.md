@@ -45,15 +45,15 @@ the projector and the admin poll the full view (`/api/r/<slug>/view`) every few 
 per raffle pushes the participant view instead.
 
 ```
-app ──ingress──▶ Restate ──▶ restate-rafi (Raffle) ──▶ database ◀── app ◀── phones, projector (poll)
+app ──ingress──▶ Restate ──▶ restate-rafi (Drawing) ──▶ database ◀── app ◀── phones, projector (poll)
 ```
 
 ## Layout
 
 ```
 crates/core                   rafi-core: the raffle lifecycle, prizes as drawing items, join and claim codes, email normalization
-crates/drawing                rafi-drawing: draw algorithm, drand math, state machine, verifier (pure, tested, vectors)
-crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) on the drand crate
+crates/drawing                rafi-drawing: draw algorithm, state machine, manifest, verifier (pure, tested, vectors)
+crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) and the round to commit to, on the drand crate
 crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the draw state write, the participant snapshot
 crates/restate-rafi           restate-rafi: the `Drawing` virtual object and the `DrawingEngine` service (library)
 crates/restate-rafi-endpoint  restate-rafi: the binary serving it (config, logging, Dockerfile)

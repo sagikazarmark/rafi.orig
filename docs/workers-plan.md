@@ -232,12 +232,13 @@ Rafi relies on Restate. There is no fallback draw path:
 
 | Crate | Status | Contents | Used by |
 |---|---|---|---|
-| `rafi-core` | unchanged | Domain model, verifiable draw | everyone except the attendee WASM |
+| `rafi-core` | unchanged | The raffle's domain model (lifecycle, prizes, codes) | app, store |
+| `rafi-drawing` | split out of `rafi-core` later ([drawing-plan.md](drawing-plan.md)) | The drawing: manifest, state machine, verifiable draw, verifier | everyone except the attendee WASM |
 | `rafi-live` | **new** | `ParticipantView`, the `RaffleLive` channel, `screen()`, `Card`, `CardStrings`, a lightweight state enum, the ALTCHA module (types, `solve`, `verify`), `LiveTransport` | DO, app, attendee WASM |
 | `rafi-platform` | **new** (§7a) | The ports: `Notifier` (`Polling`, `Recording`), `RateLimit` and `Limit` (native `Limiter`), `DrawStore` (`MemoryDrawStore`), the publish rule, `BoxFuture` | everyone but the attendee WASM |
 | `rafi-attendee` | **new** | The attendee WASM: mounts `Card`, follows the server's `LiveTransport` (partyline or polling), proof-of-work, extras (wake lock module included) | phones |
 | `rafi-store` | ported | All SQL, as domain functions (raffles, items, entrants, audit, ALTCHA, retention, the full view); own error type; SQLite and D1 backends; `version`; the participant `live::Snapshot`; `DrawWriter`, its `DrawStore` | app, both draw engine hosts, DO |
-| `restate-rafi` | ported | `Raffle` virtual object over a `DrawStore` and a `Notifier`: the store write, then `notify` in a separate, best-effort `ctx.run`. No database or platform dependency | both draw engine hosts |
+| `restate-rafi` | ported | `Drawing` virtual object over a `DrawStore` and a `Notifier`: the store write, then `notify` in a separate, best-effort `ctx.run`. No database or platform dependency | both draw engine hosts |
 | `rafi-cloudflare` | **new** (`rafi-channel` renamed) | All Cloudflare glue: the `RaffleChannel` DO, the socket gate and jurisdiction helper, `DurableObjects` (`Notifier`), `RateLimitBindings` (`RateLimit`), config from vars and secrets | both Workers |
 | `rafi` (app) | ported | Routes, server functions, retention, over `AppState::from_parts(cfg, db, notifier, limiter)`; the `worker` feature is the App Worker's thin entry point (fetch, Cron, exports `RaffleChannel`) | |
 | `rafi-restate-worker` | **new** | Restate Worker: the adapter around `Endpoint::handle_with_options`, signature checks; wires `DrawWriter` over D1 and `DurableObjects` | Restate Cloud |
