@@ -4,7 +4,10 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::drawing::{ItemStatus, Outcome};
+use rafi_drawing::{
+    ItemId,
+    drawing::{ItemStatus, Outcome},
+};
 
 use super::{
     Route, command_id, copy_to_clipboard,
@@ -683,10 +686,10 @@ fn DrawConsole(
     let toast = use_toast();
 
     let id = admin.id.clone();
-    let draw = move |item_id: String| {
+    let draw = move |item: ItemId| {
         let id = id.clone();
         async move {
-            match api::draw_item(id, item_id, command_id()).await {
+            match api::draw_item(id, item, command_id()).await {
                 Ok(()) => {
                     error.set(None);
                     on_change.call(());
@@ -696,10 +699,10 @@ fn DrawConsole(
         }
     };
     let id = admin.id.clone();
-    let resolve = move |item_id: String, outcome: Outcome| {
+    let resolve = move |item: ItemId, outcome: Outcome| {
         let id = id.clone();
         async move {
-            match api::resolve_item(id, item_id, outcome, command_id()).await {
+            match api::resolve_item(id, item, outcome, command_id()).await {
                 Ok(()) => {
                     error.set(None);
                     on_change.call(());
@@ -709,20 +712,20 @@ fn DrawConsole(
         }
     };
     let id = admin.id.clone();
-    let void = move |item_id: String| {
+    let void = move |item: ItemId| {
         let id = id.clone();
         async move {
-            match api::void_item(id, item_id, command_id()).await {
+            match api::void_item(id, item, command_id()).await {
                 Ok(()) => on_change.call(()),
                 Err(e) => error.set(Some(err_text(e))),
             }
         }
     };
     let id = admin.id.clone();
-    let abandon = move |item_id: String| {
+    let abandon = move |item: ItemId| {
         let id = id.clone();
         async move {
-            match api::abandon_draw(id, item_id, command_id()).await {
+            match api::abandon_draw(id, item, command_id()).await {
                 Ok(()) => on_change.call(()),
                 Err(e) => error.set(Some(err_text(e))),
             }
@@ -749,7 +752,7 @@ fn DrawConsole(
         .iter()
         .filter(|u| matches!(u.status, ItemStatus::Pending | ItemStatus::Drawn))
         .count();
-    let pending_item = pending.as_ref().map(|p| p.item_id.clone());
+    let pending_item = pending.as_ref().map(|p| p.item.clone());
     let offset = v.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
     // A pending draw whose beacon could not be fetched (or whose fetch was lost,
     // e.g. a restart): it stays on its round; the organizer can retry or
@@ -820,15 +823,15 @@ fn DrawConsole(
                 ul { class: "space-y-2",
                     for u in v.items.iter() {
                         {
-                            let winner = u.entrant_id.as_ref().and_then(|id| by_id.get(id));
-                            let uid = u.item_id.clone();
+                            let winner = u.entrant.as_ref().and_then(|id| by_id.get(id.as_str()));
+                            let uid = u.item.clone();
                             let row = match u.status {
                                 ItemStatus::Drawn => "border-success/50 bg-success/10",
                                 ItemStatus::Claimed => "border-base-300 bg-base-200/60",
                                 ItemStatus::Voided => "border-base-300 opacity-50",
                                 ItemStatus::Pending => "border-base-300",
                             };
-                            let is_current = pending.as_ref().is_some_and(|p| p.item_id == u.item_id);
+                            let is_current = pending.as_ref().is_some_and(|p| p.item == u.item);
                             let emoji = match u.status {
                                 ItemStatus::Pending if is_current => "🎲",
                                 ItemStatus::Pending => "🎁",
@@ -837,7 +840,7 @@ fn DrawConsole(
                                 ItemStatus::Voided => "🚫",
                             };
                             rsx! {
-                                li { key: "{u.item_id}", class: "flex flex-wrap items-center gap-3 rounded-box border-2 p-3 transition {row}",
+                                li { key: "{u.item}", class: "flex flex-wrap items-center gap-3 rounded-box border-2 p-3 transition {row}",
                                     span { class: "text-2xl", "{emoji}" }
                                     div { class: "min-w-40 flex-1",
                                         p { class: "font-semibold", "{u.prize_name}" }
@@ -906,7 +909,7 @@ fn DrawConsole(
                     body: "The prize goes back to “to be drawn” and a new draw commits to a new round. The verification page lists the abandoned round so anyone can see whom it would have picked.",
                     action: "Abandon",
                     danger: true,
-                    on_confirm: { let abandon = abandon.clone(); let u = cur.item_id.clone(); move |_| { spawn(abandon(u.clone())); } },
+                    on_confirm: { let abandon = abandon.clone(); let u = cur.item.clone(); move |_| { spawn(abandon(u.clone())); } },
                 }
             }
         }

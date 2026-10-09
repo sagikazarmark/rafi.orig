@@ -1,7 +1,10 @@
 //! Types shared between the server and the browser.
 
 use rafi_core::raffle::RaffleState;
-use rafi_drawing::drawing::{Event, ItemStatus, Outcome};
+use rafi_drawing::{
+    EntrantId, ItemId,
+    drawing::{Event, ItemStatus, Outcome},
+};
 use serde::{Deserialize, Serialize};
 
 /// The public, live state of a raffle: the projector's and the admin's full
@@ -55,18 +58,18 @@ pub struct PrizeView {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemView {
-    pub item_id: String,
+    pub item: ItemId,
     pub prize_id: String,
     pub prize_name: String,
     pub status: ItemStatus,
-    pub entrant_id: Option<String>,
+    pub entrant: Option<EntrantId>,
     pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CurrentDraw {
     pub k: u64,
-    pub item_id: String,
+    pub item: ItemId,
     pub prize_name: String,
     pub round: u64,
     /// Unix time (seconds) the round is published.
@@ -76,9 +79,9 @@ pub struct CurrentDraw {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DrawView {
     pub k: u64,
-    pub item_id: String,
+    pub item: ItemId,
     pub prize_name: String,
-    pub entrant_id: String,
+    pub entrant: EntrantId,
     pub display_name: String,
     pub outcome: Outcome,
     pub pass: u8,

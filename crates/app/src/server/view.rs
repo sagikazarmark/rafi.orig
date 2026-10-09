@@ -71,23 +71,23 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             .items
             .iter()
             .map(|u| ItemView {
-                item_id: u.id.to_string(),
+                item: u.id.clone(),
                 prize_id: rafi_core::prize::prize_id(u.id.as_str()).to_owned(),
                 prize_name: u.name.clone(),
                 status: u.status,
                 display_name: u.entrant.as_ref().map(|e| name_of(e.as_str())),
-                entrant_id: u.entrant.as_ref().map(ToString::to_string),
+                entrant: u.entrant.clone(),
             })
             .collect(),
         None => prizes
             .iter()
             .flat_map(|i| {
                 (1..=u64::try_from(i.qty).unwrap_or(0)).map(move |n| ItemView {
-                    item_id: rafi_core::prize::item_id(&i.id, n),
+                    item: rafi_core::prize::item_id(&i.id, n).into(),
                     prize_id: i.id.clone(),
                     prize_name: i.name.clone(),
                     status: ItemStatus::Pending,
-                    entrant_id: None,
+                    entrant: None,
                     display_name: None,
                 })
             })
@@ -145,13 +145,13 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
                     last_failure = None;
                     draws.push(DrawView {
                         k: *k,
-                        item_id: item.to_string(),
+                        item: item.clone(),
                         prize_name: item_name
                             .get(item.as_str())
                             .copied()
                             .unwrap_or_default()
                             .to_owned(),
-                        entrant_id: entrant.to_string(),
+                        entrant: entrant.clone(),
                         display_name: name_of(entrant.as_str()),
                         outcome: outcomes.get(k).copied().unwrap_or(Outcome::Drawn),
                         pass: *pass,
@@ -170,7 +170,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         if let Some(p) = &s.pending {
             current = Some(CurrentDraw {
                 k: p.k,
-                item_id: p.item.to_string(),
+                item: p.item.clone(),
                 prize_name: item_name
                     .get(p.item.as_str())
                     .copied()
