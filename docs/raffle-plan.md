@@ -1,8 +1,9 @@
 # Raffle plan — the drawing becomes the raffle
 
-Repo: /Users/mark/Projects/ventures/rafi (branch `main`). Crates in `crates/`.
+Repo: /Users/mark/Projects/ventures/rafi (branch `raffle`). Crates in `crates/`.
 Follows [drawing-plan.md](drawing-plan.md) and [drawing-review.md](drawing-review.md), and renames what they named.
-Breaking changes are fine (see "Consequences").
+Breaking changes are fine (see "Consequences"). Done (2026-10-10); see "What the implementation does differently" at
+the end.
 
 ## Goal
 
@@ -197,3 +198,36 @@ Inside `rafi-raffle` and its callers:
 - Storing only the events in `raffles.log` (the manifest is in it and in `raffles.manifest`).
 - Renaming `rafi-engine`, `rafi-engine-restate`, or `algo`.
 - Changing what any rule does.
+
+## What the implementation does differently
+
+One commit per step, in the plan's order:
+
+| Step | Commit |
+|---|---|
+| 1 | `f8c973f` rafi-lifecycle: the raffle's rules move off the rafi-raffle name |
+| 2 | `3c63a9b` rafi-raffle: the drawing crate takes the raffle's name |
+| 3 | `f762169` rafi-raffle: the drawing is a Raffle |
+| 4 | `621d66e` rafi-raffle: the manifest names its raffle |
+| 5 | `9140526` rafi-engine: the raffle engine, and the Restate object is Raffle |
+| 6 | `c8b2230` rafi-lifecycle: the lifecycle follows the raffle |
+| 7 | `add0522` rafi-store: the raffles row stores the raffle as its log |
+| 8 | `91386e0` rafi: the app says raffle engine |
+| 9 | docs: the raffle is the raffle, everywhere |
+
+- **Step 3 renames the callers' types only**; their variables and prose follow in the engine, lifecycle, store and app
+  steps. `rafi-live` had its own `raffle::Raffle` (what a participant view is built from): it is `raffle::Input`, its
+  `drawing` field `raffle`.
+- **Step 5 takes more along:** `save_drawing` → `save_raffle` everywhere, the store's own function included (planned
+  for step 7); the endpoint's policy section `[services.drawing]` → `[services.raffle]`;
+  `DatabaseConfig::draw_store` → `raffle_store`; the Worker's e2e script calls `/Raffle/...`.
+- **Step 6:** app-core imported `rafi-lifecycle` as `raffle`, which would read `raffle::raffle::items`; it imports it
+  as `lifecycle`. The engine hosts drop their direct `rafi-lifecycle` dependency, but still build it through
+  `rafi-store`, whose engine write sets the lifecycle state the raffle leads to.
+- **Step 7: `RaffleRow::drawing()` is `drawn()`, not `raffle()`.** Callers hold the row as `raffle`, and
+  `raffle.raffle()` says nothing; `drawn` is "the raffle as drawn, once opened". The live `Snapshot`'s field and
+  app-core's locals are `drawn` too. The row's columns are `log` / `log_version` as planned.
+- **Step 8:** `Refusal::Drawing` (the raffle's rules refuse a command) is `Refusal::Raffle`.
+- **Checked on every backend:** every step passed the CI's test job locally (with the Restate tests against
+  `restate-server` and the storage suite on a local Postgres); the end state also passed `scripts/workers-check.sh`
+  (D1, the live channel, a draw through Restate on the Worker, an evening on the app Worker).
