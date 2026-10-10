@@ -11,7 +11,7 @@ publish = false
 anyhow = "1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 hex.workspace = true
-rafi-drawing.workspace = true
+rafi-raffle.workspace = true
 rafi-engine = { path = "../engine" }
 rafi-live = { path = "../live", features = ["raffle"] }
 rafi-model.workspace = true

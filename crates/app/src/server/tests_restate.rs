@@ -11,12 +11,12 @@
 use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_drawing::{Decision, DrawRequest};
-use rafi_drawing::{ItemStatus, Resolution};
 use rafi_engine::DrawingEngine;
 use rafi_engine_restate::RestateClient;
 use rafi_lifecycle::RaffleState;
 use rafi_platform::Polling;
+use rafi_raffle::{Decision, DrawRequest};
+use rafi_raffle::{ItemStatus, Resolution};
 use rafi_store::{Db, DrawWriter, RaffleRow, raffles};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
@@ -93,7 +93,7 @@ async fn app_and_restate_rafi_share_the_database() {
     let info = client.info().await.expect("the engine's info");
     assert_eq!(
         info.beacon,
-        rafi_drawing::BeaconSource::Drand(chain),
+        rafi_raffle::BeaconSource::Drand(chain),
         "the engine reports its beacon source"
     );
     let app = AppState::new(cfg).await.unwrap();
@@ -192,7 +192,7 @@ async fn app_and_restate_rafi_share_the_database() {
         state.body
     );
     let data = service::verify_data(&app, &r.slug).await.unwrap();
-    let report = rafi_drawing::verify(
+    let report = rafi_raffle::verify(
         &data.manifest,
         &data.manifest_hash,
         &data.events,

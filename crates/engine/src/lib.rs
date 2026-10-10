@@ -1,5 +1,5 @@
 //! The drawing engine's contract, between the drawing's rules
-//! (`rafi_drawing`) and the engines that run them.
+//! (`rafi_raffle`) and the engines that run them.
 //!
 //! An engine owns each drawing from opening to finish: it applies one command
 //! at a time, applies each command once, does the I/O the rules can't (the
@@ -13,7 +13,7 @@
 //!   drawings to what clients follow, `rafi_platform::Notify` for rafi).
 //!
 //! Whether an engine would take a command now is the drawing's own rule
-//! ([`Drawing::admit`](rafi_drawing::Drawing::admit)), checked against the
+//! ([`Drawing::admit`](rafi_raffle::Drawing::admit)), checked against the
 //! projection.
 //!
 //! The engines: `rafi-engine-restate` (production) and, with the `local`

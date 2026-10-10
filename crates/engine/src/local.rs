@@ -12,7 +12,7 @@
 //!   are notified, best effort;
 //! - the drawing is forgotten once it finishes.
 //!
-//! All decisions are `rafi_drawing`'s ([`Drawing::open_or_check`],
+//! All decisions are `rafi_raffle`'s ([`Drawing::open_or_check`],
 //! [`Drawing::announce`], [`Drawing::settle`], [`Drawing::decide`]); the
 //! committed round comes from [`DrandClient::target_round`]. This engine only
 //! does the I/O, with an injectable clock.
@@ -29,7 +29,7 @@ use std::{
 
 use crate::BoxFuture;
 use rafi_drand::DrandClient;
-use rafi_drawing::{
+use rafi_raffle::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, DrawingId, Error as DrawingError,
     ErrorKind, Manifest,
 };
@@ -327,7 +327,7 @@ impl Io {
 mod tests {
     use crate::{MemoryDrawStore, RecordingNotifier};
     use rafi_drand::DrandConfig;
-    use rafi_drawing::{ItemStatus, ManifestItem};
+    use rafi_raffle::{ItemStatus, ManifestItem};
 
     use super::*;
 

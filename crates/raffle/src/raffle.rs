@@ -755,7 +755,7 @@ pub(crate) mod tests {
             Scheme::BlsUnchainedG1Rfc9380,
             NonZeroU32::new(3).unwrap(),
             0,
-            "rafi-drawing-test",
+            "rafi-raffle-test",
         )
         .unwrap()
     }

@@ -12,8 +12,8 @@
 
 use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleChannel;
-use rafi_drawing::{BeaconSource, Drawing, Event, ItemStatus, Manifest, ManifestItem};
 use rafi_platform::Notifier;
+use rafi_raffle::{BeaconSource, Drawing, Event, ItemStatus, Manifest, ManifestItem};
 use rafi_store::{Db, live::Snapshot};
 use worker::{Context, Env, Method, Request, Response, Result, event};
 

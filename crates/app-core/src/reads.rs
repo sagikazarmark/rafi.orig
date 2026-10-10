@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 
-use rafi_drawing::{Drawing, ItemId, Outcome};
 use rafi_lifecycle::{
     self as raffle, RaffleState,
     start::{self, Start},
@@ -11,6 +10,7 @@ use rafi_lifecycle::{
 use rafi_model::{
     AdminActions, AdminEntrant, EntrantSource, Prize, RaffleAdmin, StartStep, VerifyData,
 };
+use rafi_raffle::{Drawing, ItemId, Outcome};
 use rafi_store::{entrants, raffles, view::Full};
 
 use crate::{App, Error, Result, raffles::settings_of, view};

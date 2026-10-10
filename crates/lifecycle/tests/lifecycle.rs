@@ -4,13 +4,13 @@ use std::{num::NonZeroU32, sync::OnceLock};
 
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
-use rafi_drawing::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Resolution,
-    drand::{VerifiedBeacon, Verifier},
-};
 use rafi_lifecycle::{
     Command, RaffleState,
     drawing::{deliverable, items, lifecycle, manifest},
+};
+use rafi_raffle::{
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Resolution,
+    drand::{VerifiedBeacon, Verifier},
 };
 
 fn chain() -> &'static (TestChain, Verifier) {

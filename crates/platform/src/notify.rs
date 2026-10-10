@@ -1,7 +1,7 @@
 //! A deployment's [`Notifier`] as the drawing engine's notifier.
 
-use rafi_drawing::DrawingId;
 use rafi_engine::DrawingNotifier;
+use rafi_raffle::DrawingId;
 
 use crate::{BoxFuture, Notifier};
 

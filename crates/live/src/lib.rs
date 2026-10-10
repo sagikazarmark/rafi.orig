@@ -15,7 +15,7 @@
 //!   raffle and its drawing, for the servers that build views.
 //!
 //! This crate must stay light enough for the phone: without `raffle` it
-//! doesn't depend on `rafi-drawing` (which pulls in drand and BLS), without
+//! doesn't depend on `rafi-raffle` (which pulls in drand and BLS), without
 //! `card` not on Dioxus (so the engine hosts don't build a UI framework), and it
 //! reads no clock and no randomness of its own, so it runs unchanged on
 //! `wasm32-unknown-unknown`.

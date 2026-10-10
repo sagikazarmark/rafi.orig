@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use rafi_drawing::Drawing;
+use rafi_raffle::Drawing;
 
 use crate::BoxFuture;
 
@@ -71,7 +71,7 @@ impl DrawStore for MemoryDrawStore {
 
 #[cfg(test)]
 mod tests {
-    use rafi_drawing::{BeaconSource, Decision, Manifest, ManifestItem};
+    use rafi_raffle::{BeaconSource, Decision, Manifest, ManifestItem};
 
     use super::*;
 

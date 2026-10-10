@@ -110,7 +110,7 @@ pub struct Winner {
     pub claimed: bool,
 }
 
-/// How a drawn entrant's turn ended. Mirrors `rafi_drawing::Outcome` (mapped
+/// How a drawn entrant's turn ended. Mirrors `rafi_raffle::Outcome` (mapped
 /// exhaustively with the `raffle` feature).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

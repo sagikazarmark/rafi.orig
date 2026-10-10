@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     beacon::BeaconSource,
     drand::{Beacon, ChainHash, ChainInfo, Verifier, chains},
-    drawing::{Drawing, Event},
     hash::ManifestHash,
     id::{EntrantId, ItemId},
     manifest::Manifest,
+    raffle::{Drawing, Event},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -257,8 +257,8 @@ mod tests {
     use super::*;
     use crate::{
         command::Resolution,
-        drawing::tests::{beacon, manifest, test_chain},
         hash,
+        raffle::tests::{beacon, manifest, test_chain},
     };
 
     fn resolve(h: &ChainHash) -> Option<ChainInfo> {

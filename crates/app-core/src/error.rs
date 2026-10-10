@@ -2,7 +2,6 @@
 
 use std::fmt;
 
-use rafi_drawing::{BeaconSource, Command, Decision, Error as DrawingError, ErrorKind};
 use rafi_engine::EngineError;
 use rafi_lifecycle::{
     self as raffle, RaffleState,
@@ -10,6 +9,7 @@ use rafi_lifecycle::{
     settings::{self, SettingsError},
     start,
 };
+use rafi_raffle::{BeaconSource, Command, Decision, Error as DrawingError, ErrorKind};
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 

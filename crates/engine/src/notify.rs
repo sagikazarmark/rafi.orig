@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use rafi_drawing::DrawingId;
+use rafi_raffle::DrawingId;
 
 use crate::BoxFuture;
 

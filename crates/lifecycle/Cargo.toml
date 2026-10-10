@@ -7,7 +7,7 @@ rust-version.workspace = true
 description = "The raffle for Rafi: its lifecycle and rules, how it starts and uses a drawing, its entrants and settings"
 
 [dependencies]
-rafi-drawing.workspace = true
+rafi-raffle.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

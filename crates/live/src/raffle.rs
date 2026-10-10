@@ -1,11 +1,11 @@
 //! The participant view of a raffle and its drawing (the `raffle` feature):
 //! for the servers that build views. The phone only reads them, so it builds
-//! without this and without `rafi-drawing`.
+//! without this and without `rafi-raffle`.
 
 use std::collections::HashMap;
 
-use rafi_drawing::{Drawing, ItemId, Outcome};
 use rafi_lifecycle::RaffleState;
+use rafi_raffle::{Drawing, ItemId, Outcome};
 
 use crate::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
 
@@ -85,7 +85,7 @@ pub fn view(raffle: Raffle<'_>) -> ParticipantView {
 
 #[cfg(test)]
 mod tests {
-    use rafi_drawing::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
+    use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
 
     use super::*;
     use crate::HIDDEN_NAME;

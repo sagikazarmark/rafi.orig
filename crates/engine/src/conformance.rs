@@ -32,7 +32,7 @@ use crate::{
     RecordingNotifier,
 };
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_drawing::{
+use rafi_raffle::{
     BeaconSource, Command, Decision, DrawRequest, Drawing, ErrorKind, Event, ItemStatus, Manifest,
     ManifestItem, Resolution, verify,
 };
@@ -429,7 +429,7 @@ macro_rules! ensure {
 }
 
 /// The public verifier replays the log against the manifest.
-fn verified(doc: &Manifest, state: &Drawing) -> Result<rafi_drawing::Report, String> {
+fn verified(doc: &Manifest, state: &Drawing) -> Result<rafi_raffle::Report, String> {
     let report = verify(
         &doc.canonical_json(),
         &state.manifest_hash().to_string(),
@@ -481,7 +481,7 @@ async fn open_is_idempotent_per_manifest(fx: Arc<Fixture>, id: String) -> Result
         r => return Err(format!("another list: {r:?}")),
     }
     let mut chain = fx.doc(&format!("{id}-chain"), 3, 1);
-    let quicknet = rafi_drawing::drand::chains::QUICKNET_HASH;
+    let quicknet = rafi_raffle::drand::chains::QUICKNET_HASH;
     chain.beacon = BeaconSource::Drand(quicknet);
     if fx.drand.chain_hash() == quicknet {
         chain.beacon = BeaconSource::Drand(rafi_drand::mock_chain().chain().hash());

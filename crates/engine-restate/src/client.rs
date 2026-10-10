@@ -23,9 +23,9 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use bytes::Bytes;
-use rafi_drawing::{Decision, DrawRequest, DrawingId, Manifest};
 use rafi_engine::{DrawingEngine, EngineError, EngineInfo};
 use rafi_platform::{BoxFuture, sendable};
+use rafi_raffle::{Decision, DrawRequest, DrawingId, Manifest};
 use restate_sdk::{
     ingress::{CallResponse, Client, ClientError, RequestExecutor},
     serde::Json,
@@ -283,7 +283,7 @@ impl DrawingEngine for RestateClient {
 
 #[cfg(test)]
 mod tests {
-    use rafi_drawing::ErrorKind;
+    use rafi_raffle::ErrorKind;
 
     use super::*;
 

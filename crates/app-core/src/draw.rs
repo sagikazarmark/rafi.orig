@@ -1,12 +1,12 @@
 //! Starting the draw and sending it the organizer's commands.
 
-use rafi_drawing::{
-    BeaconSource, Command, Decision, DrawRequest, Manifest, ManifestHash, ManifestItem, Resolution,
-};
 use rafi_engine::EngineError;
 use rafi_lifecycle::{
     self as raffle, RaffleState,
     start::{self, Start},
+};
+use rafi_raffle::{
+    BeaconSource, Command, Decision, DrawRequest, Manifest, ManifestHash, ManifestItem, Resolution,
 };
 use rafi_store::{audit, entrants, prizes, raffles};
 
@@ -150,7 +150,7 @@ pub async fn command(
     // Checked against the projection for immediate, friendly errors: a draw
     // the engine refused would go unnoticed.
     state.admit(&cmd).map_err(|error| match error {
-        rafi_drawing::Error::UnknownItem(_) => Error::NotFound,
+        rafi_raffle::Error::UnknownItem(_) => Error::NotFound,
         error => Refusal::Drawing {
             command: Some(cmd.clone()),
             error,

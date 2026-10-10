@@ -1,7 +1,7 @@
 //! Shared test vectors for `rafi-draw-v1`.
 //!
 //! `testdata/draw-vectors.json` is checked by this test, by `tools/verify.py`
-//! and (through `rafi-drawing` compiled to WASM) by the browser verifier. Run with
+//! and (through `rafi-raffle` compiled to WASM) by the browser verifier. Run with
 //! `UPDATE_VECTORS=1` to regenerate after an intentional change: an algorithm
 //! change must also bump the algorithm identifier; a manifest format change
 //! changes the manifest hash, and so which entrants the scenario picks.
@@ -13,7 +13,7 @@
 //! round, and "not here"/"declined" are never resolved while a draw is pending
 //! (a log doing that fails verification).
 
-use rafi_drawing::{
+use rafi_raffle::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Manifest, ManifestItem, Resolution,
     algorithm,
     drand::{Beacon, VerifiedBeacon, Verifier, chains},

@@ -1,7 +1,7 @@
 //! The `EngineInfo` service: what the drawing engine says about itself.
 
 use rafi_drand::DrandClient;
-use rafi_drawing::BeaconSource;
+use rafi_raffle::BeaconSource;
 use restate_sdk::prelude::*;
 
 /// The Restate service name.

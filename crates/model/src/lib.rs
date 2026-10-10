@@ -1,8 +1,8 @@
 //! The types the Rafi app's server and browser exchange: the views screens
 //! poll, and the admin API's arguments and results.
 
-use rafi_drawing::{EntrantId, Event, ItemId, ItemStatus, Outcome};
 use rafi_lifecycle::RaffleState;
+use rafi_raffle::{EntrantId, Event, ItemId, ItemStatus, Outcome};
 use serde::{Deserialize, Serialize};
 
 /// The public, live state of a raffle: the projector's and the admin's full

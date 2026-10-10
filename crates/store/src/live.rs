@@ -10,8 +10,8 @@
 use std::collections::HashMap;
 
 use crate::{Db, Result, dialect};
-use rafi_drawing::Drawing;
 use rafi_lifecycle::RaffleState;
+use rafi_raffle::Drawing;
 use serde::Deserialize;
 
 /// The raffle as phones see it, read in one snapshot.
@@ -126,7 +126,7 @@ impl Snapshot {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use rafi_drawing::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
+    use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
 
     use super::*;
 

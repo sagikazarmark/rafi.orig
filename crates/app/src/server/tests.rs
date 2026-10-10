@@ -10,14 +10,14 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use rafi_drawing::{ItemStatus, Resolution};
 use rafi_lifecycle::RaffleState;
 use rafi_live::LiveTransport;
 use rafi_platform::{Limiter, Notifier, Polling, Recording};
+use rafi_raffle::{ItemStatus, Resolution};
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
 use tower::ServiceExt;
 
-use rafi_drawing::{Decision, DrawRequest};
+use rafi_raffle::{Decision, DrawRequest};
 
 use super::{AppState, config::Config, routes, service};
 use crate::model::{Lifecycle, PrizeInput};
@@ -201,7 +201,7 @@ async fn wait_long<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) ->
 /// (quicknet, 3 s lead, gives up 1 s after the round is due).
 async fn unreachable_drand_app() -> AppState {
     let mut cfg = Config::for_tests();
-    cfg.drand_chain = rafi_drawing::drand::chains::QUICKNET_HASH.to_string();
+    cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
     let drand = rafi_drand::DrandConfig {
         relays: vec!["http://127.0.0.1:9".into()],
         mock: false,
@@ -458,7 +458,7 @@ async fn full_raffle_flow() {
 
     // The public log verifies independently.
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let report = rafi_drawing::verify(
+    let report = rafi_raffle::verify(
         &data.manifest,
         &data.manifest_hash,
         &data.events,
@@ -510,7 +510,7 @@ async fn full_raffle_flow() {
     assert_eq!(super::retention::run(&app).await.unwrap().erased, 0);
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(
-        rafi_drawing::verify(
+        rafi_raffle::verify(
             &data.manifest,
             &data.manifest_hash,
             &data.events,
@@ -834,7 +834,7 @@ async fn join_requires_proof_of_work_and_consent() {
 #[tokio::test]
 async fn an_engine_on_another_chain_is_refused_before_freezing() {
     let mut cfg = Config::for_tests();
-    cfg.drand_chain = rafi_drawing::drand::chains::QUICKNET_HASH.to_string();
+    cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
     let app = app_with_engine(cfg, mock_drand(), Arc::new(Polling::default())).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
@@ -1079,13 +1079,13 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
 
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
-    let doc: rafi_drawing::Manifest =
+    let doc: rafi_raffle::Manifest =
         serde_json::from_str(r.manifest.as_deref().expect("a manifest")).unwrap();
     assert_eq!(doc.entrants.len(), 3);
     assert_eq!(doc.items.len(), 2);
     assert_eq!(
         r.manifest_hash.as_deref(),
-        Some(rafi_drawing::ManifestHash::of(r.manifest.as_deref().unwrap()).to_string()).as_deref()
+        Some(rafi_raffle::ManifestHash::of(r.manifest.as_deref().unwrap()).to_string()).as_deref()
     );
     assert!(r.frozen_at.is_some());
     assert_eq!(
@@ -1127,7 +1127,7 @@ async fn fake_entrants_are_added_in_one_batch() {
 /// keeps the round, and the only exit (abandon) is logged for the verifier.
 #[tokio::test]
 async fn stalled_draw_keeps_its_round() {
-    use rafi_drawing::Event;
+    use rafi_raffle::Event;
 
     let app = unreachable_drand_app().await;
     let raffle = setup_open(&app, &[("Prize", 3)]).await;
@@ -1217,7 +1217,7 @@ async fn stalled_draw_keeps_its_round() {
     );
 
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let report = rafi_drawing::verify(
+    let report = rafi_raffle::verify(
         &data.manifest,
         &data.manifest_hash,
         &data.events,
@@ -1226,7 +1226,7 @@ async fn stalled_draw_keeps_its_round() {
     assert!(report.ok(), "{report:#?}");
     let abandoned: Vec<_> = report.abandoned.iter().map(|c| c.round).collect();
     assert_eq!(abandoned, [pending.round]);
-    assert!(rafi_drawing::verify_public(&data.manifest, &data.manifest_hash, &data.events).ok());
+    assert!(rafi_raffle::verify_public(&data.manifest, &data.manifest_hash, &data.events).ok());
 }
 
 /// While a draw waits for its round, "not here" is refused; "handed over" is
@@ -1315,7 +1315,7 @@ async fn mock_raffles_are_not_publicly_verified() {
         .unwrap();
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let public = rafi_drawing::verify_public(&data.manifest, &data.manifest_hash, &data.events);
+    let public = rafi_raffle::verify_public(&data.manifest, &data.manifest_hash, &data.events);
     assert!(!public.beacons_verified && !public.ok());
 }
 

@@ -1,7 +1,7 @@
 //! The raffle: its lifecycle and the rules that hang on it, how it starts
 //! and uses a drawing ([`start`], [`drawing`]), who its entrants are
 //! ([`entrant`]) and what its settings may hold ([`settings`]). The drawing
-//! itself lives in `rafi-drawing`, which knows nothing of raffles.
+//! itself lives in `rafi-raffle`, which knows nothing of raffles.
 //!
 //! Everything here is pure: the app and the store ask these rules, and keep
 //! none of their own.

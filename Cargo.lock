@@ -4707,13 +4707,13 @@ dependencies = [
  "rafi-app-core",
  "rafi-cloudflare",
  "rafi-drand",
- "rafi-drawing",
  "rafi-engine",
  "rafi-engine-restate",
  "rafi-lifecycle",
  "rafi-live",
  "rafi-model",
  "rafi-platform",
+ "rafi-raffle",
  "rafi-store",
  "restate-e2e-harness",
  "restate-sdk",
@@ -4740,12 +4740,12 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "rafi-drand",
- "rafi-drawing",
  "rafi-engine",
  "rafi-lifecycle",
  "rafi-live",
  "rafi-model",
  "rafi-platform",
+ "rafi-raffle",
  "rafi-store",
  "serde_json",
  "sha2 0.10.9",
@@ -4777,9 +4777,9 @@ dependencies = [
  "js-sys",
  "rafi-cloudflare",
  "rafi-drand",
- "rafi-drawing",
  "rafi-live",
  "rafi-platform",
+ "rafi-raffle",
  "rafi-store",
  "serde_json",
  "worker",
@@ -4798,26 +4798,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-drawing"
-version = "0.1.0"
-dependencies = [
- "drand",
- "hex",
- "proptest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "rafi-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "rafi-drand",
- "rafi-drawing",
  "rafi-engine",
+ "rafi-raffle",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4835,9 +4822,9 @@ dependencies = [
  "gloo-timers 0.3.0",
  "http",
  "rafi-drand",
- "rafi-drawing",
  "rafi-engine",
  "rafi-platform",
+ "rafi-raffle",
  "reqwest 0.13.5",
  "restate-drand",
  "restate-e2e-harness",
@@ -4854,7 +4841,7 @@ version = "0.1.0"
 dependencies = [
  "drand",
  "proptest",
- "rafi-drawing",
+ "rafi-raffle",
  "serde",
  "serde_json",
 ]
@@ -4869,9 +4856,9 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "partyline",
- "rafi-drawing",
  "rafi-lifecycle",
  "rafi-live",
+ "rafi-raffle",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4882,9 +4869,9 @@ name = "rafi-model"
 version = "0.1.0"
 dependencies = [
  "js-sys",
- "rafi-drawing",
  "rafi-lifecycle",
  "rafi-live",
+ "rafi-raffle",
  "serde",
 ]
 
@@ -4911,10 +4898,23 @@ name = "rafi-platform"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "rafi-drawing",
  "rafi-engine",
  "rafi-live",
+ "rafi-raffle",
  "tokio",
+]
+
+[[package]]
+name = "rafi-raffle"
+version = "0.1.0"
+dependencies = [
+ "drand",
+ "hex",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4944,10 +4944,10 @@ dependencies = [
  "js-sys",
  "libtest-mimic",
  "oliphaunt",
- "rafi-drawing",
  "rafi-engine",
  "rafi-lifecycle",
  "rafi-live",
+ "rafi-raffle",
  "rafi-store",
  "serde",
  "serde_json",

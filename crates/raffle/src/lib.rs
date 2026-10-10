@@ -11,11 +11,11 @@ pub mod algorithm;
 mod beacon;
 mod command;
 mod draw;
-mod drawing;
 mod error;
 mod hash;
 mod id;
 mod manifest;
+mod raffle;
 mod verify;
 
 /// The drand types this crate's API is made of (a [`BeaconSource`] names a
@@ -28,9 +28,9 @@ pub mod drand {
 pub use beacon::BeaconSource;
 pub use command::{BeaconFetch, Command, Decision, DrawRequest, Resolution};
 pub use draw::{CompletedDraw, Outcome, PendingDraw};
-pub use drawing::{Drawing, Event, Item, ItemState, ItemStatus};
 pub use error::{Error, ErrorKind};
 pub use hash::{Hash, InvalidHash, ManifestHash};
 pub use id::{DrawingId, EntrantId, ItemId};
 pub use manifest::{Manifest, ManifestItem};
+pub use raffle::{Drawing, Event, Item, ItemState, ItemStatus};
 pub use verify::{AbandonedDraw, DrawCheck, Report, verify, verify_public};

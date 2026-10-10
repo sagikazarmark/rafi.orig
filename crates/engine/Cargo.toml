@@ -19,7 +19,7 @@ conformance = ["dep:tokio", "dep:serde_json", "dep:rafi-drand", "rafi-drand/mock
 
 [dependencies]
 anyhow = "1"
-rafi-drawing.workspace = true
+rafi-raffle.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

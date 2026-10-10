@@ -6,7 +6,7 @@
 //! Each use case is a function over an [`App`]: the database, the drawing
 //! engine and the live notifier the deployment plugs in, and the
 //! deployment's [`Policy`]. The rules come from `rafi-lifecycle` and
-//! `rafi-drawing`; a use case sequences the reads and writes around them. A
+//! `rafi-raffle`; a use case sequences the reads and writes around them. A
 //! refusal is a typed [`Refusal`]; the HTTP layer only maps it.
 //!
 //! Every write that changes what phones see (the participant view) notifies
@@ -25,9 +25,9 @@ pub mod view;
 
 use std::sync::Arc;
 
-use rafi_drawing::drand::ChainHash;
 use rafi_engine::DrawingEngine;
 use rafi_platform::Notifier;
+use rafi_raffle::drand::ChainHash;
 use rafi_store::{Db, RaffleRow, raffles as store};
 
 pub use draw::{command, start_draw};

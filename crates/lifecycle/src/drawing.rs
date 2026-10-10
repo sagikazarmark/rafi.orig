@@ -3,7 +3,7 @@
 //! events). A raffle's drawing has the raffle's ID ([`drawing_id`],
 //! [`raffle_id`]).
 
-use rafi_drawing::{
+use rafi_raffle::{
     BeaconSource, Drawing, DrawingId, EntrantId, Event, ItemId, Manifest, ManifestItem, Outcome,
 };
 
@@ -96,7 +96,7 @@ pub fn deletable(state: RaffleState, drawing: Option<&Drawing>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use rafi_drawing::{Decision, DrawRequest};
+    use rafi_raffle::{Decision, DrawRequest};
 
     use super::*;
 

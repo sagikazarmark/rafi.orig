@@ -57,9 +57,9 @@ pub use error::{Error, Result};
 pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
-use rafi_drawing::Drawing;
 use rafi_engine::BoxFuture;
 use rafi_engine::DrawStore;
+use rafi_raffle::Drawing;
 pub use value::{Row, Value};
 
 /// The current time in unix seconds. `std::time` aborts on
@@ -229,11 +229,11 @@ mod tests {
         let db = Db::connect_lazy(&format!("sqlite://{}", path.display())).unwrap();
         assert!(!path.exists(), "the app creates the database");
         let writer = DrawWriter::new(db);
-        let manifest = rafi_drawing::Manifest::new(
+        let manifest = rafi_raffle::Manifest::new(
             "r1",
-            rafi_drawing::BeaconSource::QUICKNET,
+            rafi_raffle::BeaconSource::QUICKNET,
             vec!["a".repeat(32).into()],
-            vec![rafi_drawing::ManifestItem {
+            vec![rafi_raffle::ManifestItem {
                 id: "u1".into(),
                 name: "Book".into(),
             }],

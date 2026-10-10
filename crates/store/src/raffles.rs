@@ -6,8 +6,8 @@
 //! [`set_manifest`] stores the drawing's manifest (or [`unfreeze`] reverts when nobody is left).
 //! Each step is guarded by the state it expects, so retrying is safe.
 
-use rafi_drawing::Drawing;
 use rafi_lifecycle::RaffleState;
+use rafi_raffle::Drawing;
 use serde::Deserialize;
 
 use crate::{Db, Query, Result, now, prizes::PrizeFields};

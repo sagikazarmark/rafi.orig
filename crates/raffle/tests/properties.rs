@@ -4,7 +4,7 @@ use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
-use rafi_drawing::{
+use rafi_raffle::{
     BeaconFetch, BeaconSource, Command, Decision, DrawRequest, Drawing, EntrantId, Error, Event,
     ItemState, Manifest, ManifestHash, ManifestItem, Resolution,
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
@@ -41,7 +41,7 @@ fn source() -> BeaconSource {
     BeaconSource::Drand(chain().0.chain().hash())
 }
 
-fn item(i: usize) -> rafi_drawing::ItemId {
+fn item(i: usize) -> rafi_raffle::ItemId {
     format!("item-{i}").into()
 }
 
@@ -70,7 +70,7 @@ fn op() -> impl Strategy<Value = Op> {
 }
 
 /// Every command an organizer could send for a drawing with `items` items.
-fn candidates(items: usize, pending: Option<rafi_drawing::ItemId>) -> Vec<Command> {
+fn candidates(items: usize, pending: Option<rafi_raffle::ItemId>) -> Vec<Command> {
     let mut out = Vec::new();
     for i in 0..items {
         out.push(Command::Draw(DrawRequest { item: item(i) }));

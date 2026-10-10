@@ -10,13 +10,13 @@
 use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_drawing::{
-    BeaconSource, Decision, DrawRequest, Drawing, Event, ItemStatus, Manifest, ManifestItem,
-    Resolution, verify,
-};
 use rafi_engine::MemoryDrawStore;
 use rafi_engine::RecordingNotifier;
 use rafi_engine_restate::SERVICE_NAME;
+use rafi_raffle::{
+    BeaconSource, Decision, DrawRequest, Drawing, Event, ItemStatus, Manifest, ManifestItem,
+    Resolution, verify,
+};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
 use serde_json::{Value, json};

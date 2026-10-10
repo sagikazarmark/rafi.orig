@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use rafi_drawing::{
+use rafi_raffle::{
     BeaconSource, Decision, DrawRequest, DrawingId, Error as DrawingError, ErrorKind, Manifest,
 };
 
@@ -55,7 +55,7 @@ impl From<DrawingError> for EngineError {
 }
 
 /// The drawing engine: owns each drawing from opening to finish, applies the
-/// draw rules (`rafi_drawing`) and writes every new state to the
+/// draw rules (`rafi_raffle`) and writes every new state to the
 /// projection ([`DrawStore`](crate::DrawStore)), then notifies clients.
 ///
 /// The contract every engine keeps:

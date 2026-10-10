@@ -4,7 +4,7 @@
 use std::env;
 
 use anyhow::{anyhow, bail};
-use rafi_drawing::drand::{ChainHash, chains};
+use rafi_raffle::drand::{ChainHash, chains};
 
 /// How the app reaches the `restate-rafi` service: through the Restate ingress.
 pub use rafi_engine_restate::ClientConfig as RestateConfig;
