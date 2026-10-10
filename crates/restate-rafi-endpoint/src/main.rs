@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Parser;
 use rafi_drand::DrandClient;
-use rafi_platform::{Notify, Polling};
 use restate_config::ConfigureEndpointExt;
 use restate_ext::shutdown_signal;
 use restate_sdk::{endpoint::Endpoint, filter::ReplayAwareFilter, http_server::HttpServer};
@@ -77,7 +76,7 @@ fn endpoint(config: Config) -> Result<Endpoint> {
         drand,
         config.database.raffle_store()?,
         // Natively there is no push: the app's clients poll the database.
-        Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
+        None,
     );
     Ok(Endpoint::builder()
         .configure(&config.endpoint)?

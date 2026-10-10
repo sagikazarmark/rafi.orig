@@ -18,7 +18,7 @@
 
 #![cfg(target_arch = "wasm32")]
 
-use std::{cell::OnceCell, rc::Rc};
+use std::{cell::OnceCell, rc::Rc, sync::Arc};
 
 use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
@@ -46,7 +46,7 @@ fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
         DurableObjects::new(env.clone()),
         rafi_raffle::RaffleId::as_str,
     );
-    let (raffle, info) = rafi_engine_restate::services(drand, store, notifier);
+    let (raffle, info) = rafi_engine_restate::services(drand, store, Some(Arc::new(notifier)));
     let mut builder = Endpoint::builder();
     let keys = lookup(env, "RESTATE_IDENTITY_KEYS").unwrap_or_default();
     let keys: Vec<&str> = keys

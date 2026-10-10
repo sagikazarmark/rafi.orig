@@ -62,7 +62,7 @@ impl EngineHarness for OnRestate {
             }));
             let restate = launcher.launch(spec).await;
             // Bound as every host binds them.
-            let (raffle, info) = rafi_engine_restate::services(d.drand, d.store, d.notifier);
+            let (raffle, info) = rafi_engine_restate::services(d.drand, d.store, Some(d.notifier));
             restate
                 .deploy(Endpoint::builder().bind(raffle).bind(info).build())
                 .await;

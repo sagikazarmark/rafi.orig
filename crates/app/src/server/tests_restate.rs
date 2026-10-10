@@ -14,7 +14,6 @@ use rafi_drand::{DrandClient, DrandConfig};
 use rafi_engine::RaffleEngine;
 use rafi_engine_restate::RestateClient;
 use rafi_lifecycle::RaffleState;
-use rafi_platform::Polling;
 use rafi_raffle::{Decision, DrawRequest};
 use rafi_raffle::{ItemStatus, Resolution};
 use rafi_store::{Db, RaffleRow, RaffleWriter, raffles};
@@ -76,11 +75,7 @@ async fn app_and_restate_rafi_share_the_database() {
     let store = RaffleWriter::new(Db::connect_lazy(&url).unwrap());
     let chain = drand.chain_hash();
     // As the native endpoint binds them.
-    let (raffle, info) = rafi_engine_restate::services(
-        drand,
-        store,
-        rafi_platform::Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
-    );
+    let (raffle, info) = rafi_engine_restate::services(drand, store, None);
     restate
         .deploy(Endpoint::builder().bind(raffle).bind(info).build())
         .await;

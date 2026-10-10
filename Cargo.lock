@@ -5264,7 +5264,6 @@ dependencies = [
  "rafi-drand",
  "rafi-engine",
  "rafi-engine-restate",
- "rafi-platform",
  "rafi-raffle",
  "rafi-store",
  "restate-config",

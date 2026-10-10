@@ -202,7 +202,8 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 - The rules live in `rafi-raffle` and `rafi-lifecycle`; the store, the engines and the app ask them. The store's SQL
   state lists are generated from them.
 - A manifest and an engine run a whole raffle: the engine knows nothing of the app (no lifecycle, no settings). A
-  host says what a raffle's clients follow (`rafi_platform::Notify`), and the app's retention run dates erasure.
+  host says what a raffle's clients follow (`rafi_platform::Notify`, on Workers; the native host passes no notifier,
+  since its clients poll), and the app's retention run dates erasure.
 - `rafi-engine` depends on no platform crate, and nothing below the app pulls in Dioxus (`rafi-live`'s `card` is
   off). The phone builds `rafi-live` without `raffle`: no `rafi-raffle`, drand or BLS.
 - The server sends the admin what it may do (`RaffleAdmin.actions`, `AdminEntrant.deliverable`); the UI derives no

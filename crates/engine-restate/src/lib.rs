@@ -32,16 +32,19 @@ pub use client::{ClientConfig, RestateClient};
 pub use info::{EngineInfo, EngineInfoIngressClient, INFO_SERVICE_NAME};
 pub use service::{Raffle, RaffleIngressClient, SERVICE_NAME};
 
+use std::sync::Arc;
+
 use rafi_drand::DrandClient;
 use rafi_engine::{RaffleNotifier, RaffleStore};
 
 /// The engine's services, as every host binds them: the [`Raffle`] object,
-/// drawing with `drand`, writing to `store` and telling `notifier`; and
-/// [`EngineInfo`], answering for the same drand chain.
+/// drawing with `drand`, writing to `store` and telling `notifier` (`None`
+/// where clients poll and nobody needs telling); and [`EngineInfo`],
+/// answering for the same drand chain.
 pub fn services(
     drand: DrandClient,
     store: impl RaffleStore,
-    notifier: impl RaffleNotifier,
+    notifier: Option<Arc<dyn RaffleNotifier>>,
 ) -> (Raffle, EngineInfo) {
     let info = EngineInfo::new(&drand);
     (Raffle::new(drand, store, notifier), info)

@@ -23,13 +23,18 @@ const STATE: &str = "state";
 pub struct Raffle {
     drand: Drand,
     store: Arc<dyn RaffleStore>,
-    notifier: Arc<dyn RaffleNotifier>,
+    notifier: Option<Arc<dyn RaffleNotifier>>,
 }
 
 impl Raffle {
     /// Draws with `drand`, writes every state to `store` and tells clients
-    /// through `notifier`.
-    pub fn new(drand: DrandClient, store: impl RaffleStore, notifier: impl RaffleNotifier) -> Self {
+    /// through `notifier`. Without one (clients poll the store), no
+    /// notification step is journaled at all.
+    pub fn new(
+        drand: DrandClient,
+        store: impl RaffleStore,
+        notifier: Option<Arc<dyn RaffleNotifier>>,
+    ) -> Self {
         let config = drand.config();
         let drand = Drand::new(drand.client().clone())
             .with_lead(Duration::from_secs(config.lead_secs))
@@ -37,7 +42,7 @@ impl Raffle {
         Self {
             drand,
             store: Arc::new(store),
-            notifier: Arc::new(notifier),
+            notifier,
         }
     }
 
@@ -89,8 +94,10 @@ impl Raffle {
         // logs and drops its own failures (clients re-read on their own), so a
         // stuck notification can't block the raffle's object, and the step
         // doesn't retry them: its attempts only cover the step itself failing.
+        let Some(notifier) = self.notifier.as_deref() else {
+            return Ok(());
+        };
         let raffle_id = state.id();
-        let notifier = &*self.notifier;
         let notified = ctx
             .run(|| async move {
                 notifier.changed(raffle_id).await;
