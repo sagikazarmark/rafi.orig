@@ -13,7 +13,7 @@
 //!   drawings to what clients follow, `rafi_platform::Notify` for rafi).
 //!
 //! Whether an engine would take a command now is the drawing's own rule
-//! ([`Drawing::admit`](rafi_raffle::Drawing::admit)), checked against the
+//! ([`Raffle::admit`](rafi_raffle::Raffle::admit)), checked against the
 //! projection.
 //!
 //! The engines: `rafi-engine-restate` (production) and, with the `local`

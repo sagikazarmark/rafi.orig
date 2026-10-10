@@ -1,21 +1,21 @@
-//! How the drawing refuses something, and how every engine and caller
+//! How the raffle refuses something, and how every engine and caller
 //! classifies that refusal.
 
 use crate::{beacon::BeaconSource, id::ItemId};
 
-/// Why the drawing refused something.
+/// Why the raffle refused something.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    #[error("the drawing is already open with another manifest")]
+    #[error("the raffle is already open with another manifest")]
     AlreadyOpen,
-    #[error("the drawing draws from {drawing}, but the engine from {engine}")]
+    #[error("the raffle draws from {raffle}, but the engine from {engine}")]
     BeaconSourceMismatch {
-        drawing: BeaconSource,
+        raffle: BeaconSource,
         engine: BeaconSource,
     },
     #[error("invalid manifest: {0}")]
     InvalidManifest(String),
-    #[error("the drawing is finished")]
+    #[error("the raffle is finished")]
     Finished,
     #[error("unknown item {0}")]
     UnknownItem(ItemId),
@@ -31,7 +31,7 @@ pub enum Error {
     NoEligibleEntrants,
     #[error("the beacon is for round {got}, but the draw committed to round {expected}")]
     WrongRound { expected: u64, got: u64 },
-    #[error("the beacon is from another source than the drawing's")]
+    #[error("the beacon is from another source than the raffle's")]
     WrongBeaconSource,
     #[error("draw {0} holds no drawn item")]
     UnknownDraw(u64),
@@ -54,7 +54,7 @@ impl Error {
             // A beacon for the wrong round or source only ever stalls a draw:
             // these are engine bugs.
             Self::WrongRound { .. } | Self::WrongBeaconSource => ErrorKind::Invariant,
-            // Only a log that is not the drawing's own names a missing draw.
+            // Only a log that is not the raffle's own names a missing draw.
             Self::UnknownDraw(_) => ErrorKind::Invariant,
         }
     }
@@ -64,11 +64,11 @@ impl Error {
 /// callers map it onto their own errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
-    /// The drawing or item doesn't exist (or no drawing is open).
+    /// The raffle or item doesn't exist (or no raffle is open).
     NotFound,
     /// The command itself is malformed.
     BadRequest,
-    /// The command doesn't fit the drawing's current state.
+    /// The command doesn't fit the raffle's current state.
     Conflict,
     /// A broken engine invariant: a bug, never the caller's fault.
     Invariant,

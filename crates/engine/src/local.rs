@@ -12,8 +12,8 @@
 //!   are notified, best effort;
 //! - the drawing is forgotten once it finishes.
 //!
-//! All decisions are `rafi_raffle`'s ([`Drawing::open_or_check`],
-//! [`Drawing::announce`], [`Drawing::settle`], [`Drawing::decide`]); the
+//! All decisions are `rafi_raffle`'s ([`Raffle::open_or_check`],
+//! [`Raffle::announce`], [`Raffle::settle`], [`Raffle::decide`]); the
 //! committed round comes from [`DrandClient::target_round`]. This engine only
 //! does the I/O, with an injectable clock.
 //!
@@ -30,8 +30,8 @@ use std::{
 use crate::BoxFuture;
 use rafi_drand::DrandClient;
 use rafi_raffle::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, DrawingId, Error as DrawingError,
-    ErrorKind, Manifest,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Error as RaffleError, ErrorKind, Manifest,
+    Raffle, RaffleId,
 };
 
 use crate::{DrawStore, DrawingEngine, DrawingNotifier, EngineError, EngineInfo, NOT_OPEN};
@@ -55,7 +55,7 @@ pub struct LocalEngine {
 struct Shared {
     io: Arc<Io>,
     /// Each drawing's queue; its task ends when the engine is dropped.
-    queues: Mutex<HashMap<DrawingId, mpsc::UnboundedSender<Job>>>,
+    queues: Mutex<HashMap<RaffleId, mpsc::UnboundedSender<Job>>>,
     /// The outcome of every call by idempotency key, set once applied.
     seen: Mutex<HashMap<String, watch::Sender<Option<Outcome>>>>,
 }
@@ -153,7 +153,7 @@ impl LocalEngine {
     /// key's outcome channel.
     fn submit(
         &self,
-        drawing_id: &DrawingId,
+        drawing_id: &RaffleId,
         key: String,
         work: Work,
     ) -> watch::Receiver<Option<Outcome>> {
@@ -215,7 +215,7 @@ impl DrawingEngine for LocalEngine {
 
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a DrawingId,
+        drawing_id: &'a RaffleId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
@@ -229,7 +229,7 @@ impl DrawingEngine for LocalEngine {
 
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a DrawingId,
+        drawing_id: &'a RaffleId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
@@ -244,8 +244,8 @@ impl DrawingEngine for LocalEngine {
 /// A drawing's task: applies its jobs one at a time, in order. Command IDs
 /// outlive the drawing, as Restate's idempotency retention does: a retried
 /// finish answers as the first one did.
-async fn run(io: Arc<Io>, drawing_id: DrawingId, mut jobs: mpsc::UnboundedReceiver<Job>) {
-    let mut state: Option<Drawing> = None;
+async fn run(io: Arc<Io>, drawing_id: RaffleId, mut jobs: mpsc::UnboundedReceiver<Job>) {
+    let mut state: Option<Raffle> = None;
     while let Some(job) = jobs.recv().await {
         let outcome = io.apply(&mut state, job.work).await;
         if let Err((_, message)) = &outcome {
@@ -256,18 +256,18 @@ async fn run(io: Arc<Io>, drawing_id: DrawingId, mut jobs: mpsc::UnboundedReceiv
 }
 
 /// A refusal by the draw rules, with its kind.
-fn refused(e: DrawingError) -> (ErrorKind, String) {
+fn refused(e: RaffleError) -> (ErrorKind, String) {
     (e.kind(), e.to_string())
 }
 
 impl Io {
-    async fn apply(&self, state: &mut Option<Drawing>, work: Work) -> Outcome {
+    async fn apply(&self, state: &mut Option<Raffle>, work: Work) -> Outcome {
         let beacon = BeaconSource::Drand(self.drand.chain_hash());
         let not_open = || (ErrorKind::NotFound, NOT_OPEN.to_owned());
         match work {
             Work::Open(doc) => {
                 if let Some(fresh) =
-                    Drawing::open_or_check(state.as_ref(), &doc, &beacon).map_err(refused)?
+                    Raffle::open_or_check(state.as_ref(), &doc, &beacon).map_err(refused)?
                 {
                     self.project(&fresh).await;
                     *state = Some(fresh);
@@ -307,7 +307,7 @@ impl Io {
     /// Writes the state, retried with backoff until it succeeds (the database
     /// is the record), as Restate retries its journaled step; then tells
     /// clients, best effort.
-    async fn project(&self, state: &Drawing) {
+    async fn project(&self, state: &Raffle) {
         let mut delay = Duration::from_millis(20);
         for attempt in 1u32.. {
             match self.store.save_drawing(state).await {
@@ -353,7 +353,7 @@ mod tests {
         )
     }
 
-    async fn projected(store: &MemoryDrawStore, f: impl Fn(&Drawing) -> bool) -> Drawing {
+    async fn projected(store: &MemoryDrawStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
         for _ in 0..200 {
             if let Some(s) = store.latest("r1")
                 && f(&s)

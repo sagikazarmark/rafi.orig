@@ -10,7 +10,7 @@ use rafi_lifecycle::{
 use rafi_model::{
     AdminActions, AdminEntrant, EntrantSource, Prize, RaffleAdmin, StartStep, VerifyData,
 };
-use rafi_raffle::{Drawing, ItemId, Outcome};
+use rafi_raffle::{ItemId, Outcome, Raffle};
 use rafi_store::{entrants, raffles, view::Full};
 
 use crate::{App, Error, Result, raffles::settings_of, view};
@@ -67,8 +67,8 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
 
 /// The entrants as the organizer sees them, with what the drawing made of
 /// each.
-fn admin_entrants(full: &Full, drawing: Option<&Drawing>) -> Vec<AdminEntrant> {
-    let outcomes = drawing.map(Drawing::entrant_outcomes).unwrap_or_default();
+fn admin_entrants(full: &Full, drawing: Option<&Raffle>) -> Vec<AdminEntrant> {
+    let outcomes = drawing.map(Raffle::entrant_outcomes).unwrap_or_default();
     let item_names: HashMap<ItemId, String> = drawing
         .map(|s| {
             s.items()

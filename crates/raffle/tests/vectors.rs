@@ -14,7 +14,7 @@
 //! (a log doing that fails verification).
 
 use rafi_raffle::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Manifest, ManifestItem, Resolution,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Manifest, ManifestItem, Raffle, Resolution,
     algorithm,
     drand::{Beacon, VerifiedBeacon, Verifier, chains},
     verify_public,
@@ -115,16 +115,16 @@ fn generate() -> Vectors {
         entrants,
         items,
     );
-    let mut s = Drawing::open(&doc).unwrap();
+    let mut s = Raffle::open(&doc).unwrap();
     let source = BeaconSource::QUICKNET;
-    let draw = |s: &mut Drawing, item: &str, round: u64| {
+    let draw = |s: &mut Raffle, item: &str, round: u64| {
         let request = DrawRequest { item: item.into() };
         s.announce(&request, &source, round, 0).unwrap();
         s.settle(BeaconFetch::Verified(beacon(round)))
             .unwrap()
             .unwrap();
     };
-    let decide = |s: &mut Drawing, decision: Decision| s.decide(&decision).unwrap();
+    let decide = |s: &mut Raffle, decision: Decision| s.decide(&decision).unwrap();
     let resolve = |item: &str, resolution| Decision::Resolve {
         item: item.into(),
         resolution,

@@ -33,8 +33,8 @@ use crate::{
 };
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_raffle::{
-    BeaconSource, Command, Decision, DrawRequest, Drawing, ErrorKind, Event, ItemStatus, Manifest,
-    ManifestItem, Resolution, verify,
+    BeaconSource, Command, Decision, DrawRequest, ErrorKind, Event, ItemStatus, Manifest,
+    ManifestItem, Raffle, Resolution, verify,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -236,8 +236,8 @@ impl Fixture {
         &self,
         drawing_id: &str,
         what: &str,
-        f: impl Fn(&Drawing) -> bool,
-    ) -> Result<Drawing, String> {
+        f: impl Fn(&Raffle) -> bool,
+    ) -> Result<Raffle, String> {
         let start = tokio::time::Instant::now();
         loop {
             if let Some(s) = self.store.latest(drawing_id)
@@ -255,7 +255,7 @@ impl Fixture {
         }
     }
 
-    async fn open(&self, doc: &Manifest) -> Result<Drawing, String> {
+    async fn open(&self, doc: &Manifest) -> Result<Raffle, String> {
         self.engine
             .open(doc)
             .await
@@ -299,7 +299,7 @@ impl Fixture {
         self.ok(drawing_id, request, id).await
     }
 
-    async fn drawn(&self, drawing_id: &str, item: &str) -> Result<Drawing, String> {
+    async fn drawn(&self, drawing_id: &str, item: &str) -> Result<Raffle, String> {
         self.projected(drawing_id, &format!("{item} drawn"), |s| {
             s.item(&item.into())
                 .is_some_and(|u| u.status() == ItemStatus::Drawn)
@@ -307,7 +307,7 @@ impl Fixture {
         .await
     }
 
-    async fn stalls(&self, drawing_id: &str, n: usize) -> Result<Drawing, String> {
+    async fn stalls(&self, drawing_id: &str, n: usize) -> Result<Raffle, String> {
         self.projected(drawing_id, &format!("{n} stall(s)"), |s| {
             count(s, is_stall) >= n
         })
@@ -385,7 +385,7 @@ struct FlakyStore {
 }
 
 impl DrawStore for FlakyStore {
-    fn save_drawing<'a>(&'a self, state: &'a Drawing) -> BoxFuture<'a, anyhow::Result<bool>> {
+    fn save_drawing<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         let failed = {
             let mut failures = self.failures.lock().expect("failures lock");
             let n = failures.entry(state.id().to_string()).or_default();
@@ -416,7 +416,7 @@ fn is_stall(e: &Event) -> bool {
     matches!(e, Event::Stalled { .. })
 }
 
-fn count(s: &Drawing, f: impl Fn(&Event) -> bool) -> usize {
+fn count(s: &Raffle, f: impl Fn(&Event) -> bool) -> usize {
     s.events().iter().filter(|e| f(e)).count()
 }
 
@@ -429,7 +429,7 @@ macro_rules! ensure {
 }
 
 /// The public verifier replays the log against the manifest.
-fn verified(doc: &Manifest, state: &Drawing) -> Result<rafi_raffle::Report, String> {
+fn verified(doc: &Manifest, state: &Raffle) -> Result<rafi_raffle::Report, String> {
     let report = verify(
         &doc.canonical_json(),
         &state.manifest_hash().to_string(),

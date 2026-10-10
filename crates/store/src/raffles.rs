@@ -7,7 +7,7 @@
 //! Each step is guarded by the state it expects, so retrying is safe.
 
 use rafi_lifecycle::RaffleState;
-use rafi_raffle::Drawing;
+use rafi_raffle::Raffle;
 use serde::Deserialize;
 
 use crate::{Db, Query, Result, now, prizes::PrizeFields};
@@ -61,7 +61,7 @@ pub struct RaffleRow {
 
 impl RaffleRow {
     /// The drawing, once the engine has opened it.
-    pub fn drawing(&self) -> Result<Option<Drawing>> {
+    pub fn drawing(&self) -> Result<Option<Raffle>> {
         self.drawing
             .as_deref()
             .map(crate::parse_drawing)

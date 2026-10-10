@@ -25,7 +25,7 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use rafi_engine::{DrawingEngine, EngineError, EngineInfo};
 use rafi_platform::{BoxFuture, sendable};
-use rafi_raffle::{Decision, DrawRequest, DrawingId, Manifest};
+use rafi_raffle::{Decision, DrawRequest, Manifest, RaffleId};
 use restate_sdk::{
     ingress::{CallResponse, Client, ClientError, RequestExecutor},
     serde::Json,
@@ -103,7 +103,7 @@ impl RestateClient {
             .map_err(|e| EngineError::Unavailable(anyhow!(e)))
     }
 
-    fn drawing(&self, drawing_id: &DrawingId) -> Result<DrawingIngressClient<Http>, EngineError> {
+    fn drawing(&self, drawing_id: &RaffleId) -> Result<DrawingIngressClient<Http>, EngineError> {
         Ok(DrawingIngressClient::from_client(
             self.ingress()?,
             drawing_id.as_str(),
@@ -244,7 +244,7 @@ impl DrawingEngine for RestateClient {
 
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a DrawingId,
+        drawing_id: &'a RaffleId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
@@ -263,7 +263,7 @@ impl DrawingEngine for RestateClient {
 
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a DrawingId,
+        drawing_id: &'a RaffleId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {

@@ -1,7 +1,7 @@
 //! The Rafi drawing engine on Restate.
 //!
 //! [`Drawing`] is a virtual object keyed by the drawing's ID.
-//! It owns the drawing ([`rafi_raffle::Drawing`]) from opening to finish:
+//! It owns the drawing ([`rafi_raffle::Raffle`]) from opening to finish:
 //! handlers for one drawing run one at a time, the committed drand round is journaled before the durable sleep,
 //! and a crash or redeploy replays to the very same result. A beacon that
 //! cannot be fetched leaves the draw pending on its round (never a redraw on a

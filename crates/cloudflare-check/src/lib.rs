@@ -13,7 +13,7 @@
 use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleChannel;
 use rafi_platform::Notifier;
-use rafi_raffle::{BeaconSource, Drawing, Event, ItemStatus, Manifest, ManifestItem};
+use rafi_raffle::{BeaconSource, Event, ItemStatus, Manifest, ManifestItem, Raffle};
 use rafi_store::{Db, live::Snapshot};
 use worker::{Context, Env, Method, Request, Response, Result, event};
 
@@ -26,7 +26,7 @@ fn entrant(raffle: &str, name: &str) -> String {
     format!("{raffle}-{name}")
 }
 
-async fn drawing(db: &Db, raffle: &str) -> Result<Drawing> {
+async fn drawing(db: &Db, raffle: &str) -> Result<Raffle> {
     rafi_store::raffles::get(db, raffle)
         .await
         .map_err(err)?
@@ -83,7 +83,7 @@ fn manifest(raffle: &str, beacon: BeaconSource) -> Manifest {
 }
 
 async fn freeze(db: &Db, raffle: &str) -> Result<()> {
-    let state = Drawing::open(&manifest(raffle, BeaconSource::QUICKNET)).map_err(err)?;
+    let state = Raffle::open(&manifest(raffle, BeaconSource::QUICKNET)).map_err(err)?;
     db.query("UPDATE raffles SET state = 'frozen', manifest_hash = ?, drawing = ?, drawing_version = ? WHERE id = ?")
         .bind(state.manifest_hash().to_string())
         .bind(serde_json::to_string(&state).map_err(err)?)
@@ -221,8 +221,7 @@ fn altcha_challenge() -> rafi_live::altcha::Challenge {
 async fn record(db: &Db, raffle: &str, event: Event) -> Result<()> {
     let mut events = drawing(db, raffle).await?.events().to_vec();
     events.push(event);
-    let state =
-        Drawing::restore(&manifest(raffle, BeaconSource::QUICKNET), &events).map_err(err)?;
+    let state = Raffle::restore(&manifest(raffle, BeaconSource::QUICKNET), &events).map_err(err)?;
     rafi_store::save_drawing(db, &state).await.map_err(err)?;
     Ok(())
 }

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::{Db, Result, dialect};
 use rafi_lifecycle::RaffleState;
-use rafi_raffle::Drawing;
+use rafi_raffle::Raffle;
 use serde::Deserialize;
 
 /// The raffle as phones see it, read in one snapshot.
@@ -21,7 +21,7 @@ pub struct Snapshot {
     /// Bumped by every write that changes what phones see.
     pub version: u64,
     pub live_ended_at: Option<i64>,
-    pub drawing: Option<Drawing>,
+    pub drawing: Option<Raffle>,
     /// The display names of the drawn entrants only, by ID: no other name
     /// leaves the database. `None` for one the organizer hid: that name isn't
     /// read either.
@@ -34,10 +34,10 @@ pub struct Snapshot {
 impl Snapshot {
     /// What phones see of the raffle.
     pub fn participant_view(&self) -> rafi_live::ParticipantView {
-        rafi_live::raffle::view(rafi_live::raffle::Raffle {
+        rafi_live::raffle::view(rafi_live::raffle::Input {
             version: self.version,
             state: self.state,
-            drawing: self.drawing.as_ref(),
+            raffle: self.drawing.as_ref(),
             names: &self.names,
             prize_qty: self.prize_qty,
         })
@@ -163,8 +163,8 @@ mod tests {
             self.events.push(Event::Resolved { k, resolution });
         }
 
-        fn drawing(&self) -> Drawing {
-            Drawing::restore(&self.manifest, &self.events).unwrap()
+        fn drawing(&self) -> Raffle {
+            Raffle::restore(&self.manifest, &self.events).unwrap()
         }
     }
 
@@ -218,7 +218,7 @@ mod tests {
     }
 
     async fn store(db: &Db, log: &Log, lifecycle: &str) {
-        let stored = crate::StoredDrawing::of(&log.drawing()).unwrap();
+        let stored = crate::StoredRaffle::of(&log.drawing()).unwrap();
         db.query("UPDATE raffles SET state = ?, drawing = ?, drawn_entrants = ? WHERE id = 'r1'")
             .bind(lifecycle)
             .bind(stored.json)

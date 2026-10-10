@@ -14,7 +14,7 @@ use rafi_engine::MemoryDrawStore;
 use rafi_engine::RecordingNotifier;
 use rafi_engine_restate::SERVICE_NAME;
 use rafi_raffle::{
-    BeaconSource, Decision, DrawRequest, Drawing, Event, ItemStatus, Manifest, ManifestItem,
+    BeaconSource, Decision, DrawRequest, Event, ItemStatus, Manifest, ManifestItem, Raffle,
     Resolution, verify,
 };
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
@@ -48,7 +48,7 @@ fn doc(entrants: usize) -> Manifest {
 }
 
 /// Waits until the latest projection satisfies `f`.
-async fn projected(store: &MemoryDrawStore, f: impl Fn(&Drawing) -> bool) -> Drawing {
+async fn projected(store: &MemoryDrawStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
     for _ in 0..200 {
         if let Some(s) = store.latest(RAFFLE)
             && f(&s)
@@ -303,7 +303,7 @@ async fn e2e_stalled_draw() {
         .await;
     assert_eq!(reply.status, 200, "{}", reply.body);
 
-    let stalls = |s: &Drawing| {
+    let stalls = |s: &Raffle| {
         s.events()
             .iter()
             .filter(|e| matches!(e, Event::Stalled { .. }))
@@ -438,6 +438,6 @@ async fn e2e_cancelled_draw_stalls() {
     assert!(failure.contains("cancelled"), "{failure:?}");
     // The object still holds the pending draw: a retry re-enters it.
     let reply = restate.invoke(&call("get"), None, None).await;
-    let state: Drawing = serde_json::from_value(reply.body).unwrap();
+    let state: Raffle = serde_json::from_value(reply.body).unwrap();
     assert_eq!(state.pending(), Some(&pending));
 }

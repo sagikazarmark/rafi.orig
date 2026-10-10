@@ -1,5 +1,5 @@
-//! The manifest: everything that decides a drawing's outcome except the
-//! randomness. Published (with its hash) when the drawing opens.
+//! The manifest: everything that decides a raffle's outcome except the
+//! randomness. Published (with its hash) when the raffle opens.
 
 use std::collections::HashSet;
 
@@ -10,7 +10,7 @@ use crate::{
     beacon::BeaconSource,
     error::Error,
     hash::ManifestHash,
-    id::{DrawingId, EntrantId, ItemId},
+    id::{EntrantId, ItemId, RaffleId},
 };
 
 /// An item as the manifest lists it: one thing one entrant can win.
@@ -31,7 +31,7 @@ pub struct Manifest {
     pub algo: String,
     /// The drawing this manifest opens (its ID). Binds the manifest to one
     /// drawing; the manifest's own identity is its hash.
-    pub drawing: DrawingId,
+    pub drawing: RaffleId,
     /// Where the draws' randomness comes from.
     pub beacon: BeaconSource,
     /// Sorted, deduplicated, lowercase entrant IDs (rafi's are hex).
@@ -42,7 +42,7 @@ pub struct Manifest {
 impl Manifest {
     /// `beacon` is where the draws' randomness will come from.
     pub fn new(
-        drawing: impl Into<DrawingId>,
+        drawing: impl Into<RaffleId>,
         beacon: BeaconSource,
         entrants: Vec<EntrantId>,
         items: Vec<ManifestItem>,
@@ -72,14 +72,14 @@ impl Manifest {
         ManifestHash::of(&self.canonical_json())
     }
 
-    /// The idempotency key for opening a drawing from this manifest: the same
+    /// The idempotency key for opening a raffle from this manifest: the same
     /// manifest opens once.
     pub fn open_key(&self) -> String {
         format!("open-{}", self.hash())
     }
 
     /// Checks that the manifest is one [`Manifest::new`] could have built for
-    /// a drawing that can be drawn: the current algorithm, at least one entrant and one
+    /// a raffle that can be drawn: the current algorithm, at least one entrant and one
     /// item, entrant IDs in canonical form (sorted, deduplicated, lowercase, so
     /// re-serializing it reproduces the published manifest hash), and unique item
     /// IDs.

@@ -1,8 +1,8 @@
-//! Whether the drawing would take a command now, while a draw may be pending.
+//! Whether the raffle would take a command now, while a draw may be pending.
 
-use crate::{Command, Decision, Drawing, Error, Resolution};
+use crate::{Command, Decision, Error, Raffle, Resolution};
 
-impl Drawing {
+impl Raffle {
     /// Checks `command` the way an engine applies it: a dry run of the rules
     /// on a copy; `self` doesn't change.
     ///
@@ -13,7 +13,7 @@ impl Drawing {
     ///
     /// Callers check before sending, for an immediate answer: a draw is
     /// accepted asynchronously, so a draw the engine refuses goes unnoticed
-    /// (only the stored drawing shows progress).
+    /// (only the stored raffle shows progress).
     pub fn admit(&self, command: &Command) -> Result<(), Error> {
         let mut dry = self.clone();
         match command {
@@ -40,11 +40,11 @@ impl Drawing {
 #[cfg(test)]
 mod tests {
     use crate::{
-        BeaconSource, Command, Decision, DrawRequest, Drawing, Error, Manifest, ManifestItem,
+        BeaconSource, Command, Decision, DrawRequest, Error, Manifest, ManifestItem, Raffle,
         Resolution,
     };
 
-    fn drawing() -> Drawing {
+    fn raffle() -> Raffle {
         let manifest = Manifest::new(
             "r1",
             BeaconSource::QUICKNET,
@@ -56,14 +56,14 @@ mod tests {
                 })
                 .into(),
         );
-        Drawing::open(&manifest).unwrap()
+        Raffle::open(&manifest).unwrap()
     }
 
-    /// A drawing whose draw of `item-1` waits for its round.
-    fn pending() -> Drawing {
-        let mut drawing = drawing();
-        let source = *drawing.beacon();
-        drawing
+    /// A raffle whose draw of `item-1` waits for its round.
+    fn pending() -> Raffle {
+        let mut raffle = raffle();
+        let source = *raffle.beacon();
+        raffle
             .announce(
                 &DrawRequest {
                     item: "item-1".into(),
@@ -73,7 +73,7 @@ mod tests {
                 0,
             )
             .unwrap();
-        drawing
+        raffle
     }
 
     fn draw(item: &str) -> Command {
@@ -86,33 +86,33 @@ mod tests {
 
     #[test]
     fn admits_what_the_rules_allow_and_changes_nothing() {
-        let drawing = drawing();
-        drawing.admit(&draw("item-1")).unwrap();
-        drawing
+        let raffle = raffle();
+        raffle.admit(&draw("item-1")).unwrap();
+        raffle
             .admit(&decide(Decision::Void {
                 item: "item-2".into(),
             }))
             .unwrap();
-        assert_eq!(drawing, self::drawing());
+        assert_eq!(raffle, self::raffle());
     }
 
     #[test]
     fn refuses_what_the_rules_refuse() {
-        let err = drawing().admit(&draw("nope")).unwrap_err();
+        let err = raffle().admit(&draw("nope")).unwrap_err();
         assert!(matches!(err, Error::UnknownItem(_)), "{err:?}");
     }
 
     #[test]
     fn retries_the_pending_draw_only() {
-        let drawing = pending();
-        drawing.admit(&draw("item-1")).unwrap();
-        let err = drawing.admit(&draw("item-2")).unwrap_err();
+        let raffle = pending();
+        raffle.admit(&draw("item-1")).unwrap();
+        let err = raffle.admit(&draw("item-2")).unwrap_err();
         assert!(matches!(err, Error::DrawInProgress), "{err:?}");
     }
 
     #[test]
     fn holds_decisions_back_while_a_draw_waits_for_its_round() {
-        let drawing = pending();
+        let raffle = pending();
         for decision in [
             Decision::Void {
                 item: "item-2".into(),
@@ -122,7 +122,7 @@ mod tests {
             },
             Decision::Finish,
         ] {
-            let err = drawing.admit(&decide(decision.clone())).unwrap_err();
+            let err = raffle.admit(&decide(decision.clone())).unwrap_err();
             assert!(
                 matches!(err, Error::DrawInProgress),
                 "{decision:?}: {err:?}"

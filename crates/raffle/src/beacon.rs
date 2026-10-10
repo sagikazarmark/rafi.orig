@@ -1,4 +1,4 @@
-//! Where a drawing's randomness comes from.
+//! Where a raffle's randomness comes from.
 
 use std::fmt;
 
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use drand::{ChainHash, chains};
 
-/// The source of a drawing's randomness, as its manifest names it:
+/// The source of a raffle's randomness, as its manifest names it:
 /// `{"drand": "<chain hash>"}`.
 ///
 /// drand is the only source. The tag leaves room for another one if every
@@ -21,7 +21,7 @@ pub enum BeaconSource {
 }
 
 impl BeaconSource {
-    /// drand's quicknet: the public chain drawings use.
+    /// drand's quicknet: the public chain raffles use.
     pub const QUICKNET: Self = Self::Drand(chains::QUICKNET_HASH);
 
     /// Whether anyone can verify this source's beacons: a public drand chain

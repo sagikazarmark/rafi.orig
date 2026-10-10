@@ -4,19 +4,19 @@
 //! [`raffle_id`]).
 
 use rafi_raffle::{
-    BeaconSource, Drawing, DrawingId, EntrantId, Event, ItemId, Manifest, ManifestItem, Outcome,
+    BeaconSource, EntrantId, Event, ItemId, Manifest, ManifestItem, Outcome, Raffle, RaffleId,
 };
 
 use crate::RaffleState;
 
 /// The drawing of raffle `raffle_id`: it has the raffle's ID.
-pub fn drawing_id(raffle_id: &str) -> DrawingId {
-    DrawingId::new(raffle_id)
+pub fn drawing_id(raffle_id: &str) -> RaffleId {
+    RaffleId::new(raffle_id)
 }
 
 /// The raffle drawing `drawing` belongs to (the inverse of [`drawing_id`]):
 /// what clients following a drawing's changes follow.
-pub fn raffle_id(drawing: &DrawingId) -> &str {
+pub fn raffle_id(drawing: &RaffleId) -> &str {
     drawing.as_str()
 }
 
@@ -63,7 +63,7 @@ pub fn manifest(
 
 /// The lifecycle state a raffle is in while its drawing stands so: frozen
 /// until a draw starts, then drawing until the drawing finishes.
-pub fn lifecycle(drawing: &Drawing) -> RaffleState {
+pub fn lifecycle(drawing: &Raffle) -> RaffleState {
     if drawing.is_finished() {
         RaffleState::Finished
     } else if drawing
@@ -80,7 +80,7 @@ pub fn lifecycle(drawing: &Drawing) -> RaffleState {
 /// Whether `entrant`'s prize can be marked delivered (or not): they won an
 /// item and claimed it. Delivery dates when a winner's data may go
 /// (retention), so only a winner's counts.
-pub fn deliverable(drawing: Option<&Drawing>, entrant: &str) -> bool {
+pub fn deliverable(drawing: Option<&Raffle>, entrant: &str) -> bool {
     drawing.is_some_and(|d| {
         d.entrant_outcomes()
             .get(entrant)
@@ -90,7 +90,7 @@ pub fn deliverable(drawing: Option<&Drawing>, entrant: &str) -> bool {
 
 /// Whether a raffle in `state` with `drawing` can be deleted: not while a
 /// draw waits for its beacon (the engine would write to a raffle that's gone).
-pub fn deletable(state: RaffleState, drawing: Option<&Drawing>) -> bool {
+pub fn deletable(state: RaffleState, drawing: Option<&Raffle>) -> bool {
     !(state == RaffleState::Drawing && drawing.is_some_and(|d| d.pending().is_some()))
 }
 
@@ -122,7 +122,7 @@ mod tests {
             ["aa".to_owned(), "bb".to_owned()],
             items([("book", "Book", 1)]),
         );
-        let mut drawing = Drawing::open(&manifest).unwrap();
+        let mut drawing = Raffle::open(&manifest).unwrap();
         assert_eq!(lifecycle(&drawing), RaffleState::Frozen);
         let book = DrawRequest {
             item: "book-1".into(),
@@ -140,14 +140,14 @@ mod tests {
         assert_eq!(lifecycle(&drawing), RaffleState::Finished);
     }
 
-    fn opened() -> Drawing {
+    fn opened() -> Raffle {
         let manifest = manifest(
             "r1",
             BeaconSource::QUICKNET,
             ["aa".to_owned()],
             items([("book", "Book", 2)]),
         );
-        Drawing::open(&manifest).unwrap()
+        Raffle::open(&manifest).unwrap()
     }
 
     #[test]

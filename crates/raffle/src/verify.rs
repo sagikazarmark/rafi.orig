@@ -14,7 +14,7 @@ use crate::{
     hash::ManifestHash,
     id::{EntrantId, ItemId},
     manifest::Manifest,
-    raffle::{Drawing, Event},
+    raffle::{Event, Raffle},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,11 +85,11 @@ pub fn verify_public(
 
 /// Verifies `events` against the published canonical manifest.
 ///
-/// `expected_manifest_hash` is the hash that was published when the drawing
+/// `expected_manifest_hash` is the hash that was published when the raffle
 /// opened; `resolve` maps the manifest's chain hash to trusted chain info.
 ///
-/// The log is replayed through the drawing's own transitions: each published
-/// event must be exactly the one the drawing records for it, so every rule
+/// The log is replayed through the raffle's own transitions: each published
+/// event must be exactly the one the raffle records for it, so every rule
 /// and every field (the winner, pass, pool size and index of a draw) is
 /// checked by the code that drew.
 pub fn verify(
@@ -145,7 +145,7 @@ pub fn verify(
     };
     report.beacons_verified = verifier.is_some();
 
-    let mut state = Drawing::open_unchecked(&manifest);
+    let mut state = Raffle::open_unchecked(&manifest);
     for event in events {
         let replayed = match event {
             Event::Announced {
@@ -239,7 +239,7 @@ fn describe(event: &Event) -> String {
 }
 
 /// Records the pending draw, with its pool, before it is abandoned.
-fn record_abandoned(report: &mut Report, state: &Drawing) {
+fn record_abandoned(report: &mut Report, state: &Raffle) {
     if let Some(p) = state.pending() {
         let (pass, pool) = state.pool();
         report.abandoned.push(AbandonedDraw {
@@ -266,9 +266,9 @@ mod tests {
         (info.hash() == *h).then_some(info)
     }
 
-    fn setup() -> (Manifest, Drawing) {
+    fn setup() -> (Manifest, Raffle) {
         let manifest = manifest(10, 3);
-        let state = Drawing::open(&manifest).unwrap();
+        let state = Raffle::open(&manifest).unwrap();
         (manifest, state)
     }
 
@@ -277,7 +277,7 @@ mod tests {
         verify(&json, &manifest.hash().to_string(), events, resolve)
     }
 
-    fn draw(s: &mut Drawing, item: &str, round: u64) {
+    fn draw(s: &mut Raffle, item: &str, round: u64) {
         s.start(&item.into(), round, 0).unwrap();
         s.complete(&beacon(round)).unwrap();
     }
@@ -356,7 +356,7 @@ mod tests {
         draw(&mut s, "item-0", 1);
         // A forged log drawing from round 2 although round 1 was announced:
         // a genuine beacon, but a redraw on a new round.
-        let mut forged = Drawing::open(&m).unwrap();
+        let mut forged = Raffle::open(&m).unwrap();
         draw(&mut forged, "item-0", 2);
         let mut events = s.events()[..1].to_vec();
         events.push(forged.events()[1].clone());
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn pool_change_while_pending_fails_verification() {
         let m = manifest(2, 3);
-        let mut s = Drawing::open(&m).unwrap();
+        let mut s = Raffle::open(&m).unwrap();
         draw(&mut s, "item-0", 1);
         draw(&mut s, "item-1", 2);
         s.start(&"item-2".into(), 3, 0).unwrap();

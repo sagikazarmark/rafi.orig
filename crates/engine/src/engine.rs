@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use rafi_raffle::{
-    BeaconSource, Decision, DrawRequest, DrawingId, Error as DrawingError, ErrorKind, Manifest,
+    BeaconSource, Decision, DrawRequest, Error as RaffleError, ErrorKind, Manifest, RaffleId,
 };
 
 use crate::BoxFuture;
@@ -36,7 +36,7 @@ pub enum EngineError {
 
 impl EngineError {
     /// A refusal by the draw rules.
-    pub fn rejected(e: &DrawingError) -> Self {
+    pub fn rejected(e: &RaffleError) -> Self {
         Self::Rejected {
             kind: e.kind(),
             message: e.to_string(),
@@ -48,8 +48,8 @@ impl EngineError {
 /// finished and forgotten) is refused, as not found.
 pub const NOT_OPEN: &str = "no drawing is open";
 
-impl From<DrawingError> for EngineError {
-    fn from(e: DrawingError) -> Self {
+impl From<RaffleError> for EngineError {
+    fn from(e: RaffleError) -> Self {
         Self::rejected(&e)
     }
 }
@@ -100,7 +100,7 @@ pub trait DrawingEngine: Send + Sync + 'static {
     /// background (`command_id` deduplicates it).
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a DrawingId,
+        drawing_id: &'a RaffleId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>>;
@@ -108,7 +108,7 @@ pub trait DrawingEngine: Send + Sync + 'static {
     /// Applies a decision (`command_id` deduplicates it).
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a DrawingId,
+        drawing_id: &'a RaffleId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>>;
@@ -125,7 +125,7 @@ impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
 
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a DrawingId,
+        drawing_id: &'a RaffleId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
@@ -134,7 +134,7 @@ impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
 
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a DrawingId,
+        drawing_id: &'a RaffleId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {

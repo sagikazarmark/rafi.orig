@@ -9,7 +9,7 @@ use rafi_lifecycle::{
     settings::{self, SettingsError},
     start,
 };
-use rafi_raffle::{BeaconSource, Command, Decision, Error as DrawingError, ErrorKind};
+use rafi_raffle::{BeaconSource, Command, Decision, Error as RaffleError, ErrorKind};
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -34,8 +34,8 @@ impl From<rafi_store::Error> for Error {
     }
 }
 
-impl From<DrawingError> for Error {
-    fn from(e: DrawingError) -> Self {
+impl From<RaffleError> for Error {
+    fn from(e: RaffleError) -> Self {
         match e.kind() {
             ErrorKind::NotFound => Self::NotFound,
             ErrorKind::BadRequest | ErrorKind::Conflict => Self::Refused(Refusal::Drawing {
@@ -112,7 +112,7 @@ pub enum Refusal {
     /// asked).
     Drawing {
         command: Option<Command>,
-        error: DrawingError,
+        error: RaffleError,
     },
     /// The engine refused, in its own words.
     Engine {
@@ -229,30 +229,30 @@ impl fmt::Display for Refusal {
 }
 
 /// The organizer's words for a command the draw rules refuse.
-fn drawing_refusal(command: Option<&Command>, e: &DrawingError) -> String {
+fn drawing_refusal(command: Option<&Command>, e: &RaffleError) -> String {
     let message = match (command, e) {
-        (_, DrawingError::Finished) => "The raffle is finished.",
-        (Some(Command::Draw(_)), DrawingError::DrawInProgress) => "A draw is already in progress.",
-        (Some(Command::Draw(_)), DrawingError::ItemNotAvailable(_)) => {
+        (_, RaffleError::Finished) => "The raffle is finished.",
+        (Some(Command::Draw(_)), RaffleError::DrawInProgress) => "A draw is already in progress.",
+        (Some(Command::Draw(_)), RaffleError::ItemNotAvailable(_)) => {
             "This prize has already been drawn or withdrawn."
         }
-        (_, DrawingError::NoEligibleEntrants) => "There are no eligible entrants left.",
-        (Some(Command::Decide(Decision::Resolve { .. })), DrawingError::ItemNotDrawn(_)) => {
+        (_, RaffleError::NoEligibleEntrants) => "There are no eligible entrants left.",
+        (Some(Command::Decide(Decision::Resolve { .. })), RaffleError::ItemNotDrawn(_)) => {
             "This prize has no undecided winner."
         }
-        (Some(Command::Decide(Decision::Resolve { .. })), DrawingError::DrawInProgress) => {
+        (Some(Command::Decide(Decision::Resolve { .. })), RaffleError::DrawInProgress) => {
             "Wait for the current draw to finish: “not here” and “declined” could change who it can pick."
         }
-        (Some(Command::Decide(Decision::Abandon { .. })), DrawingError::NoDrawInProgress) => {
+        (Some(Command::Decide(Decision::Abandon { .. })), RaffleError::NoDrawInProgress) => {
             "This prize has no draw in progress."
         }
-        (Some(Command::Decide(Decision::Abandon { .. })), DrawingError::DrawInProgress) => {
+        (Some(Command::Decide(Decision::Abandon { .. })), RaffleError::DrawInProgress) => {
             "The draw is still waiting for its drand round; it can be abandoned if it stalls."
         }
-        (Some(Command::Decide(Decision::Void { .. })), DrawingError::ItemNotAvailable(_)) => {
+        (Some(Command::Decide(Decision::Void { .. })), RaffleError::ItemNotAvailable(_)) => {
             "Only prizes that have not been won can be withdrawn."
         }
-        (_, DrawingError::DrawInProgress) => "Wait for the current draw to finish.",
+        (_, RaffleError::DrawInProgress) => "Wait for the current draw to finish.",
         _ => return e.to_string(),
     };
     message.to_owned()

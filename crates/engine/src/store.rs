@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use rafi_raffle::Drawing;
+use rafi_raffle::Raffle;
 
 use crate::BoxFuture;
 
@@ -10,13 +10,13 @@ use crate::BoxFuture;
 pub trait DrawStore: Send + Sync + 'static {
     /// Stores `state`. Called at least once per change (the engine retries),
     /// so it must be idempotent: a state is written only when it is newer
-    /// ([`Drawing::version`]) than the stored one, and for the manifest the
+    /// ([`Raffle::version`]) than the stored one, and for the manifest the
     /// drawing was opened with. Returns whether it was written.
-    fn save_drawing<'a>(&'a self, state: &'a Drawing) -> BoxFuture<'a, anyhow::Result<bool>>;
+    fn save_drawing<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>>;
 }
 
 impl<T: DrawStore + ?Sized> DrawStore for Arc<T> {
-    fn save_drawing<'a>(&'a self, state: &'a Drawing) -> BoxFuture<'a, anyhow::Result<bool>> {
+    fn save_drawing<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         (**self).save_drawing(state)
     }
 }
@@ -24,25 +24,25 @@ impl<T: DrawStore + ?Sized> DrawStore for Arc<T> {
 /// Keeps every drawing it is handed, in memory (tests, local experiments).
 #[derive(Clone, Default)]
 pub struct MemoryDrawStore {
-    states: Arc<Mutex<Vec<Drawing>>>,
+    states: Arc<Mutex<Vec<Raffle>>>,
 }
 
 impl MemoryDrawStore {
     /// Every state received so far, in order (retries and refused ones
     /// included).
-    pub fn states(&self) -> Vec<Drawing> {
+    pub fn states(&self) -> Vec<Raffle> {
         self.states.lock().expect("store lock").clone()
     }
 
     /// The latest stored state of drawing `drawing_id`.
-    pub fn latest(&self, drawing_id: &str) -> Option<Drawing> {
+    pub fn latest(&self, drawing_id: &str) -> Option<Raffle> {
         latest(&self.states.lock().expect("store lock"), drawing_id).cloned()
     }
 }
 
 /// The newest of `states` for drawing `drawing_id` that was opened with the
 /// drawing's first manifest: what a store would hold.
-fn latest<'a>(states: &'a [Drawing], drawing_id: &str) -> Option<&'a Drawing> {
+fn latest<'a>(states: &'a [Raffle], drawing_id: &str) -> Option<&'a Raffle> {
     let mut same = states.iter().filter(|s| s.id() == drawing_id);
     let opened_with = *same.next()?.manifest_hash();
     states
@@ -55,7 +55,7 @@ impl DrawStore for MemoryDrawStore {
     /// Keeps every state; writes it (as [`latest`](Self::latest) sees it)
     /// only when it is newer, and for the manifest the drawing's first state
     /// had: a stored drawing belongs to the entrant list it was opened with.
-    fn save_drawing<'a>(&'a self, state: &'a Drawing) -> BoxFuture<'a, anyhow::Result<bool>> {
+    fn save_drawing<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         let mut states = self.states.lock().expect("store lock");
         let written = match latest(&states, state.id().as_str()) {
             None => true,
@@ -75,8 +75,8 @@ mod tests {
 
     use super::*;
 
-    fn drawing(entrant: &str) -> Drawing {
-        Drawing::open(&Manifest::new(
+    fn drawing(entrant: &str) -> Raffle {
+        Raffle::open(&Manifest::new(
             "d1",
             BeaconSource::QUICKNET,
             vec![entrant.into()],

@@ -59,7 +59,7 @@ pub use query::{Db, Query};
 pub use raffles::RaffleRow;
 use rafi_engine::BoxFuture;
 use rafi_engine::DrawStore;
-use rafi_raffle::Drawing;
+use rafi_raffle::Raffle;
 pub use value::{Row, Value};
 
 /// The current time in unix seconds. `std::time` aborts on
@@ -104,8 +104,8 @@ impl PurgeAfter {
 /// ([`retention::date_purges`]).
 ///
 /// Returns whether the state was written.
-pub async fn save_drawing(db: &Db, state: &Drawing) -> Result<bool> {
-    let stored = StoredDrawing::of(state)?;
+pub async fn save_drawing(db: &Db, state: &Raffle) -> Result<bool> {
+    let stored = StoredRaffle::of(state)?;
     let lifecycle = rafi_lifecycle::drawing::lifecycle(state).as_str();
     let written = db
         .query(format!(
@@ -137,7 +137,7 @@ pub async fn save_drawing(db: &Db, state: &Drawing) -> Result<bool> {
 /// A drawing as the `raffles` row stores it: the drawing (its manifest and
 /// event log), and the entrants the database itself needs from it, as JSON
 /// arrays of IDs.
-pub(crate) struct StoredDrawing {
+pub(crate) struct StoredRaffle {
     pub json: String,
     /// Every entrant drawn: only their names may leave the database.
     pub drawn_entrants: String,
@@ -145,8 +145,8 @@ pub(crate) struct StoredDrawing {
     pub winners: String,
 }
 
-impl StoredDrawing {
-    pub fn of(state: &Drawing) -> Result<Self> {
+impl StoredRaffle {
+    pub fn of(state: &Raffle) -> Result<Self> {
         Ok(Self {
             json: encode(state)?,
             drawn_entrants: encode(&state.drawn_entrants())?,
@@ -161,7 +161,7 @@ fn encode(value: &impl serde::Serialize) -> Result<String> {
 
 /// Reads a stored drawing. One that doesn't load (another shape, or a log
 /// that isn't its own) is an error, never "no drawing yet".
-pub(crate) fn parse_drawing(json: &str) -> Result<Drawing> {
+pub(crate) fn parse_drawing(json: &str) -> Result<Raffle> {
     serde_json::from_str(json).map_err(|e| Error::Decode(format!("the stored drawing: {e}")))
 }
 
@@ -178,7 +178,7 @@ impl DrawWriter {
 }
 
 impl DrawStore for DrawWriter {
-    fn save_drawing<'a>(&'a self, state: &'a Drawing) -> BoxFuture<'a, anyhow::Result<bool>> {
+    fn save_drawing<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         Box::pin(async move {
             save_drawing(&self.db, state)
                 .await
@@ -238,7 +238,7 @@ mod tests {
                 name: "Book".into(),
             }],
         );
-        let drawing = Drawing::open(&manifest).unwrap();
+        let drawing = Raffle::open(&manifest).unwrap();
         assert!(
             writer.save_drawing(&drawing).await.is_err(),
             "no database yet: the engine retries"

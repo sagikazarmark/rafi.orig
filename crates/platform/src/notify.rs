@@ -1,7 +1,7 @@
 //! A deployment's [`Notifier`] as the drawing engine's notifier.
 
 use rafi_engine::DrawingNotifier;
-use rafi_raffle::DrawingId;
+use rafi_raffle::RaffleId;
 
 use crate::{BoxFuture, Notifier};
 
@@ -10,17 +10,17 @@ use crate::{BoxFuture, Notifier};
 /// `rafi_lifecycle::drawing::raffle_id`).
 pub struct Notify<N> {
     notifier: N,
-    subject: fn(&DrawingId) -> &str,
+    subject: fn(&RaffleId) -> &str,
 }
 
 impl<N: Notifier> Notify<N> {
-    pub fn new(notifier: N, subject: fn(&DrawingId) -> &str) -> Self {
+    pub fn new(notifier: N, subject: fn(&RaffleId) -> &str) -> Self {
         Self { notifier, subject }
     }
 }
 
 impl<N: Notifier> DrawingNotifier for Notify<N> {
-    fn changed<'a>(&'a self, drawing: &'a DrawingId) -> BoxFuture<'a, ()> {
+    fn changed<'a>(&'a self, drawing: &'a RaffleId) -> BoxFuture<'a, ()> {
         self.notifier.notify((self.subject)(drawing))
     }
 }

@@ -5,8 +5,8 @@ use std::{sync::Arc, time::Duration};
 use rafi_drand::DrandClient;
 use rafi_engine::{DrawStore, DrawingNotifier, NOT_OPEN};
 use rafi_raffle::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing as State, Error as DrawingError,
-    ErrorKind, Manifest,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Error as RaffleError, ErrorKind, Manifest,
+    Raffle as State,
 };
 
 use crate::status::status_code;
@@ -54,7 +54,7 @@ fn rejected(e: impl std::fmt::Display, code: u16) -> HandlerError {
 }
 
 /// A refusal by the draw rules, with its kind's status code.
-fn draw_error(e: DrawingError) -> HandlerError {
+fn draw_error(e: RaffleError) -> HandlerError {
     let code = status_code(e.kind());
     rejected(e, code)
 }

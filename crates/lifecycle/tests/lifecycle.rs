@@ -9,7 +9,7 @@ use rafi_lifecycle::{
     drawing::{deliverable, items, lifecycle, manifest},
 };
 use rafi_raffle::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Resolution,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Raffle, Resolution,
     drand::{VerifiedBeacon, Verifier},
 };
 
@@ -73,7 +73,7 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
-fn apply(d: &mut Drawing, op: Op, round: &mut u64, item: impl Fn(usize) -> String) {
+fn apply(d: &mut Raffle, op: Op, round: &mut u64, item: impl Fn(usize) -> String) {
     match op {
         Op::Announce(i) => {
             *round += 1;
@@ -156,7 +156,7 @@ proptest! {
             (0..entrants).map(|i| format!("{i:032x}")),
             items([("p", "Prize", prizes)]),
         );
-        let mut d = Drawing::open(&manifest).unwrap();
+        let mut d = Raffle::open(&manifest).unwrap();
         let item = |i: usize| format!("p-{}", i as u64 % prizes + 1);
         let mut round = 1;
         let mut previous = lifecycle(&d);

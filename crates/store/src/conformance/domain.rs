@@ -1,7 +1,7 @@
 //! The `domain.*` scenarios: the domain functions, on every backend.
 
 use rafi_lifecycle::RaffleState;
-use rafi_raffle::{BeaconSource, Decision, Drawing, Event, Manifest, ManifestItem, Resolution};
+use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle, Resolution};
 
 use super::{Outcome, check, fail};
 use crate::{
@@ -15,8 +15,8 @@ const PURGE: PurgeAfter = PurgeAfter {
 };
 
 /// A frozen raffle `id` with two entrants and one prize, and its draw state.
-async fn frozen(db: &Db, id: &str) -> Result<Drawing, String> {
-    let state = Drawing::open(&manifest(id, ["a".repeat(32), "b".repeat(32)])).map_err(fail)?;
+async fn frozen(db: &Db, id: &str) -> Result<Raffle, String> {
+    let state = Raffle::open(&manifest(id, ["a".repeat(32), "b".repeat(32)])).map_err(fail)?;
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, manifest_hash, created_at, updated_at)
          VALUES (?, 'o', ?, ?, 't', 'frozen', ?, 0, 0)",
@@ -108,7 +108,7 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     )?;
 
     // Newer, but opened from another entrant list.
-    let mut other = Drawing::open(&manifest("r1", ["c".repeat(32)])).map_err(fail)?;
+    let mut other = Raffle::open(&manifest("r1", ["c".repeat(32)])).map_err(fail)?;
     for decision in [Decision::Void { item: "u1".into() }, Decision::Finish] {
         other.decide(&decision).map_err(fail)?;
     }
@@ -559,8 +559,8 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
             resolution: Resolution::Claimed,
         });
     }
-    let state = Drawing::restore(&manifest, &events).map_err(fail)?;
-    let stored = crate::StoredDrawing::of(&state).map_err(fail)?;
+    let state = Raffle::restore(&manifest, &events).map_err(fail)?;
+    let stored = crate::StoredRaffle::of(&state).map_err(fail)?;
     db.query(
         "UPDATE raffles SET state = 'finished', drawing = ?, winners = ?, finished_at = 100,
          purge_nonwinners_at = 130, purge_winners_at = 190 WHERE id = 'r1'",
@@ -804,7 +804,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         entrant: bence.clone().into(),
     };
     let state =
-        Drawing::restore(&manifest("r1", [anna.clone(), bence.clone()]), &[draw]).map_err(fail)?;
+        Raffle::restore(&manifest("r1", [anna.clone(), bence.clone()]), &[draw]).map_err(fail)?;
     check(state.version() == 2, "one event")?;
     check(
         save_drawing(db, &state).await.map_err(fail)?,

@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use rafi_raffle::DrawingId;
+use rafi_raffle::RaffleId;
 
 use crate::BoxFuture;
 
@@ -15,11 +15,11 @@ use crate::BoxFuture;
 /// deadline (Workers have no timer an engine could share), so an
 /// implementation bounds its own time: a few attempts, then drop.
 pub trait DrawingNotifier: Send + Sync + 'static {
-    fn changed<'a>(&'a self, drawing: &'a DrawingId) -> BoxFuture<'a, ()>;
+    fn changed<'a>(&'a self, drawing: &'a RaffleId) -> BoxFuture<'a, ()>;
 }
 
 impl<T: DrawingNotifier + ?Sized> DrawingNotifier for Arc<T> {
-    fn changed<'a>(&'a self, drawing: &'a DrawingId) -> BoxFuture<'a, ()> {
+    fn changed<'a>(&'a self, drawing: &'a RaffleId) -> BoxFuture<'a, ()> {
         (**self).changed(drawing)
     }
 }
@@ -27,18 +27,18 @@ impl<T: DrawingNotifier + ?Sized> DrawingNotifier for Arc<T> {
 /// Records every drawing it is told about, in order (tests).
 #[derive(Debug, Default)]
 pub struct RecordingNotifier {
-    changed: Mutex<Vec<DrawingId>>,
+    changed: Mutex<Vec<RaffleId>>,
 }
 
 impl RecordingNotifier {
     /// The drawings notified so far, in order.
-    pub fn notified(&self) -> Vec<DrawingId> {
+    pub fn notified(&self) -> Vec<RaffleId> {
         self.changed.lock().expect("recording lock").clone()
     }
 }
 
 impl DrawingNotifier for RecordingNotifier {
-    fn changed<'a>(&'a self, drawing: &'a DrawingId) -> BoxFuture<'a, ()> {
+    fn changed<'a>(&'a self, drawing: &'a RaffleId) -> BoxFuture<'a, ()> {
         self.changed
             .lock()
             .expect("recording lock")
