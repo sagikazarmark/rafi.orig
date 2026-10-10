@@ -18,7 +18,7 @@
 //!   [`Decision::Abandon`]; the public verifier shows what the round would
 //!   have picked.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -338,6 +338,28 @@ impl Drawing {
             }
         }
         out
+    }
+
+    /// Every entrant a draw picked, whatever became of it.
+    pub fn drawn_entrants(&self) -> BTreeSet<&EntrantId> {
+        self.events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Drawn { entrant, .. } => Some(entrant),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The entrants holding a claimed item.
+    pub fn winners(&self) -> BTreeSet<&EntrantId> {
+        self.items
+            .iter()
+            .filter_map(|item| match &item.state {
+                ItemState::Claimed { winner, .. } => Some(winner),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The item draw `k` currently holds (drawn or claimed).

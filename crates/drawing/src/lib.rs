@@ -6,6 +6,7 @@
 //! engine and every verifier computes identical results. It also builds for
 //! WASM, so the verifier can run in a browser.
 
+mod admit;
 pub mod algorithm;
 mod beacon;
 mod command;
