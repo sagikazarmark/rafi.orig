@@ -677,7 +677,7 @@ fn DrawConsole(
         .collect();
     let pending = v.current.clone();
     let busy = pending.is_some();
-    let drawable = matches!(v.state, RaffleState::Frozen | RaffleState::Drawing);
+    let drawable = v.state.drawable();
     let mut ask_finish = use_signal(|| false);
     let mut ask_abandon = use_signal(|| false);
     let toast = use_toast();

@@ -375,13 +375,13 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
     }
 
     let manifest = match raffle.state() {
-        from @ (RaffleState::Open | RaffleState::Closed) => {
+        from if from.apply(raffle::Command::Freeze).is_some() => {
             let items = items(app, id).await?;
             if entrants::count_active(&app.db, id).await? == 0 {
                 return Err(conflict("Nobody has entered yet."));
             }
             // Close registration first so no join can slip in while we read the list.
-            if !raffles::freeze(&app.db, id).await? {
+            if !raffles::freeze(&app.db, id, from).await? {
                 return Err(conflict(
                     "The raffle changed in the meantime; reload and try again.",
                 ));
@@ -827,7 +827,9 @@ pub async fn remove_entrant(
 /// its live channel.
 pub async fn purge(app: &AppState, owner: &str, raffle_id: &str) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if raffle.state() != RaffleState::Finished && raffle.state() != RaffleState::Purged {
+    // Purging a purged raffle again finishes a purge that stopped partway.
+    let from = raffle.state();
+    if from != RaffleState::Purged && from.apply(raffle::Command::Purge).is_none() {
         return Err(conflict("Only finished raffles can be purged."));
     }
     entrants::erase(&app.db, raffle_id, None).await?;

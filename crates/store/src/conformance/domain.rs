@@ -163,8 +163,10 @@ async fn entrant(db: &Db, raffle_id: &str, id: &str) -> Result<EntrantRow, Strin
 pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Draft).await?;
     check(
-        !raffles::freeze(db, "r1").await.map_err(fail)?,
-        "a draft doesn't freeze",
+        !raffles::freeze(db, "r1", RaffleState::Open)
+            .await
+            .map_err(fail)?,
+        "a raffle that isn't in the state it froze from",
     )?;
     check(
         raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open)
@@ -190,9 +192,16 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
         "erased entrants don't count",
     )?;
 
-    check(raffles::freeze(db, "r1").await.map_err(fail)?, "freezing")?;
     check(
-        !raffles::freeze(db, "r1").await.map_err(fail)?,
+        raffles::freeze(db, "r1", RaffleState::Open)
+            .await
+            .map_err(fail)?,
+        "freezing",
+    )?;
+    check(
+        !raffles::freeze(db, "r1", RaffleState::Open)
+            .await
+            .map_err(fail)?,
         "freezing twice",
     )?;
     check(
@@ -233,7 +242,9 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     // A freeze that found nobody to draw from goes back.
     raffle_in(db, "r2", RaffleState::Closed).await?;
     check(
-        raffles::freeze(db, "r2").await.map_err(fail)?,
+        raffles::freeze(db, "r2", RaffleState::Closed)
+            .await
+            .map_err(fail)?,
         "freezing a closed raffle",
     )?;
     raffles::unfreeze(db, "r2", RaffleState::Closed)

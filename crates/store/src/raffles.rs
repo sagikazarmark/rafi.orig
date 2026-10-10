@@ -195,23 +195,17 @@ pub async fn transition(db: &Db, id: &str, from: RaffleState, to: RaffleState) -
     Ok(changed > 0)
 }
 
-/// The freeze's first step: closes registration of an open or closed raffle.
-/// Returns `false` if the raffle is in neither state.
-pub async fn freeze(db: &Db, id: &str) -> Result<bool> {
-    let changed = db
-        .query(
-            "UPDATE raffles SET state = 'frozen', updated_at = ?
-             WHERE id = ? AND state IN ('open', 'closed')",
-        )
-        .bind(now())
-        .bind(id)
-        .run()
-        .await?;
-    Ok(changed > 0)
+/// The freeze's first step: closes registration of a raffle in `from` (which
+/// the lifecycle allows to freeze, [`RaffleState::apply`]). Returns `false` if
+/// it isn't in `from` any more.
+pub async fn freeze(db: &Db, id: &str, from: RaffleState) -> Result<bool> {
+    transition(db, id, from, RaffleState::Frozen).await
 }
 
 /// Reverts a freeze that found nobody to draw from: a frozen raffle without a
-/// manifest goes back to `to`.
+/// manifest goes back to `to`. Not a lifecycle transition (organizers can't
+/// unfreeze): it undoes the freeze's first step, the store having no
+/// transaction to roll back.
 pub async fn unfreeze(db: &Db, id: &str, to: RaffleState) -> Result<()> {
     db.query(
         "UPDATE raffles SET state = ?, updated_at = ?

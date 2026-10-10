@@ -25,18 +25,16 @@ pub enum RaffleState {
     Purged,
 }
 
-/// A request to move a raffle through its lifecycle; the rules may refuse it
-/// ([`RaffleState::apply`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// An organizer's request to move a raffle through its lifecycle; the rules
+/// may refuse it ([`RaffleState::apply`]). Drawing and finishing are not
+/// commands: the raffle follows its drawing there ([`drawing::lifecycle`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     Publish,
     Unpublish,
     Open,
     Close,
     Freeze,
-    StartDrawing,
-    Finish,
     Purge,
 }
 
@@ -78,8 +76,6 @@ impl RaffleState {
             (S::Ready | S::Closed, A::Open) => S::Open,
             (S::Open, A::Close) => S::Closed,
             (S::Open | S::Closed, A::Freeze) => S::Frozen,
-            (S::Frozen, A::StartDrawing) => S::Drawing,
-            (S::Frozen | S::Drawing, A::Finish) => S::Finished,
             (S::Finished, A::Purge) => S::Purged,
             _ => return None,
         })
@@ -121,10 +117,8 @@ mod tests {
         let s = s.apply(A::Open).unwrap();
         let s = s.apply(A::Close).unwrap();
         let s = s.apply(A::Open).unwrap();
-        let s = s.apply(A::Freeze).unwrap();
-        let s = s.apply(A::StartDrawing).unwrap();
-        let s = s.apply(A::Finish).unwrap();
-        assert_eq!(s.apply(A::Purge), Some(S::Purged));
+        assert_eq!(s.apply(A::Freeze), Some(S::Frozen));
+        assert_eq!(S::Finished.apply(A::Purge), Some(S::Purged));
     }
 
     #[test]
