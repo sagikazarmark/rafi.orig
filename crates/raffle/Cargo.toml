@@ -4,8 +4,13 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The raffle for Rafi: its lifecycle and how it uses a drawing"
+description = "The raffle for Rafi: its lifecycle and rules, how it starts and uses a drawing, its entrants and settings"
 
 [dependencies]
 rafi-drawing.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+drand = { workspace = true, features = ["test-chain"] }
+proptest = "1"
+serde_json.workspace = true

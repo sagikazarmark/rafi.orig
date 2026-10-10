@@ -1,10 +1,24 @@
 //! How a raffle uses a drawing: the one place where the raffle's terms (prizes
 //! with quantities, its lifecycle) meet the drawing's (items, the manifest, the
-//! events). A raffle's drawing has the raffle's ID.
+//! events). A raffle's drawing has the raffle's ID ([`drawing_id`],
+//! [`raffle_id`]).
 
-use rafi_drawing::{BeaconSource, Drawing, EntrantId, Event, ItemId, Manifest, ManifestItem};
+use rafi_drawing::{
+    BeaconSource, Drawing, DrawingId, EntrantId, Event, ItemId, Manifest, ManifestItem,
+};
 
 use crate::RaffleState;
+
+/// The drawing of raffle `raffle_id`: it has the raffle's ID.
+pub fn drawing_id(raffle_id: &str) -> DrawingId {
+    DrawingId::new(raffle_id)
+}
+
+/// The raffle drawing `drawing` belongs to (the inverse of [`drawing_id`]):
+/// what clients following a drawing's changes follow.
+pub fn raffle_id(drawing: &DrawingId) -> &str {
+    drawing.as_str()
+}
 
 /// The drawing's item for the `n`th copy (from 1) of prize `prize_id`.
 pub fn item_id(prize_id: &str, n: u64) -> ItemId {
@@ -40,7 +54,7 @@ pub fn manifest(
     items: Vec<ManifestItem>,
 ) -> Manifest {
     Manifest::new(
-        raffle_id,
+        drawing_id(raffle_id),
         beacon,
         entrants.into_iter().map(EntrantId::from).collect(),
         items,
@@ -61,6 +75,12 @@ pub fn lifecycle(drawing: &Drawing) -> RaffleState {
     } else {
         RaffleState::Frozen
     }
+}
+
+/// Whether a raffle in `state` with `drawing` can be deleted: not while a
+/// draw waits for its beacon (the engine would write to a raffle that's gone).
+pub fn deletable(state: RaffleState, drawing: Option<&Drawing>) -> bool {
+    !(state == RaffleState::Drawing && drawing.is_some_and(|d| d.pending().is_some()))
 }
 
 #[cfg(test)]
