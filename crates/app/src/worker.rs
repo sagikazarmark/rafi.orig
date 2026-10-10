@@ -13,8 +13,12 @@
 //! from the Worker's vars and secrets (see `wrangler.toml`).
 //! Missing secrets fail closed: every request is refused rather than run with
 //! a default. Dev auth and mock drand need the `worker-dev` feature.
+//!
+//! The app is built once per isolate ([`cached`]): the bindings and vars are
+//! the isolate's, and Clerk's layer keeps its verified signing keys (JWKS)
+//! between requests instead of fetching them for each.
 
-use std::sync::Arc;
+use std::{cell::OnceCell, sync::Arc};
 
 use axum::body::Body;
 use dioxus_clerk::server::{ClerkAuthLayer, ClerkAuthLayerConfig};
@@ -25,8 +29,27 @@ use worker::{Context, Env, HttpRequest, ScheduleContext, ScheduledEvent, event};
 
 use crate::server::{self, AppState, config::Config};
 
-/// The app for this request's bindings. Fails closed on missing secrets.
-fn app(env: &Env) -> anyhow::Result<(AppState, Option<ClerkAuthLayer>)> {
+type App = (AppState, Option<ClerkAuthLayer>);
+
+thread_local! {
+    /// The app, built on the isolate's first request. A failed build isn't
+    /// kept: a fixed secret takes effect on the next request.
+    static APP: OnceCell<App> = const { OnceCell::new() };
+}
+
+/// The isolate's app, built on first use.
+fn cached(env: &Env) -> anyhow::Result<App> {
+    APP.with(|cell| {
+        if let Some(app) = cell.get() {
+            return Ok(app.clone());
+        }
+        let app = app(env)?;
+        Ok(cell.get_or_init(|| app).clone())
+    })
+}
+
+/// The app over the Worker's bindings. Fails closed on missing secrets.
+fn app(env: &Env) -> anyhow::Result<App> {
     let cfg = Config::from_lookup(|name| match name {
         // Erasure is on unless switched off explicitly (docs/workers-plan.md §2.10).
         "RAFI_RETENTION" => lookup(env, name).or_else(|| Some("1".into())),
@@ -80,7 +103,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> worker::Result<http
             .await?
             .into());
     }
-    let (app, auth) = match app(&env) {
+    let (app, auth) = match cached(&env) {
         Ok(parts) => parts,
         Err(e) => return Ok(misconfigured(e)),
     };
@@ -97,7 +120,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> worker::Result<http
 
 #[event(scheduled)]
 async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    let app = match app(&env) {
+    let app = match cached(&env) {
         Ok((app, _)) => app,
         Err(e) => {
             worker::console_error!("rafi: retention not run: {e:#}");
