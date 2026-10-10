@@ -15,7 +15,7 @@ pub fn id() -> String {
 
 /// A short human-friendly code (join codes, claim codes).
 pub fn code(len: usize) -> String {
-    rafi_core::codes::from_bytes(&random_bytes::<16>(), len)
+    super::codes::from_bytes(&random_bytes::<16>(), len)
 }
 
 /// A URL slug derived from a title plus a random suffix.

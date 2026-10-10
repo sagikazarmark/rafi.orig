@@ -612,7 +612,7 @@ pub async fn join(
         return Err("reg_closed");
     }
     let name = validate_name(name)?;
-    let email_norm = rafi_core::email::normalize(email).ok_or("err_email")?;
+    let email_norm = super::email::normalize(email).ok_or("err_email")?;
     if email.trim().chars().count() > 254 {
         return Err("err_email");
     }
@@ -695,7 +695,7 @@ pub async fn add_manual(
     let (raw, norm) = match email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
         Some(e) => (
             Some(e.to_owned()),
-            Some(rafi_core::email::normalize(e).ok_or_else(|| bad("Invalid email address."))?),
+            Some(super::email::normalize(e).ok_or_else(|| bad("Invalid email address."))?),
         ),
         None => (None, None),
     };

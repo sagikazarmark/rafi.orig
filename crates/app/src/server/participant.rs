@@ -87,7 +87,7 @@ fn pick_lang(query: &LangQuery, headers: &HeaderMap, raffle: Option<&RaffleRow>)
 }
 
 fn normalize_code(code: &str) -> String {
-    rafi_core::codes::normalize(code)
+    super::codes::normalize(code)
 }
 
 async fn load(app: &AppState, code: &str) -> Option<RaffleRow> {
@@ -511,7 +511,7 @@ async fn try_join(
     raffle: &RaffleRow,
     form: &JoinForm,
 ) -> Result<String, (Notice, StatusCode)> {
-    let email_key = rafi_core::email::normalize(&form.email).unwrap_or_default();
+    let email_key = super::email::normalize(&form.email).unwrap_or_default();
     let limited = !app.limiter.allow(Limit::JoinPerRaffle, &raffle.id).await
         || !app
             .limiter

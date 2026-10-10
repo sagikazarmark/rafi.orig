@@ -9,7 +9,9 @@
 pub mod admin;
 pub mod altcha;
 pub mod auth;
+pub mod codes;
 pub mod config;
+pub mod email;
 pub mod ids;
 pub mod participant;
 pub mod public;
