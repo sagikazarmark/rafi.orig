@@ -4,6 +4,10 @@
 
 use dioform::prelude::*;
 use dioxus::prelude::*;
+use rafi_raffle::{
+    entrant::{self, MAX_NAME_CHARS},
+    settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
+};
 
 use crate::{
     api::{self, ApiError},
@@ -117,7 +121,7 @@ pub fn CreateRaffleForm(on_created: EventHandler<String>) -> Element {
                     label: "New raffle",
                     size: InputSize::Lg,
                     required: true,
-                    maxlength: "120",
+                    maxlength: "{MAX_TITLE_CHARS}",
                     placeholder: "e.g. “Cloud Native Budapest — October”",
                     prefix: rsx! { Icon { i: I::Sparkles, class: "size-5 text-secondary" } },
                     wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
@@ -163,10 +167,10 @@ fn prize_form(namespace: String, initial: Prize) -> FormHandle<Prize> {
         let f = Prize::fields();
         core.register_sync_field_validator(f.name(), "required", required("What is the prize?"));
         core.register_sync_field_validator(f.qty(), "range", |v: &u32, _| {
-            if (1..=500).contains(v) {
+            if settings::prize_qty(*v) {
                 Vec::new()
             } else {
-                vec!["Between 1 and 500.".to_owned()]
+                vec![format!("Between 1 and {MAX_PRIZE_QTY}.")]
             }
         });
     });
@@ -234,7 +238,7 @@ pub fn PrizeForm(
                 context: form.text(fields.name()),
                 label: "Prize",
                 required: true,
-                maxlength: "120",
+                maxlength: "{MAX_TITLE_CHARS}",
                 placeholder: "e.g. KCD Budapest ticket",
                 class: "w-full",
             }
@@ -249,7 +253,7 @@ pub fn PrizeForm(
                 label: "How many",
                 r#type: "number",
                 min: "1",
-                max: "500",
+                max: "{MAX_PRIZE_QTY}",
                 inputmode: "numeric",
                 class: "w-full",
             }
@@ -288,10 +292,16 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
             let f = Entrant::fields();
             core.register_sync_field_validator(f.name(), "required", required("Who is it?"));
             core.register_sync_field_validator(f.name(), "length", |v: &String, _| {
-                if v.trim().chars().count() > 24 {
-                    vec!["24 characters at most.".to_owned()]
-                } else {
-                    Vec::new()
+                match entrant::display_name(v) {
+                    Err(entrant::NameError::Invalid) if !v.trim().is_empty() => {
+                        vec![format!(
+                            "{MAX_NAME_CHARS} characters at most, no control characters."
+                        )]
+                    }
+                    Err(entrant::NameError::Blocked) => {
+                        vec!["This name is not allowed.".to_owned()]
+                    }
+                    _ => Vec::new(),
                 }
             });
             core.register_sync_field_validator(f.email(), "email", optional_email());
@@ -329,7 +339,7 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
                 context: form.text(fields.name()),
                 label: "Name",
                 required: true,
-                maxlength: "24",
+                maxlength: "{MAX_NAME_CHARS}",
                 placeholder: "Shown on the screen",
                 prefix: rsx! { Icon { i: I::Phone, class: "size-4 opacity-60" } },
                 wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
@@ -482,7 +492,7 @@ pub fn SettingsForm(
                     }
                 });
             },
-            InputField { context: form.text(f.title()), label: "Title", required: true, maxlength: "120", class: "w-full" }
+            InputField { context: form.text(f.title()), label: "Title", required: true, maxlength: "{MAX_TITLE_CHARS}", class: "w-full" }
             Field { context: form.select(f.lang()),
                 FieldLabel { "Language" }
                 Select::<String> { class: "w-full",

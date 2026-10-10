@@ -13,9 +13,9 @@
 //!   the kind's status code ([`refusal_kind`]). Anything else (the ingress's
 //!   own errors included, such as an unregistered service) means the engine is
 //!   unavailable.
-//! - Natively a call that outlasts the configured timeout (queued behind a draw
-//!   waiting for its beacon) returns [`EngineError::Pending`]. On wasm32
-//!   reqwest has no timeouts: the platform bounds the request instead.
+//! - A call that outlasts the configured timeout (queued behind a draw waiting
+//!   for its beacon) returns [`EngineError::Pending`]: natively through
+//!   reqwest's timeout; on wasm32, where reqwest has none, by racing a timer.
 
 use std::future::Future;
 #[cfg(not(target_arch = "wasm32"))]
@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use bytes::Bytes;
-use rafi_drawing::{Decision, DrawRequest, Manifest};
+use rafi_drawing::{Decision, DrawRequest, DrawingId, Manifest};
 use rafi_engine::{DrawingEngine, EngineError, EngineInfo, refusal_kind};
 use rafi_platform::{BoxFuture, sendable};
 use restate_sdk::{
@@ -61,6 +61,9 @@ pub struct RestateClient {
     /// The ingress, or why the configuration doesn't name one (every call is
     /// then unavailable).
     ingress: Result<Client<Http>, String>,
+    /// How long a synchronous call waits ([`ClientConfig::timeout_secs`]).
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    timeout_secs: u64,
 }
 
 impl RestateClient {
@@ -88,7 +91,10 @@ impl RestateClient {
                         .map_err(|e| e.to_string())
                 }
             });
-        Self { ingress }
+        Self {
+            ingress,
+            timeout_secs: cfg.timeout_secs.max(1),
+        }
     }
 
     fn ingress(&self) -> Result<Client<Http>, EngineError> {
@@ -97,11 +103,40 @@ impl RestateClient {
             .map_err(|e| EngineError::Unavailable(anyhow!(e)))
     }
 
-    fn drawing(&self, drawing_id: &str) -> Result<DrawingIngressClient<Http>, EngineError> {
+    fn drawing(&self, drawing_id: &DrawingId) -> Result<DrawingIngressClient<Http>, EngineError> {
         Ok(DrawingIngressClient::from_client(
             self.ingress()?,
-            drawing_id,
+            drawing_id.as_str(),
         ))
+    }
+
+    /// A synchronous call, bounded by the timeout: past it, the call was
+    /// accepted and is queued, so it counts as [`EngineError::Pending`].
+    /// Natively reqwest's own timeout bounds it ([`engine_error`]).
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn bounded(
+        &self,
+        call: impl Future<Output = Result<(), EngineError>>,
+    ) -> Result<(), EngineError> {
+        call.await
+    }
+
+    /// A synchronous call, bounded by the timeout: past it, the call was
+    /// accepted and is queued, so it counts as [`EngineError::Pending`].
+    /// reqwest has no timeouts on wasm32, so the call races a timer.
+    #[cfg(target_arch = "wasm32")]
+    async fn bounded(
+        &self,
+        call: impl Future<Output = Result<(), EngineError>>,
+    ) -> Result<(), EngineError> {
+        use futures_util::future::{Either, select};
+        let ms = u32::try_from(self.timeout_secs.saturating_mul(1000)).unwrap_or(u32::MAX);
+        let timer = gloo_timers::future::TimeoutFuture::new(ms);
+        let call = std::pin::pin!(call);
+        match select(call, timer).await {
+            Either::Left((outcome, _)) => outcome,
+            Either::Right(_) => Err(EngineError::Pending),
+        }
     }
 }
 
@@ -196,20 +231,22 @@ impl DrawingEngine for RestateClient {
 
     fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(sendable(async move {
-            let drawing = doc.drawing.as_str();
-            self.drawing(drawing)?
-                .open(Json(doc.clone()))
-                .idempotency_key(doc.open_key())
-                .call()
-                .await
-                .and_then(CallResponse::into_body)
-                .map_err(|e| engine_error(e, &format!("Drawing/{drawing}/open"), true))
+            let drawing = &doc.drawing;
+            let call = self.drawing(drawing)?.open(Json(doc.clone()));
+            self.bounded(async {
+                call.idempotency_key(doc.open_key())
+                    .call()
+                    .await
+                    .and_then(CallResponse::into_body)
+                    .map_err(|e| engine_error(e, &format!("Drawing/{drawing}/open"), true))
+            })
+            .await
         }))
     }
 
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a str,
+        drawing_id: &'a DrawingId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
@@ -228,18 +265,20 @@ impl DrawingEngine for RestateClient {
 
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a str,
+        drawing_id: &'a DrawingId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(sendable(async move {
-            self.drawing(drawing_id)?
-                .decide(Json(decision.clone()))
-                .idempotency_key(command_id)
-                .call()
-                .await
-                .and_then(CallResponse::into_body)
-                .map_err(|e| engine_error(e, &format!("Drawing/{drawing_id}/decide"), true))
+            let call = self.drawing(drawing_id)?.decide(Json(decision.clone()));
+            self.bounded(async {
+                call.idempotency_key(command_id)
+                    .call()
+                    .await
+                    .and_then(CallResponse::into_body)
+                    .map_err(|e| engine_error(e, &format!("Drawing/{drawing_id}/decide"), true))
+            })
+            .await
         }))
     }
 }

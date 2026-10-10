@@ -1,37 +1,38 @@
-//! Reading what phones see from the database, and building the participant view.
+//! Reading what phones see from the database.
 //!
 //! Whatever pushes live updates (a live channel, the polling endpoint, the
 //! participant page) reads the raffle through [`Snapshot`], so every one of them
-//! shows the same thing. Everything comes from one [`Db::batch_rows`], so the version and the
+//! shows the same thing; `rafi_live::raffle::view` builds the participant view
+//! from it. Everything comes from one [`Db::batch_rows`], so the version and the
 //! content are one consistent snapshot: a write can't land between them and
 //! leave a view labelled newer than what it holds.
 
 use std::collections::HashMap;
 
 use crate::{Db, Result, dialect};
-use rafi_drawing::{Drawing, ItemId, Outcome};
-use rafi_live::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
+use rafi_drawing::Drawing;
+use rafi_raffle::RaffleState;
 use serde::Deserialize;
-
-/// Display name used when the organizer hid an entrant's name.
-pub const HIDDEN_NAME: &str = "★ ★ ★";
 
 /// The raffle as phones see it, read in one snapshot.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
-    pub state: Phase,
+    pub state: RaffleState,
+    /// Bumped by every write that changes what phones see.
     pub version: u64,
     pub live_ended_at: Option<i64>,
-    drawing: Option<Drawing>,
-    /// Names of the drawn entrants only, already masked when hidden.
-    names: HashMap<String, String>,
-    /// Prizes before the freeze, from the raffle's prizes.
-    prize_qty: u32,
+    pub drawing: Option<Drawing>,
+    /// The display names of the drawn entrants only, by ID: no other name
+    /// leaves the database. `None` for one the organizer hid: that name isn't
+    /// read either.
+    pub names: HashMap<String, Option<String>>,
+    /// The prizes' total quantity (what is left before the drawing opens).
+    pub prize_qty: u32,
 }
 
 #[derive(Deserialize)]
 struct RaffleRow {
-    state: String,
+    state: RaffleState,
     version: i64,
     live_ended_at: Option<i64>,
     drawing: Option<String>,
@@ -40,12 +41,7 @@ struct RaffleRow {
 #[derive(Deserialize)]
 struct NameRow {
     id: String,
-    display_name: String,
-    hidden: bool,
-}
-
-fn phase(state: &str) -> Phase {
-    serde_json::from_value(serde_json::Value::String(state.to_owned())).unwrap_or(Phase::Draft)
+    display_name: Option<String>,
 }
 
 impl Snapshot {
@@ -57,9 +53,10 @@ impl Snapshot {
                     "SELECT state, version, live_ended_at, drawing FROM raffles WHERE id = ?1",
                 )
                 .bind(raffle_id),
-                // Only the entrants that were drawn: no other names leave the database.
+                // Only the entrants that were drawn, and only the names shown.
                 db.query(format!(
-                    "SELECT e.id, e.display_name, e.hidden FROM entrants e
+                    "SELECT e.id, CASE WHEN e.hidden = 1 THEN NULL ELSE e.display_name END AS display_name
+                     FROM entrants e
                      WHERE e.raffle_id = ?1 AND e.id IN ({})",
                     dialect::entrants_in(
                         db.dialect(),
@@ -79,18 +76,8 @@ impl Snapshot {
         let raffle: RaffleRow = raffle.decode()?;
         let names = name_rows
             .into_iter()
-            .map(|r| r.decode::<NameRow>())
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .map(|n| {
-                let name = if n.hidden {
-                    HIDDEN_NAME.to_owned()
-                } else {
-                    n.display_name
-                };
-                (n.id, name)
-            })
-            .collect();
+            .map(|r| r.decode::<NameRow>().map(|n| (n.id, n.display_name)))
+            .collect::<Result<_>>()?;
         let prize_qty = qty_rows
             .into_iter()
             .next()
@@ -98,7 +85,7 @@ impl Snapshot {
             .transpose()?
             .map_or(0, |(q,)| q.max(0) as u32);
         Ok(Some(Self {
-            state: phase(&raffle.state),
+            state: raffle.state,
             version: raffle.version.max(0) as u64,
             live_ended_at: raffle.live_ended_at,
             drawing: raffle
@@ -119,46 +106,7 @@ impl Snapshot {
     /// Whether phones should hold a socket: the channel is open and the raffle
     /// is public and not over.
     pub fn accepts_sockets(&self) -> bool {
-        self.channel_open() && self.state.is_live()
-    }
-
-    /// The participant view.
-    pub fn view(&self) -> ParticipantView {
-        let Some(s) = &self.drawing else {
-            return ParticipantView::new(self.version, self.state, None, [], self.prize_qty);
-        };
-        let item_name = |id: &ItemId| s.item(id).map(|i| i.name.clone()).unwrap_or_default();
-        let draws = s.draws().into_iter().map(|d| DrawInput {
-            display_name: self
-                .names
-                .get(d.entrant.as_str())
-                .cloned()
-                .unwrap_or_else(|| {
-                    let id = d.entrant.as_str();
-                    format!("#{}", &id[..id.len().min(6)])
-                }),
-            entrant_id: d.entrant.into_string(),
-            prize_name: item_name(&d.item),
-            outcome: match d.outcome {
-                Outcome::Drawn => DrawOutcome::Drawn,
-                Outcome::Claimed => DrawOutcome::Claimed,
-                Outcome::NotHere => DrawOutcome::NotHere,
-                Outcome::Declined => DrawOutcome::Declined,
-            },
-        });
-        let current = s.pending().map(|p| Current {
-            prize_name: item_name(&p.item),
-            round: p.round,
-            round_time: p.round_time,
-        });
-        let prizes_left = s.items_left() as u32;
-        ParticipantView::new(
-            self.version,
-            self.state,
-            current,
-            draws.collect::<Vec<_>>(),
-            prizes_left,
-        )
+        self.channel_open() && self.state.is_public() && !self.state.is_over()
     }
 }
 
@@ -271,53 +219,31 @@ mod tests {
         let db = Db::connect("sqlite::memory:").await.unwrap();
         raffle(&db).await;
         let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
-        let view = snap.view();
-        assert_eq!(view.state, Phase::Open);
-        assert_eq!(view.prizes_left, 2);
-        assert!(view.winners.is_empty());
-        assert_eq!(view.v, snap.version);
+        assert_eq!(snap.state, RaffleState::Open);
+        assert_eq!(snap.prize_qty, 2);
+        assert!(snap.drawing.is_none() && snap.names.is_empty());
         assert!(snap.accepts_sockets());
         assert!(Snapshot::read(&db, "nope").await.unwrap().is_none());
     }
 
     #[tokio::test]
-    async fn draws_carry_only_drawn_names_masked_when_hidden() {
+    async fn reads_only_drawn_names_and_not_hidden_ones() {
         let db = Db::connect("sqlite::memory:").await.unwrap();
         let mut log = raffle(&db).await;
         log.draw(&"b".repeat(32), "u1");
         store(&db, &log, "drawing").await;
         let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
         assert_eq!(
-            snap.names.len(),
-            1,
-            "Anna was not drawn, so her name isn't read"
+            snap.names,
+            HashMap::from([("b".repeat(32), None)]),
+            "Anna was not drawn, Bence is hidden: neither name is read"
         );
-        let view = snap.view();
-        assert_eq!(view.last.as_ref().unwrap().display_name, HIDDEN_NAME);
-        assert_eq!(view.winners[0].prize_name, "Book");
-        assert_eq!(
-            view.prizes_left, 2,
-            "a drawn item is still open until claimed"
-        );
-    }
-
-    #[tokio::test]
-    async fn no_shows_drop_out_and_claims_show() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
-        let mut log = raffle(&db).await;
-        let k = log.draw(&"a".repeat(32), "u1");
+        let k = log.draw(&"a".repeat(32), "u2");
         log.resolve(k, Resolution::Claimed);
-        let k = log.draw(&"b".repeat(32), "u2");
-        log.resolve(k, Resolution::NotHere);
         store(&db, &log, "drawing").await;
-        let view = Snapshot::read(&db, "r1").await.unwrap().unwrap().view();
-        assert_eq!(view.winners.len(), 1);
-        assert!(view.winners[0].claimed);
-        assert_eq!(
-            view.last.unwrap().display_name,
-            "Anna",
-            "the no-show is skipped"
-        );
+        let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
+        assert_eq!(snap.names[&"a".repeat(32)].as_deref(), Some("Anna"));
+        assert_eq!(snap.drawing.unwrap().draws().len(), 2);
     }
 
     #[tokio::test]
@@ -329,6 +255,18 @@ mod tests {
             .await
             .unwrap();
         assert!(Snapshot::read(&db, "r1").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn an_unknown_state_is_an_error() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        raffle(&db).await;
+        db.query("UPDATE raffles SET state = 'paused' WHERE id = 'r1'")
+            .run()
+            .await
+            .unwrap();
+        assert!(Snapshot::read(&db, "r1").await.is_err(), "never guessed");
+        assert!(crate::raffles::get(&db, "r1").await.is_err());
     }
 
     #[tokio::test]

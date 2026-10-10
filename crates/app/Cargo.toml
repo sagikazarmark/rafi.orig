@@ -16,7 +16,7 @@ rafi-raffle.workspace = true
 rafi-drawing.workspace = true
 rafi-drand = { path = "../drand", optional = true }
 rafi-store = { workspace = true, optional = true }
-rafi-live = { path = "../live" }
+rafi-live = { path = "../live", features = ["raffle"] }
 rafi-platform = { path = "../platform", optional = true }
 rafi-engine = { path = "../engine", optional = true }
 # The web app adds `launch`, `web`, `devtools` and `logger`; the server only renders (`ssr`).

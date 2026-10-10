@@ -16,7 +16,8 @@ use rafi_drawing::{ItemStatus, Resolution};
 use rafi_engine::DrawingEngine;
 use rafi_engine_restate::{Drawing, RestateClient};
 use rafi_platform::Polling;
-use rafi_store::{Db, DrawWriter, PurgeAfter, RaffleRow, raffles};
+use rafi_raffle::RaffleState;
+use rafi_store::{Db, DrawWriter, RaffleRow, raffles};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
 
@@ -72,13 +73,17 @@ async fn app_and_restate_rafi_share_the_database() {
     })
     .unwrap();
     // As the native endpoint opens it: lazily, without creating it.
-    let store = DrawWriter::new(Db::connect_lazy(&url).unwrap(), PurgeAfter::days(30, 90));
+    let store = DrawWriter::new(Db::connect_lazy(&url).unwrap());
     let chain = drand.chain_hash();
     restate
         .deploy(
             Endpoint::builder()
                 .bind(rafi_engine_restate::EngineInfo::new(&drand))
-                .bind(Drawing::new(drand, store, Polling::default()))
+                .bind(Drawing::new(
+                    drand,
+                    store,
+                    rafi_engine::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
+                ))
                 .build(),
         )
         .await;
@@ -171,12 +176,9 @@ async fn app_and_restate_rafi_share_the_database() {
     service::command(&app, OWNER, &id, Decision::Finish, "cmd-3")
         .await
         .unwrap();
-    wait_for(&app, &id, |r| r.state == "finished").await;
+    wait_for(&app, &id, |r| r.state == RaffleState::Finished).await;
     let r = raffles::get(&app.db, &id).await.unwrap().unwrap();
-    assert!(
-        r.purge_nonwinners_at.is_some(),
-        "erasure is scheduled once finished"
-    );
+    assert!(r.finished_at.is_some(), "the finish is timed");
 
     // The object forgot everything; the app keeps the verifiable record.
     let state = restate

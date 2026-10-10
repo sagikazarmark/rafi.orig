@@ -3,8 +3,11 @@
 //! - **Erasure** (when `RAFI_RETENTION` is on): after a raffle finishes,
 //!   non-winners are erased after `RAFI_RETENTION_DAYS` (30), winners once
 //!   their prize is marked delivered or after `RAFI_RETENTION_WINNERS_DAYS`
-//!   (90). Entrant IDs and the draw log stay, so the published draw remains
-//!   verifiable. Each erasure is logged in `erasures`, without personal data.
+//!   (90). The first run that sees a raffle finished dates its erasure with
+//!   these settings ([`store::date_purges`]); the drawing engine, which stores
+//!   the finish, knows none of them. Entrant IDs and the draw log stay, so the
+//!   published draw remains verifiable. Each erasure is logged in `erasures`,
+//!   without personal data.
 //! - **Proof-of-work:** expired challenges are forgotten.
 //! - **Live updates:** a raffle that finished more than a day ago and still
 //!   has live updates gets them ended ([`Notifier::end`](rafi_platform::Notifier::end);
@@ -64,6 +67,7 @@ pub async fn run(app: &AppState) -> anyhow::Result<Report> {
     let now = ids::now();
     // No nudges for erasures: these raffles finished weeks ago, their channels are gone.
     let erased = if app.cfg.retention_enabled {
+        store::date_purges(&app.db, app.purge_after()).await?;
         store::erase_due(&app.db, now).await?
     } else {
         0

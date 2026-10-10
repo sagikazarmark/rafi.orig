@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use crate::{Db, Result};
+use crate::{Db, Query, Result};
 
 /// A row of `prizes`.
 #[derive(Debug, Clone, Deserialize)]
@@ -38,6 +38,18 @@ pub async fn list(db: &Db, raffle_id: &str) -> Result<Vec<PrizeRow>> {
 }
 
 pub async fn insert(db: &Db, id: &str, raffle_id: &str, prize: &PrizeFields<'_>) -> Result<()> {
+    insert_query(db, id, raffle_id, prize)
+        .run()
+        .await
+        .map(|_| ())
+}
+
+pub(crate) fn insert_query<'a>(
+    db: &'a Db,
+    id: &str,
+    raffle_id: &str,
+    prize: &PrizeFields<'_>,
+) -> Query<'a> {
     db.query(
         "INSERT INTO prizes (id, raffle_id, name, sponsor, description, qty, position)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -49,9 +61,6 @@ pub async fn insert(db: &Db, id: &str, raffle_id: &str, prize: &PrizeFields<'_>)
     .bind(prize.description)
     .bind(prize.qty)
     .bind(prize.position)
-    .run()
-    .await
-    .map(|_| ())
 }
 
 /// Returns `false` if the raffle has no such prize.

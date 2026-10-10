@@ -9,7 +9,7 @@ use figment::{
     providers::{Env, Format, Json, Toml, Yaml},
 };
 use rafi_drand::DrandConfig;
-use rafi_store::{Db, DrawWriter, PurgeAfter};
+use rafi_store::{Db, DrawWriter};
 use restate_config::{EndpointConfig, ServiceOptionsConfig};
 use serde::{Deserialize, Serialize};
 
@@ -36,30 +36,17 @@ pub struct DatabaseConfig {
     /// The same database the app uses (its `RAFI_DATABASE_URL`): `sqlite://…`
     /// or `postgres://…`.
     pub url: String,
-    /// Days after a raffle finishes until non-winners are erased. Set it to the
-    /// app's `RAFI_RETENTION_DAYS`: whoever stores the finished state dates it.
-    pub retention_nonwinners_days: i64,
-    /// Days after a raffle finishes until winners are erased (the app's
-    /// `RAFI_RETENTION_WINNERS_DAYS`).
-    pub retention_winners_days: i64,
 }
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             url: "sqlite://rafi.db".into(),
-            retention_nonwinners_days: 30,
-            retention_winners_days: 90,
         }
     }
 }
 
 impl DatabaseConfig {
-    /// When personal data of a finished raffle is erased.
-    pub fn purge_after(&self) -> PurgeAfter {
-        PurgeAfter::days(self.retention_nonwinners_days, self.retention_winners_days)
-    }
-
     /// Where the drawing engine writes draw states: the app's database, opened
     /// lazily. The app owns the schema (and creates the SQLite file); until it
     /// has, writes fail and Restate retries them.
@@ -69,7 +56,7 @@ impl DatabaseConfig {
         }
         let db = Db::connect_lazy(&self.url)
             .with_context(|| format!("invalid database.url {:?}", self.url))?;
-        Ok(DrawWriter::new(db, self.purge_after()))
+        Ok(DrawWriter::new(db))
     }
 }
 
@@ -113,10 +100,7 @@ mod tests {
 
     #[test]
     fn database_url_is_required() {
-        let cfg = DatabaseConfig {
-            url: " ".into(),
-            ..DatabaseConfig::default()
-        };
+        let cfg = DatabaseConfig { url: " ".into() };
         assert!(cfg.draw_store().is_err());
     }
 
@@ -125,7 +109,6 @@ mod tests {
         let path = std::env::temp_dir().join(format!("rafi-endpoint-{}.db", std::process::id()));
         DatabaseConfig {
             url: format!("sqlite://{}", path.display()),
-            ..DatabaseConfig::default()
         }
         .draw_store()
         .unwrap();
@@ -143,8 +126,6 @@ mod tests {
             assert!(!cfg.drand.mock);
             assert_eq!(cfg.drand.lead_secs, 6);
             assert_eq!(cfg.database.url, "sqlite://rafi.db");
-            assert_eq!(cfg.database.retention_nonwinners_days, 30);
-            assert_eq!(cfg.database.retention_winners_days, 90);
             Ok(())
         });
     }
@@ -157,7 +138,6 @@ mod tests {
                 r#"
                 [database]
                 url = "sqlite:///data/rafi.db"
-                retention_winners_days = 120
 
                 [services.drawing]
                 inactivity_timeout = "5m"
@@ -175,8 +155,6 @@ mod tests {
             );
             let cfg = Config::load(Some(Path::new("rafi.toml"))).expect("config");
             assert_eq!(cfg.database.url, "sqlite:///data/rafi.db");
-            assert_eq!(cfg.database.purge_after().winners_secs, 120 * 86_400);
-            assert_eq!(cfg.database.retention_nonwinners_days, 30);
             assert_eq!(cfg.drand.lead_secs, 9);
             assert_eq!(cfg.drand.relays, ["https://a.example", "https://b.example"]);
             assert!(cfg.drand.validate().is_ok(), "unprefixed relays are v1");

@@ -10,15 +10,16 @@
 //! The object only ever sees anonymous entrant IDs. After every change it
 //! writes the state to a [`DrawStore`](rafi_engine::DrawStore) (the app's
 //! database), then tells clients through a
-//! [`Notifier`](rafi_platform::Notifier), best effort. Which database and which
-//! live transport is up to the deployment: this crate knows neither.
+//! [`DrawingNotifier`](rafi_engine::DrawingNotifier), best effort. Which
+//! database and which live transport is up to the deployment: this crate
+//! knows neither.
 //!
 //! [`EngineInfo`] is a keyless service next to it: `info` reports the
 //! engine's beacon source, which the app checks before opening a drawing.
 //!
 //! What the services do is independent of how they are configured or served;
 //! the `restate-rafi-endpoint` crate (native) and `rafi-restate-worker`
-//! (Cloudflare Workers) serve them. The app reaches them through
+//! (Cloudflare Workers) serve them, both built by [`services`]. The app reaches them through
 //! [`RestateClient`], its [`DrawingEngine`](rafi_engine::DrawingEngine) over
 //! the ingress.
 
@@ -29,3 +30,18 @@ mod service;
 pub use client::{ClientConfig, RestateClient};
 pub use info::{EngineInfo, EngineInfoIngressClient, INFO_SERVICE_NAME, Info};
 pub use service::{Drawing, DrawingIngressClient, SERVICE_NAME};
+
+use rafi_drand::DrandClient;
+use rafi_engine::{DrawStore, DrawingNotifier};
+
+/// The engine's services, as every host binds them: the [`Drawing`] object,
+/// drawing with `drand`, writing to `store` and telling `notifier`; and
+/// [`EngineInfo`], answering for the same drand chain.
+pub fn services(
+    drand: DrandClient,
+    store: impl DrawStore,
+    notifier: impl DrawingNotifier,
+) -> (Drawing, EngineInfo) {
+    let info = EngineInfo::new(&drand);
+    (Drawing::new(drand, store, notifier), info)
+}

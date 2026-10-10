@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use rafi_drawing::{
-    BeaconSource, Decision, DrawRequest, Error as DrawingError, ErrorKind, Manifest,
+    BeaconSource, Decision, DrawRequest, DrawingId, Error as DrawingError, ErrorKind, Manifest,
 };
 
 use rafi_platform::BoxFuture;
@@ -122,7 +122,7 @@ pub trait DrawingEngine: Send + Sync + 'static {
     /// background (`command_id` deduplicates it).
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a str,
+        drawing_id: &'a DrawingId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>>;
@@ -130,7 +130,7 @@ pub trait DrawingEngine: Send + Sync + 'static {
     /// Applies a decision (`command_id` deduplicates it).
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a str,
+        drawing_id: &'a DrawingId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>>;
@@ -147,7 +147,7 @@ impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
 
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a str,
+        drawing_id: &'a DrawingId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
@@ -156,7 +156,7 @@ impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
 
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a str,
+        drawing_id: &'a DrawingId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {

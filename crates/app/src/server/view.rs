@@ -12,7 +12,18 @@ use crate::model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
 
 /// Display name used when the organizer hid an entrant's name (the same on
 /// phones).
-pub use rafi_store::live::HIDDEN_NAME;
+pub use rafi_live::HIDDEN_NAME;
+
+/// The participant view of a snapshot: what phones show.
+pub fn participant(snap: &rafi_store::live::Snapshot) -> rafi_live::ParticipantView {
+    rafi_live::raffle::view(rafi_live::raffle::Raffle {
+        version: snap.version,
+        state: snap.state,
+        drawing: snap.drawing.as_ref(),
+        names: &snap.names,
+        prize_qty: snap.prize_qty,
+    })
+}
 
 /// How long a new entrant's name waits before appearing on the screen.
 pub const NAME_DELAY_SECS: i64 = 5;
@@ -165,7 +176,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         }
     }
 
-    let state = raffle.state();
+    let state = raffle.state;
     // Labelled by the beacon source the raffle committed to (or will): only
     // a public drand chain is verifiable.
     let verifiable = drawing

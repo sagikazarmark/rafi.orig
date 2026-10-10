@@ -16,6 +16,17 @@ use partyline_worker::{Hub, HubConfig, close, reject};
 use rafi_live::{ParticipantView, RaffleLive};
 use rafi_platform::rule::{Decision, decide};
 use rafi_store::{Db, live::Snapshot};
+
+/// The participant view of a snapshot: what the object publishes.
+pub fn view(snapshot: &Snapshot) -> ParticipantView {
+    rafi_live::raffle::view(rafi_live::raffle::Raffle {
+        version: snapshot.version,
+        state: snapshot.state,
+        drawing: snapshot.drawing.as_ref(),
+        names: &snapshot.names,
+        prize_qty: snapshot.prize_qty,
+    })
+}
 use worker::{
     DurableObject, Env, Method, Request, Response, Result, SqlStorageValue, State, durable_object,
     wasm_bindgen,
@@ -129,7 +140,7 @@ impl RaffleChannel {
     /// the fan-out runs without awaiting, so the stored version and the
     /// published view can't diverge.
     async fn apply(&self, raffle_id: &str, snapshot: &Snapshot) -> Result<Decision> {
-        let view = snapshot.view();
+        let view = view(snapshot);
         let (seen, last) = match self.meta() {
             Some((_, seen, last)) => (seen, last),
             None => (0, None),
@@ -175,7 +186,7 @@ impl RaffleChannel {
         self.destroyed.set(true);
         // Phones that slept through the end get the final view before the close.
         if let Ok(Some(snapshot)) = Snapshot::read(&self.db()?, raffle_id).await {
-            let view = snapshot.view();
+            let view = view(&snapshot);
             let (seen, last) = self.meta().map_or((0, None), |(_, s, l)| (s, l));
             if decide(true, seen, last.as_ref(), &view) == Decision::Publish {
                 self.hub.publish(&view).await?;

@@ -1,15 +1,12 @@
 //! The `domain.*` scenarios: the domain functions, on every backend.
 
 use rafi_drawing::{BeaconSource, Decision, Drawing, Event, Manifest, ManifestItem, Resolution};
-use rafi_live::Phase;
 use rafi_raffle::RaffleState;
 
 use super::{Outcome, check, fail};
 use crate::{
-    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants,
-    live::{HIDDEN_NAME, Snapshot},
-    prizes, raffles, retention, save_drawing,
-    view::Full,
+    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants, live::Snapshot, prizes, raffles,
+    retention, save_drawing, view::Full,
 };
 
 const PURGE: PurgeAfter = PurgeAfter {
@@ -49,28 +46,45 @@ fn manifest<const N: usize>(id: &str, entrants: [String; N]) -> Manifest {
 
 pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     let mut state = frozen(db, "r1").await?;
+    check(save_drawing(db, &state).await.map_err(fail)?, "first write")?;
     check(
-        save_drawing(db, &state, PURGE).await.map_err(fail)?,
-        "first write",
-    )?;
-    check(
-        !save_drawing(db, &state, PURGE).await.map_err(fail)?,
+        !save_drawing(db, &state).await.map_err(fail)?,
         "a retry is a no-op",
     )?;
 
     state.decide(&Decision::Finish).map_err(fail)?;
     check(
-        save_drawing(db, &state, PURGE).await.map_err(fail)?,
+        save_drawing(db, &state).await.map_err(fail)?,
         "finished write",
     )?;
-    let (lifecycle, finished_at, nonwinners, winners): (String, i64, i64, i64) = db
-        .query("SELECT state, finished_at, purge_nonwinners_at, purge_winners_at FROM raffles WHERE id = 'r1'")
-        .one()
-        .await
-        .map_err(fail)?;
+    let dates = || async {
+        db.query("SELECT state, finished_at, purge_nonwinners_at, purge_winners_at FROM raffles WHERE id = 'r1'")
+            .one::<(String, i64, Option<i64>, Option<i64>)>()
+            .await
+            .map_err(fail)
+    };
+    let (lifecycle, finished_at, nonwinners, winners) = dates().await?;
     check(lifecycle == "finished", "finished state")?;
-    check(nonwinners == finished_at + 30, "non-winner purge date")?;
-    check(winners == finished_at + 90, "winner purge date")?;
+    check(
+        nonwinners.is_none() && winners.is_none(),
+        "the engine's write dates no erasure: that's the app's policy",
+    )?;
+    check(
+        retention::date_purges(db, PURGE).await.map_err(fail)?,
+        "the retention run dates it",
+    )?;
+    let (_, _, nonwinners, winners) = dates().await?;
+    check(
+        nonwinners == Some(finished_at + 30),
+        "non-winner purge date",
+    )?;
+    check(winners == Some(finished_at + 90), "winner purge date")?;
+    check(
+        !retention::date_purges(db, PurgeAfter::days(1, 1))
+            .await
+            .map_err(fail)?,
+        "dated once: new settings don't move it",
+    )?;
 
     // Newer, but opened from another entrant list.
     let mut other = Drawing::open(&manifest("r1", ["c".repeat(32)])).map_err(fail)?;
@@ -82,7 +96,7 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
         "the other drawing is newer",
     )?;
     check(
-        !save_drawing(db, &other, PURGE).await.map_err(fail)?,
+        !save_drawing(db, &other).await.map_err(fail)?,
         "a different entrant list",
     )
 }
@@ -232,7 +246,7 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
         .map_err(fail)?;
     let r = raffle(db, "r1").await?;
     check(
-        r.state() == RaffleState::Frozen
+        r.state == RaffleState::Frozen
             && r.manifest_hash.as_deref() == Some("h1")
             && r.manifest.is_some()
             && r.frozen_at.is_some(),
@@ -251,7 +265,7 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
         .await
         .map_err(fail)?;
     check(
-        raffle(db, "r2").await?.state() == RaffleState::Closed,
+        raffle(db, "r2").await?.state == RaffleState::Closed,
         "unfrozen",
     )
 }
@@ -532,14 +546,14 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         "only those two",
     )?;
     check(
-        raffle(db, "r1").await?.state() == RaffleState::Finished,
+        raffle(db, "r1").await?.state == RaffleState::Finished,
         "the raffle isn't purged before the winners' date",
     )?;
     check(erase(189).await.map_err(fail)? == 0, "nobody else yet")?;
     check(erase(190).await.map_err(fail)? == 1, "the winner")?;
     let r = raffle(db, "r1").await?;
     check(
-        r.state() == RaffleState::Purged && r.purged_at == Some(190),
+        r.state == RaffleState::Purged && r.purged_at == Some(190),
         "the raffle is purged",
     )?;
     check(
@@ -730,7 +744,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         Drawing::restore(&manifest("r1", [anna.clone(), bence.clone()]), &[draw]).map_err(fail)?;
     check(state.version() == 2, "one event")?;
     check(
-        save_drawing(db, &state, PURGE).await.map_err(fail)?,
+        save_drawing(db, &state).await.map_err(fail)?,
         "writing the draw",
     )?;
 
@@ -738,25 +752,17 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         .await
         .map_err(fail)?
         .ok_or("the raffle is gone")?;
-    let view = snap.view();
-    let json = serde_json::to_string(&view).map_err(fail)?;
-    check(view.state == Phase::Drawing, "drawing")?;
+    check(snap.state == RaffleState::Drawing, "drawing")?;
     check(
-        view.last
-            .as_ref()
-            .is_some_and(|l| l.display_name == HIDDEN_NAME),
-        "the drawn entrant, masked",
+        snap.names.len() == 1 && snap.names.get(&bence) == Some(&None),
+        "only the drawn entrant, and their hidden name isn't read",
     )?;
     check(
-        view.winners.len() == 1 && view.prizes_left == 1,
-        "one winner, the prize still open",
+        snap.drawing.as_ref().is_some_and(|d| d.draws().len() == 1),
+        "the drawing",
     )?;
     check(
-        !json.contains("Anna") && !json.contains("Bence"),
-        "no other name leaves the database",
-    )?;
-    check(
-        view.v == raffle(db, "r1").await?.version as u64,
+        snap.version == raffle(db, "r1").await?.version as u64,
         "the raffle's version",
     )?;
     check(

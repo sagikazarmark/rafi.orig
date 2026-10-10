@@ -27,13 +27,13 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{DrawStore, DrawingEngine, EngineError, MemoryDrawStore};
+use crate::{DrawStore, DrawingEngine, DrawingNotifier, EngineError, MemoryDrawStore, Notify};
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
-    BeaconSource, Command, Decision, DrawRequest, Drawing, ErrorKind, Event, ItemStatus, Manifest,
-    ManifestItem, Resolution, verify,
+    BeaconSource, Command, Decision, DrawRequest, Drawing, DrawingId, ErrorKind, Event, ItemStatus,
+    Manifest, ManifestItem, Resolution, verify,
 };
-use rafi_platform::{BoxFuture, Notifier, Recording};
+use rafi_platform::{BoxFuture, Recording};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -44,7 +44,7 @@ use tokio::{
 pub struct Deployment {
     pub drand: DrandClient,
     pub store: Arc<dyn DrawStore>,
-    pub notifier: Arc<dyn Notifier>,
+    pub notifier: Arc<dyn DrawingNotifier>,
 }
 
 /// An engine under test.
@@ -199,7 +199,7 @@ impl Fixture {
             .deploy(Deployment {
                 drand: drand.clone(),
                 store: writes,
-                notifier: notifier.clone(),
+                notifier: Arc::new(Notify::new(notifier.clone(), DrawingId::as_str)),
             })
             .await?;
         Ok(Self {
@@ -262,8 +262,8 @@ impl Fixture {
 
     async fn send(&self, drawing_id: &str, cmd: Command, id: &str) -> Result<(), EngineError> {
         match &cmd {
-            Command::Draw(request) => self.engine.draw(drawing_id, request, id).await,
-            Command::Decide(decision) => self.engine.decide(drawing_id, decision, id).await,
+            Command::Draw(request) => self.engine.draw(&drawing_id.into(), request, id).await,
+            Command::Decide(decision) => self.engine.decide(&drawing_id.into(), decision, id).await,
         }
     }
 
@@ -705,7 +705,10 @@ async fn a_deadline_leaves_the_command_pending(fx: Arc<Fixture>, id: String) -> 
     fx.open(&doc).await?;
     fx.draw(&id, "item-1", "d1").await?;
     let hasty = fx.deployed.engine(Some(Duration::from_millis(300)));
-    match hasty.decide(&id, &Decision::Finish, "f1").await {
+    match hasty
+        .decide(&id.as_str().into(), &Decision::Finish, "f1")
+        .await
+    {
         Err(EngineError::Pending) => {}
         r => return Err(format!("expected Pending, got {r:?}")),
     }

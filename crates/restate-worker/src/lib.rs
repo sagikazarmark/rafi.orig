@@ -13,17 +13,18 @@
 //! | `RESTATE_IDENTITY_KEYS` | secret | Comma-separated `publickeyv1_…` keys of the Restate environment. Required: without them every request is refused |
 //! | `RAFI_DRAND_RELAYS` | var | Comma-separated drand relays (default: the built-in ones) |
 //! | `RAFI_DRAND_LEAD_SECS`, `RAFI_DRAND_TIMEOUT_SECS` | var | Draw timing (defaults as natively) |
-//! | `RAFI_RETENTION_DAYS`, `RAFI_RETENTION_WINNERS_DAYS` | var | Purge dates set when a raffle finishes (30, 90) |
 //!
 //! With the `dev` feature only: `RAFI_DRAND_MOCK=1` and running without keys.
 
 #![cfg(target_arch = "wasm32")]
 
+use std::{cell::OnceCell, rc::Rc};
+
 use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_engine_restate::{Drawing, EngineInfo};
-use rafi_store::{DrawWriter, PurgeAfter};
+use rafi_engine::Notify;
+use rafi_store::DrawWriter;
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};
 use worker::{Context, Env, HttpRequest, Result, event};
 
@@ -50,18 +51,16 @@ fn drand_config(env: &Env) -> DrandConfig {
     }
 }
 
-/// The SDK endpoint for this request's bindings.
+/// The SDK endpoint over the Worker's bindings.
 fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
-    let store = DrawWriter::new(
-        rafi_cloudflare::database(env)?,
-        PurgeAfter::days(
-            number(env, "RAFI_RETENTION_DAYS", 30),
-            number(env, "RAFI_RETENTION_WINNERS_DAYS", 90),
-        ),
-    );
+    let store = DrawWriter::new(rafi_cloudflare::database(env)?);
     let drand = DrandClient::new(drand_config(env))?;
-    let info = EngineInfo::new(&drand);
-    let drawing = Drawing::new(drand, store, DurableObjects::new(env.clone()));
+    // A drawing's changes go to its raffle's channel.
+    let notifier = Notify::new(
+        DurableObjects::new(env.clone()),
+        rafi_raffle::drawing::raffle_id,
+    );
+    let (drawing, info) = rafi_engine_restate::services(drand, store, notifier);
     let mut builder = Endpoint::builder();
     let keys = lookup(env, "RESTATE_IDENTITY_KEYS").unwrap_or_default();
     let keys: Vec<&str> = keys
@@ -80,9 +79,26 @@ fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
     Ok(builder.bind(drawing).bind(info).build())
 }
 
+thread_local! {
+    /// The endpoint, built on the isolate's first request: the bindings and
+    /// vars are the isolate's, so every request after reuses it (and the
+    /// drand client's verified chain). A failed build isn't kept.
+    static ENDPOINT: OnceCell<Rc<Endpoint>> = const { OnceCell::new() };
+}
+
+fn cached(env: &Env) -> anyhow::Result<Rc<Endpoint>> {
+    ENDPOINT.with(|cell| {
+        if let Some(endpoint) = cell.get() {
+            return Ok(endpoint.clone());
+        }
+        let endpoint = Rc::new(endpoint(env)?);
+        Ok(cell.get_or_init(|| endpoint).clone())
+    })
+}
+
 #[event(fetch)]
 async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<http::Response<ResponseBody>> {
-    let endpoint = endpoint(&env).map_err(|e| {
+    let endpoint = cached(&env).map_err(|e| {
         worker::console_error!("rafi-restate-worker: {e:#}");
         worker::Error::RustError("misconfigured".into())
     })?;

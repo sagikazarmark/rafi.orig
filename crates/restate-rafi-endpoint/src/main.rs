@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Parser;
 use rafi_drand::DrandClient;
-use rafi_engine_restate::{Drawing, EngineInfo};
+use rafi_engine::Notify;
 use rafi_platform::Polling;
 use restate_config::ConfigureEndpointExt;
 use restate_ext::shutdown_signal;
@@ -74,12 +74,11 @@ async fn main() -> Result<()> {
 /// Fails on invalid configuration, so the process exits before accepting requests.
 fn endpoint(config: Config) -> Result<Endpoint> {
     let drand = DrandClient::new(config.drand).context("invalid drand configuration")?;
-    let info = EngineInfo::new(&drand);
-    let drawing = Drawing::new(
+    let (drawing, info) = rafi_engine_restate::services(
         drand,
         config.database.draw_store()?,
         // Natively there is no push: the app's clients poll the database.
-        Polling::default(),
+        Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
     );
     Ok(Endpoint::builder()
         .configure(&config.endpoint)?

@@ -7,7 +7,6 @@
 //! is called directly.
 
 use partyline_worker::{close, reject};
-use rafi_live::Phase;
 use rafi_store::live::Snapshot;
 use wasm_bindgen::{JsCast, JsValue};
 use worker::{Env, Headers, Method, ObjectNamespace, Request, RequestInit, Response, Result, Stub};
@@ -94,7 +93,7 @@ pub async fn destroy(env: &Env, raffle_id: &str) -> Result<()> {
 pub async fn connect(env: &Env, raffle_id: &str, req: Request) -> Result<Response> {
     let db = crate::database(env)?;
     let open = match Snapshot::read(&db, raffle_id).await {
-        Ok(Some(s)) => s.accepts_sockets() && s.state != Phase::Draft,
+        Ok(Some(s)) => s.accepts_sockets(),
         Ok(None) => false,
         Err(e) => {
             worker::console_error!("rafi: reading raffle {raffle_id}: {e}");

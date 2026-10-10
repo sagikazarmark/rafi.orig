@@ -11,7 +11,12 @@ use rafi_drawing::{
     Manifest, ManifestHash, ManifestItem, Outcome, Resolution,
 };
 use rafi_engine::{DrawingEngine, EngineError};
-use rafi_raffle::{self as raffle, RaffleState};
+use rafi_raffle::{
+    self as raffle, RaffleState,
+    entrant::{self, Email, NameError, Removal},
+    settings,
+    start::{self, Start},
+};
 use rafi_store::{RaffleRow, audit, entrants, prizes, raffles};
 
 use super::{AppState, ids};
@@ -22,7 +27,6 @@ use crate::model::{
 
 /// Version of the consent text shown on the join form.
 pub const CONSENT_VERSION: &str = "2026-10-01";
-pub const MAX_NAME_CHARS: usize = 24;
 pub const MAX_FAKE_ENTRANTS: u32 = 500;
 
 #[derive(Debug, thiserror::Error)]
@@ -114,7 +118,7 @@ pub async fn list(app: &AppState, owner: &str) -> Result<Vec<RaffleSummary>> {
         .await?
         .into_iter()
         .map(|r| RaffleSummary {
-            state: RaffleState::parse(&r.state).unwrap_or(RaffleState::Draft),
+            state: r.state,
             id: r.id,
             slug: r.slug,
             title: r.title,
@@ -125,11 +129,18 @@ pub async fn list(app: &AppState, owner: &str) -> Result<Vec<RaffleSummary>> {
         .collect())
 }
 
+/// The organizer-facing refusal of a title that isn't one.
+fn title(input: &str) -> Result<&str> {
+    settings::title(input).ok_or_else(|| {
+        bad(format!(
+            "The title must be 1–{} characters.",
+            settings::MAX_TITLE_CHARS
+        ))
+    })
+}
+
 pub async fn create(app: &AppState, owner: &str, title: &str) -> Result<String> {
-    let title = title.trim();
-    if title.is_empty() || title.chars().count() > 120 {
-        return Err(bad("The title must be 1–120 characters."));
-    }
+    let title = self::title(title)?;
     let id = ids::id();
     for _ in 0..8 {
         let res = raffles::insert(
@@ -178,15 +189,12 @@ pub async fn update_settings(
     s: RaffleSettings,
 ) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
-    let title = s.title.trim();
-    if title.is_empty() || title.chars().count() > 120 {
-        return Err(bad("The title must be 1–120 characters."));
-    }
-    if s.description.chars().count() > 2000 || s.rules.chars().count() > 5000 {
+    let title = title(&s.title)?;
+    if !settings::texts_fit(&s.description, &s.rules) {
         return Err(bad("Description or rules are too long."));
     }
     let lang = if s.lang == "hu" { "hu" } else { "en" };
-    if raffle.test_mode != s.test_mode && !raffle.state().entrants_editable() {
+    if raffle.test_mode != s.test_mode && !raffle.state.test_mode_editable() {
         return Err(conflict("Test mode cannot change after the draw started."));
     }
     raffles::update_settings(
@@ -211,9 +219,7 @@ pub async fn update_settings(
 
 pub async fn delete(app: &AppState, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
-    if raffle.state() == RaffleState::Drawing
-        && raffle.drawing()?.is_some_and(|s| s.pending().is_some())
-    {
+    if !raffle::drawing::deletable(raffle.state, raffle.drawing()?.as_ref()) {
         return Err(conflict("A draw is in progress."));
     }
     raffles::delete(&app.db, id).await?;
@@ -225,41 +231,65 @@ pub async fn delete(app: &AppState, owner: &str, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Copies settings and prizes into a new draft raffle (no entrants).
+/// Copies settings and prizes into a new draft raffle (no entrants), in one
+/// write: a copy is whole or not there.
 pub async fn duplicate(app: &AppState, owner: &str, id: &str) -> Result<String> {
     let raffle = owned(app, owner, id).await?;
-    let new_id = create(
-        app,
-        owner,
-        &format!(
-            "{} (copy)",
-            raffle.title.chars().take(110).collect::<String>()
-        ),
-    )
-    .await?;
-    let mut s = settings_of(&raffle);
-    s.title = format!(
-        "{} (copy)",
-        raffle.title.chars().take(110).collect::<String>()
-    );
-    update_settings(app, owner, &new_id, s).await?;
-    for prize in prizes::list(&app.db, id).await? {
-        upsert_prize(
-            app,
-            owner,
-            &new_id,
-            PrizeInput {
-                id: None,
-                name: prize.name,
-                sponsor: prize.sponsor,
-                description: prize.description,
-                qty: prize.qty.max(0) as u32,
-                position: prize.position,
+    let title = settings::copy_title(&raffle.title);
+    let prizes = prizes::list(&app.db, id).await?;
+    let copies: Vec<(String, prizes::PrizeFields)> = prizes
+        .iter()
+        .map(|prize| {
+            (
+                ids::code(6).to_lowercase(),
+                prizes::PrizeFields {
+                    name: &prize.name,
+                    sponsor: &prize.sponsor,
+                    description: &prize.description,
+                    qty: prize.qty.max(0) as u32,
+                    position: prize.position,
+                },
+            )
+        })
+        .collect();
+    let settings = raffles::Settings {
+        title: &title,
+        description: &raffle.description,
+        lang: &raffle.lang,
+        organizer_name: &raffle.organizer_name,
+        contact_email: &raffle.contact_email,
+        rules: &raffle.rules,
+        event_date: &raffle.event_date,
+        min_age: raffle.min_age.clamp(0, 99) as u32,
+        test_mode: raffle.test_mode,
+    };
+    let new_id = ids::id();
+    for _ in 0..8 {
+        let res = raffles::insert_with(
+            &app.db,
+            &raffles::NewRaffle {
+                id: &new_id,
+                owner_id: owner,
+                slug: &ids::slug(&title),
+                join_code: &ids::code(4),
+                title: &title,
             },
+            &settings,
+            &copies,
         )
-        .await?;
+        .await;
+        match res {
+            Ok(()) => {
+                audit::record(&app.db, &new_id, owner, "create", &title).await?;
+                return Ok(new_id);
+            }
+            Err(e) if e.is_unique_violation() => continue,
+            Err(e) => return Err(e.into()),
+        }
     }
-    Ok(new_id)
+    Err(conflict(
+        "Could not allocate a unique join code; please try again.",
+    ))
 }
 
 pub async fn upsert_prize(
@@ -269,17 +299,22 @@ pub async fn upsert_prize(
     input: PrizeInput,
 ) -> Result<String> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if !raffle.state().prizes_editable() {
+    if !raffle.state.prizes_editable() {
         return Err(conflict(
             "Prizes cannot change after the entrant list is frozen.",
         ));
     }
-    let name = input.name.trim();
-    if name.is_empty() || name.chars().count() > 120 {
-        return Err(bad("The prize name must be 1–120 characters."));
-    }
-    if input.qty == 0 || input.qty > 500 {
-        return Err(bad("The quantity must be between 1 and 500."));
+    let name = settings::title(&input.name).ok_or_else(|| {
+        bad(format!(
+            "The prize name must be 1–{} characters.",
+            settings::MAX_TITLE_CHARS
+        ))
+    })?;
+    if !settings::prize_qty(input.qty) {
+        return Err(bad(format!(
+            "The quantity must be between 1 and {}.",
+            settings::MAX_PRIZE_QTY
+        )));
     }
     let fields = prizes::PrizeFields {
         name,
@@ -313,7 +348,7 @@ pub async fn delete_prize(
     prize_id: &str,
 ) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if !raffle.state().prizes_editable() {
+    if !raffle.state.prizes_editable() {
         return Err(conflict(
             "Prizes cannot change after the entrant list is frozen.",
         ));
@@ -331,7 +366,7 @@ pub async fn lifecycle(app: &AppState, owner: &str, id: &str, action: Lifecycle)
         Lifecycle::Open => raffle::Command::Open,
         Lifecycle::Close => raffle::Command::Close,
     };
-    let from = raffle.state();
+    let from = raffle.state;
     let to = from.apply(command).ok_or_else(|| {
         conflict(format!(
             "Cannot {command:?} a raffle that is {}.",
@@ -374,12 +409,15 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
         )));
     }
 
-    let manifest = match raffle.state() {
-        from if from.apply(raffle::Command::Freeze).is_some() => {
+    let committed = raffle.manifest.is_some();
+    let opened = raffle.drawing.is_some();
+    let next = start::next(raffle.state, committed, opened).map_err(refused_start)?;
+    let manifest = match next {
+        Start::Freeze { from } => {
             let items = items(app, id).await?;
-            if entrants::count_active(&app.db, id).await? == 0 {
-                return Err(conflict("Nobody has entered yet."));
-            }
+            let entrants = entrants::count_active(&app.db, id).await?;
+            start::ready(usize::try_from(entrants).unwrap_or(0), items.len())
+                .map_err(refused_start)?;
             // Close registration first so no join can slip in while we read the list.
             if !raffles::freeze(&app.db, id, from).await? {
                 return Err(conflict(
@@ -389,25 +427,30 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
             app.notifier.notify(id).await;
             write_manifest(app, owner, id, items, from).await?
         }
-        RaffleState::Frozen if raffle.drawing.is_none() => match raffle.manifest.as_deref() {
-            Some(json) => serde_json::from_str(json).map_err(anyhow::Error::from)?,
-            // A freeze that stopped before writing its manifest: the entrant
-            // list is fixed since the raffle froze, so write it now.
-            None => {
-                write_manifest(app, owner, id, items(app, id).await?, RaffleState::Closed).await?
-            }
-        },
-        RaffleState::Frozen | RaffleState::Drawing => return Ok(()),
-        s => {
-            return Err(conflict(format!(
-                "Cannot start the draw of a raffle that is {}.",
-                s.as_str()
-            )));
+        Start::Commit { unfreeze_to } => {
+            write_manifest(app, owner, id, items(app, id).await?, unfreeze_to).await?
         }
+        Start::Resend => {
+            let json = raffle.manifest.as_deref().unwrap_or_default();
+            serde_json::from_str(json).map_err(anyhow::Error::from)?
+        }
+        Start::Started => return Ok(()),
     };
 
     // The engine writes the opened drawing and nudges the channel itself.
     engine_result(engine.open(&manifest).await)
+}
+
+/// The organizer-facing message for a draw that can't start.
+fn refused_start(refusal: start::Refusal) -> AppError {
+    match refusal {
+        start::Refusal::State(s) => conflict(format!(
+            "Cannot start the draw of a raffle that is {}.",
+            s.as_str()
+        )),
+        start::Refusal::NoEntrants => conflict("Nobody has entered yet."),
+        start::Refusal::NoPrizes => conflict("Add at least one prize first."),
+    }
 }
 
 /// The drawing's items for a raffle's prizes (one per copy), in draw order.
@@ -422,7 +465,7 @@ async fn items(app: &AppState, id: &str) -> Result<Vec<ManifestItem>> {
         )
     }));
     if items.is_empty() {
-        return Err(conflict("Add at least one prize first."));
+        return Err(refused_start(start::Refusal::NoPrizes));
     }
     Ok(items)
 }
@@ -443,10 +486,13 @@ async fn write_manifest(
     unfreeze_to: RaffleState,
 ) -> Result<Manifest> {
     let entrant_ids = entrants::active_ids(&app.db, id).await?;
-    if entrant_ids.is_empty() {
-        raffles::unfreeze(&app.db, id, unfreeze_to).await?;
+    if let Err(refusal) = start::ready(entrant_ids.len(), items.len()) {
+        let to = RaffleState::Frozen
+            .unfreeze(unfreeze_to)
+            .ok_or_else(|| anyhow::anyhow!("cannot unfreeze to {}", unfreeze_to.as_str()))?;
+        raffles::unfreeze(&app.db, id, to).await?;
         app.notifier.notify(id).await;
-        return Err(conflict("Nobody has entered yet."));
+        return Err(refused_start(refusal));
     }
     // The app alone decides the chain; the drawing engine refuses a mismatch.
     let manifest =
@@ -475,7 +521,7 @@ pub async fn command(
 ) -> Result<()> {
     let cmd = cmd.into();
     let raffle = owned(app, owner, id).await?;
-    if !raffle.state().drawable() {
+    if !raffle.state.drawable() {
         return Err(conflict("The draw has not started (or is already over)."));
     }
     let state = raffle.drawing()?.ok_or_else(|| {
@@ -486,7 +532,7 @@ pub async fn command(
 
     // Checked against the projection for immediate, friendly errors: a draw
     // the engine refused would go unnoticed.
-    rafi_engine::admit(&state, &cmd).map_err(|e| refusal(&cmd, e))?;
+    state.admit(&cmd).map_err(|e| refusal(&cmd, e))?;
 
     send(app, owner, id, cmd, command_id).await
 }
@@ -522,16 +568,21 @@ fn refusal(cmd: &Command, e: DrawingError) -> AppError {
     conflict(message)
 }
 
-/// Audits a validated command and hands it to the drawing engine, which writes
-/// the new state and nudges the channel itself.
+/// Hands a validated command to the drawing engine, which writes the new
+/// state and nudges the channel itself, and audits it once the engine took it
+/// (applied, or accepted and queued). A command the engine refused, or
+/// couldn't be asked, isn't audited: the organizer's retry (same command ID,
+/// applied once) is.
 async fn send(app: &AppState, owner: &str, id: &str, cmd: Command, command_id: &str) -> Result<()> {
     let engine = engine(app)?;
+    let drawing = raffle::drawing::drawing_id(id);
+    engine_result(match &cmd {
+        Command::Draw(request) => engine.draw(&drawing, request, command_id).await,
+        Command::Decide(decision) => engine.decide(&drawing, decision, command_id).await,
+    })?;
     let (action, detail) = audited(&cmd);
     audit::record(&app.db, id, owner, action, &detail).await?;
-    engine_result(match &cmd {
-        Command::Draw(request) => engine.draw(id, request, command_id).await,
-        Command::Decide(decision) => engine.decide(id, decision, command_id).await,
-    })
+    Ok(())
 }
 
 /// How the audit log records a command: the organizer's request as a verb,
@@ -557,27 +608,12 @@ fn audited(cmd: &Command) -> (&'static str, String) {
 // Entrants
 // ---------------------------------------------------------------------------
 
-/// Words that are not accepted as display names (substring match, lowercase).
-const BLOCKED: &[&str] = &[
-    "fuck", "shit", "cunt", "nigger", "faggot", "hitler", "nazi", "bitch", "whore", "porn",
-    "kurva", "geci", "fasz", "picsa", "buzi", "cigány", "köcsög", "kocsog", "baszd", "bazd",
-    "anyád", "anyad",
-];
-
-pub fn validate_name(name: &str) -> Result<String, &'static str> {
-    let name: String = name.split_whitespace().collect::<Vec<_>>().join(" ");
-    let len = name.chars().count();
-    if len == 0 || len > MAX_NAME_CHARS {
-        return Err("err_name");
-    }
-    if name.chars().any(|c| c.is_control()) {
-        return Err("err_name");
-    }
-    let lower = name.to_lowercase();
-    if BLOCKED.iter().any(|w| lower.contains(w)) {
-        return Err("err_name_blocked");
-    }
-    Ok(name)
+/// The display name `input` stands for, or the i18n key of why not.
+pub fn validate_name(input: &str) -> Result<String, &'static str> {
+    entrant::display_name(input).map_err(|e| match e {
+        NameError::Invalid => "err_name",
+        NameError::Blocked => "err_name_blocked",
+    })
 }
 
 async fn unique_claim_code(app: &AppState, raffle_id: &str) -> Result<String> {
@@ -608,14 +644,11 @@ pub async fn join(
     rules: bool,
     marketing: bool,
 ) -> std::result::Result<JoinOutcome, &'static str> {
-    if !raffle.state().joinable() {
+    if !raffle.state.joinable() {
         return Err("reg_closed");
     }
     let name = validate_name(name)?;
-    let email_norm = super::email::normalize(email).ok_or("err_email")?;
-    if email.trim().chars().count() > 254 {
-        return Err("err_email");
-    }
+    let email = Email::parse(email).ok_or("err_email")?;
     if !rules {
         return Err("err_rules");
     }
@@ -632,8 +665,8 @@ pub async fn join(
             id: &id,
             raffle_id: &raffle.id,
             display_name: &name,
-            email_raw: email.trim(),
-            email_norm: &email_norm,
+            email_raw: &email.raw,
+            email_norm: &email.key,
             claim_code: &claim,
             token_hash: &ids::token_hash(&token),
             consent_version: CONSENT_VERSION,
@@ -643,7 +676,7 @@ pub async fn join(
     )
     .await;
     match res {
-        Ok(false) => return not_joined(app, raffle, &email_norm).await,
+        Ok(false) => return not_joined(app, raffle, &email.key).await,
         Ok(true) => {}
         Err(e) if e.is_unique_violation() => {
             return Ok(JoinOutcome::AlreadyIn);
@@ -666,7 +699,7 @@ async fn not_joined(
 ) -> std::result::Result<JoinOutcome, &'static str> {
     let open = matches!(
         raffles::get(&app.db, &raffle.id).await,
-        Ok(Some(r)) if r.state().joinable()
+        Ok(Some(r)) if r.state.joinable()
     );
     if !open {
         return Err("reg_closed");
@@ -688,16 +721,13 @@ pub async fn add_manual(
     email: Option<String>,
 ) -> Result<String> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if !raffle.state().entrants_editable() {
+    if !raffle.state.entrants_editable() {
         return Err(conflict("The entrant list is frozen."));
     }
     let name = validate_name(name).map_err(|k| bad(crate::i18n::Lang::En.t(k)))?;
-    let (raw, norm) = match email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
-        Some(e) => (
-            Some(e.to_owned()),
-            Some(super::email::normalize(e).ok_or_else(|| bad("Invalid email address."))?),
-        ),
-        None => (None, None),
+    let email = match email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+        Some(e) => Some(Email::parse(e).ok_or_else(|| bad("Invalid email address."))?),
+        None => None,
     };
     let id = ids::id();
     let claim = unique_claim_code(app, raffle_id).await?;
@@ -707,8 +737,8 @@ pub async fn add_manual(
             id: &id,
             raffle_id,
             display_name: &name,
-            email_raw: raw.as_deref(),
-            email_norm: norm.as_deref(),
+            email_raw: email.as_ref().map(|e| e.raw.as_str()),
+            email_norm: email.as_ref().map(|e| e.key.as_str()),
             claim_code: &claim,
             consent_version: CONSENT_VERSION,
         },
@@ -731,7 +761,7 @@ pub async fn add_fakes(app: &AppState, owner: &str, raffle_id: &str, n: u32) -> 
     if !raffle.test_mode {
         return Err(conflict("Fake entrants are only allowed in test mode."));
     }
-    if !raffle.state().entrants_editable() {
+    if !raffle.state.entrants_editable() {
         return Err(conflict("The entrant list is frozen."));
     }
     const FIRST: &[&str] = &[
@@ -790,7 +820,7 @@ pub async fn patch_entrant(
         entrants::set_hidden(&app.db, entrant_id, hidden).await?;
     }
     if let Some(delivered) = patch.delivered {
-        if raffle.state() == RaffleState::Draft {
+        if !raffle.state.deliverable() {
             return Err(conflict("Nothing to deliver yet."));
         }
         entrants::set_delivered(&app.db, entrant_id, delivered.then(ids::now)).await?;
@@ -812,12 +842,15 @@ pub async fn remove_entrant(
     entrant_id: &str,
 ) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if raffle.state().entrants_editable() {
-        entrants::delete(&app.db, raffle_id, entrant_id).await?;
-        audit::record(&app.db, raffle_id, owner, "remove_entrant", entrant_id).await?;
-    } else {
-        entrants::erase(&app.db, raffle_id, Some(entrant_id)).await?;
-        audit::record(&app.db, raffle_id, owner, "erase_entrant", entrant_id).await?;
+    match raffle.state.removal() {
+        Removal::Delete => {
+            entrants::delete(&app.db, raffle_id, entrant_id).await?;
+            audit::record(&app.db, raffle_id, owner, "remove_entrant", entrant_id).await?;
+        }
+        Removal::Erase => {
+            entrants::erase(&app.db, raffle_id, Some(entrant_id)).await?;
+            audit::record(&app.db, raffle_id, owner, "erase_entrant", entrant_id).await?;
+        }
     }
     app.notifier.notify(raffle_id).await;
     Ok(())
@@ -827,9 +860,7 @@ pub async fn remove_entrant(
 /// its live channel.
 pub async fn purge(app: &AppState, owner: &str, raffle_id: &str) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
-    // Purging a purged raffle again finishes a purge that stopped partway.
-    let from = raffle.state();
-    if from != RaffleState::Purged && from.apply(raffle::Command::Purge).is_none() {
+    if raffle.state.apply(raffle::Command::Purge).is_none() {
         return Err(conflict("Only finished raffles can be purged."));
     }
     entrants::erase(&app.db, raffle_id, None).await?;
@@ -845,7 +876,7 @@ pub async fn purge(app: &AppState, owner: &str, raffle_id: &str) -> Result<()> {
 /// destroyed again).
 pub async fn end_live(app: &AppState, owner: &str, raffle_id: &str) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if !matches!(raffle.state(), RaffleState::Finished | RaffleState::Purged) {
+    if !raffle.state.is_over() {
         return Err(conflict(
             "Live updates can only end once the raffle has finished.",
         ));
@@ -987,7 +1018,7 @@ pub async fn verify_data(app: &AppState, slug: &str) -> Result<VerifyData> {
         .collect();
     Ok(VerifyData {
         title: raffle.title.clone(),
-        state: raffle.state(),
+        state: raffle.state,
         events: raffle
             .drawing()?
             .map(|s| s.events().to_vec())

@@ -1,5 +1,6 @@
 //! A raffle's entrants, and erasing their personal data.
 
+use rafi_raffle::RaffleState;
 use serde::Deserialize;
 
 use crate::{Db, Result, now};
@@ -126,13 +127,14 @@ pub struct Join<'a> {
 pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64) -> Result<bool> {
     let now = now();
     let inserted = db
-        .query(
+        .query(format!(
             "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, token_hash,
                                    consent_version, consent_rules_at, consent_marketing, created_at)
              SELECT ?1, ?2, ?3, ?4, ?5, 'self', ?6, ?7, ?8, ?9, ?10, ?11
-             WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ?2 AND state = 'open')
+             WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ?2 AND state IN ({joinable}))
                AND (SELECT COUNT(*) FROM entrants WHERE raffle_id = ?2) < ?12",
-        )
+            joinable = crate::raffles::states(RaffleState::joinable),
+        ))
         .bind(j.id)
         .bind(j.raffle_id)
         .bind(j.display_name)

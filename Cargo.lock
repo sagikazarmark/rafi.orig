@@ -4807,6 +4807,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "futures-util",
+ "gloo-timers 0.3.0",
  "http",
  "rafi-drand",
  "rafi-drawing",
@@ -4832,6 +4834,9 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "partyline",
+ "rafi-drawing",
+ "rafi-live",
+ "rafi-raffle",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4868,8 +4873,11 @@ dependencies = [
 name = "rafi-raffle"
 version = "0.1.0"
 dependencies = [
+ "drand",
+ "proptest",
  "rafi-drawing",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4881,7 +4889,9 @@ dependencies = [
  "http-body-util",
  "rafi-cloudflare",
  "rafi-drand",
+ "rafi-engine",
  "rafi-engine-restate",
+ "rafi-raffle",
  "rafi-store",
  "restate-sdk",
  "worker",
@@ -4898,7 +4908,6 @@ dependencies = [
  "oliphaunt",
  "rafi-drawing",
  "rafi-engine",
- "rafi-live",
  "rafi-platform",
  "rafi-raffle",
  "rafi-store",
@@ -5215,8 +5224,10 @@ dependencies = [
  "clap",
  "figment",
  "rafi-drand",
+ "rafi-engine",
  "rafi-engine-restate",
  "rafi-platform",
+ "rafi-raffle",
  "rafi-store",
  "restate-config",
  "restate-ext",

@@ -283,9 +283,24 @@ impl<'de> Deserializer<'de> for ValueDe {
         visitor.visit_newtype_struct(self)
     }
 
+    /// Unit variants are stored by name: an unknown name is an error.
+    fn deserialize_enum<V: Visitor<'de>>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, DeError> {
+        match self.0 {
+            Value::Text(s) => visitor.visit_enum(s.into_deserializer()),
+            other => Err(de::Error::custom(format!(
+                "expected a variant name, found {other:?}"
+            ))),
+        }
+    }
+
     serde::forward_to_deserialize_any! {
         i8 i16 i128 u8 u16 u128 f32 f64 char str string bytes byte_buf unit unit_struct
-        seq tuple tuple_struct map struct enum identifier ignored_any
+        seq tuple tuple_struct map struct identifier ignored_any
     }
 }
 

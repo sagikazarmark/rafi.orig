@@ -23,7 +23,7 @@ pub fn routes() -> Router {
 
 async fn public_raffle(app: &AppState, slug: &str) -> Result<RaffleRow, StatusCode> {
     match raffles::by_slug(&app.db, slug).await {
-        Ok(Some(r)) if r.state().is_public() => Ok(r),
+        Ok(Some(r)) if r.state.is_public() => Ok(r),
         Ok(_) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
             tracing::error!(error = %e, "loading raffle");
@@ -56,9 +56,11 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
         Err(status) => return status.into_response(),
     };
     match Snapshot::read(&app.db, &raffle.id).await {
-        Ok(Some(snap)) => {
-            ([(header::CACHE_CONTROL, "no-store")], Json(snap.view())).into_response()
-        }
+        Ok(Some(snap)) => (
+            [(header::CACHE_CONTROL, "no-store")],
+            Json(super::view::participant(&snap)),
+        )
+            .into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!(error = %e, "reading the participant view");

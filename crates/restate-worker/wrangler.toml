@@ -34,8 +34,6 @@ enabled = false
 
 [vars]
 RAFI_DO_JURISDICTION = "eu"
-RAFI_RETENTION_DAYS = "30"
-RAFI_RETENTION_WINNERS_DAYS = "90"
 
 # Next to the app's dev Worker (`wrangler dev --env dev` in crates/app).
 [env.dev]

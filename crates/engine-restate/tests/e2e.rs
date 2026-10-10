@@ -87,7 +87,7 @@ async fn e2e_raffle() {
                 .bind(rafi_engine_restate::Drawing::new(
                     drand,
                     store.clone(),
-                    notifier.clone(),
+                    rafi_engine::Notify::new(notifier.clone(), rafi_drawing::DrawingId::as_str),
                 ))
                 .build(),
         )
@@ -289,7 +289,7 @@ async fn e2e_stalled_draw() {
                 .bind(rafi_engine_restate::Drawing::new(
                     drand,
                     store.clone(),
-                    notifier.clone(),
+                    rafi_engine::Notify::new(notifier.clone(), rafi_drawing::DrawingId::as_str),
                 ))
                 .build(),
         )
@@ -377,7 +377,7 @@ async fn e2e_cancelled_draw_stalls() {
                 .bind(rafi_engine_restate::Drawing::new(
                     drand,
                     store.clone(),
-                    notifier.clone(),
+                    rafi_engine::Notify::new(notifier.clone(), rafi_drawing::DrawingId::as_str),
                 ))
                 .build(),
         )

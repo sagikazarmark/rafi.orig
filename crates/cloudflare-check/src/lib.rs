@@ -14,7 +14,7 @@ use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleChannel;
 use rafi_drawing::{BeaconSource, Drawing, Event, ItemStatus, Manifest, ManifestItem};
 use rafi_platform::Notifier;
-use rafi_store::{Db, PurgeAfter, live::Snapshot};
+use rafi_store::{Db, live::Snapshot};
 use worker::{Context, Env, Method, Request, Response, Result, event};
 
 fn err(e: impl std::fmt::Display) -> worker::Error {
@@ -149,7 +149,7 @@ async fn page(
         .await
         .map_err(err)?
         .ok_or_else(|| err("no such raffle"))?;
-    let view = snap.view();
+    let view = rafi_cloudflare::view(&snap);
     let strings = CardStrings::from_lookup(|k| {
         STRINGS
             .iter()
@@ -164,7 +164,7 @@ async fn page(
             view: view.clone(),
             me: me.clone(),
             claim_code: me.as_ref().map(|_| "K2P9".to_owned()),
-            page_state: snap.state,
+            page_state: view.state,
             now_ms,
             strings: strings.clone(),
         }
@@ -223,9 +223,7 @@ async fn record(db: &Db, raffle: &str, event: Event) -> Result<()> {
     events.push(event);
     let state =
         Drawing::restore(&manifest(raffle, BeaconSource::QUICKNET), &events).map_err(err)?;
-    rafi_store::save_drawing(db, &state, PurgeAfter::days(30, 90))
-        .await
-        .map_err(err)?;
+    rafi_store::save_drawing(db, &state).await.map_err(err)?;
     Ok(())
 }
 
@@ -293,7 +291,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
     if path == "/participant" {
         let snap = Snapshot::read(&db, raffle).await.map_err(err)?;
-        return Response::from_json(&snap.map(|s| s.view()));
+        return Response::from_json(&snap.map(|s| rafi_cloudflare::view(&s)));
     }
     if req.method() != Method::Post {
         return Response::error("Not Found", 404);

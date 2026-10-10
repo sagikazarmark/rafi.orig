@@ -10,7 +10,18 @@ use rafi_drawing::Drawing;
 use rafi_raffle::RaffleState;
 use serde::Deserialize;
 
-use crate::{Db, Result, now};
+use crate::{Db, Query, Result, now, prizes::PrizeFields};
+
+/// The states `rule` holds for, as an SQL list of their names: SQL that
+/// guards on a state asks the raffle's rules ([`RaffleState`]) which.
+pub(crate) fn states(rule: impl Fn(RaffleState) -> bool) -> String {
+    RaffleState::ALL
+        .into_iter()
+        .filter(|s| rule(*s))
+        .map(|s| format!("'{}'", s.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 /// A row of `raffles`.
 #[derive(Debug, Clone, Deserialize)]
@@ -27,7 +38,8 @@ pub struct RaffleRow {
     pub rules: String,
     pub event_date: String,
     pub min_age: i64,
-    pub state: String,
+    /// Decoding fails on a state rafi doesn't know: never guessed.
+    pub state: RaffleState,
     pub test_mode: bool,
     pub manifest: Option<String>,
     pub manifest_hash: Option<String>,
@@ -48,10 +60,6 @@ pub struct RaffleRow {
 }
 
 impl RaffleRow {
-    pub fn state(&self) -> RaffleState {
-        RaffleState::parse(&self.state).unwrap_or(RaffleState::Draft)
-    }
-
     /// The drawing, once the engine has opened it.
     pub fn drawing(&self) -> Result<Option<Drawing>> {
         self.drawing
@@ -67,7 +75,7 @@ pub struct RaffleSummaryRow {
     pub id: String,
     pub slug: String,
     pub title: String,
-    pub state: String,
+    pub state: RaffleState,
     pub test_mode: bool,
     pub created_at: i64,
     /// Every entrant, erased ones included.
@@ -134,6 +142,10 @@ pub async fn list_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleSummaryR
 /// Creates a draft raffle. A taken slug or join code is
 /// an [`Error::Unique`](crate::Error::Unique).
 pub async fn insert(db: &Db, r: &NewRaffle<'_>) -> Result<()> {
+    insert_query(db, r).run().await.map(|_| ())
+}
+
+fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>) -> Query<'a> {
     let now = now();
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, created_at, updated_at)
@@ -146,12 +158,13 @@ pub async fn insert(db: &Db, r: &NewRaffle<'_>) -> Result<()> {
     .bind(r.title)
     .bind(now)
     .bind(now)
-    .run()
-    .await
-    .map(|_| ())
 }
 
 pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<()> {
+    settings_query(db, id, s).run().await.map(|_| ())
+}
+
+fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     db.query(
         "UPDATE raffles SET title = ?, description = ?, lang = ?, organizer_name = ?, contact_email = ?, rules = ?,
          event_date = ?, min_age = ?, test_mode = ?, updated_at = ? WHERE id = ?",
@@ -167,9 +180,24 @@ pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<()> 
     .bind(s.test_mode)
     .bind(now())
     .bind(id)
-    .run()
-    .await
-    .map(|_| ())
+}
+
+/// Creates a draft raffle with `settings` and `prizes` (IDs and fields) in
+/// one batch: all of it or nothing. A taken slug or join code is an
+/// [`Error::Unique`](crate::Error::Unique).
+pub async fn insert_with(
+    db: &Db,
+    r: &NewRaffle<'_>,
+    settings: &Settings<'_>,
+    prizes: &[(String, PrizeFields<'_>)],
+) -> Result<()> {
+    let mut queries = vec![insert_query(db, r), settings_query(db, r.id, settings)];
+    queries.extend(
+        prizes
+            .iter()
+            .map(|(id, prize)| crate::prizes::insert_query(db, id, r.id, prize)),
+    );
+    db.batch(queries).await.map(|_| ())
 }
 
 /// Deletes the raffle with its prizes and entrants.
@@ -203,9 +231,9 @@ pub async fn freeze(db: &Db, id: &str, from: RaffleState) -> Result<bool> {
 }
 
 /// Reverts a freeze that found nobody to draw from: a frozen raffle without a
-/// manifest goes back to `to`. Not a lifecycle transition (organizers can't
-/// unfreeze): it undoes the freeze's first step, the store having no
-/// transaction to roll back.
+/// manifest goes back to `to` ([`RaffleState::unfreeze`]: the state it froze
+/// from). It undoes the freeze's first step, the store having no transaction
+/// to roll back.
 pub async fn unfreeze(db: &Db, id: &str, to: RaffleState) -> Result<()> {
     db.query(
         "UPDATE raffles SET state = ?, updated_at = ?
@@ -265,13 +293,14 @@ pub async fn end_live(db: &Db, id: &str) -> Result<()> {
     .map(|_| ())
 }
 
-/// How many real (not test mode) raffles are live: open, frozen or drawing.
+/// How many real (not test mode) raffles are under way
+/// ([`RaffleState::in_progress`]).
 pub async fn live_count(db: &Db) -> Result<i64> {
     let (n,): (i64,) = db
-        .query(
-            "SELECT COUNT(*) FROM raffles
-             WHERE state IN ('open', 'frozen', 'drawing') AND test_mode = 0",
-        )
+        .query(format!(
+            "SELECT COUNT(*) FROM raffles WHERE state IN ({}) AND test_mode = 0",
+            states(RaffleState::in_progress)
+        ))
         .one()
         .await?;
     Ok(n)

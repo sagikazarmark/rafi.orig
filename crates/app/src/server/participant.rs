@@ -95,7 +95,7 @@ async fn load(app: &AppState, code: &str) -> Option<RaffleRow> {
         .await
         .ok()
         .flatten()?;
-    raffle.state().is_public().then_some(raffle)
+    raffle.state.is_public().then_some(raffle)
 }
 
 async fn current_entrant(
@@ -225,8 +225,8 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
         form,
     } = ctx;
     let t = |k: &str| lang.t(k);
-    let phase = snapshot.state;
-    let view = snapshot.view();
+    let view = super::view::participant(snapshot);
+    let phase = view.state;
     let strings = CardStrings::from_lookup(|k| lang.t(k).to_owned());
     let now_ms = crate::model::now_unix_ms();
     let code = raffle.join_code.clone();
@@ -289,7 +289,7 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
                         }
                         fieldset { class: "fieldset",
                             legend { class: "fieldset-legend text-sm", "{t(\"display_name\")}" }
-                            input { class: "input input-lg w-full", id: "name", name: "name", required: true, maxlength: "24", autocomplete: "nickname", value: "{name}" }
+                            input { class: "input input-lg w-full", id: "name", name: "name", required: true, maxlength: "{rafi_raffle::entrant::MAX_NAME_CHARS}", autocomplete: "nickname", value: "{name}" }
                             p { class: "label", "{t(\"display_name_hint\")}" }
                         }
                         fieldset { class: "fieldset",
@@ -511,12 +511,18 @@ async fn try_join(
     raffle: &RaffleRow,
     form: &JoinForm,
 ) -> Result<String, (Notice, StatusCode)> {
-    let email_key = super::email::normalize(&form.email).unwrap_or_default();
+    // An email that doesn't normalize is refused by the join itself; it gets
+    // no per-email bucket, rather than one shared by every malformed address.
+    let email_key = rafi_raffle::entrant::Email::parse(&form.email).map(|e| e.key);
     let limited = !app.limiter.allow(Limit::JoinPerRaffle, &raffle.id).await
-        || !app
-            .limiter
-            .allow(Limit::JoinPerEmail, &format!("{}:{email_key}", raffle.id))
-            .await;
+        || match &email_key {
+            Some(key) => {
+                !app.limiter
+                    .allow(Limit::JoinPerEmail, &format!("{}:{key}", raffle.id))
+                    .await
+            }
+            None => false,
+        };
     if limited {
         return Err((Notice::Error("err_rate"), StatusCode::TOO_MANY_REQUESTS));
     }
@@ -600,7 +606,7 @@ async fn rules(
     let Ok(Some(r)) = raffles::by_slug(&app.db, &slug).await else {
         return not_found(pick_lang(&q, &headers, None));
     };
-    if !r.state().is_public() {
+    if !r.state.is_public() {
         return not_found(pick_lang(&q, &headers, None));
     }
     let lang = pick_lang(&q, &headers, Some(&r));
@@ -694,7 +700,7 @@ async fn privacy(
     let Ok(Some(r)) = raffles::by_slug(&app.db, &slug).await else {
         return not_found(pick_lang(&q, &headers, None));
     };
-    if !r.state().is_public() {
+    if !r.state.is_public() {
         return not_found(pick_lang(&q, &headers, None));
     }
     let lang = pick_lang(&q, &headers, Some(&r));

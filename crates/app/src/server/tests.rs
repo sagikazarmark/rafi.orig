@@ -62,12 +62,10 @@ async fn app_with_engine(
     let db = rafi_store::Db::connect(&cfg.database_url)
         .await
         .expect("database");
-    let purge =
-        rafi_store::PurgeAfter::days(cfg.retention_nonwinners_days, cfg.retention_winners_days);
     let engine = rafi_engine::local::LocalEngine::new(
         rafi_drand::DrandClient::new(drand).expect("drand configuration"),
-        rafi_store::DrawWriter::new(db.clone(), purge),
-        Polling::default(),
+        rafi_store::DrawWriter::new(db.clone()),
+        rafi_engine::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
     );
     AppState::from_parts(
         cfg,
@@ -285,7 +283,7 @@ async fn full_raffle_flow() {
     // Freeze; joining is closed afterwards.
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
-    assert_eq!(r.state(), RaffleState::Frozen);
+    assert_eq!(r.state, RaffleState::Frozen);
     let (status, cookie, _) = join(&router, &code, "Late", "late@example.com").await;
     assert_ne!(status, StatusCode::SEE_OTHER);
     assert!(cookie.is_none());
@@ -426,8 +424,12 @@ async fn full_raffle_flow() {
         .await
         .unwrap();
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
-    assert_eq!(r.state(), RaffleState::Finished);
-    assert!(r.purge_nonwinners_at.is_some());
+    assert_eq!(r.state, RaffleState::Finished);
+    assert!(r.finished_at.is_some());
+    assert!(
+        r.purge_nonwinners_at.is_none(),
+        "erasure is the retention run's to date"
+    );
 
     // The audit log names each command by its verb, with what it was about.
     let audit: Vec<(String, String)> = app
@@ -489,7 +491,7 @@ async fn full_raffle_flow() {
             .await
             .unwrap()
             .unwrap()
-            .state(),
+            .state,
         RaffleState::Purged
     );
     // Each erasure is logged once, by ID; a second run has nothing to do.
@@ -843,7 +845,7 @@ async fn an_engine_on_another_chain_is_refused_before_freezing() {
         .unwrap_err();
     assert!(matches!(err, service::AppError::Conflict(_)), "{err}");
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
-    assert_eq!(r.state(), RaffleState::Open, "nothing was frozen");
+    assert_eq!(r.state, RaffleState::Open, "nothing was frozen");
     assert!(r.manifest.is_none(), "nothing was committed");
 }
 
@@ -867,7 +869,7 @@ async fn draws_need_restate() {
             .await
             .unwrap()
             .unwrap()
-            .state(),
+            .state,
         RaffleState::Open,
         "nothing was frozen"
     );
@@ -992,7 +994,7 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
     .await;
     assert_eq!((status, body.as_str()), (StatusCode::OK, "null"));
     assert_eq!(
-        raffles::get(&app.db, &id).await.unwrap().unwrap().state(),
+        raffles::get(&app.db, &id).await.unwrap().unwrap().state,
         RaffleState::Ready
     );
 
@@ -1047,7 +1049,7 @@ async fn lifecycle_guards() {
     );
     // The failed freeze must not leave the raffle frozen.
     assert_eq!(
-        raffles::get(&app.db, &id).await.unwrap().unwrap().state(),
+        raffles::get(&app.db, &id).await.unwrap().unwrap().state,
         RaffleState::Open
     );
     assert!(
@@ -1423,7 +1425,7 @@ async fn finished_raffle(app: &AppState) -> RaffleRow {
         .await
         .unwrap();
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
-    assert_eq!(r.state(), RaffleState::Finished);
+    assert_eq!(r.state, RaffleState::Finished);
     r
 }
 
@@ -1515,7 +1517,7 @@ async fn writes_nudge_and_destroy_the_channel() {
     service::purge(&app, OWNER, &raffle.id).await.unwrap();
     assert_eq!(live.ended(), std::slice::from_ref(&raffle.id));
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
-    assert_eq!(r.state(), RaffleState::Purged);
+    assert_eq!(r.state, RaffleState::Purged);
     assert!(r.live_ended_at.is_some(), "a purge ends live updates");
     let (logged,): (i64,) = app
         .db
@@ -1611,11 +1613,7 @@ async fn retention_ends_channels_and_logs_erasures() {
     );
     // Not yet purged: the winners' date hasn't passed.
     assert_eq!(
-        raffles::get(&app.db, &old.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .state(),
+        raffles::get(&app.db, &old.id).await.unwrap().unwrap().state,
         RaffleState::Finished
     );
     let log: Vec<serde_json::Value> = app.db.query("SELECT * FROM erasures").all().await.unwrap();

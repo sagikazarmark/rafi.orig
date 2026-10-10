@@ -7,8 +7,7 @@ use rafi_drawing::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing as State, Error as DrawingError,
     ErrorKind, Manifest,
 };
-use rafi_engine::{DrawStore, NOT_OPEN, status_code};
-use rafi_platform::Notifier;
+use rafi_engine::{DrawStore, DrawingNotifier, NOT_OPEN, status_code};
 use restate_drand::{AwaitError, Drand};
 use restate_sdk::prelude::*;
 
@@ -22,13 +21,13 @@ const STATE: &str = "state";
 pub struct Drawing {
     drand: Drand,
     store: Arc<dyn DrawStore>,
-    notifier: Arc<dyn Notifier>,
+    notifier: Arc<dyn DrawingNotifier>,
 }
 
 impl Drawing {
     /// Draws with `drand`, writes every state to `store` and tells clients
     /// through `notifier`.
-    pub fn new(drand: DrandClient, store: impl DrawStore, notifier: impl Notifier) -> Self {
+    pub fn new(drand: DrandClient, store: impl DrawStore, notifier: impl DrawingNotifier) -> Self {
         let config = drand.config();
         let drand = Drand::new(drand.client().clone())
             .with_lead(Duration::from_secs(config.lead_secs))
@@ -89,14 +88,13 @@ impl Drawing {
         .await?;
         // Its own journaled step, so a replay doesn't notify again. The notifier
         // logs and drops its own failures (clients re-read on their own), so a
-        // stuck notification can't block the drawing's object; the attempts
-        // only cover the step itself failing. A drawing is keyed by its
-        // raffle's id (`rafi_raffle::drawing::manifest`), so it names the raffle.
-        let drawing_id = state.id().as_str();
+        // stuck notification can't block the drawing's object, and the step
+        // doesn't retry them: its attempts only cover the step itself failing.
+        let drawing_id = state.id();
         let notifier = &*self.notifier;
         let notified = ctx
             .run(|| async move {
-                notifier.notify(drawing_id).await;
+                notifier.changed(drawing_id).await;
                 Ok(())
             })
             .name("notify")
@@ -107,7 +105,7 @@ impl Drawing {
             )
             .await;
         if let Err(e) = notified {
-            tracing::warn!(drawing_id, error = %e, "notifying clients failed");
+            tracing::warn!(%drawing_id, error = %e, "notifying clients failed");
         }
         Ok(())
     }

@@ -29,12 +29,12 @@ use std::{
 
 use rafi_drand::DrandClient;
 use rafi_drawing::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Error as DrawingError, ErrorKind,
-    Manifest,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, DrawingId, Error as DrawingError,
+    ErrorKind, Manifest,
 };
-use rafi_platform::{BoxFuture, Notifier};
+use rafi_platform::BoxFuture;
 
-use crate::{DrawStore, DrawingEngine, EngineError, EngineInfo, NOT_OPEN};
+use crate::{DrawStore, DrawingEngine, DrawingNotifier, EngineError, EngineInfo, NOT_OPEN};
 use tokio::sync::{mpsc, watch};
 
 /// Unix seconds now.
@@ -55,7 +55,7 @@ pub struct LocalEngine {
 struct Shared {
     io: Arc<Io>,
     /// Each drawing's queue; its task ends when the engine is dropped.
-    queues: Mutex<HashMap<String, mpsc::UnboundedSender<Job>>>,
+    queues: Mutex<HashMap<DrawingId, mpsc::UnboundedSender<Job>>>,
     /// The outcome of every call by idempotency key, set once applied.
     seen: Mutex<HashMap<String, watch::Sender<Option<Outcome>>>>,
 }
@@ -64,7 +64,7 @@ struct Shared {
 struct Io {
     drand: DrandClient,
     store: Arc<dyn DrawStore>,
-    notifier: Arc<dyn Notifier>,
+    notifier: Arc<dyn DrawingNotifier>,
     clock: Clock,
 }
 
@@ -114,12 +114,16 @@ impl Builder {
 impl LocalEngine {
     /// Draws with `drand`, writes every state to `store` and tells clients
     /// through `notifier`. System clock; no deadline.
-    pub fn new(drand: DrandClient, store: impl DrawStore, notifier: impl Notifier) -> Self {
+    pub fn new(drand: DrandClient, store: impl DrawStore, notifier: impl DrawingNotifier) -> Self {
         Self::builder(drand, store, notifier).build()
     }
 
     /// [`LocalEngine::new`], configured further.
-    pub fn builder(drand: DrandClient, store: impl DrawStore, notifier: impl Notifier) -> Builder {
+    pub fn builder(
+        drand: DrandClient,
+        store: impl DrawStore,
+        notifier: impl DrawingNotifier,
+    ) -> Builder {
         Builder {
             io: Io {
                 drand,
@@ -149,7 +153,7 @@ impl LocalEngine {
     /// key's outcome channel.
     fn submit(
         &self,
-        drawing_id: &str,
+        drawing_id: &DrawingId,
         key: String,
         work: Work,
     ) -> watch::Receiver<Option<Outcome>> {
@@ -162,9 +166,9 @@ impl LocalEngine {
         drop(seen);
         let job = Job { work, done };
         let mut queues = self.shared.queues.lock().expect("queues lock");
-        let queue = queues.entry(drawing_id.to_owned()).or_insert_with(|| {
+        let queue = queues.entry(drawing_id.clone()).or_insert_with(|| {
             let (tx, rx) = mpsc::unbounded_channel();
-            tokio::spawn(run(self.shared.io.clone(), drawing_id.to_owned(), rx));
+            tokio::spawn(run(self.shared.io.clone(), drawing_id.clone(), rx));
             tx
         });
         if let Err(mpsc::error::SendError(job)) = queue.send(job) {
@@ -204,14 +208,14 @@ impl DrawingEngine for LocalEngine {
     fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(async move {
             let key = format!("{}/{}", doc.drawing, doc.open_key());
-            let rx = self.submit(doc.drawing.as_str(), key, Work::Open(doc.clone()));
+            let rx = self.submit(&doc.drawing, key, Work::Open(doc.clone()));
             self.outcome(rx).await
         })
     }
 
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a str,
+        drawing_id: &'a DrawingId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
@@ -225,7 +229,7 @@ impl DrawingEngine for LocalEngine {
 
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a str,
+        drawing_id: &'a DrawingId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
@@ -237,13 +241,15 @@ impl DrawingEngine for LocalEngine {
     }
 }
 
-/// A drawing's task: applies its jobs one at a time, in order.
-async fn run(io: Arc<Io>, drawing_id: String, mut jobs: mpsc::UnboundedReceiver<Job>) {
+/// A drawing's task: applies its jobs one at a time, in order. Command IDs
+/// outlive the drawing, as Restate's idempotency retention does: a retried
+/// finish answers as the first one did.
+async fn run(io: Arc<Io>, drawing_id: DrawingId, mut jobs: mpsc::UnboundedReceiver<Job>) {
     let mut state: Option<Drawing> = None;
     while let Some(job) = jobs.recv().await {
         let outcome = io.apply(&mut state, job.work).await;
         if let Err((_, message)) = &outcome {
-            tracing::debug!(drawing_id, message, "refused");
+            tracing::debug!(%drawing_id, message, "refused");
         }
         job.done.send_replace(Some(outcome));
     }
@@ -298,27 +304,22 @@ impl Io {
         }
     }
 
-    /// Writes the state, retried with backoff (the database is the record),
-    /// then tells clients, best effort.
+    /// Writes the state, retried with backoff until it succeeds (the database
+    /// is the record), as Restate retries its journaled step; then tells
+    /// clients, best effort.
     async fn project(&self, state: &Drawing) {
         let mut delay = Duration::from_millis(20);
-        for attempt in 1.. {
+        for attempt in 1u32.. {
             match self.store.save_drawing(state).await {
                 Ok(_) => break,
-                Err(e) if attempt < 10 => {
+                Err(e) => {
                     tracing::warn!(drawing_id = %state.id(), attempt, error = %e, "projecting failed; retrying");
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
-                Err(e) => {
-                    tracing::error!(drawing_id = %state.id(), error = %e, "projecting failed; giving up");
-                    return;
-                }
             }
         }
-        // A drawing is keyed by its raffle's id (`rafi_raffle::drawing::manifest`),
-        // so it names the raffle.
-        self.notifier.notify(state.id().as_str()).await;
+        self.notifier.changed(state.id()).await;
     }
 }
 
@@ -372,7 +373,11 @@ mod tests {
         let doc = doc(&drand);
         let store = MemoryDrawStore::default();
         let notifier = Arc::new(Recording::default());
-        let engine = LocalEngine::new(drand, store.clone(), notifier.clone());
+        let engine = LocalEngine::new(
+            drand,
+            store.clone(),
+            crate::Notify::new(notifier.clone(), DrawingId::as_str),
+        );
 
         assert_eq!(engine.info().await.unwrap().beacon, doc.beacon);
         engine.open(&doc).await.unwrap();
@@ -380,18 +385,21 @@ mod tests {
         let draw = DrawRequest {
             item: "item-1".into(),
         };
-        engine.draw("r1", &draw, "d1").await.unwrap();
+        engine.draw(&"r1".into(), &draw, "d1").await.unwrap();
         projected(&store, |s| {
             s.item(&"item-1".into()).unwrap().status() == ItemStatus::Drawn
         })
         .await;
-        engine.decide("r1", &Decision::Finish, "f1").await.unwrap();
+        engine
+            .decide(&"r1".into(), &Decision::Finish, "f1")
+            .await
+            .unwrap();
         let finished = projected(&store, |s| s.is_finished()).await;
         assert!(!notifier.notified().is_empty());
 
         // Forgotten: further commands are refused as not found.
         let err = engine
-            .decide("r1", &Decision::Finish, "f2")
+            .decide(&"r1".into(), &Decision::Finish, "f2")
             .await
             .unwrap_err();
         assert!(matches!(
@@ -402,5 +410,10 @@ mod tests {
             }
         ));
         assert_eq!(store.latest("r1").unwrap().version(), finished.version());
+        // A retried finish answers as the first one did.
+        engine
+            .decide(&"r1".into(), &Decision::Finish, "f1")
+            .await
+            .unwrap();
     }
 }
