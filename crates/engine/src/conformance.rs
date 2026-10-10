@@ -15,7 +15,7 @@
 //! produces passes the public verifier.
 //!
 //! ```ignore
-//! rafi_engine_local::conformance::run(&MyHarness).await;
+//! rafi_engine::conformance::run(&MyHarness).await;
 //! ```
 
 use std::{
@@ -27,14 +27,13 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use crate::{DrawStore, DrawingEngine, EngineError, MemoryDrawStore};
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
     BeaconSource, Command, Decision, DrawRequest, Drawing, ErrorKind, Event, ItemStatus, Manifest,
     ManifestItem, Resolution, verify,
 };
-use rafi_platform::{
-    BoxFuture, DrawStore, DrawingEngine, EngineError, MemoryDrawStore, Notifier, Recording,
-};
+use rafi_platform::{BoxFuture, Notifier, Recording};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,

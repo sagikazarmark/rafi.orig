@@ -21,8 +21,8 @@ const PURGE: PurgeAfter = PurgeAfter {
 async fn frozen(db: &Db, id: &str) -> Result<Drawing, String> {
     let state = Drawing::open(&manifest(id, ["a".repeat(32), "b".repeat(32)])).map_err(fail)?;
     db.query(
-        "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, manifest_hash, created_at, updated_at)
-         VALUES (?, 'o', ?, ?, 't', 'frozen', 'restate', ?, 0, 0)",
+        "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, manifest_hash, created_at, updated_at)
+         VALUES (?, 'o', ?, ?, 't', 'frozen', ?, 0, 0)",
     )
     .bind(id)
     .bind(format!("slug-{id}"))

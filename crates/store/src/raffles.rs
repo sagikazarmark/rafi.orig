@@ -29,7 +29,6 @@ pub struct RaffleRow {
     pub min_age: i64,
     pub state: String,
     pub test_mode: bool,
-    pub engine: String,
     pub manifest: Option<String>,
     pub manifest_hash: Option<String>,
     pub frozen_at: Option<i64>,
@@ -132,13 +131,13 @@ pub async fn list_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleSummaryR
     .await
 }
 
-/// Creates a draft raffle on the Restate engine. A taken slug or join code is
+/// Creates a draft raffle. A taken slug or join code is
 /// an [`Error::Unique`](crate::Error::Unique).
 pub async fn insert(db: &Db, r: &NewRaffle<'_>) -> Result<()> {
     let now = now();
     db.query(
-        "INSERT INTO raffles (id, owner_id, slug, join_code, title, engine, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'restate', ?, ?)",
+        "INSERT INTO raffles (id, owner_id, slug, join_code, title, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id)
     .bind(r.owner_id)

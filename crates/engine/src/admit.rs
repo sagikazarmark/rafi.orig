@@ -1,0 +1,140 @@
+//! Whether an engine would take a command now.
+
+use rafi_drawing::{Command, Decision, Drawing, Error, Resolution};
+
+/// Checks `command` against `drawing` (the projection) the way the engine
+/// would: a dry run of the rules on a copy.
+///
+/// Callers check before sending, for an immediate answer: a draw is accepted
+/// asynchronously, so a draw the engine refuses goes unnoticed (only the
+/// projection shows progress). While a draw waits for its round, the engine
+/// queues a decision behind it and applies it to the settled state; only
+/// [`Resolution::Claimed`] is admitted then (it can't change the draw). The
+/// rest waits for the draw to settle or stall.
+pub fn admit(drawing: &Drawing, command: &Command) -> Result<(), Error> {
+    let mut dry = drawing.clone();
+    match command {
+        // Drawing the pending item again retries its committed round; nothing
+        // else may start meanwhile.
+        Command::Draw(request) => {
+            let source = *dry.beacon();
+            dry.announce(request, &source, 0, 0).map(|_| ())
+        }
+        Command::Decide(
+            decision @ Decision::Resolve {
+                resolution: Resolution::Claimed,
+                ..
+            },
+        ) => dry.decide(decision),
+        Command::Decide(_) if dry.pending().is_some() && !dry.stalled() => {
+            Err(Error::DrawInProgress)
+        }
+        Command::Decide(decision) => dry.decide(decision),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rafi_drawing::{BeaconSource, DrawRequest, Manifest, ManifestItem};
+
+    use super::*;
+
+    fn drawing() -> Drawing {
+        let manifest = Manifest::new(
+            "r1",
+            BeaconSource::QUICKNET,
+            vec!["a".into(), "b".into()],
+            ["item-1", "item-2"]
+                .map(|id| ManifestItem {
+                    id: id.into(),
+                    name: id.into(),
+                })
+                .into(),
+        );
+        Drawing::open(&manifest).unwrap()
+    }
+
+    /// A drawing whose draw of `item-1` waits for its round.
+    fn pending() -> Drawing {
+        let mut drawing = drawing();
+        let source = *drawing.beacon();
+        drawing
+            .announce(
+                &DrawRequest {
+                    item: "item-1".into(),
+                },
+                &source,
+                1,
+                0,
+            )
+            .unwrap();
+        drawing
+    }
+
+    fn draw(item: &str) -> Command {
+        Command::Draw(DrawRequest { item: item.into() })
+    }
+
+    fn decide(decision: Decision) -> Command {
+        Command::Decide(decision)
+    }
+
+    #[test]
+    fn admits_what_the_rules_allow_and_changes_nothing() {
+        let drawing = drawing();
+        admit(&drawing, &draw("item-1")).unwrap();
+        admit(
+            &drawing,
+            &decide(Decision::Void {
+                item: "item-2".into(),
+            }),
+        )
+        .unwrap();
+        assert_eq!(drawing, self::drawing());
+    }
+
+    #[test]
+    fn refuses_what_the_rules_refuse() {
+        let err = admit(&drawing(), &draw("nope")).unwrap_err();
+        assert!(matches!(err, Error::UnknownItem(_)), "{err:?}");
+    }
+
+    #[test]
+    fn retries_the_pending_draw_only() {
+        let drawing = pending();
+        admit(&drawing, &draw("item-1")).unwrap();
+        let err = admit(&drawing, &draw("item-2")).unwrap_err();
+        assert!(matches!(err, Error::DrawInProgress), "{err:?}");
+    }
+
+    #[test]
+    fn holds_decisions_back_while_a_draw_waits_for_its_round() {
+        let drawing = pending();
+        for decision in [
+            Decision::Void {
+                item: "item-2".into(),
+            },
+            Decision::Abandon {
+                item: "item-1".into(),
+            },
+            Decision::Finish,
+        ] {
+            let err = admit(&drawing, &decide(decision.clone())).unwrap_err();
+            assert!(
+                matches!(err, Error::DrawInProgress),
+                "{decision:?}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn lets_a_claim_through_while_a_draw_waits() {
+        // Checked by the rules, not held back: item-2 has no winner yet.
+        let claim = Decision::Resolve {
+            item: "item-2".into(),
+            resolution: Resolution::Claimed,
+        };
+        let err = admit(&pending(), &decide(claim)).unwrap_err();
+        assert!(matches!(err, Error::ItemNotDrawn(_)), "{err:?}");
+    }
+}

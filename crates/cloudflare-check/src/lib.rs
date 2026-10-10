@@ -40,8 +40,8 @@ async fn drawing(db: &Db, raffle: &str) -> Result<Drawing> {
 async fn reset(db: &Db, raffle: &str) -> Result<()> {
     db.batch(vec![
         db.query(
-            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, created_at, updated_at)
-             VALUES (?1, 'o', ?1, ?1, 't', 'open', 'restate', 0, 0)",
+            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, created_at, updated_at)
+             VALUES (?1, 'o', ?1, ?1, 't', 'open', 0, 0)",
         )
         .bind(raffle),
         db.query(

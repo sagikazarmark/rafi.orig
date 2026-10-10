@@ -1,26 +1,26 @@
-//! The `DrawingEngine` service: what the drawing engine says about itself.
+//! The `EngineInfo` service: what the drawing engine says about itself.
 
 use rafi_drand::DrandClient;
 use rafi_drawing::BeaconSource;
 use restate_sdk::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// The Restate service name.
-pub const INFO_SERVICE_NAME: &str = "DrawingEngine";
+pub const INFO_SERVICE_NAME: &str = "EngineInfo";
 
 /// The `info` handler's answer.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Info {
     /// Where the engine's randomness comes from.
     pub beacon: BeaconSource,
 }
 
 /// Keyless: answers for the whole engine, never blocked by a drawing's draw.
-pub struct DrawingEngine {
+pub struct EngineInfo {
     beacon: BeaconSource,
 }
 
-impl DrawingEngine {
+impl EngineInfo {
     /// The engine that draws with `drand` (the same client as its `Drawing`).
     pub fn new(drand: &DrandClient) -> Self {
         Self {
@@ -29,8 +29,8 @@ impl DrawingEngine {
     }
 }
 
-#[restate_sdk::service(name = "DrawingEngine")]
-impl DrawingEngine {
+#[restate_sdk::service(name = "EngineInfo")]
+impl EngineInfo {
     /// The engine's beacon source. The app checks it before opening a
     /// drawing; the `Drawing` object refuses another source itself.
     #[handler]

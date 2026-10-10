@@ -1,6 +1,6 @@
-# restate-rafi
+# rafi-engine-restate
 
-**The Rafi draw engine: the `Drawing` virtual object for [Restate](https://restate.dev/).**
+**The Rafi drawing engine on [Restate](https://restate.dev/): the `Drawing` virtual object, and the app's client.**
 
 One object per drawing (keyed by the drawing's ID) owns the drawing from opening to finish. Handlers for one
 drawing run one at a time, the committed drand round is journaled before the durable sleep until it is
@@ -14,28 +14,35 @@ entrant IDs. The rules are `rafi-drawing`'s; the object only does I/O.
 | `decide` | exclusive | Takes a `Decision`: claimed / not here / declined, void an item, abandon a stalled draw, or finish (clears the state). |
 | `get` | shared | The current drawing, for recovery and debugging. |
 
-`DrawingEngine` is a keyless service next to it: `info` reports the engine's beacon source.
+`EngineInfo` is a keyless service next to it: `info` reports the engine's beacon source.
+
+The app reaches both through `RestateClient`, its `DrawingEngine` ([`rafi-engine`](../engine)) over the ingress. It
+wraps the clients the SDK generates from the services (`DrawingIngressClient`, `EngineInfoIngressClient`), so the
+handlers' names and types are the services' own; what it adds is the engine contract: a handler's terminal error is a
+refusal with its kind, anything else means the engine is unavailable, and a call that outlasts the timeout is pending.
 
 Committing to a round and awaiting its beacon go through [`restate-drand`](https://crates.io/crates/restate-drand).
 After every change the drawing goes to a `DrawStore` (the app's database), then clients are told through a
-`Notifier`, best effort; both come from [`rafi-platform`](../platform).
+`Notifier`, best effort: the store from [`rafi-engine`](../engine), the notifier from [`rafi-platform`](../platform).
 
 ```rust
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_platform::{MemoryDrawStore, Polling};
-use restate_rafi::{Drawing, DrawingEngine};
+use rafi_engine::MemoryDrawStore;
+use rafi_engine_restate::{Drawing, EngineInfo};
+use rafi_platform::Polling;
 
 let drand = DrandClient::new(DrandConfig::default())?;
-let info = DrawingEngine::new(&drand);
+let info = EngineInfo::new(&drand);
 let drawing = Drawing::new(drand, MemoryDrawStore::default(), Polling::default());
 let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(drawing).bind(info).build();
 ```
 
-[`restate-rafi-endpoint`](../restate-rafi-endpoint) is the binary that serves it.
+[`restate-rafi-endpoint`](../restate-rafi-endpoint) is the binary that serves the services;
+[`rafi-restate-worker`](../restate-worker) serves them on Cloudflare Workers.
 
 ## Tests
 
 ```sh
-cargo test -p restate-rafi
-RESTATE_SERVER_BIN=$(./scripts/restate-server.sh) cargo test -p restate-rafi -- --ignored  # against a real server
+cargo test -p rafi-engine-restate
+RESTATE_SERVER_BIN=$(./scripts/restate-server.sh) cargo test -p rafi-engine-restate -- --ignored  # against a real server
 ```

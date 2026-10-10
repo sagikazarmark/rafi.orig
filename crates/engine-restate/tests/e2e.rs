@@ -14,9 +14,10 @@ use rafi_drawing::{
     BeaconSource, Decision, DrawRequest, Drawing, Event, ItemStatus, Manifest, ManifestItem,
     Resolution, verify,
 };
-use rafi_platform::{MemoryDrawStore, Recording};
+use rafi_engine::MemoryDrawStore;
+use rafi_engine_restate::SERVICE_NAME;
+use rafi_platform::Recording;
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
-use restate_rafi::SERVICE_NAME;
 use restate_sdk::endpoint::Endpoint;
 use serde_json::{Value, json};
 
@@ -83,7 +84,7 @@ async fn e2e_raffle() {
     restate
         .deploy(
             Endpoint::builder()
-                .bind(restate_rafi::Drawing::new(
+                .bind(rafi_engine_restate::Drawing::new(
                     drand,
                     store.clone(),
                     notifier.clone(),
@@ -285,7 +286,7 @@ async fn e2e_stalled_draw() {
     restate
         .deploy(
             Endpoint::builder()
-                .bind(restate_rafi::Drawing::new(
+                .bind(rafi_engine_restate::Drawing::new(
                     drand,
                     store.clone(),
                     notifier.clone(),
@@ -373,7 +374,7 @@ async fn e2e_cancelled_draw_stalls() {
     restate
         .deploy(
             Endpoint::builder()
-                .bind(restate_rafi::Drawing::new(
+                .bind(rafi_engine_restate::Drawing::new(
                     drand,
                     store.clone(),
                     notifier.clone(),

@@ -7,31 +7,27 @@
 //! - [`Notifier`]: "this raffle changed", "end its live updates", and which
 //!   [`LiveTransport`] clients use;
 //! - [`RateLimit`], with the [`Limit`] keys;
-//! - [`DrawingEngine`]: the drawing engine, with its contract;
-//! - [`DrawStore`]: where the drawing engine writes drawings;
 //! - [`rule::decide`]: when a live channel publishes a participant view;
 //! - [`sendable`]: a `Send` future from one that is only `Send` natively
 //!   (wasm32 is single-threaded).
 //!
+//! The drawing engine and the store it writes to are `rafi-engine`'s.
+//!
 //! This crate depends on no database and no platform.
 
-mod engine;
 mod notifier;
 mod ratelimit;
 pub mod rule;
 mod send;
-mod store;
 
 use std::{future::Future, pin::Pin};
 
-pub use engine::{DrawingEngine, EngineError, EngineInfo, NOT_OPEN, refusal_kind, status_code};
 pub use notifier::{Notifier, Polling, Recording};
 pub use rafi_live::LiveTransport;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ratelimit::Limiter;
 pub use ratelimit::{Limit, RateLimit};
 pub use send::sendable;
-pub use store::{DrawStore, MemoryDrawStore};
 
 /// A boxed, sendable future, so the interfaces work as trait objects (axum
 /// and the Restate SDK require `Send`). Implementations whose futures aren't

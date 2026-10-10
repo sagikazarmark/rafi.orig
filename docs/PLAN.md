@@ -10,6 +10,8 @@ Status: draft plan, 2026-10-05. Versions and platform facts were checked by rese
 
 **Revision 6 (2026-10-09).** The drawing is its own, raffle-free domain ([drawing-plan.md](drawing-plan.md)): `rafi-drawing` holds the drawing (opened from a published **manifest** naming its entrants, items, algorithm and beacon source), the draw algorithm and the verifier; `rafi-core` keeps the raffle's lifecycle. A raffle's prizes (with quantities) become the drawing's items, one per copy. The engine is `DrawingEngine` (`open`, `draw`, `decide`); the Restate object is `Drawing` with handlers `open`, `draw`, `decide` and `get`, next to the `DrawingEngine` service. **Offline draws are dropped** (`7b8721f`): they were the one way to settle a draw nobody can verify. When drand is down, a draw stalls on its committed round; the organizer retries it (the same round) or abandons it (§6.4). Older sections below keep the names of their time.
 
+**Revision 7 (2026-10-10).** The engine contract is its own crate, `rafi-engine` (`DrawingEngine`, `DrawStore`, the admission check; `LocalEngine` and the conformance suite behind features), between `rafi-drawing` and the engines. The Restate engine is `rafi-engine-restate`: the `Drawing` object and, over the SDK's generated ingress client, the app's `DrawingEngine`; `restate-rafi-client` is gone. Raffles no longer record an engine. See [engine-plan.md](engine-plan.md), revision 7.
+
 ## Implementation status (2026-10-06)
 
 Milestones M0–M7 are implemented (see the README for how to run them).

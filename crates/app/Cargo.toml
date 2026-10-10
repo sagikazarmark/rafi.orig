@@ -18,6 +18,7 @@ rafi-drand = { path = "../drand", optional = true }
 rafi-store = { workspace = true, optional = true }
 rafi-live = { path = "../live" }
 rafi-platform = { path = "../platform", optional = true }
+rafi-engine = { path = "../engine", optional = true }
 # The web app adds `launch`, `web`, `devtools` and `logger`; the server only renders (`ssr`).
 dioxus = { version = "=0.7.10", default-features = false, features = ["router", "lib"] }
 dioxus-clerk = "0.6"
@@ -33,7 +34,7 @@ dioform = { version = "0.7", features = ["dioxus-field"] }
 
 # Server only (native and Workers)
 axum = { version = "0.8", default-features = false, features = ["form", "json", "query", "matched-path", "original-uri"], optional = true }
-restate-rafi-client = { path = "../restate-rafi-client", optional = true }
+rafi-engine-restate = { path = "../engine-restate", optional = true }
 tracing = { version = "0.1", optional = true }
 anyhow = { version = "1", optional = true }
 thiserror = { workspace = true, optional = true }
@@ -63,8 +64,7 @@ http = { version = "1", optional = true }
 
 [dev-dependencies]
 rafi-drand = { path = "../drand", features = ["mock"] }
-rafi-engine-local = { path = "../engine-local" }
-restate-rafi = { path = "../restate-rafi" }
+rafi-engine = { path = "../engine", features = ["local"] }
 restate-e2e-harness = "0.3"
 restate-sdk = { workspace = true }
 dioxus-clerk = { version = "0.6", features = ["server", "testing"] }
@@ -95,10 +95,11 @@ server = [
     "dep:tokio",
     "dep:axum",
     "dep:tower-http",
-    "dep:restate-rafi-client",
+    "dep:rafi-engine-restate",
     "dep:rafi-store",
     "rafi-live/server",
     "dep:rafi-platform",
+    "dep:rafi-engine",
     "dep:tracing",
     "dep:anyhow",
     "dep:thiserror",

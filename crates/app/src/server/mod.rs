@@ -23,9 +23,10 @@ use std::{ops::Deref, sync::Arc};
 
 use axum::{Extension, Router};
 use rafi_drawing::drand::ChainHash;
-use rafi_platform::{DrawingEngine, Notifier, RateLimit};
+use rafi_engine::DrawingEngine;
+use rafi_engine_restate::RestateClient;
+use rafi_platform::{Notifier, RateLimit};
 use rafi_store::Db;
-use restate_rafi_client::RestateClient;
 
 use self::config::Config;
 

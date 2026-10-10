@@ -375,3 +375,79 @@ Where the implementation differs from the plan:
   offline branch in either engine. When drand is down a draw stalls on its round; a retry fetches the
   same round and the organizer's only way out is to abandon it (logged; the verifier shows whom the
   round would have picked).
+
+## Revision 7 (2026-10-10): the engine crate
+
+The app sees an engine only as `DrawingEngine` and its contract: it cannot tell `LocalEngine` from
+Restate. What an engine adds to `rafi-drawing`'s rules is single ownership, one command at a time
+per drawing, idempotency, the I/O the rules can't do (clock, beacon, projection, notification) and,
+for Restate, durability. That contract gets its own crate, between `rafi-drawing` and the hosts.
+
+Layering: `rafi-drawing` (rules) → `rafi-engine` (the contract) → `rafi-engine-restate`, the
+`local` feature (engines) → `rafi` (the app).
+
+### Step 1 — Drop `raffles.engine`
+
+The column dates from when a raffle could be drawn on Restate or locally. Revision 5 dropped the
+local fallback, so every raffle has said `'restate'` since, even on `LocalEngine`. Migration `0007`
+drops it (SQLite and Postgres); `rafi-store`, the app's view model, the admin badge and the
+end-to-end assertion lose it.
+
+### Step 2 — `rafi-engine` (`crates/engine`)
+
+- From `rafi-platform`: `DrawingEngine`, `EngineError`, `EngineInfo`, `NOT_OPEN`,
+  `status_code`/`refusal_kind` (`engine.rs`), and `DrawStore`/`MemoryDrawStore` (`store.rs`, the
+  engine's only write). `rafi-platform` keeps what a deployment provides: `Notifier`, `RateLimit`,
+  the live rule, `BoxFuture`/`sendable`.
+- `rafi-engine-local` folds in: `LocalEngine` behind the `local` feature (native only), the
+  scenario suite behind `conformance`. Default features stay tokio-free (the app builds for
+  Workers). `local` is enabled only from `[dev-dependencies]`: it is never a production engine.
+
+### Step 3 — Admission in `rafi-engine`
+
+The app's dry run before a command (`service.rs`), including "while a draw waits for its round only
+`Resolve { Claimed }` is let through", is a consequence of the engine contract (draws settle
+asynchronously; decisions queue behind them). It becomes `rafi_engine::admit(&Drawing, &Command)`.
+The app keeps the organizer-facing wording (`refusal`).
+
+### Step 4 — `restate-rafi` → `rafi-engine-restate` (`crates/engine-restate`)
+
+- The Restate SDK generates `DrawingIngressClient` from the object's `impl` block, so client and
+  server can't drift. `restate-rafi-client` merges in: `RestateClient` implements `DrawingEngine`
+  over the generated client. What stays custom is the contract: refusal vs. unavailable
+  (`x-restate-error-source: invocation`), `Pending` on the client's timeout.
+- The generated client lives with the object, so the app links the object's crate (and the SDK,
+  without its server features). Restate stays out of `rafi-engine`: no feature there.
+- The keyless info service `DrawingEngine` becomes `EngineInfo` (no clash with the trait).
+  Deploying it re-registers the endpoint's services.
+- Unchanged: `restate-rafi-endpoint` (the host for every Restate service, named after it), the
+  deployed service name `restate-rafi`, the `RESTATE_RAFI_*` environment.
+
+### Step 5 — Docs
+
+`PLAN.md` revision 7, the crate table in `workers-plan.md`, references to the old crate names.
+
+### Deferred
+
+A shared, I/O-free draw sequence (announce → project the commitment → fetch → settle → project)
+both engines run. Both write it out today and the conformance suite catches drift; extract it when a
+third engine appears.
+
+### Implementation status (2026-10-10)
+
+Steps 1–5 are implemented. Where the implementation differs from the plan:
+
+- **The admin badge** never read `raffles.engine`: the view named the engine itself ("restate", or
+  "restate (mock drand)"). The view now says whether the beacon source is publicly verifiable
+  (`verifiable`), and the admin shows a "mock drand" warning badge only when it isn't.
+- **The client's transport** is its own `RequestExecutor` over reqwest, wrapped in `sendable`: the
+  SDK's `reqwest-client` executor needs `Send` futures, which reqwest's aren't on wasm32. The app's
+  Workers build links the SDK without server features and passes clippy.
+- **A bad ingress URL** doesn't fail `RestateClient::new` (as before): every call is unavailable,
+  naming why.
+- `restate-worker` keeps its directory name.
+
+Verified: the workspace and app suites (Restate conformance and e2e against `restate-server`
+1.7.13), the store and app suites on Postgres (migration `0007` applied), clippy natively and on
+wasm32 as CI runs it, and `scripts/workers-check.sh` (D1, the live channel, a draw through Restate
+on the Workers endpoint, an evening on the app Worker calling it through the generated client).

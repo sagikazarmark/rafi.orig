@@ -1,5 +1,5 @@
 //! Serves the Rafi drawing engine (the `Drawing` virtual object and the
-//! `DrawingEngine` service) for Restate: logging
+//! `EngineInfo` service) for Restate: logging
 //! that survives replays, request identity verification, and a graceful stop
 //! on SIGTERM as well as Ctrl-C.
 
@@ -10,10 +10,10 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Parser;
 use rafi_drand::DrandClient;
+use rafi_engine_restate::{Drawing, EngineInfo};
 use rafi_platform::Polling;
 use restate_config::ConfigureEndpointExt;
 use restate_ext::shutdown_signal;
-use restate_rafi::{Drawing, DrawingEngine};
 use restate_sdk::{endpoint::Endpoint, filter::ReplayAwareFilter, http_server::HttpServer};
 use tokio::net::TcpListener;
 use tracing::{info, warn};
@@ -70,11 +70,11 @@ async fn main() -> Result<()> {
 }
 
 /// The SDK endpoint: endpoint-wide settings, then the `Drawing` object with
-/// its policy and the `DrawingEngine` service.
+/// its policy and the `EngineInfo` service.
 /// Fails on invalid configuration, so the process exits before accepting requests.
 fn endpoint(config: Config) -> Result<Endpoint> {
     let drand = DrandClient::new(config.drand).context("invalid drand configuration")?;
-    let info = DrawingEngine::new(&drand);
+    let info = EngineInfo::new(&drand);
     let drawing = Drawing::new(
         drand,
         config.database.draw_store()?,

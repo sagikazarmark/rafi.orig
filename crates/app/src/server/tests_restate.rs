@@ -13,12 +13,11 @@ use std::time::Duration;
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{Decision, DrawRequest};
 use rafi_drawing::{ItemStatus, Resolution};
-use rafi_platform::DrawingEngine;
+use rafi_engine::DrawingEngine;
+use rafi_engine_restate::{Drawing, RestateClient};
 use rafi_platform::Polling;
 use rafi_store::{Db, DrawWriter, PurgeAfter, RaffleRow, raffles};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
-use restate_rafi::Drawing;
-use restate_rafi_client::RestateClient;
 use restate_sdk::endpoint::Endpoint;
 
 use super::{
@@ -78,7 +77,7 @@ async fn app_and_restate_rafi_share_the_database() {
     restate
         .deploy(
             Endpoint::builder()
-                .bind(restate_rafi::DrawingEngine::new(&drand))
+                .bind(rafi_engine_restate::EngineInfo::new(&drand))
                 .bind(Drawing::new(drand, store, Polling::default()))
                 .build(),
         )
@@ -123,11 +122,6 @@ async fn app_and_restate_rafi_share_the_database() {
             .await
             .unwrap();
     }
-    assert_eq!(
-        raffles::get(&app.db, &id).await.unwrap().unwrap().engine,
-        "restate"
-    );
-
     // Freeze: the service writes the frozen state.
     service::start_draw(&app, OWNER, &id)
         .await
@@ -187,7 +181,7 @@ async fn app_and_restate_rafi_share_the_database() {
     // The object forgot everything; the app keeps the verifiable record.
     let state = restate
         .invoke(
-            &Call::object(restate_rafi::SERVICE_NAME, &id, "get"),
+            &Call::object(rafi_engine_restate::SERVICE_NAME, &id, "get"),
             None,
             None,
         )

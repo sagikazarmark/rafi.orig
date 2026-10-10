@@ -13,7 +13,7 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-restate-rafi = { path = "../restate-rafi" }
+rafi-engine-restate = { path = "../engine-restate" }
 rafi-drand = { path = "../drand" }
 rafi-platform = { path = "../platform" }
 rafi-store.workspace = true

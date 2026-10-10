@@ -40,8 +40,9 @@ pub struct RaffleView {
     pub manifest_hash: Option<String>,
     pub server_now_ms: u64,
     pub test_mode: bool,
-    /// Human-readable description of the drawing engine (e.g. "restate", "restate (mock drand)").
-    pub engine: String,
+    /// Whether the raffle's beacon source is publicly verifiable (not the
+    /// mock drand chain).
+    pub verifiable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

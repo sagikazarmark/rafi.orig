@@ -27,6 +27,7 @@ anyhow = "1"
 rafi-core.workspace = true
 rafi-drawing.workspace = true
 rafi-live = { path = "../live" }
+rafi-engine = { path = "../engine" }
 rafi-platform = { path = "../platform" }
 serde.workspace = true
 serde_json.workspace = true

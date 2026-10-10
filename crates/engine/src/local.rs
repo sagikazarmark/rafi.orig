@@ -19,15 +19,7 @@
 //!
 //! It is never a production engine (nothing survives a restart, and two
 //! engines owning one drawing could announce one draw on two rounds): only
-//! dev-dependencies use this crate.
-//!
-//! With the `conformance` feature, [`conformance`] is the scenario suite every
-//! engine must pass.
-
-#![cfg(not(target_arch = "wasm32"))]
-
-#[cfg(feature = "conformance")]
-pub mod conformance;
+//! dev-dependencies enable the `local` feature.
 
 use std::{
     collections::HashMap,
@@ -40,9 +32,9 @@ use rafi_drawing::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Error as DrawingError, ErrorKind,
     Manifest,
 };
-use rafi_platform::{
-    BoxFuture, DrawStore, DrawingEngine, EngineError, EngineInfo, NOT_OPEN, Notifier,
-};
+use rafi_platform::{BoxFuture, Notifier};
+
+use crate::{DrawStore, DrawingEngine, EngineError, EngineInfo, NOT_OPEN};
 use tokio::sync::{mpsc, watch};
 
 /// Unix seconds now.
@@ -332,7 +324,9 @@ impl Io {
 mod tests {
     use rafi_drand::DrandConfig;
     use rafi_drawing::{ItemStatus, ManifestItem};
-    use rafi_platform::{MemoryDrawStore, Recording};
+    use rafi_platform::Recording;
+
+    use crate::MemoryDrawStore;
 
     use super::*;
 

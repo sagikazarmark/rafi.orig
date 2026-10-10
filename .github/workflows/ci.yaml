@@ -50,7 +50,7 @@ jobs:
         run: cargo test --workspace --exclude rafi --locked -- --include-ignored
       - name: Independent verifier agrees with the test vectors
         run: python3 tools/verify.py --vectors testdata/draw-vectors.json
-      - name: App (incl. end-to-end with restate-rafi and restate-server)
+      - name: App (incl. end-to-end with the Restate engine and restate-server)
         run: cargo test -p rafi --features server --locked -- --include-ignored
       - name: Clippy (libraries and the draw engine)
         run: cargo clippy --workspace --exclude rafi --all-targets -- -D warnings
@@ -62,7 +62,7 @@ jobs:
         run: |
           cargo clippy --target wasm32-unknown-unknown \
             -p rafi-store -p rafi-store-d1-check -p rafi-live -p rafi-platform -p rafi-cloudflare -p rafi-cloudflare-check \
-            -p restate-rafi -p restate-rafi-client -p rafi-participant -- -D warnings
+            -p rafi-engine -p rafi-engine-restate -p rafi-participant -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker --features dev -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi --features worker -- -D warnings

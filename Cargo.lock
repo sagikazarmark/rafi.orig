@@ -4708,13 +4708,12 @@ dependencies = [
  "rafi-core",
  "rafi-drand",
  "rafi-drawing",
- "rafi-engine-local",
+ "rafi-engine",
+ "rafi-engine-restate",
  "rafi-live",
  "rafi-platform",
  "rafi-store",
  "restate-e2e-harness",
- "restate-rafi",
- "restate-rafi-client",
  "restate-sdk",
  "serde",
  "serde_json",
@@ -4796,14 +4795,36 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-engine-local"
+name = "rafi-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "rafi-drand",
  "rafi-drawing",
- "rafi-engine-local",
+ "rafi-engine",
  "rafi-platform",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "rafi-engine-restate"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "http",
+ "rafi-drand",
+ "rafi-drawing",
+ "rafi-engine",
+ "rafi-platform",
+ "reqwest 0.13.5",
+ "restate-drand",
+ "restate-e2e-harness",
+ "restate-sdk",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
@@ -4847,9 +4868,7 @@ name = "rafi-platform"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "rafi-drawing",
  "rafi-live",
- "thiserror 2.0.21",
  "tokio",
 ]
 
@@ -4862,8 +4881,8 @@ dependencies = [
  "http-body-util",
  "rafi-cloudflare",
  "rafi-drand",
+ "rafi-engine-restate",
  "rafi-store",
- "restate-rafi",
  "restate-sdk",
  "worker",
 ]
@@ -4879,6 +4898,7 @@ dependencies = [
  "oliphaunt",
  "rafi-core",
  "rafi-drawing",
+ "rafi-engine",
  "rafi-live",
  "rafi-platform",
  "rafi-store",
@@ -5188,36 +5208,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "restate-rafi"
-version = "0.1.0"
-dependencies = [
- "rafi-drand",
- "rafi-drawing",
- "rafi-engine-local",
- "rafi-platform",
- "restate-drand",
- "restate-e2e-harness",
- "restate-rafi-client",
- "restate-sdk",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "restate-rafi-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "rafi-drawing",
- "rafi-platform",
- "reqwest 0.13.5",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "restate-rafi-endpoint"
 version = "0.1.0"
 dependencies = [
@@ -5225,11 +5215,11 @@ dependencies = [
  "clap",
  "figment",
  "rafi-drand",
+ "rafi-engine-restate",
  "rafi-platform",
  "rafi-store",
  "restate-config",
  "restate-ext",
- "restate-rafi",
  "restate-sdk",
  "serde",
  "tokio",

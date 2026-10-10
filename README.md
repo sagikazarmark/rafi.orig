@@ -31,12 +31,13 @@ See [`docs/PLAN.md`](docs/PLAN.md) for the design and the reasoning behind it.
 4. One win per person. "Not here" or "Declined" removes that person and the prize is drawn again with a new round
    (not while another draw is pending, since that could change its pool).
 The drawing (its state machine, the draw algorithm and the engine's rules) lives in [`crates/drawing`](crates/drawing) (pure Rust, no IO). The
-app talks to **the drawing engine** through one interface (`DrawingEngine`, in `crates/platform`; its contract is
-documented there). In production that engine is **`restate-rafi`**, a separate service hosting the **Restate
-virtual object** `Drawing` (keyed by the drawing's ID, the raffle's): the app calls it through the Restate ingress
-(`restate-rafi-client`), and it writes every new draw state straight into the app's database. Rafi relies on
-Restate for draws: there is no in-process fallback in production (`rafi-engine-local` is for tests and development
-only). Restate only ever sees anonymous IDs. The app decides which drand chain raffles commit to
+app talks to **the drawing engine** through one interface (`DrawingEngine`, in [`crates/engine`](crates/engine); its
+contract is documented there) and can't tell one engine from another. In production that engine is
+**`restate-rafi`**, a separate service hosting the **Restate virtual object** `Drawing` (keyed by the drawing's ID,
+the raffle's; [`crates/engine-restate`](crates/engine-restate)): the app calls it through the Restate ingress, with
+the client the Restate SDK generates from the object, and it writes every new draw state straight into the app's
+database. Rafi relies on Restate for draws: there is no in-process fallback in production (`rafi-engine`'s `local`
+feature is for tests and development only). Restate only ever sees anonymous IDs. The app decides which drand chain raffles commit to
 (`RAFI_DRAND_CHAIN`); the engine only checks it. See [`docs/engine-plan.md`](docs/engine-plan.md).
 
 The server keeps no state between requests. Phones poll their participant view (`/api/r/<slug>/participant`), and
@@ -55,12 +56,13 @@ crates/core                   rafi-core: the raffle lifecycle, prizes as drawing
 crates/drawing                rafi-drawing: draw algorithm, state machine, manifest, verifier (pure, tested, vectors)
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) and the round to commit to, on the drand crate
 crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the draw state write, the participant snapshot
-crates/restate-rafi           restate-rafi: the `Drawing` virtual object and the `DrawingEngine` service (library)
-crates/restate-rafi-endpoint  restate-rafi: the binary serving it (config, logging, Dockerfile)
-crates/restate-rafi-client    restate-rafi-client: the drawing engine through the Restate ingress (what the app links)
-crates/engine-local           rafi-engine-local: an in-process drawing engine (tests, development) and the engine conformance suite
+crates/engine                 rafi-engine: the drawing engine's contract (DrawingEngine, DrawStore, admission); behind features,
+                              an in-process engine (tests, development) and the engine conformance suite
+crates/engine-restate         rafi-engine-restate: the `Drawing` virtual object and the `EngineInfo` service, and the app's
+                              DrawingEngine over the ingress (the SDK's generated clients)
+crates/restate-rafi-endpoint  restate-rafi: the binary serving the Restate services (config, logging, Dockerfile)
 crates/live                   rafi-live: what a phone sees (participant view, card, proof-of-work, live transport)
-crates/platform               rafi-platform: what a deployment provides (DrawingEngine, Notifier, RateLimit, DrawStore, publish rule)
+crates/platform               rafi-platform: what a deployment provides (Notifier, RateLimit, publish rule)
 crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleChannel Durable Object, notifier, rate limits, config)
 crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
 crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (participant pages, JSON APIs)
@@ -150,7 +152,7 @@ RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http:/
 # matching the app's RAFI_DRAND_CHAIN=mock; the app refuses to start a draw on an engine on another chain)
 RESTATE_RAFI_DATABASE__URL="$RAFI_DATABASE_URL" cargo run -p restate-rafi-endpoint
 
-# once, and again whenever the services' handlers change (Drawing, DrawingEngine)
+# once, and again whenever the services' handlers change (Drawing, EngineInfo)
 curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
   -d '{"uri": "http://host.docker.internal:9080", "force": true}'
 ```
@@ -186,14 +188,14 @@ backend lacks, as ignored with the reason. The tiers:
 A new backend implements `rafi_store::conformance::Harness` (a name, its capabilities, and a fresh, migrated
 database per scenario) and passes the suite; see the module's documentation.
 
-**The engine conformance suite** (`rafi_engine_local::conformance`) is the contract every drawing engine must pass,
+**The engine conformance suite** (`rafi_engine::conformance`) is the contract every drawing engine must pass,
 through the `DrawingEngine` interface alone: the fairness rules (the round is committed before its beacon is asked for;
 a withheld or forged beacon stalls the draw on its round and a retry fetches the same round; abandons are
 logged; nothing changes a pending draw's pool; every log passes the verifier) and the contract
 (idempotency, one command at a time per raffle, asynchronous draws, refusals with their kind, a raffle forgotten
 once finished). It deploys once per drand profile (instant, with a lead, a withheld relay, a forging relay, a flaky
-store) and runs on the local runner (`cargo test -p rafi-engine-local`) and on the `Drawing` object through
-`restate-rafi-client` (`cargo test -p restate-rafi -- --include-ignored`, one `restate-server` per profile).
+store) and runs on the local runner (`cargo test -p rafi-engine`) and on the `Drawing` object through the app's
+client (`cargo test -p rafi-engine-restate -- --include-ignored`, one `restate-server` per profile).
 
 With `RAFI_TEST_POSTGRES_URL` set, the app's tests (the end-to-end one included) also run against Postgres, each on
 a fresh schema, which they leave behind. Locally, for example:
@@ -239,7 +241,7 @@ On a VM with Docker and a domain pointing at it (production: a Scaleway DEV1-M i
 git clone https://github.com/sagikazarmark/rafi.orig rafi && cd rafi/deploy
 cp .env.example .env && $EDITOR .env   # domain, Clerk keys, proof-of-work key, Restate Cloud
 docker compose pull && docker compose up -d
-restate deployments register https://$RAFI_DOMAIN:9080   # once, and when the handlers change (Drawing, DrawingEngine)
+restate deployments register https://$RAFI_DOMAIN:9080   # once, and when the handlers change (Drawing, EngineInfo)
 ```
 
 [`deploy/compose.yaml`](deploy/compose.yaml) runs Caddy (automatic HTTPS), the app and `restate-rafi` from the GHCR

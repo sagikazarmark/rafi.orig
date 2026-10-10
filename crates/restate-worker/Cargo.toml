@@ -24,6 +24,6 @@ http = "1"
 http-body-util = "0.1"
 rafi-cloudflare = { path = "../cloudflare" }
 rafi-store.workspace = true
-restate-rafi = { path = "../restate-rafi" }
+rafi-engine-restate = { path = "../engine-restate" }
 restate-sdk = { workspace = true, features = ["rust_crypto"] }
 worker = { version = "0.8.7", features = ["http"] }

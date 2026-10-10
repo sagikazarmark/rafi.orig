@@ -4,11 +4,12 @@
 
 use std::{sync::Arc, time::Duration};
 
-use rafi_engine_local::{
-    LocalEngine,
+use rafi_engine::{
+    DrawingEngine,
     conformance::{self, Deployed, Deployment, EngineHarness},
+    local::LocalEngine,
 };
-use rafi_platform::{BoxFuture, DrawingEngine};
+use rafi_platform::BoxFuture;
 
 struct Local;
 

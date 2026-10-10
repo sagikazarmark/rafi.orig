@@ -532,7 +532,7 @@ fn Header(admin: AdminData, error: Signal<Option<String>>, on_change: EventHandl
                         div { class: "flex flex-wrap items-center gap-2",
                             StateBadge { state: v.state }
                             if v.test_mode { span { class: "badge badge-warning gap-1 font-semibold", "🧪 test mode" } }
-                            span { class: "badge badge-ghost gap-1", title: "Drawing engine", Icon { i: I::Zap, class: "size-3.5" } "{v.engine}" }
+                            if !v.verifiable { span { class: "badge badge-warning gap-1", title: "Draws use the mock drand chain: nobody can verify them", Icon { i: I::Zap, class: "size-3.5" } "mock drand" } }
                         }
                     }
                     DropdownMenu { align: DropdownMenuAlign::End,

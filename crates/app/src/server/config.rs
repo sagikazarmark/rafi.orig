@@ -7,7 +7,7 @@ use anyhow::{anyhow, bail};
 use rafi_drawing::drand::{ChainHash, chains};
 
 /// How the app reaches the `restate-rafi` service: through the Restate ingress.
-pub use restate_rafi_client::ClientConfig as RestateConfig;
+pub use rafi_engine_restate::ClientConfig as RestateConfig;
 
 #[derive(Debug, Clone)]
 pub struct Config {

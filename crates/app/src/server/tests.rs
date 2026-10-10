@@ -1,6 +1,6 @@
 //! Integration tests: in-memory SQLite (or, with `RAFI_TEST_POSTGRES_URL`
 //! set, a fresh Postgres schema per test), the in-process drawing engine
-//! (`rafi_engine_local`), mock drand.
+//! (`rafi_engine::local`), mock drand.
 
 use std::{sync::Arc, time::Duration};
 
@@ -64,7 +64,7 @@ async fn app_with_engine(
         .expect("database");
     let purge =
         rafi_store::PurgeAfter::days(cfg.retention_nonwinners_days, cfg.retention_winners_days);
-    let engine = rafi_engine_local::LocalEngine::new(
+    let engine = rafi_engine::local::LocalEngine::new(
         rafi_drand::DrandClient::new(drand).expect("drand configuration"),
         rafi_store::DrawWriter::new(db.clone(), purge),
         Polling::default(),

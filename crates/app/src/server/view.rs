@@ -168,16 +168,10 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
     let state = raffle.state();
     // Labelled by the beacon source the raffle committed to (or will): only
     // a public drand chain is verifiable.
-    let public = drawing
+    let verifiable = drawing
         .as_ref()
         .map_or(BeaconSource::Drand(app.chain), |s| *s.beacon())
         .publicly_verifiable();
-    let engine = if public {
-        "restate"
-    } else {
-        "restate (mock drand)"
-    }
-    .to_owned();
     Ok(Some(RaffleView {
         v: raffle.version.max(0) as u64,
         live: app.transport(&raffle.id, raffle.live_ended_at.is_some()),
@@ -202,7 +196,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         manifest_hash: raffle.manifest_hash.clone(),
         server_now_ms: crate::model::now_unix_ms(),
         test_mode: raffle.test_mode,
-        engine,
+        verifiable,
         state,
     }))
 }

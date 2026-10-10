@@ -1,6 +1,6 @@
 //! The engine conformance suite on the `Drawing` object: each profile deploys
 //! the service to its own `restate-server`, and the scenarios drive it through
-//! `restate-rafi-client`, as the app does.
+//! [`RestateClient`](rafi_engine_restate::RestateClient), as the app does.
 //!
 //! Ignored: run with `RESTATE_SERVER_BIN` set and `-- --ignored`.
 
@@ -14,11 +14,13 @@ use std::{
     time::Duration,
 };
 
-use rafi_engine_local::conformance::{self, Deployed, Deployment, EngineHarness};
-use rafi_platform::{BoxFuture, DrawingEngine};
+use rafi_engine::{
+    DrawingEngine,
+    conformance::{self, Deployed, Deployment, EngineHarness},
+};
+use rafi_engine_restate::{ClientConfig, RestateClient};
+use rafi_platform::BoxFuture;
 use restate_e2e_harness::{Restate, ReusePolicy, ServerSpec, launcher_or_skip};
-use restate_rafi::{INFO_SERVICE_NAME, SERVICE_NAME};
-use restate_rafi_client::{ClientConfig, RestateClient};
 use restate_sdk::endpoint::Endpoint;
 
 struct OnRestate {
@@ -62,21 +64,16 @@ impl EngineHarness for OnRestate {
             restate
                 .deploy(
                     Endpoint::builder()
-                        .bind(restate_rafi::DrawingEngine::new(&d.drand))
-                        .bind(restate_rafi::Drawing::new(d.drand, d.store, d.notifier))
+                        .bind(rafi_engine_restate::EngineInfo::new(&d.drand))
+                        .bind(rafi_engine_restate::Drawing::new(
+                            d.drand, d.store, d.notifier,
+                        ))
                         .build(),
                 )
                 .await;
             Ok(Arc::new(Running { restate }) as Arc<dyn Deployed>)
         })
     }
-}
-
-/// The client calls the handlers by these names.
-#[test]
-fn the_client_knows_the_services() {
-    assert_eq!(restate_rafi_client::DRAWING_SERVICE, SERVICE_NAME);
-    assert_eq!(restate_rafi_client::INFO_SERVICE, INFO_SERVICE_NAME);
 }
 
 #[tokio::test(flavor = "multi_thread")]

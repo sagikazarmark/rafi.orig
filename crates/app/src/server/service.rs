@@ -11,7 +11,7 @@ use rafi_drawing::{
     BeaconSource, Command, Decision, DrawRequest, Error as DrawingError, ErrorKind, ItemId,
     Manifest, ManifestHash, ManifestItem, Outcome, Resolution,
 };
-use rafi_platform::{DrawingEngine, EngineError};
+use rafi_engine::{DrawingEngine, EngineError};
 use rafi_store::{RaffleRow, audit, entrants, prizes, raffles};
 
 use super::{AppState, ids};
@@ -484,32 +484,9 @@ pub async fn command(
         )
     })?;
 
-    // Validate against the projection for immediate, friendly errors: a dry
-    // run of the engine's own rules on a copy. Draws are accepted
-    // asynchronously, so a draw the engine refused would go unnoticed.
-    let mut dry = state.clone();
-    let checked = match &cmd {
-        // Drawing the pending item again retries its committed round; nothing
-        // else may start meanwhile.
-        Command::Draw(request) => {
-            let source = *dry.beacon();
-            dry.announce(request, &source, 0, 0).map(|_| ())
-        }
-        // While a draw is waiting for its round, the engine would queue the
-        // decision behind it; only "handed over" is let through (it can't
-        // change the draw). The rest waits for the draw to land or stall.
-        Command::Decide(
-            decision @ Decision::Resolve {
-                resolution: Resolution::Claimed,
-                ..
-            },
-        ) => dry.decide(decision),
-        Command::Decide(_) if dry.pending().is_some() && !dry.stalled() => {
-            Err(DrawingError::DrawInProgress)
-        }
-        Command::Decide(decision) => dry.decide(decision),
-    };
-    checked.map_err(|e| refusal(&cmd, e))?;
+    // Checked against the projection for immediate, friendly errors: a draw
+    // the engine refused would go unnoticed.
+    rafi_engine::admit(&state, &cmd).map_err(|e| refusal(&cmd, e))?;
 
     send(app, owner, id, cmd, command_id).await
 }

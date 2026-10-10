@@ -6,7 +6,7 @@ use rafi_drawing::{
     BeaconSource, Decision, DrawRequest, Error as DrawingError, ErrorKind, Manifest,
 };
 
-use crate::BoxFuture;
+use rafi_platform::BoxFuture;
 
 /// What the drawing engine says about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]

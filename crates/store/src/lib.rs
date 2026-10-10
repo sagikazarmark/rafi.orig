@@ -59,7 +59,8 @@ pub use raffles::RaffleRow;
 use std::collections::BTreeSet;
 
 use rafi_drawing::{Drawing, EntrantId, Event, ItemState};
-use rafi_platform::{BoxFuture, DrawStore};
+use rafi_engine::DrawStore;
+use rafi_platform::BoxFuture;
 pub use value::{Row, Value};
 
 /// The current time in unix seconds. `std::time` aborts on

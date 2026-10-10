@@ -22,8 +22,8 @@
 use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
 use rafi_drand::{DrandClient, DrandConfig};
+use rafi_engine_restate::{Drawing, EngineInfo};
 use rafi_store::{DrawWriter, PurgeAfter};
-use restate_rafi::{Drawing, DrawingEngine};
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};
 use worker::{Context, Env, HttpRequest, Result, event};
 
@@ -60,7 +60,7 @@ fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
         ),
     );
     let drand = DrandClient::new(drand_config(env))?;
-    let info = DrawingEngine::new(&drand);
+    let info = EngineInfo::new(&drand);
     let drawing = Drawing::new(drand, store, DurableObjects::new(env.clone()));
     let mut builder = Endpoint::builder();
     let keys = lookup(env, "RESTATE_IDENTITY_KEYS").unwrap_or_default();

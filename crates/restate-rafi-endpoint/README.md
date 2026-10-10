@@ -1,6 +1,6 @@
 # restate-rafi-endpoint
 
-**Standalone endpoint serving the Rafi draw engine ([`restate-rafi`](../restate-rafi)) for [Restate](https://restate.dev/).**
+**Standalone endpoint serving the Rafi drawing engine's Restate services ([`rafi-engine-restate`](../engine-restate)) for [Restate](https://restate.dev/).**
 
 It writes the draw state into the Rafi app's SQLite database, so it runs next to the app with access to the
 same file (the same machine, or a shared volume). The app owns the schema and creates the file.

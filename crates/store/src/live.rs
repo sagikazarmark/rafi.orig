@@ -223,8 +223,8 @@ mod tests {
             ],
         );
         db.query(
-            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, engine, manifest_hash, created_at, updated_at)
-             VALUES ('r1', 'o', 's', 'j', 't', 'open', 'restate', ?, 0, 0)",
+            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, manifest_hash, created_at, updated_at)
+             VALUES ('r1', 'o', 's', 'j', 't', 'open', ?, 0, 0)",
         )
         .bind(manifest.hash().to_string())
         .run()
