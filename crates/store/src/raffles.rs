@@ -3,7 +3,7 @@
 //! The freeze is three steps, since D1 has no interactive transactions:
 //! [`freeze`] closes registration, the caller reads the now-fixed entrant list
 //! ([`entrants::active_ids`](crate::entrants::active_ids)), then
-//! [`set_manifest`] stores the drawing's manifest (or [`unfreeze`] reverts when nobody is left).
+//! [`set_manifest`] stores the raffle's manifest (or [`unfreeze`] reverts when nobody is left).
 //! Each step is guarded by the state it expects, so retrying is safe.
 
 use rafi_lifecycle::RaffleState;
@@ -44,8 +44,10 @@ pub struct RaffleRow {
     pub manifest: Option<String>,
     pub manifest_hash: Option<String>,
     pub frozen_at: Option<i64>,
-    pub drawing: Option<String>,
-    pub drawing_version: i64,
+    /// The raffle as its engine drew it ([`crate::save_raffle`]): the
+    /// manifest and the event log.
+    pub log: Option<String>,
+    pub log_version: i64,
     pub finished_at: Option<i64>,
     pub purge_nonwinners_at: Option<i64>,
     pub purge_winners_at: Option<i64>,
@@ -60,12 +62,9 @@ pub struct RaffleRow {
 }
 
 impl RaffleRow {
-    /// The drawing, once the engine has opened it.
-    pub fn drawing(&self) -> Result<Option<Raffle>> {
-        self.drawing
-            .as_deref()
-            .map(crate::parse_drawing)
-            .transpose()
+    /// The raffle as drawn, once the engine has opened it.
+    pub fn drawn(&self) -> Result<Option<Raffle>> {
+        self.log.as_deref().map(crate::parse_raffle).transpose()
     }
 }
 

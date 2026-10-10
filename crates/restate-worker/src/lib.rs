@@ -24,7 +24,7 @@ use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_platform::Notify;
-use rafi_store::DrawWriter;
+use rafi_store::RaffleWriter;
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};
 use worker::{Context, Env, HttpRequest, Result, event};
 
@@ -39,7 +39,7 @@ fn drand_config(env: &Env) -> DrandConfig {
 
 /// The SDK endpoint over the Worker's bindings.
 fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
-    let store = DrawWriter::new(rafi_cloudflare::database(env)?);
+    let store = RaffleWriter::new(rafi_cloudflare::database(env)?);
     let drand = DrandClient::new(drand_config(env))?;
     // A raffle's changes go to its channel.
     let notifier = Notify::new(

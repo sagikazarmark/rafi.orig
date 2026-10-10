@@ -52,7 +52,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         .map(|e| e.display_name.clone())
         .collect();
 
-    let drawing = raffle.drawing()?;
+    let drawing = raffle.drawn()?;
     let prize_meta: HashMap<&str, (&str, &str)> = prizes
         .iter()
         .map(|i| (i.id.as_str(), (i.name.as_str(), i.sponsor.as_str())))

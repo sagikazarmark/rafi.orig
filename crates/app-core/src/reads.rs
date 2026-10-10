@@ -21,7 +21,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     if full.raffle.owner_id != owner {
         return Err(Error::NotFound);
     }
-    let drawing = full.raffle.drawing()?;
+    let drawing = full.raffle.drawn()?;
     let view = view::of(app, &full)?;
     let entrants = admin_entrants(&full, drawing.as_ref());
     let raffle = &full.raffle;
@@ -30,7 +30,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         start: start::next(
             raffle.state,
             raffle.manifest.is_some(),
-            raffle.drawing.is_some(),
+            raffle.log.is_some(),
         )
         .ok()
         .map(|step| match step {
@@ -106,7 +106,7 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
     if full.raffle.owner_id != owner {
         return Err(Error::NotFound);
     }
-    let drawing = full.raffle.drawing()?;
+    let drawing = full.raffle.drawn()?;
     fn esc(s: &str) -> String {
         // Quote, and neutralize spreadsheet formula injection.
         let s = if s.starts_with(['=', '+', '-', '@']) {
@@ -173,7 +173,7 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
         title: raffle.title.clone(),
         state: raffle.state,
         events: raffle
-            .drawing()?
+            .drawn()?
             .map(|s| s.events().to_vec())
             .unwrap_or_default(),
         manifest,

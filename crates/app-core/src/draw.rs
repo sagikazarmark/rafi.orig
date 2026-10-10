@@ -50,7 +50,7 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
     let next = start::next(
         raffle.state,
         raffle.manifest.is_some(),
-        raffle.drawing.is_some(),
+        raffle.log.is_some(),
     )
     .map_err(Refusal::Start)?;
     let manifest = match next {
@@ -146,7 +146,7 @@ pub async fn command(
     if !raffle.state.drawable() {
         return Err(Refusal::NotDrawing.into());
     }
-    let state = raffle.drawing()?.ok_or(Refusal::NotOpened)?;
+    let state = raffle.drawn()?.ok_or(Refusal::NotOpened)?;
 
     // Checked against the projection for immediate, friendly errors: a draw
     // the engine refused would go unnoticed.

@@ -9,7 +9,7 @@ use figment::{
     providers::{Env, Format, Json, Toml, Yaml},
 };
 use rafi_drand::DrandConfig;
-use rafi_store::{Db, DrawWriter};
+use rafi_store::{Db, RaffleWriter};
 use restate_config::{EndpointConfig, ServiceOptionsConfig};
 use serde::{Deserialize, Serialize};
 
@@ -50,13 +50,13 @@ impl DatabaseConfig {
     /// Where the raffle engine writes raffles: the app's database, opened
     /// lazily. The app owns the schema (and creates the SQLite file); until it
     /// has, writes fail and Restate retries them.
-    pub fn raffle_store(&self) -> Result<DrawWriter> {
+    pub fn raffle_store(&self) -> Result<RaffleWriter> {
         if self.url.trim().is_empty() {
             bail!("database.url is required");
         }
         let db = Db::connect_lazy(&self.url)
             .with_context(|| format!("invalid database.url {:?}", self.url))?;
-        Ok(DrawWriter::new(db))
+        Ok(RaffleWriter::new(db))
     }
 }
 

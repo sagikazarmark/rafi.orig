@@ -236,7 +236,7 @@ pub async fn patch_entrant(
         None => None,
     };
     if patch.delivered.is_some()
-        && !lifecycle::raffle::deliverable(raffle.drawing()?.as_ref(), entrant_id)
+        && !lifecycle::raffle::deliverable(raffle.drawn()?.as_ref(), entrant_id)
     {
         return Err(Refusal::NotDeliverable.into());
     }

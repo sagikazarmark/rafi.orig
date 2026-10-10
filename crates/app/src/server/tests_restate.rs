@@ -17,7 +17,7 @@ use rafi_lifecycle::RaffleState;
 use rafi_platform::Polling;
 use rafi_raffle::{Decision, DrawRequest};
 use rafi_raffle::{ItemStatus, Resolution};
-use rafi_store::{Db, DrawWriter, RaffleRow, raffles};
+use rafi_store::{Db, RaffleRow, RaffleWriter, raffles};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
 
@@ -73,7 +73,7 @@ async fn app_and_restate_rafi_share_the_database() {
     })
     .unwrap();
     // As the native endpoint opens it: lazily, without creating it.
-    let store = DrawWriter::new(Db::connect_lazy(&url).unwrap());
+    let store = RaffleWriter::new(Db::connect_lazy(&url).unwrap());
     let chain = drand.chain_hash();
     // As the native endpoint binds them.
     let (drawing, info) = rafi_engine_restate::services(
@@ -128,8 +128,8 @@ async fn app_and_restate_rafi_share_the_database() {
     service::start_draw(&app, OWNER, &id)
         .await
         .expect("freeze via restate-rafi");
-    let r = wait_for(&app, &id, |r| r.drawing.is_some()).await;
-    let item = r.drawing().unwrap().unwrap().items()[0].id.clone();
+    let r = wait_for(&app, &id, |r| r.log.is_some()).await;
+    let item = r.drawn().unwrap().unwrap().items()[0].id.clone();
 
     service::command(
         &app,
@@ -141,7 +141,7 @@ async fn app_and_restate_rafi_share_the_database() {
     .await
     .unwrap();
     wait_for(&app, &id, |r| {
-        r.drawing()
+        r.drawn()
             .unwrap()
             .is_some_and(|s| s.item(&item).unwrap().status() == ItemStatus::Drawn)
     })

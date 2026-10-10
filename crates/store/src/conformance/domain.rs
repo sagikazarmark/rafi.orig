@@ -52,7 +52,7 @@ async fn force_state(db: &Db, id: &str, state: RaffleState) -> Outcome {
     Ok(())
 }
 
-/// A manifest for drawing `id`: `entrants`, and one item `u1`.
+/// A manifest for raffle `id`: `entrants`, and one item `u1`.
 fn manifest<const N: usize>(id: &str, entrants: [String; N]) -> Manifest {
     Manifest::new(
         id,
@@ -114,7 +114,7 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     }
     check(
         other.version() > state.version(),
-        "the other drawing is newer",
+        "the other raffle is newer",
     )?;
     check(
         !save_raffle(db, &other).await.map_err(fail)?,
@@ -562,7 +562,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     let state = Raffle::restore(&manifest, &events).map_err(fail)?;
     let stored = crate::StoredRaffle::of(&state).map_err(fail)?;
     db.query(
-        "UPDATE raffles SET state = 'finished', drawing = ?, winners = ?, finished_at = 100,
+        "UPDATE raffles SET state = 'finished', log = ?, winners = ?, finished_at = 100,
          purge_nonwinners_at = 130, purge_winners_at = 190 WHERE id = 'r1'",
     )
     .bind(stored.json)
@@ -821,8 +821,8 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         "only the drawn entrant, and their hidden name isn't read",
     )?;
     check(
-        snap.drawing.as_ref().is_some_and(|d| d.draws().len() == 1),
-        "the drawing",
+        snap.drawn.as_ref().is_some_and(|d| d.draws().len() == 1),
+        "the raffle as drawn",
     )?;
     check(
         snap.version == raffle(db, "r1").await?.version as u64,
