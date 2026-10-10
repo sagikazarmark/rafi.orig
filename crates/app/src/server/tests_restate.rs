@@ -76,13 +76,13 @@ async fn app_and_restate_rafi_share_the_database() {
     let store = RaffleWriter::new(Db::connect_lazy(&url).unwrap());
     let chain = drand.chain_hash();
     // As the native endpoint binds them.
-    let (drawing, info) = rafi_engine_restate::services(
+    let (raffle, info) = rafi_engine_restate::services(
         drand,
         store,
         rafi_platform::Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
     );
     restate
-        .deploy(Endpoint::builder().bind(drawing).bind(info).build())
+        .deploy(Endpoint::builder().bind(raffle).bind(info).build())
         .await;
     cfg.restate = RestateConfig {
         ingress_url: restate.ingress_url().to_owned(),

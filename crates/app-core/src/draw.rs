@@ -13,7 +13,7 @@ use rafi_store::{audit, entrants, prizes, raffles};
 
 use crate::{App, Error, Refusal, Result, owned};
 
-/// A call to the drawing engine, as the organizer sees it. A call the engine
+/// A call to the raffle engine, as the organizer sees it. A call the engine
 /// accepted but hasn't settled yet ([`EngineError::Pending`]) succeeds: it
 /// applies once, and the screens follow the projection.
 fn confirmed(result: std::result::Result<(), EngineError>) -> Result<()> {
@@ -23,8 +23,8 @@ fn confirmed(result: std::result::Result<(), EngineError>) -> Result<()> {
     }
 }
 
-/// Closes registration, freezes the entrant list, writes the drawing's
-/// manifest from it, and hands that to the drawing engine.
+/// Closes registration, freezes the entrant list, writes the raffle's
+/// manifest from it, and hands that to the raffle engine.
 ///
 /// Each step is its own write ([`start`]), so calling it again picks up
 /// where an attempt stopped: a raffle left frozen without a manifest gets
@@ -36,7 +36,7 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
     let engine = app.engine()?;
     let info = engine.info().await?;
     // The app decides the beacon source; the engine would refuse another
-    // when the drawing opens, after the manifest is stored. Refuse before
+    // when the raffle opens, after the manifest is stored. Refuse before
     // anything is frozen.
     let beacon = BeaconSource::Drand(app.chain);
     if info.beacon != beacon {
@@ -76,11 +76,11 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
         Start::Started => return Ok(()),
     };
 
-    // The engine writes the opened drawing and nudges the channel itself.
+    // The engine writes the opened raffle and nudges the channel itself.
     confirmed(engine.open(&manifest).await)
 }
 
-/// The drawing's items for a raffle's prizes (one per copy), in draw order.
+/// The raffle's items for its prizes (one per copy), in draw order.
 async fn items(app: &App, id: &str) -> Result<Vec<ManifestItem>> {
     let prizes = prizes::list(&app.db, id).await?;
     Ok(lifecycle::raffle::items(prizes.iter().map(|i| {
@@ -116,7 +116,7 @@ async fn write_manifest(
         app.notifier.notify(id).await;
         return Err(Refusal::Start(refusal).into());
     }
-    // The app alone decides the chain; the drawing engine refuses a mismatch.
+    // The app alone decides the chain; the raffle engine refuses a mismatch.
     let manifest =
         lifecycle::raffle::manifest(id, BeaconSource::Drand(app.chain), entrant_ids, items);
     let json = manifest.canonical_json();
@@ -152,7 +152,7 @@ pub async fn command(
     // the engine refused would go unnoticed.
     state.admit(&cmd).map_err(|error| match error {
         rafi_raffle::Error::UnknownItem(_) => Error::NotFound,
-        error => Refusal::Drawing {
+        error => Refusal::Raffle {
             command: Some(cmd.clone()),
             error,
         }
@@ -162,7 +162,7 @@ pub async fn command(
     send(app, owner, id, cmd, command_id).await
 }
 
-/// Hands a validated command to the drawing engine, which writes the new
+/// Hands a validated command to the raffle engine, which writes the new
 /// state and nudges the channel itself, and audits it once the engine took it
 /// (applied, or accepted and queued). A command the engine refused, or
 /// couldn't be asked, isn't audited: the organizer's retry (same command ID,

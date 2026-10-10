@@ -21,8 +21,8 @@ pub enum Error {
     /// The rules refuse it; nothing changed.
     #[error("{0}")]
     Refused(#[from] Refusal),
-    /// The drawing engine is unreachable; retrying is safe.
-    #[error("The drawing engine is not reachable right now. Try again in a moment.")]
+    /// The raffle engine is unreachable; retrying is safe.
+    #[error("The raffle engine is not reachable right now. Try again in a moment.")]
     Unavailable,
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -38,7 +38,7 @@ impl From<RaffleError> for Error {
     fn from(e: RaffleError) -> Self {
         match e.kind() {
             ErrorKind::NotFound => Self::NotFound,
-            ErrorKind::BadRequest | ErrorKind::Conflict => Self::Refused(Refusal::Drawing {
+            ErrorKind::BadRequest | ErrorKind::Conflict => Self::Refused(Refusal::Raffle {
                 command: None,
                 error: e,
             }),
@@ -48,7 +48,7 @@ impl From<RaffleError> for Error {
 }
 
 impl From<EngineError> for Error {
-    /// What the organizer sees of a call the drawing engine didn't confirm.
+    /// What the organizer sees of a call the raffle engine didn't confirm.
     /// (A call it accepted but hasn't settled, [`EngineError::Pending`],
     /// isn't an error: callers treat it as done.)
     fn from(e: EngineError) -> Self {
@@ -64,14 +64,14 @@ impl From<EngineError> for Error {
                     message,
                 }),
                 ErrorKind::Invariant => {
-                    Self::Internal(anyhow::anyhow!("drawing engine invariant: {message}"))
+                    Self::Internal(anyhow::anyhow!("raffle engine invariant: {message}"))
                 }
             },
             EngineError::Pending => {
                 Self::Internal(anyhow::anyhow!("a pending engine call is not an error"))
             }
             EngineError::Unavailable(e) => {
-                tracing::warn!(error = %format!("{e:#}"), "drawing engine unavailable");
+                tracing::warn!(error = %format!("{e:#}"), "raffle engine unavailable");
                 Self::Unavailable
             }
         }
@@ -108,9 +108,9 @@ pub enum Refusal {
     Start(start::Refusal),
     NotDrawing,
     NotOpened,
-    /// The drawing's rules refuse `command` (`None`: whatever the engine was
+    /// The raffle's rules refuse `command` (`None`: whatever the engine was
     /// asked).
-    Drawing {
+    Raffle {
         command: Option<Command>,
         error: RaffleError,
     },
@@ -143,7 +143,7 @@ impl Refusal {
             | Self::Name(_)
             | Self::Email => true,
             Self::Engine { invalid, .. } => *invalid,
-            Self::Drawing { error, .. } => error.kind() == ErrorKind::BadRequest,
+            Self::Raffle { error, .. } => error.kind() == ErrorKind::BadRequest,
             _ => false,
         }
     }
@@ -192,7 +192,7 @@ impl fmt::Display for Refusal {
             Self::NoEngine => f.write_str("Restate is not configured on this server."),
             Self::BeaconMismatch { engine, raffles } => write!(
                 f,
-                "The drawing engine draws from {engine}, but raffles here commit to {raffles}. Fix the configuration before starting the draw."
+                "The raffle engine draws from {engine}, but raffles here commit to {raffles}. Fix the configuration before starting the draw."
             ),
             Self::Start(start::Refusal::State(s)) => write!(
                 f,
@@ -203,9 +203,9 @@ impl fmt::Display for Refusal {
             Self::Start(start::Refusal::NoPrizes) => f.write_str("Add at least one prize first."),
             Self::NotDrawing => f.write_str("The draw has not started (or is already over)."),
             Self::NotOpened => f.write_str(
-                "The drawing engine has not confirmed the frozen list yet; press “Start the draw” again.",
+                "The raffle engine has not confirmed the frozen list yet; press “Start the draw” again.",
             ),
-            Self::Drawing { command, error } => f.write_str(&drawing_refusal(command.as_ref(), error)),
+            Self::Raffle { command, error } => f.write_str(&raffle_refusal(command.as_ref(), error)),
             Self::Engine { message, .. } => f.write_str(message),
             Self::EntrantsFrozen => f.write_str("The entrant list is frozen."),
             Self::Name(NameError::Invalid) => f.write_str("Please enter a name (1–24 characters)."),
@@ -229,7 +229,7 @@ impl fmt::Display for Refusal {
 }
 
 /// The organizer's words for a command the draw rules refuse.
-fn drawing_refusal(command: Option<&Command>, e: &RaffleError) -> String {
+fn raffle_refusal(command: Option<&Command>, e: &RaffleError) -> String {
     let message = match (command, e) {
         (_, RaffleError::Finished) => "The raffle is finished.",
         (Some(Command::Draw(_)), RaffleError::DrawInProgress) => "A draw is already in progress.",

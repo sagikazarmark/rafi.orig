@@ -3,7 +3,7 @@
 //! shows), the participants' (joining) and the public reads (the full view,
 //! the verification data).
 //!
-//! Each use case is a function over an [`App`]: the database, the drawing
+//! Each use case is a function over an [`App`]: the database, the raffle
 //! engine and the live notifier the deployment plugs in, and the
 //! deployment's [`Policy`]. The rules come from `rafi-lifecycle` and
 //! `rafi-raffle`; a use case sequences the reads and writes around them. A
@@ -11,7 +11,7 @@
 //!
 //! Every write that changes what phones see (the participant view) notifies
 //! clients ([`App::notifier`]). Joins don't: they never change it. The
-//! drawing engine notifies after its own writes.
+//! raffle engine notifies after its own writes.
 
 pub mod codes;
 mod draw;
@@ -46,7 +46,7 @@ pub struct App {
     pub db: Db,
     /// The drand chain new raffles commit to.
     pub chain: ChainHash,
-    /// The drawing engine; `None` on a server without one.
+    /// The raffle engine; `None` on a server without one.
     pub engine: Option<Arc<dyn RaffleEngine>>,
     /// Live updates to clients (natively: none, clients poll).
     pub notifier: Arc<dyn Notifier>,
@@ -74,7 +74,7 @@ impl App {
         }
     }
 
-    /// The drawing engine, or a refusal if this server has none.
+    /// The raffle engine, or a refusal if this server has none.
     fn engine(&self) -> Result<&dyn RaffleEngine> {
         self.engine
             .as_deref()

@@ -225,10 +225,10 @@ pub struct AdminActions {
 pub enum StartStep {
     /// Registration can be frozen and the draw started.
     Freeze,
-    /// Frozen, but an attempt stopped before the drawing engine had the
+    /// Frozen, but an attempt stopped before the raffle engine had the
     /// list: starting again picks up where it stopped.
     Retry,
-    /// The drawing engine has the drawing.
+    /// The raffle engine has the raffle.
     Started,
 }
 
@@ -246,7 +246,7 @@ pub enum Lifecycle {
 pub struct VerifyData {
     pub title: String,
     pub state: RaffleState,
-    /// The drawing's canonical manifest, exactly as hashed.
+    /// The raffle's canonical manifest, exactly as hashed.
     pub manifest: String,
     pub manifest_hash: String,
     pub events: Vec<Event>,

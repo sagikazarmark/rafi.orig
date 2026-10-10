@@ -13,7 +13,7 @@ publish = false
 card = ["dep:dioxus"]
 ## Issue and verify ALTCHA challenges (HMAC). The phone only solves.
 server = ["dep:hmac"]
-## Build participant views from a raffle and its drawing (`raffle::view`):
+## Build participant views from a raffle as drawn (`raffle::view`):
 ## for servers. Pulls in rafi-raffle (drand, BLS), so the phone leaves it off.
 raffle = ["dep:rafi-lifecycle", "dep:rafi-raffle"]
 

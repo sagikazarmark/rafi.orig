@@ -1,5 +1,5 @@
 //! Integration tests: in-memory SQLite (or, with `RAFI_TEST_POSTGRES_URL`
-//! set, a fresh Postgres schema per test), the in-process drawing engine
+//! set, a fresh Postgres schema per test), the in-process raffle engine
 //! (`rafi_engine::local`), mock drand.
 
 use std::{sync::Arc, time::Duration};
@@ -32,7 +32,7 @@ async fn app_with(cfg: Config) -> AppState {
     app_with_live(cfg, Arc::new(Polling::default())).await
 }
 
-/// The drawing engine's drand: the mock chain, no lead.
+/// The raffle engine's drand: the mock chain, no lead.
 fn mock_drand() -> rafi_drand::DrandConfig {
     rafi_drand::DrandConfig {
         relays: vec![],
@@ -46,7 +46,7 @@ async fn app_with_live(cfg: Config, live: Arc<dyn Notifier>) -> AppState {
     app_with_engine(cfg, mock_drand(), live).await
 }
 
-/// An app whose drawing engine is the in-process one (drawing with `drand`),
+/// An app whose raffle engine is the in-process one (drawing with `drand`),
 /// writing into the same database. With `RAFI_TEST_POSTGRES_URL` set, the
 /// test database is a fresh schema there instead of in-memory SQLite.
 async fn app_with_engine(
@@ -849,7 +849,7 @@ async fn an_engine_on_another_chain_is_refused_before_freezing() {
     assert!(r.manifest.is_none(), "nothing was committed");
 }
 
-/// Without a drawing engine configured, nothing can start.
+/// Without a raffle engine configured, nothing can start.
 #[tokio::test]
 async fn draws_need_restate() {
     let mut cfg = Config::for_tests();

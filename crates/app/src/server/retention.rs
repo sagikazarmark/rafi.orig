@@ -4,7 +4,7 @@
 //!   non-winners are erased after `RAFI_RETENTION_DAYS` (30), winners once
 //!   their prize is marked delivered or after `RAFI_RETENTION_WINNERS_DAYS`
 //!   (90). The first run that sees a raffle finished dates its erasure with
-//!   these settings ([`store::date_purges`]); the drawing engine, which stores
+//!   these settings ([`store::date_purges`]); the raffle engine, which stores
 //!   the finish, knows none of them. Entrant IDs and the draw log stay, so the
 //!   published draw remains verifiable. Each erasure is logged in `erasures`,
 //!   without personal data.

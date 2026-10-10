@@ -21,9 +21,9 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     if full.raffle.owner_id != owner {
         return Err(Error::NotFound);
     }
-    let drawing = full.raffle.drawn()?;
+    let drawn = full.raffle.drawn()?;
     let view = view::of(app, &full)?;
-    let entrants = admin_entrants(&full, drawing.as_ref());
+    let entrants = admin_entrants(&full, drawn.as_ref());
     let raffle = &full.raffle;
     let personal_data_left = full.entrants.iter().any(|e| !e.purged);
     let actions = AdminActions {
@@ -65,11 +65,11 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     })
 }
 
-/// The entrants as the organizer sees them, with what the drawing made of
+/// The entrants as the organizer sees them, with what the raffle made of
 /// each.
-fn admin_entrants(full: &Full, drawing: Option<&Raffle>) -> Vec<AdminEntrant> {
-    let outcomes = drawing.map(Raffle::entrant_outcomes).unwrap_or_default();
-    let item_names: HashMap<ItemId, String> = drawing
+fn admin_entrants(full: &Full, drawn: Option<&Raffle>) -> Vec<AdminEntrant> {
+    let outcomes = drawn.map(Raffle::entrant_outcomes).unwrap_or_default();
+    let item_names: HashMap<ItemId, String> = drawn
         .map(|s| {
             s.items()
                 .iter()
@@ -93,7 +93,7 @@ fn admin_entrants(full: &Full, drawing: Option<&Raffle>) -> Vec<AdminEntrant> {
                 marketing: e.consent_marketing,
                 created_at: e.created_at,
                 delivered: e.delivered_at.is_some(),
-                deliverable: lifecycle::raffle::deliverable(drawing, &e.id),
+                deliverable: lifecycle::raffle::deliverable(drawn, &e.id),
                 purged: e.purged,
             }
         })
@@ -106,7 +106,7 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
     if full.raffle.owner_id != owner {
         return Err(Error::NotFound);
     }
-    let drawing = full.raffle.drawn()?;
+    let drawn = full.raffle.drawn()?;
     fn esc(s: &str) -> String {
         // Quote, and neutralize spreadsheet formula injection.
         let s = if s.starts_with(['=', '+', '-', '@']) {
@@ -119,7 +119,7 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
     let mut out = String::from(
         "entrant_id,display_name,email,source,claim_code,outcome,prize,delivered,marketing_consent\n",
     );
-    for e in admin_entrants(&full, drawing.as_ref())
+    for e in admin_entrants(&full, drawn.as_ref())
         .iter()
         .filter(|e| e.outcome.is_some())
     {

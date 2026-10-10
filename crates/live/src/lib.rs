@@ -12,7 +12,7 @@
 //! - [`PageConfig`]: the participant page's embedded state;
 //! - [`publish::decide`]: when a live channel publishes a participant view;
 //! - with the `raffle` feature, `raffle::view`: the participant view of a
-//!   raffle and its drawing, for the servers that build views.
+//!   raffle as drawn, for the servers that build views.
 //!
 //! This crate must stay light enough for the phone: without `raffle` it
 //! doesn't depend on `rafi-raffle` (which pulls in drand and BLS), without

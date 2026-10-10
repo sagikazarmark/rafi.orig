@@ -38,7 +38,7 @@ pub struct AppState(Arc<Inner>);
 pub struct Inner {
     pub cfg: Config,
     /// What the use cases run against: the database, the drand chain
-    /// ([`Config::chain`]), the drawing engine (`None` without
+    /// ([`Config::chain`]), the raffle engine (`None` without
     /// `RESTATE_INGRESS_URL`) and the notifier. `Inner` derefs to it.
     pub core: service::App,
     /// The join rate limits.
@@ -79,7 +79,7 @@ impl AppState {
         )
     }
 
-    /// The app over a database, a drawing engine and the platform's notifier and
+    /// The app over a database, a raffle engine and the platform's notifier and
     /// rate limits.
     pub fn from_parts(
         cfg: Config,
@@ -110,7 +110,7 @@ impl AppState {
     }
 }
 
-/// The drawing engine `cfg` points at: the `restate-rafi` service through the
+/// The raffle engine `cfg` points at: the `restate-rafi` service through the
 /// Restate ingress; `None` without `RESTATE_INGRESS_URL`.
 pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn RaffleEngine>> {
     (!cfg.restate.ingress_url.is_empty())

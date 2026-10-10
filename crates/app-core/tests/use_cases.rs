@@ -1,4 +1,4 @@
-//! The use cases on their own: in-memory SQLite, the in-process drawing
+//! The use cases on their own: in-memory SQLite, the in-process raffle
 //! engine, mock drand, and no HTTP.
 
 use std::{sync::Arc, time::Duration};
