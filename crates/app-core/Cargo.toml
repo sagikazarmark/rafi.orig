@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 hex.workspace = true
 rafi-drawing.workspace = true
 rafi-engine = { path = "../engine" }

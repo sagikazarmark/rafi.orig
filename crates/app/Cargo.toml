@@ -29,7 +29,7 @@ hex.workspace = true
 sha2.workspace = true
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 uuid = { version = "1", features = ["v4", "js"] }
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 futures-util = "0.3"
 dioform = { version = "0.7", features = ["dioxus-field"] }
 
@@ -45,8 +45,8 @@ thiserror = { workspace = true, optional = true }
 web-sys = { version = "0.3", features = ["Window", "Document", "EventTarget", "Node", "VisibilityState", "Element", "HtmlElement", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Location", "Navigator", "Crypto"], optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
-gloo-timers = { version = "0.3", features = ["futures"], optional = true }
-gloo-net = { version = "0.6", default-features = false, features = ["http", "json"], optional = true }
+gloo-timers = { version = "0.4", features = ["futures"], optional = true }
+gloo-net = { version = "0.7", default-features = false, features = ["http", "json"], optional = true }
 partyline-dioxus = { version = "0.3", optional = true }
 dioxus-field = { version = "0.7.0", default-features = false }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components", rev = "bf007c15d0cf4d04d3181cc46cf12325aa773955", version = "0.0.1", default-features = false, features = ["router"] }
@@ -55,7 +55,7 @@ dioxus-primitives = { git = "https://github.com/DioxusLabs/components", rev = "b
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 axum = { version = "0.8", default-features = false, features = ["tokio", "http1"], optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
-tower-http = { version = "0.6", features = ["fs"], optional = true }
+tower-http = { version = "0.7", features = ["fs"], optional = true }
 
 # Cloudflare Workers (the `worker` feature).
 [target.'cfg(target_arch = "wasm32")'.dependencies]

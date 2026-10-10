@@ -2486,11 +2486,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -2550,6 +2548,8 @@ dependencies = [
  "http",
  "js-sys",
  "pin-project",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2600,6 +2600,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4202275d95a142fa209a1e35e91c250a710c5600731372cd3464a39ed01573d6"
 dependencies = [
  "js-sys",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -4695,9 +4697,9 @@ dependencies = [
  "dioxus-field",
  "dioxus-primitives",
  "futures-util",
- "getrandom 0.3.4",
- "gloo-net 0.6.0",
- "gloo-timers 0.3.0",
+ "getrandom 0.4.3",
+ "gloo-net 0.7.0",
+ "gloo-timers 0.4.0",
  "hex",
  "http",
  "http-body-util",
@@ -4719,11 +4721,11 @@ dependencies = [
  "restate-sdk",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.21",
  "tokio",
  "tower",
- "tower-http",
+ "tower-http 0.7.1",
  "tower-service",
  "tracing",
  "uuid",
@@ -4737,7 +4739,7 @@ name = "rafi-app-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "hex",
  "rafi-drand",
  "rafi-drawing",
@@ -4748,7 +4750,7 @@ dependencies = [
  "rafi-raffle",
  "rafi-store",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -4806,7 +4808,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.21",
 ]
 
@@ -4832,7 +4834,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "futures-util",
- "gloo-timers 0.3.0",
+ "gloo-timers 0.4.0",
  "http",
  "rafi-drand",
  "rafi-drawing",
@@ -4852,18 +4854,18 @@ dependencies = [
 name = "rafi-live"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "dioxus",
  "dioxus-ssr",
  "hex",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "partyline",
  "rafi-drawing",
  "rafi-live",
  "rafi-raffle",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
 ]
 
 [[package]]
@@ -4884,7 +4886,7 @@ dependencies = [
  "dioxus",
  "futures-channel",
  "futures-util",
- "gloo-timers 0.3.0",
+ "gloo-timers 0.4.0",
  "js-sys",
  "partyline-dioxus",
  "rafi-live",
@@ -5148,7 +5150,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tower",
- "tower-http",
+ "tower-http 0.6.11",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -5189,7 +5191,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tower",
- "tower-http",
+ "tower-http 0.6.11",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -6710,6 +6712,24 @@ checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
  "bitflags 2.13.2",
  "bytes",
+ "futures-util",
+ "http",
+ "http-body",
+ "pin-project-lite",
+ "tower",
+ "tower-layer",
+ "tower-service",
+ "url",
+]
+
+[[package]]
+name = "tower-http"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c"
+dependencies = [
+ "bitflags 2.13.2",
+ "bytes",
  "futures-core",
  "futures-util",
  "http",
@@ -6723,10 +6743,8 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
- "tower",
  "tower-layer",
  "tower-service",
- "url",
 ]
 
 [[package]]
