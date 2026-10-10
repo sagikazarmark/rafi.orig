@@ -15,8 +15,8 @@ use rafi_drawing::{Decision, DrawRequest};
 use rafi_drawing::{ItemStatus, Resolution};
 use rafi_engine::DrawingEngine;
 use rafi_engine_restate::RestateClient;
+use rafi_lifecycle::RaffleState;
 use rafi_platform::Polling;
-use rafi_raffle::RaffleState;
 use rafi_store::{Db, DrawWriter, RaffleRow, raffles};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
@@ -79,7 +79,7 @@ async fn app_and_restate_rafi_share_the_database() {
     let (drawing, info) = rafi_engine_restate::services(
         drand,
         store,
-        rafi_platform::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
+        rafi_platform::Notify::new(Polling::default(), rafi_lifecycle::drawing::raffle_id),
     );
     restate
         .deploy(Endpoint::builder().bind(drawing).bind(info).build())

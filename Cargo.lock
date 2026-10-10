@@ -4710,10 +4710,10 @@ dependencies = [
  "rafi-drawing",
  "rafi-engine",
  "rafi-engine-restate",
+ "rafi-lifecycle",
  "rafi-live",
  "rafi-model",
  "rafi-platform",
- "rafi-raffle",
  "rafi-store",
  "restate-e2e-harness",
  "restate-sdk",
@@ -4742,10 +4742,10 @@ dependencies = [
  "rafi-drand",
  "rafi-drawing",
  "rafi-engine",
+ "rafi-lifecycle",
  "rafi-live",
  "rafi-model",
  "rafi-platform",
- "rafi-raffle",
  "rafi-store",
  "serde_json",
  "sha2 0.10.9",
@@ -4849,6 +4849,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rafi-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "drand",
+ "proptest",
+ "rafi-drawing",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rafi-live"
 version = "0.1.0"
 dependencies = [
@@ -4859,8 +4870,8 @@ dependencies = [
  "hmac 0.12.1",
  "partyline",
  "rafi-drawing",
+ "rafi-lifecycle",
  "rafi-live",
- "rafi-raffle",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4872,8 +4883,8 @@ version = "0.1.0"
 dependencies = [
  "js-sys",
  "rafi-drawing",
+ "rafi-lifecycle",
  "rafi-live",
- "rafi-raffle",
  "serde",
 ]
 
@@ -4907,17 +4918,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-raffle"
-version = "0.1.0"
-dependencies = [
- "drand",
- "proptest",
- "rafi-drawing",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "rafi-restate-worker"
 version = "0.1.0"
 dependencies = [
@@ -4928,8 +4928,8 @@ dependencies = [
  "rafi-drand",
  "rafi-engine",
  "rafi-engine-restate",
+ "rafi-lifecycle",
  "rafi-platform",
- "rafi-raffle",
  "rafi-store",
  "restate-sdk",
  "worker",
@@ -4946,8 +4946,8 @@ dependencies = [
  "oliphaunt",
  "rafi-drawing",
  "rafi-engine",
+ "rafi-lifecycle",
  "rafi-live",
- "rafi-raffle",
  "rafi-store",
  "serde",
  "serde_json",
@@ -5264,8 +5264,8 @@ dependencies = [
  "rafi-drand",
  "rafi-engine",
  "rafi-engine-restate",
+ "rafi-lifecycle",
  "rafi-platform",
- "rafi-raffle",
  "rafi-store",
  "restate-config",
  "restate-ext",

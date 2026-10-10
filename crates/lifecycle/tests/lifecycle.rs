@@ -8,7 +8,7 @@ use rafi_drawing::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Resolution,
     drand::{VerifiedBeacon, Verifier},
 };
-use rafi_raffle::{
+use rafi_lifecycle::{
     Command, RaffleState,
     drawing::{deliverable, items, lifecycle, manifest},
 };

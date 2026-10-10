@@ -88,7 +88,7 @@ impl From<DrawingError> for EngineError {
 ///   published projection (the store keeps the newest version), but past the
 ///   retention window it would open the drawing again, unpublished. Callers
 ///   must therefore not open a drawing they finished: rafi's raffle lifecycle
-///   opens one only from a frozen raffle (`rafi_raffle::start::next`).
+///   opens one only from a frozen raffle (`rafi_lifecycle::start::next`).
 pub trait DrawingEngine: Send + Sync + 'static {
     /// The engine's beacon source; also tells whether it is reachable.
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>>;

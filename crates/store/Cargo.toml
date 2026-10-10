@@ -27,7 +27,7 @@ live = ["dep:rafi-live"]
 
 [dependencies]
 anyhow = "1"
-rafi-raffle.workspace = true
+rafi-lifecycle.workspace = true
 rafi-drawing.workspace = true
 rafi-engine = { path = "../engine" }
 rafi-live = { path = "../live", features = ["raffle"], optional = true }

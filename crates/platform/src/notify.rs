@@ -7,7 +7,7 @@ use crate::{BoxFuture, Notifier};
 
 /// Notifies a [`Notifier`] of the subject each drawing belongs to: the
 /// host, which knows what its drawings are for, names it (for rafi,
-/// `rafi_raffle::drawing::raffle_id`).
+/// `rafi_lifecycle::drawing::raffle_id`).
 pub struct Notify<N> {
     notifier: N,
     subject: fn(&DrawingId) -> &str,

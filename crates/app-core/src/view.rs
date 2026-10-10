@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 
 use rafi_drawing::{BeaconSource, Event, ItemId, ItemStatus};
+use rafi_lifecycle::RaffleState;
 use rafi_model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
-use rafi_raffle::RaffleState;
 use rafi_store::view::Full;
 
 use crate::{App, ids};
@@ -64,7 +64,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
             .iter()
             .map(|u| ItemView {
                 item: u.id.clone(),
-                prize_id: rafi_raffle::drawing::prize_id(&u.id).to_owned(),
+                prize_id: rafi_lifecycle::drawing::prize_id(&u.id).to_owned(),
                 prize_name: u.name.clone(),
                 status: u.status(),
                 display_name: u.winner().map(|e| name_of(e.as_str())),
@@ -72,7 +72,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
             })
             .collect(),
         // Before the freeze: the items the raffle's prizes will become.
-        None => rafi_raffle::drawing::items(prizes.iter().map(|i| {
+        None => rafi_lifecycle::drawing::items(prizes.iter().map(|i| {
             (
                 i.id.as_str(),
                 i.name.as_str(),
@@ -81,7 +81,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         }))
         .into_iter()
         .map(|item| ItemView {
-            prize_id: rafi_raffle::drawing::prize_id(&item.id).to_owned(),
+            prize_id: rafi_lifecycle::drawing::prize_id(&item.id).to_owned(),
             item: item.id,
             prize_name: item.name,
             status: ItemStatus::Available,

@@ -7,7 +7,7 @@
 
 use std::sync::LazyLock;
 
-use rafi_raffle::{Command, RaffleState};
+use rafi_lifecycle::{Command, RaffleState};
 
 use crate::{
     Db, PurgeAfter, Result,

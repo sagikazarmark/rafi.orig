@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use rafi_drawing::{Drawing, ItemId, Outcome};
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
 
 use crate::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
 

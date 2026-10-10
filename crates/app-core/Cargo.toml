@@ -16,7 +16,7 @@ rafi-engine = { path = "../engine" }
 rafi-live = { path = "../live", features = ["raffle"] }
 rafi-model.workspace = true
 rafi-platform = { path = "../platform" }
-rafi-raffle.workspace = true
+rafi-lifecycle.workspace = true
 rafi-store = { workspace = true, features = ["live"] }
 serde_json.workspace = true
 sha2.workspace = true
@@ -24,7 +24,7 @@ thiserror.workspace = true
 tracing = "0.1"
 
 [dev-dependencies]
-rafi-raffle.workspace = true
+rafi-lifecycle.workspace = true
 rafi-drand = { path = "../drand", features = ["mock"] }
 rafi-engine = { path = "../engine", features = ["local"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

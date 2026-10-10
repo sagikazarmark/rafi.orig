@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::{Db, Result, dialect};
 use rafi_drawing::Drawing;
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
 use serde::Deserialize;
 
 /// The raffle as phones see it, read in one snapshot.

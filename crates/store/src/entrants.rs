@@ -1,6 +1,6 @@
 //! A raffle's entrants, and erasing their personal data.
 
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
 use serde::Deserialize;
 
 use crate::{Db, Result, now};

@@ -4,7 +4,7 @@ use std::fmt;
 
 use rafi_drawing::{BeaconSource, Command, Decision, Error as DrawingError, ErrorKind};
 use rafi_engine::EngineError;
-use rafi_raffle::{
+use rafi_lifecycle::{
     self as raffle, RaffleState,
     entrant::{FakesRefusal, NameError},
     settings::{self, SettingsError},

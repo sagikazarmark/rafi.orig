@@ -4,12 +4,12 @@
 use std::collections::HashMap;
 
 use rafi_drawing::{Drawing, ItemId, Outcome};
-use rafi_model::{
-    AdminActions, AdminEntrant, EntrantSource, Prize, RaffleAdmin, StartStep, VerifyData,
-};
-use rafi_raffle::{
+use rafi_lifecycle::{
     self as raffle, RaffleState,
     start::{self, Start},
+};
+use rafi_model::{
+    AdminActions, AdminEntrant, EntrantSource, Prize, RaffleAdmin, StartStep, VerifyData,
 };
 use rafi_store::{entrants, raffles, view::Full};
 

@@ -15,7 +15,7 @@ doc = false
 [dependencies]
 rafi-engine = { path = "../engine" }
 rafi-engine-restate = { path = "../engine-restate" }
-rafi-raffle.workspace = true
+rafi-lifecycle.workspace = true
 rafi-drand = { path = "../drand" }
 rafi-platform = { path = "../platform" }
 rafi-store.workspace = true

@@ -2,7 +2,7 @@
 //! poll, and the admin API's arguments and results.
 
 use rafi_drawing::{EntrantId, Event, ItemId, ItemStatus, Outcome};
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
 use serde::{Deserialize, Serialize};
 
 /// The public, live state of a raffle: the projector's and the admin's full

@@ -12,7 +12,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rafi-raffle.workspace = true
+rafi-lifecycle.workspace = true
 rafi-drawing.workspace = true
 rafi-model.workspace = true
 rafi-drand = { path = "../drand", optional = true }

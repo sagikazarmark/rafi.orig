@@ -15,7 +15,7 @@ card = ["dep:dioxus"]
 server = ["dep:hmac"]
 ## Build participant views from a raffle and its drawing (`raffle::view`):
 ## for servers. Pulls in rafi-drawing (drand, BLS), so the phone leaves it off.
-raffle = ["dep:rafi-raffle", "dep:rafi-drawing"]
+raffle = ["dep:rafi-lifecycle", "dep:rafi-drawing"]
 
 [dependencies]
 base64 = "0.22"
@@ -24,7 +24,7 @@ hex.workspace = true
 hmac = { version = "0.12", optional = true }
 partyline = "0.3"
 rafi-drawing = { workspace = true, optional = true }
-rafi-raffle = { workspace = true, optional = true }
+rafi-lifecycle = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

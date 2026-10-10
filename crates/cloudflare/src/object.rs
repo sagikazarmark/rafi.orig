@@ -8,7 +8,7 @@
 //! published view; destroying it deletes all of that.
 //!
 //! Requests come from this Worker only (see [`crate::gate`]): the raffle ID
-//! travels in the `x-rafi-raffle` header.
+//! travels in the `x-rafi-lifecycle` header.
 
 use std::{cell::Cell, time::Duration};
 
@@ -23,7 +23,7 @@ use worker::{
 };
 
 /// The header carrying the raffle ID on requests to the object.
-pub(crate) const RAFFLE_HEADER: &str = "x-rafi-raffle";
+pub(crate) const RAFFLE_HEADER: &str = "x-rafi-lifecycle";
 
 /// How often the object re-reads the raffle while sockets are open.
 const REREAD: Duration = Duration::from_secs(15);

@@ -4,7 +4,7 @@ use rafi_drawing::{
     BeaconSource, Command, Decision, DrawRequest, Manifest, ManifestHash, ManifestItem, Resolution,
 };
 use rafi_engine::EngineError;
-use rafi_raffle::{
+use rafi_lifecycle::{
     self as raffle, RaffleState,
     start::{self, Start},
 };

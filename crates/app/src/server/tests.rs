@@ -11,9 +11,9 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use rafi_drawing::{ItemStatus, Resolution};
+use rafi_lifecycle::RaffleState;
 use rafi_live::LiveTransport;
 use rafi_platform::{Limiter, Notifier, Polling, Recording};
-use rafi_raffle::RaffleState;
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
 use tower::ServiceExt;
 
@@ -65,7 +65,7 @@ async fn app_with_engine(
     let engine = rafi_engine::local::LocalEngine::new(
         rafi_drand::DrandClient::new(drand).expect("drand configuration"),
         rafi_store::DrawWriter::new(db.clone()),
-        rafi_platform::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
+        rafi_platform::Notify::new(Polling::default(), rafi_lifecycle::drawing::raffle_id),
     );
     AppState::from_parts(
         cfg,
@@ -1108,11 +1108,16 @@ async fn fake_entrants_are_added_in_one_batch() {
     service::update_settings(&app, OWNER, &raffle.id, settings)
         .await
         .unwrap();
-    service::add_fakes(&app, OWNER, &raffle.id, rafi_raffle::entrant::MAX_FAKES + 1)
-        .await
-        .unwrap();
+    service::add_fakes(
+        &app,
+        OWNER,
+        &raffle.id,
+        rafi_lifecycle::entrant::MAX_FAKES + 1,
+    )
+    .await
+    .unwrap();
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
-    assert_eq!(entrants.len(), rafi_raffle::entrant::MAX_FAKES as usize);
+    assert_eq!(entrants.len(), rafi_lifecycle::entrant::MAX_FAKES as usize);
     assert!(entrants.iter().all(|e| e.source == "fake" && !e.hidden));
     let ids: std::collections::HashSet<_> = entrants.iter().map(|e| &e.id).collect();
     assert_eq!(ids.len(), entrants.len());

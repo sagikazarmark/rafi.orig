@@ -5,7 +5,7 @@
 //!
 //! Each use case is a function over an [`App`]: the database, the drawing
 //! engine and the live notifier the deployment plugs in, and the
-//! deployment's [`Policy`]. The rules come from `rafi-raffle` and
+//! deployment's [`Policy`]. The rules come from `rafi-lifecycle` and
 //! `rafi-drawing`; a use case sequences the reads and writes around them. A
 //! refusal is a typed [`Refusal`]; the HTTP layer only maps it.
 //!

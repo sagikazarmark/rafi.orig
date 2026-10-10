@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 rafi-drawing.workspace = true
 rafi-live = { path = "../live" }
-rafi-raffle.workspace = true
+rafi-lifecycle.workspace = true
 serde.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

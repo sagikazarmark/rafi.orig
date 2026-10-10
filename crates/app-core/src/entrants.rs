@@ -2,11 +2,11 @@
 
 use std::collections::HashSet;
 
-use rafi_model::EntrantPatch;
-use rafi_raffle::{
+use rafi_lifecycle::{
     self as raffle,
     entrant::{self, Email, JoinRefusal, NameError, Removal},
 };
+use rafi_model::EntrantPatch;
 use rafi_store::{RaffleRow, audit, entrants, raffles};
 
 use crate::{App, Error, Refusal, Result, ids, owned, view::NAME_DELAY_SECS};

@@ -7,7 +7,7 @@
 //! Each step is guarded by the state it expects, so retrying is safe.
 
 use rafi_drawing::Drawing;
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
 use serde::Deserialize;
 
 use crate::{Db, Query, Result, now, prizes::PrizeFields};

@@ -26,7 +26,7 @@ async fn app() -> App {
     let engine = LocalEngine::new(
         drand,
         DrawWriter::new(db.clone()),
-        Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
+        Notify::new(Polling::default(), rafi_lifecycle::drawing::raffle_id),
     );
     App {
         db,
@@ -187,7 +187,7 @@ async fn the_admin_page_offers_what_the_rules_allow() {
 
     // A freeze that stopped before its manifest was written.
     assert!(
-        raffles::freeze(&app.db, &id, rafi_raffle::RaffleState::Open)
+        raffles::freeze(&app.db, &id, rafi_lifecycle::RaffleState::Open)
             .await
             .unwrap()
     );
