@@ -13,7 +13,8 @@ pub fn id() -> String {
     hex::encode(random_bytes::<16>())
 }
 
-/// A short human-friendly code (join codes, claim codes).
+/// A short human-friendly code (join codes, claim codes) of `len` (at most
+/// 16) characters.
 pub fn code(len: usize) -> String {
     super::codes::from_bytes(&random_bytes::<16>(), len)
 }

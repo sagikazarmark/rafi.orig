@@ -5,9 +5,15 @@ pub const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
 /// Encodes random bytes into a code of `len` characters.
 ///
-/// `bytes` must come from a CSPRNG; each byte picks one character. The modulo
+/// `bytes` must come from a CSPRNG; each byte picks one character, so there
+/// must be at least `len` of them. The modulo
 /// bias (256 % 31) is irrelevant for codes that are not used for selection.
 pub fn from_bytes(bytes: &[u8], len: usize) -> String {
+    assert!(
+        bytes.len() >= len,
+        "a {len}-character code from {} bytes",
+        bytes.len()
+    );
     bytes
         .iter()
         .take(len)
@@ -15,17 +21,14 @@ pub fn from_bytes(bytes: &[u8], len: usize) -> String {
         .collect()
 }
 
-/// Normalizes user input of a code (case, look-alike characters, spaces).
+/// Normalizes user input of a code (case, spaces, dashes). Look-alikes need
+/// no mapping: [`ALPHABET`] has neither of a pair, so a mistyped one matches
+/// no code either way.
 pub fn normalize(input: &str) -> String {
     input
-        .trim()
         .chars()
         .filter(|c| !c.is_whitespace() && *c != '-')
-        .map(|c| match c.to_ascii_uppercase() {
-            'O' => '0',
-            'I' | 'L' => '1',
-            c => c,
-        })
+        .map(|c| c.to_ascii_uppercase())
         .collect()
 }
 
