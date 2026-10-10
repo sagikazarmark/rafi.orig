@@ -27,6 +27,6 @@ rafi-platform = { path = "../platform" }
 rafi-store.workspace = true
 rafi-engine = { path = "../engine" }
 rafi-engine-restate = { path = "../engine-restate" }
-rafi-lifecycle.workspace = true
+rafi-raffle.workspace = true
 restate-sdk = { workspace = true, features = ["rust_crypto"] }
 worker = { version = "0.8.7", features = ["http"] }

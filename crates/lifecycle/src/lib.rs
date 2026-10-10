@@ -1,13 +1,14 @@
-//! The raffle: its lifecycle and the rules that hang on it, how it starts
-//! and uses a drawing ([`start`], [`drawing`]), who its entrants are
-//! ([`entrant`]) and what its settings may hold ([`settings`]). The drawing
-//! itself lives in `rafi-raffle`, which knows nothing of raffles.
+//! A raffle's lifecycle in the app and the rules that hang on it: how it
+//! starts ([`start`]) and follows the raffle as drawn ([`raffle`]), who its
+//! entrants are ([`entrant`]) and what its settings may hold ([`settings`]).
+//! The raffle itself, from its manifest to its finish, is `rafi-raffle`'s,
+//! which knows nothing of the app.
 //!
 //! Everything here is pure: the app and the store ask these rules, and keep
 //! none of their own.
 
-pub mod drawing;
 pub mod entrant;
+pub mod raffle;
 pub mod settings;
 pub mod start;
 
@@ -24,7 +25,7 @@ pub enum RaffleState {
     Open,
     /// Registration is closed (can be reopened).
     Closed,
-    /// The entrant list is frozen and published in the drawing's manifest;
+    /// The entrant list is frozen and published in the raffle's manifest;
     /// drawing can start.
     Frozen,
     /// At least one draw happened.
@@ -36,8 +37,8 @@ pub enum RaffleState {
 
 /// An organizer's request to move a raffle through its lifecycle; the rules
 /// may refuse it ([`RaffleState::apply`]). Drawing and finishing are not
-/// commands: the raffle follows its drawing there ([`drawing::lifecycle`]),
-/// in the states that [follow it](RaffleState::follows_drawing).
+/// commands: the lifecycle follows the raffle there ([`raffle::lifecycle`]),
+/// in the states that [follow it](RaffleState::follows_raffle).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     Publish,
@@ -112,10 +113,10 @@ impl RaffleState {
         (self == Self::Frozen && to.apply(Command::Freeze) == Some(Self::Frozen)).then_some(to)
     }
 
-    /// Whether the raffle follows its drawing ([`drawing::lifecycle`]): from
-    /// the freeze until the drawing finishes. A stored drawing moves only a
-    /// raffle in these states.
-    pub fn follows_drawing(self) -> bool {
+    /// Whether the lifecycle follows the raffle ([`raffle::lifecycle`]):
+    /// from the freeze until the raffle finishes. A stored raffle moves the
+    /// lifecycle only in these states.
+    pub fn follows_raffle(self) -> bool {
         matches!(self, Self::Frozen | Self::Drawing)
     }
 
@@ -149,7 +150,7 @@ impl RaffleState {
     }
 
     /// Whether the entrant list is frozen: from the freeze on, the raffle
-    /// has (or is getting) a drawing, its draw log and winners to export.
+    /// is (or is getting) opened, with its draw log and winners to export.
     pub fn frozen_or_later(self) -> bool {
         matches!(
             self,

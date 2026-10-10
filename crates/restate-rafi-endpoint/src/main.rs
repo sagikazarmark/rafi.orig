@@ -77,7 +77,7 @@ fn endpoint(config: Config) -> Result<Endpoint> {
         drand,
         config.database.raffle_store()?,
         // Natively there is no push: the app's clients poll the database.
-        Notify::new(Polling::default(), rafi_lifecycle::drawing::raffle_id),
+        Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
     );
     Ok(Endpoint::builder()
         .configure(&config.endpoint)?

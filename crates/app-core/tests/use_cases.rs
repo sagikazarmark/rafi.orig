@@ -26,7 +26,7 @@ async fn app() -> App {
     let engine = LocalEngine::new(
         drand,
         DrawWriter::new(db.clone()),
-        Notify::new(Polling::default(), rafi_lifecycle::drawing::raffle_id),
+        Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
     );
     App {
         db,

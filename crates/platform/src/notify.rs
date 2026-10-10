@@ -5,9 +5,8 @@ use rafi_raffle::RaffleId;
 
 use crate::{BoxFuture, Notifier};
 
-/// Notifies a [`Notifier`] of the subject each raffle belongs to: the
-/// host, which knows what its raffles are for, names it (for rafi,
-/// `rafi_lifecycle::drawing::raffle_id`).
+/// Notifies a [`Notifier`] of the subject each raffle's clients follow: the
+/// host names it (for rafi, the raffle's own ID: `RaffleId::as_str`).
 pub struct Notify<N> {
     notifier: N,
     subject: fn(&RaffleId) -> &str,

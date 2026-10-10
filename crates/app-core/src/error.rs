@@ -4,7 +4,7 @@ use std::fmt;
 
 use rafi_engine::EngineError;
 use rafi_lifecycle::{
-    self as raffle, RaffleState,
+    self as lifecycle, RaffleState,
     entrant::{FakesRefusal, NameError},
     settings::{self, SettingsError},
     start,
@@ -94,7 +94,7 @@ pub enum Refusal {
     DrawPending,
     JoinCodes,
     Lifecycle {
-        command: raffle::Command,
+        command: lifecycle::Command,
         from: RaffleState,
     },
     /// The raffle changed between reading and writing it.

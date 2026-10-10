@@ -98,7 +98,7 @@ impl PurgeAfter {
 ///
 /// Idempotent and safe to retry: a state is only written when it is newer than
 /// the stored one, and for the entrant list the raffle was frozen with. The
-/// raffle follows its drawing ([`rafi_lifecycle::drawing::lifecycle`]) to
+/// raffle follows its drawing ([`rafi_lifecycle::raffle::lifecycle`]) to
 /// `drawing` and `finished`, and its finish is timed. Nothing here is policy:
 /// when personal data is erased is the app's to date
 /// ([`retention::date_purges`]).
@@ -106,7 +106,7 @@ impl PurgeAfter {
 /// Returns whether the state was written.
 pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
     let stored = StoredRaffle::of(state)?;
-    let lifecycle = rafi_lifecycle::drawing::lifecycle(state).as_str();
+    let lifecycle = rafi_lifecycle::raffle::lifecycle(state).as_str();
     let written = db
         .query(format!(
             "UPDATE raffles SET
@@ -118,7 +118,7 @@ pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
                 finished_at = CASE WHEN ?4 = 1 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
                 updated_at = ?5
              WHERE id = ?6 AND manifest_hash = ?9 AND drawing_version < ?2",
-            following = raffles::states(rafi_lifecycle::RaffleState::follows_drawing),
+            following = raffles::states(rafi_lifecycle::RaffleState::follows_raffle),
         ))
         .bind(stored.json)
         .bind(state.version())

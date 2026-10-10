@@ -1,7 +1,6 @@
-//! How a raffle uses a drawing: the one place where the raffle's terms (prizes
-//! with quantities, its lifecycle) meet the drawing's (items, the manifest, the
-//! events). A raffle's drawing has the raffle's ID ([`drawing_id`],
-//! [`raffle_id`]).
+//! Where the lifecycle meets the raffle: the one place where the app's terms
+//! (prizes with quantities, the lifecycle) meet the raffle's (items, the
+//! manifest, the events). Both name a raffle by the same ID.
 
 use rafi_raffle::{
     BeaconSource, EntrantId, Event, ItemId, Manifest, ManifestItem, Outcome, Raffle, RaffleId,
@@ -9,18 +8,7 @@ use rafi_raffle::{
 
 use crate::RaffleState;
 
-/// The drawing of raffle `raffle_id`: it has the raffle's ID.
-pub fn drawing_id(raffle_id: &str) -> RaffleId {
-    RaffleId::new(raffle_id)
-}
-
-/// The raffle drawing `drawing` belongs to (the inverse of [`drawing_id`]):
-/// what clients following a drawing's changes follow.
-pub fn raffle_id(drawing: &RaffleId) -> &str {
-    drawing.as_str()
-}
-
-/// The drawing's item for the `n`th copy (from 1) of prize `prize_id`.
+/// The raffle's item for the `n`th copy (from 1) of prize `prize_id`.
 pub fn item_id(prize_id: &str, n: u64) -> ItemId {
     format!("{prize_id}-{n}").into()
 }
@@ -31,7 +19,7 @@ pub fn prize_id(item: &ItemId) -> &str {
     id.rsplit_once('-').map_or(id, |(prize_id, _)| prize_id)
 }
 
-/// Expands prizes `(prize_id, name, quantity)` into the drawing's items: one
+/// Expands prizes `(prize_id, name, quantity)` into the raffle's items: one
 /// per copy, in order.
 pub fn items<'a>(prizes: impl IntoIterator<Item = (&'a str, &'a str, u64)>) -> Vec<ManifestItem> {
     prizes
@@ -45,8 +33,8 @@ pub fn items<'a>(prizes: impl IntoIterator<Item = (&'a str, &'a str, u64)>) -> V
         .collect()
 }
 
-/// The manifest raffle `raffle_id` opens its drawing with: its active
-/// entrants and its prizes' items, drawn from `beacon`.
+/// The manifest raffle `raffle_id` opens with: its active entrants and its
+/// prizes' items, drawn from `beacon`.
 pub fn manifest(
     raffle_id: &str,
     beacon: BeaconSource,
@@ -54,19 +42,19 @@ pub fn manifest(
     items: Vec<ManifestItem>,
 ) -> Manifest {
     Manifest::new(
-        drawing_id(raffle_id),
+        RaffleId::new(raffle_id),
         beacon,
         entrants.into_iter().map(EntrantId::from).collect(),
         items,
     )
 }
 
-/// The lifecycle state a raffle is in while its drawing stands so: frozen
-/// until a draw starts, then drawing until the drawing finishes.
-pub fn lifecycle(drawing: &Raffle) -> RaffleState {
-    if drawing.is_finished() {
+/// The lifecycle state of `raffle` as drawn so far: frozen until a draw
+/// starts, then drawing until it finishes.
+pub fn lifecycle(raffle: &Raffle) -> RaffleState {
+    if raffle.is_finished() {
         RaffleState::Finished
-    } else if drawing
+    } else if raffle
         .events()
         .iter()
         .any(|e| matches!(e, Event::Announced { .. } | Event::Drawn { .. }))
@@ -80,18 +68,19 @@ pub fn lifecycle(drawing: &Raffle) -> RaffleState {
 /// Whether `entrant`'s prize can be marked delivered (or not): they won an
 /// item and claimed it. Delivery dates when a winner's data may go
 /// (retention), so only a winner's counts.
-pub fn deliverable(drawing: Option<&Raffle>, entrant: &str) -> bool {
-    drawing.is_some_and(|d| {
+pub fn deliverable(raffle: Option<&Raffle>, entrant: &str) -> bool {
+    raffle.is_some_and(|d| {
         d.entrant_outcomes()
             .get(entrant)
             .is_some_and(|(outcome, _)| *outcome == Outcome::Claimed)
     })
 }
 
-/// Whether a raffle in `state` with `drawing` can be deleted: not while a
-/// draw waits for its beacon (the engine would write to a raffle that's gone).
-pub fn deletable(state: RaffleState, drawing: Option<&Raffle>) -> bool {
-    !(state == RaffleState::Drawing && drawing.is_some_and(|d| d.pending().is_some()))
+/// Whether a raffle in `state`, drawn as `raffle`, can be deleted: not while
+/// a draw waits for its beacon (the engine would write to a raffle that's
+/// gone).
+pub fn deletable(state: RaffleState, raffle: Option<&Raffle>) -> bool {
+    !(state == RaffleState::Drawing && raffle.is_some_and(|d| d.pending().is_some()))
 }
 
 #[cfg(test)]
@@ -115,29 +104,29 @@ mod tests {
     }
 
     #[test]
-    fn the_raffle_follows_its_drawing() {
+    fn the_lifecycle_follows_the_raffle() {
         let manifest = manifest(
             "r1",
             BeaconSource::QUICKNET,
             ["aa".to_owned(), "bb".to_owned()],
             items([("book", "Book", 1)]),
         );
-        let mut drawing = Raffle::open(&manifest).unwrap();
-        assert_eq!(lifecycle(&drawing), RaffleState::Frozen);
+        let mut raffle = Raffle::open(&manifest).unwrap();
+        assert_eq!(lifecycle(&raffle), RaffleState::Frozen);
         let book = DrawRequest {
             item: "book-1".into(),
         };
-        drawing
+        raffle
             .announce(&book, &BeaconSource::QUICKNET, 1, 0)
             .unwrap();
-        assert_eq!(lifecycle(&drawing), RaffleState::Drawing);
-        drawing
+        assert_eq!(lifecycle(&raffle), RaffleState::Drawing);
+        raffle
             .decide(&Decision::Abandon {
                 item: "book-1".into(),
             })
             .unwrap();
-        drawing.decide(&Decision::Finish).unwrap();
-        assert_eq!(lifecycle(&drawing), RaffleState::Finished);
+        raffle.decide(&Decision::Finish).unwrap();
+        assert_eq!(lifecycle(&raffle), RaffleState::Finished);
     }
 
     fn opened() -> Raffle {
@@ -152,20 +141,20 @@ mod tests {
 
     #[test]
     fn deletable_unless_a_draw_waits_for_its_beacon() {
-        let mut drawing = opened();
+        let mut raffle = opened();
         for s in RaffleState::ALL {
-            assert!(deletable(s, None), "{s:?} without a drawing");
-            assert!(deletable(s, Some(&drawing)), "{s:?} with nothing pending");
+            assert!(deletable(s, None), "{s:?} without a raffle drawn");
+            assert!(deletable(s, Some(&raffle)), "{s:?} with nothing pending");
         }
         let book = DrawRequest {
             item: "book-1".into(),
         };
-        drawing
+        raffle
             .announce(&book, &BeaconSource::QUICKNET, 1, 0)
             .unwrap();
-        assert!(!deletable(RaffleState::Drawing, Some(&drawing)));
+        assert!(!deletable(RaffleState::Drawing, Some(&raffle)));
         assert!(
-            deletable(RaffleState::Frozen, Some(&drawing)),
+            deletable(RaffleState::Frozen, Some(&raffle)),
             "only a drawing raffle waits"
         );
     }

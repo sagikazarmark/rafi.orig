@@ -2,11 +2,12 @@
 
 use rafi_engine::EngineError;
 use rafi_lifecycle::{
-    self as raffle, RaffleState,
+    self as lifecycle, RaffleState,
     start::{self, Start},
 };
 use rafi_raffle::{
-    BeaconSource, Command, Decision, DrawRequest, Manifest, ManifestHash, ManifestItem, Resolution,
+    BeaconSource, Command, Decision, DrawRequest, Manifest, ManifestHash, ManifestItem, RaffleId,
+    Resolution,
 };
 use rafi_store::{audit, entrants, prizes, raffles};
 
@@ -82,7 +83,7 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
 /// The drawing's items for a raffle's prizes (one per copy), in draw order.
 async fn items(app: &App, id: &str) -> Result<Vec<ManifestItem>> {
     let prizes = prizes::list(&app.db, id).await?;
-    Ok(raffle::drawing::items(prizes.iter().map(|i| {
+    Ok(lifecycle::raffle::items(prizes.iter().map(|i| {
         (
             i.id.as_str(),
             i.name.as_str(),
@@ -117,7 +118,7 @@ async fn write_manifest(
     }
     // The app alone decides the chain; the drawing engine refuses a mismatch.
     let manifest =
-        raffle::drawing::manifest(id, BeaconSource::Drand(app.chain), entrant_ids, items);
+        lifecycle::raffle::manifest(id, BeaconSource::Drand(app.chain), entrant_ids, items);
     let json = manifest.canonical_json();
     let hash = ManifestHash::of(&json).to_string();
     if !raffles::set_manifest(&app.db, id, &json, &hash).await? {
@@ -168,10 +169,10 @@ pub async fn command(
 /// applied once) is.
 async fn send(app: &App, owner: &str, id: &str, cmd: Command, command_id: &str) -> Result<()> {
     let engine = app.engine()?;
-    let drawing = raffle::drawing::drawing_id(id);
+    let raffle = RaffleId::new(id);
     confirmed(match &cmd {
-        Command::Draw(request) => engine.draw(&drawing, request, command_id).await,
-        Command::Decide(decision) => engine.decide(&drawing, decision, command_id).await,
+        Command::Draw(request) => engine.draw(&raffle, request, command_id).await,
+        Command::Decide(decision) => engine.decide(&raffle, decision, command_id).await,
     })?;
     let (action, detail) = audited(&cmd);
     audit::record(&app.db, id, owner, action, &detail).await?;

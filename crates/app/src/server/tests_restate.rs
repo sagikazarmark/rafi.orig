@@ -79,7 +79,7 @@ async fn app_and_restate_rafi_share_the_database() {
     let (drawing, info) = rafi_engine_restate::services(
         drand,
         store,
-        rafi_platform::Notify::new(Polling::default(), rafi_lifecycle::drawing::raffle_id),
+        rafi_platform::Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
     );
     restate
         .deploy(Endpoint::builder().bind(drawing).bind(info).build())

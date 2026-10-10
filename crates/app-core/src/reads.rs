@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use rafi_lifecycle::{
-    self as raffle, RaffleState,
+    self as lifecycle, RaffleState,
     start::{self, Start},
 };
 use rafi_model::{
@@ -40,7 +40,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         }),
         draw: raffle.state.frozen_or_later(),
         export: raffle.state.frozen_or_later(),
-        purge: raffle.state.apply(raffle::Command::Purge).is_some()
+        purge: raffle.state.apply(lifecycle::Command::Purge).is_some()
             && (raffle.state == RaffleState::Finished || personal_data_left),
     };
     Ok(RaffleAdmin {
@@ -93,7 +93,7 @@ fn admin_entrants(full: &Full, drawing: Option<&Raffle>) -> Vec<AdminEntrant> {
                 marketing: e.consent_marketing,
                 created_at: e.created_at,
                 delivered: e.delivered_at.is_some(),
-                deliverable: raffle::drawing::deliverable(drawing, &e.id),
+                deliverable: lifecycle::raffle::deliverable(drawing, &e.id),
                 purged: e.purged,
             }
         })

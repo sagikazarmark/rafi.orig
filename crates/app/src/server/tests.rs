@@ -65,7 +65,7 @@ async fn app_with_engine(
     let engine = rafi_engine::local::LocalEngine::new(
         rafi_drand::DrandClient::new(drand).expect("drand configuration"),
         rafi_store::DrawWriter::new(db.clone()),
-        rafi_platform::Notify::new(Polling::default(), rafi_lifecycle::drawing::raffle_id),
+        rafi_platform::Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
     );
     AppState::from_parts(
         cfg,

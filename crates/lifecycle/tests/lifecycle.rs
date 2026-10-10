@@ -1,4 +1,4 @@
-//! Property tests: the lifecycle's commands and the drawing it follows agree.
+//! Property tests: the lifecycle's commands and the raffle it follows agree.
 
 use std::{num::NonZeroU32, sync::OnceLock};
 
@@ -6,7 +6,7 @@ use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_lifecycle::{
     Command, RaffleState,
-    drawing::{deliverable, items, lifecycle, manifest},
+    raffle::{deliverable, items, lifecycle, manifest},
 };
 use rafi_raffle::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Raffle, Resolution,
@@ -49,7 +49,7 @@ fn command() -> impl Strategy<Value = Command> {
     ]
 }
 
-/// An engine's calls on the drawing.
+/// An engine's calls on the raffle.
 #[derive(Debug, Clone)]
 enum Op {
     Announce(usize),
@@ -120,10 +120,10 @@ fn apply(d: &mut Raffle, op: Op, round: &mut u64, item: impl Fn(usize) -> String
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
-    /// Commands never move a raffle into the states its drawing decides,
+    /// Commands never move the lifecycle into the states the raffle decides,
     /// and nothing is editable once the list is frozen.
     #[test]
-    fn commands_leave_drawing_and_finishing_to_the_drawing(commands in proptest::collection::vec(command(), 0..30)) {
+    fn commands_leave_drawing_and_finishing_to_the_raffle(commands in proptest::collection::vec(command(), 0..30)) {
         let mut state = RaffleState::Draft;
         for command in commands {
             let before = state;
@@ -139,17 +139,17 @@ proptest! {
             }
         }
         for s in RaffleState::ALL {
-            if s.follows_drawing() || s.is_over() {
+            if s.follows_raffle() || s.is_over() {
                 prop_assert!(!s.entrants_editable() && !s.prizes_editable() && !s.test_mode_editable());
             }
         }
     }
 
-    /// Wherever the drawing stands, the raffle following it is in a state
+    /// Wherever the raffle stands, the lifecycle following it is in a state
     /// that follows it until it finishes, can draw exactly until then, and
     /// never goes back.
     #[test]
-    fn the_raffle_follows_its_drawing(entrants in 1usize..6, prizes in 1u64..4, ops in proptest::collection::vec(op(), 0..40)) {
+    fn the_lifecycle_follows_the_raffle(entrants in 1usize..6, prizes in 1u64..4, ops in proptest::collection::vec(op(), 0..40)) {
         let manifest = manifest(
             "r1",
             source(),
@@ -164,7 +164,7 @@ proptest! {
         for op in ops {
             apply(&mut d, op, &mut round, item);
             let state = lifecycle(&d);
-            prop_assert!(state.follows_drawing() || state == RaffleState::Finished);
+            prop_assert!(state.follows_raffle() || state == RaffleState::Finished);
             prop_assert_eq!(state.drawable(), !d.is_finished());
             prop_assert!(RaffleState::ALL.iter().position(|s| *s == state) >= RaffleState::ALL.iter().position(|s| *s == previous), "{previous:?} -> {state:?}");
             prop_assert!(d.winners().is_subset(&d.drawn_entrants()));

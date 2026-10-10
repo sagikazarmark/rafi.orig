@@ -44,7 +44,7 @@ fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
     // A raffle's changes go to its channel.
     let notifier = Notify::new(
         DurableObjects::new(env.clone()),
-        rafi_lifecycle::drawing::raffle_id,
+        rafi_raffle::RaffleId::as_str,
     );
     let (raffle, info) = rafi_engine_restate::services(drand, store, notifier);
     let mut builder = Endpoint::builder();
