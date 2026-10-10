@@ -226,8 +226,9 @@ Inside `rafi-drawing` and its callers:
 - Moving to the generated Restate ingress client (step 5 prepares for it).
 - Renaming the `restate-rafi*` crates.
 - Renaming `rafi-core` to `rafi-raffle` (it only holds the raffle's lifecycle, codes and email
-  normalization after step 1; can follow later). Done later: codes and email normalization
-  moved into the app, and the crate is `rafi-raffle`.
+  normalization after step 1; can follow later). Done later: join codes moved into the app, and
+  the crate is `rafi-raffle`. Email normalization moved too, then back into `rafi-raffle` as entrant
+  identity (`entrant::Email`).
 
 ## What the implementation does differently
 

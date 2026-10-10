@@ -52,16 +52,18 @@ app ──ingress──▶ Restate ──▶ restate-rafi (Drawing) ──▶ da
 ## Layout
 
 ```
-crates/raffle                 rafi-raffle: the raffle lifecycle, prizes as drawing items
-crates/drawing                rafi-drawing: draw algorithm, state machine, manifest, verifier (pure, tested, vectors)
+crates/raffle                 rafi-raffle: the raffle's rules (pure): lifecycle, starting the draw, entrants' names and emails,
+                              settings limits, prizes as drawing items
+crates/drawing                rafi-drawing: draw algorithm, state machine and its admission rule, manifest, verifier (pure, tested, vectors)
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) and the round to commit to, on the drand crate
-crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the draw state write, the participant snapshot
-crates/engine                 rafi-engine: the drawing engine's contract (DrawingEngine, DrawStore, admission); behind features,
+crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the draw state write, the snapshot phones are shown
+crates/engine                 rafi-engine: the drawing engine's contract (DrawingEngine, DrawStore, DrawingNotifier); behind features,
                               an in-process engine (tests, development) and the engine conformance suite
 crates/engine-restate         rafi-engine-restate: the `Drawing` virtual object and the `EngineInfo` service, and the app's
                               DrawingEngine over the ingress (the SDK's generated clients)
 crates/restate-rafi-endpoint  restate-rafi: the binary serving the Restate services (config, logging, Dockerfile)
-crates/live                   rafi-live: what a phone sees (participant view, card, proof-of-work, live transport)
+crates/live                   rafi-live: what a phone sees (participant view, card, proof-of-work, live transport); with the
+                              `raffle` feature (servers only), the view built from a raffle and its drawing
 crates/platform               rafi-platform: what a deployment provides (Notifier, RateLimit, publish rule)
 crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleChannel Durable Object, notifier, rate limits, config)
 crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
@@ -221,14 +223,14 @@ The app:
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |
 | `CLERK_SECRET_KEY` | | Clerk backend key (`CLERK_PUBLISHABLE_KEY` at build time) |
 | `RESTATE_INGRESS_URL`, `RESTATE_API_KEY` | | The drawing engine's Restate ingress (Restate Cloud: an API key with ingress access). Without it, draws can't start |
-| `RESTATE_TIMEOUT_SECS` | `90` | How long a call to the drawing engine waits (natively): a command queued behind a draw waiting for its beacon may take the engine's drand lead plus fetch timeout; past this it is accepted and applies later. Keep it above `lead_secs + timeout_secs` of `restate-rafi` |
+| `RESTATE_TIMEOUT_SECS` | `90` | How long a call to the drawing engine waits: a command queued behind a draw waiting for its beacon may take the engine's drand lead plus fetch timeout; past this it is accepted and applies later. Keep it above `lead_secs + timeout_secs` of `restate-rafi` |
 | `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to (a chain hash). Release builds accept only public drand chains; `mock` (a public test chain, *not* verifiable) needs `--features mock-drand`. The drawing engine must draw from the same chain: the app refuses to start a draw otherwise |
 | `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
 | `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenge |
 | `RAFI_ALTCHA_MAX` | `30000` | Proof-of-work difficulty |
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes |
 | `RAFI_RETENTION` | off | Erase personal data after the event in the hourly retention run (otherwise erase by hand in the admin). The run always ends live updates a day after a raffle finishes and forgets expired proof-of-work challenges |
-| `RAFI_RETENTION_DAYS` / `RAFI_RETENTION_WINNERS_DAYS` | `30` / `90` | Erase personal data after the event |
+| `RAFI_RETENTION_DAYS` / `RAFI_RETENTION_WINNERS_DAYS` | `30` / `90` | Erase personal data after the event. The first erasing run that sees a raffle finished dates its erasure with these; a date once set is kept. The drawing engine needs neither |
 
 `restate-rafi` (draw settings, database, identity keys):
 see [`crates/restate-rafi-endpoint`](crates/restate-rafi-endpoint/README.md).

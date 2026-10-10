@@ -91,6 +91,7 @@ Holds up: the crate is pure and builds for wasm32; the verifier replays through 
    every user of `rafi-core` already pulls `rafi-drawing` in.
 3. **No engine crate.** The aggregate's inputs move into a `command` module of `rafi-drawing`; the
    port stays in `rafi-platform`, and the HTTP status mapping and `NotOpen` move there with it.
+   Reversed by [engine-plan.md](engine-plan.md) revision 7: the port and its contract are `rafi-engine`.
 4. **A drawing is stored as its manifest and its events**, and rebuilt by applying the events: both
    are already published formats, pinned by the test vectors. The SQL projection gets the entrants
    it needs (drawn, winners) as columns written on save, and reads fail loudly.
@@ -188,11 +189,12 @@ Done (2026-10-10), one commit per step, in the planned order:
 - **`rafi_core::prize` became `rafi_core::drawing`** (items, the manifest, the lifecycle a drawing
   implies), typed in `ItemId` and `ItemRef`.
 
-Left as they are:
+Left as they are (both addressed in [engine-plan.md](engine-plan.md) revision 8):
 
 - Engines notify clients with the drawing's ID, which is the raffle's (`Notifier` is per raffle);
-  `rafi_core::drawing` documents it.
-- `DrawingEngine` takes the drawing ID as `&str`, not `DrawingId`.
+  `rafi_core::drawing` documents it. Now engines tell a `DrawingNotifier` which drawing changed, and
+  each host maps it to its raffle (`Notify` with `rafi_raffle::drawing::raffle_id`).
+- `DrawingEngine` takes the drawing ID as `&str`, not `DrawingId`. Now it takes `&DrawingId`.
 
 Before deploying: run migrations 0004, 0005 and 0006. A Restate `Drawing` object stored before this
 change no longer loads (none exist before the first deploy). The Restate tests skip themselves

@@ -319,7 +319,7 @@ from app; after D is deployed) → docs (PLAN.md §6 fallback removed) → G onl
 
 - On wasm32 reqwest has no timeouts (`engine.rs:31`): the Restate client races the call against a
   timer (`worker::Delay`) on Workers so `Pending` works there too; until then that path is native-only
-  and a Workers call waits out the bound. Check Restate Cloud's
+  and a Workers call waits out the bound (raced since revision 8, with `gloo-timers`). Check Restate Cloud's
   ingress request timeout against `lead + timeout_secs`.
 - The flaky `DrawStore` fails the first N writes **per raffle ID**, so scenarios sharing its server
   don't interfere.
@@ -368,7 +368,7 @@ Where the implementation differs from the plan:
   `rafi-drand` that restates its formula (`round_at(now_ms + lead)`) against `target_round`.
 - **Freeze after finish:** the scenario replays the freeze within Restate's idempotency window (it
   can't wait an hour); beyond it, the store's highest-version guard is what keeps the record.
-- **Deadline on wasm32:** not raced yet; on Workers a call waits out the bound.
+- **Deadline on wasm32:** not raced yet; on Workers a call waits out the bound. Done in revision 8.
 - **Config:** the client timeout is `RESTATE_TIMEOUT_SECS` (default 90).
 - `Event::Fail` is `Event::Abandon`, still `"fail"` on the wire.
 - **Offline draws were dropped later** (`7b8721f`): no `BeaconOutcome::Offline`, no scenario 4, no
@@ -407,7 +407,8 @@ end-to-end assertion lose it.
 
 The app's dry run before a command (`service.rs`), including "while a draw waits for its round only
 `Resolve { Claimed }` is let through", is a consequence of the engine contract (draws settle
-asynchronously; decisions queue behind them). It becomes `rafi_engine::admit(&Drawing, &Command)`.
+asynchronously; decisions queue behind them). It becomes `rafi_engine::admit(&Drawing, &Command)`
+(`Drawing::admit` in `rafi-drawing` since revision 8).
 The app keeps the organizer-facing wording (`refusal`).
 
 ### Step 4 — `restate-rafi` → `rafi-engine-restate` (`crates/engine-restate`)
@@ -451,3 +452,30 @@ Verified: the workspace and app suites (Restate conformance and e2e against `res
 1.7.13), the store and app suites on Postgres (migration `0007` applied), clippy natively and on
 wasm32 as CI runs it, and `scripts/workers-check.sh` (D1, the live channel, a draw through Restate
 on the Workers endpoint, an evening on the app Worker calling it through the generated client).
+
+## Revision 8 (2026-10-10): the engine carries no app policy
+
+The engine and its hosts know drawings, not raffles, and none of the app's settings.
+
+- **Admission is the drawing's rule:** `rafi_engine::admit` is `Drawing::admit(&Command)` in
+  `rafi-drawing`, next to the rules it dry-runs. `Drawing::drawn_entrants()` and
+  `Drawing::winners()` replace the store's own event scans.
+- **Drawings are named by `DrawingId`:** `DrawingEngine::draw` and `decide` take `&DrawingId`, not
+  `&str`.
+- **Notification is a port:** engines tell a `DrawingNotifier` that a drawing changed. `Notify::new(
+  notifier, subject)` adapts a platform `Notifier`; the host names what clients follow, for rafi
+  `rafi_raffle::drawing::raffle_id`. The engine no longer assumes a drawing's ID is its raffle's.
+- **One way to bind the Restate services:** `rafi_engine_restate::services(drand, store, notifier)`
+  returns the `Drawing` object and `EngineInfo`; both hosts call it.
+- **No retention in the engine:** `rafi_store::save_drawing(db, state)` and `DrawWriter::new(db)`
+  take no `PurgeAfter`. They store the drawing, move the raffle along its lifecycle and time
+  `finished_at`; the app's retention run dates erasure (`rafi_store::retention::date_purges`). The
+  hosts lost their retention settings: `database.retention_*_days` in `restate-rafi-endpoint` (an
+  unknown key now fails), `RAFI_RETENTION_*` in `rafi-restate-worker`.
+- **Deadline on wasm32:** `RestateClient` races a synchronous call against a `gloo-timers` timer,
+  so past `timeout_secs` it returns `EngineError::Pending` on Workers too.
+- **`LocalEngine`** retries the projection until it succeeds, as Restate retries its journaled
+  step (it gave up after ten attempts). Command IDs outlive a finished drawing, as Restate's
+  idempotency retention does.
+- **`MemoryDrawStore`** keeps only states opened with a drawing's first manifest, as the database
+  does.

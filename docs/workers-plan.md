@@ -101,7 +101,7 @@ Restate is the only draw engine. The DO is only the live fan-out: it never holds
 - **One `Card` component**, in `rafi-live`, is used by both:
   - the server, through `dioxus::ssr`;
   - the WASM.
-- **`Card` renders one root (or nothing)** and calls no browser APIs while rendering. The reload, timers and audio live in `rafi-attendee`.
+- **`Card` renders one root (or nothing)** and calls no browser APIs while rendering. The reload, timers and audio live in `rafi-participant`.
 - **`#live` is a plain `aria-live` mount point owned by the page.** The WASM clears it and mounts in the same task. `role="alert"` and the pop animation are added only when the win happens on the client, not on page load.
 - **Strings:** `Card` takes a `CardStrings` struct that the server fills in from i18n and embeds in the page JSON.
 
@@ -154,7 +154,7 @@ The inline `<head>` theme script stays JS.
 ### 2.7 Restate is the only engine
 
 Rafi relies on Restate. There is no fallback draw path:
-- `LocalEngine` goes;
+- `LocalEngine` goes from the app (it lives on as `rafi-engine`'s `local` feature, for tests and development only);
 - so do the admin's "switch to local" action and API;
 - so does the engine column guard.
 
@@ -169,7 +169,7 @@ Rafi relies on Restate. There is no fallback draw path:
     "Frozen without a commit doc" becomes recoverable: Start rebuilds the commit doc from the fixed entrant list.
   - **Fake entrants** become one batch of multi-row INSERTs.
 - **Retention uses set-based `UPDATE`s**, to stay under D1's per-invocation query limit.
-- **`save_draw_state` sets `purge_*_at`** when the state is finished. `Watch` used to do that.
+- **The retention run sets `purge_*_at`** when it first sees a raffle finished (`retention::date_purges`). `Watch` used to do that, then `save_draw_state`, until the engine stopped carrying app settings ([engine-plan.md](engine-plan.md) revision 8).
 - **A `version` column on `raffles`**, bumped by triggers on every write that affects either view.
 
 ### 2.9 Configuration and runtime
@@ -184,7 +184,7 @@ Rafi relies on Restate. There is no fallback draw path:
   Don't rotate the ALTCHA key during an event: challenges are valid for 20 minutes.
 - **`RAFI_DEV_AUTH` and mock drand are compiled out of the release build.**
 - **Clocks:** `ids::now`, `rafi-store` and `model::now_unix_ms` use `Date.now()` on wasm. `now_unix_ms` currently returns 0 on a wasm server build.
-- **`reqwest` on wasm** has no `ClientBuilder::timeout`, so use per-request timeouts.
+- **`reqwest` on wasm** has no `ClientBuilder::timeout`, so use per-request timeouts. The Restate client races each synchronous call against a timer instead ([engine-plan.md](engine-plan.md) revision 8).
 
 ### 2.10 Privacy
 
@@ -232,26 +232,26 @@ Rafi relies on Restate. There is no fallback draw path:
 
 | Crate | Status | Contents | Used by |
 |---|---|---|---|
-| `rafi-core` (now `rafi-raffle`; codes and email normalization moved into the app) | unchanged | The raffle: its lifecycle, prizes as the drawing's items | app, store |
+| `rafi-core` (now `rafi-raffle`; join codes moved into the app) | unchanged | The raffle's rules, all pure: its lifecycle, starting the draw (freeze, commit, resend), entrants' names and email identity, settings limits, prizes as the drawing's items | app, store, `rafi-live` (`raffle` feature), both draw engine hosts |
 | `rafi-drawing` | split out of `rafi-core` later ([drawing-plan.md](drawing-plan.md)) | The drawing: manifest, state machine, verifiable draw, verifier | everyone except the attendee WASM |
-| `rafi-live` | **new** | `ParticipantView`, the `RaffleLive` channel, `screen()`, `Card`, `CardStrings`, a lightweight state enum, the ALTCHA module (types, `solve`, `verify`), `LiveTransport` | DO, app, attendee WASM |
+| `rafi-live` | **new** | `ParticipantView`, the `RaffleLive` channel, `screen()`, `Card`, `CardStrings`, a lightweight state enum, the ALTCHA module (types, `solve`, `verify`), `LiveTransport`; with the `raffle` feature, `raffle::view`, the view built from a raffle and its drawing | DO, app, attendee WASM |
 | `rafi-platform` | **new** (§7a) | The ports: `Notifier` (`Polling`, `Recording`), `RateLimit` and `Limit` (native `Limiter`), the publish rule, `BoxFuture` (`DrawStore` moved to `rafi-engine`, [engine-plan.md](engine-plan.md) revision 7) | everyone but the attendee WASM |
-| `rafi-attendee` | **new** | The attendee WASM: mounts `Card`, follows the server's `LiveTransport` (partyline or polling), proof-of-work, extras (wake lock module included) | phones |
-| `rafi-store` | ported | All SQL, as domain functions (raffles, items, entrants, audit, ALTCHA, retention, the full view); own error type; SQLite and D1 backends; `version`; the participant `live::Snapshot`; `DrawWriter`, its `DrawStore` | app, both draw engine hosts, DO |
-| `restate-rafi` (now `rafi-engine-restate`, with the app's client) | ported | `Drawing` virtual object over a `DrawStore` and a `Notifier`: the store write, then `notify` in a separate, best-effort `ctx.run`. No database or platform dependency | both draw engine hosts |
+| `rafi-participant` (planned as `rafi-attendee`) | **new** | The attendee WASM: mounts `Card`, follows the server's `LiveTransport` (partyline or polling), proof-of-work, extras (wake lock module included) | phones |
+| `rafi-store` | ported | All SQL, as domain functions (raffles, items, entrants, audit, ALTCHA, retention, the full view); own error type; SQLite and D1 backends; `version`; `live::Snapshot`, the data phones are shown; `DrawWriter`, its `DrawStore` | app, both draw engine hosts, DO |
+| `restate-rafi` (now `rafi-engine-restate`, with the app's client) | ported | `Drawing` virtual object over a `DrawStore` and a `DrawingNotifier`: the store write, then `notify` in a separate, best-effort `ctx.run`. No database or platform dependency | both draw engine hosts |
 | `rafi-cloudflare` | **new** (`rafi-channel` renamed) | All Cloudflare glue: the `RaffleChannel` DO, the socket gate and jurisdiction helper, `DurableObjects` (`Notifier`), `RateLimitBindings` (`RateLimit`), config from vars and secrets | both Workers |
 | `rafi` (app) | ported | Routes, server functions, retention, over `AppState::from_parts(cfg, db, notifier, limiter)`; the `worker` feature is the App Worker's thin entry point (fetch, Cron, exports `RaffleChannel`) | |
-| `rafi-restate-worker` | **new** | Restate Worker: the adapter around `Endpoint::handle_with_options`, signature checks; wires `DrawWriter` over D1 and `DurableObjects` | Restate Cloud |
+| `rafi-restate-worker` | **new** | Restate Worker: the adapter around `Endpoint::handle_with_options`, signature checks; wires `DrawWriter` over D1 and `DurableObjects`, built once per isolate | Restate Cloud |
 | `restate-rafi-endpoint` | kept, not deployed | The native endpoint, for self-hosting (§8): `DrawWriter` over SQLite (opened lazily), the `Polling` notifier | |
 | `rafi-store-d1-check`, `rafi-cloudflare-check` | local checks | Workers that drive the store and the channel under `wrangler dev` (`scripts/workers-check.sh`) | |
 
-`rafi-live` must not depend on `rafi-raffle`, which pulls in drand and BLS through `rafi-drawing`. The server maps `RaffleState` to `rafi-live`'s enum.
+The phone builds `rafi-live` without its `raffle` feature, so it doesn't depend on `rafi-raffle`, which pulls in drand and BLS through `rafi-drawing`. Servers turn it on: `rafi_live::raffle` maps `RaffleState` to `rafi-live`'s enum and builds the view.
 
 ### Reuse
 
 - **ALTCHA:** rafi's own scheme for now. Contribute the `web-time` fix to the official `altcha` crate later, then move to protocol v2.
-- **Wake lock:** stays in `rafi-attendee`.
-- **Vibrate, the chime and the theme toggle:** stay in `rafi-attendee`, which owns the toggle (the inline `<head>` script stays in the page).
+- **Wake lock:** stays in `rafi-participant`.
+- **Vibrate, the chime and the theme toggle:** stay in `rafi-participant`, which owns the toggle (the inline `<head>` script stays in the page).
 - **Restate:** the `wasm` branch fixes are in an open upstream PR; rafi uses the git branch until it's released. The Workers adapter can go upstream later.
 - **partyline gaps.** rafi works around these first and upstreams them later:
   - stubs with a jurisdiction;
@@ -309,7 +309,7 @@ Rafi relies on Restate. There is no fallback draw path:
 | **M3** | **`RaffleChannel` DO**: hub embedded by hand; batch read; `seen_v` stored; destroyed flag; periodic re-read alarm; destroy (final view, 4403, alarm, storage); jurisdiction; socket cap; Worker gate and `reject(4403)` | The prototype's scripted evening, ported to a harness against `wrangler dev`, passes, including the destroy races |
 | **M4** | **Restate on Workers**: `rafi-restate-worker` (adapter, signatures before routing); projector writes D1, then a best-effort nudge `ctx.run` | A draw runs end to end through a local `restate-server`, and the DO publishes it |
 | **M5** | **App on Workers**: `Config` from `Env`, failing closed; routes and server functions; attendee page rendering `Card`; `/participant` endpoint; rate limits; the Cron (retention, ALTCHA purge, DO cleanup); "End live updates"; remove `Hub`, `Watch`, `refresh_later`, `LocalEngine`, the switch-to-local UI and API, the engine guard; `rafi-store` call sites; tests migrated | This admin flow works on staging: create → publish → open → join from two phones → freeze → three draws, including a no-show → finish → End live updates |
-| **M6** | **Attendee WASM**: `rafi-attendee` (mount, subscribe, proof-of-work, extras, no `expect`s); inline loader and fallback; disabled Join; Tailwind `@source` for the new crates; CI size check (≤ 280 KB compressed); confirm `dx` 0.7.10 runs wasm-opt | The phone test plan passes (§6) |
+| **M6** | **Attendee WASM**: `rafi-participant` (mount, subscribe, proof-of-work, extras, no `expect`s); inline loader and fallback; disabled Join; Tailwind `@source` for the new crates; CI size check (≤ 280 KB compressed); confirm `dx` 0.7.10 runs wasm-opt | The phone test plan passes (§6) |
 | **M7** | **Projector and admin live**: reveal from participant events; full-view poll every 2–3 s while live; fetch on mount and reconnect; `v >=` | The projector shows the reveal within about 1 s of the round |
 | **M8** | **Cutover**: gate (no raffle Open, Frozen or Drawing); SQLite → D1 import; privacy notice; Restate deployment; DNS; deploy-freeze check in CI; a tested D1 → SQLite rollback export; Hetzner on standby until a second event succeeds; then delete Hetzner volumes, snapshots and dumps, and record it | Two real meetups run on Workers |
 
@@ -356,11 +356,11 @@ In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done
 - **`rafi-platform`:** the interfaces a deployment provides:
   - `Notifier`: "this raffle changed" by ID, "end its live updates", and the `LiveTransport` clients should use;
   - `RateLimit`, with the `Limit` keys;
-  - `DrawStore`, where the draw engine writes draw states;
+  - `DrawStore`, where the draw engine writes draw states (since moved to `rafi-engine`);
   - the publish rule.
 
   It depends on no database and no platform.
-- **`restate-rafi` depends only on `DrawStore` and `Notifier`:** `Raffle::new(drand, store, notifier)`. It knows nothing of Cloudflare or of which database is used.
+- **`rafi-engine-restate` depends only on `DrawStore` and `DrawingNotifier`:** `services(drand, store, notifier)`. It knows nothing of Cloudflare, of which database is used, or of raffles: each host maps a drawing to its raffle's channel (`Notify` with `rafi_raffle::drawing::raffle_id`).
 - **Clients choose a transport from the server's `LiveTransport`** (in `rafi-live`):
   - `partyline`: Durable Objects over WebSockets;
   - `poll`;
@@ -374,7 +374,7 @@ In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done
   - config from vars and secrets.
 
   The app's `worker.rs` and `rafi-restate-worker` only wire it up.
-- **`rafi-store` owns all SQL**, as domain functions, the participant snapshot included. It implements `DrawStore`. Backends:
+- **`rafi-store` owns all SQL**, as domain functions, the phones' snapshot included (data only; `rafi-live` builds the view). It implements `DrawStore`. Backends:
   - SQLite (native, the default; its migrations also serve D1);
   - **Postgres (native, self-hosted)**, chosen by the URL scheme (`postgres://`), with its own migrations in `migrations/postgres`;
   - D1 (Workers).
@@ -400,7 +400,7 @@ The draw engine runs as `restate-rafi-endpoint` against the same database. `depl
 - **Ending live updates:** manual, with Cron cleanup as the safety net.
 - **Restate SDK:** the `wasm` git branch until the upstream PR is released.
 - **ALTCHA:** rafi's own scheme; upstream fix later.
-- **Wake lock:** in `rafi-attendee`.
+- **Wake lock:** in `rafi-participant`.
 - **Emergency draws:** none; rely on Restate.
 - **Store:** own API, with `worker::D1Database` behind it.
 - **Projector:** reveal from participant events, plus polling.
@@ -427,7 +427,7 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
 - **Local dev:** two `wrangler dev` sessions find each other through `~/.wrangler/registry`. Stopping a second session with the same Worker name unregisters it. Restate's ingress may need `http://[::1]:8080` if another process holds `127.0.0.1:8080`.
 - **M0(d), Clerk on Workers:** `dioxus-clerk`'s `worker` feature runs axum with `ClerkAuthLayer` and the `ClerkAuth` extractor under `workerd`. Anonymous requests pass through, and bogus bearer tokens are rejected without a crash. The spike Worker was 509 KB compressed. Verifying real tokens needs a Clerk instance, so it waits for staging.
 - **`scripts/workers-check.sh`** runs all local Workers checks: D1, the channel, the attendee page in Chromium, and a Restate draw. CI's `workers` job runs it.
-- **The native app is stateless (M5, first half).** `rafi` is a library plus a thin binary. Platform pieces sit behind `AppState::from_parts(cfg, db, notifier, limiter)`, with the interfaces from `rafi-platform` (§7a): natively the `Polling` notifier and the in-memory `Limiter`. The Workers entry point builds `Db::d1`, `rafi_cloudflare::DurableObjects` and `RateLimitBindings`, and calls `retention::run` from the Cron. App tests run against an in-process stand-in for Restate's ingress (`server/fake_engine.rs`; since replaced by the in-process draw engine `rafi-engine-local`, see [engine-plan.md](engine-plan.md)).
+- **The native app is stateless (M5, first half).** `rafi` is a library plus a thin binary. Platform pieces sit behind `AppState::from_parts(cfg, db, notifier, limiter)`, with the interfaces from `rafi-platform` (§7a): natively the `Polling` notifier and the in-memory `Limiter`. The Workers entry point builds `Db::d1`, `rafi_cloudflare::DurableObjects` and `RateLimitBindings`, and calls `retention::run` from the Cron. App tests run against an in-process stand-in for Restate's ingress (`server/fake_engine.rs`; since replaced by the in-process draw engine, now `rafi-engine`'s `local` feature, see [engine-plan.md](engine-plan.md)).
 - **M5, the app on Workers.**
   - `rafi` builds as a Worker with the `worker` feature:
     - the same axum routes (since pass 2 without `#[worker::send]`: the store's futures are `Send` on wasm32 too);
@@ -442,7 +442,7 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
 - **Ports and adapters, pass 1 (§7a).** `rafi-platform` holds the interfaces; `rafi-channel` became `rafi-cloudflare`, the only crate (with the two Worker entry points) that knows Cloudflare. In practice:
   - `Notifier::notify` returns nothing: implementations log and drop their own failures. `DurableObjects` tries a nudge three times (100 ms, then 200 ms apart), so the Restate `notify` step's own attempts only cover the step failing. The journal step names (`project`, `notify`) are unchanged.
   - `LiveTransport` is chosen per raffle by `AppState::transport`: the notifier's while live updates run, plain polling once they've ended. The page config and the full view carry it as `live` (`{"kind":"partyline"}`, `{"kind":"poll","every_ms":2500}`). The JS fallback always polls.
-  - The participant snapshot moved from the channel crate to `rafi_store::live`, which the app's `/participant` endpoint and the attendee page read too.
+  - The participant snapshot moved from the channel crate to `rafi_store::live`, which the app's `/participant` endpoint and the attendee page read too. It is data only since the domain pass (below): `rafi_live::raffle::view` builds the view.
   - `crates/channel-check` became `crates/cloudflare-check`; its Worker and D1 names are now `rafi-cloudflare-check` (the Restate Worker's `[env.check]` binds to that name).
   - Pass 2 moved the SQL that was still spread over the app into `rafi-store` (below).
 - **Ports and adapters, pass 2 (§7a): all SQL in `rafi-store`.**
@@ -477,6 +477,12 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
   - **Found on D1:** `SELECT hidden = 1, purged = 1, 1, COUNT(*)` decoded out of order. D1 rows are JavaScript objects, which put integer-like keys (the column `1`) first and keep one value per name. The rule is now part of the contract (`query.decode_types`): every selected column of a multi-column row has a distinct, non-integer name. The store's SQL already followed it (`SELECT 1` only appears alone or in `EXISTS`).
   - **Embedded Postgres** (feature `embedded-postgres`, which only rafi-store's own tests turn on): `conformance::EmbeddedPostgres` runs Oliphaunt (`=0.3.2`, pinned: young and fast-moving), which starts a normal local PostgreSQL 18 from prebuilt native binaries (macOS arm64, Linux x64/arm64, Windows). One server per test run, started on the first scenario that needs it (about 3 s: it initializes a fresh data directory), and a fresh schema per scenario, as on a real Postgres; with `CONCURRENT_SESSIONS`, so the race scenarios run too. So `cargo test` covers the Postgres dialect with nothing installed, on Postgres 18 next to CI's 16. The server is a child process and libtest-mimic's `exit` drops nothing, so the runner stops it explicitly. `RAFI_TEST_EMBEDDED_POSTGRES=off` skips the tier. Tried first: `pglite-oxide` (PGlite on Wasmer), dropped for a single client, pinned Wasmer alphas, four unmaintained-crate advisories and a shutdown deadlock.
   - **Portability rules the suite pins down:** only zero versus non-zero change counts (D1 counts trigger writes); integers exact up to 2^53 (D1); ties in `ORDER BY` broken by ID (lowercase hex, which sorts the same under any collation); `NULLS FIRST`/`NULLS LAST` wherever a nullable column is ordered (SQLite and Postgres differ by default).
+- **Domain and engine pass (2026-10-10).**
+  - **Each Worker builds once per isolate:** the Restate Worker caches its `Endpoint`, the app Worker its `(AppState, ClerkAuthLayer)` (a `thread_local` `OnceCell`; a failed build isn't kept, so a fixed secret takes effect on the next request). Clerk's signing keys (JWKS) are no longer fetched per request.
+  - **The Restate Worker has no retention settings:** `RAFI_RETENTION_DAYS` and `RAFI_RETENTION_WINNERS_DAYS` are gone from its `wrangler.toml`. The app's retention run dates erasure ([engine-plan.md](engine-plan.md) revision 8).
+  - **The wasm32 deadline race is done:** `RestateClient` races each synchronous call against a `gloo-timers` timer, so on the app Worker a call past `RESTATE_TIMEOUT_SECS` is `Pending`, as natively.
+  - **`rafi-store` no longer depends on `rafi-live`:** `live::Snapshot` is data (the raffle's `RaffleState`; hidden names come back as `NULL` from the SQL). `rafi_cloudflare::view` and the app's `server::view::participant` build the view with `rafi_live::raffle::view`; `HIDDEN_NAME` is `rafi-live`'s. The phone still pulls in neither `rafi-drawing` nor drand.
+  - **Unknown raffle states fail loudly:** `RaffleRow.state` is a `RaffleState`, decoded by the row decoder; nothing falls back to `draft`. The store's SQL state lists come from `rafi-raffle`'s predicates (`raffles::states`).
 - **Still needs your accounts:**
   - staging and production on Cloudflare: D1 with `--jurisdiction eu`, secrets, custom domains;
   - the Restate Cloud deployment;
