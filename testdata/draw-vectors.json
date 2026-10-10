@@ -3,231 +3,226 @@
   "select": [
     {
       "randomness": "eafae26b6bd8bbd6c1908adf647afc9193a56ddccd72cfacbef451c4c451a08f",
-      "list_hash": "473b164c9c76082343cc8be7854f1197264d871915eec79ffcaba5dd982fc8b7",
+      "manifest_hash": "69724c72d73ff8de17f9ade6ae168de93931ac52f1abebbf10ba2fcd4474ccb5",
       "k": 1,
       "pool_size": 1,
       "index": 0
     },
     {
       "randomness": "f19c47b5edca534dff6fb3261bb04ea1d02c3dc8e462d191dbf6233dea54e973",
-      "list_hash": "b1fd2c6eb7a5ce6b8720deb5bc8c13bfdce97b2f90c8ac7711380b2e626ea45a",
+      "manifest_hash": "396c00555fb67668f7c41d51f3d03277dd3d8084b862af6d35abdd0705c35980",
       "k": 2,
       "pool_size": 2,
-      "index": 1
+      "index": 0
     },
     {
       "randomness": "a5ebe359ea1489e4b3426535fbe28aaa4dea748e0cf59d6e085009b458ceaf1c",
-      "list_hash": "b3a5dbec11481c31c9ce1628a7f8eec3307d870e87078b9f7afcff0da5f26b4e",
+      "manifest_hash": "8609f1753a27537fa5ea65336ba11cdfbc364f9430995d7e3039b6d3b0a31a27",
       "k": 3,
       "pool_size": 3,
-      "index": 1
+      "index": 2
     },
     {
       "randomness": "e20025606193f4c81fdc7c21aaf42d19cb34a9ba4ea5249bc69456205aa037d5",
-      "list_hash": "761429dfdbcebf54246097ad1d1c770705037e2461f4c078d171c3793021af9a",
+      "manifest_hash": "54ff915453bf68be051c961b147054b6d5e9cfc9cdc1e4d171e406cdb45744ac",
       "k": 4,
       "pool_size": 7,
-      "index": 6
+      "index": 2
     },
     {
       "randomness": "abe6bf1fd5ac707f65b701cb4b0d3153438162e375c7480db2ff21635d3934e8",
-      "list_hash": "012b081314669d7a290f4ca490b2293b640b346f9b676fc834f31448bdead8ee",
+      "manifest_hash": "e2f2a7762257cf7dbb6f60ca2d4ceb6dfd5cded189e92936f6933a5c298e6244",
       "k": 5,
       "pool_size": 10,
       "index": 9
     },
     {
       "randomness": "129ed73735939519b1d071594a294b23467e59c98f3e645431bb6addcbea298d",
-      "list_hash": "168f81cd69c2f49a3447a26a5d4edcb84fcd02a6d44b2898ac0b6062140da097",
+      "manifest_hash": "e977c8289626230bad6785d6c726e674172cd4bc5605a48cf573f80dd78d829e",
       "k": 6,
       "pool_size": 31,
-      "index": 11
+      "index": 9
     },
     {
       "randomness": "43f9f0a6fa951084fd0dbfa830756535eb6d899b3771c3b9a2bb0417e7bcb1af",
-      "list_hash": "9fb0bb9c33c7ab4283fbe0774e757d10d39e62d18059524ed5f67da2cd1a7f49",
+      "manifest_hash": "46fc428a7a9168b796bafa3053429ba7b836a496a021dc4aa4eb8189531b1952",
       "k": 7,
       "pool_size": 100,
-      "index": 52
+      "index": 31
     },
     {
       "randomness": "61bcff87101fcea1cf1300c88d7ad1b62ee1bb0551e5b5198b538867ee131745",
-      "list_hash": "a3b2d6189f661b42f6b52f23250d71a7d8b6bb02dd73fc596a0c285252aeddb7",
+      "manifest_hash": "71dd25781deb6198e71ff5e2ecd42d95f7afe6618c5f7840ab52c975e9e41288",
       "k": 8,
       "pool_size": 257,
-      "index": 59
+      "index": 239
     },
     {
       "randomness": "11f5e73a7e2411e8667110caa77b40930aebf134b4950e789d123d66458f7915",
-      "list_hash": "33b003ec086fce4c8b0fd81aae7447f2e77e9a7c3fae8c4b82cc7161189c6152",
+      "manifest_hash": "17575aa146f5f4f0075b7b2d47481a8344657a74c9f43901f21583f4d604a021",
       "k": 9,
       "pool_size": 1000,
-      "index": 870
+      "index": 597
     },
     {
       "randomness": "17f61fe63b3393660023f8d6e511d54bffb9f81857a3294705804f81b5297c08",
-      "list_hash": "6dcb30c03f9b8c83c2ed44cf7a8cb89d109a004de667847da3e8dcf05ff0ec81",
+      "manifest_hash": "5557a1f4d1c711aef892efd1315cd4409c1a94f3ad6c3446b9e08ff7cf82cef5",
       "k": 10,
       "pool_size": 4000000000,
-      "index": 1212364665
+      "index": 2024550251
     }
   ],
   "scenario": {
-    "commit_doc": "{\"algo\":\"rafi-draw-v1\",\"raffle_id\":\"raffle-vectors\",\"drand_chain\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\",\"entrant_ids\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"units\":[{\"unit_id\":\"u-ticket-1\",\"item_id\":\"ticket\",\"item_name\":\"KCD Budapest ticket\"},{\"unit_id\":\"u-ticket-2\",\"item_id\":\"ticket\",\"item_name\":\"KCD Budapest ticket\"},{\"unit_id\":\"u-voucher-1\",\"item_id\":\"voucher\",\"item_name\":\"CNCF exam voucher\"},{\"unit_id\":\"u-gift-1\",\"item_id\":\"gift\",\"item_name\":\"Foo gift\"}]}",
-    "list_hash": "49f1e9214fd8e7c245b2d75e47af81a11c0f86c2abaa18af58f690df61dc2583",
+    "manifest": "{\"algo\":\"rafi-draw-v1\",\"drawing\":\"drawing-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"book-1\",\"name\":\"Book\"},{\"id\":\"book-2\",\"name\":\"Book\"},{\"id\":\"voucher-1\",\"name\":\"Voucher\"},{\"id\":\"mug-1\",\"name\":\"Mug\"}]}",
+    "manifest_hash": "5d14bf03631d1c1292926cf3baed335ed4f73da8e0e46f4e26f19762104fba85",
     "events": [
       {
+        "item": "voucher-1",
         "k": 1,
         "round": 1000,
         "round_time": 0,
-        "type": "announce",
-        "unit_id": "u-voucher-1"
+        "type": "announced"
       },
       {
-        "entrant_id": "c81b7ae6ac4055879066cd2177a0ab53",
-        "index": 9,
+        "entrant": "427d1ecf2ccd2f644a5e9cb51114fc9c",
+        "index": 3,
+        "item": "voucher-1",
         "k": 1,
-        "mode": "beacon",
         "pass": 1,
         "pool_size": 12,
         "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
         "round": 1000,
         "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39",
-        "type": "draw",
-        "unit_id": "u-voucher-1"
+        "type": "drawn"
       },
       {
         "k": 1,
-        "outcome": "not_here",
-        "type": "resolve"
+        "resolution": "not_here",
+        "type": "resolved"
       },
       {
+        "item": "voucher-1",
         "k": 2,
         "round": 1003,
         "round_time": 0,
-        "type": "announce",
-        "unit_id": "u-voucher-1"
+        "type": "announced"
       },
       {
+        "item": "voucher-1",
         "k": 2,
         "reason": "abandoned by the organizer",
         "round": 1003,
-        "type": "fail",
-        "unit_id": "u-voucher-1"
+        "type": "abandoned"
       },
       {
+        "item": "voucher-1",
         "k": 2,
         "round": 1005,
         "round_time": 0,
-        "type": "announce",
-        "unit_id": "u-voucher-1"
+        "type": "announced"
       },
       {
+        "item": "voucher-1",
         "k": 2,
         "reason": "drand unavailable",
         "round": 1005,
-        "type": "stall",
-        "unit_id": "u-voucher-1"
+        "type": "stalled"
       },
       {
-        "entrant_id": "181a4a87fd2513b3ddbb203b838c953a",
-        "index": 0,
+        "entrant": "4a9036e8027f57e1ae64a1d399dcd095",
+        "index": 3,
+        "item": "voucher-1",
         "k": 2,
-        "mode": "beacon",
         "pass": 1,
         "pool_size": 11,
         "randomness": "f9cf57940dfd9b61e980576f5f9c095d8596208d337a924bf06c1ab04a3796fa",
         "round": 1005,
         "signature": "b896a4e9ebdb143601d1cdb39aa9357ef27b48d7d3c1c614e14110243850a9ea21fd96e016a5b64c2a2960d1c73abad8",
-        "type": "draw",
-        "unit_id": "u-voucher-1"
+        "type": "drawn"
       },
       {
         "k": 2,
-        "outcome": "claimed",
-        "type": "resolve"
+        "resolution": "claimed",
+        "type": "resolved"
       },
       {
+        "item": "book-1",
         "k": 3,
         "round": 1010,
         "round_time": 0,
-        "type": "announce",
-        "unit_id": "u-ticket-1"
+        "type": "announced"
       },
       {
-        "entrant_id": "cec0f5b79f0b01d34f7481a9c9be2ca7",
-        "index": 8,
+        "entrant": "181a4a87fd2513b3ddbb203b838c953a",
+        "index": 0,
+        "item": "book-1",
         "k": 3,
-        "mode": "beacon",
         "pass": 1,
         "pool_size": 10,
         "randomness": "70b604d40183d07425c86176196a94decd915d5fc1e35841eb25032e6c406c7e",
         "round": 1010,
         "signature": "8bea13e7e5f9c9c51cd061ecf09b33fb1cfc23e7bd947c669e16fb56a15c090908c69a19750d659a12ee3c25692792bd",
-        "type": "draw",
-        "unit_id": "u-ticket-1"
+        "type": "drawn"
       },
       {
         "k": 3,
-        "outcome": "declined",
-        "type": "resolve"
+        "resolution": "declined",
+        "type": "resolved"
       },
       {
+        "item": "book-1",
         "k": 4,
         "round": 1012,
         "round_time": 0,
-        "type": "announce",
-        "unit_id": "u-ticket-1"
+        "type": "announced"
       },
       {
-        "entrant_id": "4d81a0ebb2bc7469598bc83b76b062d1",
-        "index": 4,
+        "entrant": "c81b7ae6ac4055879066cd2177a0ab53",
+        "index": 6,
+        "item": "book-1",
         "k": 4,
-        "mode": "beacon",
         "pass": 1,
         "pool_size": 9,
         "randomness": "e66f9bc889657e76d70a49e8f7bff3ae4a807e0ee4bc35b3f1e835162c108a3c",
         "round": 1012,
         "signature": "af176bfcdd76db41f832282db70e135dcb94deb21c29103ea10a0145cb271eb157ae4bdb33be0ea593e3ed0fb164673c",
-        "type": "draw",
-        "unit_id": "u-ticket-1"
+        "type": "drawn"
       },
       {
         "k": 4,
-        "outcome": "claimed",
-        "type": "resolve"
+        "resolution": "claimed",
+        "type": "resolved"
       },
       {
-        "type": "void",
-        "unit_id": "u-gift-1"
+        "item": "mug-1",
+        "type": "voided"
       },
       {
+        "item": "book-2",
         "k": 5,
         "round": 1020,
         "round_time": 0,
-        "type": "announce",
-        "unit_id": "u-ticket-2"
+        "type": "announced"
       },
       {
-        "entrant_id": "427d1ecf2ccd2f644a5e9cb51114fc9c",
-        "index": 2,
+        "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+        "index": 0,
+        "item": "book-2",
         "k": 5,
-        "mode": "beacon",
         "pass": 1,
         "pool_size": 8,
         "randomness": "2fb65482b8bb669be0f791624f6f9febb3234063254275908744a76039b2d3b7",
         "round": 1020,
         "signature": "a2954ec8148428ea29c24477bff6e7a58459d3a546d429950ab9ae8b0b7d4297b60a87322b1964407c71440362011248",
-        "type": "draw",
-        "unit_id": "u-ticket-2"
+        "type": "drawn"
       },
       {
         "k": 5,
-        "outcome": "claimed",
-        "type": "resolve"
+        "resolution": "claimed",
+        "type": "resolved"
       },
       {
-        "type": "finish"
+        "type": "finished"
       }
     ]
   }

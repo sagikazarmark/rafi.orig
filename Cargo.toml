@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/drand", "crates/store", "crates/restate-rafi", "crates/restate-rafi-endpoint", "crates/app"]
+members = ["crates/raffle", "crates/drawing", "crates/drand", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live", "crates/store-d1-check", "crates/platform", "crates/cloudflare", "crates/cloudflare-check", "crates/restate-worker", "crates/participant", "crates/model", "crates/app-core"]
 
 [workspace.package]
 edition = "2024"
@@ -9,11 +9,14 @@ repository = "https://github.com/sagikazarmark/rafi"
 rust-version = "1.92"
 
 [workspace.dependencies]
-rafi-core = { path = "crates/core" }
+rafi-raffle = { path = "crates/raffle" }
+rafi-drawing = { path = "crates/drawing" }
 rafi-drand = { path = "crates/drand" }
-drand = { version = "0.2", default-features = false }
-restate-drand = { version = "0.2", default-features = false }
+drand = { version = "0.3", default-features = false }
+restate-drand = { version = "0.3", default-features = false }
 rafi-store = { path = "crates/store" }
+rafi-model = { path = "crates/model" }
+rafi-app-core = { path = "crates/app-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -35,3 +38,9 @@ inherits = "dev"
 opt-level = "z"
 lto = true
 codegen-units = 1
+
+# Restate SDK made safe on wasm32-unknown-unknown (Cloudflare Workers): std
+# clocks via web-time, no Tokio timer around the input drain, JS getrandom
+# backends. Upstream PR open; drop this once it is released.
+[patch.crates-io]
+restate-sdk = { git = "https://github.com/sagikazarmark/restate-sdk-rust", branch = "wasm" }

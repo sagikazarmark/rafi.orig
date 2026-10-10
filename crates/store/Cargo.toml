@@ -4,13 +4,63 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi's SQLite database: schema, connection options, and the draw state write shared by the app and the draw engine"
+description = "Rafi's database: all of its SQL, as domain functions over SQLite and Postgres (native) and D1 (Workers), including the draw state write shared by the app and the draw engine, and the snapshot phones are shown"
 publish = false
 
+[features]
+default = ["postgres"]
+## PostgreSQL as a native backend (`postgres://` database URLs), for
+## self-hosting, with TLS (rustls, Mozilla roots). Native only: Workers use
+## D1, and ignore it. Without it, rafi-store builds only SQLite natively.
+postgres = ["sqlx/postgres", "sqlx/tls-rustls-aws-lc-rs", "dep:tokio"]
+## The storage conformance suite (`conformance`): the scenarios every backend
+## must pass. `tests/conformance.rs` runs them natively; `store-d1-check` on D1.
+conformance = ["dep:futures-util"]
+## An embedded PostgreSQL (Oliphaunt: a local server from prebuilt native
+## binaries) for the conformance suite, so every `cargo test -p rafi-store`
+## checks the Postgres dialect without a server installed. Only rafi-store's
+## own tests turn it on (the self-dependency below); nothing else builds it.
+embedded-postgres = ["postgres", "conformance", "dep:oliphaunt"]
+## `Snapshot::participant_view`: what phones see, built by `rafi-live`. For
+## the servers that show phones a raffle; the engine hosts leave it off.
+live = ["dep:rafi-live"]
+
 [dependencies]
-rafi-core.workspace = true
+anyhow = "1"
+rafi-raffle.workspace = true
+rafi-drawing.workspace = true
+rafi-engine = { path = "../engine" }
+rafi-live = { path = "../live", features = ["raffle"], optional = true }
+serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+# The conformance suite races futures on one task (any runtime, Workers too).
+futures-util = { version = "0.3", default-features = false, features = ["alloc"], optional = true }
+
+# Native: SQLite (and Postgres) through sqlx (self-hosting, development, tests).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+# Postgres retries a serialization failure after a short sleep.
+tokio = { version = "1", features = ["time"], optional = true }
+# The embedded Postgres for tests (`embedded-postgres`): prebuilt native
+# PostgreSQL. Young and fast-moving, so pinned exactly.
+oliphaunt = { version = "=0.3.2", optional = true }
+
+# Cloudflare Workers: D1.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { version = "0.8.7", features = ["d1"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
+# Itself with the conformance suite, for `tests/conformance.rs`.
+rafi-store = { path = ".", default-features = false, features = ["conformance", "embedded-postgres"] }
+libtest-mimic = "0.8.2"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
+
+# One test per backend and scenario (`<backend>::<scenario>`), from the
+# conformance suite's registry.
+[[test]]
+name = "conformance"
+harness = false

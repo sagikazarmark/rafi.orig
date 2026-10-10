@@ -14,22 +14,39 @@
     lld
     cargo-audit
     cargo-deny
-    cargo-dist
     cargo-release
     cargo-watch
 
     # Rafi
     python3 # tools/verify.py
     sqlite
+    wrangler # Cloudflare Workers: wrangler dev, D1 migrations, deploys
 
     scaleway-cli
   ];
+
+  dioxus = {
+    enable = true;
+  };
+
+  worker-build = {
+    enable = true;
+  };
 
   languages = {
     rust = {
       enable = true;
       channel = "stable";
       targets = [ "wasm32-unknown-unknown" ];
+    };
+
+    javascript = {
+      enable = true;
+      npm.enable = true;
+    };
+
+    tailwindcss = {
+      enable = true;
     };
   };
 

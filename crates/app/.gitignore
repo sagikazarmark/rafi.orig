@@ -1,0 +1,4 @@
+build/
+.wrangler/
+worker-assets/
+.dev.vars

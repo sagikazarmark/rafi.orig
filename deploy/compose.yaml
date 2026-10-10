@@ -16,6 +16,12 @@
 # with RESTATE_INGRESS_URL=http://restate:8080 and no RESTATE_API_KEY / RESTATE_IDENTITY_KEYS; the
 # `register` container registers the draw engine. The Restate UI is then on the host's loopback:
 # `ssh -L 9070:localhost:9070 <vm>`, then http://localhost:9070.
+#
+# PostgreSQL instead of SQLite: uncomment the `postgres` service and its volume below, and set both
+# database URLs to it (the app migrates the database on start; until then the draw engine retries):
+#   rafi:          RAFI_DATABASE_URL: postgres://rafi:${POSTGRES_PASSWORD}@postgres/rafi
+#   restate-rafi:  RESTATE_RAFI_DATABASE__URL: postgres://rafi:${POSTGRES_PASSWORD}@postgres/rafi
+# and add `postgres` to their `depends_on`. They then no longer need the `data` volume.
 
 services:
   caddy:
@@ -53,7 +59,7 @@ services:
     volumes:
       - data:/data
 
-  # The draw engine: the `Raffle` virtual object. Writes draw states into the shared database and
+  # The draw engine: the `Drawing` virtual object. Writes drawings into the shared database and
   # only accepts requests signed by your Restate environment (RESTATE_IDENTITY_KEYS).
   restate-rafi:
     build:
@@ -97,8 +103,19 @@ services:
       - restate
       - restate-rafi
 
+  # postgres:
+  #   image: postgres:16
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: rafi
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+  #     POSTGRES_DB: rafi
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+
 volumes:
   data:
+  # postgres-data:
   restate-data:
   caddy-data:
   caddy-config:

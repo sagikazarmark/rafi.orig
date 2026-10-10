@@ -1,48 +1,48 @@
-//! Server side: database, live hub, draw engines, attendee pages, public API.
+//! Server side: participant pages, public and admin APIs. The database and all
+//! its SQL are in `rafi-store`.
+//!
+//! What the app does lives in `rafi-app-core` (re-exported as [`service`]):
+//! this is its HTTP side, which maps requests onto those use cases and their
+//! results onto responses.
+//!
+//! The server keeps no state of its own between requests: everything is in
+//! the database, and the pieces that differ per platform sit behind small
+//! interfaces from `rafi-platform` in [`AppState`] ([`DrawingEngine`],
+//! [`Notifier`], [`RateLimit`]); each deployment plugs in its own.
 
+pub mod admin;
 pub mod altcha;
-pub mod attendee;
 pub mod auth;
 pub mod config;
-pub mod db;
-
-pub mod engine;
-pub mod hub;
-pub mod ids;
+pub mod participant;
 pub mod public;
-pub mod ratelimit;
 pub mod retention;
-pub mod service;
-pub mod view;
-pub mod watch;
 
+pub use rafi_app_core::{self as service, codes, ids, view};
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
 use std::{ops::Deref, sync::Arc};
 
-use anyhow::Context as _;
-use dioxus::server::axum::{Extension, Router};
-use rafi_core::state::DrawState;
-use rafi_drand::DrandClient;
+use axum::{Extension, Router};
+use rafi_engine::DrawingEngine;
+use rafi_engine_restate::RestateClient;
+use rafi_platform::{Notifier, RateLimit};
+use rafi_store::Db;
 
-use self::{
-    config::{Config, EngineKind},
-    db::Db,
-    engine::{LocalEngine, RestateClient},
-    hub::Hub,
-};
+use self::config::Config;
 
 #[derive(Clone)]
 pub struct AppState(Arc<Inner>);
 
 pub struct Inner {
     pub cfg: Config,
-    pub db: Db,
-    pub hub: Hub,
-    pub drand: DrandClient,
-    pub local: LocalEngine,
-    pub restate: std::sync::OnceLock<RestateClient>,
-    pub watch: watch::Watch,
-    pub limiter: ratelimit::Limiter,
-    pub altcha: altcha::Altcha,
+    /// What the use cases run against: the database, the drand chain
+    /// ([`Config::chain`]), the drawing engine (`None` without
+    /// `RESTATE_INGRESS_URL`) and the notifier. `Inner` derefs to it.
+    pub core: service::App,
+    /// The join rate limits.
+    pub limiter: Arc<dyn RateLimit>,
 }
 
 impl Deref for AppState {
@@ -52,122 +52,116 @@ impl Deref for AppState {
     }
 }
 
-impl AppState {
-    pub async fn new(cfg: Config) -> anyhow::Result<Self> {
-        let db = db::connect(&cfg.database_url)
-            .await
-            .context("opening database")?;
-        let restate = std::sync::OnceLock::new();
-        if cfg.engine == EngineKind::Restate && !cfg.restate.ingress_url.is_empty() {
-            let _ = restate.set(RestateClient::new(cfg.restate.clone()));
-        }
-        Ok(Self(Arc::new(Inner {
-            drand: DrandClient::new(cfg.drand.clone()).context("drand configuration")?,
-            altcha: altcha::Altcha::new(cfg.altcha_key.clone(), cfg.altcha_max),
-            limiter: ratelimit::Limiter::default(),
-            local: LocalEngine::default(),
-            hub: Hub::default(),
-            watch: watch::Watch::default(),
-            restate,
-            db,
-            cfg,
-        })))
-    }
-
-    /// Stores a state of the local draw engine (idempotent, keeps the highest
-    /// version) and pushes the new view to every screen. The Restate engine
-    /// writes its states itself; [`watch`] pushes those.
-    pub async fn project(&self, state: &DrawState) -> anyhow::Result<()> {
-        rafi_store::save_draw_state(&self.db, state, EngineKind::Local.as_str()).await?;
-        self.schedule_purges().await?;
-        self.refresh(&state.raffle_id).await;
-        Ok(())
-    }
-
-    /// Dates the erasure of personal data for raffles that just finished,
-    /// whichever engine finished them.
-    pub async fn schedule_purges(&self) -> anyhow::Result<()> {
-        let day = 86_400;
-        sqlx::query(
-            "UPDATE raffles SET
-                purge_nonwinners_at = finished_at + ?1,
-                purge_winners_at = finished_at + ?2
-             WHERE finished_at IS NOT NULL AND purge_nonwinners_at IS NULL",
-        )
-        .bind(self.cfg.retention_nonwinners_days * day)
-        .bind(self.cfg.retention_winners_days * day)
-        .execute(&self.db)
-        .await?;
-        Ok(())
-    }
-
-    /// Rebuilds the public view of a raffle and publishes it.
-    pub async fn refresh(&self, raffle_id: &str) {
-        match view::build(self, raffle_id).await {
-            Ok(Some(v)) => self.hub.publish(v),
-            Ok(None) => {}
-            Err(e) => tracing::error!(raffle_id, error = %e, "building view failed"),
-        }
-    }
-
-    /// Republishes a raffle's view a bit later (recent names appear with a delay).
-    pub fn refresh_later(&self, raffle_id: &str, after: std::time::Duration) {
-        let (app, id) = (self.clone(), raffle_id.to_owned());
-        tokio::spawn(async move {
-            tokio::time::sleep(after).await;
-            app.refresh(&id).await;
-        });
+impl Deref for Inner {
+    type Target = service::App;
+    fn deref(&self) -> &service::App {
+        &self.core
     }
 }
 
-/// Routes served by plain axum handlers (attendee pages, SSE, public JSON).
+impl AppState {
+    /// The native server: opens (and migrates) the database; no push (clients
+    /// poll), in-memory rate limits.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn new(cfg: Config) -> anyhow::Result<Self> {
+        use anyhow::Context as _;
+
+        let db = Db::connect(&cfg.database_url)
+            .await
+            .context("opening database")?;
+        let engine = restate_engine(&cfg);
+        Self::from_parts(
+            cfg,
+            db,
+            engine,
+            Arc::new(rafi_platform::Polling::default()),
+            Arc::new(rafi_platform::Limiter::default()),
+        )
+    }
+
+    /// The app over a database, a drawing engine and the platform's notifier and
+    /// rate limits.
+    pub fn from_parts(
+        cfg: Config,
+        db: Db,
+        engine: Option<Arc<dyn DrawingEngine>>,
+        notifier: Arc<dyn Notifier>,
+        limiter: Arc<dyn RateLimit>,
+    ) -> anyhow::Result<Self> {
+        let core = service::App {
+            chain: cfg.chain()?,
+            db,
+            engine,
+            notifier,
+            policy: service::Policy {
+                public_url: cfg.public_url.clone(),
+                max_entrants: cfg.max_entrants,
+            },
+        };
+        Ok(Self(Arc::new(Inner { core, limiter, cfg })))
+    }
+
+    /// When personal data of a finished raffle is erased (the retention settings).
+    pub fn purge_after(&self) -> rafi_store::PurgeAfter {
+        rafi_store::PurgeAfter::days(
+            self.cfg.retention_nonwinners_days,
+            self.cfg.retention_winners_days,
+        )
+    }
+}
+
+/// The drawing engine `cfg` points at: the `restate-rafi` service through the
+/// Restate ingress; `None` without `RESTATE_INGRESS_URL`.
+pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn DrawingEngine>> {
+    (!cfg.restate.ingress_url.is_empty())
+        .then(|| Arc::new(RestateClient::new(cfg.restate.clone())) as Arc<dyn DrawingEngine>)
+}
+
+/// The server's own routes: participant pages, public JSON and the admin API.
 pub fn routes(app: AppState) -> Router {
     Router::new()
-        .merge(attendee::routes())
+        .merge(participant::routes())
         .merge(public::routes())
+        .merge(admin::routes())
         .layer(Extension(app))
 }
 
-/// Starts background work (Restate draw states, retention purge if enabled, hub GC).
+/// Starts the native background work: the hourly retention run.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn spawn_background(app: &AppState) {
-    watch::spawn(app.clone());
-    let resume = app.clone();
-    tokio::spawn(async move {
-        if let Err(e) = resume.local.resume_all(&resume).await {
-            tracing::error!(error = %e, "resuming pending local draws failed");
-        }
-    });
-    if app.cfg.retention_enabled {
-        retention::spawn(app.clone());
-    } else {
+    if !app.cfg.retention_enabled {
         tracing::info!("automatic erasure of personal data is off (RAFI_RETENTION)");
     }
-    let hub = app.hub.clone();
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(std::time::Duration::from_secs(300));
-        loop {
-            tick.tick().await;
-            hub.gc();
-        }
-    });
+    retention::spawn(app.clone());
 }
 
-/// Returns the app state for the current server function call.
-pub fn current() -> Result<AppState, dioxus::prelude::ServerFnError> {
-    dioxus::fullstack::FullstackContext::current()
-        .and_then(|ctx| ctx.extension::<AppState>())
-        .ok_or_else(|| dioxus::prelude::ServerFnError::new("app state is not available"))
+/// Where the static files are.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Dirs {
+    /// The web app (admin, projector, verification page): `dx bundle`'s output.
+    pub public: PathBuf,
+    /// The participant page's WebAssembly and fallback: `./scripts/participant.sh`'s
+    /// output, served at `/participant/`.
+    pub participant: PathBuf,
 }
 
-/// The complete HTTP router: Dioxus app and server functions, attendee pages,
-/// public API, and (unless dev auth is on) the Clerk auth layer.
-pub fn build_router(app: AppState, auth: Option<dioxus_clerk::server::ClerkAuthLayer>) -> Router {
-    use dioxus::server::{DioxusRouterExt, ServeConfig};
+/// The complete HTTP router: [`routes`], the participant scripts at
+/// `/participant/`, then the web app from [`Dirs::public`] with a single-page
+/// fallback to its `index.html`, all behind the Clerk auth layer unless dev
+/// auth is on. On Workers, Workers Assets serves the files instead.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn build_router(
+    app: AppState,
+    auth: Option<dioxus_clerk::server::ClerkAuthLayer>,
+    dirs: &Dirs,
+) -> Router {
+    use tower_http::services::{ServeDir, ServeFile};
 
-    let router = Router::new()
-        .serve_dioxus_application(ServeConfig::new(), crate::ui::App)
-        .merge(routes(app.clone()))
-        .layer(Extension(app));
+    let web_app =
+        ServeDir::new(&dirs.public).fallback(ServeFile::new(dirs.public.join("index.html")));
+    let router = routes(app)
+        .nest_service("/participant", ServeDir::new(&dirs.participant))
+        .fallback_service(web_app);
     match auth {
         Some(layer) => router.layer(layer),
         None => router,

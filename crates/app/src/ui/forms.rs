@@ -4,9 +4,13 @@
 
 use dioform::prelude::*;
 use dioxus::prelude::*;
+use rafi_raffle::{
+    entrant::{self, MAX_NAME_CHARS},
+    settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
+};
 
 use crate::{
-    api,
+    api::{self, ApiError},
     components::{
         button::{Button, ButtonColor, ButtonSize},
         field::{Field, FieldDescription, FieldError, FieldLabel},
@@ -17,14 +21,11 @@ use crate::{
         toast::{ToastOptions, use_toast},
     },
     icons::{I, Icon},
-    model::{ItemInput, RaffleSettings},
+    model::{PrizeInput, RaffleSettings},
 };
 
-pub fn err_text(e: ServerFnError) -> String {
-    match e {
-        ServerFnError::ServerError { message, .. } => message,
-        other => other.to_string(),
-    }
+pub fn err_text(e: ApiError) -> String {
+    e.message
 }
 
 /// Form-level errors (e.g. the server rejected the submission).
@@ -120,7 +121,7 @@ pub fn CreateRaffleForm(on_created: EventHandler<String>) -> Element {
                     label: "New raffle",
                     size: InputSize::Lg,
                     required: true,
-                    maxlength: "120",
+                    maxlength: "{MAX_TITLE_CHARS}",
                     placeholder: "e.g. “Cloud Native Budapest — October”",
                     prefix: rsx! { Icon { i: I::Sparkles, class: "size-5 text-secondary" } },
                     wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
@@ -166,21 +167,21 @@ fn prize_form(namespace: String, initial: Prize) -> FormHandle<Prize> {
         let f = Prize::fields();
         core.register_sync_field_validator(f.name(), "required", required("What is the prize?"));
         core.register_sync_field_validator(f.qty(), "range", |v: &u32, _| {
-            if (1..=500).contains(v) {
+            if settings::prize_qty(*v) {
                 Vec::new()
             } else {
-                vec!["Between 1 and 500.".to_owned()]
+                vec![format!("Between 1 and {MAX_PRIZE_QTY}.")]
             }
         });
     });
     handle
 }
 
-/// Adds a prize, or edits an existing one when `item_id` is set.
+/// Adds a prize, or edits an existing one when `prize_id` is set.
 #[component]
 pub fn PrizeForm(
     raffle_id: String,
-    #[props(default)] item_id: Option<String>,
+    #[props(default)] prize_id: Option<String>,
     #[props(default)] name: String,
     #[props(default)] sponsor: String,
     #[props(default = 1)] qty: u32,
@@ -188,7 +189,7 @@ pub fn PrizeForm(
     on_saved: EventHandler<()>,
     #[props(default)] on_cancel: Option<EventHandler<()>>,
 ) -> Element {
-    let namespace = format!("prize-{}", item_id.as_deref().unwrap_or("new"));
+    let namespace = format!("prize-{}", prize_id.as_deref().unwrap_or("new"));
     let initial = Prize {
         name: name.clone(),
         sponsor: sponsor.clone(),
@@ -198,7 +199,7 @@ pub fn PrizeForm(
     let fields = Prize::fields();
     let qty_binding = use_number(&form, fields.qty());
     let submit = form.managed_submit();
-    let editing = item_id.is_some();
+    let editing = prize_id.is_some();
     let busy = form.is_submitting();
     let form_err = messages(form.visible_form_validation_errors());
     let reset = form.clone();
@@ -209,20 +210,20 @@ pub fn PrizeForm(
             class: "grid gap-x-3 sm:grid-cols-[1fr_12rem_7rem_auto] sm:items-start",
             novalidate: true,
             onsubmit: move |event| {
-                let (raffle_id, item_id, reset) = (raffle_id.clone(), item_id.clone(), reset.clone());
+                let (raffle_id, prize_id, reset) = (raffle_id.clone(), prize_id.clone(), reset.clone());
                 let _ = submit.on_submit_async(event, move |s: SubmissionSnapshot<Prize>| async move {
                     let v = s.value().clone();
-                    let input = ItemInput {
-                        id: item_id.clone(),
+                    let input = PrizeInput {
+                        id: prize_id.clone(),
                         name: v.name.clone(),
                         sponsor: v.sponsor,
                         description: String::new(),
                         qty: v.qty,
                         position,
                     };
-                    match api::save_item(raffle_id, input).await {
+                    match api::save_prize(raffle_id, input).await {
                         Ok(_) => {
-                            if item_id.is_none() {
+                            if prize_id.is_none() {
                                 reset.reinitialize(Prize::default());
                                 toast.success(format!("🎁 {} added", v.name), ToastOptions::new());
                             }
@@ -237,7 +238,7 @@ pub fn PrizeForm(
                 context: form.text(fields.name()),
                 label: "Prize",
                 required: true,
-                maxlength: "120",
+                maxlength: "{MAX_TITLE_CHARS}",
                 placeholder: "e.g. KCD Budapest ticket",
                 class: "w-full",
             }
@@ -252,7 +253,7 @@ pub fn PrizeForm(
                 label: "How many",
                 r#type: "number",
                 min: "1",
-                max: "500",
+                max: "{MAX_PRIZE_QTY}",
                 inputmode: "numeric",
                 class: "w-full",
             }
@@ -291,10 +292,16 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
             let f = Entrant::fields();
             core.register_sync_field_validator(f.name(), "required", required("Who is it?"));
             core.register_sync_field_validator(f.name(), "length", |v: &String, _| {
-                if v.trim().chars().count() > 24 {
-                    vec!["24 characters at most.".to_owned()]
-                } else {
-                    Vec::new()
+                match entrant::display_name(v) {
+                    Err(entrant::NameError::Invalid) if !v.trim().is_empty() => {
+                        vec![format!(
+                            "{MAX_NAME_CHARS} characters at most, no control characters."
+                        )]
+                    }
+                    Err(entrant::NameError::Blocked) => {
+                        vec!["This name is not allowed.".to_owned()]
+                    }
+                    _ => Vec::new(),
                 }
             });
             core.register_sync_field_validator(f.email(), "email", optional_email());
@@ -332,7 +339,7 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
                 context: form.text(fields.name()),
                 label: "Name",
                 required: true,
-                maxlength: "24",
+                maxlength: "{MAX_NAME_CHARS}",
                 placeholder: "Shown on the screen",
                 prefix: rsx! { Icon { i: I::Phone, class: "size-4 opacity-60" } },
                 wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
@@ -485,7 +492,7 @@ pub fn SettingsForm(
                     }
                 });
             },
-            InputField { context: form.text(f.title()), label: "Title", required: true, maxlength: "120", class: "w-full" }
+            InputField { context: form.text(f.title()), label: "Title", required: true, maxlength: "{MAX_TITLE_CHARS}", class: "w-full" }
             Field { context: form.select(f.lang()),
                 FieldLabel { "Language" }
                 Select::<String> { class: "w-full",
@@ -502,7 +509,7 @@ pub fn SettingsForm(
                         }
                     }
                 }
-                FieldDescription { "Of the projector screen and the attendee page (attendees can switch)." }
+                FieldDescription { "Of the projector screen and the participant page (participants can switch)." }
                 FieldError {}
             }
             div { class: "md:col-span-2",

@@ -357,7 +357,7 @@ pub fn Select<T: Clone + PartialEq + 'static>(
     default_value: Option<T>,
     /// Called with the selected value after user interaction.
     on_change: Option<EventHandler<Option<T>>>,
-    /// Called after every value change ends its interaction unit.
+    /// Called after every value change ends its interaction item.
     on_commit: Option<EventHandler<()>>,
     /// Called when focus leaves the trigger, popup listbox, and options as one
     /// logical focus scope.

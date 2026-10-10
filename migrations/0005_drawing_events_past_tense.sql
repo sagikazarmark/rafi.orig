@@ -1,0 +1,19 @@
+-- A drawing's events are named in the past tense (docs/drawing-review.md):
+-- announced, drawn, stalled, abandoned (was "fail"), resolved, voided,
+-- finished. Stored drawings follow; their order is kept.
+UPDATE raffles SET
+    drawing = json_set(drawing, '$.events', (
+        SELECT json_group_array(json_set(e.value, '$.type',
+            CASE json_extract(e.value, '$.type')
+                WHEN 'announce' THEN 'announced'
+                WHEN 'draw' THEN 'drawn'
+                WHEN 'stall' THEN 'stalled'
+                WHEN 'fail' THEN 'abandoned'
+                WHEN 'resolve' THEN 'resolved'
+                WHEN 'void' THEN 'voided'
+                WHEN 'finish' THEN 'finished'
+                ELSE json_extract(e.value, '$.type')
+            END))
+        FROM (SELECT value FROM json_each(raffles.drawing, '$.events') ORDER BY key) e
+    ))
+WHERE drawing IS NOT NULL;

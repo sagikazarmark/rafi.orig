@@ -17,7 +17,12 @@ use crate::{
     icons::{I, Icon},
 };
 
-const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+/// Bundled without a hash, at [`crate::style::STYLESHEET_URL`], so the participant pages and
+/// `index.html` can link it too. Generic options: dx (0.7.9) ignores the hash flag for CSS options.
+const TAILWIND_CSS: Asset = asset!(
+    "/assets/tailwind.css",
+    AssetOptions::builder().with_hash_suffix(false)
+);
 /// Served at a stable path because the stylesheet references it by URL.
 const DISPLAY_FONT: Asset = asset!(
     "/assets/fonts/bricolage.woff2",
@@ -27,11 +32,6 @@ const DISPLAY_FONT: Asset = asset!(
 /// Clerk publishable key, baked in at build time. Without it the admin runs
 /// in development mode (the server must then run with `RAFI_DEV_AUTH=1`).
 pub const CLERK_PUBLISHABLE_KEY: Option<&str> = option_env!("CLERK_PUBLISHABLE_KEY");
-
-/// URL of the compiled stylesheet (also used by the server-rendered attendee page).
-pub fn stylesheet_url() -> String {
-    TAILWIND_CSS.to_string()
-}
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]

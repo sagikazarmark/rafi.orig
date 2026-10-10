@@ -148,7 +148,7 @@ pub fn Textarea(
     value: Option<ReadSignal<String>>,
     /// Called with the textarea's value after user input.
     on_change: Option<EventHandler<String>>,
-    /// Called when the native `change` event ends the interaction unit.
+    /// Called when the native `change` event ends the interaction item.
     on_commit: Option<EventHandler<()>>,
     /// Called after focus leaves the native textarea.
     on_focus_exit: Option<EventHandler<()>>,
@@ -274,7 +274,7 @@ pub fn TextareaField(
     value: Option<ReadSignal<String>>,
     /// Called with the textarea's value after user input.
     on_change: Option<EventHandler<String>>,
-    /// Called when the native `change` event ends the interaction unit.
+    /// Called when the native `change` event ends the interaction item.
     on_commit: Option<EventHandler<()>>,
     /// Called after focus leaves the native textarea.
     on_focus_exit: Option<EventHandler<()>>,

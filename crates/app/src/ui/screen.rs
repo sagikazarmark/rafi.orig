@@ -1,10 +1,10 @@
 //! The projector screen: public and read-only.
 
 use dioxus::prelude::*;
-use rafi_core::{
-    raffle::RaffleState,
-    state::{DrawMode, Outcome},
-};
+use rafi_drawing::Outcome;
+use rafi_raffle::RaffleState;
+
+use rafi_live::ParticipantView;
 
 use super::{
     Brand, ThemeToggle,
@@ -25,8 +25,8 @@ pub fn Screen(slug: String) -> Element {
 
 #[component]
 fn ScreenInner(slug: String) -> Element {
-    let view = use_live_view(slug.clone());
-    let guard = view.read();
+    let live = use_live_view(slug.clone());
+    let guard = live.view.read();
     let Some(v) = guard.as_ref() else {
         return rsx! {
             main { class: "grid min-h-screen place-items-center bg-base-100 bg-dots",
@@ -40,6 +40,7 @@ fn ScreenInner(slug: String) -> Element {
     let lang = Lang::parse(&v.lang);
     let v = v.clone();
     drop(guard);
+    let ahead = live.ahead_of(&v);
 
     let body = match v.state {
         RaffleState::Draft => {
@@ -48,7 +49,7 @@ fn ScreenInner(slug: String) -> Element {
         RaffleState::Ready | RaffleState::Open | RaffleState::Closed => {
             rsx! { Intro { view: v.clone() } }
         }
-        RaffleState::Frozen | RaffleState::Drawing => rsx! { Drawing { view: v.clone() } },
+        RaffleState::Frozen | RaffleState::Drawing => rsx! { Drawing { view: v.clone(), ahead } },
         RaffleState::Finished | RaffleState::Purged => rsx! { Finished { view: v.clone() } },
     };
 
@@ -66,6 +67,7 @@ fn ScreenInner(slug: String) -> Element {
                 }
             }
             {body}
+            {live.feed()}
             footer { class: "flex items-center justify-between text-[0.7em] text-base-content/50",
                 Brand { size: "text-[1.1em]" }
                 span { class: "inline-flex items-center gap-1", Icon { i: I::ShieldCheck, class: "size-[1.2em]" } "drand · provably fair" }
@@ -114,7 +116,7 @@ fn PrizeList(view: RaffleView) -> Element {
             ul { class: "space-y-[0.5em]",
                 for p in view.prizes.iter() {
                     li {
-                        key: "{p.item_id}",
+                        key: "{p.prize_id}",
                         class: if p.left == 0 { "flex items-center gap-[0.6em] rounded-box bg-base-200/70 px-[0.8em] py-[0.5em] opacity-40 line-through" } else { "flex items-center gap-[0.6em] rounded-box bg-base-200/70 px-[0.8em] py-[0.5em]" },
                         span { class: "grid min-w-[2.4em] place-items-center rounded-xl bg-secondary px-[0.4em] py-[0.15em] font-display font-extrabold text-secondary-content", "{p.left}×" }
                         span { class: "flex-1 font-semibold", "{p.name}" }
@@ -191,21 +193,49 @@ fn Intro(view: RaffleView) -> Element {
 }
 
 #[component]
-fn Drawing(view: RaffleView) -> Element {
+fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
     let lang = Lang::parse(&view.lang);
     let t = |k: &str| lang.t(k);
     let now = use_clock(200);
     let left: u32 = view.prizes.iter().map(|p| p.left).sum();
     let offset = view.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
-    let last = view.draws.last().cloned();
 
-    let stage = if let Some(cur) = &view.current {
-        let remaining_ms = (cur.round_time as i64 * 1000) - (now() as i64 + offset);
+    // The draw in progress and the latest winner: from the live channel's
+    // participant view while it's ahead (the reveal comes first), otherwise
+    // from the full view.
+    let (current, winner) = match &ahead {
+        Some(p) => (
+            p.current
+                .as_ref()
+                .map(|c| (c.prize_name.clone(), c.round, c.round_time)),
+            p.last.as_ref().map(|l| Reveal {
+                display_name: l.display_name.clone(),
+                prize_name: l.prize_name.clone(),
+                round: None,
+            }),
+        ),
+        None => (
+            view.current
+                .as_ref()
+                .map(|c| (c.prize_name.clone(), c.round, c.round_time)),
+            view.draws
+                .last()
+                .filter(|d| d.outcome == Outcome::Drawn || d.outcome == Outcome::Claimed)
+                .map(|d| Reveal {
+                    display_name: d.display_name.clone(),
+                    prize_name: d.prize_name.clone(),
+                    round: Some(d.round),
+                }),
+        ),
+    };
+
+    let stage = if let Some((prize_name, round, round_time)) = current {
+        let remaining_ms = (round_time as i64 * 1000) - (now() as i64 + offset);
         let secs = ((remaining_ms.max(0) + 999) / 1000).min(99);
         rsx! {
             div { class: "flex flex-col items-center gap-[0.8em] text-center", role: "status",
                 p { class: "badge badge-primary badge-lg gap-2 font-bold uppercase tracking-widest", Icon { i: I::Dice, class: "size-[1.1em]" } "{t(\"drawing\")}" }
-                h2 { class: "text-[2.8em] font-extrabold leading-tight", "{cur.item_name}" }
+                h2 { class: "text-[2.8em] font-extrabold leading-tight", "{prize_name}" }
                 div { class: "bounce-dots flex gap-[0.5em]", aria_hidden: "true",
                     for i in 0..7 {
                         span { key: "{i}", style: "--i: {i}" }
@@ -218,17 +248,14 @@ fn Drawing(view: RaffleView) -> Element {
                 } else {
                     span { class: "loading loading-dots loading-lg text-primary" }
                 }
-                if view.last_failure.is_some() {
-                    p { class: "alert alert-warning alert-soft text-[0.8em]", "⏳ {t(\"retrying_round\")} {cur.round}" }
+                if view.last_failure.is_some() && view.current.is_some() {
+                    p { class: "alert alert-warning alert-soft text-[0.8em]", "⏳ {t(\"retrying_round\")} {round}" }
                 }
-                p { class: "text-[0.9em] text-base-content/60", "{t(\"locking\")} · {t(\"drand_round\")} {cur.round}" }
+                p { class: "text-[0.9em] text-base-content/60", "{t(\"locking\")} · {t(\"drand_round\")} {round}" }
             }
         }
-    } else if let Some(d) = last
-        .clone()
-        .filter(|d| d.outcome == Outcome::Drawn || d.outcome == Outcome::Claimed)
-    {
-        rsx! { Winner { draw: d, lang: lang.code().to_owned() } }
+    } else if let Some(reveal) = winner {
+        rsx! { Winner { reveal, lang: lang.code().to_owned() } }
     } else {
         rsx! {
             div { class: "flex flex-col items-center gap-[0.6em] text-center",
@@ -255,21 +282,34 @@ fn Drawing(view: RaffleView) -> Element {
     }
 }
 
+/// A winner on the big screen.
+#[derive(Debug, Clone, PartialEq)]
+struct Reveal {
+    display_name: String,
+    prize_name: String,
+    /// The drand round, once the full view has it.
+    round: Option<u64>,
+}
+
 #[component]
-fn Winner(draw: DrawView, lang: String) -> Element {
+fn Winner(reveal: Reveal, lang: String) -> Element {
     let lang = Lang::parse(&lang);
+    // Keyed by who and what, so the full view catching up with the live
+    // channel doesn't replay the animation.
+    let key = format!("{}→{}", reveal.display_name, reveal.prize_name);
     rsx! {
-        div { class: "relative flex flex-col items-center gap-[0.4em] text-center", key: "{draw.k}",
+        div { class: "relative flex flex-col items-center gap-[0.4em] text-center", key: "{key}",
             div { class: "confetti", aria_hidden: "true",
                 for i in 0..28 {
                     span { key: "{i}", style: "--i: {i}" }
                 }
             }
-            span { class: "badge badge-secondary badge-lg gap-2 font-bold", Icon { i: I::Trophy, class: "size-[1.1em]" } "{draw.item_name}" }
-            h2 { class: "gradient-text animate-reveal py-[0.1em] text-[clamp(3rem,9vw,11rem)] font-black leading-none", "{draw.display_name}" }
-            p { class: "text-[0.9em] text-base-content/60",
-                "{lang.t(\"drand_round\")} {draw.round}"
-                if draw.mode == DrawMode::Offline { " · OFFLINE (not verifiable)" }
+            span { class: "badge badge-secondary badge-lg gap-2 font-bold", Icon { i: I::Trophy, class: "size-[1.1em]" } "{reveal.prize_name}" }
+            h2 { class: "gradient-text animate-reveal py-[0.1em] text-[clamp(3rem,9vw,11rem)] font-black leading-none", "{reveal.display_name}" }
+            if let Some(round) = reveal.round {
+                p { class: "text-[0.9em] text-base-content/60",
+                    "{lang.t(\"drand_round\")} {round}"
+                }
             }
         }
     }
@@ -295,7 +335,7 @@ fn History(draws: Vec<DrawView>, lang: String) -> Element {
                             }
                         }
                         span { class: if matches!(d.outcome, Outcome::NotHere | Outcome::Declined) { "font-bold line-through opacity-50" } else { "font-bold" }, "{d.display_name}" }
-                        span { class: "truncate text-[0.85em] text-base-content/60", "{d.item_name}" }
+                        span { class: "truncate text-[0.85em] text-base-content/60", "{d.prize_name}" }
                         match d.outcome {
                             Outcome::NotHere => rsx! { span { class: "badge badge-ghost badge-sm", "{lang.t(\"not_here\")}" } },
                             Outcome::Declined => rsx! { span { class: "badge badge-ghost badge-sm", "{lang.t(\"declined\")}" } },
@@ -332,7 +372,7 @@ fn Finished(view: RaffleView) -> Element {
                     for d in winners {
                         div { key: "{d.k}", class: "card bg-base-200 px-[1em] py-[0.6em] ring-1 ring-base-300",
                             p { class: "font-display text-[1.2em] font-extrabold", "🏆 {d.display_name}" }
-                            p { class: "text-[0.8em] text-base-content/60", "{d.item_name}" }
+                            p { class: "text-[0.8em] text-base-content/60", "{d.prize_name}" }
                         }
                     }
                 }

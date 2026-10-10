@@ -1,19 +1,18 @@
 //! Organizer authentication.
 
-use dioxus::prelude::ServerFnError;
+use dioxus_clerk::server::ClerkAuth;
 
 use super::AppState;
 
 /// The owner key for the current organizer: the active Clerk organization if
-/// any (co-hosts share raffles), otherwise the Clerk user.
+/// any (co-hosts share raffles), otherwise the Clerk user; `dev` with dev auth.
+/// `None` means the request carries no valid session.
 ///
-/// `ClerkAuthLayer` does not reject requests by itself, so every admin server
-/// function must call this.
-pub fn owner(app: &AppState) -> Result<String, ServerFnError> {
+/// `ClerkAuthLayer` does not reject requests by itself, so every admin route
+/// must call this.
+pub fn owner(app: &AppState, auth: Option<ClerkAuth>) -> Option<String> {
     if app.cfg.dev_auth {
-        return Ok("dev".into());
+        return Some("dev".into());
     }
-    let auth =
-        dioxus_clerk::server::current_auth().map_err(|_| ServerFnError::new("Please sign in."))?;
-    Ok(auth.org_id.unwrap_or(auth.user_id))
+    auth.map(|auth| auth.org_id.unwrap_or(auth.user_id))
 }

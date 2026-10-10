@@ -7,11 +7,21 @@ rust-version.workspace = true
 description = "Live, verifiable meetup raffles"
 publish = false
 
+# `cdylib` for Cloudflare Workers (worker-build, the `worker` feature).
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
-rafi-core.workspace = true
+rafi-raffle.workspace = true
+rafi-drawing.workspace = true
+rafi-model.workspace = true
 rafi-drand = { path = "../drand", optional = true }
 rafi-store = { workspace = true, optional = true }
-dioxus = { version = "=0.7.10", features = ["router", "fullstack"] }
+rafi-live = { path = "../live", features = ["raffle", "card"] }
+rafi-platform = { path = "../platform", optional = true }
+rafi-engine = { path = "../engine", optional = true }
+# The web app adds `launch`, `web`, `devtools` and `logger`; the server only renders (`ssr`).
+dioxus = { version = "=0.7.10", default-features = false, features = ["router", "lib"] }
 dioxus-clerk = "0.6"
 serde.workspace = true
 serde_json.workspace = true
@@ -23,30 +33,40 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 futures-util = "0.3"
 dioform = { version = "0.7", features = ["dioxus-field"] }
 
-# Server only
-tokio = { version = "1", features = ["full"], optional = true }
-tokio-stream = { version = "0.1", features = ["sync", "time"], optional = true }
-futures = { version = "0.3", optional = true }
-axum = { version = "0.8", optional = true }
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"], optional = true }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"], optional = true }
-hmac = { version = "0.12", optional = true }
-base64 = { version = "0.22", optional = true }
+# Server only (native and Workers)
+axum = { version = "0.8", default-features = false, features = ["form", "json", "query", "matched-path", "original-uri"], optional = true }
+rafi-engine-restate = { path = "../engine-restate", optional = true }
+rafi-app-core = { workspace = true, optional = true }
 tracing = { version = "0.1", optional = true }
 anyhow = { version = "1", optional = true }
 thiserror = { workspace = true, optional = true }
 
 # Web only
-web-sys = { version = "0.3", features = ["EventSource", "MessageEvent", "Window", "Document", "Element", "HtmlElement", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Location", "Navigator", "Crypto"], optional = true }
+web-sys = { version = "0.3", features = ["Window", "Document", "EventTarget", "Node", "VisibilityState", "Element", "HtmlElement", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Location", "Navigator", "Crypto"], optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
 gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+gloo-net = { version = "0.6", default-features = false, features = ["http", "json"], optional = true }
+partyline-dioxus = { version = "0.3", optional = true }
 dioxus-field = { version = "0.7.0", default-features = false }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components", rev = "bf007c15d0cf4d04d3181cc46cf12325aa773955", version = "0.0.1", default-features = false, features = ["router"] }
 
+# The native server's runtime.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"], optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+tower-http = { version = "0.6", features = ["fs"], optional = true }
+
+# Cloudflare Workers (the `worker` feature).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { version = "0.8.7", features = ["http", "axum"], optional = true }
+tower-service = { version = "0.3", optional = true }
+rafi-cloudflare = { path = "../cloudflare", optional = true }
+http = { version = "1", optional = true }
+
 [dev-dependencies]
 rafi-drand = { path = "../drand", features = ["mock"] }
-restate-rafi = { path = "../restate-rafi" }
+rafi-engine = { path = "../engine", features = ["local"] }
 restate-e2e-harness = "0.3"
 restate-sdk = { workspace = true }
 dioxus-clerk = { version = "0.6", features = ["server", "testing"] }
@@ -55,23 +75,48 @@ http-body-util = "0.1"
 
 [features]
 default = []
-## Allow `RAFI_DRAND_MOCK=1`: draws from a public test chain (offline development).
-mock-drand = ["rafi-drand?/mock"]
-web = ["dioxus/web", "dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:gloo-timers"]
+## Allow `RAFI_DRAND_CHAIN=mock` (or `RAFI_DRAND_MOCK=1`): raffles commit to a
+## public test chain (offline development). Release builds refuse it.
+mock-drand = ["dep:rafi-drand", "rafi-drand/mock"]
+web = [
+    "dioxus/web",
+    "dioxus/launch",
+    "dioxus/devtools",
+    "dioxus/logger",
+    "dep:web-sys",
+    "dep:wasm-bindgen",
+    "dep:js-sys",
+    "dep:gloo-timers",
+    "dep:gloo-net",
+    "dep:partyline-dioxus",
+]
+# The native server: participant pages (`dioxus::ssr`), the admin's JSON routes, the web app's files.
 server = [
-    "dioxus/server",
+    "dioxus/ssr",
     "dioxus-clerk/server",
     "dep:tokio",
-    "dep:tokio-stream",
-    "dep:futures",
     "dep:axum",
-    "dep:sqlx",
-    "dep:reqwest",
-    "dep:rafi-drand",
+    "dep:tower-http",
+    "dep:rafi-engine-restate",
+    "dep:rafi-app-core",
     "dep:rafi-store",
-    "dep:hmac",
-    "dep:base64",
+    "rafi-live/server",
+    "dep:rafi-platform",
+    "dep:rafi-engine",
     "dep:tracing",
     "dep:anyhow",
     "dep:thiserror",
 ]
+# The app on Cloudflare Workers: `server` plus the Worker entry points
+# (fetch, the Cron, the RaffleChannel Durable Object). Build with worker-build.
+worker = [
+    "server",
+    "dep:worker",
+    "dep:rafi-cloudflare",
+    "dep:tower-service",
+    "dep:js-sys",
+    "dioxus-clerk/worker",
+    "dep:http",
+]
+## Local development on Workers only: allows RAFI_DEV_AUTH and RAFI_DRAND_CHAIN=mock.
+worker-dev = ["worker", "mock-drand"]

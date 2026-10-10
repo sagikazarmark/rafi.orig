@@ -53,7 +53,7 @@ impl Default for DrandConfig {
 /// The public seed of the mock chain. Anyone can sign its beacons.
 pub const MOCK_SEED: [u8; 32] = *b"rafi mock drand: not verifiable!";
 
-/// The mock (test) chain: pinned parameters, so the app and the draw engine
+/// The mock (test) chain: pinned parameters, so the app and the drawing engine
 /// agree on its hash across restarts.
 #[cfg(feature = "mock")]
 pub fn mock_chain() -> drand::TestChain {
@@ -72,7 +72,7 @@ pub fn mock_chain() -> drand::TestChain {
     .expect("supported scheme")
 }
 
-/// Chain info for a chain hash found in a commit document: the public drand
+/// Chain info for a chain hash found in a manifest: the public drand
 /// chains, and the mock chain when this build supports it.
 pub fn resolve_chain(hash: &ChainHash) -> Option<ChainInfo> {
     if let Some(info) = chains::by_hash(hash) {
@@ -89,6 +89,34 @@ pub fn resolve_chain(hash: &ChainHash) -> Option<ChainInfo> {
 }
 
 impl DrandConfig {
+    /// The settings from flat variables, for hosts without a configuration
+    /// file (Workers' vars): `RAFI_DRAND_RELAYS` (comma-separated),
+    /// `RAFI_DRAND_MOCK` (`1`), `RAFI_DRAND_LEAD_SECS` and
+    /// `RAFI_DRAND_TIMEOUT_SECS`. Anything missing or unparsable is the
+    /// default.
+    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
+        let defaults = Self::default();
+        let number = |name, default| {
+            get(name)
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(default)
+        };
+        Self {
+            relays: get("RAFI_DRAND_RELAYS")
+                .map(|v| {
+                    v.split(',')
+                        .map(|s| s.trim().to_owned())
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                })
+                .filter(|relays| !relays.is_empty())
+                .unwrap_or(defaults.relays),
+            mock: get("RAFI_DRAND_MOCK").is_some_and(|v| v.trim() == "1"),
+            lead_secs: number("RAFI_DRAND_LEAD_SECS", defaults.lead_secs),
+            timeout_secs: number("RAFI_DRAND_TIMEOUT_SECS", defaults.timeout_secs),
+        }
+    }
+
     /// The chain draws use.
     pub fn chain(&self) -> anyhow::Result<ChainInfo> {
         if !self.mock {
@@ -202,11 +230,18 @@ impl DrandClient {
         &self.client
     }
 
-    /// The round a draw starting at `now_unix` commits to, and when it is due.
+    /// The round a draw starting at `now_unix` commits to
+    /// ([`Schedule::commit_round`], the same rule as the Restate engine's), and
+    /// when it is due (Unix seconds).
     pub fn target_round(&self, now_unix: u64) -> (u64, u64) {
         let schedule = self.schedule();
-        let round = rafi_core::drand::target_round(&schedule, now_unix, self.cfg.lead_secs);
-        (round, rafi_core::drand::round_time(&schedule, round))
+        let now = UnixTime::from_secs(i64::try_from(now_unix).unwrap_or(i64::MAX));
+        let round = schedule.commit_round(now, Duration::from_secs(self.cfg.lead_secs));
+        let due = schedule
+            .round_time(round)
+            .and_then(|t| u64::try_from(t.as_secs()).ok())
+            .unwrap_or_default();
+        (round, due)
     }
 
     /// One attempt across the relays, no sleeping (for a durable retried step).
@@ -230,6 +265,27 @@ impl DrandClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_from_flat_variables() {
+        let vars = |name: &str| match name {
+            "RAFI_DRAND_RELAYS" => Some(" v2:https://a , ,v1:https://b".to_owned()),
+            "RAFI_DRAND_MOCK" => Some("1".to_owned()),
+            "RAFI_DRAND_LEAD_SECS" => Some("9".to_owned()),
+            "RAFI_DRAND_TIMEOUT_SECS" => Some("soon".to_owned()),
+            _ => None,
+        };
+        let cfg = DrandConfig::from_lookup(vars);
+        assert_eq!(cfg.relays, ["v2:https://a", "v1:https://b"]);
+        assert!(cfg.mock);
+        assert_eq!(cfg.lead_secs, 9);
+        assert_eq!(
+            cfg.timeout_secs,
+            DrandConfig::default().timeout_secs,
+            "unparsable is the default"
+        );
+        assert_eq!(DrandConfig::from_lookup(|_| None), DrandConfig::default());
+    }
 
     #[test]
     fn config_deserializes_with_defaults() {
@@ -288,6 +344,36 @@ mod tests {
             let (round, due) = client.target_round(now);
             assert_eq!(round, (now + 6 - g) / 3 + 1);
             assert!(due > now && due <= now + 6);
+        }
+    }
+
+    /// Both engines commit with [`Schedule::commit_round`]: the Restate engine
+    /// (`restate_drand::Drand::commit_round`) reads its clock in milliseconds,
+    /// the local engine ([`DrandClient::target_round`]) in whole seconds. Both
+    /// must pick the same round, and a due time not yet past, at any instant.
+    #[test]
+    fn both_engines_commit_to_the_same_round() {
+        let q = chains::quicknet();
+        let genesis_ms = q.genesis_time().as_secs() * 1000;
+        for lead_secs in [3u64, 6, 7] {
+            let client = DrandClient::new(DrandConfig {
+                lead_secs,
+                ..DrandConfig::default()
+            })
+            .unwrap();
+            for offset_ms in (0..20_000).step_by(137) {
+                let now_ms = genesis_ms + 1_000_000_000 + offset_ms;
+                let restate = q.schedule().commit_round(
+                    UnixTime::from_millis(now_ms),
+                    Duration::from_secs(lead_secs),
+                );
+                let (local, due) = client.target_round(u64::try_from(now_ms / 1000).unwrap());
+                assert_eq!(local, restate, "lead {lead_secs}, now {now_ms} ms");
+                assert!(
+                    due * 1000 >= u64::try_from(now_ms).unwrap(),
+                    "a lead of a period or more commits to a round not out yet"
+                );
+            }
         }
     }
 

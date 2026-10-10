@@ -14,6 +14,8 @@ allow = [
   "Zlib",
   "BSL-1.0",
   "BSD-2-Clause",
+  # PostgreSQL itself: the embedded Postgres in rafi-store's tests (Oliphaunt).
+  "PostgreSQL",
 ]
 
 [bans]
@@ -24,7 +26,12 @@ wildcards = "warn"
 unknown-registry = "deny"
 unknown-git = "deny"
 # dioxus-primitives (pinned rev), required by the dioxus-daisyui-components registry.
-allow-git = ["https://github.com/DioxusLabs/components"]
+allow-git = [
+  "https://github.com/DioxusLabs/components",
+  # restate-sdk made safe on wasm32 (Cloudflare Workers); upstream PR open.
+  # Remove with the [patch.crates-io] entry once it's released.
+  "https://github.com/sagikazarmark/restate-sdk-rust",
+]
 
 [advisories]
 ignore = [

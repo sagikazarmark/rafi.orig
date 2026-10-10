@@ -9,8 +9,8 @@ use figment::{
     providers::{Env, Format, Json, Toml, Yaml},
 };
 use rafi_drand::DrandConfig;
+use rafi_store::{Db, DrawWriter};
 use restate_config::{EndpointConfig, ServiceOptionsConfig};
-use restate_rafi::DatabaseConfig;
 use serde::{Deserialize, Serialize};
 
 /// The environment variable prefix (e.g. `RESTATE_RAFI_DATABASE__URL`).
@@ -25,15 +25,46 @@ pub struct Config {
     pub services: ServicesConfig,
     /// Beacon relays and timing.
     pub drand: DrandConfig,
-    /// The Rafi app's SQLite database, where the draw state is written.
+    /// The Rafi app's database (SQLite or Postgres), where the draw state is written.
     pub database: DatabaseConfig,
+}
+
+/// The Rafi app's database.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DatabaseConfig {
+    /// The same database the app uses (its `RAFI_DATABASE_URL`): `sqlite://…`
+    /// or `postgres://…`.
+    pub url: String,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            url: "sqlite://rafi.db".into(),
+        }
+    }
+}
+
+impl DatabaseConfig {
+    /// Where the drawing engine writes draw states: the app's database, opened
+    /// lazily. The app owns the schema (and creates the SQLite file); until it
+    /// has, writes fail and Restate retries them.
+    pub fn draw_store(&self) -> Result<DrawWriter> {
+        if self.url.trim().is_empty() {
+            bail!("database.url is required");
+        }
+        let db = Db::connect_lazy(&self.url)
+            .with_context(|| format!("invalid database.url {:?}", self.url))?;
+        Ok(DrawWriter::new(db))
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServicesConfig {
-    /// Policy for the `Raffle` virtual object.
-    pub raffle: ServiceOptionsConfig,
+    /// Policy for the `Drawing` virtual object.
+    pub drawing: ServiceOptionsConfig,
 }
 
 impl Config {
@@ -68,6 +99,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn database_url_is_required() {
+        let cfg = DatabaseConfig { url: " ".into() };
+        assert!(cfg.draw_store().is_err());
+    }
+
+    #[tokio::test]
+    async fn opening_does_not_create_the_file() {
+        let path = std::env::temp_dir().join(format!("rafi-endpoint-{}.db", std::process::id()));
+        DatabaseConfig {
+            url: format!("sqlite://{}", path.display()),
+        }
+        .draw_store()
+        .unwrap();
+        assert!(
+            !path.exists(),
+            "the app creates the database, not the drawing engine"
+        );
+    }
+
+    #[test]
     fn defaults_listen_on_9080_with_real_drand() {
         figment::Jail::expect_with(|_| {
             let cfg = Config::load(None).expect("defaults");
@@ -88,7 +139,7 @@ mod tests {
                 [database]
                 url = "sqlite:///data/rafi.db"
 
-                [services.raffle]
+                [services.drawing]
                 inactivity_timeout = "5m"
                 "#,
             )?;
@@ -112,7 +163,7 @@ mod tests {
                 cfg.endpoint.identity_keys,
                 ["publickeyv1_a", "publickeyv1_b"]
             );
-            assert!(cfg.services.raffle.inactivity_timeout.is_some());
+            assert!(cfg.services.drawing.inactivity_timeout.is_some());
             Ok(())
         });
     }

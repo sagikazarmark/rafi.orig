@@ -1,0 +1,37 @@
+[package]
+name = "rafi-engine"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The Rafi drawing engine's contract: the port the app draws through, the store engines write to, and what an engine admits; an in-process engine and the conformance suite behind features"
+publish = false
+
+[features]
+## `local`: an in-process engine (`LocalEngine`), for tests and development.
+## Never a production engine: enable it from `[dev-dependencies]` only
+## (docs/engine-plan.md). Native only.
+local = ["dep:tokio", "dep:tracing", "dep:rafi-drand"]
+## `conformance`: the scenarios every drawing engine must pass. This crate's
+## tests run it on `LocalEngine`; `rafi-engine-restate`'s on the `Drawing`
+## object through the app's client.
+conformance = ["dep:tokio", "dep:serde_json", "dep:rafi-drand", "rafi-drand/mock"]
+
+[dependencies]
+anyhow = "1"
+rafi-drawing.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+# local, conformance
+rafi-drand = { path = "../drand", optional = true }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net", "io-util"], optional = true }
+tracing = { version = "0.1", optional = true }
+
+# conformance
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+rafi-engine = { path = ".", features = ["local", "conformance"] }
+rafi-drand = { path = "../drand", features = ["mock"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

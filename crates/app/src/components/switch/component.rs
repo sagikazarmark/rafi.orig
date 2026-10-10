@@ -125,7 +125,7 @@ pub fn Switch(
     form_value: ReadSignal<String>,
     /// Called with the switch's value after user interaction.
     on_change: Option<EventHandler<bool>>,
-    /// Called after every change ends its interaction unit.
+    /// Called after every change ends its interaction item.
     on_commit: Option<EventHandler<()>>,
     /// Called after focus leaves the switch button.
     on_focus_exit: Option<EventHandler<()>>,
@@ -301,7 +301,7 @@ pub fn SwitchField(
     form_value: ReadSignal<String>,
     /// Called with the switch's value after user interaction.
     on_change: Option<EventHandler<bool>>,
-    /// Called after every change ends its interaction unit.
+    /// Called after every change ends its interaction item.
     on_commit: Option<EventHandler<()>>,
     /// Called after focus leaves the switch button.
     on_focus_exit: Option<EventHandler<()>>,

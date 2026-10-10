@@ -1,6 +1,6 @@
 # restate-rafi-endpoint
 
-**Standalone endpoint serving the Rafi draw engine ([`restate-rafi`](../restate-rafi)) for [Restate](https://restate.dev/).**
+**Standalone endpoint serving the Rafi drawing engine's Restate services ([`rafi-engine-restate`](../engine-restate)) for [Restate](https://restate.dev/).**
 
 It writes the draw state into the Rafi app's SQLite database, so it runs next to the app with access to the
 same file (the same machine, or a shared volume). The app owns the schema and creates the file.
@@ -44,13 +44,13 @@ environment variable, `__` separating the levels (`RESTATE_RAFI_DATABASE__URL`);
 
 | Setting | Variable | Default | |
 |---|---|---|---|
-| `database.url` | `RESTATE_RAFI_DATABASE__URL` | `sqlite://rafi.db` | The app's database (its `RAFI_DATABASE_URL`) |
+| `database.url` | `RESTATE_RAFI_DATABASE__URL` | `sqlite://rafi.db` | The app's database (its `RAFI_DATABASE_URL`): `sqlite://…` or `postgres://user:password@host/db` |
 | `endpoint.listener` | `RESTATE_RAFI_ENDPOINT__LISTENER` | `0.0.0.0:9080` | Listen address |
 | `endpoint.identity_keys` | `RESTATE_RAFI_ENDPOINT__IDENTITY_KEYS` | | Restate's request signing keys (`publickeyv1_…`, comma separated) |
 | `drand.relays` | `RESTATE_RAFI_DRAND__RELAYS` | api.drand.sh, api2, api3 (v2), drand.cloudflare.com (v1) | Relays to ask in order (a list: `[a, b]`; `v1:`/`v2:` prefixes, a bare URL is v1). Every beacon is BLS-verified |
 | `drand.lead_secs` | `RESTATE_RAFI_DRAND__LEAD_SECS` | `6` | Seconds until the committed round (≥ 3) |
 | `drand.timeout_secs` | `RESTATE_RAFI_DRAND__TIMEOUT_SECS` | `60` | Stop fetching after this; the draw stays pending (stalled) on its round |
-| `drand.mock` | `RESTATE_RAFI_DRAND__MOCK` | `false` | Public test chain for offline development (draws are *not* verifiable; build with `--features mock-drand`). Must match the app's `RAFI_DRAND_MOCK`: raffles committed to another chain are refused |
+| `drand.mock` | `RESTATE_RAFI_DRAND__MOCK` | `false` | Public test chain for offline development (draws are *not* verifiable; build with `--features mock-drand`). Must match the app's `RAFI_DRAND_CHAIN`: the app refuses to start a draw on an engine on another chain, and the engine refuses raffles committed to another chain |
 | | `RUST_LOG` | `info` | Log level |
 
 ```toml
@@ -63,7 +63,7 @@ identity_keys = ["publickeyv1_..."]
 [drand]
 lead_secs = 6
 
-# Restate policy for the Raffle object: timeouts, retention, retry policy, per-handler overrides.
-[services.raffle]
+# Restate policy for the Drawing object: timeouts, retention, retry policy, per-handler overrides.
+[services.drawing]
 inactivity_timeout = "5m"
 ```

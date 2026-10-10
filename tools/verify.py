@@ -9,8 +9,8 @@ Usage:
 
 Standard library only. The algorithm:
 
-    list_hash    = SHA256(commit_doc)                    (published canonical JSON string)
-    seed_k       = SHA256("rafi-draw-v1" || randomness || list_hash || BE_u64(k))
+    manifest_hash = SHA256(manifest)                     (published canonical JSON string)
+    seed_k       = SHA256("rafi-draw-v1" || randomness || manifest_hash || BE_u64(k))
     rand_u64(c)  = BE_u64(SHA256(seed_k || BE_u64(c))[0:8])
     uniform(n)   = first rand_u64(c) below 2^64 - (2^64 mod n), taken mod n
     winner_k     = pool_k[uniform(len(pool_k))]
@@ -23,7 +23,7 @@ This script checks the algorithm and, with --fetch, that each signature is the
 one the public drand relays serve for that round. It does not check the BLS
 signature itself (that needs pairing-friendly curve code); the browser
 verifier on the raffle's verify page does. With --fetch it also shows whom
-the committed round of an abandoned or offline-replaced draw would have picked.
+the committed round of an abandoned draw would have picked.
 """
 
 import hashlib
@@ -46,8 +46,8 @@ def sha256(*parts: bytes) -> bytes:
     return h.digest()
 
 
-def select(randomness: bytes, list_hash: bytes, k: int, n: int) -> int:
-    seed = sha256(ALGO, randomness, list_hash, k.to_bytes(8, "big"))
+def select(randomness: bytes, manifest_hash: bytes, k: int, n: int) -> int:
+    seed = sha256(ALGO, randomness, manifest_hash, k.to_bytes(8, "big"))
     limit = 2**64 - (2**64 % n)
     c = 0
     while True:
@@ -78,19 +78,37 @@ def fetch_beacon(chain, round_):
     return None
 
 
-def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> bool:
+def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> bool:
     ok = True
-    list_hash = sha256(commit_doc.encode())
-    if list_hash.hex() != expected_list_hash.lower():
-        print(f"FAIL list hash: computed {list_hash.hex()}, published {expected_list_hash}")
+    manifest_hash = sha256(manifest.encode())
+    if manifest_hash.hex() != expected_manifest_hash.lower():
+        print(f"FAIL manifest hash: computed {manifest_hash.hex()}, published {expected_manifest_hash}")
         ok = False
     else:
-        print(f"ok   list hash {list_hash.hex()}")
-    doc = json.loads(commit_doc)
-    entrants = doc["entrant_ids"]
-    chain = doc["drand_chain"]
+        print(f"ok   manifest hash {manifest_hash.hex()}")
+    doc = json.loads(manifest)
+    entrants = doc["entrants"]
+    # A manifest an engine would open: the algorithm this script implements,
+    # entrants in canonical form (sorted, unique, lowercase), unique item IDs.
+    item_ids = [u["id"] for u in doc["items"]]
+    for problem, bad in [
+        (f"algorithm is {doc['algo']!r}, not {ALGO.decode()!r}", doc["algo"] != ALGO.decode()),
+        ("nobody has entered", not entrants),
+        ("there are no items", not item_ids),
+        ("entrant IDs are not sorted, unique and lowercase",
+         any(e != e.lower() for e in entrants) or any(a >= b for a, b in zip(entrants, entrants[1:]))),
+        ("duplicate item IDs", len(set(item_ids)) != len(item_ids)),
+    ]:
+        if bad:
+            print(f"FAIL manifest: {problem}")
+            ok = False
+    # The beacon source is tagged by kind: {"drand": "<chain hash>"}.
+    chain = doc["beacon"].get("drand")
+    if chain is None:
+        print(f"FAIL unknown beacon source {doc['beacon']}")
+        return False
     name = PUBLIC_CHAINS.get(chain)
-    print(f"     {len(entrants)} entrants, {len(doc['units'])} prize units, chain {chain[:12]}… ({name or 'NOT a public drand chain'})")
+    print(f"     {len(entrants)} entrants, {len(doc['items'])} items, drand chain {chain[:12]}… ({name or 'NOT a public drand chain'})")
     if name is None:
         print("FAIL draws use a test chain: their randomness is not publicly verifiable")
         ok = False
@@ -103,7 +121,7 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
             if b is None:
                 print(f"WARN draw {k}: could not fetch drand round {round_}")
             else:
-                idx = select(sha256(bytes.fromhex(b["signature"])), list_hash, k, len(p))
+                idx = select(sha256(bytes.fromhex(b["signature"])), manifest_hash, k, len(p))
                 print(f"     draw {k}: round {round_} would have picked index {idx} -> {p[idx]}")
 
     draws = []  # in order
@@ -111,12 +129,12 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
     pending = None  # (k, round) of the announced draw
     for ev in events:
         t = ev["type"]
-        if t == "announce":
+        if t == "announced":
             if pending is not None:
                 print(f"FAIL draw {ev['k']}: announced while draw {pending[0]} is pending")
                 ok = False
             pending = (ev["k"], ev["round"])
-        elif t == "draw":
+        elif t == "drawn":
             k = ev["k"]
             # A draw must settle the announced draw on its committed round
             # (a beacon from another round would be a silent redraw).
@@ -124,8 +142,6 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
                 print(f"FAIL draw {k}: round {ev['round']} is not the announced round"
                       + ("" if pending is None else f" {pending[1]}"))
                 ok = False
-            if ev["mode"] != "beacon" and pending is not None:
-                would_have_picked(k, pending[1], "replaced by an OFFLINE draw")
             pending = None
             pass_, p = pool(entrants, draws)
             if not p:
@@ -134,45 +150,43 @@ def verify(commit_doc: str, expected_list_hash: str, events, fetch=False) -> boo
                 continue
             sig = bytes.fromhex(ev["signature"])
             randomness = bytes.fromhex(ev["randomness"])
-            if ev["mode"] == "beacon":
-                if sha256(sig) != randomness:
-                    print(f"FAIL draw {k}: randomness != SHA256(signature)")
+            if sha256(sig) != randomness:
+                print(f"FAIL draw {k}: randomness != SHA256(signature)")
+                ok = False
+            if fetch and name:
+                b = fetch_beacon(chain, ev["round"])
+                if b is None:
+                    print(f"WARN draw {k}: could not fetch drand round {ev['round']}")
+                elif b["signature"].lower() != ev["signature"].lower():
+                    print(f"FAIL draw {k}: signature differs from drand round {ev['round']}")
                     ok = False
-                if fetch and name:
-                    b = fetch_beacon(chain, ev["round"])
-                    if b is None:
-                        print(f"WARN draw {k}: could not fetch drand round {ev['round']}")
-                    elif b["signature"].lower() != ev["signature"].lower():
-                        print(f"FAIL draw {k}: signature differs from drand round {ev['round']}")
-                        ok = False
-            else:
-                print(f"WARN draw {k}: OFFLINE mode, randomness is not publicly verifiable")
-            idx = select(randomness, list_hash, k, len(p))
+            idx = select(randomness, manifest_hash, k, len(p))
             expected = p[idx]
-            good = expected == ev["entrant_id"] and pass_ == ev["pass"] and len(p) == ev["pool_size"]
+            good = (expected == ev["entrant"] and pass_ == ev["pass"] and len(p) == ev["pool_size"]
+                    and idx == ev["index"])
             ok &= good
             print(f"{'ok  ' if good else 'FAIL'} draw {k}: round {ev['round']}, pass {pass_}, pool {len(p)}, "
-                  f"index {idx} -> {expected}" + ("" if good else f" (published {ev['entrant_id']})"))
+                  f"index {idx} -> {expected}" + ("" if good else f" (published {ev['entrant']})"))
             d = {"pass": pass_, "entrant": expected, "outcome": "drawn"}
             draws.append(d)
             by_k[k] = d
-        elif t == "resolve":
-            if pending is not None and ev["outcome"] in ("not_here", "declined"):
-                print(f"FAIL draw {ev['k']}: resolved {ev['outcome']} while draw {pending[0]} was pending")
+        elif t == "resolved":
+            if pending is not None and ev["resolution"] in ("not_here", "declined"):
+                print(f"FAIL draw {ev['k']}: resolved {ev['resolution']} while draw {pending[0]} was pending")
                 ok = False
             if ev["k"] in by_k:
-                by_k[ev["k"]]["outcome"] = ev["outcome"]
-                print(f"     draw {ev['k']}: {ev['outcome'].replace('_', ' ')}")
-        elif t == "stall":
+                by_k[ev["k"]]["outcome"] = ev["resolution"]
+                print(f"     draw {ev['k']}: {ev['resolution'].replace('_', ' ')}")
+        elif t == "stalled":
             print(f"     draw {ev['k']}: round {ev['round']} not available yet ({ev['reason']}); still pending")
-        elif t == "fail":
+        elif t == "abandoned":
             if pending != (ev["k"], ev["round"]):
                 print(f"FAIL draw {ev['k']}: abandon does not match the pending draw")
                 ok = False
             would_have_picked(ev["k"], ev["round"], f"ABANDONED ({ev['reason']})")
             pending = None
-        elif t == "void":
-            print(f"     unit {ev['unit_id']} voided")
+        elif t == "voided":
+            print(f"     item {ev['item']} voided")
     return ok
 
 
@@ -191,19 +205,19 @@ def main(argv):
         data = load(args[0])
         ok = True
         for v in data["select"]:
-            got = select(bytes.fromhex(v["randomness"]), bytes.fromhex(v["list_hash"]), v["k"], v["pool_size"])
+            got = select(bytes.fromhex(v["randomness"]), bytes.fromhex(v["manifest_hash"]), v["k"], v["pool_size"])
             if got != v["index"]:
                 print(f"FAIL select vector k={v['k']} n={v['pool_size']}: {got} != {v['index']}")
                 ok = False
         print(f"{'ok  ' if ok else 'FAIL'} {len(data['select'])} selection vectors")
         s = data["scenario"]
-        ok &= verify(s["commit_doc"], s["list_hash"], s["events"])
+        ok &= verify(s["manifest"], s["manifest_hash"], s["events"])
     else:
         if not args:
             print(__doc__)
             return 2
         data = load(args[0])
-        ok = verify(data["commit_doc"], data["list_hash"], data["events"], fetch=fetch)
+        ok = verify(data["manifest"], data["manifest_hash"], data["events"], fetch=fetch)
     print("VERIFIED" if ok else "VERIFICATION FAILED")
     return 0 if ok else 1
 

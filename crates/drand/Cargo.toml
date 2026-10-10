@@ -12,7 +12,6 @@ publish = false
 mock = ["drand/test-chain"]
 
 [dependencies]
-rafi-core.workspace = true
 anyhow = "1"
 drand = { workspace = true, features = ["client", "rustls", "bls12-381"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }

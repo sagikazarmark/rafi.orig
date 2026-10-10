@@ -1,0 +1,20 @@
+[package]
+name = "rafi-cloudflare"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Rafi on Cloudflare Workers: the per-raffle RaffleChannel Durable Object, and the platform interfaces over Workers bindings"
+publish = false
+
+# Everything here is Workers glue: the crate is empty on other targets.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+anyhow = "1"
+js-sys = "0.3"
+partyline-worker = "0.3"
+rafi-live = { path = "../live", features = ["raffle"] }
+rafi-platform = { path = "../platform" }
+rafi-store = { workspace = true, features = ["live"] }
+serde_json.workspace = true
+wasm-bindgen = "0.2"
+worker = "0.8.7"
