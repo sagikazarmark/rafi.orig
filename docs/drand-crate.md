@@ -1,5 +1,10 @@
 # `drand-beacon`: a reusable drand crate (design plan)
 
+> **Historical record.** Names are of their time: `rafi-core` is now `rafi-raffle` (`746f3a0`; the drawing is
+> `rafi-drawing`), the `restate-rafi` library is `rafi-engine-restate` (the name stays the native binary's), and the
+> commit document is the drawing's manifest. Offline draws were dropped later (`7b8721f`): a stalled draw's only exit
+> is an abandon. [PLAN.md](PLAN.md) describes the current state.
+
 > **Published (2026-10-07).** The crate moved to its own repository,
 > [sagikazarmark/drand-rs](https://github.com/sagikazarmark/drand-rs), and is published as
 > [`drand`](https://crates.io/crates/drand) 0.2 (with [`restate-drand`](https://crates.io/crates/restate-drand) 0.2);
@@ -472,6 +477,7 @@ impl TestChain {
      - The projector and phone countdowns (screen.rs:203, 235; admin.rs:726) show "retrying round R" instead of sitting at 0.
      - The admin copy says "retrying…": a retry or an offline exit queues behind the in-flight `draw` invocation on the virtual object, which can take up to lead plus the retry budget.
      - An offline draw on a pending draw whose round is already due needs an in-page confirmation step, because it is the one remaining reroll lever and is flagged publicly.
+     - (Since `7b8721f` there are no offline draws, so this lever is gone; abandon, logged with the round it gave up, is the only exit.)
    - **Tests.** Tests that relied on `switch_to_local` failing the draw are updated. A new test switches engines with a stalled draw and checks that the local engine resumes the same round and the store ignores late Restate writes (store lib.rs:43).
 7. **Fixtures.**
    - `testdata/draw-vectors.json` is regenerated from real quicknet beacons (rounds 1000, 1005, 1010, 1012, 1020) checked in alongside it. `rafi-draw-v1` is unchanged (same algorithm), and the vectors.rs header says so.
@@ -495,7 +501,7 @@ impl TestChain {
 ## 11. Milestones
 
 1. **M1, core verification:** chain, schedule, beacon, strict BLS12-381 verification, built-in chains, vectors (including negatives), TestChain; wasm32 and no_std builds plus the `cargo tree` check.
-2. **M2, Rafi security fix:** §10.1–10.4, 10.6, 10.7, 10.8, 10.10, the config validation in §9, and the M2 half of §10.5 (existing fetching, verified beacons, TestChain mock); bundle-size check. All of Rafi's tests, including mock mode with `lead_secs = 0`, stay green. **This removes the trust-the-relay gap and the selective-abort levers (redraw on a new round, pool changes while pending) first. The one remaining lever, an offline draw after R is due, is confirmed in the UI and flagged publicly.**
+2. **M2, Rafi security fix:** §10.1–10.4, 10.6, 10.7, 10.8, 10.10, the config validation in §9, and the M2 half of §10.5 (existing fetching, verified beacons, TestChain mock); bundle-size check. All of Rafi's tests, including mock mode with `lead_secs = 0`, stay green. **This removes the trust-the-relay gap and the selective-abort levers (redraw on a new round, pool changes while pending) first. The one remaining lever, an offline draw after R is due, is confirmed in the UI and flagged publicly.** (Offline draws were dropped in `7b8721f`, so that lever no longer exists.)
 3. **M3, http + client:** the `http` module, `Client::fetch`/`latest`/`wait_for`, hedging, `Clock`, `test_transport`, axum relay tests.
 4. **M4, Rafi switch:** the M4 half of §10.5 and §10.9; Rafi's full test suite plus a live dev-server run.
 5. **M5, publish 0.1.0:** README (comparison, the security notes from §6, "not audited"), examples, CI matrix, extraction to its own repo. File the `drand_core` off-by-one and v2-parsing issues upstream, and ask drand to list the crate on its client-libraries page.

@@ -1,5 +1,11 @@
 # Rafi reorganization plan — draw engine as a seam (v3)
 
+> **Reading this now (2026-10-10).** The current state is the appended revisions: 7 (the engine crate), 8 (no app
+> policy in the engine) and 9 (`rafi-engine` free of `rafi-platform`; the contract tidied and stated), at the end.
+> "Current state" and steps A–H describe the code of their time (`rafi-core`, now `rafi-raffle` and
+> `rafi-drawing`; the `restate-rafi` library and `restate-rafi-client`, now `rafi-engine-restate`; `DrawEngine`, now
+> `DrawingEngine` in `rafi-engine`). [PLAN.md](PLAN.md) has the current layout.
+
 Repo: /Users/mark/Projects/ventures/rafi (branch `cloudflare`). Crates in `crates/`.
 v2 incorporated the round-1 reviews; v3 incorporates rounds 2–3. FINAL: signed off by the
 architect, engineer, domain-expert and test/platform reviewers. See "Changes from v2" at the end.
@@ -250,7 +256,7 @@ enum DrandProfile { Instant, Lead(u64), Withheld, Forged }
 
 ### Step G — Participant split (deferred, with triggers)
 
-Not now: bundles are 847 KB / 914 KB compressed (`workers-plan.md:440`), nothing is deployed.
+Not now: bundles are 847 KB / 914 KB compressed (`workers-plan.md:445`, §11 M0(e)), nothing is deployed.
 Triggers: hitting the Worker size limit, phone cold-start latency, or wanting Clerk isolated from the
 public surface. When triggered:
 - Split by **audience and data class**: public PII-free (projector `/s/*`, phone, `/v/*` verify) vs
@@ -479,3 +485,30 @@ The engine and its hosts know drawings, not raffles, and none of the app's setti
   idempotency retention does.
 - **`MemoryDrawStore`** keeps only states opened with a drawing's first manifest, as the database
   does.
+
+## Revision 9 (2026-10-10): the engine without the platform
+
+`rafi-engine` depended on `rafi-platform`, which pulled `rafi-live` and with it Dioxus into the engine hosts and the
+store. The contract crate now depends on nothing but `rafi-drawing`; the platform depends on it.
+
+- **`rafi-engine` stands alone:** its own `BoxFuture`, and `RecordingNotifier` for tests. The `Notify` adapter (a
+  deployment's `Notifier` as the engine's `DrawingNotifier`, mapping a drawing to its raffle) is
+  `rafi_platform::Notify`. The live channel's publish rule moved from `rafi_platform::rule` to `rafi_live::publish`,
+  and `rafi-live`'s Dioxus `Card` is behind a `card` feature. `cargo tree` shows no Dioxus under `rafi-engine`,
+  `rafi-engine-restate`, `rafi-store`, `restate-rafi-endpoint`, `rafi-restate-worker` or `rafi-platform`.
+- **Restate's wire mapping is Restate's:** `status_code` and `refusal_kind` moved into `rafi-engine-restate`.
+  `EngineError::not_open()` is gone. One `EngineInfo` type (serde) is both the contract's and the Restate
+  `EngineInfo` service's answer.
+- **One binding:** both Restate test harnesses bind through `rafi_engine_restate::services()`, as the hosts do.
+  `DrandConfig::from_lookup` (`rafi-drand`) reads the flat `RAFI_DRAND_*` variables; the Worker host uses it.
+- **Two new scenarios:** `concurrent_duplicates_apply_once` and `a_reused_command_id_keeps_its_first_command`. Both
+  engines pass (`LocalEngine`, and Restate 1.7.13).
+- **The contract says more** (`crates/engine/src/engine.rs`):
+  - a command ID reused with another command answers like the first command and applies nothing;
+  - the projection is the record: an engine retries a failed write until it succeeds, and applies nothing else to
+    that drawing meanwhile, an abandon included;
+  - callers must not open a drawing they finished: past Restate's idempotency retention (1 h) it would open again,
+    unpublished. Rafi's lifecycle opens a drawing only from a frozen raffle (`rafi_raffle::start::next`);
+  - a `DrawingNotifier` bounds its own time: engines impose no deadline on it.
+- **Not changed:** Restate's service options (`ServiceOptionsConfig`) are configurable natively only; the Worker uses
+  the object's built-in defaults (journal and idempotency retention 1 h), deliberately for now.

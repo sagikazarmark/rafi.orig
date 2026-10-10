@@ -1,5 +1,8 @@
 # Drawing domain plan — a raffle-free `rafi-drawing`
 
+> **Historical record.** Names are of their time: `rafi-core` is now `rafi-raffle` (`746f3a0`), the engine crates
+> are `rafi-engine` and `rafi-engine-restate`. [PLAN.md](PLAN.md) describes the current state.
+
 Repo: /Users/mark/Projects/ventures/rafi (branch `cloudflare`). Crates in `crates/`.
 Follows [engine-plan.md](engine-plan.md), which made the draw engine a seam. Done (2026-10-09); see
 "What the implementation does differently" at the end.
