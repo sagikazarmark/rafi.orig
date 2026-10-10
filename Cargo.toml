@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/drawing", "crates/drand", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live", "crates/store-d1-check", "crates/platform", "crates/cloudflare", "crates/cloudflare-check", "crates/restate-worker", "crates/participant"]
+members = ["crates/raffle", "crates/drawing", "crates/drand", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live", "crates/store-d1-check", "crates/platform", "crates/cloudflare", "crates/cloudflare-check", "crates/restate-worker", "crates/participant"]
 
 [workspace.package]
 edition = "2024"
@@ -9,7 +9,7 @@ repository = "https://github.com/sagikazarmark/rafi"
 rust-version = "1.92"
 
 [workspace.dependencies]
-rafi-core = { path = "crates/core" }
+rafi-raffle = { path = "crates/raffle" }
 rafi-drawing = { path = "crates/drawing" }
 rafi-drand = { path = "crates/drand" }
 drand = { version = "0.3", default-features = false }

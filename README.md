@@ -52,7 +52,7 @@ app ──ingress──▶ Restate ──▶ restate-rafi (Drawing) ──▶ da
 ## Layout
 
 ```
-crates/core                   rafi-core: the raffle lifecycle, prizes as drawing items
+crates/raffle                 rafi-raffle: the raffle lifecycle, prizes as drawing items
 crates/drawing                rafi-drawing: draw algorithm, state machine, manifest, verifier (pure, tested, vectors)
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) and the round to commit to, on the drand crate
 crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the draw state write, the participant snapshot

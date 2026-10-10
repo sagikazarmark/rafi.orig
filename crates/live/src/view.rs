@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 /// A raffle's lifecycle state, as phones see it.
 ///
-/// Mirrors `rafi_core::raffle::RaffleState` variant for variant, with the same
+/// Mirrors `rafi_raffle::RaffleState` variant for variant, with the same
 /// serde names, so the server maps one to the other one to one. It lives here
-/// so the phone doesn't depend on `rafi-core`.
+/// so the phone doesn't depend on `rafi-raffle`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {

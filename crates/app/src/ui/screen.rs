@@ -1,8 +1,8 @@
 //! The projector screen: public and read-only.
 
 use dioxus::prelude::*;
-use rafi_core::raffle::RaffleState;
 use rafi_drawing::Outcome;
+use rafi_raffle::RaffleState;
 
 use rafi_live::ParticipantView;
 

@@ -316,7 +316,7 @@ impl Io {
                 }
             }
         }
-        // A drawing is keyed by its raffle's id (`rafi_core::drawing::manifest`),
+        // A drawing is keyed by its raffle's id (`rafi_raffle::drawing::manifest`),
         // so it names the raffle.
         self.notifier.notify(state.id().as_str()).await;
     }

@@ -3,8 +3,8 @@
 use rafi_drawing::BeaconSource;
 use std::collections::HashMap;
 
-use rafi_core::raffle::RaffleState;
 use rafi_drawing::{Event, ItemId, ItemStatus};
+use rafi_raffle::RaffleState;
 use rafi_store::view::Full;
 
 use super::AppState;
@@ -72,7 +72,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             .iter()
             .map(|u| ItemView {
                 item: u.id.clone(),
-                prize_id: rafi_core::drawing::prize_id(&u.id).to_owned(),
+                prize_id: rafi_raffle::drawing::prize_id(&u.id).to_owned(),
                 prize_name: u.name.clone(),
                 status: u.status(),
                 display_name: u.winner().map(|e| name_of(e.as_str())),
@@ -80,7 +80,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
             })
             .collect(),
         // Before the freeze: the items the raffle's prizes will become.
-        None => rafi_core::drawing::items(prizes.iter().map(|i| {
+        None => rafi_raffle::drawing::items(prizes.iter().map(|i| {
             (
                 i.id.as_str(),
                 i.name.as_str(),
@@ -89,7 +89,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         }))
         .into_iter()
         .map(|item| ItemView {
-            prize_id: rafi_core::drawing::prize_id(&item.id).to_owned(),
+            prize_id: rafi_raffle::drawing::prize_id(&item.id).to_owned(),
             item: item.id,
             prize_name: item.name,
             status: ItemStatus::Available,

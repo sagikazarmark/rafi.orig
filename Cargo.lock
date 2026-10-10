@@ -4705,13 +4705,13 @@ dependencies = [
  "partyline-dioxus",
  "qrcode",
  "rafi-cloudflare",
- "rafi-core",
  "rafi-drand",
  "rafi-drawing",
  "rafi-engine",
  "rafi-engine-restate",
  "rafi-live",
  "rafi-platform",
+ "rafi-raffle",
  "rafi-store",
  "restate-e2e-harness",
  "restate-sdk",
@@ -4759,14 +4759,6 @@ dependencies = [
  "rafi-store",
  "serde_json",
  "worker",
-]
-
-[[package]]
-name = "rafi-core"
-version = "0.1.0"
-dependencies = [
- "rafi-drawing",
- "serde",
 ]
 
 [[package]]
@@ -4873,6 +4865,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rafi-raffle"
+version = "0.1.0"
+dependencies = [
+ "rafi-drawing",
+ "serde",
+]
+
+[[package]]
 name = "rafi-restate-worker"
 version = "0.1.0"
 dependencies = [
@@ -4896,11 +4896,11 @@ dependencies = [
  "js-sys",
  "libtest-mimic",
  "oliphaunt",
- "rafi-core",
  "rafi-drawing",
  "rafi-engine",
  "rafi-live",
  "rafi-platform",
+ "rafi-raffle",
  "rafi-store",
  "serde",
  "serde_json",

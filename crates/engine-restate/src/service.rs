@@ -91,7 +91,7 @@ impl Drawing {
         // logs and drops its own failures (clients re-read on their own), so a
         // stuck notification can't block the drawing's object; the attempts
         // only cover the step itself failing. A drawing is keyed by its
-        // raffle's id (`rafi_core::drawing::manifest`), so it names the raffle.
+        // raffle's id (`rafi_raffle::drawing::manifest`), so it names the raffle.
         let drawing_id = state.id().as_str();
         let notifier = &*self.notifier;
         let notified = ctx

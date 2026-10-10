@@ -6,12 +6,12 @@
 
 use std::collections::HashSet;
 
-use rafi_core::raffle::{self, RaffleState};
 use rafi_drawing::{
     BeaconSource, Command, Decision, DrawRequest, Error as DrawingError, ErrorKind, ItemId,
     Manifest, ManifestHash, ManifestItem, Outcome, Resolution,
 };
 use rafi_engine::{DrawingEngine, EngineError};
+use rafi_raffle::{self as raffle, RaffleState};
 use rafi_store::{RaffleRow, audit, entrants, prizes, raffles};
 
 use super::{AppState, ids};
@@ -414,7 +414,7 @@ pub async fn start_draw(app: &AppState, owner: &str, id: &str) -> Result<()> {
 /// Errors if there are none.
 async fn items(app: &AppState, id: &str) -> Result<Vec<ManifestItem>> {
     let prizes = prizes::list(&app.db, id).await?;
-    let items = rafi_core::drawing::items(prizes.iter().map(|i| {
+    let items = rafi_raffle::drawing::items(prizes.iter().map(|i| {
         (
             i.id.as_str(),
             i.name.as_str(),
@@ -450,7 +450,7 @@ async fn write_manifest(
     }
     // The app alone decides the chain; the drawing engine refuses a mismatch.
     let manifest =
-        rafi_core::drawing::manifest(id, BeaconSource::Drand(app.chain), entrant_ids, items);
+        rafi_raffle::drawing::manifest(id, BeaconSource::Drand(app.chain), entrant_ids, items);
     let json = manifest.canonical_json();
     let hash = ManifestHash::of(&json).to_string();
     if !raffles::set_manifest(&app.db, id, &json, &hash).await? {

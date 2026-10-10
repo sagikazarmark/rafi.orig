@@ -1,8 +1,8 @@
 //! The `domain.*` scenarios: the domain functions, on every backend.
 
-use rafi_core::raffle::RaffleState;
 use rafi_drawing::{BeaconSource, Decision, Drawing, Event, Manifest, ManifestItem, Resolution};
 use rafi_live::Phase;
+use rafi_raffle::RaffleState;
 
 use super::{Outcome, check, fail};
 use crate::{

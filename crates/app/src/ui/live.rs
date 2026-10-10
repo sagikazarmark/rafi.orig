@@ -19,8 +19,8 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use partyline_dioxus::{BaseUrl, ChannelOptions, Status, use_channel_latest};
-use rafi_core::raffle::RaffleState;
 use rafi_live::{LiveTransport, ParticipantView, RaffleLive};
+use rafi_raffle::RaffleState;
 
 use crate::model::RaffleView;
 

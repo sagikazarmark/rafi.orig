@@ -1,4 +1,7 @@
-//! Raffle lifecycle.
+//! The raffle: its lifecycle, and how it uses a drawing ([`drawing`]). The
+//! drawing itself lives in `rafi-drawing`, which knows nothing of raffles.
+
+pub mod drawing;
 
 use serde::{Deserialize, Serialize};
 

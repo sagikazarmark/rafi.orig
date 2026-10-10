@@ -232,7 +232,7 @@ Rafi relies on Restate. There is no fallback draw path:
 
 | Crate | Status | Contents | Used by |
 |---|---|---|---|
-| `rafi-core` | unchanged | The raffle's domain model (lifecycle, prizes, codes) | app, store |
+| `rafi-core` (now `rafi-raffle`; codes and email normalization moved into the app) | unchanged | The raffle: its lifecycle, prizes as the drawing's items | app, store |
 | `rafi-drawing` | split out of `rafi-core` later ([drawing-plan.md](drawing-plan.md)) | The drawing: manifest, state machine, verifiable draw, verifier | everyone except the attendee WASM |
 | `rafi-live` | **new** | `ParticipantView`, the `RaffleLive` channel, `screen()`, `Card`, `CardStrings`, a lightweight state enum, the ALTCHA module (types, `solve`, `verify`), `LiveTransport` | DO, app, attendee WASM |
 | `rafi-platform` | **new** (§7a) | The ports: `Notifier` (`Polling`, `Recording`), `RateLimit` and `Limit` (native `Limiter`), the publish rule, `BoxFuture` (`DrawStore` moved to `rafi-engine`, [engine-plan.md](engine-plan.md) revision 7) | everyone but the attendee WASM |
@@ -245,7 +245,7 @@ Rafi relies on Restate. There is no fallback draw path:
 | `restate-rafi-endpoint` | kept, not deployed | The native endpoint, for self-hosting (§8): `DrawWriter` over SQLite (opened lazily), the `Polling` notifier | |
 | `rafi-store-d1-check`, `rafi-cloudflare-check` | local checks | Workers that drive the store and the channel under `wrangler dev` (`scripts/workers-check.sh`) | |
 
-`rafi-live` must not depend on `rafi-core`, which pulls in drand and BLS. The server maps `RaffleState` to `rafi-live`'s enum.
+`rafi-live` must not depend on `rafi-raffle`, which pulls in drand and BLS through `rafi-drawing`. The server maps `RaffleState` to `rafi-live`'s enum.
 
 ### Reuse
 

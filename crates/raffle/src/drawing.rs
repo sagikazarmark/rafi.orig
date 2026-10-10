@@ -4,7 +4,7 @@
 
 use rafi_drawing::{BeaconSource, Drawing, EntrantId, Event, ItemId, Manifest, ManifestItem};
 
-use crate::raffle::RaffleState;
+use crate::RaffleState;
 
 /// The drawing's item for the `n`th copy (from 1) of prize `prize_id`.
 pub fn item_id(prize_id: &str, n: u64) -> ItemId {
