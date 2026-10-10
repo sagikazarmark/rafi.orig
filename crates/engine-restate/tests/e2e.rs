@@ -9,9 +9,9 @@
 
 use std::time::Duration;
 
-use rafi_drand::{DrandClient, DrandConfig};
 use rafi_engine::MemoryRaffleStore;
 use rafi_engine::RecordingNotifier;
+use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine_restate::SERVICE_NAME;
 use rafi_raffle::{
     BeaconSource, Decision, DrawRequest, Event, ItemStatus, Manifest, ManifestItem, Raffle,

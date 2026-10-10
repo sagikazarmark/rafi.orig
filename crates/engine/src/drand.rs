@@ -1,19 +1,23 @@
-//! Rafi's drand settings on top of [`drand`]: which chain, which relays,
-//! how far ahead a draw commits, and how long a draw waits for its beacon.
+//! How an engine gets its beacon: Rafi's drand settings on top of [`drand`]
+//! (which chain, which relays, how far ahead a draw commits, and how long a
+//! draw waits for its beacon) and the client every engine draws with.
 //!
-//! The chain is quicknet, or (with `mock = true` and the `mock` feature)
-//! the mock chain (`rafi_raffle::drand::mock_chain`).
+//! Every engine commits to a round by [`DrandClient::target_round`]'s rule
+//! (the Restate engine through `restate_drand`, with the same lead).
+//!
+//! The chain is quicknet, or (with `mock = true` and the `mock-drand`
+//! feature) the mock chain (`rafi_raffle::drand::mock_chain`).
 
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, bail, ensure};
-pub use drand::client::{Error as FetchError, Fetch};
-use drand::{
+pub use ::drand::client::{Error as FetchError, Fetch};
+use ::drand::{
     ChainHash, ChainInfo, Schedule, UnixTime, VerifiedBeacon, Verifier, chains,
     client::{Client, Strategy},
     http::Relay,
 };
-#[cfg(feature = "mock")]
+use anyhow::{Context, bail, ensure};
+#[cfg(feature = "mock-drand")]
 use rafi_raffle::drand::mock_chain;
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +28,7 @@ pub struct DrandConfig {
     /// Relays to ask, in order: `v2:https://…`, `v1:https://…`, or a bare URL (v1).
     pub relays: Vec<String>,
     /// Use the public test chain instead of quicknet (development and tests only:
-    /// NOT verifiable as drand; needs the `mock` feature).
+    /// NOT verifiable as drand; needs the `mock-drand` feature).
     pub mock: bool,
     /// Seconds between starting a draw and its committed round. At least one
     /// quicknet period (3 s); 0 only with `mock`.
@@ -84,9 +88,9 @@ impl DrandConfig {
         if !self.mock {
             return Ok(chains::quicknet());
         }
-        #[cfg(feature = "mock")]
+        #[cfg(feature = "mock-drand")]
         return Ok(mock_chain().chain().clone());
-        #[cfg(not(feature = "mock"))]
+        #[cfg(not(feature = "mock-drand"))]
         bail!("drand mock mode is not available in this build (enable the `mock-drand` feature)");
     }
 
@@ -137,7 +141,7 @@ pub struct DrandClient {
 
 impl DrandClient {
     /// Validates the configuration and builds the client (fails at startup on
-    /// bad settings, a mock request without the `mock` feature, or an
+    /// bad settings, a mock request without the `mock-drand` feature, or an
     /// unverifiable chain).
     pub fn new(cfg: DrandConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
@@ -147,11 +151,11 @@ impl DrandClient {
             .request_timeout(Duration::from_secs(5))
             .user_agent("rafi (+https://github.com/sagikazarmark/rafi)");
         let client = if cfg.mock {
-            #[cfg(feature = "mock")]
+            #[cfg(feature = "mock-drand")]
             {
                 builder.test_transport(mock_chain()).build()?
             }
-            #[cfg(not(feature = "mock"))]
+            #[cfg(not(feature = "mock-drand"))]
             unreachable!("validate rejects mock without the feature")
         } else {
             builder
@@ -339,18 +343,7 @@ mod tests {
         }
     }
 
-    #[cfg(not(feature = "mock"))]
-    #[test]
-    fn mock_needs_the_feature() {
-        let cfg = DrandConfig {
-            mock: true,
-            lead_secs: 0,
-            ..DrandConfig::default()
-        };
-        assert!(DrandClient::new(cfg).is_err());
-    }
-
-    #[cfg(feature = "mock")]
+    #[cfg(feature = "mock-drand")]
     #[tokio::test]
     async fn mock_chain_serves_verified_past_rounds() {
         let client = DrandClient::new(DrandConfig {

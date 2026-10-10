@@ -64,9 +64,8 @@ rafi-cloudflare = { path = "../cloudflare", optional = true }
 http = { version = "1", optional = true }
 
 [dev-dependencies]
-rafi-drand = { path = "../drand", features = ["mock"] }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
-rafi-engine = { path = "../engine", features = ["local"] }
+rafi-engine = { path = "../engine", features = ["local", "mock-drand"] }
 restate-e2e-harness = "0.3"
 restate-sdk = { workspace = true }
 dioxus-clerk = { version = "0.6", features = ["server", "testing"] }

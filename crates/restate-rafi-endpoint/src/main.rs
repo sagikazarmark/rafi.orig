@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use rafi_drand::DrandClient;
+use rafi_engine::drand::DrandClient;
 use restate_config::ConfigureEndpointExt;
 use restate_ext::shutdown_signal;
 use restate_sdk::{endpoint::Endpoint, filter::ReplayAwareFilter, http_server::HttpServer};

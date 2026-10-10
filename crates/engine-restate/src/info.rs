@@ -1,6 +1,6 @@
 //! The `EngineInfo` service: what the raffle engine says about itself.
 
-use rafi_drand::DrandClient;
+use rafi_engine::drand::DrandClient;
 use rafi_raffle::BeaconSource;
 use restate_sdk::prelude::*;
 

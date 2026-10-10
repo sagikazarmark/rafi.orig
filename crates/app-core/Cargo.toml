@@ -25,6 +25,5 @@ tracing = "0.1"
 
 [dev-dependencies]
 rafi-lifecycle.workspace = true
-rafi-drand = { path = "../drand", features = ["mock"] }
-rafi-engine = { path = "../engine", features = ["local"] }
+rafi-engine = { path = "../engine", features = ["local", "mock-drand"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

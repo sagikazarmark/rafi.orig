@@ -22,7 +22,7 @@ use std::{cell::OnceCell, rc::Rc, sync::Arc};
 
 use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
-use rafi_drand::{DrandClient, DrandConfig};
+use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_platform::Notify;
 use rafi_store::RaffleWriter;
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};

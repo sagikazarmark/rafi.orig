@@ -27,11 +27,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use crate::drand::{DrandClient, DrandConfig};
 use crate::{
     BoxFuture, EngineError, MemoryRaffleStore, RaffleEngine, RaffleNotifier, RaffleStore,
     RecordingNotifier,
 };
-use rafi_drand::{DrandClient, DrandConfig};
 use rafi_raffle::{
     BeaconSource, Command, Decision, DrawRequest, ErrorKind, Event, ItemStatus, Manifest,
     ManifestItem, Raffle, Resolution, verify,

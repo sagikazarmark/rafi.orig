@@ -16,6 +16,10 @@
 //! ([`Raffle::admit`](rafi_raffle::Raffle::admit)), checked against the
 //! projection.
 //!
+//! With the `drand` feature, [`drand`] is the beacon client every engine
+//! draws with: Rafi's drand settings and the rule for which round a draw
+//! commits to.
+//!
 //! The engines: `rafi-engine-restate` (production) and, with the `local`
 //! feature, [`local::LocalEngine`] (tests and development only). With the
 //! `conformance` feature, [`conformance`] is the scenario suite every engine
@@ -27,6 +31,8 @@ mod store;
 
 #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
 pub mod conformance;
+#[cfg(feature = "drand")]
+pub mod drand;
 #[cfg(all(feature = "local", not(target_arch = "wasm32")))]
 pub mod local;
 

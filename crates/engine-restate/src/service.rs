@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use rafi_drand::DrandClient;
+use rafi_engine::drand::DrandClient;
 use rafi_engine::{NOT_OPEN, RaffleNotifier, RaffleStore};
 use rafi_raffle::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Error as RaffleError, ErrorKind, Manifest,

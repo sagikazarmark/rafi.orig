@@ -10,8 +10,8 @@
 
 use std::time::Duration;
 
-use rafi_drand::{DrandClient, DrandConfig};
 use rafi_engine::RaffleEngine;
+use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine_restate::RestateClient;
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::{Decision, DrawRequest};

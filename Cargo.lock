@@ -4706,7 +4706,6 @@ dependencies = [
  "qrcode",
  "rafi-app-core",
  "rafi-cloudflare",
- "rafi-drand",
  "rafi-engine",
  "rafi-engine-restate",
  "rafi-lifecycle",
@@ -4739,7 +4738,6 @@ dependencies = [
  "anyhow",
  "getrandom 0.3.4",
  "hex",
- "rafi-drand",
  "rafi-engine",
  "rafi-lifecycle",
  "rafi-live",
@@ -4776,7 +4774,6 @@ dependencies = [
  "dioxus",
  "js-sys",
  "rafi-cloudflare",
- "rafi-drand",
  "rafi-live",
  "rafi-platform",
  "rafi-raffle",
@@ -4786,26 +4783,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-drand"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "drand",
- "rafi-raffle",
- "reqwest 0.13.5",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "rafi-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "rafi-drand",
+ "drand",
  "rafi-engine",
  "rafi-raffle",
+ "reqwest 0.13.5",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4822,7 +4807,6 @@ dependencies = [
  "futures-util",
  "gloo-timers 0.3.0",
  "http",
- "rafi-drand",
  "rafi-engine",
  "rafi-platform",
  "rafi-raffle",
@@ -4927,7 +4911,6 @@ dependencies = [
  "http",
  "http-body-util",
  "rafi-cloudflare",
- "rafi-drand",
  "rafi-engine",
  "rafi-engine-restate",
  "rafi-platform",
@@ -5263,7 +5246,6 @@ dependencies = [
  "anyhow",
  "clap",
  "figment",
- "rafi-drand",
  "rafi-engine",
  "rafi-engine-restate",
  "rafi-raffle",

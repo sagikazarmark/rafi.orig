@@ -33,8 +33,8 @@ async fn app_with(cfg: Config) -> AppState {
 }
 
 /// The raffle engine's drand: the mock chain, no lead.
-fn mock_drand() -> rafi_drand::DrandConfig {
-    rafi_drand::DrandConfig {
+fn mock_drand() -> rafi_engine::drand::DrandConfig {
+    rafi_engine::drand::DrandConfig {
         relays: vec![],
         mock: true,
         lead_secs: 0,
@@ -51,7 +51,7 @@ async fn app_with_live(cfg: Config, live: Arc<dyn Notifier>) -> AppState {
 /// test database is a fresh schema there instead of in-memory SQLite.
 async fn app_with_engine(
     mut cfg: Config,
-    drand: rafi_drand::DrandConfig,
+    drand: rafi_engine::drand::DrandConfig,
     live: Arc<dyn Notifier>,
 ) -> AppState {
     if cfg.database_url == Config::for_tests().database_url
@@ -63,7 +63,7 @@ async fn app_with_engine(
         .await
         .expect("database");
     let engine = rafi_engine::local::LocalEngine::new(
-        rafi_drand::DrandClient::new(drand).expect("drand configuration"),
+        rafi_engine::drand::DrandClient::new(drand).expect("drand configuration"),
         rafi_store::RaffleWriter::new(db.clone()),
         rafi_platform::Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
     );
@@ -202,7 +202,7 @@ async fn wait_long<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) ->
 async fn unreachable_drand_app() -> AppState {
     let mut cfg = Config::for_tests();
     cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
-    let drand = rafi_drand::DrandConfig {
+    let drand = rafi_engine::drand::DrandConfig {
         relays: vec!["http://127.0.0.1:9".into()],
         mock: false,
         lead_secs: 3,
@@ -1233,7 +1233,7 @@ async fn stalled_draw_keeps_its_round() {
 /// accepted, and the engine applies it once that draw settles.
 #[tokio::test]
 async fn only_handing_over_passes_a_waiting_draw() {
-    let drand = rafi_drand::DrandConfig {
+    let drand = rafi_engine::drand::DrandConfig {
         lead_secs: 3,
         ..mock_drand()
     };
