@@ -10,6 +10,9 @@ publish = false
 [features]
 ## Issue and verify ALTCHA challenges (HMAC). The phone only solves.
 server = ["dep:hmac"]
+## Build participant views from a raffle and its drawing (`raffle::view`):
+## for servers. Pulls in rafi-drawing (drand, BLS), so the phone leaves it off.
+raffle = ["dep:rafi-raffle", "dep:rafi-drawing"]
 
 [dependencies]
 base64 = "0.22"
@@ -17,9 +20,14 @@ dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "
 hex.workspace = true
 hmac = { version = "0.12", optional = true }
 partyline = "0.3"
+rafi-drawing = { workspace = true, optional = true }
+rafi-raffle = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
 dioxus-ssr = "=0.7.10"
+# Itself with `raffle`, so its tests run with the workspace's.
+rafi-live = { path = ".", features = ["raffle"] }
+rafi-drawing.workspace = true

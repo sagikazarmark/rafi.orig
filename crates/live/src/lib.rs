@@ -8,14 +8,19 @@
 //! - [`Card`]: the Dioxus component that renders it, on the server (SSR) and
 //!   in the WASM alike, with [`CardStrings`];
 //! - [`altcha`]: rafi's proof-of-work for the join form;
-//! - [`LiveTransport`]: how clients follow a raffle on this deployment.
+//! - [`LiveTransport`]: how clients follow a raffle on this deployment;
+//! - with the `raffle` feature, `raffle::view`: the participant view of a
+//!   raffle and its drawing, for the servers that build views.
 //!
-//! This crate must stay light enough for the phone: it doesn't depend on
-//! `rafi-drawing` (which pulls in drand and BLS), and it reads no clock and no
-//! randomness of its own, so it runs unchanged on `wasm32-unknown-unknown`.
+//! This crate must stay light enough for the phone: without `raffle` it
+//! doesn't depend on `rafi-drawing` (which pulls in drand and BLS), and it
+//! reads no clock and no randomness of its own, so it runs unchanged on
+//! `wasm32-unknown-unknown`.
 
 pub mod altcha;
 mod card;
+#[cfg(feature = "raffle")]
+pub mod raffle;
 mod screen;
 mod transport;
 mod view;
@@ -23,7 +28,9 @@ mod view;
 pub use card::{CARD, Card, CardProps, CardStrings, WON};
 pub use screen::{Screen, screen};
 pub use transport::{DEFAULT_POLL_MS, LiveTransport};
-pub use view::{Current, DrawInput, DrawOutcome, LastDraw, ParticipantView, Phase, Winner};
+pub use view::{
+    Current, DrawInput, DrawOutcome, HIDDEN_NAME, LastDraw, ParticipantView, Phase, Winner,
+};
 
 /// The raffle's live channel: phones follow the latest [`ParticipantView`].
 ///

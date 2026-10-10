@@ -2,11 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Display name shown for an entrant the organizer hid.
+pub const HIDDEN_NAME: &str = "★ ★ ★";
+
 /// A raffle's lifecycle state, as phones see it.
 ///
 /// Mirrors `rafi_raffle::RaffleState` variant for variant, with the same
-/// serde names, so the server maps one to the other one to one. It lives here
-/// so the phone doesn't depend on `rafi-raffle`.
+/// serde names. It lives here so the phone doesn't depend on `rafi-raffle`;
+/// the `raffle` feature maps one to the other with an exhaustive match, so
+/// the two can't drift apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
@@ -94,7 +98,8 @@ pub struct Winner {
     pub claimed: bool,
 }
 
-/// How a drawn entrant's turn ended. Mirrors `rafi_drawing::Outcome`.
+/// How a drawn entrant's turn ended. Mirrors `rafi_drawing::Outcome` (mapped
+/// exhaustively with the `raffle` feature).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DrawOutcome {
