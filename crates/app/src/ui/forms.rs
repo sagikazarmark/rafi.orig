@@ -4,7 +4,7 @@
 
 use dioform::prelude::*;
 use dioxus::prelude::*;
-use rafi_raffle::{
+use rafi_lifecycle::{
     entrant::{self, MAX_NAME_CHARS},
     settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
 };

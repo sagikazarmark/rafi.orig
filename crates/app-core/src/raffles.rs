@@ -1,8 +1,8 @@
 //! Raffles: creating, configuring, copying, deleting and moving them
 //! through the lifecycle.
 
+use rafi_lifecycle::{self as lifecycle, settings};
 use rafi_model::{Lifecycle, RaffleSettings, RaffleSummary};
-use rafi_raffle::{self as raffle, settings};
 use rafi_store::{RaffleRow, audit, prizes, raffles};
 
 use crate::{App, Refusal, Result, ids, owned};
@@ -104,7 +104,7 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
 
 pub async fn delete(app: &App, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
-    if !raffle::drawing::deletable(raffle.state, raffle.drawing()?.as_ref()) {
+    if !lifecycle::raffle::deletable(raffle.state, raffle.drawn()?.as_ref()) {
         return Err(Refusal::DrawPending.into());
     }
     raffles::delete(&app.db, id).await?;
@@ -180,10 +180,10 @@ pub async fn duplicate(app: &App, owner: &str, id: &str) -> Result<String> {
 pub async fn lifecycle(app: &App, owner: &str, id: &str, action: Lifecycle) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     let command = match action {
-        Lifecycle::Publish => raffle::Command::Publish,
-        Lifecycle::Unpublish => raffle::Command::Unpublish,
-        Lifecycle::Open => raffle::Command::Open,
-        Lifecycle::Close => raffle::Command::Close,
+        Lifecycle::Publish => lifecycle::Command::Publish,
+        Lifecycle::Unpublish => lifecycle::Command::Unpublish,
+        Lifecycle::Open => lifecycle::Command::Open,
+        Lifecycle::Close => lifecycle::Command::Close,
     };
     let from = raffle.state;
     let to = from

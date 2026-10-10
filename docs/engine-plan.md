@@ -2,9 +2,9 @@
 
 > **Reading this now (2026-10-10).** The current state is the appended revisions: 7 (the engine crate), 8 (no app
 > policy in the engine) and 9 (`rafi-engine` free of `rafi-platform`; the contract tidied and stated), at the end.
-> "Current state" and steps A–H describe the code of their time (`rafi-core`, now `rafi-raffle` and
-> `rafi-drawing`; the `restate-rafi` library and `restate-rafi-client`, now `rafi-engine-restate`; `DrawEngine`, now
-> `DrawingEngine` in `rafi-engine`). [PLAN.md](PLAN.md) has the current layout.
+> "Current state" and steps A–H describe the code of their time (`rafi-core`, now `rafi-lifecycle` and
+> `rafi-raffle`; the `restate-rafi` library and `restate-rafi-client`, now `rafi-engine-restate`; `DrawEngine`, now
+> `RaffleEngine` in `rafi-engine`). [PLAN.md](PLAN.md) has the current layout.
 
 Repo: /Users/mark/Projects/ventures/rafi (branch `cloudflare`). Crates in `crates/`.
 v2 incorporated the round-1 reviews; v3 incorporates rounds 2–3. FINAL: signed off by the

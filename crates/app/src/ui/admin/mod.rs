@@ -9,8 +9,8 @@ mod prizes;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use rafi_drawing::{ItemId, ItemStatus, Outcome, Resolution};
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
+use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
 
 use super::{
     Route, command_id, copy_to_clipboard,

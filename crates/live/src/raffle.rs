@@ -1,11 +1,11 @@
-//! The participant view of a raffle and its drawing (the `raffle` feature):
-//! for the servers that build views. The phone only reads them, so it builds
-//! without this and without `rafi-drawing`.
+//! The participant view of a raffle (the `raffle` feature): for the servers
+//! that build views. The phone only reads them, so it builds without this,
+//! `rafi-lifecycle` and `rafi-raffle`.
 
 use std::collections::HashMap;
 
-use rafi_drawing::{Drawing, ItemId, Outcome};
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
+use rafi_raffle::{ItemId, Outcome, Raffle};
 
 use crate::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
 
@@ -39,29 +39,29 @@ impl From<Outcome> for DrawOutcome {
 
 /// What a participant view is built from: one consistent read of the raffle.
 #[derive(Debug, Clone, Copy)]
-pub struct Raffle<'a> {
+pub struct Input<'a> {
     /// The raffle's version: the view's [`v`](ParticipantView::v).
     pub version: u64,
     pub state: RaffleState,
-    /// The drawing, once the engine opened it.
-    pub drawing: Option<&'a Drawing>,
+    /// The raffle as drawn, once the engine opened it.
+    pub raffle: Option<&'a Raffle>,
     /// The display names of the drawn entrants only, by entrant ID; `None`
     /// for one the organizer hid (shown as [`HIDDEN_NAME`](crate::HIDDEN_NAME)).
     pub names: &'a HashMap<String, Option<String>>,
-    /// The prizes' total quantity: what is left before the drawing opens.
+    /// The prizes' total quantity: what is left before the raffle opens.
     pub prize_qty: u32,
 }
 
-/// The participant view of `raffle`.
-pub fn view(raffle: Raffle<'_>) -> ParticipantView {
-    let state = raffle.state.into();
-    let Some(drawing) = raffle.drawing else {
-        return ParticipantView::new(raffle.version, state, None, [], raffle.prize_qty);
+/// The participant view of a raffle.
+pub fn view(input: Input<'_>) -> ParticipantView {
+    let state = input.state.into();
+    let Some(raffle) = input.raffle else {
+        return ParticipantView::new(input.version, state, None, [], input.prize_qty);
     };
-    let item_name = |id: &ItemId| drawing.item(id).map(|i| i.name.clone()).unwrap_or_default();
-    let draws = drawing.draws().into_iter().map(|d| {
+    let item_name = |id: &ItemId| raffle.item(id).map(|i| i.name.clone()).unwrap_or_default();
+    let draws = raffle.draws().into_iter().map(|d| {
         let id = d.entrant.as_str();
-        let display_name = crate::public_name(id, raffle.names.get(id).map(Option::as_deref));
+        let display_name = crate::public_name(id, input.names.get(id).map(Option::as_deref));
         DrawInput {
             display_name,
             prize_name: item_name(&d.item),
@@ -69,23 +69,23 @@ pub fn view(raffle: Raffle<'_>) -> ParticipantView {
             entrant_id: d.entrant.into_string(),
         }
     });
-    let current = drawing.pending().map(|p| Current {
+    let current = raffle.pending().map(|p| Current {
         prize_name: item_name(&p.item),
         round: p.round,
         round_time: p.round_time,
     });
     ParticipantView::new(
-        raffle.version,
+        input.version,
         state,
         current,
         draws.collect::<Vec<_>>(),
-        drawing.items_left() as u32,
+        raffle.items_left() as u32,
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use rafi_drawing::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
+    use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
 
     use super::*;
     use crate::HIDDEN_NAME;
@@ -118,14 +118,14 @@ mod tests {
         }
     }
 
-    fn raffle<'a>(
-        drawing: Option<&'a Drawing>,
+    fn input<'a>(
+        raffle: Option<&'a Raffle>,
         names: &'a HashMap<String, Option<String>>,
-    ) -> Raffle<'a> {
-        Raffle {
+    ) -> Input<'a> {
+        Input {
             version: 4,
             state: RaffleState::Drawing,
-            drawing,
+            raffle,
             names,
             prize_qty: 2,
         }
@@ -145,9 +145,9 @@ mod tests {
     }
 
     #[test]
-    fn before_the_drawing_counts_prizes() {
+    fn before_the_raffle_opens_it_counts_prizes() {
         let names = HashMap::new();
-        let v = view(raffle(None, &names));
+        let v = view(input(None, &names));
         assert_eq!(v.prizes_left, 2);
         assert_eq!(v.v, 4);
         assert!(v.winners.is_empty());
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn hidden_names_are_masked_and_no_shows_skipped() {
         let (a, b) = ("a".repeat(32), "b".repeat(32));
-        let drawing = Drawing::restore(
+        let raffle = Raffle::restore(
             &manifest(),
             &[
                 drawn(1, &a, "u1"),
@@ -169,13 +169,13 @@ mod tests {
         )
         .unwrap();
         let names = HashMap::from([(a.clone(), Some("Anna".to_owned())), (b.clone(), None)]);
-        let v = view(raffle(Some(&drawing), &names));
+        let v = view(input(Some(&raffle), &names));
         assert_eq!(v.last.as_ref().unwrap().display_name, HIDDEN_NAME);
         assert_eq!(v.winners.len(), 2);
         assert!(v.winners[0].claimed);
         assert_eq!(v.prizes_left, 1, "a drawn item is open until claimed");
 
-        let drawing = Drawing::restore(
+        let raffle = Raffle::restore(
             &manifest(),
             &[
                 drawn(1, &a, "u1"),
@@ -191,7 +191,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let v = view(raffle(Some(&drawing), &names));
+        let v = view(input(Some(&raffle), &names));
         assert_eq!(v.winners.len(), 1);
         assert_eq!(
             v.last.unwrap().display_name,
@@ -202,8 +202,8 @@ mod tests {
 
     #[test]
     fn a_name_not_read_shows_the_id() {
-        let drawing = Drawing::restore(&manifest(), &[drawn(1, &"a".repeat(32), "u1")]).unwrap();
-        let v = view(raffle(Some(&drawing), &HashMap::new()));
+        let raffle = Raffle::restore(&manifest(), &[drawn(1, &"a".repeat(32), "u1")]).unwrap();
+        let v = view(input(Some(&raffle), &HashMap::new()));
         assert_eq!(v.last.unwrap().display_name, "#aaaaaa");
     }
 }

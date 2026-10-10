@@ -1,12 +1,12 @@
 //! The `domain.*` scenarios: the domain functions, on every backend.
 
-use rafi_drawing::{BeaconSource, Decision, Drawing, Event, Manifest, ManifestItem, Resolution};
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
+use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle, Resolution};
 
 use super::{Outcome, check, fail};
 use crate::{
     Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants, live::Snapshot, prizes, raffles,
-    retention, save_drawing, view::Full,
+    retention, save_raffle, view::Full,
 };
 
 const PURGE: PurgeAfter = PurgeAfter {
@@ -15,8 +15,8 @@ const PURGE: PurgeAfter = PurgeAfter {
 };
 
 /// A frozen raffle `id` with two entrants and one prize, and its draw state.
-async fn frozen(db: &Db, id: &str) -> Result<Drawing, String> {
-    let state = Drawing::open(&manifest(id, ["a".repeat(32), "b".repeat(32)])).map_err(fail)?;
+async fn frozen(db: &Db, id: &str) -> Result<Raffle, String> {
+    let state = Raffle::open(&manifest(id, ["a".repeat(32), "b".repeat(32)])).map_err(fail)?;
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, manifest_hash, created_at, updated_at)
          VALUES (?, 'o', ?, ?, 't', 'frozen', ?, 0, 0)",
@@ -52,7 +52,7 @@ async fn force_state(db: &Db, id: &str, state: RaffleState) -> Outcome {
     Ok(())
 }
 
-/// A manifest for drawing `id`: `entrants`, and one item `u1`.
+/// A manifest for raffle `id`: `entrants`, and one item `u1`.
 fn manifest<const N: usize>(id: &str, entrants: [String; N]) -> Manifest {
     Manifest::new(
         id,
@@ -67,15 +67,15 @@ fn manifest<const N: usize>(id: &str, entrants: [String; N]) -> Manifest {
 
 pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     let mut state = frozen(db, "r1").await?;
-    check(save_drawing(db, &state).await.map_err(fail)?, "first write")?;
+    check(save_raffle(db, &state).await.map_err(fail)?, "first write")?;
     check(
-        !save_drawing(db, &state).await.map_err(fail)?,
+        !save_raffle(db, &state).await.map_err(fail)?,
         "a retry is a no-op",
     )?;
 
     state.decide(&Decision::Finish).map_err(fail)?;
     check(
-        save_drawing(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state).await.map_err(fail)?,
         "finished write",
     )?;
     let dates = || async {
@@ -108,16 +108,16 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     )?;
 
     // Newer, but opened from another entrant list.
-    let mut other = Drawing::open(&manifest("r1", ["c".repeat(32)])).map_err(fail)?;
+    let mut other = Raffle::open(&manifest("r1", ["c".repeat(32)])).map_err(fail)?;
     for decision in [Decision::Void { item: "u1".into() }, Decision::Finish] {
         other.decide(&decision).map_err(fail)?;
     }
     check(
         other.version() > state.version(),
-        "the other drawing is newer",
+        "the other raffle is newer",
     )?;
     check(
-        !save_drawing(db, &other).await.map_err(fail)?,
+        !save_raffle(db, &other).await.map_err(fail)?,
         "a different entrant list",
     )
 }
@@ -559,10 +559,10 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
             resolution: Resolution::Claimed,
         });
     }
-    let state = Drawing::restore(&manifest, &events).map_err(fail)?;
-    let stored = crate::StoredDrawing::of(&state).map_err(fail)?;
+    let state = Raffle::restore(&manifest, &events).map_err(fail)?;
+    let stored = crate::StoredRaffle::of(&state).map_err(fail)?;
     db.query(
-        "UPDATE raffles SET state = 'finished', drawing = ?, winners = ?, finished_at = 100,
+        "UPDATE raffles SET state = 'finished', log = ?, winners = ?, finished_at = 100,
          purge_nonwinners_at = 130, purge_winners_at = 190 WHERE id = 'r1'",
     )
     .bind(stored.json)
@@ -804,10 +804,10 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         entrant: bence.clone().into(),
     };
     let state =
-        Drawing::restore(&manifest("r1", [anna.clone(), bence.clone()]), &[draw]).map_err(fail)?;
+        Raffle::restore(&manifest("r1", [anna.clone(), bence.clone()]), &[draw]).map_err(fail)?;
     check(state.version() == 2, "one event")?;
     check(
-        save_drawing(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state).await.map_err(fail)?,
         "writing the draw",
     )?;
 
@@ -821,8 +821,8 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         "only the drawn entrant, and their hidden name isn't read",
     )?;
     check(
-        snap.drawing.as_ref().is_some_and(|d| d.draws().len() == 1),
-        "the drawing",
+        snap.drawn.as_ref().is_some_and(|d| d.draws().len() == 1),
+        "the raffle as drawn",
     )?;
     check(
         snap.version == raffle(db, "r1").await?.version as u64,

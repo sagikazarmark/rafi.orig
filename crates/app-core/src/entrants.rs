@@ -2,11 +2,11 @@
 
 use std::collections::HashSet;
 
-use rafi_model::EntrantPatch;
-use rafi_raffle::{
-    self as raffle,
+use rafi_lifecycle::{
+    self as lifecycle,
     entrant::{self, Email, JoinRefusal, NameError, Removal},
 };
+use rafi_model::EntrantPatch;
 use rafi_store::{RaffleRow, audit, entrants, raffles};
 
 use crate::{App, Error, Refusal, Result, ids, owned, view::NAME_DELAY_SECS};
@@ -236,7 +236,7 @@ pub async fn patch_entrant(
         None => None,
     };
     if patch.delivered.is_some()
-        && !raffle::drawing::deliverable(raffle.drawing()?.as_ref(), entrant_id)
+        && !lifecycle::raffle::deliverable(raffle.drawn()?.as_ref(), entrant_id)
     {
         return Err(Refusal::NotDeliverable.into());
     }
@@ -302,7 +302,7 @@ pub async fn remove_entrant(
 /// its live channel.
 pub async fn purge(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if raffle.state.apply(raffle::Command::Purge).is_none() {
+    if raffle.state.apply(lifecycle::Command::Purge).is_none() {
         return Err(Refusal::NotPurgeable.into());
     }
     entrants::erase(&app.db, raffle_id, None).await?;

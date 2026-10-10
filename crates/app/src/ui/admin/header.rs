@@ -224,7 +224,7 @@ pub(super) fn Header(
                             Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(Lifecycle::Open)); } }, "Reopen registration" }
                         },
                         RaffleState::Frozen if unconfirmed => rsx! {
-                            Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Icon { i: I::Undo } "Retry handing the list to the drawing engine" }
+                            Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Icon { i: I::Undo } "Retry handing the list to the raffle engine" }
                         },
                         RaffleState::Finished | RaffleState::Purged if v.live_ended => rsx! {
                             span { class: "badge badge-ghost gap-1", Icon { i: I::Check, class: "size-3.5" } "{t(\"live_ended\")}" }

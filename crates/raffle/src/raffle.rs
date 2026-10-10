@@ -1,9 +1,9 @@
-//! The drawing: its state machine.
+//! The raffle: its state machine.
 //!
-//! [`Drawing`] is one drawing's state. Its owner, an engine, stores it and
-//! changes it only through its protocol: [`Drawing::open_or_check`] to open
-//! it, [`Drawing::announce`] and [`Drawing::settle`] for a draw, and
-//! [`Drawing::decide`] for every decision. Every change is recorded as an
+//! [`Raffle`] is one raffle's state. Its owner, an engine, stores it and
+//! changes it only through its protocol: [`Raffle::open_or_check`] to open
+//! it, [`Raffle::announce`] and [`Raffle::settle`] for a draw, and
+//! [`Raffle::decide`] for every decision. Every change is recorded as an
 //! [`Event`], and the event log is what the public verifier replays.
 //!
 //! The pool rules are part of the algorithm ([`algorithm`](crate::algorithm)).
@@ -30,7 +30,7 @@ use crate::{
     draw::{CompletedDraw, Outcome, PendingDraw},
     error::Error,
     hash::{self, Hash, ManifestHash},
-    id::{DrawingId, EntrantId, ItemId},
+    id::{EntrantId, ItemId, RaffleId},
     manifest::{Manifest, ManifestItem},
 };
 
@@ -57,7 +57,7 @@ pub enum ItemState {
     Voided,
 }
 
-/// One item of a drawing, as it stands.
+/// One item of a raffle, as it stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
     pub id: ItemId,
@@ -100,7 +100,7 @@ impl Item {
     }
 }
 
-/// An entry in the drawing's event log, which is published and which the
+/// An entry in the raffle's event log, which is published and which the
 /// verifier replays. Events are what happened, in the past tense; the
 /// commands that cause them are in [`command`](crate::command).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,17 +147,17 @@ pub enum Event {
     Resolved { k: u64, resolution: Resolution },
     /// The organizer withdrew an item.
     Voided { item: ItemId },
-    /// The drawing ended.
+    /// The raffle ended.
     Finished,
 }
 
-/// One drawing: opened from its manifest, changed only by recording events.
+/// One raffle: opened from its manifest, changed only by recording events.
 ///
 /// Stored as its manifest and its event log (`{"manifest": …, "events": […]}`),
 /// both published formats; everything else is rebuilt from them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(into = "StoredDrawing", try_from = "StoredDrawing")]
-pub struct Drawing {
+#[serde(into = "StoredRaffle", try_from = "StoredRaffle")]
+pub struct Raffle {
     manifest: Manifest,
     manifest_hash: ManifestHash,
     items: Vec<Item>,
@@ -167,49 +167,49 @@ pub struct Drawing {
     finished: bool,
 }
 
-/// A drawing as stored.
+/// A raffle as stored.
 #[derive(Serialize, Deserialize)]
-struct StoredDrawing {
+struct StoredRaffle {
     manifest: Manifest,
     events: Vec<Event>,
 }
 
-impl From<Drawing> for StoredDrawing {
-    fn from(drawing: Drawing) -> Self {
+impl From<Raffle> for StoredRaffle {
+    fn from(raffle: Raffle) -> Self {
         Self {
-            manifest: drawing.manifest,
-            events: drawing.events,
+            manifest: raffle.manifest,
+            events: raffle.events,
         }
     }
 }
 
-impl TryFrom<StoredDrawing> for Drawing {
+impl TryFrom<StoredRaffle> for Raffle {
     type Error = Error;
 
-    fn try_from(stored: StoredDrawing) -> Result<Self, Error> {
+    fn try_from(stored: StoredRaffle) -> Result<Self, Error> {
         Self::restore(&stored.manifest, &stored.events)
     }
 }
 
-/// Refuses to draw from another beacon source than the drawing's.
-fn check_beacon(drawing: &BeaconSource, engine: &BeaconSource) -> Result<(), Error> {
-    if drawing == engine {
+/// Refuses to draw from another beacon source than the raffle's.
+fn check_beacon(raffle: &BeaconSource, engine: &BeaconSource) -> Result<(), Error> {
+    if raffle == engine {
         Ok(())
     } else {
         Err(Error::BeaconSourceMismatch {
-            drawing: *drawing,
+            raffle: *raffle,
             engine: *engine,
         })
     }
 }
 
-/// Reading a drawing.
-impl Drawing {
-    pub fn id(&self) -> &DrawingId {
-        &self.manifest.drawing
+/// Reading a raffle.
+impl Raffle {
+    pub fn id(&self) -> &RaffleId {
+        &self.manifest.raffle
     }
 
-    /// The manifest the drawing was opened from.
+    /// The manifest the raffle was opened from.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
@@ -246,12 +246,12 @@ impl Drawing {
         self.pending.as_ref()
     }
 
-    /// Whether the drawing is finished: the engine may forget it.
+    /// Whether the raffle is finished: the engine may forget it.
     pub fn is_finished(&self) -> bool {
         self.finished
     }
 
-    /// Monotonic, one more on every change: of two copies of a drawing, the
+    /// Monotonic, one more on every change: of two copies of a raffle, the
     /// one with the higher version is newer.
     pub fn version(&self) -> u64 {
         1 + self.events.len() as u64
@@ -369,28 +369,28 @@ impl Drawing {
 }
 
 /// The engine protocol.
-impl Drawing {
-    /// Opens a drawing from its manifest, which must be valid.
+impl Raffle {
+    /// Opens a raffle from its manifest, which must be valid.
     pub fn open(manifest: &Manifest) -> Result<Self, Error> {
         manifest.validate()?;
         Ok(Self::open_unchecked(manifest))
     }
 
-    /// Rebuilds a drawing from its manifest and its own event log.
+    /// Rebuilds a raffle from its manifest and its own event log.
     ///
     /// The log is trusted: only its consistency is checked (that it names
     /// items and draws that exist), not the rules or the draws' randomness.
     /// [`verify`](crate::verify) is what checks a published log.
     pub fn restore(manifest: &Manifest, events: &[Event]) -> Result<Self, Error> {
-        let mut drawing = Self::open(manifest)?;
+        let mut raffle = Self::open(manifest)?;
         for event in events {
-            drawing.apply(event)?;
-            drawing.events.push(event.clone());
+            raffle.apply(event)?;
+            raffle.events.push(event.clone());
         }
-        Ok(drawing)
+        Ok(raffle)
     }
 
-    /// Opens a drawing from a manifest that may be invalid (the verifier
+    /// Opens a raffle from a manifest that may be invalid (the verifier
     /// replays it anyway, and reports it).
     pub(crate) fn open_unchecked(manifest: &Manifest) -> Self {
         Self {
@@ -405,17 +405,17 @@ impl Drawing {
     }
 
     /// Opening, as every engine applies it: `existing` is the engine's
-    /// drawing for this ID, if any.
+    /// raffle for this ID, if any.
     ///
     /// Validates the manifest and refuses another beacon source than the
     /// engine's. Opening with the same manifest again is a no-op (`None`);
-    /// another manifest is refused. Otherwise returns the fresh drawing to
+    /// another manifest is refused. Otherwise returns the fresh raffle to
     /// store.
     pub fn open_or_check(
-        existing: Option<&Drawing>,
+        existing: Option<&Raffle>,
         manifest: &Manifest,
         engine_beacon: &BeaconSource,
-    ) -> Result<Option<Drawing>, Error> {
+    ) -> Result<Option<Raffle>, Error> {
         let fresh = Self::open(manifest)?;
         check_beacon(fresh.beacon(), engine_beacon)?;
         match existing {
@@ -427,7 +427,7 @@ impl Drawing {
 
     /// Announces a draw: commits it to drand `round`, published at
     /// `round_time`. Refused with an engine on another beacon source than
-    /// the drawing's.
+    /// the raffle's.
     ///
     /// Announcing the item whose draw is pending again re-enters that draw on
     /// its own round (a retry after a stall), whatever `round` is now.
@@ -464,7 +464,7 @@ impl Drawing {
         }
     }
 
-    /// Applies a decision. After [`Decision::Finish`] the drawing is finished
+    /// Applies a decision. After [`Decision::Finish`] the raffle is finished
     /// and the engine may forget it.
     pub fn decide(&mut self, decision: &Decision) -> Result<(), Error> {
         match decision {
@@ -481,7 +481,7 @@ impl Drawing {
 
 /// The transitions: each checks the rules, then records its event. The
 /// verifier replays a log through these.
-impl Drawing {
+impl Raffle {
     /// Starts a draw for `item`, committing to drand `round`.
     pub(crate) fn start(
         &mut self,
@@ -520,7 +520,7 @@ impl Drawing {
     }
 
     /// Completes the pending draw with the verified beacon for its committed
-    /// round, from the drawing's beacon source.
+    /// round, from the raffle's beacon source.
     pub(crate) fn complete(&mut self, beacon: &VerifiedBeacon) -> Result<CompletedDraw, Error> {
         if BeaconSource::Drand(beacon.chain_hash()) != *self.beacon() {
             return Err(Error::WrongBeaconSource);
@@ -755,7 +755,7 @@ pub(crate) mod tests {
             Scheme::BlsUnchainedG1Rfc9380,
             NonZeroU32::new(3).unwrap(),
             0,
-            "rafi-drawing-test",
+            "rafi-raffle-test",
         )
         .unwrap()
     }
@@ -775,7 +775,7 @@ pub(crate) mod tests {
     /// `entrants` entrants and `items` items, `item-0`, `item-1`, ….
     pub(crate) fn manifest(entrants: usize, items: usize) -> Manifest {
         Manifest::new(
-            "drawing",
+            "raffle",
             source(),
             (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
             (0..items)
@@ -787,16 +787,16 @@ pub(crate) mod tests {
         )
     }
 
-    pub(crate) fn opened(entrants: usize, items: usize) -> Drawing {
-        Drawing::open(&manifest(entrants, items)).unwrap()
+    pub(crate) fn opened(entrants: usize, items: usize) -> Raffle {
+        Raffle::open(&manifest(entrants, items)).unwrap()
     }
 
-    fn draw(s: &mut Drawing, item: &str, round: u64) -> CompletedDraw {
+    fn draw(s: &mut Raffle, item: &str, round: u64) -> CompletedDraw {
         s.start(&item.into(), round, 0).unwrap();
         s.complete(&beacon(round)).unwrap()
     }
 
-    fn status(s: &Drawing, item: &str) -> ItemStatus {
+    fn status(s: &Raffle, item: &str) -> ItemStatus {
         s.item(&item.into()).unwrap().status()
     }
 
@@ -976,7 +976,7 @@ pub(crate) mod tests {
     #[test]
     fn opening_validates_the_manifest() {
         assert!(matches!(
-            Drawing::open(&manifest(0, 1)),
+            Raffle::open(&manifest(0, 1)),
             Err(Error::InvalidManifest(_))
         ));
     }
@@ -984,16 +984,11 @@ pub(crate) mod tests {
     #[test]
     fn open_or_check_is_idempotent_per_manifest() {
         let m = manifest(3, 1);
-        let fresh = Drawing::open_or_check(None, &m, &source())
-            .unwrap()
-            .unwrap();
-        assert_eq!(fresh, Drawing::open(&m).unwrap());
+        let fresh = Raffle::open_or_check(None, &m, &source()).unwrap().unwrap();
+        assert_eq!(fresh, Raffle::open(&m).unwrap());
+        assert_eq!(Raffle::open_or_check(Some(&fresh), &m, &source()), Ok(None));
         assert_eq!(
-            Drawing::open_or_check(Some(&fresh), &m, &source()),
-            Ok(None)
-        );
-        assert_eq!(
-            Drawing::open_or_check(Some(&fresh), &manifest(4, 1), &source()),
+            Raffle::open_or_check(Some(&fresh), &manifest(4, 1), &source()),
             Err(Error::AlreadyOpen)
         );
     }
@@ -1001,11 +996,11 @@ pub(crate) mod tests {
     #[test]
     fn open_or_check_refuses_another_beacon_source_and_invalid_manifests() {
         assert!(matches!(
-            Drawing::open_or_check(None, &manifest(3, 1), &BeaconSource::QUICKNET),
+            Raffle::open_or_check(None, &manifest(3, 1), &BeaconSource::QUICKNET),
             Err(Error::BeaconSourceMismatch { .. })
         ));
         assert!(matches!(
-            Drawing::open_or_check(None, &manifest(0, 1), &source()),
+            Raffle::open_or_check(None, &manifest(0, 1), &source()),
             Err(Error::InvalidManifest(_))
         ));
     }
@@ -1095,26 +1090,26 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_drawing_restores_from_its_log() {
+    fn a_raffle_restores_from_its_log() {
         let m = manifest(3, 2);
-        let mut s = Drawing::open(&m).unwrap();
+        let mut s = Raffle::open(&m).unwrap();
         draw(&mut s, "item-0", 1);
         s.resolve(&"item-0".into(), Resolution::Claimed).unwrap();
         s.start(&"item-1".into(), 2, 0).unwrap();
         s.stall("x").unwrap();
-        assert_eq!(Drawing::restore(&m, s.events()), Ok(s.clone()));
+        assert_eq!(Raffle::restore(&m, s.events()), Ok(s.clone()));
 
         let unknown = Event::Resolved {
             k: 9,
             resolution: Resolution::Claimed,
         };
-        assert_eq!(Drawing::restore(&m, &[unknown]), Err(Error::UnknownDraw(9)));
+        assert_eq!(Raffle::restore(&m, &[unknown]), Err(Error::UnknownDraw(9)));
     }
 
     #[test]
-    fn a_drawing_is_stored_as_its_manifest_and_log() {
+    fn a_raffle_is_stored_as_its_manifest_and_log() {
         let m = manifest(2, 1);
-        let mut s = Drawing::open(&m).unwrap();
+        let mut s = Raffle::open(&m).unwrap();
         draw(&mut s, "item-0", 1);
         let json = serde_json::to_value(&s).unwrap();
         assert_eq!(
@@ -1124,14 +1119,14 @@ pub(crate) mod tests {
                 "events": serde_json::to_value(s.events()).unwrap(),
             })
         );
-        assert_eq!(serde_json::from_value::<Drawing>(json).unwrap(), s);
+        assert_eq!(serde_json::from_value::<Raffle>(json).unwrap(), s);
 
-        // A log that isn't the drawing's own does not load.
+        // A log that isn't the raffle's own does not load.
         let bad = serde_json::json!({
             "manifest": serde_json::to_value(&m).unwrap(),
             "events": [{"type": "resolved", "k": 7, "resolution": "claimed"}],
         });
-        assert!(serde_json::from_value::<Drawing>(bad).is_err());
+        assert!(serde_json::from_value::<Raffle>(bad).is_err());
     }
 
     #[test]

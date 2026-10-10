@@ -1,4 +1,4 @@
-//! The IDs of a drawing, its entrants and its items.
+//! The IDs of a raffle, its entrants and its items.
 
 use std::{borrow::Borrow, fmt};
 
@@ -76,19 +76,19 @@ macro_rules! id {
 }
 
 id! {
-    /// A drawing, as its manifest names it.
-    DrawingId
+    /// A raffle, as its manifest names it.
+    RaffleId
 }
 
 id! {
     /// An entrant, as the manifest lists them: lowercase, so the sorted list
     /// is canonical ([`Manifest::validate`](crate::Manifest::validate) checks
-    /// it). Rafi's are random hex; the drawing needs only that they are
+    /// it). Rafi's are random hex; the raffle needs only that they are
     /// lowercase and unique.
     EntrantId
 }
 
 id! {
-    /// An item, unique within its drawing.
+    /// An item, unique within its raffle.
     ItemId
 }

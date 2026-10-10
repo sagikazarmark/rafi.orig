@@ -1,8 +1,8 @@
 # `drand-beacon`: a reusable drand crate (design plan)
 
-> **Historical record.** Names are of their time: `rafi-core` is now `rafi-raffle` (`746f3a0`; the drawing is
-> `rafi-drawing`), the `restate-rafi` library is `rafi-engine-restate` (the name stays the native binary's), and the
-> commit document is the drawing's manifest. Offline draws were dropped later (`7b8721f`): a stalled draw's only exit
+> **Historical record.** Names are of their time: `rafi-core` is now `rafi-lifecycle` (`746f3a0`, then
+> [raffle-plan.md](raffle-plan.md); the drawing is the raffle, `rafi-raffle`), the `restate-rafi` library is
+> `rafi-engine-restate` (the name stays the native binary's), and the commit document is the raffle's manifest. Offline draws were dropped later (`7b8721f`): a stalled draw's only exit
 > is an abandon. [PLAN.md](PLAN.md) describes the current state.
 
 > **Published (2026-10-07).** The crate moved to its own repository,

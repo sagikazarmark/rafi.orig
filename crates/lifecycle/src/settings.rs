@@ -6,7 +6,7 @@ pub const MAX_TITLE_CHARS: usize = 120;
 pub const MAX_DESCRIPTION_CHARS: usize = 2000;
 /// The longest rules text, in characters.
 pub const MAX_RULES_CHARS: usize = 5000;
-/// The most copies of one prize: each is an item of the drawing.
+/// The most copies of one prize: each is an item of the raffle.
 pub const MAX_PRIZE_QTY: u32 = 500;
 /// The highest minimum age a raffle can ask for.
 pub const MAX_MIN_AGE: u32 = 99;

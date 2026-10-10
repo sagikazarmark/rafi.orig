@@ -1,15 +1,15 @@
-//! The use cases on their own: in-memory SQLite, the in-process drawing
+//! The use cases on their own: in-memory SQLite, the in-process raffle
 //! engine, mock drand, and no HTTP.
 
 use std::{sync::Arc, time::Duration};
 
 use rafi_app_core::{self as app, App, Error, Policy, Refusal};
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_drawing::{Decision, DrawRequest, ItemStatus, Resolution};
 use rafi_engine::local::LocalEngine;
 use rafi_model::{EntrantPatch, Lifecycle, PrizeInput, StartStep};
 use rafi_platform::{Notify, Polling};
-use rafi_store::{Db, DrawWriter, entrants, raffles};
+use rafi_raffle::{Decision, DrawRequest, ItemStatus, Resolution};
+use rafi_store::{Db, RaffleWriter, entrants, raffles};
 
 const OWNER: &str = "organizer";
 
@@ -25,8 +25,8 @@ async fn app() -> App {
     let chain = drand.chain_hash();
     let engine = LocalEngine::new(
         drand,
-        DrawWriter::new(db.clone()),
-        Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
+        RaffleWriter::new(db.clone()),
+        Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
     );
     App {
         db,
@@ -76,7 +76,7 @@ async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
 async fn drawn(app: &App, id: &str) -> String {
     for _ in 0..200 {
         let raffle = raffles::get(&app.db, id).await.unwrap().unwrap();
-        if let Some(winner) = raffle.drawing().unwrap().and_then(|d| {
+        if let Some(winner) = raffle.drawn().unwrap().and_then(|d| {
             d.items()
                 .iter()
                 .find(|i| i.status() == ItemStatus::Drawn)
@@ -187,7 +187,7 @@ async fn the_admin_page_offers_what_the_rules_allow() {
 
     // A freeze that stopped before its manifest was written.
     assert!(
-        raffles::freeze(&app.db, &id, rafi_raffle::RaffleState::Open)
+        raffles::freeze(&app.db, &id, rafi_lifecycle::RaffleState::Open)
             .await
             .unwrap()
     );

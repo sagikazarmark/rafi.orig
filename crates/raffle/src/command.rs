@@ -1,23 +1,23 @@
-//! What a drawing is asked to do: draws and decisions (with their wire format,
+//! What a raffle is asked to do: draws and decisions (with their wire format,
 //! shared by every engine and its callers), and how a draw's beacon fetch
 //! turned out. Refusals and their classification are in
 //! [`error`](crate::error).
 //!
-//! The engine owns each [`Drawing`](crate::Drawing); the rules live on the
-//! drawing ([`Drawing::open_or_check`], [`Drawing::announce`],
-//! [`Drawing::settle`], [`Drawing::decide`]), so every engine behaves the same
+//! The engine owns each [`Raffle`](crate::Raffle); the rules live on the
+//! raffle ([`Raffle::open_or_check`], [`Raffle::announce`],
+//! [`Raffle::settle`], [`Raffle::decide`]), so every engine behaves the same
 //! and only does I/O.
 //!
-//! [`Drawing::open_or_check`]: crate::Drawing::open_or_check
-//! [`Drawing::announce`]: crate::Drawing::announce
-//! [`Drawing::settle`]: crate::Drawing::settle
-//! [`Drawing::decide`]: crate::Drawing::decide
+//! [`Raffle::open_or_check`]: crate::Raffle::open_or_check
+//! [`Raffle::announce`]: crate::Raffle::announce
+//! [`Raffle::settle`]: crate::Raffle::settle
+//! [`Raffle::decide`]: crate::Raffle::decide
 
 use serde::{Deserialize, Serialize};
 
 use crate::{drand::VerifiedBeacon, id::ItemId};
 
-/// A command for a drawing: a draw, or a decision. They differ in how they
+/// A command for a raffle: a draw, or a decision. They differ in how they
 /// run: a draw is *accepted* and settles later (its round is in the future),
 /// a decision is *applied* when the call returns.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +65,7 @@ impl Resolution {
     }
 }
 
-/// The organizer's decision about a drawing: every command but a draw.
+/// The organizer's decision about a raffle: every command but a draw.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Decision {
@@ -79,12 +79,12 @@ pub enum Decision {
     /// Abandons the pending draw of this item without its committed beacon.
     /// Logged publicly; the verifier shows what the round would have picked.
     Abandon { item: ItemId },
-    /// Ends the drawing.
+    /// Ends the raffle.
     Finish,
 }
 
 /// How fetching the beacon for a pending draw turned out: the input of
-/// [`Drawing::settle`](crate::Drawing::settle).
+/// [`Raffle::settle`](crate::Raffle::settle).
 #[derive(Debug, Clone)]
 pub enum BeaconFetch {
     /// The committed round's beacon, verified against the engine's chain.

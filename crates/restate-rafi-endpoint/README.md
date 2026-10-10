@@ -1,6 +1,6 @@
 # restate-rafi-endpoint
 
-**Standalone endpoint serving the Rafi drawing engine's Restate services ([`rafi-engine-restate`](../engine-restate)) for [Restate](https://restate.dev/).**
+**Standalone endpoint serving the Rafi raffle engine's Restate services ([`rafi-engine-restate`](../engine-restate)) for [Restate](https://restate.dev/).**
 
 It writes the draw state into the Rafi app's SQLite database, so it runs next to the app with access to the
 same file (the same machine, or a shared volume). The app owns the schema and creates the file.
@@ -63,7 +63,7 @@ identity_keys = ["publickeyv1_..."]
 [drand]
 lead_secs = 6
 
-# Restate policy for the Drawing object: timeouts, retention, retry policy, per-handler overrides.
-[services.drawing]
+# Restate policy for the Raffle object: timeouts, retention, retry policy, per-handler overrides.
+[services.raffle]
 inactivity_timeout = "5m"
 ```

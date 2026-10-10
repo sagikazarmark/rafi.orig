@@ -4,19 +4,19 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "What the Rafi app does, without HTTP: the organizer's and the participants' use cases over the store, the drawing engine and the live notifier"
+description = "What the Rafi app does, without HTTP: the organizer's and the participants' use cases over the store, the raffle engine and the live notifier"
 publish = false
 
 [dependencies]
 anyhow = "1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 hex.workspace = true
-rafi-drawing.workspace = true
+rafi-raffle.workspace = true
 rafi-engine = { path = "../engine" }
 rafi-live = { path = "../live", features = ["raffle"] }
 rafi-model.workspace = true
 rafi-platform = { path = "../platform" }
-rafi-raffle.workspace = true
+rafi-lifecycle.workspace = true
 rafi-store = { workspace = true, features = ["live"] }
 serde_json.workspace = true
 sha2.workspace = true
@@ -24,7 +24,7 @@ thiserror.workspace = true
 tracing = "0.1"
 
 [dev-dependencies]
-rafi-raffle.workspace = true
+rafi-lifecycle.workspace = true
 rafi-drand = { path = "../drand", features = ["mock"] }
 rafi-engine = { path = "../engine", features = ["local"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

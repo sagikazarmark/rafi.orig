@@ -1,4 +1,4 @@
-//! SHA-256, and the hashes a drawing is bound to.
+//! SHA-256, and the hashes a raffle is bound to.
 
 use std::{fmt, str::FromStr};
 
@@ -21,7 +21,7 @@ pub(crate) fn randomness(signature: &[u8]) -> Hash {
     sha256(&[signature])
 }
 
-/// `SHA256(canonical manifest)`: published when the drawing opens, mixed into
+/// `SHA256(canonical manifest)`: published when the raffle opens, mixed into
 /// every draw's seed. Written as lowercase hex.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ManifestHash(Hash);

@@ -1,5 +1,5 @@
 //! A Worker that hosts `RaffleChannel` and lets `scenario.mjs` change a raffle
-//! the way the app and the drawing engine would.
+//! the way the app and the raffle engine would.
 //!
 //! ```shell
 //! cd crates/cloudflare-check
@@ -12,8 +12,8 @@
 
 use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleChannel;
-use rafi_drawing::{BeaconSource, Drawing, Event, ItemStatus, Manifest, ManifestItem};
 use rafi_platform::Notifier;
+use rafi_raffle::{BeaconSource, Event, ItemStatus, Manifest, ManifestItem, Raffle};
 use rafi_store::{Db, live::Snapshot};
 use worker::{Context, Env, Method, Request, Response, Result, event};
 
@@ -26,15 +26,15 @@ fn entrant(raffle: &str, name: &str) -> String {
     format!("{raffle}-{name}")
 }
 
-async fn drawing(db: &Db, raffle: &str) -> Result<Drawing> {
+async fn drawn(db: &Db, raffle: &str) -> Result<Raffle> {
     rafi_store::raffles::get(db, raffle)
         .await
         .map_err(err)?
-        .map(|r| r.drawing())
+        .map(|r| r.drawn())
         .transpose()
         .map_err(err)?
         .flatten()
-        .ok_or_else(|| err("the raffle has no drawing"))
+        .ok_or_else(|| err("the raffle is not opened"))
 }
 
 async fn reset(db: &Db, raffle: &str) -> Result<()> {
@@ -83,8 +83,8 @@ fn manifest(raffle: &str, beacon: BeaconSource) -> Manifest {
 }
 
 async fn freeze(db: &Db, raffle: &str) -> Result<()> {
-    let state = Drawing::open(&manifest(raffle, BeaconSource::QUICKNET)).map_err(err)?;
-    db.query("UPDATE raffles SET state = 'frozen', manifest_hash = ?, drawing = ?, drawing_version = ? WHERE id = ?")
+    let state = Raffle::open(&manifest(raffle, BeaconSource::QUICKNET)).map_err(err)?;
+    db.query("UPDATE raffles SET state = 'frozen', manifest_hash = ?, log = ?, log_version = ? WHERE id = ?")
         .bind(state.manifest_hash().to_string())
         .bind(serde_json::to_string(&state).map_err(err)?)
         .bind(state.version())
@@ -97,7 +97,7 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
 
 /// The app's half of a Restate freeze: the manifest (on the mock drand
 /// chain the Restate Worker uses in development) and the frozen raffle row.
-/// Returns the manifest to hand to `Drawing/{id}/open`.
+/// Returns the manifest to hand to `Raffle/{id}/open`.
 async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     let chain = rafi_drand::DrandClient::new(rafi_drand::DrandConfig {
         mock: true,
@@ -216,20 +216,19 @@ fn altcha_challenge() -> rafi_live::altcha::Challenge {
     rafi_live::altcha::issue(b"check-key", 30_000, now, random() % 30_000, salt)
 }
 
-/// Appends `event` to the stored drawing, the way the engine's projection
+/// Appends `event` to the stored raffle, the way the engine's projection
 /// writes it.
 async fn record(db: &Db, raffle: &str, event: Event) -> Result<()> {
-    let mut events = drawing(db, raffle).await?.events().to_vec();
+    let mut events = drawn(db, raffle).await?.events().to_vec();
     events.push(event);
-    let state =
-        Drawing::restore(&manifest(raffle, BeaconSource::QUICKNET), &events).map_err(err)?;
-    rafi_store::save_drawing(db, &state).await.map_err(err)?;
+    let state = Raffle::restore(&manifest(raffle, BeaconSource::QUICKNET), &events).map_err(err)?;
+    rafi_store::save_raffle(db, &state).await.map_err(err)?;
     Ok(())
 }
 
 /// A completed draw of the next prize for `who`.
 async fn draw(db: &Db, raffle: &str, who: &str) -> Result<()> {
-    let state = drawing(db, raffle).await?;
+    let state = drawn(db, raffle).await?;
     let Some(item) = state
         .items()
         .iter()

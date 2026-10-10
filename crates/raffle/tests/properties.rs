@@ -1,12 +1,12 @@
-//! Property tests for the drawing's state machine.
+//! Property tests for the raffle's state machine.
 
 use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
-use rafi_drawing::{
-    BeaconFetch, BeaconSource, Command, Decision, DrawRequest, Drawing, EntrantId, Error, Event,
-    ItemState, Manifest, ManifestHash, ManifestItem, Resolution,
+use rafi_raffle::{
+    BeaconFetch, BeaconSource, Command, Decision, DrawRequest, EntrantId, Error, Event, ItemState,
+    Manifest, ManifestHash, ManifestItem, Raffle, Resolution,
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
     verify,
 };
@@ -41,7 +41,7 @@ fn source() -> BeaconSource {
     BeaconSource::Drand(chain().0.chain().hash())
 }
 
-fn item(i: usize) -> rafi_drawing::ItemId {
+fn item(i: usize) -> rafi_raffle::ItemId {
     format!("item-{i}").into()
 }
 
@@ -69,8 +69,8 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
-/// Every command an organizer could send for a drawing with `items` items.
-fn candidates(items: usize, pending: Option<rafi_drawing::ItemId>) -> Vec<Command> {
+/// Every command an organizer could send for a raffle with `items` items.
+fn candidates(items: usize, pending: Option<rafi_raffle::ItemId>) -> Vec<Command> {
     let mut out = Vec::new();
     for i in 0..items {
         out.push(Command::Draw(DrawRequest { item: item(i) }));
@@ -95,7 +95,7 @@ fn candidates(items: usize, pending: Option<rafi_drawing::ItemId>) -> Vec<Comman
 
 /// Everything the pending draw's outcome depends on.
 fn draw_inputs(
-    s: &Drawing,
+    s: &Raffle,
 ) -> (
     Option<u64>,
     (u8, Vec<EntrantId>),
@@ -121,10 +121,10 @@ proptest! {
             (0..n).map(|i| format!("{i:032x}").into()).collect(),
             (0..items).map(|i| ManifestItem { id: item(i), name: format!("Item {i}") }).collect(),
         );
-        let mut s = Drawing::open(&manifest).unwrap();
+        let mut s = Raffle::open(&manifest).unwrap();
         let mut round = 1;
         for op in ops {
-            // What the drawing admits, its engine can apply: a command that
+            // What the raffle admits, its engine can apply: a command that
             // passes the app's check never fails at the engine.
             for command in candidates(items, s.pending().map(|p| p.item.clone())) {
                 if s.admit(&command).is_ok() {
@@ -204,13 +204,13 @@ proptest! {
     }
 
     #[test]
-    fn a_drawing_without_entrants_does_not_open(items in 1usize..4) {
+    fn a_raffle_without_entrants_does_not_open(items in 1usize..4) {
         let manifest = Manifest::new(
             "e",
             source(),
             vec![],
             (0..items).map(|i| ManifestItem { id: item(i), name: format!("Item {i}") }).collect(),
         );
-        prop_assert!(matches!(Drawing::open(&manifest), Err(Error::InvalidManifest(_))));
+        prop_assert!(matches!(Raffle::open(&manifest), Err(Error::InvalidManifest(_))));
     }
 }

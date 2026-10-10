@@ -25,7 +25,7 @@ pub(crate) struct Sqlite {
 /// Opens (creating if missing) the database at `url` (`sqlite://rafi.db`,
 /// `sqlite::memory:`).
 ///
-/// File databases use WAL, so the app and a self-hosted drawing engine can write
+/// File databases use WAL, so the app and a self-hosted raffle engine can write
 /// the same file, and wait up to five seconds for each other's locks. An
 /// in-memory database exists per connection, so it keeps exactly one.
 pub(super) async fn connect(url: &str) -> Result<Sqlite> {

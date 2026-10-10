@@ -1,4 +1,4 @@
-//! The engine conformance suite on the `Drawing` object: each profile deploys
+//! The engine conformance suite on the `Raffle` object: each profile deploys
 //! the service to its own `restate-server`, and the scenarios drive it through
 //! [`RestateClient`](rafi_engine_restate::RestateClient), as the app does.
 //!
@@ -16,7 +16,7 @@ use std::{
 
 use rafi_engine::BoxFuture;
 use rafi_engine::{
-    DrawingEngine,
+    RaffleEngine,
     conformance::{self, Deployed, Deployment, EngineHarness},
 };
 use rafi_engine_restate::{ClientConfig, RestateClient};
@@ -32,7 +32,7 @@ struct Running {
 }
 
 impl Deployed for Running {
-    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn DrawingEngine> {
+    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn RaffleEngine> {
         Arc::new(RestateClient::new(ClientConfig {
             ingress_url: self.restate.ingress_url().to_owned(),
             api_key: String::new(),
@@ -45,7 +45,7 @@ impl Deployed for Running {
 
 impl EngineHarness for OnRestate {
     fn name(&self) -> &str {
-        "the Drawing object on restate-server"
+        "the Raffle object on restate-server"
     }
 
     fn deploy(&self, d: Deployment) -> BoxFuture<'_, Result<Arc<dyn Deployed>, String>> {
@@ -62,9 +62,9 @@ impl EngineHarness for OnRestate {
             }));
             let restate = launcher.launch(spec).await;
             // Bound as every host binds them.
-            let (drawing, info) = rafi_engine_restate::services(d.drand, d.store, d.notifier);
+            let (raffle, info) = rafi_engine_restate::services(d.drand, d.store, Some(d.notifier));
             restate
-                .deploy(Endpoint::builder().bind(drawing).bind(info).build())
+                .deploy(Endpoint::builder().bind(raffle).bind(info).build())
                 .await;
             Ok(Arc::new(Running { restate }) as Arc<dyn Deployed>)
         })
@@ -73,7 +73,7 @@ impl EngineHarness for OnRestate {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs RESTATE_SERVER_BIN"]
-async fn the_drawing_object_conforms() {
+async fn the_raffle_object_conforms() {
     if launcher_or_skip(ReusePolicy::Never).is_none() {
         return;
     }

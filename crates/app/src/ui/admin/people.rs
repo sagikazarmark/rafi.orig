@@ -146,7 +146,7 @@ fn EntrantRow(
                 match renaming() {
                     Some(val) => rsx! {
                         form { class: "join", onsubmit: { let patch = patch.clone(); move |ev: FormEvent| { ev.prevent_default(); let name = renaming().unwrap_or_default(); renaming.set(None); patch(EntrantPatch { display_name: Some(name), ..Default::default() }) } },
-                            input { class: "input input-sm join-item", value: "{val}", maxlength: "{rafi_raffle::entrant::MAX_NAME_CHARS}", oninput: move |ev| renaming.set(Some(ev.value())) }
+                            input { class: "input input-sm join-item", value: "{val}", maxlength: "{rafi_lifecycle::entrant::MAX_NAME_CHARS}", oninput: move |ev| renaming.set(Some(ev.value())) }
                             button { class: "btn btn-sm btn-primary join-item", r#type: "submit", Icon { i: I::Check, class: "size-4" } }
                         }
                     },

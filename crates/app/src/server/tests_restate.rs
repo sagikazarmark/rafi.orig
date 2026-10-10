@@ -1,5 +1,5 @@
 //! The app and the separate `restate-rafi` service, end to end: the app calls
-//! the `Drawing` object through a real `restate-server`'s ingress, the object
+//! the `Raffle` object through a real `restate-server`'s ingress, the object
 //! writes every state into the app's SQLite file, or Postgres schema with
 //! `RAFI_TEST_POSTGRES_URL` set (through its own connection pool, as the
 //! separate process does), and the screens' view shows it.
@@ -11,13 +11,12 @@
 use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_drawing::{Decision, DrawRequest};
-use rafi_drawing::{ItemStatus, Resolution};
-use rafi_engine::DrawingEngine;
+use rafi_engine::RaffleEngine;
 use rafi_engine_restate::RestateClient;
-use rafi_platform::Polling;
-use rafi_raffle::RaffleState;
-use rafi_store::{Db, DrawWriter, RaffleRow, raffles};
+use rafi_lifecycle::RaffleState;
+use rafi_raffle::{Decision, DrawRequest};
+use rafi_raffle::{ItemStatus, Resolution};
+use rafi_store::{Db, RaffleRow, RaffleWriter, raffles};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
 
@@ -73,16 +72,12 @@ async fn app_and_restate_rafi_share_the_database() {
     })
     .unwrap();
     // As the native endpoint opens it: lazily, without creating it.
-    let store = DrawWriter::new(Db::connect_lazy(&url).unwrap());
+    let store = RaffleWriter::new(Db::connect_lazy(&url).unwrap());
     let chain = drand.chain_hash();
     // As the native endpoint binds them.
-    let (drawing, info) = rafi_engine_restate::services(
-        drand,
-        store,
-        rafi_platform::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
-    );
+    let (raffle, info) = rafi_engine_restate::services(drand, store, None);
     restate
-        .deploy(Endpoint::builder().bind(drawing).bind(info).build())
+        .deploy(Endpoint::builder().bind(raffle).bind(info).build())
         .await;
     cfg.restate = RestateConfig {
         ingress_url: restate.ingress_url().to_owned(),
@@ -93,7 +88,7 @@ async fn app_and_restate_rafi_share_the_database() {
     let info = client.info().await.expect("the engine's info");
     assert_eq!(
         info.beacon,
-        rafi_drawing::BeaconSource::Drand(chain),
+        rafi_raffle::BeaconSource::Drand(chain),
         "the engine reports its beacon source"
     );
     let app = AppState::new(cfg).await.unwrap();
@@ -128,8 +123,8 @@ async fn app_and_restate_rafi_share_the_database() {
     service::start_draw(&app, OWNER, &id)
         .await
         .expect("freeze via restate-rafi");
-    let r = wait_for(&app, &id, |r| r.drawing.is_some()).await;
-    let item = r.drawing().unwrap().unwrap().items()[0].id.clone();
+    let r = wait_for(&app, &id, |r| r.log.is_some()).await;
+    let item = r.drawn().unwrap().unwrap().items()[0].id.clone();
 
     service::command(
         &app,
@@ -141,7 +136,7 @@ async fn app_and_restate_rafi_share_the_database() {
     .await
     .unwrap();
     wait_for(&app, &id, |r| {
-        r.drawing()
+        r.drawn()
             .unwrap()
             .is_some_and(|s| s.item(&item).unwrap().status() == ItemStatus::Drawn)
     })
@@ -192,7 +187,7 @@ async fn app_and_restate_rafi_share_the_database() {
         state.body
     );
     let data = service::verify_data(&app, &r.slug).await.unwrap();
-    let report = rafi_drawing::verify(
+    let report = rafi_raffle::verify(
         &data.manifest,
         &data.manifest_hash,
         &data.events,

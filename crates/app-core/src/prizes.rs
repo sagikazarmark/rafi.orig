@@ -1,7 +1,7 @@
 //! A raffle's prizes, while they can change (until the freeze).
 
+use rafi_lifecycle::settings;
 use rafi_model::PrizeInput;
-use rafi_raffle::settings;
 use rafi_store::prizes;
 
 use crate::{App, Error, Refusal, Result, ids, owned};

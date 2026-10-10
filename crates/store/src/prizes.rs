@@ -1,6 +1,6 @@
 //! A raffle's prizes.
 
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
 use serde::Deserialize;
 
 use crate::{Db, Query, Result};

@@ -1,5 +1,5 @@
 //! Integration tests: in-memory SQLite (or, with `RAFI_TEST_POSTGRES_URL`
-//! set, a fresh Postgres schema per test), the in-process drawing engine
+//! set, a fresh Postgres schema per test), the in-process raffle engine
 //! (`rafi_engine::local`), mock drand.
 
 use std::{sync::Arc, time::Duration};
@@ -10,14 +10,14 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use rafi_drawing::{ItemStatus, Resolution};
+use rafi_lifecycle::RaffleState;
 use rafi_live::LiveTransport;
 use rafi_platform::{Limiter, Notifier, Polling, Recording};
-use rafi_raffle::RaffleState;
+use rafi_raffle::{ItemStatus, Resolution};
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
 use tower::ServiceExt;
 
-use rafi_drawing::{Decision, DrawRequest};
+use rafi_raffle::{Decision, DrawRequest};
 
 use super::{AppState, config::Config, routes, service};
 use crate::model::{Lifecycle, PrizeInput};
@@ -32,7 +32,7 @@ async fn app_with(cfg: Config) -> AppState {
     app_with_live(cfg, Arc::new(Polling::default())).await
 }
 
-/// The drawing engine's drand: the mock chain, no lead.
+/// The raffle engine's drand: the mock chain, no lead.
 fn mock_drand() -> rafi_drand::DrandConfig {
     rafi_drand::DrandConfig {
         relays: vec![],
@@ -46,7 +46,7 @@ async fn app_with_live(cfg: Config, live: Arc<dyn Notifier>) -> AppState {
     app_with_engine(cfg, mock_drand(), live).await
 }
 
-/// An app whose drawing engine is the in-process one (drawing with `drand`),
+/// An app whose raffle engine is the in-process one (drawing with `drand`),
 /// writing into the same database. With `RAFI_TEST_POSTGRES_URL` set, the
 /// test database is a fresh schema there instead of in-memory SQLite.
 async fn app_with_engine(
@@ -64,8 +64,8 @@ async fn app_with_engine(
         .expect("database");
     let engine = rafi_engine::local::LocalEngine::new(
         rafi_drand::DrandClient::new(drand).expect("drand configuration"),
-        rafi_store::DrawWriter::new(db.clone()),
-        rafi_platform::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
+        rafi_store::RaffleWriter::new(db.clone()),
+        rafi_platform::Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
     );
     AppState::from_parts(
         cfg,
@@ -201,7 +201,7 @@ async fn wait_long<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) ->
 /// (quicknet, 3 s lead, gives up 1 s after the round is due).
 async fn unreachable_drand_app() -> AppState {
     let mut cfg = Config::for_tests();
-    cfg.drand_chain = rafi_drawing::drand::chains::QUICKNET_HASH.to_string();
+    cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
     let drand = rafi_drand::DrandConfig {
         relays: vec!["http://127.0.0.1:9".into()],
         mock: false,
@@ -282,7 +282,7 @@ async fn full_raffle_flow() {
 
     // Freeze; joining is closed afterwards.
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
+    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
     assert_eq!(r.state, RaffleState::Frozen);
     let (status, cookie, _) = join(&router, &code, "Late", "late@example.com").await;
     assert_ne!(status, StatusCode::SEE_OTHER);
@@ -308,7 +308,7 @@ async fn full_raffle_flow() {
     );
 
     // Draw every item; the first winner is not here and the item is redrawn.
-    let state = r.drawing().unwrap().unwrap();
+    let state = r.drawn().unwrap().unwrap();
     let items: Vec<_> = state.items().iter().map(|u| u.id.clone()).collect();
     let mut winners = Vec::new();
     for (i, item) in items.iter().enumerate() {
@@ -322,14 +322,14 @@ async fn full_raffle_flow() {
         .await
         .unwrap();
         let r = wait_for(&app, &raffle.id, |r| {
-            r.drawing()
+            r.drawn()
                 .unwrap()
                 .is_some_and(|s| s.item(item).unwrap().status() == ItemStatus::Drawn)
         })
         .await;
         if i == 0 {
             let first = r
-                .drawing()
+                .drawn()
                 .unwrap()
                 .unwrap()
                 .item(item)
@@ -359,13 +359,13 @@ async fn full_raffle_flow() {
             .await
             .unwrap();
             let r = wait_for(&app, &raffle.id, |r| {
-                r.drawing()
+                r.drawn()
                     .unwrap()
                     .is_some_and(|s| s.item(item).unwrap().status() == ItemStatus::Drawn)
             })
             .await;
             assert_ne!(
-                r.drawing()
+                r.drawn()
                     .unwrap()
                     .unwrap()
                     .item(item)
@@ -378,7 +378,7 @@ async fn full_raffle_flow() {
         }
         let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
         winners.push(
-            r.drawing()
+            r.drawn()
                 .unwrap()
                 .unwrap()
                 .item(item)
@@ -458,7 +458,7 @@ async fn full_raffle_flow() {
 
     // The public log verifies independently.
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let report = rafi_drawing::verify(
+    let report = rafi_raffle::verify(
         &data.manifest,
         &data.manifest_hash,
         &data.events,
@@ -510,7 +510,7 @@ async fn full_raffle_flow() {
     assert_eq!(super::retention::run(&app).await.unwrap().erased, 0);
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(
-        rafi_drawing::verify(
+        rafi_raffle::verify(
             &data.manifest,
             &data.manifest_hash,
             &data.events,
@@ -533,12 +533,12 @@ async fn public_view_has_no_personal_data() {
     )
     .await;
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
+    wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
     let state = raffles::get(&app.db, &raffle.id)
         .await
         .unwrap()
         .unwrap()
-        .drawing()
+        .drawn()
         .unwrap()
         .unwrap();
     service::command(
@@ -553,7 +553,7 @@ async fn public_view_has_no_personal_data() {
     .await
     .unwrap();
     wait_for(&app, &raffle.id, |r| {
-        r.drawing()
+        r.drawn()
             .unwrap()
             .is_some_and(|s| s.items()[0].status() == ItemStatus::Drawn)
     })
@@ -659,8 +659,8 @@ async fn participant_view_has_no_personal_data() {
     }
 
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
-    let item = r.drawing().unwrap().unwrap().items()[0].id.clone();
+    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
+    let item = r.drawn().unwrap().unwrap().items()[0].id.clone();
     service::command(
         &app,
         OWNER,
@@ -671,13 +671,13 @@ async fn participant_view_has_no_personal_data() {
     .await
     .unwrap();
     let r = wait_for(&app, &raffle.id, |r| {
-        r.drawing()
+        r.drawn()
             .unwrap()
             .is_some_and(|s| s.item(&item).unwrap().status() == ItemStatus::Drawn)
     })
     .await;
     let winner_id = r
-        .drawing()
+        .drawn()
         .unwrap()
         .unwrap()
         .item(&item)
@@ -834,7 +834,7 @@ async fn join_requires_proof_of_work_and_consent() {
 #[tokio::test]
 async fn an_engine_on_another_chain_is_refused_before_freezing() {
     let mut cfg = Config::for_tests();
-    cfg.drand_chain = rafi_drawing::drand::chains::QUICKNET_HASH.to_string();
+    cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
     let app = app_with_engine(cfg, mock_drand(), Arc::new(Polling::default())).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
@@ -849,7 +849,7 @@ async fn an_engine_on_another_chain_is_refused_before_freezing() {
     assert!(r.manifest.is_none(), "nothing was committed");
 }
 
-/// Without a drawing engine configured, nothing can start.
+/// Without a raffle engine configured, nothing can start.
 #[tokio::test]
 async fn draws_need_restate() {
     let mut cfg = Config::for_tests();
@@ -1078,18 +1078,18 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
         .unwrap();
 
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
-    let doc: rafi_drawing::Manifest =
+    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
+    let doc: rafi_raffle::Manifest =
         serde_json::from_str(r.manifest.as_deref().expect("a manifest")).unwrap();
     assert_eq!(doc.entrants.len(), 3);
     assert_eq!(doc.items.len(), 2);
     assert_eq!(
         r.manifest_hash.as_deref(),
-        Some(rafi_drawing::ManifestHash::of(r.manifest.as_deref().unwrap()).to_string()).as_deref()
+        Some(rafi_raffle::ManifestHash::of(r.manifest.as_deref().unwrap()).to_string()).as_deref()
     );
     assert!(r.frozen_at.is_some());
     assert_eq!(
-        r.drawing().unwrap().unwrap().manifest_hash().to_string(),
+        r.drawn().unwrap().unwrap().manifest_hash().to_string(),
         r.manifest_hash.unwrap()
     );
 
@@ -1108,11 +1108,16 @@ async fn fake_entrants_are_added_in_one_batch() {
     service::update_settings(&app, OWNER, &raffle.id, settings)
         .await
         .unwrap();
-    service::add_fakes(&app, OWNER, &raffle.id, rafi_raffle::entrant::MAX_FAKES + 1)
-        .await
-        .unwrap();
+    service::add_fakes(
+        &app,
+        OWNER,
+        &raffle.id,
+        rafi_lifecycle::entrant::MAX_FAKES + 1,
+    )
+    .await
+    .unwrap();
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
-    assert_eq!(entrants.len(), rafi_raffle::entrant::MAX_FAKES as usize);
+    assert_eq!(entrants.len(), rafi_lifecycle::entrant::MAX_FAKES as usize);
     assert!(entrants.iter().all(|e| e.source == "fake" && !e.hidden));
     let ids: std::collections::HashSet<_> = entrants.iter().map(|e| &e.id).collect();
     assert_eq!(ids.len(), entrants.len());
@@ -1122,7 +1127,7 @@ async fn fake_entrants_are_added_in_one_batch() {
 /// keeps the round, and the only exit (abandon) is logged for the verifier.
 #[tokio::test]
 async fn stalled_draw_keeps_its_round() {
-    use rafi_drawing::Event;
+    use rafi_raffle::Event;
 
     let app = unreachable_drand_app().await;
     let raffle = setup_open(&app, &[("Prize", 3)]).await;
@@ -1132,9 +1137,9 @@ async fn stalled_draw_keeps_its_round() {
             .unwrap();
     }
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
+    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
     let items: Vec<_> = r
-        .drawing()
+        .drawn()
         .unwrap()
         .unwrap()
         .items()
@@ -1155,7 +1160,7 @@ async fn stalled_draw_keeps_its_round() {
         async move { draw_cmd(&app, &raffle_id, &item, &id).await }
     };
     let stalls = |r: &RaffleRow| {
-        r.drawing()
+        r.drawn()
             .unwrap()
             .map(|s| {
                 s.events()
@@ -1169,7 +1174,7 @@ async fn stalled_draw_keeps_its_round() {
     draw(items[0].as_str(), "d1").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 1).await;
     let pending = r
-        .drawing()
+        .drawn()
         .unwrap()
         .unwrap()
         .pending()
@@ -1180,7 +1185,7 @@ async fn stalled_draw_keeps_its_round() {
     assert!(draw(items[1].as_str(), "d2").await.is_err());
     draw(items[0].as_str(), "d3").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 2).await;
-    let s = r.drawing().unwrap().unwrap();
+    let s = r.drawn().unwrap().unwrap();
     assert_eq!(s.pending(), Some(&pending), "same draw, same round");
     let announces = s
         .events()
@@ -1204,7 +1209,7 @@ async fn stalled_draw_keeps_its_round() {
     // A new draw of the item announces the same draw number on a current round.
     draw(items[0].as_str(), "d4").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 3).await;
-    let next = r.drawing().unwrap().unwrap().pending().cloned().unwrap();
+    let next = r.drawn().unwrap().unwrap().pending().cloned().unwrap();
     assert_eq!(next.k, pending.k, "the abandoned draw's number is reused");
     assert!(
         next.round >= pending.round,
@@ -1212,7 +1217,7 @@ async fn stalled_draw_keeps_its_round() {
     );
 
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let report = rafi_drawing::verify(
+    let report = rafi_raffle::verify(
         &data.manifest,
         &data.manifest_hash,
         &data.events,
@@ -1221,7 +1226,7 @@ async fn stalled_draw_keeps_its_round() {
     assert!(report.ok(), "{report:#?}");
     let abandoned: Vec<_> = report.abandoned.iter().map(|c| c.round).collect();
     assert_eq!(abandoned, [pending.round]);
-    assert!(rafi_drawing::verify_public(&data.manifest, &data.manifest_hash, &data.events).ok());
+    assert!(rafi_raffle::verify_public(&data.manifest, &data.manifest_hash, &data.events).ok());
 }
 
 /// While a draw waits for its round, "not here" is refused; "handed over" is
@@ -1240,9 +1245,9 @@ async fn only_handing_over_passes_a_waiting_draw() {
             .unwrap();
     }
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
+    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
     let items: Vec<_> = r
-        .drawing()
+        .drawn()
         .unwrap()
         .unwrap()
         .items()
@@ -1268,14 +1273,14 @@ async fn only_handing_over_passes_a_waiting_draw() {
 
     draw(items[0].as_str(), "d1").await.unwrap();
     wait_long(&app, &raffle.id, |r| {
-        r.drawing()
+        r.drawn()
             .unwrap()
             .is_some_and(|s| s.item(&items[0]).unwrap().status() == ItemStatus::Drawn)
     })
     .await;
     draw(items[1].as_str(), "d2").await.unwrap();
     wait_for(&app, &raffle.id, |r| {
-        r.drawing()
+        r.drawn()
             .unwrap()
             .is_some_and(|s| s.pending().as_ref().is_some_and(|p| p.item == items[1]))
     })
@@ -1283,13 +1288,13 @@ async fn only_handing_over_passes_a_waiting_draw() {
     assert!(resolve(Resolution::NotHere, "nh").await.is_err());
     resolve(Resolution::Claimed, "cl").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| {
-        r.drawing()
+        r.drawn()
             .unwrap()
             .is_some_and(|s| s.item(&items[0]).unwrap().status() == ItemStatus::Claimed)
     })
     .await;
     assert_eq!(
-        r.drawing()
+        r.drawn()
             .unwrap()
             .unwrap()
             .item(&items[1])
@@ -1310,7 +1315,7 @@ async fn mock_raffles_are_not_publicly_verified() {
         .unwrap();
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
-    let public = rafi_drawing::verify_public(&data.manifest, &data.manifest_hash, &data.events);
+    let public = rafi_raffle::verify_public(&data.manifest, &data.manifest_hash, &data.events);
     assert!(!public.beacons_verified && !public.ok());
 }
 

@@ -19,8 +19,8 @@ pub fn public_name(id: &str, known: Option<Option<&str>>) -> String {
 
 /// A raffle's lifecycle state, as phones see it.
 ///
-/// Mirrors `rafi_raffle::RaffleState` variant for variant, with the same
-/// serde names. It lives here so the phone doesn't depend on `rafi-raffle`;
+/// Mirrors `rafi_lifecycle::RaffleState` variant for variant, with the same
+/// serde names. It lives here so the phone doesn't depend on `rafi-lifecycle`;
 /// the `raffle` feature maps one to the other with an exhaustive match, so
 /// the two can't drift apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -110,7 +110,7 @@ pub struct Winner {
     pub claimed: bool,
 }
 
-/// How a drawn entrant's turn ended. Mirrors `rafi_drawing::Outcome` (mapped
+/// How a drawn entrant's turn ended. Mirrors `rafi_raffle::Outcome` (mapped
 /// exhaustively with the `raffle` feature).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

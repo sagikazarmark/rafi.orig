@@ -270,7 +270,7 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
                         }
                         fieldset { class: "fieldset",
                             legend { class: "fieldset-legend text-sm", "{t(\"display_name\")}" }
-                            input { class: "input input-lg w-full", id: "name", name: "name", required: true, maxlength: "{rafi_raffle::entrant::MAX_NAME_CHARS}", autocomplete: "nickname", value: "{name}" }
+                            input { class: "input input-lg w-full", id: "name", name: "name", required: true, maxlength: "{rafi_lifecycle::entrant::MAX_NAME_CHARS}", autocomplete: "nickname", value: "{name}" }
                             p { class: "label", "{t(\"display_name_hint\")}" }
                         }
                         fieldset { class: "fieldset",
@@ -494,7 +494,7 @@ async fn try_join(
 ) -> Result<String, (Notice, StatusCode)> {
     // An email that doesn't normalize is refused by the join itself; it gets
     // no per-email bucket, rather than one shared by every malformed address.
-    let email_key = rafi_raffle::entrant::Email::parse(&form.email).map(|e| e.key);
+    let email_key = rafi_lifecycle::entrant::Email::parse(&form.email).map(|e| e.key);
     let limited = !app.limiter.allow(Limit::JoinPerRaffle, &raffle.id).await
         || match &email_key {
             Some(key) => {
@@ -538,7 +538,7 @@ async fn try_join(
 
 /// The i18n key of why a join was refused.
 fn join_error(e: service::JoinError) -> &'static str {
-    use rafi_raffle::entrant::NameError;
+    use rafi_lifecycle::entrant::NameError;
     use service::JoinError as E;
     match e {
         E::Closed => "reg_closed",
@@ -727,7 +727,7 @@ async fn privacy(
             ]),
             ("Processors".to_owned(), vec![
                 "Hetzner Online GmbH (Germany) hosts the application and database. Backups are stored with an EU object storage provider.".into(),
-                "Restate GmbH (Germany) runs the drawing engine; it only receives anonymous IDs, never names or emails.".into(),
+                "Restate GmbH (Germany) runs the raffle engine; it only receives anonymous IDs, never names or emails.".into(),
                 "Clerk, Inc. (USA, EU–US Data Privacy Framework) authenticates the organizers only; participant data is never sent to Clerk.".into(),
                 "The randomness comes from the public drand network; no personal data is sent to it.".into(),
             ]),

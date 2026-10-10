@@ -11,7 +11,7 @@
 use std::fmt;
 
 #[cfg(any(feature = "web", feature = "server"))]
-use rafi_drawing::{ItemId, Resolution};
+use rafi_raffle::{ItemId, Resolution};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "web")]
@@ -23,7 +23,7 @@ use crate::model::{
 #[cfg(feature = "server")]
 use crate::server::{AppState, service};
 #[cfg(feature = "server")]
-use rafi_drawing::{Decision, DrawRequest};
+use rafi_raffle::{Decision, DrawRequest};
 
 /// An error reply: a message for the organizer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

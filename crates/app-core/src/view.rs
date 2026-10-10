@@ -3,9 +3,9 @@
 
 use std::collections::HashMap;
 
-use rafi_drawing::{BeaconSource, Event, ItemId, ItemStatus};
+use rafi_lifecycle::RaffleState;
 use rafi_model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
-use rafi_raffle::RaffleState;
+use rafi_raffle::{BeaconSource, Event, ItemId, ItemStatus};
 use rafi_store::view::Full;
 
 use crate::{App, ids};
@@ -52,19 +52,19 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         .map(|e| e.display_name.clone())
         .collect();
 
-    let drawing = raffle.drawing()?;
+    let drawn = raffle.drawn()?;
     let prize_meta: HashMap<&str, (&str, &str)> = prizes
         .iter()
         .map(|i| (i.id.as_str(), (i.name.as_str(), i.sponsor.as_str())))
         .collect();
 
-    let items: Vec<ItemView> = match &drawing {
+    let items: Vec<ItemView> = match &drawn {
         Some(s) => s
             .items()
             .iter()
             .map(|u| ItemView {
                 item: u.id.clone(),
-                prize_id: rafi_raffle::drawing::prize_id(&u.id).to_owned(),
+                prize_id: rafi_lifecycle::raffle::prize_id(&u.id).to_owned(),
                 prize_name: u.name.clone(),
                 status: u.status(),
                 display_name: u.winner().map(|e| name_of(e.as_str())),
@@ -72,7 +72,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
             })
             .collect(),
         // Before the freeze: the items the raffle's prizes will become.
-        None => rafi_raffle::drawing::items(prizes.iter().map(|i| {
+        None => rafi_lifecycle::raffle::items(prizes.iter().map(|i| {
             (
                 i.id.as_str(),
                 i.name.as_str(),
@@ -81,7 +81,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         }))
         .into_iter()
         .map(|item| ItemView {
-            prize_id: rafi_raffle::drawing::prize_id(&item.id).to_owned(),
+            prize_id: rafi_lifecycle::raffle::prize_id(&item.id).to_owned(),
             item: item.id,
             prize_name: item.name,
             status: ItemStatus::Available,
@@ -117,7 +117,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
     let mut draws = Vec::new();
     let mut current = None;
     let mut last_failure = None;
-    if let Some(s) = &drawing {
+    if let Some(s) = &drawn {
         let item_name = |id: &ItemId| s.item(id).map(|i| i.name.clone()).unwrap_or_default();
         draws = s
             .draws()
@@ -160,7 +160,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
     let state = raffle.state;
     // Labelled by the beacon source the raffle committed to (or will): only
     // a public drand chain is verifiable.
-    let verifiable = drawing
+    let verifiable = drawn
         .as_ref()
         .map_or(BeaconSource::Drand(app.chain), |s| *s.beacon())
         .publicly_verifiable();

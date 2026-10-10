@@ -3,14 +3,14 @@
 
 use std::collections::HashMap;
 
-use rafi_drawing::{Drawing, ItemId, Outcome};
+use rafi_lifecycle::{
+    self as lifecycle, RaffleState,
+    start::{self, Start},
+};
 use rafi_model::{
     AdminActions, AdminEntrant, EntrantSource, Prize, RaffleAdmin, StartStep, VerifyData,
 };
-use rafi_raffle::{
-    self as raffle, RaffleState,
-    start::{self, Start},
-};
+use rafi_raffle::{ItemId, Outcome, Raffle};
 use rafi_store::{entrants, raffles, view::Full};
 
 use crate::{App, Error, Result, raffles::settings_of, view};
@@ -21,16 +21,16 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     if full.raffle.owner_id != owner {
         return Err(Error::NotFound);
     }
-    let drawing = full.raffle.drawing()?;
+    let drawn = full.raffle.drawn()?;
     let view = view::of(app, &full)?;
-    let entrants = admin_entrants(&full, drawing.as_ref());
+    let entrants = admin_entrants(&full, drawn.as_ref());
     let raffle = &full.raffle;
     let personal_data_left = full.entrants.iter().any(|e| !e.purged);
     let actions = AdminActions {
         start: start::next(
             raffle.state,
             raffle.manifest.is_some(),
-            raffle.drawing.is_some(),
+            raffle.log.is_some(),
         )
         .ok()
         .map(|step| match step {
@@ -40,7 +40,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         }),
         draw: raffle.state.frozen_or_later(),
         export: raffle.state.frozen_or_later(),
-        purge: raffle.state.apply(raffle::Command::Purge).is_some()
+        purge: raffle.state.apply(lifecycle::Command::Purge).is_some()
             && (raffle.state == RaffleState::Finished || personal_data_left),
     };
     Ok(RaffleAdmin {
@@ -65,11 +65,11 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     })
 }
 
-/// The entrants as the organizer sees them, with what the drawing made of
+/// The entrants as the organizer sees them, with what the raffle made of
 /// each.
-fn admin_entrants(full: &Full, drawing: Option<&Drawing>) -> Vec<AdminEntrant> {
-    let outcomes = drawing.map(Drawing::entrant_outcomes).unwrap_or_default();
-    let item_names: HashMap<ItemId, String> = drawing
+fn admin_entrants(full: &Full, drawn: Option<&Raffle>) -> Vec<AdminEntrant> {
+    let outcomes = drawn.map(Raffle::entrant_outcomes).unwrap_or_default();
+    let item_names: HashMap<ItemId, String> = drawn
         .map(|s| {
             s.items()
                 .iter()
@@ -93,7 +93,7 @@ fn admin_entrants(full: &Full, drawing: Option<&Drawing>) -> Vec<AdminEntrant> {
                 marketing: e.consent_marketing,
                 created_at: e.created_at,
                 delivered: e.delivered_at.is_some(),
-                deliverable: raffle::drawing::deliverable(drawing, &e.id),
+                deliverable: lifecycle::raffle::deliverable(drawn, &e.id),
                 purged: e.purged,
             }
         })
@@ -106,7 +106,7 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
     if full.raffle.owner_id != owner {
         return Err(Error::NotFound);
     }
-    let drawing = full.raffle.drawing()?;
+    let drawn = full.raffle.drawn()?;
     fn esc(s: &str) -> String {
         // Quote, and neutralize spreadsheet formula injection.
         let s = if s.starts_with(['=', '+', '-', '@']) {
@@ -119,7 +119,7 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
     let mut out = String::from(
         "entrant_id,display_name,email,source,claim_code,outcome,prize,delivered,marketing_consent\n",
     );
-    for e in admin_entrants(&full, drawing.as_ref())
+    for e in admin_entrants(&full, drawn.as_ref())
         .iter()
         .filter(|e| e.outcome.is_some())
     {
@@ -173,7 +173,7 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
         title: raffle.title.clone(),
         state: raffle.state,
         events: raffle
-            .drawing()?
+            .drawn()?
             .map(|s| s.events().to_vec())
             .unwrap_or_default(),
         manifest,

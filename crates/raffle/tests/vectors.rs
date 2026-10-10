@@ -1,7 +1,7 @@
 //! Shared test vectors for `rafi-draw-v1`.
 //!
 //! `testdata/draw-vectors.json` is checked by this test, by `tools/verify.py`
-//! and (through `rafi-drawing` compiled to WASM) by the browser verifier. Run with
+//! and (through `rafi-raffle` compiled to WASM) by the browser verifier. Run with
 //! `UPDATE_VECTORS=1` to regenerate after an intentional change: an algorithm
 //! change must also bump the algorithm identifier; a manifest format change
 //! changes the manifest hash, and so which entrants the scenario picks.
@@ -13,8 +13,8 @@
 //! round, and "not here"/"declined" are never resolved while a draw is pending
 //! (a log doing that fails verification).
 
-use rafi_drawing::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, Manifest, ManifestItem, Resolution,
+use rafi_raffle::{
+    BeaconFetch, BeaconSource, Decision, DrawRequest, Manifest, ManifestItem, Raffle, Resolution,
     algorithm,
     drand::{Beacon, VerifiedBeacon, Verifier, chains},
     verify_public,
@@ -110,21 +110,21 @@ fn generate() -> Vectors {
         },
     ];
     let doc = Manifest::new(
-        "drawing-vectors",
+        "raffle-vectors",
         BeaconSource::Drand(chains::QUICKNET_HASH),
         entrants,
         items,
     );
-    let mut s = Drawing::open(&doc).unwrap();
+    let mut s = Raffle::open(&doc).unwrap();
     let source = BeaconSource::QUICKNET;
-    let draw = |s: &mut Drawing, item: &str, round: u64| {
+    let draw = |s: &mut Raffle, item: &str, round: u64| {
         let request = DrawRequest { item: item.into() };
         s.announce(&request, &source, round, 0).unwrap();
         s.settle(BeaconFetch::Verified(beacon(round)))
             .unwrap()
             .unwrap();
     };
-    let decide = |s: &mut Drawing, decision: Decision| s.decide(&decision).unwrap();
+    let decide = |s: &mut Raffle, decision: Decision| s.decide(&decision).unwrap();
     let resolve = |item: &str, resolution| Decision::Resolve {
         item: item.into(),
         resolution,

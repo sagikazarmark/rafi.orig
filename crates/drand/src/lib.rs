@@ -53,7 +53,7 @@ impl Default for DrandConfig {
 /// The public seed of the mock chain. Anyone can sign its beacons.
 pub const MOCK_SEED: [u8; 32] = *b"rafi mock drand: not verifiable!";
 
-/// The mock (test) chain: pinned parameters, so the app and the drawing engine
+/// The mock (test) chain: pinned parameters, so the app and the raffle engine
 /// agree on its hash across restarts.
 #[cfg(feature = "mock")]
 pub fn mock_chain() -> drand::TestChain {

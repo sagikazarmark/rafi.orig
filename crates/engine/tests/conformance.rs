@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use rafi_engine::BoxFuture;
 use rafi_engine::{
-    DrawingEngine,
+    RaffleEngine,
     conformance::{self, Deployed, Deployment, EngineHarness},
     local::LocalEngine,
 };
@@ -16,7 +16,7 @@ struct Local;
 struct Running(LocalEngine);
 
 impl Deployed for Running {
-    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn DrawingEngine> {
+    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn RaffleEngine> {
         Arc::new(self.0.with_deadline(deadline))
     }
 }
