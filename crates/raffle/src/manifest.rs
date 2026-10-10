@@ -29,9 +29,9 @@ pub struct ManifestItem {
 pub struct Manifest {
     /// The draw algorithm and its version.
     pub algo: String,
-    /// The drawing this manifest opens (its ID). Binds the manifest to one
-    /// drawing; the manifest's own identity is its hash.
-    pub drawing: RaffleId,
+    /// The raffle this manifest opens (its ID). Binds the manifest to one
+    /// raffle; the manifest's own identity is its hash.
+    pub raffle: RaffleId,
     /// Where the draws' randomness comes from.
     pub beacon: BeaconSource,
     /// Sorted, deduplicated, lowercase entrant IDs (rafi's are hex).
@@ -42,7 +42,7 @@ pub struct Manifest {
 impl Manifest {
     /// `beacon` is where the draws' randomness will come from.
     pub fn new(
-        drawing: impl Into<RaffleId>,
+        raffle: impl Into<RaffleId>,
         beacon: BeaconSource,
         entrants: Vec<EntrantId>,
         items: Vec<ManifestItem>,
@@ -55,7 +55,7 @@ impl Manifest {
         entrants.dedup();
         Self {
             algo: ALGO.to_owned(),
-            drawing: drawing.into(),
+            raffle: raffle.into(),
             beacon,
             entrants,
             items,
@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(
             json,
             format!(
-                r#"{{"algo":"rafi-draw-v1","drawing":"d1","beacon":{{"drand":"{QUICKNET_HASH}"}},"entrants":["01"],"items":[{{"id":"item-1","name":"Item"}}]}}"#
+                r#"{{"algo":"rafi-draw-v1","raffle":"d1","beacon":{{"drand":"{QUICKNET_HASH}"}},"entrants":["01"],"items":[{{"id":"item-1","name":"Item"}}]}}"#
             )
         );
     }

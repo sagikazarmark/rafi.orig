@@ -131,7 +131,7 @@ impl Drawing {
     #[handler]
     async fn open(&self, ctx: ObjectContext<'_>, doc: Json<Manifest>) -> HandlerResult<()> {
         let doc = doc.into_inner();
-        if doc.drawing.as_str() != ctx.key() {
+        if doc.raffle.as_str() != ctx.key() {
             return Err(rejected("drawing ID does not match the object key", 400));
         }
         // The app and this endpoint configure drand separately; the rules

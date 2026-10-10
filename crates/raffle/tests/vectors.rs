@@ -110,7 +110,7 @@ fn generate() -> Vectors {
         },
     ];
     let doc = Manifest::new(
-        "drawing-vectors",
+        "raffle-vectors",
         BeaconSource::Drand(chains::QUICKNET_HASH),
         entrants,
         items,

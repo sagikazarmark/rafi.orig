@@ -207,8 +207,8 @@ impl DrawingEngine for LocalEngine {
 
     fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(async move {
-            let key = format!("{}/{}", doc.drawing, doc.open_key());
-            let rx = self.submit(&doc.drawing, key, Work::Open(doc.clone()));
+            let key = format!("{}/{}", doc.raffle, doc.open_key());
+            let rx = self.submit(&doc.raffle, key, Work::Open(doc.clone()));
             self.outcome(rx).await
         })
     }

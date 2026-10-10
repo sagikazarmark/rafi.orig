@@ -229,7 +229,7 @@ impl DrawingEngine for RestateClient {
 
     fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(sendable(async move {
-            let drawing = &doc.drawing;
+            let drawing = &doc.raffle;
             let call = self.drawing(drawing)?.open(Json(doc.clone()));
             self.bounded(async {
                 call.idempotency_key(doc.open_key())

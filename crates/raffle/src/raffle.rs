@@ -206,7 +206,7 @@ fn check_beacon(raffle: &BeaconSource, engine: &BeaconSource) -> Result<(), Erro
 /// Reading a raffle.
 impl Raffle {
     pub fn id(&self) -> &RaffleId {
-        &self.manifest.drawing
+        &self.manifest.raffle
     }
 
     /// The manifest the raffle was opened from.

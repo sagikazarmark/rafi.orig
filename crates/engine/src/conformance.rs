@@ -260,7 +260,7 @@ impl Fixture {
             .open(doc)
             .await
             .map_err(|e| format!("open: {e}"))?;
-        self.projected(doc.drawing.as_str(), "opened", |_| true)
+        self.projected(doc.raffle.as_str(), "opened", |_| true)
             .await
     }
 

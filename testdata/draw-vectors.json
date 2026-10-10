@@ -73,8 +73,8 @@
     }
   ],
   "scenario": {
-    "manifest": "{\"algo\":\"rafi-draw-v1\",\"drawing\":\"drawing-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"book-1\",\"name\":\"Book\"},{\"id\":\"book-2\",\"name\":\"Book\"},{\"id\":\"voucher-1\",\"name\":\"Voucher\"},{\"id\":\"mug-1\",\"name\":\"Mug\"}]}",
-    "manifest_hash": "5d14bf03631d1c1292926cf3baed335ed4f73da8e0e46f4e26f19762104fba85",
+    "manifest": "{\"algo\":\"rafi-draw-v1\",\"raffle\":\"raffle-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"book-1\",\"name\":\"Book\"},{\"id\":\"book-2\",\"name\":\"Book\"},{\"id\":\"voucher-1\",\"name\":\"Voucher\"},{\"id\":\"mug-1\",\"name\":\"Mug\"}]}",
+    "manifest_hash": "4c415cf2e358054c438ef3ccae56791cf639cec93ff3e6090db62b530f8b942c",
     "events": [
       {
         "item": "voucher-1",
@@ -84,8 +84,8 @@
         "type": "announced"
       },
       {
-        "entrant": "427d1ecf2ccd2f644a5e9cb51114fc9c",
-        "index": 3,
+        "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+        "index": 1,
         "item": "voucher-1",
         "k": 1,
         "pass": 1,
@@ -129,8 +129,8 @@
         "type": "stalled"
       },
       {
-        "entrant": "4a9036e8027f57e1ae64a1d399dcd095",
-        "index": 3,
+        "entrant": "514fd5455cdd9fd3fbb20606fa906d11",
+        "index": 5,
         "item": "voucher-1",
         "k": 2,
         "pass": 1,
@@ -153,8 +153,8 @@
         "type": "announced"
       },
       {
-        "entrant": "181a4a87fd2513b3ddbb203b838c953a",
-        "index": 0,
+        "entrant": "6eb793315b90afb8bbddafe5f3abcf67",
+        "index": 5,
         "item": "book-1",
         "k": 3,
         "pass": 1,
@@ -177,8 +177,8 @@
         "type": "announced"
       },
       {
-        "entrant": "c81b7ae6ac4055879066cd2177a0ab53",
-        "index": 6,
+        "entrant": "cec0f5b79f0b01d34f7481a9c9be2ca7",
+        "index": 7,
         "item": "book-1",
         "k": 4,
         "pass": 1,
@@ -205,7 +205,7 @@
         "type": "announced"
       },
       {
-        "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+        "entrant": "181a4a87fd2513b3ddbb203b838c953a",
         "index": 0,
         "item": "book-2",
         "k": 5,

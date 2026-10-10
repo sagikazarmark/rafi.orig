@@ -114,7 +114,7 @@ async fn e2e_raffle() {
     assert_eq!(reply.status, 409, "{}", reply.body);
     // A drawing on another beacon source than the engine's is refused.
     let mut quicknet = self::doc(5);
-    quicknet.drawing = "other-raffle".into();
+    quicknet.raffle = "other-raffle".into();
     quicknet.beacon = BeaconSource::QUICKNET;
     let reply = restate
         .invoke(
