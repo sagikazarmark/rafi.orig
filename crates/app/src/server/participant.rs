@@ -3,7 +3,7 @@
 //! The server renders the whole page, including the live card
 //! ([`rafi_live::Card`], the same component the phone's WebAssembly mounts),
 //! and embeds the page's state as JSON in `#rafi-config` (see
-//! `crates/participant/src/config.rs`, `PageConfig`). An inline loader then
+//! [`rafi_live::PageConfig`]). An inline loader then
 //! starts the WebAssembly from `/participant/` (`./scripts/participant.sh`), or the
 //! JavaScript fallback when it can't run. They keep the card current, solve
 //! the join form's proof-of-work and enable its button.
@@ -16,7 +16,7 @@ use axum::{
     routing::get,
 };
 use dioxus::prelude::*;
-use rafi_live::{Card, CardStrings, LiveTransport, ParticipantView, Phase};
+use rafi_live::{Card, CardStrings, PageConfig, Phase};
 use rafi_platform::Limit;
 use rafi_store::{EntrantRow, RaffleRow, entrants, live::Snapshot, prizes, raffles};
 use serde::{Deserialize, Serialize};
@@ -196,25 +196,6 @@ struct PageCtx<'a> {
     form: JoinForm,
 }
 
-/// What the page embeds in `#rafi-config`, for the participant WebAssembly and
-/// its fallback (`crates/participant/src/config.rs`, `PageConfig`).
-#[derive(Serialize)]
-struct PageConfig<'a> {
-    raffle_id: &'a str,
-    entrant_id: Option<&'a str>,
-    claim_code: Option<&'a str>,
-    page_state: Phase,
-    view: &'a ParticipantView,
-    strings: &'a CardStrings,
-    participant_url: String,
-    server_now_ms: u64,
-    live: LiveTransport,
-    needs_altcha: bool,
-    altcha_url: &'static str,
-    screen_on: &'static str,
-    keep_screen_on: &'static str,
-}
-
 fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
     let PageCtx {
         raffle,
@@ -225,7 +206,7 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
         form,
     } = ctx;
     let t = |k: &str| lang.t(k);
-    let view = super::view::participant(snapshot);
+    let view = snapshot.participant_view();
     let phase = view.state;
     let strings = CardStrings::from_lookup(|k| lang.t(k).to_owned());
     let now_ms = crate::model::now_unix_ms();
@@ -354,19 +335,19 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
     });
 
     let config = PageConfig {
-        raffle_id: &raffle.id,
-        entrant_id: me.as_deref(),
-        claim_code: claim_code.as_deref(),
+        raffle_id: raffle.id.clone(),
+        entrant_id: me.clone(),
+        claim_code: claim_code.clone(),
         page_state: phase,
-        view: &view,
-        strings: &strings,
+        view: view.clone(),
+        strings: strings.clone(),
         participant_url: format!("/api/r/{}/participant", raffle.slug),
         server_now_ms: now_ms,
         live: app.transport(&raffle.id, !snapshot.channel_open()),
         needs_altcha: joining,
-        altcha_url: "/api/altcha",
-        screen_on: lang.t("screen_on"),
-        keep_screen_on: lang.t("keep_screen_on"),
+        altcha_url: PageConfig::ALTCHA_URL.into(),
+        screen_on: lang.t("screen_on").to_owned(),
+        keep_screen_on: lang.t("keep_screen_on").to_owned(),
     };
     let tail = format!(
         "<script type=\"application/json\" id=\"rafi-config\">{}</script><script>{LOADER}</script>",
@@ -548,7 +529,25 @@ async fn try_join(
     match joined {
         Ok(service::JoinOutcome::Joined { token }) => Ok(token),
         Ok(service::JoinOutcome::AlreadyIn) => Err((Notice::AlreadyIn, StatusCode::OK)),
-        Err(key) => Err((Notice::Error(key), StatusCode::UNPROCESSABLE_ENTITY)),
+        Err(e) => Err((
+            Notice::Error(join_error(e)),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )),
+    }
+}
+
+/// The i18n key of why a join was refused.
+fn join_error(e: service::JoinError) -> &'static str {
+    use rafi_raffle::entrant::NameError;
+    use service::JoinError as E;
+    match e {
+        E::Closed => "reg_closed",
+        E::Name(NameError::Invalid) => "err_name",
+        E::Name(NameError::Blocked) => "err_name_blocked",
+        E::Email => "err_email",
+        E::Rules => "err_rules",
+        E::Full => "err_full",
+        E::Failed => "err_rate",
     }
 }
 

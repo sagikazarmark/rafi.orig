@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use rafi_drawing::Drawing;
 
-use rafi_platform::BoxFuture;
+use crate::BoxFuture;
 
 /// The drawing engine's only write: a drawing, after every change.
 pub trait DrawStore: Send + Sync + 'static {

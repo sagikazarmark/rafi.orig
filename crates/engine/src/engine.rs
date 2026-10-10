@@ -6,10 +6,10 @@ use rafi_drawing::{
     BeaconSource, Decision, DrawRequest, DrawingId, Error as DrawingError, ErrorKind, Manifest,
 };
 
-use rafi_platform::BoxFuture;
+use crate::BoxFuture;
 
 /// What the drawing engine says about itself.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EngineInfo {
     /// Where the engine's randomness comes from. The app decides which
     /// source a drawing commits to; it only checks this before opening one,
@@ -42,41 +42,11 @@ impl EngineError {
             message: e.to_string(),
         }
     }
-
-    /// The engine has no open drawing by that ID (never opened, or finished
-    /// and forgotten).
-    pub fn not_open() -> Self {
-        Self::Rejected {
-            kind: ErrorKind::NotFound,
-            message: NOT_OPEN.to_owned(),
-        }
-    }
 }
 
-/// Why a command for a drawing the engine doesn't hold is refused.
+/// Why a command for a drawing the engine doesn't hold (never opened, or
+/// finished and forgotten) is refused, as not found.
 pub const NOT_OPEN: &str = "no drawing is open";
-
-/// The HTTP status code an engine answers a refusal of this kind with.
-pub fn status_code(kind: ErrorKind) -> u16 {
-    match kind {
-        ErrorKind::NotFound => 404,
-        ErrorKind::BadRequest => 400,
-        ErrorKind::Conflict => 409,
-        ErrorKind::Invariant => 500,
-    }
-}
-
-/// The refusal kind an engine's status code stands for; `None` for anything
-/// an engine never refuses with (the engine is unavailable).
-pub fn refusal_kind(status: u16) -> Option<ErrorKind> {
-    match status {
-        404 => Some(ErrorKind::NotFound),
-        400 => Some(ErrorKind::BadRequest),
-        409 => Some(ErrorKind::Conflict),
-        500 => Some(ErrorKind::Invariant),
-        _ => None,
-    }
-}
 
 impl From<DrawingError> for EngineError {
     fn from(e: DrawingError) -> Self {
@@ -106,11 +76,19 @@ impl From<DrawingError> for EngineError {
 ///   up to the engine's drand lead plus fetch timeout; past the adapter's own
 ///   deadline it returns [`EngineError::Pending`].
 /// - **Idempotency**: the same `command_id` (within the engine's retention
-///   window) is applied once, so retrying after [`EngineError::Pending`] or
-///   [`EngineError::Unavailable`] is safe.
+///   window) is applied once, even when sent twice at once, so retrying after
+///   [`EngineError::Pending`] or [`EngineError::Unavailable`] is safe. A
+///   command ID names one command: sent again with another command, the
+///   engine answers as it did the first time and applies nothing.
+/// - **The projection is the record**: an engine retries a failed write until
+///   it succeeds, and applies nothing more to that drawing meanwhile (an
+///   abandon included: it too must be recorded).
 /// - **After finish** the engine forgets the drawing: further commands are
 ///   refused as not found. An opening replayed after that never changes the
-///   published projection (the store keeps the newest version).
+///   published projection (the store keeps the newest version), but past the
+///   retention window it would open the drawing again, unpublished. Callers
+///   must therefore not open a drawing they finished: rafi's raffle lifecycle
+///   opens one only from a frozen raffle (`rafi_raffle::start::next`).
 pub trait DrawingEngine: Send + Sync + 'static {
     /// The engine's beacon source; also tells whether it is reachable.
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>>;
@@ -161,23 +139,5 @@ impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
         (**self).decide(drawing_id, decision, command_id)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn refusal_kinds_round_trip_through_status_codes() {
-        for kind in [
-            ErrorKind::NotFound,
-            ErrorKind::BadRequest,
-            ErrorKind::Conflict,
-            ErrorKind::Invariant,
-        ] {
-            assert_eq!(refusal_kind(status_code(kind)), Some(kind));
-        }
-        assert_eq!(refusal_kind(502), None);
     }
 }

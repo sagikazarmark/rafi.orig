@@ -34,7 +34,7 @@ pub struct Manifest {
     pub drawing: DrawingId,
     /// Where the draws' randomness comes from.
     pub beacon: BeaconSource,
-    /// Sorted, deduplicated, lowercase hex entrant IDs.
+    /// Sorted, deduplicated, lowercase entrant IDs (rafi's are hex).
     pub entrants: Vec<EntrantId>,
     pub items: Vec<ManifestItem>,
 }

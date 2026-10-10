@@ -190,7 +190,7 @@ pub fn Verify(slug: String) -> Element {
                             }
                             a { class: "btn btn-sm btn-outline w-fit", href: "{json_href}", Icon { i: I::Download, class: "size-4" } "verify.json" }
                             details { class: "collapse collapse-arrow mt-2 bg-base-200",
-                                summary { class: "collapse-title text-sm font-semibold", "Commit document" }
+                                summary { class: "collapse-title text-sm font-semibold", "Manifest" }
                                 div { class: "collapse-content",
                                     pre { class: "whitespace-pre-wrap break-all font-mono text-xs", "{manifest}" }
                                 }

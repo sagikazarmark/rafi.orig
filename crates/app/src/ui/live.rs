@@ -20,7 +20,6 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 use partyline_dioxus::{BaseUrl, ChannelOptions, Status, use_channel_latest};
 use rafi_live::{LiveTransport, ParticipantView, RaffleLive};
-use rafi_raffle::RaffleState;
 
 use crate::model::RaffleView;
 
@@ -50,7 +49,7 @@ impl LiveView {
     /// partyline and the raffle is live; render it anywhere in the page.
     pub fn feed(self) -> Element {
         let subscription = self.view.read().as_ref().and_then(|v| match &v.live {
-            LiveTransport::Partyline { base_url } if live(v.state) => {
+            LiveTransport::Partyline { base_url } if v.state.is_live() => {
                 Some((v.raffle_id.clone(), base_url.clone()))
             }
             // Polling (and SSE, which has no client yet): the full view's poll does it all.
@@ -62,18 +61,6 @@ impl LiveView {
             }
         }
     }
-}
-
-/// Public and not over: when the view changes on its own.
-fn live(state: RaffleState) -> bool {
-    matches!(
-        state,
-        RaffleState::Ready
-            | RaffleState::Open
-            | RaffleState::Closed
-            | RaffleState::Frozen
-            | RaffleState::Drawing
-    )
 }
 
 /// Follows the raffle `slug`.
@@ -112,7 +99,7 @@ pub fn use_live_view(slug: String) -> LiveView {
                 .and_then(|v| v.live.poll_every_ms())
                 .unwrap_or(POLL_MS);
             gloo_timers::future::TimeoutFuture::new(every).await;
-            if view.peek().as_ref().is_none_or(|v| live(v.state)) {
+            if view.peek().as_ref().is_none_or(|v| v.state.is_live()) {
                 fetcher.send(());
             }
         }

@@ -16,7 +16,7 @@ pub fn id() -> String {
 /// A short human-friendly code (join codes, claim codes) of `len` (at most
 /// 16) characters.
 pub fn code(len: usize) -> String {
-    super::codes::from_bytes(&random_bytes::<16>(), len)
+    crate::codes::from_bytes(&random_bytes::<16>(), len)
 }
 
 /// A URL slug derived from a title plus a random suffix.

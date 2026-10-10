@@ -26,9 +26,10 @@
 mod client;
 mod info;
 mod service;
+mod status;
 
 pub use client::{ClientConfig, RestateClient};
-pub use info::{EngineInfo, EngineInfoIngressClient, INFO_SERVICE_NAME, Info};
+pub use info::{EngineInfo, EngineInfoIngressClient, INFO_SERVICE_NAME};
 pub use service::{Drawing, DrawingIngressClient, SERVICE_NAME};
 
 use rafi_drand::DrandClient;

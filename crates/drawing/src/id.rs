@@ -81,9 +81,10 @@ id! {
 }
 
 id! {
-    /// An entrant, as the manifest lists them: lowercase hex, so the sorted
-    /// list is canonical ([`Manifest::validate`](crate::Manifest::validate)
-    /// checks it).
+    /// An entrant, as the manifest lists them: lowercase, so the sorted list
+    /// is canonical ([`Manifest::validate`](crate::Manifest::validate) checks
+    /// it). Rafi's are random hex; the drawing needs only that they are
+    /// lowercase and unique.
     EntrantId
 }
 

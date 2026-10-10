@@ -24,7 +24,8 @@ pub enum RaffleState {
     Open,
     /// Registration is closed (can be reopened).
     Closed,
-    /// The entrant list is frozen and committed; drawing can start.
+    /// The entrant list is frozen and published in the drawing's manifest;
+    /// drawing can start.
     Frozen,
     /// At least one draw happened.
     Drawing,
@@ -125,13 +126,13 @@ impl RaffleState {
 
     /// Whether the organizer can add, remove or edit entrants. The same states
     /// as [`prizes_editable`](Self::prizes_editable) today: both end with the
-    /// freeze, which commits to the entrants and the prizes alike.
+    /// freeze, which fixes the entrants and the prizes alike.
     pub fn entrants_editable(self) -> bool {
         matches!(self, Self::Draft | Self::Ready | Self::Open | Self::Closed)
     }
 
     /// Whether the raffle can switch test mode on or off: not once its
-    /// entrant list is committed.
+    /// entrant list is frozen.
     pub fn test_mode_editable(self) -> bool {
         self.entrants_editable()
     }
@@ -147,9 +148,13 @@ impl RaffleState {
         }
     }
 
-    /// Whether a prize can be marked delivered: once the raffle is published.
-    pub fn deliverable(self) -> bool {
-        self != Self::Draft
+    /// Whether the entrant list is frozen: from the freeze on, the raffle
+    /// has (or is getting) a drawing, its draw log and winners to export.
+    pub fn frozen_or_later(self) -> bool {
+        matches!(
+            self,
+            Self::Frozen | Self::Drawing | Self::Finished | Self::Purged
+        )
     }
 
     /// Whether participants can join on their own.
@@ -171,6 +176,12 @@ impl RaffleState {
     /// (about to be) running.
     pub fn in_progress(self) -> bool {
         matches!(self, Self::Open | Self::Frozen | Self::Drawing)
+    }
+
+    /// Whether screens follow the raffle live: public, and not over yet (its
+    /// view changes on its own).
+    pub fn is_live(self) -> bool {
+        self.is_public() && !self.is_over()
     }
 
     /// Whether the raffle is over: its live updates may end.

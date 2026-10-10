@@ -7,22 +7,23 @@
 //! - [`Notifier`]: "this raffle changed", "end its live updates", and which
 //!   [`LiveTransport`] clients use;
 //! - [`RateLimit`], with the [`Limit`] keys;
-//! - [`rule::decide`]: when a live channel publishes a participant view;
+//! - [`Notify`]: a [`Notifier`] as the drawing engine's `DrawingNotifier`;
 //! - [`sendable`]: a `Send` future from one that is only `Send` natively
 //!   (wasm32 is single-threaded).
 //!
 //! The drawing engine and the store it writes to are `rafi-engine`'s.
 //!
-//! This crate depends on no database and no platform.
+//! This crate depends on no database, no platform and no UI framework.
 
 mod notifier;
+mod notify;
 mod ratelimit;
-pub mod rule;
 mod send;
 
 use std::{future::Future, pin::Pin};
 
 pub use notifier::{Notifier, Polling, Recording};
+pub use notify::Notify;
 pub use rafi_live::LiveTransport;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ratelimit::Limiter;
@@ -32,5 +33,6 @@ pub use send::sendable;
 /// A boxed, sendable future, so the interfaces work as trait objects (axum
 /// and the Restate SDK require `Send`). Implementations whose futures aren't
 /// `Send` (Workers' bindings, single-threaded) wrap them, for example with
-/// [`sendable`] or `worker::send::SendFuture`.
+/// [`sendable`] or `worker::send::SendFuture`. The same type as
+/// `rafi_engine::BoxFuture`.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

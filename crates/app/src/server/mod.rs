@@ -1,6 +1,10 @@
 //! Server side: participant pages, public and admin APIs. The database and all
 //! its SQL are in `rafi-store`.
 //!
+//! What the app does lives in `rafi-app-core` (re-exported as [`service`]):
+//! this is its HTTP side, which maps requests onto those use cases and their
+//! results onto responses.
+//!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small
 //! interfaces from `rafi-platform` in [`AppState`] ([`DrawingEngine`],
@@ -9,21 +13,18 @@
 pub mod admin;
 pub mod altcha;
 pub mod auth;
-pub mod codes;
 pub mod config;
-pub mod ids;
 pub mod participant;
 pub mod public;
 pub mod retention;
-pub mod service;
-pub mod view;
+
+pub use rafi_app_core::{self as service, codes, ids, view};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 use std::{ops::Deref, sync::Arc};
 
 use axum::{Extension, Router};
-use rafi_drawing::drand::ChainHash;
 use rafi_engine::DrawingEngine;
 use rafi_engine_restate::RestateClient;
 use rafi_platform::{Notifier, RateLimit};
@@ -36,13 +37,10 @@ pub struct AppState(Arc<Inner>);
 
 pub struct Inner {
     pub cfg: Config,
-    pub db: Db,
-    /// The drand chain new raffles commit to ([`Config::chain`]).
-    pub chain: ChainHash,
-    /// The drawing engine; `None` without one (no `RESTATE_INGRESS_URL`).
-    pub engine: Option<Arc<dyn DrawingEngine>>,
-    /// Live updates to clients (natively: none, clients poll).
-    pub notifier: Arc<dyn Notifier>,
+    /// What the use cases run against: the database, the drand chain
+    /// ([`Config::chain`]), the drawing engine (`None` without
+    /// `RESTATE_INGRESS_URL`) and the notifier. `Inner` derefs to it.
+    pub core: service::App,
     /// The join rate limits.
     pub limiter: Arc<dyn RateLimit>,
 }
@@ -51,6 +49,13 @@ impl Deref for AppState {
     type Target = Inner;
     fn deref(&self) -> &Inner {
         &self.0
+    }
+}
+
+impl Deref for Inner {
+    type Target = service::App;
+    fn deref(&self) -> &service::App {
+        &self.core
     }
 }
 
@@ -83,24 +88,17 @@ impl AppState {
         notifier: Arc<dyn Notifier>,
         limiter: Arc<dyn RateLimit>,
     ) -> anyhow::Result<Self> {
-        Ok(Self(Arc::new(Inner {
+        let core = service::App {
             chain: cfg.chain()?,
+            db,
             engine,
             notifier,
-            limiter,
-            db,
-            cfg,
-        })))
-    }
-
-    /// How clients follow `raffle_id`: the deployment's transport while its
-    /// live updates run, plain polling once they've ended.
-    pub fn transport(&self, raffle_id: &str, live_ended: bool) -> rafi_live::LiveTransport {
-        if live_ended {
-            rafi_live::LiveTransport::poll()
-        } else {
-            self.notifier.transport(raffle_id)
-        }
+            policy: service::Policy {
+                public_url: cfg.public_url.clone(),
+                max_entrants: cfg.max_entrants,
+            },
+        };
+        Ok(Self(Arc::new(Inner { core, limiter, cfg })))
     }
 
     /// When personal data of a finished raffle is erased (the retention settings).

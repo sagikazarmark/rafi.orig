@@ -24,14 +24,14 @@ use std::time::Duration;
 use anyhow::anyhow;
 use bytes::Bytes;
 use rafi_drawing::{Decision, DrawRequest, DrawingId, Manifest};
-use rafi_engine::{DrawingEngine, EngineError, EngineInfo, refusal_kind};
+use rafi_engine::{DrawingEngine, EngineError, EngineInfo};
 use rafi_platform::{BoxFuture, sendable};
 use restate_sdk::{
     ingress::{CallResponse, Client, ClientError, RequestExecutor},
     serde::Json,
 };
 
-use crate::{DrawingIngressClient, EngineInfoIngressClient};
+use crate::{DrawingIngressClient, EngineInfoIngressClient, status::refusal_kind};
 
 /// How to reach the ingress.
 #[derive(Debug, Clone)]
@@ -223,9 +223,7 @@ impl DrawingEngine for RestateClient {
                 .and_then(CallResponse::into_body)
                 .map_err(|e| engine_error(e, path, false))?
                 .into_inner();
-            Ok(EngineInfo {
-                beacon: info.beacon,
-            })
+            Ok(info)
         }))
     }
 

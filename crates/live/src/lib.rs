@@ -5,31 +5,40 @@
 //!   lightweight mirror of the raffle state;
 //! - [`RaffleLive`]: the partyline channel that carries it;
 //! - [`screen()`]: which card a phone shows, as a pure function;
-//! - [`Card`]: the Dioxus component that renders it, on the server (SSR) and
-//!   in the WASM alike, with [`CardStrings`];
+//! - with the `card` feature, `Card`: the Dioxus component that renders it,
+//!   on the server (SSR) and in the WASM alike, with [`CardStrings`];
 //! - [`altcha`]: rafi's proof-of-work for the join form;
 //! - [`LiveTransport`]: how clients follow a raffle on this deployment;
+//! - [`PageConfig`]: the participant page's embedded state;
+//! - [`publish::decide`]: when a live channel publishes a participant view;
 //! - with the `raffle` feature, `raffle::view`: the participant view of a
 //!   raffle and its drawing, for the servers that build views.
 //!
 //! This crate must stay light enough for the phone: without `raffle` it
-//! doesn't depend on `rafi-drawing` (which pulls in drand and BLS), and it
+//! doesn't depend on `rafi-drawing` (which pulls in drand and BLS), without
+//! `card` not on Dioxus (so the engine hosts don't build a UI framework), and it
 //! reads no clock and no randomness of its own, so it runs unchanged on
 //! `wasm32-unknown-unknown`.
 
 pub mod altcha;
 mod card;
+mod page;
+pub mod publish;
 #[cfg(feature = "raffle")]
 pub mod raffle;
 mod screen;
 mod transport;
 mod view;
 
-pub use card::{CARD, Card, CardProps, CardStrings, WON};
+pub use card::{CARD, CardStrings, WON};
+#[cfg(feature = "card")]
+pub use card::{Card, CardProps};
+pub use page::PageConfig;
 pub use screen::{Screen, screen};
 pub use transport::{DEFAULT_POLL_MS, LiveTransport};
 pub use view::{
     Current, DrawInput, DrawOutcome, HIDDEN_NAME, LastDraw, ParticipantView, Phase, Winner,
+    public_name,
 };
 
 /// The raffle's live channel: phones follow the latest [`ParticipantView`].

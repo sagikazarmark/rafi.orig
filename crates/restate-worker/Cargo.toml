@@ -23,6 +23,7 @@ anyhow = "1"
 http = "1"
 http-body-util = "0.1"
 rafi-cloudflare = { path = "../cloudflare" }
+rafi-platform = { path = "../platform" }
 rafi-store.workspace = true
 rafi-engine = { path = "../engine" }
 rafi-engine-restate = { path = "../engine-restate" }

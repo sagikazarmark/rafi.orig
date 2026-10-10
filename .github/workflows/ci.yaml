@@ -55,12 +55,15 @@ jobs:
       - name: Clippy (libraries and the draw engine)
         run: cargo clippy --workspace --exclude rafi --all-targets -- -D warnings
       - name: Clippy (app server)
-        run: cargo clippy -p rafi --features server --all-targets -- -D warnings
+        run: |
+          cargo clippy -p rafi --features server --all-targets -- -D warnings
+          cargo clippy -p rafi --features server,mock-drand --all-targets -- -D warnings
       - name: Clippy (app web)
         run: cargo clippy -p rafi --features web --target wasm32-unknown-unknown -- -D warnings
       - name: Clippy (Workers crates)
         run: |
           cargo clippy --target wasm32-unknown-unknown \
+            -p rafi-raffle -p rafi-drawing -p rafi-drand -p rafi-model -p rafi-app-core \
             -p rafi-store -p rafi-store-d1-check -p rafi-live -p rafi-platform -p rafi-cloudflare -p rafi-cloudflare-check \
             -p rafi-engine -p rafi-engine-restate -p rafi-participant -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker --features dev -- -D warnings

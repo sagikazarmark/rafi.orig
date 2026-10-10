@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use rafi_drawing::{Drawing, ItemId, Outcome};
 use rafi_raffle::RaffleState;
 
-use crate::{Current, DrawInput, DrawOutcome, HIDDEN_NAME, ParticipantView, Phase};
+use crate::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
 
 impl From<RaffleState> for Phase {
     /// One to one: a state added to the raffle doesn't build until phones
@@ -46,7 +46,7 @@ pub struct Raffle<'a> {
     /// The drawing, once the engine opened it.
     pub drawing: Option<&'a Drawing>,
     /// The display names of the drawn entrants only, by entrant ID; `None`
-    /// for one the organizer hid (shown as [`HIDDEN_NAME`]).
+    /// for one the organizer hid (shown as [`HIDDEN_NAME`](crate::HIDDEN_NAME)).
     pub names: &'a HashMap<String, Option<String>>,
     /// The prizes' total quantity: what is left before the drawing opens.
     pub prize_qty: u32,
@@ -61,11 +61,7 @@ pub fn view(raffle: Raffle<'_>) -> ParticipantView {
     let item_name = |id: &ItemId| drawing.item(id).map(|i| i.name.clone()).unwrap_or_default();
     let draws = drawing.draws().into_iter().map(|d| {
         let id = d.entrant.as_str();
-        let display_name = match raffle.names.get(id) {
-            Some(Some(name)) => name.clone(),
-            Some(None) => HIDDEN_NAME.to_owned(),
-            None => format!("#{}", &id[..id.len().min(6)]),
-        };
+        let display_name = crate::public_name(id, raffle.names.get(id).map(Option::as_deref));
         DrawInput {
             display_name,
             prize_name: item_name(&d.item),
@@ -92,6 +88,7 @@ mod tests {
     use rafi_drawing::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
 
     use super::*;
+    use crate::HIDDEN_NAME;
 
     fn manifest() -> Manifest {
         Manifest::new(
@@ -143,7 +140,7 @@ mod tests {
                 serde_json::to_value(state).unwrap()
             );
             assert_eq!(phase.is_over(), state.is_over());
-            assert_eq!(phase.is_live(), state.is_public() && !state.is_over());
+            assert_eq!(phase.is_live(), state.is_live());
         }
     }
 

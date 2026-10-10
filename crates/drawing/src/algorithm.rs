@@ -133,6 +133,28 @@ mod tests {
         assert_eq!(s.uniform(1), 0);
     }
 
+    /// Over many draws, every position of a pool wins about as often: a
+    /// chi-square test against the uniform distribution. Deterministic (the
+    /// randomness is a counter), so it never flakes.
+    #[test]
+    fn select_is_unbiased() {
+        const POOL: usize = 7;
+        const DRAWS: u64 = 70_000;
+        let mut counts = [0u64; POOL];
+        for k in 0..DRAWS {
+            let mut randomness = [0u8; 32];
+            randomness[..8].copy_from_slice(&k.to_be_bytes());
+            counts[select(&randomness, &[9; 32], 1, POOL)] += 1;
+        }
+        let expected = DRAWS as f64 / POOL as f64;
+        let chi2: f64 = counts
+            .iter()
+            .map(|&c| (c as f64 - expected).powi(2) / expected)
+            .sum();
+        // The 99.9th percentile of chi-square with 6 degrees of freedom.
+        assert!(chi2 < 22.46, "chi-square {chi2:.2}: {counts:?}");
+    }
+
     #[test]
     fn select_is_deterministic() {
         let a = select(&[1; 32], &[2; 32], 3, 100);

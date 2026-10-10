@@ -5,6 +5,18 @@ use serde::{Deserialize, Serialize};
 /// Display name shown for an entrant the organizer hid.
 pub const HIDDEN_NAME: &str = "★ ★ ★";
 
+/// How entrant `id` shows on public screens, given what is known of them:
+/// their name (`Some(Some(name))`), [`HIDDEN_NAME`] if the organizer hid it
+/// (`Some(None)`), or the start of their ID if nothing is (`None`: erased,
+/// or not read).
+pub fn public_name(id: &str, known: Option<Option<&str>>) -> String {
+    match known {
+        Some(Some(name)) => name.to_owned(),
+        Some(None) => HIDDEN_NAME.to_owned(),
+        None => format!("#{}", id.get(..6).unwrap_or(id)),
+    }
+}
+
 /// A raffle's lifecycle state, as phones see it.
 ///
 /// Mirrors `rafi_raffle::RaffleState` variant for variant, with the same
@@ -197,6 +209,14 @@ impl ParticipantView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_names() {
+        assert_eq!(public_name("abcdef12", Some(Some("Anna"))), "Anna");
+        assert_eq!(public_name("abcdef12", Some(None)), HIDDEN_NAME);
+        assert_eq!(public_name("abcdef12", None), "#abcdef");
+        assert_eq!(public_name("ab", None), "#ab");
+    }
 
     fn draw(id: &str, prize: &str, outcome: DrawOutcome) -> DrawInput {
         DrawInput {

@@ -8,6 +8,9 @@ description = "What a phone sees live: the participant view, its partyline chann
 publish = false
 
 [features]
+## The phone's card as a Dioxus component (`Card`), for the server's SSR and
+## the WASM. Off, nothing here depends on Dioxus.
+card = ["dep:dioxus"]
 ## Issue and verify ALTCHA challenges (HMAC). The phone only solves.
 server = ["dep:hmac"]
 ## Build participant views from a raffle and its drawing (`raffle::view`):
@@ -16,7 +19,7 @@ raffle = ["dep:rafi-raffle", "dep:rafi-drawing"]
 
 [dependencies]
 base64 = "0.22"
-dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals"] }
+dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals"], optional = true }
 hex.workspace = true
 hmac = { version = "0.12", optional = true }
 partyline = "0.3"
@@ -29,5 +32,5 @@ sha2.workspace = true
 [dev-dependencies]
 dioxus-ssr = "=0.7.10"
 # Itself with `raffle`, so its tests run with the workspace's.
-rafi-live = { path = ".", features = ["raffle"] }
+rafi-live = { path = ".", features = ["raffle", "card"] }
 rafi-drawing.workspace = true

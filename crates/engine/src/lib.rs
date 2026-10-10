@@ -9,8 +9,8 @@
 //!
 //! - [`DrawingEngine`]: the port the app draws through, with its contract;
 //! - [`DrawStore`]: where an engine writes every new state (the projection);
-//! - [`DrawingNotifier`]: how it tells clients a drawing changed; [`Notify`]
-//!   maps drawings to what clients follow.
+//! - [`DrawingNotifier`]: how it tells clients a drawing changed (a host maps
+//!   drawings to what clients follow, `rafi_platform::Notify` for rafi).
 //!
 //! Whether an engine would take a command now is the drawing's own rule
 //! ([`Drawing::admit`](rafi_drawing::Drawing::admit)), checked against the
@@ -30,6 +30,13 @@ pub mod conformance;
 #[cfg(all(feature = "local", not(target_arch = "wasm32")))]
 pub mod local;
 
-pub use engine::{DrawingEngine, EngineError, EngineInfo, NOT_OPEN, refusal_kind, status_code};
-pub use notify::{DrawingNotifier, Notify};
+pub use engine::{DrawingEngine, EngineError, EngineInfo, NOT_OPEN};
+pub use notify::{DrawingNotifier, RecordingNotifier};
 pub use store::{DrawStore, MemoryDrawStore};
+
+use std::{future::Future, pin::Pin};
+
+/// A boxed, sendable future, so the contract works with trait objects (axum
+/// and the Restate SDK require `Send`). The same type as
+/// `rafi_platform::BoxFuture`.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

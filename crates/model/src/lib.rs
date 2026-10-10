@@ -1,4 +1,5 @@
-//! Types shared between the server and the browser.
+//! The types the Rafi app's server and browser exchange: the views screens
+//! poll, and the admin API's arguments and results.
 
 use rafi_drawing::{EntrantId, Event, ItemId, ItemStatus, Outcome};
 use rafi_raffle::RaffleState;
@@ -174,6 +175,9 @@ pub struct AdminEntrant {
     pub marketing: bool,
     pub created_at: i64,
     pub delivered: bool,
+    /// Whether their prize can be marked delivered (or not): they claimed it.
+    #[serde(default)]
+    pub deliverable: bool,
     pub purged: bool,
     /// Outcome and prize, once drawn.
     pub outcome: Option<Outcome>,
@@ -196,6 +200,36 @@ pub struct RaffleAdmin {
     pub entrants: Vec<AdminEntrant>,
     pub view: RaffleView,
     pub public_url: String,
+    /// What the organizer can do next: the server's rules say, the page
+    /// derives none of its own.
+    pub actions: AdminActions,
+}
+
+/// What the organizer can do next with a raffle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AdminActions {
+    /// Where starting the draw stands, while it can start (or has).
+    pub start: Option<StartStep>,
+    /// Whether the raffle has a draw console: its entrant list is frozen.
+    pub draw: bool,
+    /// Whether the winners can be exported.
+    pub export: bool,
+    /// Whether "erase personal data now" applies: finished, with personal
+    /// data left (a purge that stopped partway included).
+    pub purge: bool,
+}
+
+/// Where starting a raffle's draw stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StartStep {
+    /// Registration can be frozen and the draw started.
+    Freeze,
+    /// Frozen, but an attempt stopped before the drawing engine had the
+    /// list: starting again picks up where it stopped.
+    Retry,
+    /// The drawing engine has the drawing.
+    Started,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,7 +246,7 @@ pub enum Lifecycle {
 pub struct VerifyData {
     pub title: String,
     pub state: RaffleState,
-    /// The canonical commit document, exactly as hashed.
+    /// The drawing's canonical manifest, exactly as hashed.
     pub manifest: String,
     pub manifest_hash: String,
     pub events: Vec<Event>,

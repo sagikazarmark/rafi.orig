@@ -34,9 +34,9 @@ pub struct CompletedDraw {
 }
 
 impl CompletedDraw {
-    /// Whether the winner forfeited (not here, or declined): out of pass 2.
+    /// Whether the winner forfeited ([`Outcome::is_forfeit`]): out of pass 2.
     pub fn forfeited(&self) -> bool {
-        matches!(self.outcome, Outcome::NotHere | Outcome::Declined)
+        self.outcome.is_forfeit()
     }
 }
 
@@ -49,6 +49,15 @@ pub enum Outcome {
     Claimed,
     NotHere,
     Declined,
+}
+
+impl Outcome {
+    /// Whether the winner gave the item up (not here, or declined): it is
+    /// drawn again, and they are out of pass 2. The one definition of a
+    /// forfeit.
+    pub fn is_forfeit(self) -> bool {
+        matches!(self, Self::NotHere | Self::Declined)
+    }
 }
 
 impl From<Resolution> for Outcome {

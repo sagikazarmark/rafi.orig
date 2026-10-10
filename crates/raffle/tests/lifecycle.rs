@@ -10,7 +10,7 @@ use rafi_drawing::{
 };
 use rafi_raffle::{
     Command, RaffleState,
-    drawing::{items, lifecycle, manifest},
+    drawing::{deliverable, items, lifecycle, manifest},
 };
 
 fn chain() -> &'static (TestChain, Verifier) {
@@ -121,7 +121,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
     /// Commands never move a raffle into the states its drawing decides,
-    /// and nothing is editable once the list is committed.
+    /// and nothing is editable once the list is frozen.
     #[test]
     fn commands_leave_drawing_and_finishing_to_the_drawing(commands in proptest::collection::vec(command(), 0..30)) {
         let mut state = RaffleState::Draft;
@@ -168,6 +168,13 @@ proptest! {
             prop_assert_eq!(state.drawable(), !d.is_finished());
             prop_assert!(RaffleState::ALL.iter().position(|s| *s == state) >= RaffleState::ALL.iter().position(|s| *s == previous), "{previous:?} -> {state:?}");
             prop_assert!(d.winners().is_subset(&d.drawn_entrants()));
+            for e in d.entrants() {
+                prop_assert_eq!(
+                    deliverable(Some(&d), e.as_str()),
+                    d.winners().contains(e),
+                    "only a winner holding a claimed item is delivered to"
+                );
+            }
             previous = state;
         }
     }

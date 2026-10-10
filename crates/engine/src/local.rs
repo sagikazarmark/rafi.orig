@@ -27,12 +27,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use crate::BoxFuture;
 use rafi_drand::DrandClient;
 use rafi_drawing::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, DrawingId, Error as DrawingError,
     ErrorKind, Manifest,
 };
-use rafi_platform::BoxFuture;
 
 use crate::{DrawStore, DrawingEngine, DrawingNotifier, EngineError, EngineInfo, NOT_OPEN};
 use tokio::sync::{mpsc, watch};
@@ -325,11 +325,9 @@ impl Io {
 
 #[cfg(test)]
 mod tests {
+    use crate::{MemoryDrawStore, RecordingNotifier};
     use rafi_drand::DrandConfig;
     use rafi_drawing::{ItemStatus, ManifestItem};
-    use rafi_platform::Recording;
-
-    use crate::MemoryDrawStore;
 
     use super::*;
 
@@ -372,12 +370,8 @@ mod tests {
         let drand = mock_drand();
         let doc = doc(&drand);
         let store = MemoryDrawStore::default();
-        let notifier = Arc::new(Recording::default());
-        let engine = LocalEngine::new(
-            drand,
-            store.clone(),
-            crate::Notify::new(notifier.clone(), DrawingId::as_str),
-        );
+        let notifier = Arc::new(RecordingNotifier::default());
+        let engine = LocalEngine::new(drand, store.clone(), notifier.clone());
 
         assert_eq!(engine.info().await.unwrap().beacon, doc.beacon);
         engine.open(&doc).await.unwrap();

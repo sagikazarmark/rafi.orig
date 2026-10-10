@@ -1,67 +1,48 @@
-//! Builds the public [`RaffleView`] from the database.
+//! The full view of a raffle ([`RaffleView`]): what the projector and the
+//! admin page show.
 
-use rafi_drawing::BeaconSource;
 use std::collections::HashMap;
 
-use rafi_drawing::{Event, ItemId, ItemStatus};
+use rafi_drawing::{BeaconSource, Event, ItemId, ItemStatus};
+use rafi_model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
 use rafi_raffle::RaffleState;
 use rafi_store::view::Full;
 
-use super::AppState;
-use crate::model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
-
-/// Display name used when the organizer hid an entrant's name (the same on
-/// phones).
-pub use rafi_live::HIDDEN_NAME;
-
-/// The participant view of a snapshot: what phones show.
-pub fn participant(snap: &rafi_store::live::Snapshot) -> rafi_live::ParticipantView {
-    rafi_live::raffle::view(rafi_live::raffle::Raffle {
-        version: snap.version,
-        state: snap.state,
-        drawing: snap.drawing.as_ref(),
-        names: &snap.names,
-        prize_qty: snap.prize_qty,
-    })
-}
+use crate::{App, ids};
 
 /// How long a new entrant's name waits before appearing on the screen.
 pub const NAME_DELAY_SECS: i64 = 5;
 
-pub fn join_url(app: &AppState, join_code: &str) -> String {
-    format!("{}/j/{join_code}", app.cfg.public_url)
+pub fn join_url(app: &App, join_code: &str) -> String {
+    format!("{}/j/{join_code}", app.policy.public_url)
 }
 
 /// The full view of a raffle, or `None` if it doesn't exist. Its `v` is the
 /// raffle's version.
-pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<RaffleView>> {
-    let Some(Full {
+pub async fn build(app: &App, raffle_id: &str) -> anyhow::Result<Option<RaffleView>> {
+    match Full::read(&app.db, raffle_id).await? {
+        Some(full) => Ok(Some(of(app, &full)?)),
+        None => Ok(None),
+    }
+}
+
+/// The full view of a raffle read as `full`.
+pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
+    let Full {
         raffle,
         prizes,
         entrants,
-    }) = Full::read(&app.db, raffle_id).await?
-    else {
-        return Ok(None);
-    };
-    let now = super::ids::now();
+    } = full;
+    let now = ids::now();
 
-    let names: HashMap<&str, String> = entrants
+    let known: HashMap<&str, Option<&str>> = entrants
         .iter()
         .map(|e| {
-            let name = if e.hidden {
-                HIDDEN_NAME.to_owned()
-            } else {
-                e.display_name.clone()
-            };
+            let name = (!e.hidden).then_some(e.display_name.as_str());
             (e.id.as_str(), name)
         })
         .collect();
-    let name_of = |id: &str| {
-        names
-            .get(id)
-            .cloned()
-            .unwrap_or_else(|| format!("#{}", &id[..id.len().min(6)]))
-    };
+    let name_of = |id: &str| rafi_live::public_name(id, known.get(id).copied());
 
     let recent_names = entrants
         .iter()
@@ -183,7 +164,7 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         .as_ref()
         .map_or(BeaconSource::Drand(app.chain), |s| *s.beacon())
         .publicly_verifiable();
-    Ok(Some(RaffleView {
+    Ok(RaffleView {
         v: raffle.version.max(0) as u64,
         live: app.transport(&raffle.id, raffle.live_ended_at.is_some()),
         live_ended: raffle.live_ended_at.is_some(),
@@ -205,9 +186,9 @@ pub async fn build(app: &AppState, raffle_id: &str) -> anyhow::Result<Option<Raf
         draws,
         last_failure,
         manifest_hash: raffle.manifest_hash.clone(),
-        server_now_ms: crate::model::now_unix_ms(),
+        server_now_ms: rafi_model::now_unix_ms(),
         test_mode: raffle.test_mode,
         verifiable,
         state,
-    }))
+    })
 }

@@ -58,7 +58,7 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
     match Snapshot::read(&app.db, &raffle.id).await {
         Ok(Some(snap)) => (
             [(header::CACHE_CONTROL, "no-store")],
-            Json(super::view::participant(&snap)),
+            Json(snap.participant_view()),
         )
             .into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
@@ -72,7 +72,7 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
 async fn verify_json(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     match service::verify_data(&app, &slug).await {
         Ok(data) => Json(data).into_response(),
-        Err(service::AppError::NotFound) => StatusCode::NOT_FOUND.into_response(),
+        Err(service::Error::NotFound) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!(error = %e, "verify data");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

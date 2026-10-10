@@ -11,8 +11,8 @@ use axum::{
 };
 use dioxus_clerk::server::ClerkAuth;
 
-use super::{AppState, auth, service::AppError};
-use crate::api::{self, ApiError};
+use super::{AppState, auth, service::Error};
+use crate::api::{self, ApiError, DispatchError};
 
 pub fn routes() -> Router {
     Router::new().route("/api/admin/{name}", post(call))
@@ -35,13 +35,15 @@ async fn call(
     }
 }
 
-fn app_error(name: &str, e: AppError) -> Response {
+/// The status and the organizer's message for why a call failed.
+fn app_error(name: &str, e: DispatchError) -> Response {
     let status = match &e {
-        AppError::NotFound => StatusCode::NOT_FOUND,
-        AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        AppError::Conflict(_) => StatusCode::CONFLICT,
-        AppError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
-        AppError::Internal(e) => {
+        DispatchError::Unknown | DispatchError::App(Error::NotFound) => StatusCode::NOT_FOUND,
+        DispatchError::Arguments(_) => StatusCode::BAD_REQUEST,
+        DispatchError::App(Error::Refused(r)) if r.invalid() => StatusCode::BAD_REQUEST,
+        DispatchError::App(Error::Refused(_)) => StatusCode::CONFLICT,
+        DispatchError::App(Error::Unavailable) => StatusCode::SERVICE_UNAVAILABLE,
+        DispatchError::App(Error::Internal(e)) => {
             tracing::error!(function = name, error = %e, "internal error");
             return error(StatusCode::INTERNAL_SERVER_ERROR, "internal error");
         }

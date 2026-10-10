@@ -14,7 +14,7 @@ use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{Decision, DrawRequest};
 use rafi_drawing::{ItemStatus, Resolution};
 use rafi_engine::DrawingEngine;
-use rafi_engine_restate::{Drawing, RestateClient};
+use rafi_engine_restate::RestateClient;
 use rafi_platform::Polling;
 use rafi_raffle::RaffleState;
 use rafi_store::{Db, DrawWriter, RaffleRow, raffles};
@@ -75,17 +75,14 @@ async fn app_and_restate_rafi_share_the_database() {
     // As the native endpoint opens it: lazily, without creating it.
     let store = DrawWriter::new(Db::connect_lazy(&url).unwrap());
     let chain = drand.chain_hash();
+    // As the native endpoint binds them.
+    let (drawing, info) = rafi_engine_restate::services(
+        drand,
+        store,
+        rafi_platform::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
+    );
     restate
-        .deploy(
-            Endpoint::builder()
-                .bind(rafi_engine_restate::EngineInfo::new(&drand))
-                .bind(Drawing::new(
-                    drand,
-                    store,
-                    rafi_engine::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
-                ))
-                .build(),
-        )
+        .deploy(Endpoint::builder().bind(drawing).bind(info).build())
         .await;
     cfg.restate = RestateConfig {
         ingress_url: restate.ingress_url().to_owned(),

@@ -14,12 +14,12 @@ use std::{
     time::Duration,
 };
 
+use rafi_engine::BoxFuture;
 use rafi_engine::{
     DrawingEngine,
     conformance::{self, Deployed, Deployment, EngineHarness},
 };
 use rafi_engine_restate::{ClientConfig, RestateClient};
-use rafi_platform::BoxFuture;
 use restate_e2e_harness::{Restate, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
 
@@ -61,15 +61,10 @@ impl EngineHarness for OnRestate {
                 env: &[],
             }));
             let restate = launcher.launch(spec).await;
+            // Bound as every host binds them.
+            let (drawing, info) = rafi_engine_restate::services(d.drand, d.store, d.notifier);
             restate
-                .deploy(
-                    Endpoint::builder()
-                        .bind(rafi_engine_restate::EngineInfo::new(&d.drand))
-                        .bind(rafi_engine_restate::Drawing::new(
-                            d.drand, d.store, d.notifier,
-                        ))
-                        .build(),
-                )
+                .deploy(Endpoint::builder().bind(drawing).bind(info).build())
                 .await;
             Ok(Arc::new(Running { restate }) as Arc<dyn Deployed>)
         })

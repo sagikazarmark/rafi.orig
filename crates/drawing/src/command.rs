@@ -58,9 +58,10 @@ pub enum Resolution {
 }
 
 impl Resolution {
-    /// Whether the winner gave up the item: it is drawn again.
+    /// Whether the winner gave up the item ([`Outcome::is_forfeit`](crate::Outcome::is_forfeit)): it is
+    /// drawn again.
     pub fn is_forfeit(self) -> bool {
-        self != Self::Claimed
+        crate::Outcome::from(self).is_forfeit()
     }
 }
 

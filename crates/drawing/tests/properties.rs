@@ -5,8 +5,8 @@ use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_drawing::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing, EntrantId, Error, Event, ItemState,
-    Manifest, ManifestHash, ManifestItem, Resolution,
+    BeaconFetch, BeaconSource, Command, Decision, DrawRequest, Drawing, EntrantId, Error, Event,
+    ItemState, Manifest, ManifestHash, ManifestItem, Resolution,
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
     verify,
 };
@@ -69,6 +69,30 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
+/// Every command an organizer could send for a drawing with `items` items.
+fn candidates(items: usize, pending: Option<rafi_drawing::ItemId>) -> Vec<Command> {
+    let mut out = Vec::new();
+    for i in 0..items {
+        out.push(Command::Draw(DrawRequest { item: item(i) }));
+        for resolution in [
+            Resolution::Claimed,
+            Resolution::NotHere,
+            Resolution::Declined,
+        ] {
+            out.push(Command::Decide(Decision::Resolve {
+                item: item(i),
+                resolution,
+            }));
+        }
+        out.push(Command::Decide(Decision::Void { item: item(i) }));
+    }
+    if let Some(item) = pending {
+        out.push(Command::Decide(Decision::Abandon { item }));
+    }
+    out.push(Command::Decide(Decision::Finish));
+    out
+}
+
 /// Everything the pending draw's outcome depends on.
 fn draw_inputs(
     s: &Drawing,
@@ -100,6 +124,18 @@ proptest! {
         let mut s = Drawing::open(&manifest).unwrap();
         let mut round = 1;
         for op in ops {
+            // What the drawing admits, its engine can apply: a command that
+            // passes the app's check never fails at the engine.
+            for command in candidates(items, s.pending().map(|p| p.item.clone())) {
+                if s.admit(&command).is_ok() {
+                    let mut real = s.clone();
+                    let applied = match &command {
+                        Command::Draw(request) => real.announce(request, &source(), round + 1, 0).map(|_| ()),
+                        Command::Decide(decision) => real.decide(decision),
+                    };
+                    prop_assert!(applied.is_ok(), "{:?} admitted, but applying it failed: {:?}", command, applied);
+                }
+            }
             let pending_before = s.pending().cloned();
             let inputs_before = draw_inputs(&s);
             let events_before = s.events().len();

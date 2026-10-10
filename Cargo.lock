@@ -4704,12 +4704,14 @@ dependencies = [
  "js-sys",
  "partyline-dioxus",
  "qrcode",
+ "rafi-app-core",
  "rafi-cloudflare",
  "rafi-drand",
  "rafi-drawing",
  "rafi-engine",
  "rafi-engine-restate",
  "rafi-live",
+ "rafi-model",
  "rafi-platform",
  "rafi-raffle",
  "rafi-store",
@@ -4728,6 +4730,28 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "worker",
+]
+
+[[package]]
+name = "rafi-app-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "getrandom 0.3.4",
+ "hex",
+ "rafi-drand",
+ "rafi-drawing",
+ "rafi-engine",
+ "rafi-live",
+ "rafi-model",
+ "rafi-platform",
+ "rafi-raffle",
+ "rafi-store",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -4794,7 +4818,7 @@ dependencies = [
  "rafi-drand",
  "rafi-drawing",
  "rafi-engine",
- "rafi-platform",
+ "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
@@ -4843,6 +4867,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rafi-model"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "rafi-drawing",
+ "rafi-live",
+ "rafi-raffle",
+ "serde",
+]
+
+[[package]]
 name = "rafi-participant"
 version = "0.1.0"
 dependencies = [
@@ -4865,6 +4900,8 @@ name = "rafi-platform"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "rafi-drawing",
+ "rafi-engine",
  "rafi-live",
  "tokio",
 ]
@@ -4891,6 +4928,7 @@ dependencies = [
  "rafi-drand",
  "rafi-engine",
  "rafi-engine-restate",
+ "rafi-platform",
  "rafi-raffle",
  "rafi-store",
  "restate-sdk",
@@ -4908,7 +4946,7 @@ dependencies = [
  "oliphaunt",
  "rafi-drawing",
  "rafi-engine",
- "rafi-platform",
+ "rafi-live",
  "rafi-raffle",
  "rafi-store",
  "serde",

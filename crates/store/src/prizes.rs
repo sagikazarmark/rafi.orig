@@ -1,8 +1,19 @@
 //! A raffle's prizes.
 
+use rafi_raffle::RaffleState;
 use serde::Deserialize;
 
 use crate::{Db, Query, Result};
+
+/// The SQL condition that raffle `?{param}`'s prizes can still change
+/// ([`RaffleState::prizes_editable`]): writes check it in the same statement,
+/// so none lands after the freeze.
+fn editable(param: u8) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM raffles WHERE id = ?{param} AND state IN ({}))",
+        crate::raffles::states(RaffleState::prizes_editable)
+    )
+}
 
 /// A row of `prizes`.
 #[derive(Debug, Clone, Deserialize)]
@@ -37,13 +48,29 @@ pub async fn list(db: &Db, raffle_id: &str) -> Result<Vec<PrizeRow>> {
         .await
 }
 
-pub async fn insert(db: &Db, id: &str, raffle_id: &str, prize: &PrizeFields<'_>) -> Result<()> {
-    insert_query(db, id, raffle_id, prize)
+/// Adds a prize, only while the raffle's prizes can change. Returns `false`
+/// if they can't.
+pub async fn insert(db: &Db, id: &str, raffle_id: &str, prize: &PrizeFields<'_>) -> Result<bool> {
+    let inserted = db
+        .query(format!(
+            "INSERT INTO prizes (id, raffle_id, name, sponsor, description, qty, position)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+             WHERE {}",
+            editable(2)
+        ))
+        .bind(id)
+        .bind(raffle_id)
+        .bind(prize.name)
+        .bind(prize.sponsor)
+        .bind(prize.description)
+        .bind(prize.qty)
+        .bind(prize.position)
         .run()
-        .await
-        .map(|_| ())
+        .await?;
+    Ok(inserted > 0)
 }
 
+/// Inserts a prize unguarded: for a raffle written in the same batch.
 pub(crate) fn insert_query<'a>(
     db: &'a Db,
     id: &str,
@@ -63,13 +90,15 @@ pub(crate) fn insert_query<'a>(
     .bind(prize.position)
 }
 
-/// Returns `false` if the raffle has no such prize.
+/// Changes a prize, only while the raffle's prizes can change. Returns
+/// `false` if nothing changed: no such prize, or they can't change.
 pub async fn update(db: &Db, id: &str, raffle_id: &str, prize: &PrizeFields<'_>) -> Result<bool> {
     let changed = db
-        .query(
-            "UPDATE prizes SET name = ?, sponsor = ?, description = ?, qty = ?, position = ?
-             WHERE id = ? AND raffle_id = ?",
-        )
+        .query(format!(
+            "UPDATE prizes SET name = ?1, sponsor = ?2, description = ?3, qty = ?4, position = ?5
+             WHERE id = ?6 AND raffle_id = ?7 AND {}",
+            editable(7)
+        ))
         .bind(prize.name)
         .bind(prize.sponsor)
         .bind(prize.description)
@@ -82,11 +111,17 @@ pub async fn update(db: &Db, id: &str, raffle_id: &str, prize: &PrizeFields<'_>)
     Ok(changed > 0)
 }
 
-pub async fn delete(db: &Db, id: &str, raffle_id: &str) -> Result<()> {
-    db.query("DELETE FROM prizes WHERE id = ? AND raffle_id = ?")
+/// Removes a prize, only while the raffle's prizes can change. Returns
+/// `false` if nothing was removed: no such prize, or they can't change.
+pub async fn delete(db: &Db, id: &str, raffle_id: &str) -> Result<bool> {
+    let deleted = db
+        .query(format!(
+            "DELETE FROM prizes WHERE id = ?1 AND raffle_id = ?2 AND {}",
+            editable(2)
+        ))
         .bind(id)
         .bind(raffle_id)
         .run()
-        .await
-        .map(|_| ())
+        .await?;
+    Ok(deleted > 0)
 }

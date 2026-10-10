@@ -7,7 +7,9 @@ use rafi_drawing::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Drawing as State, Error as DrawingError,
     ErrorKind, Manifest,
 };
-use rafi_engine::{DrawStore, DrawingNotifier, NOT_OPEN, status_code};
+use rafi_engine::{DrawStore, DrawingNotifier, NOT_OPEN};
+
+use crate::status::status_code;
 use restate_drand::{AwaitError, Drand};
 use restate_sdk::prelude::*;
 

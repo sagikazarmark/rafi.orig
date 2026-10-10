@@ -27,13 +27,15 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{DrawStore, DrawingEngine, DrawingNotifier, EngineError, MemoryDrawStore, Notify};
+use crate::{
+    BoxFuture, DrawStore, DrawingEngine, DrawingNotifier, EngineError, MemoryDrawStore,
+    RecordingNotifier,
+};
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::{
-    BeaconSource, Command, Decision, DrawRequest, Drawing, DrawingId, ErrorKind, Event, ItemStatus,
-    Manifest, ManifestItem, Resolution, verify,
+    BeaconSource, Command, Decision, DrawRequest, Drawing, ErrorKind, Event, ItemStatus, Manifest,
+    ManifestItem, Resolution, verify,
 };
-use rafi_platform::{BoxFuture, Recording};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -149,6 +151,8 @@ fn scenarios(profile: Profile) -> Vec<(&'static str, Scenario)> {
         Profile::Instant => vec![
             scenario!(open_is_idempotent_per_manifest),
             scenario!(commands_apply_once),
+            scenario!(concurrent_duplicates_apply_once),
+            scenario!(a_reused_command_id_keeps_its_first_command),
             scenario!(refusals_keep_their_kind),
             scenario!(a_refused_draw_is_silent),
             scenario!(a_finished_drawing_is_forgotten),
@@ -173,7 +177,7 @@ pub struct Fixture {
     engine: Arc<dyn DrawingEngine>,
     /// Every state the engine wrote (behind the flaky store's failures).
     store: MemoryDrawStore,
-    notifier: Arc<Recording>,
+    notifier: Arc<RecordingNotifier>,
     drand: DrandClient,
 }
 
@@ -187,7 +191,7 @@ impl Fixture {
         };
         let drand = DrandClient::new(config).map_err(|e| format!("drand: {e:#}"))?;
         let store = MemoryDrawStore::default();
-        let notifier = Arc::new(Recording::default());
+        let notifier = Arc::new(RecordingNotifier::default());
         let writes: Arc<dyn DrawStore> = match profile {
             Profile::FlakyStore => Arc::new(FlakyStore {
                 inner: store.clone(),
@@ -199,7 +203,7 @@ impl Fixture {
             .deploy(Deployment {
                 drand: drand.clone(),
                 store: writes,
-                notifier: Arc::new(Notify::new(notifier.clone(), DrawingId::as_str)),
+                notifier: notifier.clone(),
             })
             .await?;
         Ok(Self {
@@ -460,7 +464,7 @@ async fn open_is_idempotent_per_manifest(fx: Arc<Fixture>, id: String) -> Result
         "{opened:?}"
     );
     ensure!(
-        fx.notifier.notified().contains(&id),
+        fx.notifier.notified().iter().any(|d| d.as_str() == id),
         "clients were not notified"
     );
     fx.engine
@@ -529,6 +533,65 @@ async fn commands_apply_once(fx: Arc<Fixture>, id: String) -> Result<(), String>
         "resolved twice"
     );
     verified(&doc, &s)?;
+    Ok(())
+}
+
+/// The same command sent twice at once (two clients retrying, say) applies
+/// once, and both callers are told it was.
+async fn concurrent_duplicates_apply_once(fx: Arc<Fixture>, id: String) -> Result<(), String> {
+    let doc = fx.doc(&id, 3, 2);
+    fx.open(&doc).await?;
+    let (a, b) = tokio::join!(fx.draw(&id, "item-1", "d1"), fx.draw(&id, "item-1", "d1"));
+    a?;
+    b?;
+    fx.drawn(&id, "item-1").await?;
+    let claimed = Decision::Resolve {
+        item: "item-1".into(),
+        resolution: Resolution::Claimed,
+    };
+    let (a, b) = tokio::join!(fx.ok(&id, claimed.clone(), "c1"), fx.ok(&id, claimed, "c1"));
+    a?;
+    b?;
+    let s = fx.store.latest(&id).ok_or("no projection")?;
+    ensure!(
+        count(&s, |e| matches!(e, Event::Drawn { .. })) == 1,
+        "drawn twice"
+    );
+    ensure!(
+        count(&s, |e| matches!(e, Event::Resolved { .. })) == 1,
+        "resolved twice"
+    );
+    Ok(())
+}
+
+/// A command ID names one command: sent again with another command, the
+/// engine answers as it did the first time and applies nothing.
+async fn a_reused_command_id_keeps_its_first_command(
+    fx: Arc<Fixture>,
+    id: String,
+) -> Result<(), String> {
+    let doc = fx.doc(&id, 3, 2);
+    fx.open(&doc).await?;
+    fx.draw(&id, "item-1", "d1").await?;
+    fx.drawn(&id, "item-1").await?;
+    let resolve = |resolution| Decision::Resolve {
+        item: "item-1".into(),
+        resolution,
+    };
+    fx.ok(&id, resolve(Resolution::Claimed), "x").await?;
+    // Applied, this would be refused: the winner is already decided.
+    fx.ok(&id, resolve(Resolution::NotHere), "x").await?;
+    let s = fx.store.latest(&id).ok_or("no projection")?;
+    ensure!(
+        count(&s, |e| matches!(e, Event::Resolved { .. })) == 1,
+        "the second command applied: {:?}",
+        s.events()
+    );
+    ensure!(
+        s.item(&"item-1".into())
+            .is_some_and(|u| u.status() == ItemStatus::Claimed),
+        "the item is no longer claimed"
+    );
     Ok(())
 }
 

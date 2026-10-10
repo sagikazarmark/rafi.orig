@@ -8,6 +8,59 @@ pub const MAX_DESCRIPTION_CHARS: usize = 2000;
 pub const MAX_RULES_CHARS: usize = 5000;
 /// The most copies of one prize: each is an item of the drawing.
 pub const MAX_PRIZE_QTY: u32 = 500;
+/// The highest minimum age a raffle can ask for.
+pub const MAX_MIN_AGE: u32 = 99;
+/// The languages a raffle's public pages come in; the first is the default.
+pub const LANGS: [&str; 2] = ["en", "hu"];
+
+/// A raffle's settings, as the organizer gave them or as stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Settings<'a> {
+    pub title: &'a str,
+    pub description: &'a str,
+    pub lang: &'a str,
+    pub organizer_name: &'a str,
+    pub contact_email: &'a str,
+    pub rules: &'a str,
+    pub event_date: &'a str,
+    pub min_age: u32,
+}
+
+/// Why settings are refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsError {
+    /// Not a [title].
+    Title,
+    /// The description or the rules are too long ([`texts_fit`]).
+    TooLong,
+}
+
+impl<'a> Settings<'a> {
+    /// The settings as they are stored: texts trimmed, the title checked, an
+    /// unknown language as the default and the minimum age capped at
+    /// [`MAX_MIN_AGE`].
+    pub fn normalize(self) -> Result<Self, SettingsError> {
+        if !texts_fit(self.description, self.rules) {
+            return Err(SettingsError::TooLong);
+        }
+        Ok(Self {
+            title: title(self.title).ok_or(SettingsError::Title)?,
+            description: self.description.trim(),
+            lang: lang(self.lang),
+            organizer_name: self.organizer_name.trim(),
+            contact_email: self.contact_email.trim(),
+            rules: self.rules.trim(),
+            event_date: self.event_date.trim(),
+            min_age: self.min_age.min(MAX_MIN_AGE),
+        })
+    }
+}
+
+/// The language `input` names, or the default ([`LANGS`]).
+pub fn lang(input: &str) -> &'static str {
+    let input = input.trim();
+    LANGS.into_iter().find(|l| *l == input).unwrap_or(LANGS[0])
+}
 
 /// `input` trimmed, if it is a valid title (or prize name): 1 to
 /// [`MAX_TITLE_CHARS`] characters.
@@ -52,6 +105,46 @@ mod tests {
         let long = "x".repeat(MAX_TITLE_CHARS);
         assert!(title(&copy_title(&long)).is_some());
         assert_eq!(copy_title("Meetup"), "Meetup (copy)");
+    }
+
+    fn settings(title: &str) -> Settings<'_> {
+        Settings {
+            title,
+            description: " About ",
+            lang: "de",
+            organizer_name: " Org ",
+            contact_email: "",
+            rules: "",
+            event_date: "",
+            min_age: 150,
+        }
+    }
+
+    #[test]
+    fn settings_normalize() {
+        let s = settings(" Meetup ").normalize().unwrap();
+        assert_eq!(s.title, "Meetup");
+        assert_eq!(s.description, "About");
+        assert_eq!(s.organizer_name, "Org");
+        assert_eq!(s.lang, "en", "an unknown language is the default");
+        assert_eq!(s.min_age, MAX_MIN_AGE);
+        assert_eq!(s.normalize(), Ok(s), "normalizing is idempotent");
+        assert_eq!(lang(" hu "), "hu");
+        assert_eq!(settings(" ").normalize(), Err(SettingsError::Title));
+        let long = "x".repeat(MAX_RULES_CHARS + 1);
+        let s = Settings {
+            rules: &long,
+            ..settings("Meetup")
+        };
+        assert_eq!(s.normalize(), Err(SettingsError::TooLong));
+    }
+
+    #[test]
+    fn texts_fit_their_limits() {
+        let at = |n| "é".repeat(n);
+        assert!(texts_fit(&at(MAX_DESCRIPTION_CHARS), &at(MAX_RULES_CHARS)));
+        assert!(!texts_fit(&at(MAX_DESCRIPTION_CHARS + 1), ""));
+        assert!(!texts_fit("", &at(MAX_RULES_CHARS + 1)));
     }
 
     #[test]

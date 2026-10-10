@@ -2,6 +2,8 @@
 //! makes them one entrant (the store refuses a second entry with the same
 //! [`Email::key`]).
 
+use crate::RaffleState;
+
 /// The longest display name, in characters.
 pub const MAX_NAME_CHARS: usize = 24;
 
@@ -92,19 +94,97 @@ fn key(email: &str) -> Option<String> {
     Some(format!("{local}@{domain}"))
 }
 
+/// Why someone can't join on their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JoinRefusal {
+    /// Registration isn't open.
+    Closed,
+    /// They didn't accept the rules.
+    Rules,
+}
+
+/// Whether someone may join a raffle in `state` on their own, having
+/// accepted the rules or not. Their name and email are checked on their own
+/// ([`display_name`], [`Email::parse`]).
+pub fn may_join(state: RaffleState, accepted_rules: bool) -> Result<(), JoinRefusal> {
+    if !state.joinable() {
+        return Err(JoinRefusal::Closed);
+    }
+    if !accepted_rules {
+        return Err(JoinRefusal::Rules);
+    }
+    Ok(())
+}
+
+/// The most fake entrants added at once.
+pub const MAX_FAKES: u32 = 500;
+
+/// Why fake entrants can't be added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FakesRefusal {
+    /// Only a raffle in test mode takes fake entrants.
+    NotTestMode,
+    /// The entrant list is frozen.
+    Frozen,
+}
+
+/// How many of `requested` fake entrants (rehearsal entrants) a raffle in
+/// `state` takes: only in test mode, while its entrants can change, and at
+/// most [`MAX_FAKES`] at once.
+pub fn fakes(test_mode: bool, state: RaffleState, requested: u32) -> Result<u32, FakesRefusal> {
+    if !test_mode {
+        return Err(FakesRefusal::NotTestMode);
+    }
+    if !state.entrants_editable() {
+        return Err(FakesRefusal::Frozen);
+    }
+    Ok(requested.min(MAX_FAKES))
+}
+
 /// How an entrant is removed ([`RaffleState::removal`](crate::RaffleState::removal)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Removal {
-    /// Gone entirely: the entrant list isn't committed yet.
+    /// Gone entirely: the entrant list isn't frozen yet.
     Delete,
     /// Their personal data is erased; their anonymous ID stays in the
-    /// committed list, so the draw stays verifiable.
+    /// published list, so the draw stays verifiable.
     Erase,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use RaffleState as S;
+
+    #[test]
+    fn joining() {
+        assert_eq!(may_join(S::Open, true), Ok(()));
+        assert_eq!(may_join(S::Open, false), Err(JoinRefusal::Rules));
+        for s in S::ALL.into_iter().filter(|s| *s != S::Open) {
+            assert_eq!(may_join(s, true), Err(JoinRefusal::Closed), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn fake_entrants() {
+        assert_eq!(fakes(true, S::Open, 3), Ok(3));
+        assert_eq!(fakes(true, S::Draft, MAX_FAKES + 1), Ok(MAX_FAKES));
+        assert_eq!(fakes(false, S::Open, 3), Err(FakesRefusal::NotTestMode));
+        assert_eq!(fakes(true, S::Frozen, 3), Err(FakesRefusal::Frozen));
+    }
+
+    #[test]
+    fn an_email_key_is_its_own_key() {
+        for input in [
+            " Foo@Example.COM ",
+            "a.b+meetup@gmail.com",
+            "x.y@googlemail.com",
+            "a+b+c@example.org",
+        ] {
+            let once = key(input).unwrap();
+            assert_eq!(key(&once).as_deref(), Some(once.as_str()), "{input}");
+        }
+    }
 
     fn key(input: &str) -> Option<String> {
         Email::parse(input).map(|e| e.key)

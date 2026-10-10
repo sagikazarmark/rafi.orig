@@ -31,6 +31,27 @@ async fn frozen(db: &Db, id: &str) -> Result<Drawing, String> {
     Ok(state)
 }
 
+/// Applies `p` to an entrant that must exist.
+async fn patch(db: &Db, raffle_id: &str, id: &str, p: entrants::Patch<'_>) -> Outcome {
+    check(
+        entrants::patch(db, raffle_id, id, &p).await.map_err(fail)?,
+        &format!("patching {id}"),
+    )
+}
+
+/// Puts raffle `id` in `state` as is, past the lifecycle's rules: fixtures
+/// that need entrants in a raffle whose list no longer changes add them
+/// first, then move it on.
+async fn force_state(db: &Db, id: &str, state: RaffleState) -> Outcome {
+    db.query("UPDATE raffles SET state = ? WHERE id = ?")
+        .bind(state.as_str())
+        .bind(id)
+        .run()
+        .await
+        .map_err(fail)?;
+    Ok(())
+}
+
 /// A manifest for drawing `id`: `entrants`, and one item `u1`.
 fn manifest<const N: usize>(id: &str, entrants: [String; N]) -> Manifest {
     Manifest::new(
@@ -397,13 +418,27 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
     for id in ["a", "b", "c"] {
         join(db, "r1", id, &format!("{id}@x"), 10).await?;
     }
-    entrants::set_hidden(db, "a", true).await.map_err(fail)?;
-    entrants::set_display_name(db, "b", "Bea")
-        .await
-        .map_err(fail)?;
-    entrants::set_delivered(db, "b", Some(9))
-        .await
-        .map_err(fail)?;
+    patch(
+        db,
+        "r1",
+        "a",
+        entrants::Patch {
+            hidden: Some(true),
+            ..Default::default()
+        },
+    )
+    .await?;
+    patch(
+        db,
+        "r1",
+        "b",
+        entrants::Patch {
+            display_name: Some("Bea"),
+            delivered_at: Some(Some(9)),
+            ..Default::default()
+        },
+    )
+    .await?;
     let b = entrant(db, "r1", "b").await?;
     check(
         b.display_name == "Bea"
@@ -411,7 +446,16 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
             && entrant(db, "r1", "a").await?.hidden,
         "patched",
     )?;
-    entrants::set_delivered(db, "b", None).await.map_err(fail)?;
+    patch(
+        db,
+        "r1",
+        "b",
+        entrants::Patch {
+            delivered_at: Some(None),
+            ..Default::default()
+        },
+    )
+    .await?;
     check(
         entrant(db, "r1", "b").await?.delivered_at.is_none(),
         "not delivered after all",
@@ -475,9 +519,16 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     for id in ["w", "d", "n"] {
         join(db, "r1", id, &format!("{id}@x"), 10).await?;
     }
-    entrants::set_delivered(db, "d", Some(1))
-        .await
-        .map_err(fail)?;
+    patch(
+        db,
+        "r1",
+        "d",
+        entrants::Patch {
+            delivered_at: Some(Some(1)),
+            ..Default::default()
+        },
+    )
+    .await?;
     let manifest = Manifest::new(
         "r1",
         BeaconSource::QUICKNET,
@@ -520,10 +571,11 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     .await
     .map_err(fail)?;
     // A raffle that hasn't finished is never due.
-    raffle_in(db, "r2", RaffleState::Drawing).await?;
+    raffle_in(db, "r2", RaffleState::Draft).await?;
     entrants::insert_manual(db, &manual("r2", "x", None))
         .await
         .map_err(fail)?;
+    force_state(db, "r2", RaffleState::Drawing).await?;
     db.query("UPDATE raffles SET purge_nonwinners_at = 0, purge_winners_at = 0 WHERE id = 'r2'")
         .run()
         .await
@@ -716,18 +768,29 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
 pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
     frozen(db, "r1").await?;
     let (anna, bence) = ("a".repeat(32), "b".repeat(32));
+    force_state(db, "r1", RaffleState::Closed).await?;
     for id in [&anna, &bence] {
         entrants::insert_manual(db, &manual("r1", id, None))
             .await
             .map_err(fail)?;
     }
-    entrants::set_display_name(db, &anna, "Anna")
-        .await
-        .map_err(fail)?;
-    entrants::set_display_name(db, &bence, "Bence")
-        .await
-        .map_err(fail)?;
-    entrants::set_hidden(db, &bence, true).await.map_err(fail)?;
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    patch(
+        db,
+        "r1",
+        &anna,
+        entrants::Patch {
+            display_name: Some("Anna"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let bence_hidden = entrants::Patch {
+        display_name: Some("Bence"),
+        hidden: Some(true),
+        ..Default::default()
+    };
+    patch(db, "r1", &bence, bence_hidden).await?;
     // Bence drawn, as the engine logged it.
     let draw = Event::Drawn {
         k: 1,
@@ -768,5 +831,147 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
     check(
         Snapshot::read(db, "nope").await.map_err(fail)?.is_none(),
         "no such raffle",
+    )
+}
+
+pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Draft).await?;
+    let prize = |name, qty| prizes::PrizeFields {
+        name,
+        sponsor: "",
+        description: "",
+        qty,
+        position: 0,
+    };
+    let fake = |id: &str| entrants::Fake {
+        id: id.into(),
+        display_name: "Fake".into(),
+        claim_code: id.to_uppercase(),
+    };
+    check(
+        entrants::insert_manual(db, &manual("r1", "m1", None))
+            .await
+            .map_err(fail)?,
+        "added by hand while closed",
+    )?;
+    check(
+        entrants::insert_fakes(db, "r1", "v1", 0, &[fake("f1"), fake("f2")])
+            .await
+            .map_err(fail)?,
+        "fakes while closed",
+    )?;
+    check(
+        prizes::insert(db, "i1", "r1", &prize("Book", 1))
+            .await
+            .map_err(fail)?,
+        "a prize while closed",
+    )?;
+    check(
+        entrants::delete(db, "r1", "f2").await.map_err(fail)?,
+        "removed while closed",
+    )?;
+
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    check(
+        !entrants::insert_manual(db, &manual("r1", "m2", None))
+            .await
+            .map_err(fail)?,
+        "nobody is added by hand once frozen",
+    )?;
+    check(
+        !entrants::insert_fakes(db, "r1", "v1", 0, &[fake("f3")])
+            .await
+            .map_err(fail)?,
+        "no fakes once frozen",
+    )?;
+    check(
+        !entrants::delete(db, "r1", "m1").await.map_err(fail)?,
+        "nobody is removed once frozen",
+    )?;
+    check(
+        !prizes::insert(db, "i2", "r1", &prize("Mug", 1))
+            .await
+            .map_err(fail)?,
+        "no prize is added once frozen",
+    )?;
+    check(
+        !prizes::update(db, "i1", "r1", &prize("Big book", 1))
+            .await
+            .map_err(fail)?,
+        "no prize changes once frozen",
+    )?;
+    check(
+        !prizes::delete(db, "i1", "r1").await.map_err(fail)?,
+        "no prize is removed once frozen",
+    )?;
+    let mut ids: Vec<String> = entrants::list(db, "r1")
+        .await
+        .map_err(fail)?
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    ids.sort();
+    check(
+        ids == ["f1", "m1"],
+        &format!("the list as it was frozen: {ids:?}"),
+    )?;
+    check(
+        prizes::list(db, "r1").await.map_err(fail)?.len() == 1,
+        "the prizes as they were frozen",
+    )
+}
+
+pub(super) async fn patches_an_entrant_at_once(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    entrants::insert_manual(db, &manual("r1", "m1", None))
+        .await
+        .map_err(fail)?;
+    let patch = entrants::Patch {
+        display_name: Some("Anna"),
+        hidden: Some(true),
+        delivered_at: Some(Some(7)),
+    };
+    check(
+        entrants::patch(db, "r1", "m1", &patch)
+            .await
+            .map_err(fail)?,
+        "patched",
+    )?;
+    let e = entrants::get(db, "r1", "m1")
+        .await
+        .map_err(fail)?
+        .ok_or("the entrant is gone")?;
+    check(
+        e.display_name == "Anna" && e.hidden && e.delivered_at == Some(7),
+        "every field at once",
+    )?;
+    // Absent fields keep their values; delivery can be undone.
+    let undeliver = entrants::Patch {
+        delivered_at: Some(None),
+        ..Default::default()
+    };
+    entrants::patch(db, "r1", "m1", &undeliver)
+        .await
+        .map_err(fail)?;
+    let e = entrants::get(db, "r1", "m1")
+        .await
+        .map_err(fail)?
+        .ok_or("the entrant is gone")?;
+    check(
+        e.display_name == "Anna" && e.hidden && e.delivered_at.is_none(),
+        "only delivery changed",
+    )?;
+    check(
+        !entrants::patch(db, "r1", "nobody", &patch)
+            .await
+            .map_err(fail)?,
+        "no such entrant",
+    )?;
+    entrants::erase(db, "r1", Some("m1")).await.map_err(fail)?;
+    check(
+        !entrants::patch(db, "r1", "m1", &patch)
+            .await
+            .map_err(fail)?,
+        "an erased entrant isn't patched",
     )
 }

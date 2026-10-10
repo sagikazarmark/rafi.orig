@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/raffle", "crates/drawing", "crates/drand", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live", "crates/store-d1-check", "crates/platform", "crates/cloudflare", "crates/cloudflare-check", "crates/restate-worker", "crates/participant"]
+members = ["crates/raffle", "crates/drawing", "crates/drand", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live", "crates/store-d1-check", "crates/platform", "crates/cloudflare", "crates/cloudflare-check", "crates/restate-worker", "crates/participant", "crates/model", "crates/app-core"]
 
 [workspace.package]
 edition = "2024"
@@ -15,6 +15,8 @@ rafi-drand = { path = "crates/drand" }
 drand = { version = "0.3", default-features = false }
 restate-drand = { version = "0.3", default-features = false }
 rafi-store = { path = "crates/store" }
+rafi-model = { path = "crates/model" }
+rafi-app-core = { path = "crates/app-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

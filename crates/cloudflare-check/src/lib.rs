@@ -95,7 +95,7 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
     Ok(())
 }
 
-/// The app's half of a Restate freeze: the commit document (on the mock drand
+/// The app's half of a Restate freeze: the manifest (on the mock drand
 /// chain the Restate Worker uses in development) and the frozen raffle row.
 /// Returns the manifest to hand to `Drawing/{id}/open`.
 async fn prepare(db: &Db, raffle: &str) -> Result<String> {
@@ -149,7 +149,7 @@ async fn page(
         .await
         .map_err(err)?
         .ok_or_else(|| err("no such raffle"))?;
-    let view = rafi_cloudflare::view(&snap);
+    let view = snap.participant_view();
     let strings = CardStrings::from_lookup(|k| {
         STRINGS
             .iter()
@@ -291,7 +291,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
     if path == "/participant" {
         let snap = Snapshot::read(&db, raffle).await.map_err(err)?;
-        return Response::from_json(&snap.map(|s| rafi_cloudflare::view(&s)));
+        return Response::from_json(&snap.map(|s| s.participant_view()));
     }
     if req.method() != Method::Post {
         return Response::error("Not Found", 404);

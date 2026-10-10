@@ -14,9 +14,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 rafi-raffle.workspace = true
 rafi-drawing.workspace = true
+rafi-model.workspace = true
 rafi-drand = { path = "../drand", optional = true }
 rafi-store = { workspace = true, optional = true }
-rafi-live = { path = "../live", features = ["raffle"] }
+rafi-live = { path = "../live", features = ["raffle", "card"] }
 rafi-platform = { path = "../platform", optional = true }
 rafi-engine = { path = "../engine", optional = true }
 # The web app adds `launch`, `web`, `devtools` and `logger`; the server only renders (`ssr`).
@@ -35,6 +36,7 @@ dioform = { version = "0.7", features = ["dioxus-field"] }
 # Server only (native and Workers)
 axum = { version = "0.8", default-features = false, features = ["form", "json", "query", "matched-path", "original-uri"], optional = true }
 rafi-engine-restate = { path = "../engine-restate", optional = true }
+rafi-app-core = { workspace = true, optional = true }
 tracing = { version = "0.1", optional = true }
 anyhow = { version = "1", optional = true }
 thiserror = { workspace = true, optional = true }
@@ -96,6 +98,7 @@ server = [
     "dep:axum",
     "dep:tower-http",
     "dep:rafi-engine-restate",
+    "dep:rafi-app-core",
     "dep:rafi-store",
     "rafi-live/server",
     "dep:rafi-platform",

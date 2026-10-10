@@ -23,31 +23,17 @@ use std::{cell::OnceCell, rc::Rc};
 use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_engine::Notify;
+use rafi_platform::Notify;
 use rafi_store::DrawWriter;
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};
 use worker::{Context, Env, HttpRequest, Result, event};
 
-fn number<T: std::str::FromStr>(env: &Env, name: &str, default: T) -> T {
-    lookup(env, name)
-        .and_then(|v| v.trim().parse().ok())
-        .unwrap_or(default)
-}
-
 fn drand_config(env: &Env) -> DrandConfig {
-    let defaults = DrandConfig::default();
+    let config = DrandConfig::from_lookup(|name| lookup(env, name));
     DrandConfig {
-        relays: lookup(env, "RAFI_DRAND_RELAYS")
-            .map(|v| {
-                v.split(',')
-                    .map(|s| s.trim().to_owned())
-                    .filter(|s| !s.is_empty())
-                    .collect()
-            })
-            .unwrap_or(defaults.relays),
-        mock: cfg!(feature = "dev") && lookup(env, "RAFI_DRAND_MOCK").as_deref() == Some("1"),
-        lead_secs: number(env, "RAFI_DRAND_LEAD_SECS", defaults.lead_secs),
-        timeout_secs: number(env, "RAFI_DRAND_TIMEOUT_SECS", defaults.timeout_secs),
+        // Production ignores the mock chain.
+        mock: cfg!(feature = "dev") && config.mock,
+        ..config
     }
 }
 

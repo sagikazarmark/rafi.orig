@@ -1,8 +1,10 @@
 //! The phone's live card, one component for the server (SSR) and the WASM.
 
+#[cfg(feature = "card")]
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "card")]
 use crate::{
     screen::{Screen, screen},
     view::{ParticipantView, Phase},
@@ -82,6 +84,7 @@ impl CardStrings {
 /// - `now_ms` is the server-synced clock, in Unix milliseconds;
 /// - `announce` adds `role="alert"` and the pop animation to a win. Set it
 ///   only when the win happens live, never on page load.
+#[cfg(feature = "card")]
 #[component]
 pub fn Card(
     view: ParticipantView,

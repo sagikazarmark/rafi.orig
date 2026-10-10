@@ -4,7 +4,7 @@
 //! [`raffle_id`]).
 
 use rafi_drawing::{
-    BeaconSource, Drawing, DrawingId, EntrantId, Event, ItemId, Manifest, ManifestItem,
+    BeaconSource, Drawing, DrawingId, EntrantId, Event, ItemId, Manifest, ManifestItem, Outcome,
 };
 
 use crate::RaffleState;
@@ -77,6 +77,17 @@ pub fn lifecycle(drawing: &Drawing) -> RaffleState {
     }
 }
 
+/// Whether `entrant`'s prize can be marked delivered (or not): they won an
+/// item and claimed it. Delivery dates when a winner's data may go
+/// (retention), so only a winner's counts.
+pub fn deliverable(drawing: Option<&Drawing>, entrant: &str) -> bool {
+    drawing.is_some_and(|d| {
+        d.entrant_outcomes()
+            .get(entrant)
+            .is_some_and(|(outcome, _)| *outcome == Outcome::Claimed)
+    })
+}
+
 /// Whether a raffle in `state` with `drawing` can be deleted: not while a
 /// draw waits for its beacon (the engine would write to a raffle that's gone).
 pub fn deletable(state: RaffleState, drawing: Option<&Drawing>) -> bool {
@@ -127,5 +138,41 @@ mod tests {
             .unwrap();
         drawing.decide(&Decision::Finish).unwrap();
         assert_eq!(lifecycle(&drawing), RaffleState::Finished);
+    }
+
+    fn opened() -> Drawing {
+        let manifest = manifest(
+            "r1",
+            BeaconSource::QUICKNET,
+            ["aa".to_owned()],
+            items([("book", "Book", 2)]),
+        );
+        Drawing::open(&manifest).unwrap()
+    }
+
+    #[test]
+    fn deletable_unless_a_draw_waits_for_its_beacon() {
+        let mut drawing = opened();
+        for s in RaffleState::ALL {
+            assert!(deletable(s, None), "{s:?} without a drawing");
+            assert!(deletable(s, Some(&drawing)), "{s:?} with nothing pending");
+        }
+        let book = DrawRequest {
+            item: "book-1".into(),
+        };
+        drawing
+            .announce(&book, &BeaconSource::QUICKNET, 1, 0)
+            .unwrap();
+        assert!(!deletable(RaffleState::Drawing, Some(&drawing)));
+        assert!(
+            deletable(RaffleState::Frozen, Some(&drawing)),
+            "only a drawing raffle waits"
+        );
+    }
+
+    #[test]
+    fn only_a_claimed_winner_is_delivered_to() {
+        assert!(!deliverable(None, "aa"));
+        assert!(!deliverable(Some(&opened()), "aa"), "nobody drawn yet");
     }
 }

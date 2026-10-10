@@ -65,7 +65,7 @@ async fn app_with_engine(
     let engine = rafi_engine::local::LocalEngine::new(
         rafi_drand::DrandClient::new(drand).expect("drand configuration"),
         rafi_store::DrawWriter::new(db.clone()),
-        rafi_engine::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
+        rafi_platform::Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
     );
     AppState::from_parts(
         cfg,
@@ -771,7 +771,7 @@ async fn drafts_are_private() {
     // Other organizers cannot see it either.
     assert!(matches!(
         service::admin(&app, "someone_else", &id).await,
-        Err(service::AppError::NotFound)
+        Err(service::Error::NotFound)
     ));
 }
 
@@ -843,7 +843,7 @@ async fn an_engine_on_another_chain_is_refused_before_freezing() {
     let err = service::start_draw(&app, OWNER, &raffle.id)
         .await
         .unwrap_err();
-    assert!(matches!(err, service::AppError::Conflict(_)), "{err}");
+    assert!(matches!(err, service::Error::Refused(_)), "{err}");
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state, RaffleState::Open, "nothing was frozen");
     assert!(r.manifest.is_none(), "nothing was committed");
@@ -1069,7 +1069,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
             .await
             .unwrap();
     }
-    // The freeze's first write landed, the commit document's did not.
+    // The freeze's first write landed, the manifest's did not.
     app.db
         .query("UPDATE raffles SET state = 'frozen' WHERE id = ?")
         .bind(&raffle.id)
@@ -1080,7 +1080,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.drawing.is_some()).await;
     let doc: rafi_drawing::Manifest =
-        serde_json::from_str(r.manifest.as_deref().expect("commit document")).unwrap();
+        serde_json::from_str(r.manifest.as_deref().expect("a manifest")).unwrap();
     assert_eq!(doc.entrants.len(), 3);
     assert_eq!(doc.items.len(), 2);
     assert_eq!(
@@ -1108,11 +1108,11 @@ async fn fake_entrants_are_added_in_one_batch() {
     service::update_settings(&app, OWNER, &raffle.id, settings)
         .await
         .unwrap();
-    service::add_fakes(&app, OWNER, &raffle.id, service::MAX_FAKE_ENTRANTS + 1)
+    service::add_fakes(&app, OWNER, &raffle.id, rafi_raffle::entrant::MAX_FAKES + 1)
         .await
         .unwrap();
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
-    assert_eq!(entrants.len(), service::MAX_FAKE_ENTRANTS as usize);
+    assert_eq!(entrants.len(), rafi_raffle::entrant::MAX_FAKES as usize);
     assert!(entrants.iter().all(|e| e.source == "fake" && !e.hidden));
     let ids: std::collections::HashSet<_> = entrants.iter().map(|e| &e.id).collect();
     assert_eq!(ids.len(), entrants.len());
@@ -1441,7 +1441,7 @@ async fn ending_live_updates() {
     let err = service::end_live(&app, OWNER, &raffle.id)
         .await
         .unwrap_err();
-    assert!(matches!(err, service::AppError::Conflict(_)), "{err}");
+    assert!(matches!(err, service::Error::Refused(_)), "{err}");
     assert!(live.ended().is_empty());
 
     let raffle = finished_raffle(&app).await;
@@ -1466,7 +1466,7 @@ async fn ending_live_updates() {
     // Other organizers can't.
     assert!(matches!(
         service::end_live(&app, "someone_else", &raffle.id).await,
-        Err(service::AppError::NotFound)
+        Err(service::Error::NotFound)
     ));
 }
 

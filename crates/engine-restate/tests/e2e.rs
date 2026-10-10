@@ -15,8 +15,8 @@ use rafi_drawing::{
     Resolution, verify,
 };
 use rafi_engine::MemoryDrawStore;
+use rafi_engine::RecordingNotifier;
 use rafi_engine_restate::SERVICE_NAME;
-use rafi_platform::Recording;
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
 use serde_json::{Value, json};
@@ -80,14 +80,14 @@ async fn e2e_raffle() {
     })
     .unwrap();
     let store = MemoryDrawStore::default();
-    let notifier = std::sync::Arc::new(Recording::default());
+    let notifier = std::sync::Arc::new(RecordingNotifier::default());
     restate
         .deploy(
             Endpoint::builder()
                 .bind(rafi_engine_restate::Drawing::new(
                     drand,
                     store.clone(),
-                    rafi_engine::Notify::new(notifier.clone(), rafi_drawing::DrawingId::as_str),
+                    notifier.clone(),
                 ))
                 .build(),
         )
@@ -247,7 +247,8 @@ async fn e2e_raffle() {
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.body, Value::Null, "state is cleared after finishing");
     assert!(
-        notifier.notified().iter().all(|id| id == RAFFLE) && notifier.notified().len() >= 4,
+        notifier.notified().iter().all(|id| id.as_str() == RAFFLE)
+            && notifier.notified().len() >= 4,
         "every write notifies clients: {:?}",
         notifier.notified()
     );
@@ -282,14 +283,14 @@ async fn e2e_stalled_draw() {
     })
     .unwrap();
     let store = MemoryDrawStore::default();
-    let notifier = std::sync::Arc::new(Recording::default());
+    let notifier = std::sync::Arc::new(RecordingNotifier::default());
     restate
         .deploy(
             Endpoint::builder()
                 .bind(rafi_engine_restate::Drawing::new(
                     drand,
                     store.clone(),
-                    rafi_engine::Notify::new(notifier.clone(), rafi_drawing::DrawingId::as_str),
+                    notifier.clone(),
                 ))
                 .build(),
         )
@@ -370,14 +371,14 @@ async fn e2e_cancelled_draw_stalls() {
     })
     .unwrap();
     let store = MemoryDrawStore::default();
-    let notifier = std::sync::Arc::new(Recording::default());
+    let notifier = std::sync::Arc::new(RecordingNotifier::default());
     restate
         .deploy(
             Endpoint::builder()
                 .bind(rafi_engine_restate::Drawing::new(
                     drand,
                     store.clone(),
-                    rafi_engine::Notify::new(notifier.clone(), rafi_drawing::DrawingId::as_str),
+                    notifier.clone(),
                 ))
                 .build(),
         )

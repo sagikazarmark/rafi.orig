@@ -23,15 +23,15 @@ refusal with its kind, anything else means the engine is unavailable, and a call
 
 Committing to a round and awaiting its beacon go through [`restate-drand`](https://crates.io/crates/restate-drand).
 After every change the drawing goes to a `DrawStore` (the app's database), then clients are told through a
-`DrawingNotifier`, best effort; both are [`rafi-engine`](../engine)'s ports. `Notify` adapts a
+`DrawingNotifier`, best effort; both are [`rafi-engine`](../engine)'s ports. `rafi_platform::Notify` adapts a
 [`rafi-platform`](../platform) `Notifier`, with the host saying what each drawing's clients follow (for rafi, its
 raffle: `rafi_raffle::drawing::raffle_id`). `services` binds both services the way every host does.
 
 ```rust
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::DrawingId;
-use rafi_engine::{MemoryDrawStore, Notify};
-use rafi_platform::Polling;
+use rafi_engine::MemoryDrawStore;
+use rafi_platform::{Notify, Polling};
 
 let drand = DrandClient::new(DrandConfig::default())?;
 let notifier = Notify::new(Polling::default(), DrawingId::as_str);

@@ -15,7 +15,7 @@ dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "
 js-sys = "0.3"
 rafi-cloudflare = { path = "../cloudflare" }
 rafi-platform = { path = "../platform" }
-rafi-live = { path = "../live", features = ["server"] }
+rafi-live = { path = "../live", features = ["server", "card"] }
 rafi-drawing.workspace = true
 rafi-drand = { path = "../drand", features = ["mock"] }
 rafi-store.workspace = true

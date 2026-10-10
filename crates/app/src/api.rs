@@ -4,7 +4,7 @@
 //! client that POSTs its arguments as a JSON object (field names = parameter names)
 //! to `/api/admin/<name>` and decodes the JSON reply. On the server (`server`) it is
 //! an arm of [`dispatch`], which `server::admin` calls with the organizer resolved
-//! from the Clerk session (or `dev`); it calls the `service` layer.
+//! from the Clerk session (or `dev`); it calls the use cases (`rafi-app-core`).
 //!
 //! Errors travel as an [`ApiError`] with a non-2xx status (401 without a session).
 
@@ -21,10 +21,7 @@ use crate::model::{
     EntrantPatch, Lifecycle, Me, PrizeInput, RaffleAdmin, RaffleSettings, RaffleSummary,
 };
 #[cfg(feature = "server")]
-use crate::server::{
-    AppState,
-    service::{self, AppError},
-};
+use crate::server::{AppState, service};
 #[cfg(feature = "server")]
 use rafi_drawing::{Decision, DrawRequest};
 
@@ -49,6 +46,20 @@ impl fmt::Display for ApiError {
 }
 
 impl std::error::Error for ApiError {}
+
+/// Why [`dispatch`] didn't return a result.
+#[cfg(feature = "server")]
+#[derive(Debug, thiserror::Error)]
+pub enum DispatchError {
+    /// No admin function by that name.
+    #[error("no such function")]
+    Unknown,
+    /// The arguments don't decode.
+    #[error("Invalid arguments: {0}")]
+    Arguments(String),
+    #[error(transparent)]
+    App(#[from] service::Error),
+}
 
 /// Declares the admin functions: `fn name(args) -> T = |app, owner| future;`, where
 /// the future (borrowing `app: &AppState`, `owner: &str` and the arguments) resolves
@@ -76,7 +87,7 @@ macro_rules! admin_api {
             owner: &str,
             name: &str,
             args: &[u8],
-        ) -> Result<serde_json::Value, AppError> {
+        ) -> Result<serde_json::Value, DispatchError> {
             match name {
                 $(
                     stringify!($name) => {
@@ -84,10 +95,10 @@ macro_rules! admin_api {
                         struct Args { $($arg: $ty),* }
                         let Args { $($arg),* } = decode(args)?;
                         let ($app, $owner) = (app, owner);
-                        $body.await.and_then(encode::<$ret>)
+                        Ok($body.await.and_then(encode::<$ret>)?)
                     }
                 )*
-                _ => Err(AppError::NotFound),
+                _ => Err(DispatchError::Unknown),
             }
         }
     };
@@ -176,15 +187,14 @@ pub async fn get_view(slug: String) -> Result<crate::model::RaffleView, ApiError
 }
 
 #[cfg(feature = "server")]
-fn decode<T: serde::de::DeserializeOwned>(args: &[u8]) -> Result<T, AppError> {
+fn decode<T: serde::de::DeserializeOwned>(args: &[u8]) -> Result<T, DispatchError> {
     let args = if args.is_empty() { b"{}" } else { args };
-    serde_json::from_slice(args)
-        .map_err(|e| AppError::BadRequest(format!("Invalid arguments: {e}")))
+    serde_json::from_slice(args).map_err(|e| DispatchError::Arguments(e.to_string()))
 }
 
 #[cfg(feature = "server")]
-fn encode<T: Serialize>(value: T) -> Result<serde_json::Value, AppError> {
-    serde_json::to_value(value).map_err(|e| AppError::Internal(e.into()))
+fn encode<T: Serialize>(value: T) -> service::Result<serde_json::Value> {
+    serde_json::to_value(value).map_err(|e| service::Error::Internal(e.into()))
 }
 
 /// Same-origin requests, so the browser sends Clerk's session cookie.

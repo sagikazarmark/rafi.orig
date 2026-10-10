@@ -164,27 +164,41 @@ pub struct Manual<'a> {
     pub consent_version: &'a str,
 }
 
-/// Adds an entrant by hand. An email that already entered is an
-/// [`Error::Unique`](crate::Error::Unique).
-pub async fn insert_manual(db: &Db, m: &Manual<'_>) -> Result<()> {
-    let now = now();
-    db.query(
-        "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code,
-                               consent_version, consent_rules_at, created_at)
-         VALUES (?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?)",
+/// The SQL condition that raffle `?{param}`'s entrants can still change
+/// ([`RaffleState::entrants_editable`]): writes to the list check it in the
+/// same statement, so none lands after the freeze.
+fn editable(param: u8) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM raffles WHERE id = ?{param} AND state IN ({}))",
+        crate::raffles::states(RaffleState::entrants_editable)
     )
-    .bind(m.id)
-    .bind(m.raffle_id)
-    .bind(m.display_name)
-    .bind(m.email_raw)
-    .bind(m.email_norm)
-    .bind(m.claim_code)
-    .bind(m.consent_version)
-    .bind(now)
-    .bind(now)
-    .run()
-    .await
-    .map(|_| ())
+}
+
+/// Adds an entrant by hand, only while the entrant list can change. Returns
+/// `false` if it can't. An email that already entered is an
+/// [`Error::Unique`](crate::Error::Unique).
+pub async fn insert_manual(db: &Db, m: &Manual<'_>) -> Result<bool> {
+    let now = now();
+    let inserted = db
+        .query(format!(
+            "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code,
+                                   consent_version, consent_rules_at, created_at)
+             SELECT ?1, ?2, ?3, ?4, ?5, 'manual', ?6, ?7, ?8, ?9
+             WHERE {}",
+            editable(2)
+        ))
+        .bind(m.id)
+        .bind(m.raffle_id)
+        .bind(m.display_name)
+        .bind(m.email_raw)
+        .bind(m.email_norm)
+        .bind(m.claim_code)
+        .bind(m.consent_version)
+        .bind(now)
+        .bind(now)
+        .run()
+        .await?;
+    Ok(inserted > 0)
 }
 
 /// A fake entrant, for rehearsals.
@@ -195,15 +209,16 @@ pub struct Fake {
     pub claim_code: String,
 }
 
-/// Adds fake entrants, all or nothing: multi-row `INSERT`s in one batch.
-/// They entered at `created_at`.
+/// Adds fake entrants, all or nothing: multi-row `INSERT`s in one batch,
+/// only while the entrant list can change. They entered at `created_at`.
+/// Returns `false` if the list can't change (nothing is added).
 pub async fn insert_fakes(
     db: &Db,
     raffle_id: &str,
     consent_version: &str,
     created_at: i64,
     fakes: &[Fake],
-) -> Result<()> {
+) -> Result<bool> {
     let now = now();
     // ?1–?4 are the same for every row; each row binds its ID, name and claim
     // code after them.
@@ -220,8 +235,10 @@ pub async fn insert_fakes(
                 .query(format!(
                     "INSERT INTO entrants (id, raffle_id, display_name, source, claim_code, consent_version,
                                            consent_rules_at, created_at)
-                     VALUES {}",
-                    values.join(", ")
+                     SELECT * FROM (VALUES {}) AS fakes
+                     WHERE {}",
+                    values.join(", "),
+                    editable(1)
                 ))
                 .bind(raffle_id)
                 .bind(consent_version)
@@ -232,45 +249,58 @@ pub async fn insert_fakes(
             })
         })
         .collect();
-    db.batch(inserts).await.map(|_| ())
+    let inserted = db.batch(inserts).await?;
+    Ok(fakes.is_empty() || inserted.iter().any(|&n| n > 0))
 }
 
-pub async fn set_display_name(db: &Db, id: &str, display_name: &str) -> Result<()> {
-    db.query("UPDATE entrants SET display_name = ? WHERE id = ?")
-        .bind(display_name)
+/// Changes to an entrant the organizer makes, applied together.
+#[derive(Debug, Clone, Default)]
+pub struct Patch<'a> {
+    pub display_name: Option<&'a str>,
+    pub hidden: Option<bool>,
+    /// Delivered at (`Some(Some(at))`), or not delivered (`Some(None)`).
+    pub delivered_at: Option<Option<i64>>,
+}
+
+/// Applies `patch` to an entrant of `raffle_id` whose data isn't erased, in
+/// one statement: all of it or nothing. Returns `false` if there is no such
+/// entrant.
+pub async fn patch(db: &Db, raffle_id: &str, id: &str, patch: &Patch<'_>) -> Result<bool> {
+    // An absent field keeps its value: `?n IS NULL` skips it (`delivered_at`
+    // is nullable, so it has its own flag).
+    let changed = db
+        .query(
+            "UPDATE entrants SET
+                 display_name = COALESCE(?1, display_name),
+                 hidden = COALESCE(?2, hidden),
+                 delivered_at = CASE WHEN ?3 = 1 THEN ?4 ELSE delivered_at END
+             WHERE raffle_id = ?5 AND id = ?6 AND purged = 0",
+        )
+        .bind(patch.display_name)
+        .bind(patch.hidden)
+        .bind(i64::from(patch.delivered_at.is_some()))
+        .bind(patch.delivered_at.flatten())
+        .bind(raffle_id)
         .bind(id)
         .run()
-        .await
-        .map(|_| ())
+        .await?;
+    Ok(changed > 0)
 }
 
-pub async fn set_hidden(db: &Db, id: &str, hidden: bool) -> Result<()> {
-    db.query("UPDATE entrants SET hidden = ? WHERE id = ?")
-        .bind(hidden)
-        .bind(id)
-        .run()
-        .await
-        .map(|_| ())
-}
-
-/// Marks the entrant's prize delivered (at `at`), or not delivered (`None`).
-pub async fn set_delivered(db: &Db, id: &str, at: Option<i64>) -> Result<()> {
-    db.query("UPDATE entrants SET delivered_at = ? WHERE id = ?")
-        .bind(at)
-        .bind(id)
-        .run()
-        .await
-        .map(|_| ())
-}
-
-/// Removes an entrant entirely (before the freeze).
-pub async fn delete(db: &Db, raffle_id: &str, id: &str) -> Result<()> {
-    db.query("DELETE FROM entrants WHERE id = ? AND raffle_id = ?")
+/// Removes an entrant entirely, only while the entrant list can change
+/// (afterwards their ID is in the published list: [`erase`] them). Returns
+/// `false` if nothing was removed: no such entrant, or the list can't change.
+pub async fn delete(db: &Db, raffle_id: &str, id: &str) -> Result<bool> {
+    let deleted = db
+        .query(format!(
+            "DELETE FROM entrants WHERE id = ?1 AND raffle_id = ?2 AND {}",
+            editable(2)
+        ))
         .bind(id)
         .bind(raffle_id)
         .run()
-        .await
-        .map(|_| ())
+        .await?;
+    Ok(deleted > 0)
 }
 
 /// Erases the personal data of one entrant, or of every entrant of the raffle

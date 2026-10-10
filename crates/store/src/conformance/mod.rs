@@ -209,6 +209,8 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "domain.altcha_replay" => domain::altcha_refuses_replays,
     "domain.full_view" => domain::reads_the_full_view,
     "domain.participant_snapshot" => domain::phones_see_only_drawn_names,
+    "domain.frozen_list" => domain::the_list_and_prizes_are_fixed_once_frozen,
+    "domain.entrant_patch" => domain::patches_an_entrant_at_once,
 };
 
 /// Runs every scenario through `harness`, one after the other.

@@ -10,6 +10,10 @@
 // are only used on one side.
 #![cfg_attr(not(feature = "server"), allow(dead_code))]
 
+// The server on wasm32 is the Worker: without `worker` it has no entry points.
+#[cfg(all(feature = "server", target_arch = "wasm32", not(feature = "worker")))]
+compile_error!("on wasm32, build the server as a Worker: `--features worker` (or `worker-dev`)");
+
 #[cfg_attr(not(feature = "web"), allow(dead_code))]
 pub mod api;
 // Installed from the dioxus-daisyui-components registry (`dx components add`); not every
@@ -21,8 +25,7 @@ mod components;
 pub mod i18n;
 #[cfg_attr(not(feature = "web"), allow(dead_code))]
 pub mod icons;
-#[cfg_attr(not(feature = "web"), allow(dead_code))]
-pub mod model;
+pub use rafi_model as model;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod style;

@@ -1,5 +1,7 @@
-//! Starting the draw: freezing the entrant list, committing it in a
-//! manifest, and handing that to the drawing engine.
+//! Starting the draw: freezing the entrant list, writing the drawing's
+//! manifest from it, and handing that to the drawing engine. (The freeze
+//! fixes the entrants and the prizes; "commit" is the drawing's word, for a
+//! draw committing to a drand round.)
 //!
 //! The store has no interactive transactions, so this is a protocol of
 //! separate writes, each guarded by the state it expects and safe to repeat:
@@ -13,15 +15,16 @@ use crate::RaffleState;
 /// The step starting the draw takes next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Start {
-    /// Freeze the raffle (from `from`), then [`Commit`](Self::Commit) with
-    /// `unfreeze_to: from`. Needs entrants and prizes ([`ready`]).
+    /// Freeze the raffle (from `from`), then
+    /// [`WriteManifest`](Self::WriteManifest) with `unfreeze_to: from`. Needs
+    /// entrants and prizes ([`ready`]).
     Freeze { from: RaffleState },
     /// Frozen without a manifest (a freeze stopped between its steps):
     /// build the manifest from the fixed entrant list and store it, or go
     /// back to `unfreeze_to` if nobody is left.
-    Commit { unfreeze_to: RaffleState },
-    /// Committed, but the engine hasn't opened the drawing: hand it the
-    /// stored manifest again (opening is idempotent).
+    WriteManifest { unfreeze_to: RaffleState },
+    /// The manifest is stored, but the engine hasn't opened the drawing: hand
+    /// it the stored manifest again (opening is idempotent).
     Resend,
     /// The engine has the drawing: nothing left to do.
     Started,
@@ -39,13 +42,13 @@ pub enum Refusal {
 }
 
 /// The next step for a raffle in `state`, with or without a stored manifest
-/// (`committed`) and drawing (`opened`).
-pub fn next(state: RaffleState, committed: bool, opened: bool) -> Result<Start, Refusal> {
+/// (`has_manifest`) and drawing (`opened`).
+pub fn next(state: RaffleState, has_manifest: bool, opened: bool) -> Result<Start, Refusal> {
     use crate::Command;
     match state {
         from if from.apply(Command::Freeze).is_some() => Ok(Start::Freeze { from }),
         // Whatever it froze from, it may reopen from closed.
-        RaffleState::Frozen if !opened && !committed => Ok(Start::Commit {
+        RaffleState::Frozen if !opened && !has_manifest => Ok(Start::WriteManifest {
             unfreeze_to: RaffleState::Closed,
         }),
         RaffleState::Frozen if !opened => Ok(Start::Resend),
@@ -55,7 +58,7 @@ pub fn next(state: RaffleState, committed: bool, opened: bool) -> Result<Start, 
 }
 
 /// Whether a raffle with `entrants` active entrants and `items` drawing
-/// items (prize copies) can commit.
+/// items (prize copies) has a drawing to start.
 pub fn ready(entrants: usize, items: usize) -> Result<(), Refusal> {
     if items == 0 {
         return Err(Refusal::NoPrizes);
@@ -87,13 +90,37 @@ mod tests {
     fn picks_up_where_an_attempt_stopped() {
         assert_eq!(
             next(S::Frozen, false, false),
-            Ok(Start::Commit {
+            Ok(Start::WriteManifest {
                 unfreeze_to: S::Closed
             })
         );
         assert_eq!(next(S::Frozen, true, false), Ok(Start::Resend));
         assert_eq!(next(S::Frozen, true, true), Ok(Start::Started));
         assert_eq!(next(S::Drawing, true, true), Ok(Start::Started));
+    }
+
+    /// Every state, with and without a manifest and a drawing: the step, or
+    /// the refusal.
+    #[test]
+    fn every_combination() {
+        for s in S::ALL {
+            for has_manifest in [false, true] {
+                for opened in [false, true] {
+                    let got = next(s, has_manifest, opened);
+                    let want = match s {
+                        S::Open | S::Closed => Ok(Start::Freeze { from: s }),
+                        S::Frozen if opened => Ok(Start::Started),
+                        S::Frozen if has_manifest => Ok(Start::Resend),
+                        S::Frozen => Ok(Start::WriteManifest {
+                            unfreeze_to: S::Closed,
+                        }),
+                        S::Drawing => Ok(Start::Started),
+                        _ => Err(Refusal::State(s)),
+                    };
+                    assert_eq!(got, want, "{s:?}, manifest {has_manifest}, opened {opened}");
+                }
+            }
+        }
     }
 
     #[test]
