@@ -462,7 +462,7 @@ async fn full_raffle_flow() {
         &data.manifest,
         &data.manifest_hash,
         &data.events,
-        rafi_drand::resolve_chain,
+        rafi_raffle::drand::resolve_chain,
     );
     assert!(report.ok(), "{report:#?}");
     assert_eq!(report.draws.len(), items.len() + 1);
@@ -514,7 +514,7 @@ async fn full_raffle_flow() {
             &data.manifest,
             &data.manifest_hash,
             &data.events,
-            rafi_drand::resolve_chain
+            rafi_raffle::drand::resolve_chain
         )
         .ok()
     );
@@ -1221,7 +1221,7 @@ async fn stalled_draw_keeps_its_round() {
         &data.manifest,
         &data.manifest_hash,
         &data.events,
-        rafi_drand::resolve_chain,
+        rafi_raffle::drand::resolve_chain,
     );
     assert!(report.ok(), "{report:#?}");
     let abandoned: Vec<_> = report.abandoned.iter().map(|c| c.round).collect();

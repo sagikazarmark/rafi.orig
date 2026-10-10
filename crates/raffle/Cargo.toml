@@ -6,6 +6,11 @@ license.workspace = true
 rust-version.workspace = true
 description = "Rafi's raffle: a verifiable raffle of items among entrants (the state machine, the draw algorithm, the manifest and the verifier)"
 
+[features]
+## `mock-chain`: the mock drand chain, a test chain with a public seed
+## (development and tests only; raffles on it are not publicly verifiable).
+mock-chain = ["drand/test-chain"]
+
 [dependencies]
 drand = { workspace = true, features = ["bls12-381"] }
 serde.workspace = true
@@ -16,6 +21,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 drand = { workspace = true, features = ["test-chain"] }
+rafi-raffle = { path = ".", features = ["mock-chain"] }
 proptest = "1"
 sha2.workspace = true
 hex.workspace = true

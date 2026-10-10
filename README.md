@@ -60,7 +60,7 @@ app ──ingress──▶ Restate ──▶ engine host (Raffle) ──▶ data
 
 ```
 crates/raffle                 rafi-raffle: the raffle: draw algorithm, state machine and its admission rule, manifest, verifier
-                              (pure, tested, vectors)
+                              (pure, tested, vectors); `mock-chain`: the mock drand chain (development and tests)
 crates/lifecycle              rafi-lifecycle: the raffle's lifecycle in the app (pure): its states, starting the draw, who may
                               join, entrants' names and emails, settings, prizes as the raffle's items
 crates/drand                  rafi-drand: Rafi's drand settings (quicknet, or the mock test chain) and the round to commit to, on the drand crate

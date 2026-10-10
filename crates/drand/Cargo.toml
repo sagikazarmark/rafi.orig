@@ -9,11 +9,12 @@ publish = false
 
 [features]
 ## Allow `mock = true`: a signing test chain with a public seed (development and tests).
-mock = ["drand/test-chain"]
+mock = ["drand/test-chain", "rafi-raffle/mock-chain"]
 
 [dependencies]
 anyhow = "1"
 drand = { workspace = true, features = ["client", "rustls", "bls12-381"] }
+rafi-raffle.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 serde.workspace = true
 

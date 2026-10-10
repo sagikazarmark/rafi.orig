@@ -1,10 +1,8 @@
 //! Rafi's drand settings on top of [`drand`]: which chain, which relays,
 //! how far ahead a draw commits, and how long a draw waits for its beacon.
 //!
-//! The chain is quicknet, or (with `mock = true` and the `mock` feature) a
-//! signing test chain with a public seed: its beacons are real BLS signatures,
-//! but anyone can forge them, and its chain hash marks every raffle using it as
-//! not publicly verifiable.
+//! The chain is quicknet, or (with `mock = true` and the `mock` feature)
+//! the mock chain (`rafi_raffle::drand::mock_chain`).
 
 use std::time::{Duration, SystemTime};
 
@@ -15,6 +13,8 @@ use drand::{
     client::{Client, Strategy},
     http::Relay,
 };
+#[cfg(feature = "mock")]
+use rafi_raffle::drand::mock_chain;
 use serde::{Deserialize, Serialize};
 
 /// Beacon and timing settings.
@@ -48,44 +48,6 @@ impl Default for DrandConfig {
             timeout_secs: 60,
         }
     }
-}
-
-/// The public seed of the mock chain. Anyone can sign its beacons.
-pub const MOCK_SEED: [u8; 32] = *b"rafi mock drand: not verifiable!";
-
-/// The mock (test) chain: pinned parameters, so the app and the raffle engine
-/// agree on its hash across restarts.
-#[cfg(feature = "mock")]
-pub fn mock_chain() -> drand::TestChain {
-    let q = chains::quicknet();
-    let period = u32::try_from(q.period().as_secs())
-        .ok()
-        .and_then(std::num::NonZeroU32::new)
-        .expect("quicknet period");
-    drand::TestChain::new(
-        MOCK_SEED,
-        drand::Scheme::BlsUnchainedG1Rfc9380,
-        period,
-        q.genesis_time().as_secs(),
-        "rafi-test",
-    )
-    .expect("supported scheme")
-}
-
-/// Chain info for a chain hash found in a manifest: the public drand
-/// chains, and the mock chain when this build supports it.
-pub fn resolve_chain(hash: &ChainHash) -> Option<ChainInfo> {
-    if let Some(info) = chains::by_hash(hash) {
-        return Some(info);
-    }
-    #[cfg(feature = "mock")]
-    {
-        let mock = mock_chain().chain().clone();
-        if mock.hash() == *hash {
-            return Some(mock);
-        }
-    }
-    None
 }
 
 impl DrandConfig {
@@ -399,7 +361,7 @@ mod tests {
         .unwrap();
         assert!(client.chain_hash() != chains::QUICKNET_HASH);
         assert_eq!(
-            resolve_chain(&client.chain_hash()),
+            rafi_raffle::drand::resolve_chain(&client.chain_hash()),
             Some(client.chain().clone())
         );
         let Fetch::Ready(b) = client.fetch(7).await.unwrap() else {

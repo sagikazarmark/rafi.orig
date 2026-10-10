@@ -4791,6 +4791,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "drand",
+ "rafi-raffle",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
@@ -4911,6 +4912,7 @@ dependencies = [
  "drand",
  "hex",
  "proptest",
+ "rafi-raffle",
  "serde",
  "serde_json",
  "sha2 0.10.9",

@@ -32,7 +32,7 @@ const RAFFLE: &str = "e2e-raffle";
 fn doc(entrants: usize) -> Manifest {
     Manifest::new(
         RAFFLE,
-        BeaconSource::Drand(rafi_drand::mock_chain().chain().hash()),
+        BeaconSource::Drand(rafi_raffle::drand::mock_chain().chain().hash()),
         (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
         vec![
             ManifestItem {
@@ -258,7 +258,7 @@ async fn e2e_raffle() {
         &doc.canonical_json(),
         &finished.manifest_hash().to_string(),
         finished.events(),
-        rafi_drand::resolve_chain,
+        rafi_raffle::drand::resolve_chain,
     );
     assert!(report.ok(), "{report:#?}");
     assert_eq!(report.draws.len(), 2);
@@ -346,7 +346,7 @@ async fn e2e_stalled_draw() {
         &doc.canonical_json(),
         &s.manifest_hash().to_string(),
         s.events(),
-        rafi_drand::resolve_chain,
+        rafi_raffle::drand::resolve_chain,
     );
     assert!(report.ok(), "{report:#?}");
     assert_eq!(report.abandoned.len(), 1);

@@ -31,6 +31,7 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 
 [dev-dependencies]
 rafi-drand = { path = "../drand", features = ["mock"] }
+rafi-raffle = { workspace = true, features = ["mock-chain"] }
 rafi-engine = { path = "../engine", features = ["conformance"] }
 restate-e2e-harness = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

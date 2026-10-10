@@ -137,7 +137,7 @@ const MOCK: &str = "mock";
 /// The mock chain's hash, in builds that may commit to it.
 fn mock_chain() -> Option<ChainHash> {
     #[cfg(any(test, feature = "mock-drand"))]
-    return Some(rafi_drand::mock_chain().chain().hash());
+    return Some(rafi_raffle::drand::mock_chain().chain().hash());
     #[cfg(not(any(test, feature = "mock-drand")))]
     None
 }
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn release_builds_commit_only_to_public_chains() {
         let quicknet = chains::QUICKNET_HASH;
-        let mock = rafi_drand::mock_chain().chain().hash();
+        let mock = rafi_raffle::drand::mock_chain().chain().hash();
         assert_eq!(
             resolve_chain(&quicknet.to_string(), None).unwrap(),
             quicknet
