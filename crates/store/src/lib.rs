@@ -17,8 +17,8 @@
 //!   (erasure, ending live channels, `meta`);
 //! - [`view::Full`]: what the projector and the admin see, and
 //!   [`live::Snapshot`]: what phones see, each read in one snapshot;
-//! - [`save_drawing`], the drawing engine's only write; [`DrawWriter`] offers
-//!   it as the engine's [`DrawStore`]. It carries no app policy, so the
+//! - [`save_raffle`], the drawing engine's only write; [`DrawWriter`] offers
+//!   it as the engine's [`RaffleStore`]. It carries no app policy, so the
 //!   engine's hosts need none of the app's settings.
 //!
 //! The SQL is written for SQLite (and D1) and Postgres alike: `?`/`?N`
@@ -58,7 +58,7 @@ pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
 use rafi_engine::BoxFuture;
-use rafi_engine::DrawStore;
+use rafi_engine::RaffleStore;
 use rafi_raffle::Raffle;
 pub use value::{Row, Value};
 
@@ -104,7 +104,7 @@ impl PurgeAfter {
 /// ([`retention::date_purges`]).
 ///
 /// Returns whether the state was written.
-pub async fn save_drawing(db: &Db, state: &Raffle) -> Result<bool> {
+pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
     let stored = StoredRaffle::of(state)?;
     let lifecycle = rafi_lifecycle::drawing::lifecycle(state).as_str();
     let written = db
@@ -165,7 +165,7 @@ pub(crate) fn parse_drawing(json: &str) -> Result<Raffle> {
     serde_json::from_str(json).map_err(|e| Error::Decode(format!("the stored drawing: {e}")))
 }
 
-/// The drawing engine's [`DrawStore`] over this database: [`save_drawing`].
+/// The drawing engine's [`RaffleStore`] over this database: [`save_raffle`].
 #[derive(Clone)]
 pub struct DrawWriter {
     db: Db,
@@ -177,10 +177,10 @@ impl DrawWriter {
     }
 }
 
-impl DrawStore for DrawWriter {
-    fn save_drawing<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
+impl RaffleStore for DrawWriter {
+    fn save_raffle<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         Box::pin(async move {
-            save_drawing(&self.db, state)
+            save_raffle(&self.db, state)
                 .await
                 .map_err(|e| anyhow::anyhow!("writing the draw state: {e}"))
         })
@@ -240,7 +240,7 @@ mod tests {
         );
         let drawing = Raffle::open(&manifest).unwrap();
         assert!(
-            writer.save_drawing(&drawing).await.is_err(),
+            writer.save_raffle(&drawing).await.is_err(),
             "no database yet: the engine retries"
         );
         assert!(!path.exists());

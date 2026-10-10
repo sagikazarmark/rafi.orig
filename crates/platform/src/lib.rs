@@ -7,11 +7,11 @@
 //! - [`Notifier`]: "this raffle changed", "end its live updates", and which
 //!   [`LiveTransport`] clients use;
 //! - [`RateLimit`], with the [`Limit`] keys;
-//! - [`Notify`]: a [`Notifier`] as the drawing engine's `DrawingNotifier`;
+//! - [`Notify`]: a [`Notifier`] as the raffle engine's `RaffleNotifier`;
 //! - [`sendable`]: a `Send` future from one that is only `Send` natively
 //!   (wasm32 is single-threaded).
 //!
-//! The drawing engine and the store it writes to are `rafi-engine`'s.
+//! The raffle engine and the store it writes to are `rafi-engine`'s.
 //!
 //! This crate depends on no database, no platform and no UI framework.
 

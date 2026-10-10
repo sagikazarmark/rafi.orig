@@ -47,10 +47,10 @@ impl Default for DatabaseConfig {
 }
 
 impl DatabaseConfig {
-    /// Where the drawing engine writes draw states: the app's database, opened
+    /// Where the raffle engine writes raffles: the app's database, opened
     /// lazily. The app owns the schema (and creates the SQLite file); until it
     /// has, writes fail and Restate retries them.
-    pub fn draw_store(&self) -> Result<DrawWriter> {
+    pub fn raffle_store(&self) -> Result<DrawWriter> {
         if self.url.trim().is_empty() {
             bail!("database.url is required");
         }
@@ -63,8 +63,8 @@ impl DatabaseConfig {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServicesConfig {
-    /// Policy for the `Drawing` virtual object.
-    pub drawing: ServiceOptionsConfig,
+    /// Policy for the `Raffle` virtual object.
+    pub raffle: ServiceOptionsConfig,
 }
 
 impl Config {
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn database_url_is_required() {
         let cfg = DatabaseConfig { url: " ".into() };
-        assert!(cfg.draw_store().is_err());
+        assert!(cfg.raffle_store().is_err());
     }
 
     #[tokio::test]
@@ -110,11 +110,11 @@ mod tests {
         DatabaseConfig {
             url: format!("sqlite://{}", path.display()),
         }
-        .draw_store()
+        .raffle_store()
         .unwrap();
         assert!(
             !path.exists(),
-            "the app creates the database, not the drawing engine"
+            "the app creates the database, not the raffle engine"
         );
     }
 
@@ -139,7 +139,7 @@ mod tests {
                 [database]
                 url = "sqlite:///data/rafi.db"
 
-                [services.drawing]
+                [services.raffle]
                 inactivity_timeout = "5m"
                 "#,
             )?;
@@ -163,7 +163,7 @@ mod tests {
                 cfg.endpoint.identity_keys,
                 ["publickeyv1_a", "publickeyv1_b"]
             );
-            assert!(cfg.services.drawing.inactivity_timeout.is_some());
+            assert!(cfg.services.raffle.inactivity_timeout.is_some());
             Ok(())
         });
     }

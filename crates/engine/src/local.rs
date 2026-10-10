@@ -1,16 +1,16 @@
-//! An in-process drawing engine, for tests and development only.
+//! An in-process raffle engine, for tests and development only.
 //!
-//! [`LocalEngine`] keeps the [`DrawingEngine`] contract the way the `Drawing`
+//! [`LocalEngine`] keeps the [`RaffleEngine`] contract the way the `Raffle`
 //! Restate virtual object does, without its durability:
 //!
-//! - one queue per drawing, worked off in arrival order by one task, so
-//!   commands for a drawing apply one at a time and a decision sent while a
+//! - one queue per raffle, worked off in arrival order by one task, so
+//!   commands for a raffle apply one at a time and a decision sent while a
 //!   draw waits for its beacon applies after the draw settles;
 //! - draws are accepted at once (queued) and settle in the background;
 //! - every command ID is applied once;
-//! - every new state is written to the [`DrawStore`] (retried), then clients
+//! - every new state is written to the [`RaffleStore`] (retried), then clients
 //!   are notified, best effort;
-//! - the drawing is forgotten once it finishes.
+//! - the raffle is forgotten once it finishes.
 //!
 //! All decisions are `rafi_raffle`'s ([`Raffle::open_or_check`],
 //! [`Raffle::announce`], [`Raffle::settle`], [`Raffle::decide`]); the
@@ -18,7 +18,7 @@
 //! does the I/O, with an injectable clock.
 //!
 //! It is never a production engine (nothing survives a restart, and two
-//! engines owning one drawing could announce one draw on two rounds): only
+//! engines owning one raffle could announce one draw on two rounds): only
 //! dev-dependencies enable the `local` feature.
 
 use std::{
@@ -34,7 +34,7 @@ use rafi_raffle::{
     Raffle, RaffleId,
 };
 
-use crate::{DrawStore, DrawingEngine, DrawingNotifier, EngineError, EngineInfo, NOT_OPEN};
+use crate::{EngineError, EngineInfo, NOT_OPEN, RaffleEngine, RaffleNotifier, RaffleStore};
 use tokio::sync::{mpsc, watch};
 
 /// Unix seconds now.
@@ -43,7 +43,7 @@ pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 /// How a job ended: refusals keep their kind and message.
 type Outcome = Result<(), (ErrorKind, String)>;
 
-/// The drawing engine, in this process. Clones share the engine.
+/// The raffle engine, in this process. Clones share the engine.
 #[derive(Clone)]
 pub struct LocalEngine {
     shared: Arc<Shared>,
@@ -54,17 +54,17 @@ pub struct LocalEngine {
 
 struct Shared {
     io: Arc<Io>,
-    /// Each drawing's queue; its task ends when the engine is dropped.
+    /// Each raffle's queue; its task ends when the engine is dropped.
     queues: Mutex<HashMap<RaffleId, mpsc::UnboundedSender<Job>>>,
     /// The outcome of every call by idempotency key, set once applied.
     seen: Mutex<HashMap<String, watch::Sender<Option<Outcome>>>>,
 }
 
-/// What a drawing's task needs.
+/// What a raffle's task needs.
 struct Io {
     drand: DrandClient,
-    store: Arc<dyn DrawStore>,
-    notifier: Arc<dyn DrawingNotifier>,
+    store: Arc<dyn RaffleStore>,
+    notifier: Arc<dyn RaffleNotifier>,
     clock: Clock,
 }
 
@@ -114,15 +114,15 @@ impl Builder {
 impl LocalEngine {
     /// Draws with `drand`, writes every state to `store` and tells clients
     /// through `notifier`. System clock; no deadline.
-    pub fn new(drand: DrandClient, store: impl DrawStore, notifier: impl DrawingNotifier) -> Self {
+    pub fn new(drand: DrandClient, store: impl RaffleStore, notifier: impl RaffleNotifier) -> Self {
         Self::builder(drand, store, notifier).build()
     }
 
     /// [`LocalEngine::new`], configured further.
     pub fn builder(
         drand: DrandClient,
-        store: impl DrawStore,
-        notifier: impl DrawingNotifier,
+        store: impl RaffleStore,
+        notifier: impl RaffleNotifier,
     ) -> Builder {
         Builder {
             io: Io {
@@ -149,11 +149,11 @@ impl LocalEngine {
         }
     }
 
-    /// Queues `work` for `drawing_id` under `key`, once per key. Returns the
+    /// Queues `work` for `raffle_id` under `key`, once per key. Returns the
     /// key's outcome channel.
     fn submit(
         &self,
-        drawing_id: &RaffleId,
+        raffle_id: &RaffleId,
         key: String,
         work: Work,
     ) -> watch::Receiver<Option<Outcome>> {
@@ -166,15 +166,15 @@ impl LocalEngine {
         drop(seen);
         let job = Job { work, done };
         let mut queues = self.shared.queues.lock().expect("queues lock");
-        let queue = queues.entry(drawing_id.clone()).or_insert_with(|| {
+        let queue = queues.entry(raffle_id.clone()).or_insert_with(|| {
             let (tx, rx) = mpsc::unbounded_channel();
-            tokio::spawn(run(self.shared.io.clone(), drawing_id.clone(), rx));
+            tokio::spawn(run(self.shared.io.clone(), raffle_id.clone(), rx));
             tx
         });
         if let Err(mpsc::error::SendError(job)) = queue.send(job) {
             job.done.send_replace(Some(Err((
                 ErrorKind::Invariant,
-                "the drawing's task ended".into(),
+                "the raffle's task ended".into(),
             ))));
         }
         rx
@@ -185,7 +185,7 @@ impl LocalEngine {
         let wait = async {
             match rx.wait_for(Option::is_some).await {
                 Ok(outcome) => outcome.clone().expect("an outcome"),
-                Err(_) => Err((ErrorKind::Invariant, "the drawing's task ended".into())),
+                Err(_) => Err((ErrorKind::Invariant, "the raffle's task ended".into())),
             }
         };
         let outcome = match self.deadline {
@@ -199,7 +199,7 @@ impl LocalEngine {
     }
 }
 
-impl DrawingEngine for LocalEngine {
+impl RaffleEngine for LocalEngine {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
         let beacon = BeaconSource::Drand(self.shared.io.drand.chain_hash());
         Box::pin(async move { Ok(EngineInfo { beacon }) })
@@ -215,41 +215,41 @@ impl DrawingEngine for LocalEngine {
 
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a RaffleId,
+        raffle_id: &'a RaffleId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(async move {
             // Accepted once queued: progress shows in the projection.
-            let key = format!("{drawing_id}/{command_id}");
-            self.submit(drawing_id, key, Work::Draw(request.clone()));
+            let key = format!("{raffle_id}/{command_id}");
+            self.submit(raffle_id, key, Work::Draw(request.clone()));
             Ok(())
         })
     }
 
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a RaffleId,
+        raffle_id: &'a RaffleId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(async move {
-            let key = format!("{drawing_id}/{command_id}");
-            let rx = self.submit(drawing_id, key, Work::Decide(decision.clone()));
+            let key = format!("{raffle_id}/{command_id}");
+            let rx = self.submit(raffle_id, key, Work::Decide(decision.clone()));
             self.outcome(rx).await
         })
     }
 }
 
-/// A drawing's task: applies its jobs one at a time, in order. Command IDs
-/// outlive the drawing, as Restate's idempotency retention does: a retried
+/// A raffle's task: applies its jobs one at a time, in order. Command IDs
+/// outlive the raffle, as Restate's idempotency retention does: a retried
 /// finish answers as the first one did.
-async fn run(io: Arc<Io>, drawing_id: RaffleId, mut jobs: mpsc::UnboundedReceiver<Job>) {
+async fn run(io: Arc<Io>, raffle_id: RaffleId, mut jobs: mpsc::UnboundedReceiver<Job>) {
     let mut state: Option<Raffle> = None;
     while let Some(job) = jobs.recv().await {
         let outcome = io.apply(&mut state, job.work).await;
         if let Err((_, message)) = &outcome {
-            tracing::debug!(%drawing_id, message, "refused");
+            tracing::debug!(%raffle_id, message, "refused");
         }
         job.done.send_replace(Some(outcome));
     }
@@ -296,7 +296,7 @@ impl Io {
                 s.decide(&decision).map_err(refused)?;
                 self.project(s).await;
                 if s.is_finished() {
-                    // The app keeps the record; the engine forgets the drawing.
+                    // The app keeps the record; the engine forgets the raffle.
                     *state = None;
                 }
                 Ok(())
@@ -310,10 +310,10 @@ impl Io {
     async fn project(&self, state: &Raffle) {
         let mut delay = Duration::from_millis(20);
         for attempt in 1u32.. {
-            match self.store.save_drawing(state).await {
+            match self.store.save_raffle(state).await {
                 Ok(_) => break,
                 Err(e) => {
-                    tracing::warn!(drawing_id = %state.id(), attempt, error = %e, "projecting failed; retrying");
+                    tracing::warn!(raffle_id = %state.id(), attempt, error = %e, "projecting failed; retrying");
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
@@ -325,7 +325,7 @@ impl Io {
 
 #[cfg(test)]
 mod tests {
-    use crate::{MemoryDrawStore, RecordingNotifier};
+    use crate::{MemoryRaffleStore, RecordingNotifier};
     use rafi_drand::DrandConfig;
     use rafi_raffle::{ItemStatus, ManifestItem};
 
@@ -353,7 +353,7 @@ mod tests {
         )
     }
 
-    async fn projected(store: &MemoryDrawStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
+    async fn projected(store: &MemoryRaffleStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
         for _ in 0..200 {
             if let Some(s) = store.latest("r1")
                 && f(&s)
@@ -366,10 +366,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_drawing_from_opening_to_finish() {
+    async fn a_raffle_from_opening_to_finish() {
         let drand = mock_drand();
         let doc = doc(&drand);
-        let store = MemoryDrawStore::default();
+        let store = MemoryRaffleStore::default();
         let notifier = Arc::new(RecordingNotifier::default());
         let engine = LocalEngine::new(drand, store.clone(), notifier.clone());
 

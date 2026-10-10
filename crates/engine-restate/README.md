@@ -1,6 +1,6 @@
 # rafi-engine-restate
 
-**The Rafi drawing engine on [Restate](https://restate.dev/): the `Drawing` virtual object, and the app's client.**
+**The Rafi drawing engine on [Restate](https://restate.dev/): the `Raffle` virtual object, and the app's client.**
 
 One object per drawing (keyed by the drawing's ID) owns the drawing from opening to finish. Handlers for one
 drawing run one at a time, the committed drand round is journaled before the durable sleep until it is
@@ -16,26 +16,26 @@ entrant IDs. The rules are `rafi-drawing`'s; the object only does I/O.
 
 `EngineInfo` is a keyless service next to it: `info` reports the engine's beacon source.
 
-The app reaches both through `RestateClient`, its `DrawingEngine` ([`rafi-engine`](../engine)) over the ingress. It
-wraps the clients the SDK generates from the services (`DrawingIngressClient`, `EngineInfoIngressClient`), so the
+The app reaches both through `RestateClient`, its `RaffleEngine` ([`rafi-engine`](../engine)) over the ingress. It
+wraps the clients the SDK generates from the services (`RaffleIngressClient`, `EngineInfoIngressClient`), so the
 handlers' names and types are the services' own; what it adds is the engine contract: a handler's terminal error is a
 refusal with its kind, anything else means the engine is unavailable, and a call that outlasts the timeout is pending.
 
 Committing to a round and awaiting its beacon go through [`restate-drand`](https://crates.io/crates/restate-drand).
-After every change the drawing goes to a `DrawStore` (the app's database), then clients are told through a
-`DrawingNotifier`, best effort; both are [`rafi-engine`](../engine)'s ports. `rafi_platform::Notify` adapts a
+After every change the drawing goes to a `RaffleStore` (the app's database), then clients are told through a
+`RaffleNotifier`, best effort; both are [`rafi-engine`](../engine)'s ports. `rafi_platform::Notify` adapts a
 [`rafi-platform`](../platform) `Notifier`, with the host saying what each drawing's clients follow (for rafi, its
 raffle: `rafi_raffle::drawing::raffle_id`). `services` binds both services the way every host does.
 
 ```rust
 use rafi_drand::{DrandClient, DrandConfig};
 use rafi_drawing::DrawingId;
-use rafi_engine::MemoryDrawStore;
+use rafi_engine::MemoryRaffleStore;
 use rafi_platform::{Notify, Polling};
 
 let drand = DrandClient::new(DrandConfig::default())?;
 let notifier = Notify::new(Polling::default(), DrawingId::as_str);
-let (drawing, info) = rafi_engine_restate::services(drand, MemoryDrawStore::default(), notifier);
+let (drawing, info) = rafi_engine_restate::services(drand, MemoryRaffleStore::default(), notifier);
 let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(drawing).bind(info).build();
 ```
 

@@ -3,7 +3,7 @@
 
 use rafi_raffle::ErrorKind;
 
-/// The HTTP status code the `Drawing` object answers a refusal of this kind
+/// The HTTP status code the `Raffle` object answers a refusal of this kind
 /// with.
 pub fn status_code(kind: ErrorKind) -> u16 {
     match kind {

@@ -1,5 +1,5 @@
-//! Deploys the `Drawing` object to a real `restate-server` and drives a whole
-//! drawing through the ingress: opening, deduplicated draws, a no-show and a
+//! Deploys the `Raffle` object to a real `restate-server` and drives a whole
+//! raffle through the ingress: opening, deduplicated draws, a no-show and a
 //! redraw, terminal errors, finish (state cleared), and an independent
 //! verification of the projected log.
 //!
@@ -10,7 +10,7 @@
 use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_engine::MemoryDrawStore;
+use rafi_engine::MemoryRaffleStore;
 use rafi_engine::RecordingNotifier;
 use rafi_engine_restate::SERVICE_NAME;
 use rafi_raffle::{
@@ -48,7 +48,7 @@ fn doc(entrants: usize) -> Manifest {
 }
 
 /// Waits until the latest projection satisfies `f`.
-async fn projected(store: &MemoryDrawStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
+async fn projected(store: &MemoryRaffleStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
     for _ in 0..200 {
         if let Some(s) = store.latest(RAFFLE)
             && f(&s)
@@ -79,12 +79,12 @@ async fn e2e_raffle() {
         ..DrandConfig::default()
     })
     .unwrap();
-    let store = MemoryDrawStore::default();
+    let store = MemoryRaffleStore::default();
     let notifier = std::sync::Arc::new(RecordingNotifier::default());
     restate
         .deploy(
             Endpoint::builder()
-                .bind(rafi_engine_restate::Drawing::new(
+                .bind(rafi_engine_restate::Raffle::new(
                     drand,
                     store.clone(),
                     notifier.clone(),
@@ -112,7 +112,7 @@ async fn e2e_raffle() {
         .invoke(&call("open"), Some(&json!(self::doc(4))), None)
         .await;
     assert_eq!(reply.status, 409, "{}", reply.body);
-    // A drawing on another beacon source than the engine's is refused.
+    // A raffle on another beacon source than the engine's is refused.
     let mut quicknet = self::doc(5);
     quicknet.raffle = "other-raffle".into();
     quicknet.beacon = BeaconSource::QUICKNET;
@@ -282,12 +282,12 @@ async fn e2e_stalled_draw() {
         timeout_secs: 1,
     })
     .unwrap();
-    let store = MemoryDrawStore::default();
+    let store = MemoryRaffleStore::default();
     let notifier = std::sync::Arc::new(RecordingNotifier::default());
     restate
         .deploy(
             Endpoint::builder()
-                .bind(rafi_engine_restate::Drawing::new(
+                .bind(rafi_engine_restate::Raffle::new(
                     drand,
                     store.clone(),
                     notifier.clone(),
@@ -370,12 +370,12 @@ async fn e2e_cancelled_draw_stalls() {
         ..DrandConfig::default()
     })
     .unwrap();
-    let store = MemoryDrawStore::default();
+    let store = MemoryRaffleStore::default();
     let notifier = std::sync::Arc::new(RecordingNotifier::default());
     restate
         .deploy(
             Endpoint::builder()
-                .bind(rafi_engine_restate::Drawing::new(
+                .bind(rafi_engine_restate::Raffle::new(
                     drand,
                     store.clone(),
                     notifier.clone(),

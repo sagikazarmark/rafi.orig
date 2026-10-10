@@ -1,4 +1,4 @@
-//! The drawing engine, as the app sees it.
+//! The raffle engine, as the app sees it.
 
 use std::sync::Arc;
 
@@ -8,16 +8,16 @@ use rafi_raffle::{
 
 use crate::BoxFuture;
 
-/// What the drawing engine says about itself.
+/// What the raffle engine says about itself.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EngineInfo {
     /// Where the engine's randomness comes from. The app decides which
-    /// source a drawing commits to; it only checks this before opening one,
+    /// source a raffle commits to; it only checks this before opening one,
     /// and the engine refuses a mismatch itself.
     pub beacon: BeaconSource,
 }
 
-/// Why the drawing engine didn't (or didn't yet) confirm a call.
+/// Why the raffle engine didn't (or didn't yet) confirm a call.
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
     /// The engine refused the command; it was not applied.
@@ -26,11 +26,11 @@ pub enum EngineError {
     /// The engine accepted the command but didn't settle it before the
     /// caller's deadline (it was queued behind a draw waiting for its beacon).
     /// It applies once; its outcome shows in the projection.
-    #[error("the drawing engine accepted the command; it applies after the current draw")]
+    #[error("the raffle engine accepted the command; it applies after the current draw")]
     Pending,
     /// The engine couldn't be reached, or failed. The command may still have
     /// been applied: retry with the same command ID.
-    #[error("the drawing engine is unavailable: {0:#}")]
+    #[error("the raffle engine is unavailable: {0:#}")]
     Unavailable(anyhow::Error),
 }
 
@@ -44,9 +44,9 @@ impl EngineError {
     }
 }
 
-/// Why a command for a drawing the engine doesn't hold (never opened, or
+/// Why a command for a raffle the engine doesn't hold (never opened, or
 /// finished and forgotten) is refused, as not found.
-pub const NOT_OPEN: &str = "no drawing is open";
+pub const NOT_OPEN: &str = "no raffle is open";
 
 impl From<RaffleError> for EngineError {
     fn from(e: RaffleError) -> Self {
@@ -54,9 +54,9 @@ impl From<RaffleError> for EngineError {
     }
 }
 
-/// The drawing engine: owns each drawing from opening to finish, applies the
+/// The raffle engine: owns each raffle from opening to finish, applies the
 /// draw rules (`rafi_raffle`) and writes every new state to the
-/// projection ([`DrawStore`](crate::DrawStore)), then notifies clients.
+/// projection ([`RaffleStore`](crate::RaffleStore)), then notifies clients.
 ///
 /// The contract every engine keeps:
 ///
@@ -70,7 +70,7 @@ impl From<RaffleError> for EngineError {
 ///   the projection first.
 /// - **Decisions are applied synchronously**: [`decide`](Self::decide) returns
 ///   once the decision is applied.
-/// - **Commands for one drawing apply one at a time**, in arrival order. A
+/// - **Commands for one raffle apply one at a time**, in arrival order. A
 ///   decision sent while a draw waits for its beacon is queued and applies
 ///   after the draw settles, against the settled state. It may therefore wait
 ///   up to the engine's drand lead plus fetch timeout; past the adapter's own
@@ -81,26 +81,26 @@ impl From<RaffleError> for EngineError {
 ///   command ID names one command: sent again with another command, the
 ///   engine answers as it did the first time and applies nothing.
 /// - **The projection is the record**: an engine retries a failed write until
-///   it succeeds, and applies nothing more to that drawing meanwhile (an
+///   it succeeds, and applies nothing more to that raffle meanwhile (an
 ///   abandon included: it too must be recorded).
-/// - **After finish** the engine forgets the drawing: further commands are
+/// - **After finish** the engine forgets the raffle: further commands are
 ///   refused as not found. An opening replayed after that never changes the
 ///   published projection (the store keeps the newest version), but past the
-///   retention window it would open the drawing again, unpublished. Callers
-///   must therefore not open a drawing they finished: rafi's raffle lifecycle
+///   retention window it would open the raffle again, unpublished. Callers
+///   must therefore not open a raffle they finished: rafi's lifecycle
 ///   opens one only from a frozen raffle (`rafi_lifecycle::start::next`).
-pub trait DrawingEngine: Send + Sync + 'static {
+pub trait RaffleEngine: Send + Sync + 'static {
     /// The engine's beacon source; also tells whether it is reachable.
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>>;
 
-    /// Opens a drawing from its manifest: the engine owns it from here.
+    /// Opens a raffle from its manifest: the engine owns it from here.
     fn open<'a>(&'a self, manifest: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>>;
 
     /// Starts a draw: returns once it is accepted; it settles in the
     /// background (`command_id` deduplicates it).
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a RaffleId,
+        raffle_id: &'a RaffleId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>>;
@@ -108,13 +108,13 @@ pub trait DrawingEngine: Send + Sync + 'static {
     /// Applies a decision (`command_id` deduplicates it).
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a RaffleId,
+        raffle_id: &'a RaffleId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>>;
 }
 
-impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
+impl<T: RaffleEngine + ?Sized> RaffleEngine for Arc<T> {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
         (**self).info()
     }
@@ -125,19 +125,19 @@ impl<T: DrawingEngine + ?Sized> DrawingEngine for Arc<T> {
 
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a RaffleId,
+        raffle_id: &'a RaffleId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
-        (**self).draw(drawing_id, request, command_id)
+        (**self).draw(raffle_id, request, command_id)
     }
 
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a RaffleId,
+        raffle_id: &'a RaffleId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
-        (**self).decide(drawing_id, decision, command_id)
+        (**self).decide(raffle_id, decision, command_id)
     }
 }

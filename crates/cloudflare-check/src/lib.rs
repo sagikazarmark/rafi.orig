@@ -97,7 +97,7 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
 
 /// The app's half of a Restate freeze: the manifest (on the mock drand
 /// chain the Restate Worker uses in development) and the frozen raffle row.
-/// Returns the manifest to hand to `Drawing/{id}/open`.
+/// Returns the manifest to hand to `Raffle/{id}/open`.
 async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     let chain = rafi_drand::DrandClient::new(rafi_drand::DrandConfig {
         mock: true,
@@ -222,7 +222,7 @@ async fn record(db: &Db, raffle: &str, event: Event) -> Result<()> {
     let mut events = drawing(db, raffle).await?.events().to_vec();
     events.push(event);
     let state = Raffle::restore(&manifest(raffle, BeaconSource::QUICKNET), &events).map_err(err)?;
-    rafi_store::save_drawing(db, &state).await.map_err(err)?;
+    rafi_store::save_raffle(db, &state).await.map_err(err)?;
     Ok(())
 }
 

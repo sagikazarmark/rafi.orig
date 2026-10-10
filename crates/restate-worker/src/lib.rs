@@ -1,7 +1,7 @@
-//! The Rafi drawing engine on Cloudflare Workers.
+//! The Rafi raffle engine on Cloudflare Workers.
 //!
 //! Restate calls this Worker over HTTPS in request-response mode; each request
-//! is handed to the SDK's [`Endpoint`]. This crate only wires the drawing engine
+//! is handed to the SDK's [`Endpoint`]. This crate only wires the raffle engine
 //! to Cloudflare: draw states go to D1 (the record) through rafi-store, then
 //! the raffle's Durable Object is nudged, best effort, through
 //! `rafi-cloudflare`.
@@ -41,12 +41,12 @@ fn drand_config(env: &Env) -> DrandConfig {
 fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
     let store = DrawWriter::new(rafi_cloudflare::database(env)?);
     let drand = DrandClient::new(drand_config(env))?;
-    // A drawing's changes go to its raffle's channel.
+    // A raffle's changes go to its channel.
     let notifier = Notify::new(
         DurableObjects::new(env.clone()),
         rafi_lifecycle::drawing::raffle_id,
     );
-    let (drawing, info) = rafi_engine_restate::services(drand, store, notifier);
+    let (raffle, info) = rafi_engine_restate::services(drand, store, notifier);
     let mut builder = Endpoint::builder();
     let keys = lookup(env, "RESTATE_IDENTITY_KEYS").unwrap_or_default();
     let keys: Vec<&str> = keys
@@ -62,7 +62,7 @@ fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
             .identity_key(key)
             .map_err(|e| anyhow::anyhow!("invalid identity key: {e:?}"))?;
     }
-    Ok(builder.bind(drawing).bind(info).build())
+    Ok(builder.bind(raffle).bind(info).build())
 }
 
 thread_local! {

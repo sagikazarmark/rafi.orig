@@ -7,7 +7,7 @@
 //!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small
-//! interfaces from `rafi-platform` in [`AppState`] ([`DrawingEngine`],
+//! interfaces from `rafi-platform` in [`AppState`] ([`RaffleEngine`],
 //! [`Notifier`], [`RateLimit`]); each deployment plugs in its own.
 
 pub mod admin;
@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use std::{ops::Deref, sync::Arc};
 
 use axum::{Extension, Router};
-use rafi_engine::DrawingEngine;
+use rafi_engine::RaffleEngine;
 use rafi_engine_restate::RestateClient;
 use rafi_platform::{Notifier, RateLimit};
 use rafi_store::Db;
@@ -84,7 +84,7 @@ impl AppState {
     pub fn from_parts(
         cfg: Config,
         db: Db,
-        engine: Option<Arc<dyn DrawingEngine>>,
+        engine: Option<Arc<dyn RaffleEngine>>,
         notifier: Arc<dyn Notifier>,
         limiter: Arc<dyn RateLimit>,
     ) -> anyhow::Result<Self> {
@@ -112,9 +112,9 @@ impl AppState {
 
 /// The drawing engine `cfg` points at: the `restate-rafi` service through the
 /// Restate ingress; `None` without `RESTATE_INGRESS_URL`.
-pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn DrawingEngine>> {
+pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn RaffleEngine>> {
     (!cfg.restate.ingress_url.is_empty())
-        .then(|| Arc::new(RestateClient::new(cfg.restate.clone())) as Arc<dyn DrawingEngine>)
+        .then(|| Arc::new(RestateClient::new(cfg.restate.clone())) as Arc<dyn RaffleEngine>)
 }
 
 /// The server's own routes: participant pages, public JSON and the admin API.

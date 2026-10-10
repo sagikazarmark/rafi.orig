@@ -6,7 +6,7 @@ use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle,
 use super::{Outcome, check, fail};
 use crate::{
     Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants, live::Snapshot, prizes, raffles,
-    retention, save_drawing, view::Full,
+    retention, save_raffle, view::Full,
 };
 
 const PURGE: PurgeAfter = PurgeAfter {
@@ -67,15 +67,15 @@ fn manifest<const N: usize>(id: &str, entrants: [String; N]) -> Manifest {
 
 pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     let mut state = frozen(db, "r1").await?;
-    check(save_drawing(db, &state).await.map_err(fail)?, "first write")?;
+    check(save_raffle(db, &state).await.map_err(fail)?, "first write")?;
     check(
-        !save_drawing(db, &state).await.map_err(fail)?,
+        !save_raffle(db, &state).await.map_err(fail)?,
         "a retry is a no-op",
     )?;
 
     state.decide(&Decision::Finish).map_err(fail)?;
     check(
-        save_drawing(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state).await.map_err(fail)?,
         "finished write",
     )?;
     let dates = || async {
@@ -117,7 +117,7 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
         "the other drawing is newer",
     )?;
     check(
-        !save_drawing(db, &other).await.map_err(fail)?,
+        !save_raffle(db, &other).await.map_err(fail)?,
         "a different entrant list",
     )
 }
@@ -807,7 +807,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         Raffle::restore(&manifest("r1", [anna.clone(), bence.clone()]), &[draw]).map_err(fail)?;
     check(state.version() == 2, "one event")?;
     check(
-        save_drawing(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state).await.map_err(fail)?,
         "writing the draw",
     )?;
 

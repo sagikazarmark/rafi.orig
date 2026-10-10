@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The Rafi drawing engine on Restate: the `Drawing` virtual object, and the app's `DrawingEngine` over the ingress"
+description = "The Rafi raffle engine on Restate: the `Raffle` virtual object, and the app's `RaffleEngine` over the ingress"
 publish = false
 
 [dependencies]

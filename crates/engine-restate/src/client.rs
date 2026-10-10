@@ -1,11 +1,11 @@
-//! The drawing engine through the Restate ingress, as the app sees it:
-//! [`RestateClient`] implements [`DrawingEngine`] over the clients the SDK
-//! generates from the services ([`DrawingIngressClient`],
+//! The raffle engine through the Restate ingress, as the app sees it:
+//! [`RestateClient`] implements [`RaffleEngine`] over the clients the SDK
+//! generates from the services ([`RaffleIngressClient`],
 //! [`EngineInfoIngressClient`]), so the handlers' names and types are the
 //! services' own.
 //!
 //! - Opening and decisions are calls; a draw is sent and settles in the
-//!   background, as the [`DrawingEngine`] contract says.
+//!   background, as the [`RaffleEngine`] contract says.
 //! - Each call carries an idempotency key (the open key, or the command ID),
 //!   so a retry applies once.
 //! - A refusal is a handler's terminal error: the ingress marks it
@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use bytes::Bytes;
-use rafi_engine::{DrawingEngine, EngineError, EngineInfo};
+use rafi_engine::{EngineError, EngineInfo, RaffleEngine};
 use rafi_platform::{BoxFuture, sendable};
 use rafi_raffle::{Decision, DrawRequest, Manifest, RaffleId};
 use restate_sdk::{
@@ -31,7 +31,7 @@ use restate_sdk::{
     serde::Json,
 };
 
-use crate::{DrawingIngressClient, EngineInfoIngressClient, status::refusal_kind};
+use crate::{EngineInfoIngressClient, RaffleIngressClient, status::refusal_kind};
 
 /// How to reach the ingress.
 #[derive(Debug, Clone)]
@@ -55,7 +55,7 @@ impl ClientConfig {
     pub const DEFAULT_TIMEOUT_SECS: u64 = 90;
 }
 
-/// The drawing engine through the Restate ingress.
+/// The raffle engine through the Restate ingress.
 #[derive(Clone)]
 pub struct RestateClient {
     /// The ingress, or why the configuration doesn't name one (every call is
@@ -103,10 +103,10 @@ impl RestateClient {
             .map_err(|e| EngineError::Unavailable(anyhow!(e)))
     }
 
-    fn drawing(&self, drawing_id: &RaffleId) -> Result<DrawingIngressClient<Http>, EngineError> {
-        Ok(DrawingIngressClient::from_client(
+    fn raffle(&self, raffle_id: &RaffleId) -> Result<RaffleIngressClient<Http>, EngineError> {
+        Ok(RaffleIngressClient::from_client(
             self.ingress()?,
-            drawing_id.as_str(),
+            raffle_id.as_str(),
         ))
     }
 
@@ -212,7 +212,7 @@ fn refusal(path: &str, status: u16, from_handler: bool, text: &str) -> EngineErr
     }
 }
 
-impl DrawingEngine for RestateClient {
+impl RaffleEngine for RestateClient {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
         Box::pin(sendable(async move {
             let path = "EngineInfo/info";
@@ -229,14 +229,14 @@ impl DrawingEngine for RestateClient {
 
     fn open<'a>(&'a self, doc: &'a Manifest) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(sendable(async move {
-            let drawing = &doc.raffle;
-            let call = self.drawing(drawing)?.open(Json(doc.clone()));
+            let raffle = &doc.raffle;
+            let call = self.raffle(raffle)?.open(Json(doc.clone()));
             self.bounded(async {
                 call.idempotency_key(doc.open_key())
                     .call()
                     .await
                     .and_then(CallResponse::into_body)
-                    .map_err(|e| engine_error(e, &format!("Drawing/{drawing}/open"), true))
+                    .map_err(|e| engine_error(e, &format!("Raffle/{raffle}/open"), true))
             })
             .await
         }))
@@ -244,37 +244,37 @@ impl DrawingEngine for RestateClient {
 
     fn draw<'a>(
         &'a self,
-        drawing_id: &'a RaffleId,
+        raffle_id: &'a RaffleId,
         request: &'a DrawRequest,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
         // Draws take a few seconds (the committed round is in the future):
         // sent, progress arrives through the projection.
         Box::pin(sendable(async move {
-            self.drawing(drawing_id)?
+            self.raffle(raffle_id)?
                 .draw(Json(request.clone()))
                 .idempotency_key(command_id)
                 .send()
                 .await
                 .map(|_| ())
-                .map_err(|e| engine_error(e, &format!("Drawing/{drawing_id}/draw/send"), false))
+                .map_err(|e| engine_error(e, &format!("Raffle/{raffle_id}/draw/send"), false))
         }))
     }
 
     fn decide<'a>(
         &'a self,
-        drawing_id: &'a RaffleId,
+        raffle_id: &'a RaffleId,
         decision: &'a Decision,
         command_id: &'a str,
     ) -> BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(sendable(async move {
-            let call = self.drawing(drawing_id)?.decide(Json(decision.clone()));
+            let call = self.raffle(raffle_id)?.decide(Json(decision.clone()));
             self.bounded(async {
                 call.idempotency_key(command_id)
                     .call()
                     .await
                     .and_then(CallResponse::into_body)
-                    .map_err(|e| engine_error(e, &format!("Drawing/{drawing_id}/decide"), true))
+                    .map_err(|e| engine_error(e, &format!("Raffle/{raffle_id}/decide"), true))
             })
             .await
         }))
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn refusals_keep_their_kind_and_message() {
         let e = refusal(
-            "Drawing/r/decide",
+            "Raffle/r/decide",
             409,
             true,
             r#"{"message":"another draw is in progress"}"#,
@@ -301,7 +301,7 @@ mod tests {
                 if message == "another draw is in progress"
         ));
         let e = refusal(
-            "Drawing/r/decide",
+            "Raffle/r/decide",
             500,
             true,
             r#"{"message":"invalid manifest hash"}"#,
@@ -314,7 +314,7 @@ mod tests {
             }
         ));
         assert!(matches!(
-            refusal("Drawing/r/decide", 502, true, "bad gateway"),
+            refusal("Raffle/r/decide", 502, true, "bad gateway"),
             EngineError::Unavailable(_)
         ));
         // The ingress's own 404 (say, an unregistered service) is no refusal.

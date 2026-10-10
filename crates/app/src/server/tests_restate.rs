@@ -1,5 +1,5 @@
 //! The app and the separate `restate-rafi` service, end to end: the app calls
-//! the `Drawing` object through a real `restate-server`'s ingress, the object
+//! the `Raffle` object through a real `restate-server`'s ingress, the object
 //! writes every state into the app's SQLite file, or Postgres schema with
 //! `RAFI_TEST_POSTGRES_URL` set (through its own connection pool, as the
 //! separate process does), and the screens' view shows it.
@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use rafi_drand::{DrandClient, DrandConfig};
-use rafi_engine::DrawingEngine;
+use rafi_engine::RaffleEngine;
 use rafi_engine_restate::RestateClient;
 use rafi_lifecycle::RaffleState;
 use rafi_platform::Polling;

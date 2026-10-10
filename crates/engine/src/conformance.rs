@@ -1,14 +1,14 @@
-//! The engine conformance suite: the scenarios every drawing engine must pass,
-//! through the [`DrawingEngine`] port alone.
+//! The engine conformance suite: the scenarios every raffle engine must pass,
+//! through the [`RaffleEngine`] port alone.
 //!
 //! An engine provides an [`EngineHarness`]: it deploys the engine for a
 //! [`Deployment`] (drand, store, notifier) and hands out clients of it. The
 //! suite deploys once per [`Profile`] (a drand setup and a store behaviour),
 //! runs that profile's scenarios against it side by side (each on its own
-//! drawing), and observes results only through the projection (the store) and
+//! raffle), and observes results only through the projection (the store) and
 //! the port's replies.
 //!
-//! Besides the contract ([`DrawingEngine`]), the scenarios pin the fairness rules:
+//! Besides the contract ([`RaffleEngine`]), the scenarios pin the fairness rules:
 //! the commitment (Announce) is recorded before the beacon is asked for; a
 //! withheld or invalid beacon stalls the draw on its round and a retry fetches
 //! the same round; the only exit without the beacon (abandon) is logged; nothing changes a pending draw's pool; and every log the engine
@@ -28,7 +28,7 @@ use std::{
 };
 
 use crate::{
-    BoxFuture, DrawStore, DrawingEngine, DrawingNotifier, EngineError, MemoryDrawStore,
+    BoxFuture, EngineError, MemoryRaffleStore, RaffleEngine, RaffleNotifier, RaffleStore,
     RecordingNotifier,
 };
 use rafi_drand::{DrandClient, DrandConfig};
@@ -45,8 +45,8 @@ use tokio::{
 /// What an engine is deployed with.
 pub struct Deployment {
     pub drand: DrandClient,
-    pub store: Arc<dyn DrawStore>,
-    pub notifier: Arc<dyn DrawingNotifier>,
+    pub store: Arc<dyn RaffleStore>,
+    pub notifier: Arc<dyn RaffleNotifier>,
 }
 
 /// An engine under test.
@@ -63,7 +63,7 @@ pub trait EngineHarness: Send + Sync {
 pub trait Deployed: Send + Sync {
     /// A client of the engine. With `deadline`, a synchronous call gives up
     /// waiting after it ([`EngineError::Pending`]).
-    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn DrawingEngine>;
+    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn RaffleEngine>;
 }
 
 /// A drand setup and a store behaviour; the suite deploys once per profile.
@@ -79,7 +79,7 @@ pub enum Profile {
     /// Quicknet behind a relay serving beacons signed by another key: every
     /// draw stalls.
     Forged,
-    /// [`Profile::Instant`] with a store that fails each drawing's first writes.
+    /// [`Profile::Instant`] with a store that fails each raffle's first writes.
     FlakyStore,
 }
 
@@ -93,7 +93,7 @@ impl Profile {
     ];
 }
 
-/// Writes the store fails for each drawing before it accepts any.
+/// Writes the store fails for each raffle before it accepts any.
 const FLAKY_FAILURES: u32 = 2;
 /// How long the suite waits for a projection.
 const PATIENCE: Duration = Duration::from_secs(45);
@@ -155,7 +155,7 @@ fn scenarios(profile: Profile) -> Vec<(&'static str, Scenario)> {
             scenario!(a_reused_command_id_keeps_its_first_command),
             scenario!(refusals_keep_their_kind),
             scenario!(a_refused_draw_is_silent),
-            scenario!(a_finished_drawing_is_forgotten),
+            scenario!(a_finished_raffle_is_forgotten),
         ],
         Profile::Lead => vec![
             scenario!(the_round_is_committed_before_its_beacon),
@@ -174,9 +174,9 @@ fn scenarios(profile: Profile) -> Vec<(&'static str, Scenario)> {
 /// One deployed engine and what the suite observes it through.
 pub struct Fixture {
     deployed: Arc<dyn Deployed>,
-    engine: Arc<dyn DrawingEngine>,
+    engine: Arc<dyn RaffleEngine>,
     /// Every state the engine wrote (behind the flaky store's failures).
-    store: MemoryDrawStore,
+    store: MemoryRaffleStore,
     notifier: Arc<RecordingNotifier>,
     drand: DrandClient,
 }
@@ -190,9 +190,9 @@ impl Fixture {
             Profile::Forged => quicknet(forging_relay().await?),
         };
         let drand = DrandClient::new(config).map_err(|e| format!("drand: {e:#}"))?;
-        let store = MemoryDrawStore::default();
+        let store = MemoryRaffleStore::default();
         let notifier = Arc::new(RecordingNotifier::default());
-        let writes: Arc<dyn DrawStore> = match profile {
+        let writes: Arc<dyn RaffleStore> = match profile {
             Profile::FlakyStore => Arc::new(FlakyStore {
                 inner: store.clone(),
                 failures: Mutex::default(),
@@ -215,11 +215,11 @@ impl Fixture {
         })
     }
 
-    /// A drawing on the engine's chain: `entrants` entrants, items
+    /// A raffle on the engine's chain: `entrants` entrants, items
     /// `item-1` … `item-{items}`.
-    fn doc(&self, drawing_id: &str, entrants: usize, items: u64) -> Manifest {
+    fn doc(&self, raffle_id: &str, entrants: usize, items: u64) -> Manifest {
         Manifest::new(
-            drawing_id,
+            raffle_id,
             BeaconSource::Drand(self.drand.chain_hash()),
             (0..entrants).map(|i| format!("{i:032x}").into()).collect(),
             (1..=items)
@@ -231,16 +231,16 @@ impl Fixture {
         )
     }
 
-    /// Waits until `drawing_id`'s latest projection satisfies `f`.
+    /// Waits until `raffle_id`'s latest projection satisfies `f`.
     async fn projected(
         &self,
-        drawing_id: &str,
+        raffle_id: &str,
         what: &str,
         f: impl Fn(&Raffle) -> bool,
     ) -> Result<Raffle, String> {
         let start = tokio::time::Instant::now();
         loop {
-            if let Some(s) = self.store.latest(drawing_id)
+            if let Some(s) = self.store.latest(raffle_id)
                 && f(&s)
             {
                 return Ok(s);
@@ -248,7 +248,7 @@ impl Fixture {
             if start.elapsed() > PATIENCE {
                 return Err(format!(
                     "never projected: {what}; latest: {:?}",
-                    self.store.latest(drawing_id).map(|s| s.events().to_vec())
+                    self.store.latest(raffle_id).map(|s| s.events().to_vec())
                 ));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -264,29 +264,29 @@ impl Fixture {
             .await
     }
 
-    async fn send(&self, drawing_id: &str, cmd: Command, id: &str) -> Result<(), EngineError> {
+    async fn send(&self, raffle_id: &str, cmd: Command, id: &str) -> Result<(), EngineError> {
         match &cmd {
-            Command::Draw(request) => self.engine.draw(&drawing_id.into(), request, id).await,
-            Command::Decide(decision) => self.engine.decide(&drawing_id.into(), decision, id).await,
+            Command::Draw(request) => self.engine.draw(&raffle_id.into(), request, id).await,
+            Command::Decide(decision) => self.engine.decide(&raffle_id.into(), decision, id).await,
         }
     }
 
-    async fn ok(&self, drawing_id: &str, cmd: impl Into<Command>, id: &str) -> Result<(), String> {
+    async fn ok(&self, raffle_id: &str, cmd: impl Into<Command>, id: &str) -> Result<(), String> {
         let cmd = cmd.into();
-        self.send(drawing_id, cmd.clone(), id)
+        self.send(raffle_id, cmd.clone(), id)
             .await
             .map_err(|e| format!("{cmd:?}: {e}"))
     }
 
     async fn refused(
         &self,
-        drawing_id: &str,
+        raffle_id: &str,
         cmd: impl Into<Command>,
         id: &str,
         expected: ErrorKind,
     ) -> Result<(), String> {
         let cmd = cmd.into();
-        match self.send(drawing_id, cmd.clone(), id).await {
+        match self.send(raffle_id, cmd.clone(), id).await {
             Err(EngineError::Rejected { kind, .. }) if kind == expected => Ok(()),
             other => Err(format!(
                 "{cmd:?}: expected a {expected:?} refusal, got {other:?}"
@@ -294,21 +294,21 @@ impl Fixture {
         }
     }
 
-    async fn draw(&self, drawing_id: &str, item: &str, id: &str) -> Result<(), String> {
+    async fn draw(&self, raffle_id: &str, item: &str, id: &str) -> Result<(), String> {
         let request = DrawRequest { item: item.into() };
-        self.ok(drawing_id, request, id).await
+        self.ok(raffle_id, request, id).await
     }
 
-    async fn drawn(&self, drawing_id: &str, item: &str) -> Result<Raffle, String> {
-        self.projected(drawing_id, &format!("{item} drawn"), |s| {
+    async fn drawn(&self, raffle_id: &str, item: &str) -> Result<Raffle, String> {
+        self.projected(raffle_id, &format!("{item} drawn"), |s| {
             s.item(&item.into())
                 .is_some_and(|u| u.status() == ItemStatus::Drawn)
         })
         .await
     }
 
-    async fn stalls(&self, drawing_id: &str, n: usize) -> Result<Raffle, String> {
-        self.projected(drawing_id, &format!("{n} stall(s)"), |s| {
+    async fn stalls(&self, raffle_id: &str, n: usize) -> Result<Raffle, String> {
+        self.projected(raffle_id, &format!("{n} stall(s)"), |s| {
             count(s, is_stall) >= n
         })
         .await
@@ -378,14 +378,14 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Fails the first [`FLAKY_FAILURES`] writes of each drawing.
+/// Fails the first [`FLAKY_FAILURES`] writes of each raffle.
 struct FlakyStore {
-    inner: MemoryDrawStore,
+    inner: MemoryRaffleStore,
     failures: Mutex<HashMap<String, u32>>,
 }
 
-impl DrawStore for FlakyStore {
-    fn save_drawing<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
+impl RaffleStore for FlakyStore {
+    fn save_raffle<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         let failed = {
             let mut failures = self.failures.lock().expect("failures lock");
             let n = failures.entry(state.id().to_string()).or_default();
@@ -395,7 +395,7 @@ impl DrawStore for FlakyStore {
         if failed {
             return Box::pin(async { Err(anyhow::anyhow!("the store is flaky")) });
         }
-        self.inner.save_drawing(state)
+        self.inner.save_raffle(state)
     }
 }
 
@@ -663,8 +663,8 @@ async fn a_refused_draw_is_silent(fx: Arc<Fixture>, id: String) -> Result<(), St
     Ok(())
 }
 
-/// After finish the engine forgets the drawing; the published record stays.
-async fn a_finished_drawing_is_forgotten(fx: Arc<Fixture>, id: String) -> Result<(), String> {
+/// After finish the engine forgets the raffle; the published record stays.
+async fn a_finished_raffle_is_forgotten(fx: Arc<Fixture>, id: String) -> Result<(), String> {
     let doc = fx.doc(&id, 3, 1);
     fx.open(&doc).await?;
     fx.draw(&id, "item-1", "d1").await?;
