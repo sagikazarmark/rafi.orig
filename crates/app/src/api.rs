@@ -1,177 +1,31 @@
-//! The admin API: plain JSON over HTTP.
-//!
-//! Each function is declared once in [`admin_api!`]. In the browser (`web`) it is a
-//! client that POSTs its arguments as a JSON object (field names = parameter names)
-//! to `/api/admin/<name>` and decodes the JSON reply. On the server (`server`) it is
-//! an arm of [`dispatch`], which `server::admin` calls with the organizer resolved
-//! from the Clerk session (or `dev`); it calls the use cases (`rafi-app-core`).
-//!
-//! Errors travel as an [`ApiError`] with a non-2xx status (401 without a session).
+//! The admin API's browser client ([`rafi_model::api`]): one function per
+//! admin function, generated from [`rafi_model::admin_functions!`], that
+//! POSTs its arguments to `/api/admin/<name>` and decodes the reply; and
+//! the public reads the web app makes.
 
-use std::fmt;
+pub use rafi_model::api::ApiError;
+use rafi_model::{RaffleView, VerifyData};
 
-#[cfg(any(feature = "web", feature = "server"))]
-use rafi_raffle::{ItemId, Resolution};
-use serde::{Deserialize, Serialize};
-
-#[cfg(feature = "web")]
-use crate::model::VerifyData;
-#[cfg(any(feature = "web", feature = "server"))]
-use crate::model::{
-    EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleSettings, RaffleSummary,
-};
-#[cfg(feature = "server")]
-use crate::server::{AppState, service};
-#[cfg(feature = "server")]
-use rafi_raffle::{Decision, DrawRequest};
-
-/// An error reply: a message for the organizer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ApiError {
-    pub message: String,
-}
-
-impl ApiError {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-}
-
-impl fmt::Display for ApiError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for ApiError {}
-
-/// Why [`dispatch`] didn't return a result.
-#[cfg(feature = "server")]
-#[derive(Debug, thiserror::Error)]
-pub enum DispatchError {
-    /// No admin function by that name.
-    #[error("no such function")]
-    Unknown,
-    /// The arguments don't decode.
-    #[error("Invalid arguments: {0}")]
-    Arguments(String),
-    #[error(transparent)]
-    App(#[from] service::Error),
-}
-
-/// Declares the admin functions: `fn name(args) -> T = |app, owner| future;`, where
-/// the future (borrowing `app: &AppState`, `owner: &str` and the arguments) resolves
-/// to a `service::Result<T>`.
-macro_rules! admin_api {
+macro_rules! client_side {
     ($(
         $(#[$meta:meta])*
-        fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = |$app:ident, $owner:ident| $body:expr;
+        fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty;
     )*) => {
         $(
             $(#[$meta])*
-            #[cfg(feature = "web")]
             pub async fn $name($($arg: $ty),*) -> Result<$ret, ApiError> {
-                #[derive(Serialize)]
+                #[derive(serde::Serialize)]
                 struct Args { $($arg: $ty),* }
-                client::post(concat!("/api/admin/", stringify!($name)), &Args { $($arg),* }).await
+                let path = format!("{}{}", rafi_model::api::PATH, stringify!($name));
+                client::post(&path, &Args { $($arg),* }).await
             }
         )*
-
-        /// Runs the admin function `name` for `owner` with JSON-encoded `args`
-        /// (an empty body counts as `{}`) and returns its JSON-encoded result.
-        #[cfg(feature = "server")]
-        pub async fn dispatch(
-            app: &AppState,
-            owner: &str,
-            name: &str,
-            args: &[u8],
-        ) -> Result<serde_json::Value, DispatchError> {
-            match name {
-                $(
-                    stringify!($name) => {
-                        #[derive(Deserialize)]
-                        struct Args { $($arg: $ty),* }
-                        let Args { $($arg),* } = decode(args)?;
-                        let ($app, $owner) = (app, owner);
-                        Ok($body.await.and_then(encode::<$ret>)?)
-                    }
-                )*
-                _ => Err(DispatchError::Unknown),
-            }
-        }
     };
 }
 
-admin_api! {
-    fn whoami() -> Me = |app, owner| async {
-        Ok(Me {
-            owner_id: owner.to_owned(),
-            dev_auth: app.cfg.dev_auth,
-            retention_stale: service::retention::stale(app).await?,
-        })
-    };
-
-    fn list_raffles() -> Vec<RaffleSummary> = |app, owner| service::list(app, owner);
-
-    fn create_raffle(title: String) -> String = |app, owner| service::create(app, owner, &title);
-
-    fn get_raffle(id: String) -> RaffleAdmin = |app, owner| service::admin(app, owner, &id);
-
-    fn save_settings(id: String, settings: RaffleSettings) -> () =
-        |app, owner| service::update_settings(app, owner, &id, settings);
-
-    fn delete_raffle(id: String) -> () = |app, owner| service::delete(app, owner, &id);
-
-    fn duplicate_raffle(id: String) -> String = |app, owner| service::duplicate(app, owner, &id);
-
-    fn save_prize(id: String, prize: PrizeInput) -> String =
-        |app, owner| service::upsert_prize(app, owner, &id, prize);
-
-    fn delete_prize(id: String, prize_id: String) -> () =
-        |app, owner| service::delete_prize(app, owner, &id, &prize_id);
-
-    fn lifecycle(id: String, action: LifecycleCommand) -> () =
-        |app, owner| service::lifecycle(app, owner, &id, action);
-
-    fn start_draw(id: String) -> () = |app, owner| service::start_draw(app, owner, &id);
-
-    fn draw_item(id: String, item: ItemId, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, DrawRequest { item }, &command_id);
-
-    fn resolve_item(id: String, item: ItemId, resolution: Resolution, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Decision::Resolve { item, resolution }, &command_id);
-
-    fn void_item(id: String, item: ItemId, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Decision::Void { item }, &command_id);
-
-    fn abandon_draw(id: String, item: ItemId, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Decision::Abandon { item }, &command_id);
-
-    fn finish_raffle(id: String, command_id: String) -> () =
-        |app, owner| service::command(app, owner, &id, Decision::Finish, &command_id);
-
-    fn end_live_updates(id: String) -> () = |app, owner| service::end_live(app, owner, &id);
-
-    fn add_entrant(id: String, name: String, email: Option<String>) -> String =
-        |app, owner| service::add_manual(app, owner, &id, &name, email);
-
-    fn add_fake_entrants(id: String, n: u32) -> () = |app, owner| service::add_fakes(app, owner, &id, n);
-
-    fn patch_entrant(id: String, entrant_id: String, patch: EntrantPatch) -> () =
-        |app, owner| service::patch_entrant(app, owner, &id, &entrant_id, patch);
-
-    fn remove_entrant(id: String, entrant_id: String) -> () =
-        |app, owner| service::remove_entrant(app, owner, &id, &entrant_id);
-
-    fn export_winners(id: String) -> String = |app, owner| service::export_csv(app, owner, &id);
-
-    fn purge_raffle(id: String) -> () = |app, owner| service::purge(app, owner, &id);
-}
+rafi_model::admin_functions!(client_side);
 
 /// Public: data for the verification page (`/api/r/<slug>/verify.json`, no session needed).
-#[cfg(feature = "web")]
 pub async fn get_verify(slug: String) -> Result<VerifyData, ApiError> {
     let slug = String::from(js_sys::encode_uri_component(&slug));
     client::get(&format!("/api/r/{slug}/verify.json")).await
@@ -179,25 +33,12 @@ pub async fn get_verify(slug: String) -> Result<VerifyData, ApiError> {
 
 /// Public: a raffle's full view (`/api/r/<slug>/view`), which the projector and
 /// the admin poll.
-#[cfg(feature = "web")]
-pub async fn get_view(slug: String) -> Result<crate::model::RaffleView, ApiError> {
+pub async fn get_view(slug: String) -> Result<RaffleView, ApiError> {
     let slug = String::from(js_sys::encode_uri_component(&slug));
     client::get(&format!("/api/r/{slug}/view")).await
 }
 
-#[cfg(feature = "server")]
-fn decode<T: serde::de::DeserializeOwned>(args: &[u8]) -> Result<T, DispatchError> {
-    let args = if args.is_empty() { b"{}" } else { args };
-    serde_json::from_slice(args).map_err(|e| DispatchError::Arguments(e.to_string()))
-}
-
-#[cfg(feature = "server")]
-fn encode<T: Serialize>(value: T) -> service::Result<serde_json::Value> {
-    serde_json::to_value(value).map_err(|e| service::Error::Internal(e.into()))
-}
-
 /// Same-origin requests, so the browser sends Clerk's session cookie.
-#[cfg(feature = "web")]
 mod client {
     use gloo_net::http::{Request, Response};
     use serde::{Serialize, de::DeserializeOwned};

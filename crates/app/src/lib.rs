@@ -14,7 +14,7 @@
 #[cfg(all(feature = "server", target_arch = "wasm32", not(feature = "worker")))]
 compile_error!("on wasm32, build the server as a Worker: `--features worker` (or `worker-dev`)");
 
-#[cfg_attr(not(feature = "web"), allow(dead_code))]
+#[cfg(feature = "web")]
 pub mod api;
 // Installed from the dioxus-daisyui-components registry (`dx components add`); not every
 // export is used.

@@ -965,7 +965,7 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
     ] {
         let (status, _, body) = send(&router, admin_call(name, r#"{"title":"x"}"#)).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{name}: {body}");
-        let err: crate::api::ApiError = serde_json::from_str(&body).unwrap();
+        let err: rafi_model::api::ApiError = serde_json::from_str(&body).unwrap();
         assert_eq!(err.message, "Please sign in.");
     }
 
@@ -1012,7 +1012,7 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
     // Errors carry the service's message and a matching status.
     let (status, _, body) = send(&router, admin_call("create_raffle", r#"{"title":" "}"#)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    let err: crate::api::ApiError = serde_json::from_str(&body).unwrap();
+    let err: rafi_model::api::ApiError = serde_json::from_str(&body).unwrap();
     assert_eq!(err.message, "The title must be 1–120 characters.");
     let (status, _, body) = send(&router, admin_call("get_raffle", r#"{"id":"nope"}"#)).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");

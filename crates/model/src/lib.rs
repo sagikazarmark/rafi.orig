@@ -1,5 +1,7 @@
-//! The types the Rafi app's server and browser exchange: the views screens
-//! poll, and the admin API's arguments and results.
+//! The contract between the Rafi app's server and browser: the views screens
+//! poll, and the [`api`]: the admin functions, their arguments and results.
+
+pub mod api;
 
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::{EntrantId, Event, ItemId, ItemStatus, Outcome};
