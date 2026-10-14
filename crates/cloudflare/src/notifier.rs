@@ -24,6 +24,11 @@ impl DurableObjects {
     pub fn new(env: Env) -> Self {
         Self(SendWrapper(env))
     }
+
+    /// Clients follow a raffle over partyline, at its object.
+    pub fn transport(&self, _raffle_id: &str) -> LiveTransport {
+        LiveTransport::Partyline { base_url: None }
+    }
 }
 
 impl Notifier for DurableObjects {
@@ -54,9 +59,5 @@ impl Notifier for DurableObjects {
                 .await
                 .map_err(|e| anyhow::anyhow!("ending the live channel of {raffle_id}: {e}"))
         }))
-    }
-
-    fn transport(&self, _raffle_id: &str) -> LiveTransport {
-        LiveTransport::Partyline { base_url: None }
     }
 }

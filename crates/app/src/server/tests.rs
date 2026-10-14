@@ -12,7 +12,7 @@ use axum::{
 use http_body_util::BodyExt;
 use rafi_lifecycle::RaffleState;
 use rafi_live::LiveTransport;
-use rafi_platform::{Limiter, Notifier, Polling, Recording};
+use rafi_platform::{Limiter, Recording};
 use rafi_raffle::{ItemStatus, Resolution};
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
 use tower::ServiceExt;
@@ -29,7 +29,7 @@ async fn app() -> AppState {
 }
 
 async fn app_with(cfg: Config) -> AppState {
-    app_with_live(cfg, Arc::new(Polling::default())).await
+    app_with_live(cfg, service::LiveUpdates::polling()).await
 }
 
 /// The raffle engine's drand: the mock chain, no lead.
@@ -42,7 +42,7 @@ fn mock_drand() -> rafi_engine::drand::DrandConfig {
     }
 }
 
-async fn app_with_live(cfg: Config, live: Arc<dyn Notifier>) -> AppState {
+async fn app_with_live(cfg: Config, live: service::LiveUpdates) -> AppState {
     app_with_engine(cfg, mock_drand(), live).await
 }
 
@@ -52,7 +52,7 @@ async fn app_with_live(cfg: Config, live: Arc<dyn Notifier>) -> AppState {
 async fn app_with_engine(
     mut cfg: Config,
     drand: rafi_engine::drand::DrandConfig,
-    live: Arc<dyn Notifier>,
+    live: service::LiveUpdates,
 ) -> AppState {
     if cfg.database_url == Config::for_tests().database_url
         && let Some(url) = rafi_store::testing::postgres_url().await
@@ -65,7 +65,7 @@ async fn app_with_engine(
     let engine = rafi_engine::local::LocalEngine::new(
         rafi_engine::drand::DrandClient::new(drand).expect("drand configuration"),
         rafi_store::RaffleWriter::new(db.clone()),
-        rafi_platform::Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
+        rafi_platform::Notify::new(rafi_platform::Polling, rafi_raffle::RaffleId::as_str),
     );
     AppState::from_parts(
         cfg,
@@ -75,6 +75,16 @@ async fn app_with_engine(
         Arc::new(Limiter::default()),
     )
     .expect("app state")
+}
+
+/// Live updates that record every call and tell clients to subscribe over
+/// partyline.
+fn recording() -> (Arc<Recording>, service::LiveUpdates) {
+    let recording = Arc::new(Recording::default());
+    let live = service::LiveUpdates::new(recording.clone(), |_, _| LiveTransport::Partyline {
+        base_url: None,
+    });
+    (recording, live)
 }
 
 async fn send(router: &Router, req: Request<Body>) -> (StatusCode, header::HeaderMap, String) {
@@ -208,7 +218,7 @@ async fn unreachable_drand_app() -> AppState {
         lead_secs: 3,
         timeout_secs: 1,
     };
-    app_with_engine(cfg, drand, Arc::new(Polling::default())).await
+    app_with_engine(cfg, drand, service::LiveUpdates::polling()).await
 }
 
 #[tokio::test]
@@ -835,7 +845,7 @@ async fn join_requires_proof_of_work_and_consent() {
 async fn an_engine_on_another_chain_is_refused_before_freezing() {
     let mut cfg = Config::for_tests();
     cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
-    let app = app_with_engine(cfg, mock_drand(), Arc::new(Polling::default())).await;
+    let app = app_with_engine(cfg, mock_drand(), service::LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
         .await
@@ -1237,7 +1247,7 @@ async fn only_handing_over_passes_a_waiting_draw() {
         lead_secs: 3,
         ..mock_drand()
     };
-    let app = app_with_engine(Config::for_tests(), drand, Arc::new(Polling::default())).await;
+    let app = app_with_engine(Config::for_tests(), drand, service::LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 2)]).await;
     for i in 0..3 {
         service::add_manual(&app, OWNER, &raffle.id, &format!("Person {i}"), None)
@@ -1436,8 +1446,8 @@ async fn finished_raffle(app: &AppState) -> RaffleRow {
 
 #[tokio::test]
 async fn ending_live_updates() {
-    let live = Arc::new(Recording::default());
-    let app = app_with_live(Config::for_tests(), live.clone()).await;
+    let (live, live_updates) = recording();
+    let app = app_with_live(Config::for_tests(), live_updates).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     assert!(
         !live.notified().is_empty(),
@@ -1479,8 +1489,8 @@ async fn ending_live_updates() {
 /// see nudge it, joins don't.
 #[tokio::test]
 async fn writes_nudge_and_destroy_the_channel() {
-    let live = Arc::new(Recording::default());
-    let app = app_with_live(Config::for_tests(), live.clone()).await;
+    let (live, live_updates) = recording();
+    let app = app_with_live(Config::for_tests(), live_updates).await;
     let router = routes(app.clone());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     let nudges = || live.notified().len();
@@ -1543,8 +1553,8 @@ async fn writes_nudge_and_destroy_the_channel() {
 /// data, and records that it ran.
 #[tokio::test]
 async fn retention_ends_channels_and_logs_erasures() {
-    let live = Arc::new(Recording::default());
-    let app = app_with_live(Config::for_tests(), live.clone()).await;
+    let (live, live_updates) = recording();
+    let app = app_with_live(Config::for_tests(), live_updates).await;
     let old = finished_raffle(&app).await;
     let recent = finished_raffle(&app).await;
     let now = super::ids::now();
@@ -1591,7 +1601,7 @@ async fn retention_ends_channels_and_logs_erasures() {
         cfg,
         app.db.clone(),
         app.engine.clone(),
-        live.clone(),
+        app.live_updates.clone(),
         Arc::new(Limiter::default()),
     )
     .unwrap();

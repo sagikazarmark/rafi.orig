@@ -3,7 +3,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use rafi_app_core::{self as app, App, Error, Policy, Refusal};
+use rafi_app_core::{self as app, App, Error, LiveUpdates, Policy, Refusal};
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
 use rafi_model::{EntrantPatch, Lifecycle, PrizeInput, StartStep};
@@ -26,13 +26,13 @@ async fn app() -> App {
     let engine = LocalEngine::new(
         drand,
         RaffleWriter::new(db.clone()),
-        Notify::new(Polling::default(), rafi_raffle::RaffleId::as_str),
+        Notify::new(Polling, rafi_raffle::RaffleId::as_str),
     );
     App {
         db,
         chain,
         engine: Some(Arc::new(engine)),
-        notifier: Arc::new(Polling::default()),
+        live_updates: LiveUpdates::polling(),
         policy: Policy {
             public_url: "http://localhost".into(),
             max_entrants: 100,

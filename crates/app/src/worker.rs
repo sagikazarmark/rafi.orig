@@ -80,7 +80,10 @@ fn app(env: &Env) -> anyhow::Result<App> {
         cfg,
         rafi_cloudflare::database(env)?,
         engine,
-        Arc::new(DurableObjects::new(env.clone())),
+        server::service::LiveUpdates::new(
+            Arc::new(DurableObjects::new(env.clone())),
+            DurableObjects::transport,
+        ),
         Arc::new(RateLimitBindings::new(env.clone())),
     )?;
     Ok((app, auth))

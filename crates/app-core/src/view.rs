@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 
 use rafi_lifecycle::RaffleState;
+use rafi_live::ParticipantView;
 use rafi_model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
 use rafi_raffle::{BeaconSource, Event, ItemId, ItemStatus};
-use rafi_live::ParticipantView;
 use rafi_store::{live::Snapshot, view::Full};
 
 use crate::{App, ids};

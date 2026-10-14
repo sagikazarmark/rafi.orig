@@ -97,7 +97,7 @@ async fn end_channels(app: &AppState, now: i64) -> u64 {
     for id in due {
         // Over raffles refuse sockets anyway, so destroying first is safe,
         // and a failure leaves the raffle for the next run.
-        if let Err(e) = app.notifier.end(&id).await {
+        if let Err(e) = app.live_updates.end(&id).await {
             tracing::warn!(raffle_id = id, error = %e, "ending a live channel failed");
             continue;
         }

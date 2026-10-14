@@ -258,7 +258,7 @@ pub async fn patch_entrant(
     audit::record(&app.db, raffle_id, owner, "patch_entrant", entrant_id).await?;
     // A drawn entrant's name is on the phones.
     if patch.display_name.is_some() || patch.hidden.is_some() {
-        app.notifier.notify(raffle_id).await;
+        app.live_updates.notify(raffle_id).await;
     }
     Ok(())
 }
@@ -294,7 +294,7 @@ pub async fn remove_entrant(
         }
         None => return Ok(()),
     }
-    app.notifier.notify(raffle_id).await;
+    app.live_updates.notify(raffle_id).await;
     Ok(())
 }
 
@@ -309,7 +309,7 @@ pub async fn purge(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
     raffles::mark_purged(&app.db, raffle_id).await?;
     audit::record(&app.db, raffle_id, owner, "purge", "").await?;
     // Destroying the channel publishes the final (erased) view first.
-    app.notifier.end(raffle_id).await?;
+    app.live_updates.end(raffle_id).await?;
     Ok(())
 }
 
@@ -325,6 +325,6 @@ pub async fn end_live(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
     if raffle.live_ended_at.is_none() {
         audit::record(&app.db, raffle_id, owner, "end_live", "").await?;
     }
-    app.notifier.end(raffle_id).await?;
+    app.live_updates.end(raffle_id).await?;
     Ok(())
 }

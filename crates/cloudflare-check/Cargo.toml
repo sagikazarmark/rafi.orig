@@ -14,7 +14,6 @@ crate-type = ["cdylib", "rlib"]
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
 js-sys = "0.3"
 rafi-cloudflare = { path = "../cloudflare" }
-rafi-platform = { path = "../platform" }
 rafi-live = { path = "../live", features = ["server", "card"] }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
 rafi-store.workspace = true

@@ -4775,7 +4775,6 @@ dependencies = [
  "js-sys",
  "rafi-cloudflare",
  "rafi-live",
- "rafi-platform",
  "rafi-raffle",
  "rafi-store",
  "serde_json",
@@ -4884,7 +4883,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "rafi-engine",
- "rafi-live",
  "rafi-raffle",
  "tokio",
 ]
