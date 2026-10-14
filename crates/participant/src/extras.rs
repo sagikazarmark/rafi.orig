@@ -7,7 +7,7 @@
 
 use std::cell::RefCell;
 
-use rafi_live_client::altcha;
+use rafi_altcha as altcha;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 use web_sys::{AudioContext, Element, HtmlButtonElement, HtmlInputElement, OscillatorType};

@@ -4704,6 +4704,7 @@ dependencies = [
  "js-sys",
  "partyline-dioxus",
  "qrcode",
+ "rafi-altcha",
  "rafi-app-core",
  "rafi-cloudflare",
  "rafi-engine",
@@ -4729,6 +4730,19 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "worker",
+]
+
+[[package]]
+name = "rafi-altcha"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "hex",
+ "hmac 0.12.1",
+ "rafi-altcha",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -4775,9 +4789,9 @@ version = "0.0.0"
 dependencies = [
  "dioxus",
  "js-sys",
+ "rafi-altcha",
  "rafi-cloudflare",
  "rafi-live-client",
- "rafi-live-server",
  "rafi-raffle",
  "rafi-store",
  "serde_json",
@@ -4836,15 +4850,12 @@ dependencies = [
 name = "rafi-live-client"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
  "dioxus",
  "dioxus-ssr",
- "hex",
  "partyline",
  "rafi-live-client",
  "serde",
  "serde_json",
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -4852,14 +4863,11 @@ name = "rafi-live-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "hex",
- "hmac 0.12.1",
  "rafi-engine",
  "rafi-lifecycle",
  "rafi-live-client",
  "rafi-raffle",
  "serde_json",
- "sha2 0.10.9",
  "tokio",
 ]
 
@@ -4884,6 +4892,7 @@ dependencies = [
  "gloo-timers 0.3.0",
  "js-sys",
  "partyline-dioxus",
+ "rafi-altcha",
  "rafi-live-client",
  "serde",
  "serde_json",

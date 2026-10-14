@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "What a phone sees live and runs: the participant view, its partyline channel, the participant card and solving the ALTCHA proof-of-work"
+description = "What a phone sees live and runs: the participant view, its partyline channel and the participant card"
 publish = false
 
 [features]
@@ -13,15 +13,12 @@ publish = false
 card = ["dep:dioxus"]
 
 [dependencies]
-base64 = "0.22"
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals"], optional = true }
-hex = { workspace = true }
 partyline = "0.3"
 serde = { workspace = true }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
 
 [dev-dependencies]
 dioxus-ssr = "=0.7.10"
+serde_json = { workspace = true }
 # Itself with `card`, so its tests run with the workspace's.
 rafi-live-client = { path = ".", features = ["card"] }

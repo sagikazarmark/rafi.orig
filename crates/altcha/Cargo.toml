@@ -1,0 +1,24 @@
+[package]
+name = "rafi-altcha"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Rafi's self-hosted proof-of-work, an ALTCHA-compatible scheme: solving it, and with `server` issuing and verifying it"
+publish = false
+
+[features]
+## Issue and verify challenges (HMAC). The browser only solves.
+server = ["dep:hmac"]
+
+[dependencies]
+base64 = "0.22"
+hex = { workspace = true }
+hmac = { version = "0.12", optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+# Itself with `server`, so its tests run with the workspace's.
+rafi-altcha = { path = ".", features = ["server"] }

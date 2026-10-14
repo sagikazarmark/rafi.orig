@@ -1,19 +1,18 @@
 //! The join form's proof-of-work: issuing challenges and redeeming solutions
-//! ([`rafi_live_client::altcha`]'s scheme, ALTCHA-compatible).
+//! ([`rafi_altcha`]'s scheme, ALTCHA-compatible).
 //!
 //! Each challenge is accepted once ([`rafi_store::altcha`]): a redeemed
 //! challenge is kept until it expires, and a second redemption is refused.
 //! The retention run deletes expired ones.
 
-pub use rafi_live_client::altcha::Challenge;
-use rafi_live_client::altcha::Solution;
-use rafi_live_server::altcha;
+pub use rafi_altcha::Challenge;
+use rafi_altcha::Solution;
 
 use super::{AppState, ids};
 
 /// A fresh challenge.
 pub fn challenge(app: &AppState) -> Challenge {
-    altcha::issue(
+    rafi_altcha::issue(
         &app.cfg.altcha_key,
         app.cfg.altcha_max,
         now(),
@@ -33,7 +32,7 @@ pub async fn redeem(app: &AppState, payload: &str) -> rafi_store::Result<bool> {
         return Ok(false);
     };
     // The signature first: only the server's own challenges reach the table.
-    if !altcha::verify(&app.cfg.altcha_key, &solution, now()) {
+    if !rafi_altcha::verify(&app.cfg.altcha_key, &solution, now()) {
         return Ok(false);
     }
     let expires_at = solution.expires_at().unwrap_or_default();

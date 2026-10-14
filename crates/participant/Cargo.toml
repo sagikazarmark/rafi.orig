@@ -17,6 +17,7 @@ futures-util = { version = "0.3", default-features = false }
 gloo-timers = { version = "0.3", features = ["futures"] }
 js-sys = "0.3"
 partyline-dioxus = "0.3"
+rafi-altcha = { workspace = true }
 rafi-live-client = { workspace = true, features = ["card"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

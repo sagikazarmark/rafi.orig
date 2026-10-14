@@ -190,8 +190,9 @@ rafi-lifecycle       the raffle's lifecycle in the app: states, starting the dra
 rafi-engine          the engine contract: Engine, Store, Observer; DrandClient (`drand`), LocalEngine (`local`), the suite (`conformance`)
 rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's Engine
 rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; the phones' snapshot
-rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), solving the proof-of-work, Follow, PageConfig
-rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule, issuing and verifying the proof-of-work
+rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), Follow, PageConfig
+rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
+rafi-altcha          the proof-of-work (ALTCHA-compatible): solve; issue and verify (`server`)
 rafi-model           the types the app's server and browser exchange
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, policy }; typed errors; RateLimit; no HTTP, no i18n
 rafi                 the HTTP side (routes, participant pages, auth, retention) and the web UI
@@ -204,7 +205,8 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
   host passes the engine its live notifier as the `Observer` (on Workers; the native host passes none, since its
   clients poll), and the app's retention run dates erasure.
 - `rafi-engine` depends on no live or Cloudflare crate, and nothing below the app pulls in Dioxus (`rafi-live-client`'s `card`
-  is off). The phone builds only `rafi-live-client`: no `rafi-raffle`, drand or BLS.
+  is off). The phone builds only `rafi-live-client` and `rafi-altcha` (without `server`): no `rafi-raffle`, drand,
+  BLS or HMAC.
 - The server sends the admin what it may do (`RaffleAdmin.actions`, `AdminEntrant.deliverable`); the UI derives no
   rules.
 
@@ -408,7 +410,8 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
 - **11** (2026-10-14). `rafi-platform` dissolved: the engine contract is `Engine` / `Store` / `Observer`; `rafi-live`
   split into `rafi-live-client` (the phone's) and `rafi-live-server`, whose `Notifier` is an `Observer` that can also
   end live updates, so a deployment hands its notifier to the engine as is (`Notify` gone); `RateLimit` is
-  `rafi-app-core`'s, its Workers bindings the app Worker's; `LiveUpdates` moved to `rafi-live-server`.
+  `rafi-app-core`'s, its Workers bindings the app Worker's; `LiveUpdates` moved to `rafi-live-server`; the
+  proof-of-work is its own crate, `rafi-altcha`.
 
 ## Appendix: key sources
 

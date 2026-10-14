@@ -16,6 +16,7 @@ rafi-lifecycle = { workspace = true }
 rafi-raffle = { workspace = true }
 rafi-model = { workspace = true }
 rafi-store = { workspace = true, optional = true }
+rafi-altcha = { workspace = true, optional = true }
 rafi-live-client = { workspace = true, features = ["card"] }
 rafi-live-server = { workspace = true, optional = true }
 rafi-engine = { workspace = true, optional = true }
@@ -100,6 +101,8 @@ server = [
     "dep:rafi-app-core",
     "dep:rafi-store",
     "dep:rafi-live-server",
+    "dep:rafi-altcha",
+    "rafi-altcha/server",
     "dep:rafi-engine",
     "dep:tracing",
     "dep:anyhow",

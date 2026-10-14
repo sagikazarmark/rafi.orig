@@ -13,9 +13,9 @@ crate-type = ["cdylib", "rlib"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
 js-sys = "0.3"
+rafi-altcha = { workspace = true, features = ["server"] }
 rafi-cloudflare = { workspace = true }
 rafi-live-client = { workspace = true, features = ["card"] }
-rafi-live-server = { workspace = true }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
 rafi-store = { workspace = true }
 serde_json = { workspace = true }

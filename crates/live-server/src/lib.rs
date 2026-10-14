@@ -6,13 +6,11 @@
 //! - [`LiveUpdates`]: a deployment's notifier, paired with how clients
 //!   follow each raffle;
 //! - [`raffle::view`]: the participant view of a raffle as drawn;
-//! - [`publish::decide`]: when a live channel publishes a participant view;
-//! - [`altcha`]: issuing and verifying the join form's proof-of-work.
+//! - [`publish::decide`]: when a live channel publishes a participant view.
 //!
 //! It reads no clock and no randomness of its own, so it runs unchanged on
 //! `wasm32-unknown-unknown` (Workers).
 
-pub mod altcha;
 mod live;
 mod notifier;
 pub mod publish;

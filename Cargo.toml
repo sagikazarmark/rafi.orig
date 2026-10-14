@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lifecycle", "crates/raffle", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live-client", "crates/live-server", "testbeds/store-d1", "crates/cloudflare", "testbeds/cloudflare", "crates/restate-worker", "crates/participant", "crates/model", "crates/app-core"]
+members = ["crates/altcha", "crates/lifecycle", "crates/raffle", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live-client", "crates/live-server", "testbeds/store-d1", "crates/cloudflare", "testbeds/cloudflare", "crates/restate-worker", "crates/participant", "crates/model", "crates/app-core"]
 
 [workspace.package]
 edition = "2024"
@@ -9,6 +9,7 @@ repository = "https://github.com/sagikazarmark/rafi"
 rust-version = "1.92"
 
 [workspace.dependencies]
+rafi-altcha = { path = "crates/altcha" }
 rafi-lifecycle = { path = "crates/lifecycle" }
 rafi-raffle = { path = "crates/raffle" }
 rafi-model = { path = "crates/model" }
