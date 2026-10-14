@@ -212,15 +212,15 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 
 | | Native (self-hosting) | Cloudflare Workers (planned production) |
 |---|---|---|
-| App | `rafi --features server`; an hourly retention task; in-memory rate limits | `rafi --features worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleChannel` |
+| App | `rafi --features server`; an hourly retention task; in-memory rate limits | `rafi --features worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleRoom` |
 | Database | SQLite or Postgres (`RAFI_DATABASE_URL`) | D1, EU jurisdiction |
 | Raffle engine | `restate-rafi` (`crates/restate-rafi-endpoint`) on the same database | `rafi-restate-worker`, called by Restate Cloud over HTTPS (request-response, signed) |
-| Live updates | none pushed: clients poll | `RaffleChannel`, a Durable Object per raffle (partyline) |
+| Live updates | none pushed: clients poll | `RaffleRoom`, a Durable Object per raffle (partyline) |
 | Edge | Caddy | Cloudflare |
 
 ```
 organizer, projector ──▶ app ──ingress──▶ Restate ──▶ Raffle (engine host)  ──▶ database (the record)
-phones ────────────────▶ app ◀── database                      └──nudge──▶ RaffleChannel ──WebSocket──▶ phones (Workers)
+phones ────────────────▶ app ◀── database                      └──nudge──▶ RaffleRoom ──WebSocket──▶ phones (Workers)
 ```
 
 ### 8.3 Routes
@@ -245,7 +245,7 @@ phones ────────────────▶ app ◀── databas
 | The raffle's log (manifest + event log, `raffles.log`) | the database, written by the engine after every change: the projection, and the record. The newest version wins. |
 | The live raffle | the engine (Restate object state), from opening to finish. |
 | Erasures | the database (`erasures`: entrant ID and time only); a restore must re-apply them. |
-| The participant view | `RaffleChannel` (Workers), built from one snapshot (`rafi_cloudflare::participant_view`); destroyed when live updates end. |
+| The participant view | `RaffleRoom` (Workers), built from one snapshot (`rafi_cloudflare::participant_view`); destroyed when live updates end. |
 
 ### 8.5 The raffle engine
 
@@ -268,13 +268,13 @@ same command ID is safe.
   personal data beyond the last drawn entrant's public name. The **full view** (projector, admin) adds the count,
   recent names, prizes, every draw and the server's time.
 - **Phones** follow the raffle as the server's `Follow` says: over its participant channel (the raffle's
-  `RaffleChannel` on Workers), or polling `/api/r/{slug}/participant` natively. They accept only a newer `v`.
+  `RaffleRoom` on Workers), or polling `/api/r/{slug}/participant` natively. They accept only a newer `v`.
 - **Each deployment's `LiveUpdates`** (`rafi-app-core`) pairs its `Notifier` with how clients follow a raffle, a
   function of that notifier and the raffle's ID (a Mercure topic would name the raffle): `LiveUpdates::polling()`
   natively, `DurableObjects` and `DurableObjects::follow` on Workers. Once live updates end, clients poll.
 - **The projector and admin** poll the full view every 2.5 s while the raffle is live (accepting `v >=`, since recent
   names change with time); on Workers they reveal the winner from the participant channel too.
-- **`RaffleChannel`** is nudged by the app (lifecycle, edits; not joins) and by the engine host after each raffle
+- **`RaffleRoom`** is nudged by the app (lifecycle, edits; not joins) and by the engine host after each raffle
   write. It reads the raffle in one D1 batch and publishes by `rafi_live::publish::decide`; a 15 s alarm repairs a
   lost nudge. **End live updates**, deleting or purging the raffle, or the Cron a day after it finished destroys it
   (final view, sockets closed with 4403, storage deleted).
@@ -286,7 +286,8 @@ same command ID is safe.
 | **Participant channel** | The partyline channel carrying the latest participant view, one per raffle (`ParticipantChannel`) | feed, topic |
 | **Follow** | How a client keeps its view fresh: poll, partyline or (reserved) SSE (`Follow`) | transport, subscription |
 | **Notifier** | The server side: "this raffle changed", "end its live updates" | publisher |
-| **Live channel** | A raffle's participant channel as hosted: on Workers, its `RaffleChannel` Durable Object | hub |
+| **Live channel** | A raffle's participant channel as hosted | hub |
+| **Raffle room** | On Workers, the Durable Object hosting one raffle's live channel (`RaffleRoom`) | channel, hub |
 
 "Follows the raffle" also says that `RaffleState` mirrors the raffle's progress (`follows_raffle`); that is the
 lifecycle's sense, unrelated to `Follow`.
@@ -335,7 +336,7 @@ lifecycle's sense, unrelated to `Follow`.
 
 ## 11. Hosting and operations
 
-- **Production (planned): Cloudflare Workers.** The app Worker (with `RaffleChannel`), `rafi-restate-worker` and one
+- **Production (planned): Cloudflare Workers.** The app Worker (with `RaffleRoom`), `rafi-restate-worker` and one
   D1 database ([workers-plan.md](workers-plan.md); the comments in `crates/app/wrangler.toml` and
   `crates/restate-worker/wrangler.toml`). Missing secrets stop a Worker; dev auth and mock drand are compiled out of
   release builds.

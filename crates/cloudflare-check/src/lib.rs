@@ -1,4 +1,4 @@
-//! A Worker that hosts `RaffleChannel` and lets `scenario.mjs` change a raffle
+//! A Worker that hosts `RaffleRoom` and lets `scenario.mjs` change a raffle
 //! the way the app and the raffle engine would.
 //!
 //! ```shell
@@ -10,7 +10,7 @@
 
 #![cfg(target_arch = "wasm32")]
 
-pub use rafi_cloudflare::RaffleChannel;
+pub use rafi_cloudflare::RaffleRoom;
 use rafi_cloudflare::{DurableObjects, participant_view};
 use rafi_raffle::{BeaconSource, Event, ItemStatus, Manifest, ManifestItem, Raffle};
 use rafi_store::{Db, live::Snapshot};

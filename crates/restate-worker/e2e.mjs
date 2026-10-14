@@ -1,6 +1,6 @@
 // A draw end to end on Workers: Restate (a local restate-server) calls this
 // Worker in request-response mode; the Worker writes D1 and nudges the
-// raffle's RaffleChannel (hosted by crates/cloudflare-check), which pushes to a
+// raffle's RaffleRoom (hosted by crates/cloudflare-check), which pushes to a
 // phone connected over partyline.
 //
 // Setup (shared local state for both Workers):

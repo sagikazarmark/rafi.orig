@@ -107,7 +107,7 @@ server = [
     "dep:thiserror",
 ]
 # The app on Cloudflare Workers: `server` plus the Worker entry points
-# (fetch, the Cron, the RaffleChannel Durable Object). Build with worker-build.
+# (fetch, the Cron, the RaffleRoom Durable Object). Build with worker-build.
 worker = [
     "server",
     "dep:worker",
