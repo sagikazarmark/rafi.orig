@@ -105,9 +105,11 @@ Requirements: Rust stable with `wasm32-unknown-unknown`, and `dx` **0.7.10** (it
 cargo install dioxus-cli@0.7.10 --locked
 ```
 
-The UI uses **Tailwind CSS v4 + daisyUI 5** (vendored as single-file plugins in `crates/web/vendor/`, no npm),
-with custom light (`rafi`) and dark (`rafi-dark`) themes defined in [`crates/web/tailwind.css`](crates/web/tailwind.css).
-`dx` compiles it automatically; before a plain `cargo build`/`clippy` of the web app on a fresh checkout run `./scripts/tailwind.sh`.
+The UI uses **Tailwind CSS v4 + daisyUI 5**, with custom light (`rafi`) and dark (`rafi-dark`) themes defined in
+[`crates/web/tailwind.css`](crates/web/tailwind.css). `dx` compiles it automatically with its own standalone Tailwind CLI;
+daisyUI comes from npm (`crates/web/package.json`; devenv runs `npm install` on entering the shell). A plain
+`cargo build`/`clippy` of the web app needs the compiled stylesheet too: on a fresh checkout, run `dx build` once, or
+`tailwindcss -i tailwind.css -o assets/tailwind.css` in `crates/web`.
 Organizer forms use [dioform](https://crates.io/crates/dioform) (typed fields, validation, managed async submit)
 rendered with components from the [dioxus-daisyui-components](https://github.com/sagikazarmark/dioxus-daisyui-components)
 registry (fields, select, switch, buttons, alert dialogs, dropdown menu, tabs, toasts), installed into

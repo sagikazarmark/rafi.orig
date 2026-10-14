@@ -12,9 +12,10 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 # wasm-bindgen-cli must match the wasm-bindgen version in Cargo.lock; binaryen
-# brings wasm-opt (both for ./scripts/participant.sh).
+# brings wasm-opt (both for ./scripts/participant.sh); npm installs daisyUI for the
+# stylesheet.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends binaryen \
+    && apt-get install -y --no-install-recommends binaryen npm \
     && rm -rf /var/lib/apt/lists/* \
     && rustup target add wasm32-unknown-unknown \
     && cargo install dioxus-cli@0.7.10 --locked \
@@ -26,7 +27,7 @@ COPY . .
 ARG CLERK_PUBLISHABLE_KEY
 ENV CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
 # -> target/dx/rafi-web/release/web/public
-RUN cd crates/web && dx bundle --platform web --release
+RUN cd crates/web && npm ci --no-fund --no-audit && dx bundle --platform web --release
 # -> crates/participant/dist: the participant page's WebAssembly and fallback
 RUN ./scripts/participant.sh
 RUN cargo build --release --locked -p rafi-server

@@ -23,9 +23,15 @@ const TAILWIND_CSS: Asset = asset!(
     "/assets/tailwind.css",
     AssetOptions::builder().with_hash_suffix(false)
 );
-/// Served at a stable path because the stylesheet references it by URL.
+/// The display font's Latin subset, preloaded. Both subsets are served at a
+/// stable path because the stylesheet references them by URL.
 const DISPLAY_FONT: Asset = asset!(
-    "/assets/fonts/bricolage.woff2",
+    "/assets/fonts/bricolage-latin.woff2",
+    AssetOptions::builder().with_hash_suffix(false)
+);
+/// Its Latin Extended subset, which the stylesheet loads only for those letters.
+const _: Asset = asset!(
+    "/assets/fonts/bricolage-latin-ext.woff2",
     AssetOptions::builder().with_hash_suffix(false)
 );
 

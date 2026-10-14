@@ -40,8 +40,20 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # rafi-web's asset!() needs the stylesheet to exist; dx isn't installed here.
       - name: Build the stylesheet (Tailwind CSS + daisyUI)
-        run: ./scripts/tailwind.sh
+        working-directory: crates/web
+        env:
+          TAILWIND_VERSION: v4.3.3 # devenv's tailwindcss
+        run: |
+          npm ci --no-fund --no-audit
+          curl -sSfL -o "$RUNNER_TEMP/tailwindcss" \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/$TAILWIND_VERSION/tailwindcss-linux-x64"
+          chmod +x "$RUNNER_TEMP/tailwindcss"
+          "$RUNNER_TEMP/tailwindcss" -i tailwind.css -o assets/tailwind.css --minify
       - name: Format
         run: cargo fmt --all --check
       - name: Download restate-server (end-to-end tests)

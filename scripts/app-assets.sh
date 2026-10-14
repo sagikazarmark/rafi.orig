@@ -8,8 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/crates/app-worker/worker-assets"
 
-"$ROOT/scripts/tailwind.sh"
-(cd "$ROOT/crates/web" && dx bundle --platform web --release)
+(cd "$ROOT/crates/web" && npm ci --no-fund --no-audit && dx bundle --platform web --release)
 "$ROOT/scripts/participant.sh" "$OUT.participant.tmp"
 
 rm -rf "${OUT:?}"
