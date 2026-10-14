@@ -28,7 +28,6 @@ pub struct RaffleView {
     pub slug: String,
     pub title: String,
     pub description: String,
-    pub lang: String,
     pub state: RaffleState,
     pub join_code: String,
     pub join_url: String,
@@ -106,8 +105,6 @@ pub struct RaffleSummary {
 pub struct RaffleSettings {
     pub title: String,
     pub description: String,
-    /// "en" or "hu".
-    pub lang: String,
     pub organizer_name: String,
     pub contact_email: String,
     /// Extra rules text appended to the standard rules.

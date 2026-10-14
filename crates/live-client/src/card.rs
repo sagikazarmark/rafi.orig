@@ -18,11 +18,11 @@ pub const CARD: &str = "card bg-base-100 shadow-sm ring-1 ring-base-300 min-h-28
 pub const WON: &str =
     "card bg-success text-success-content shadow-xl items-center gap-2 p-7 text-center";
 
-/// The strings [`Card`] shows. The server fills them in from i18n (the field
-/// names are the i18n keys) and embeds them in the page JSON.
+/// The strings [`Card`] shows. The server embeds them in the page JSON, so
+/// the WebAssembly and `fallback.js` show the same text.
 ///
-/// The claimed winner's line reuses `thanks_won`, so no new i18n key is needed.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The claimed winner's line reuses `thanks_won`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardStrings {
     pub you_won: String,
     pub go_to_organizer: String,
@@ -37,36 +37,20 @@ pub struct CardStrings {
     pub drand_round: String,
 }
 
-impl CardStrings {
-    /// The i18n keys, one per field.
-    pub const KEYS: [&'static str; 11] = [
-        "you_won",
-        "go_to_organizer",
-        "thanks_won",
-        "thanks",
-        "drawing",
-        "not_this_time",
-        "draw_starting",
-        "prizes_left",
-        "waiting",
-        "locking",
-        "drand_round",
-    ];
-
-    /// Looks every string up by its i18n key, for example `|k| lang.t(k).into()`.
-    pub fn from_lookup(t: impl Fn(&str) -> String) -> Self {
+impl Default for CardStrings {
+    fn default() -> Self {
         Self {
-            you_won: t("you_won"),
-            go_to_organizer: t("go_to_organizer"),
-            thanks_won: t("thanks_won"),
-            thanks: t("thanks"),
-            drawing: t("drawing"),
-            not_this_time: t("not_this_time"),
-            draw_starting: t("draw_starting"),
-            prizes_left: t("prizes_left"),
-            waiting: t("waiting"),
-            locking: t("locking"),
-            drand_round: t("drand_round"),
+            you_won: "YOU WON!".into(),
+            go_to_organizer: "Go to the organizer and show your claim code.".into(),
+            thanks_won: "Congratulations again — enjoy your prize!".into(),
+            thanks: "Thanks for playing!".into(),
+            drawing: "Drawing".into(),
+            not_this_time: "Not this time".into(),
+            draw_starting: "The draw is starting!".into(),
+            prizes_left: "prizes left".into(),
+            waiting: "Waiting for the draw to start…".into(),
+            locking: "Locking in public randomness".into(),
+            drand_round: "drand round".into(),
         }
     }
 }

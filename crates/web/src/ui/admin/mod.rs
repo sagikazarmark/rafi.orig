@@ -10,10 +10,7 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use rafi_lifecycle::{RaffleState, entrant::Source};
-use rafi_pages::{
-    i18n::Lang,
-    icons::{I, Icon},
-};
+use rafi_pages::icons::{I, Icon};
 use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
 
 use super::{

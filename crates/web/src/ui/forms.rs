@@ -14,9 +14,7 @@ use crate::{
     api::{self, ApiError},
     components::{
         button::{Button, ButtonColor, ButtonSize},
-        field::{Field, FieldDescription, FieldError, FieldLabel},
         input::{InputField, InputSize},
-        select::{Select, SelectList, SelectOption, SelectTrigger, SelectValue},
         switch::{SwitchColor, SwitchField},
         textarea::TextareaField,
         toast::{ToastOptions, use_toast},
@@ -370,7 +368,6 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
 struct Settings {
     title: String,
     description: String,
-    lang: String,
     event_date: String,
     organizer_name: String,
     contact_email: String,
@@ -384,11 +381,6 @@ impl From<&RaffleSettings> for Settings {
         Self {
             title: s.title.clone(),
             description: s.description.clone(),
-            lang: if s.lang == "hu" {
-                "hu".into()
-            } else {
-                "en".into()
-            },
             event_date: s.event_date.clone(),
             organizer_name: s.organizer_name.clone(),
             contact_email: s.contact_email.clone(),
@@ -404,7 +396,6 @@ impl From<Settings> for RaffleSettings {
         Self {
             title: s.title,
             description: s.description,
-            lang: s.lang,
             organizer_name: s.organizer_name,
             contact_email: s.contact_email,
             rules: s.rules,
@@ -414,8 +405,6 @@ impl From<Settings> for RaffleSettings {
         }
     }
 }
-
-const LANGUAGES: [(&str, &str); 2] = [("en", "🇬🇧 English"), ("hu", "🇭🇺 Magyar")];
 
 #[component]
 pub fn SettingsForm(
@@ -492,25 +481,8 @@ pub fn SettingsForm(
                     }
                 });
             },
-            InputField { context: form.text(f.title()), label: "Title", required: true, maxlength: "{MAX_TITLE_CHARS}", class: "w-full" }
-            Field { context: form.select(f.lang()),
-                FieldLabel { "Language" }
-                Select::<String> { class: "w-full",
-                    SelectTrigger { class: "w-full", SelectValue { placeholder: "Choose a language" } }
-                    SelectList { class: "z-20 w-full",
-                        for (index , (code , label)) in LANGUAGES.into_iter().enumerate() {
-                            SelectOption::<String> {
-                                key: "{code}",
-                                value: code.to_owned(),
-                                index,
-                                text_value: Some(label.to_owned()),
-                                "{label}"
-                            }
-                        }
-                    }
-                }
-                FieldDescription { "Of the projector screen and the participant page (participants can switch)." }
-                FieldError {}
+            div { class: "md:col-span-2",
+                InputField { context: form.text(f.title()), label: "Title", required: true, maxlength: "{MAX_TITLE_CHARS}", class: "w-full" }
             }
             div { class: "md:col-span-2",
                 TextareaField {

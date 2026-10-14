@@ -105,7 +105,7 @@ Restate is the only draw engine. The DO is only the live fan-out: it never holds
   - the WASM.
 - **`Card` renders one root (or nothing)** and calls no browser APIs while rendering. The reload, timers and audio live in `rafi-participant`.
 - **`#live` is a plain `aria-live` mount point owned by the page.** The WASM clears it and mounts in the same task. `role="alert"` and the pop animation are added only when the win happens on the client, not on page load.
-- **Strings:** `Card` takes a `CardStrings` struct that the server fills in from i18n and embeds in the page JSON.
+- **Strings:** `Card` takes a `CardStrings` struct that the server fills in and embeds in the page JSON.
 
 **The WASM adds:**
 - live updates;
@@ -197,7 +197,7 @@ Rafi relies on Restate. There is no fallback draw path:
   - invocation logs are off, or have confirmed header redaction (client IP, the `Cookie` header);
   - no Web Analytics;
   - no names, emails or tokens in `console`.
-- **The privacy notice, in Hungarian and English, adds:**
+- **The privacy notice adds:**
   - Cloudflare, Inc. (US, DPF/SCCs) for hosting, the database and logs;
   - that D1 Time Travel keeps erased data for up to 30 more days.
 - **Erasure log and restores:** keep a log of erasures with no personal data in it (entrant ID and time). Any restore must re-apply it.
@@ -243,7 +243,7 @@ Rafi relies on Restate. There is no fallback draw path:
 | `restate-rafi` (now `rafi-engine-restate`, with the app's client) | ported | `Drawing` virtual object over a `DrawStore` and a `DrawingNotifier`: the store write, then `notify` in a separate, best-effort `ctx.run`. No database or platform dependency | both draw engine hosts |
 | `rafi-cloudflare` | **new** (`rafi-channel` renamed) | All Cloudflare glue: the `RaffleChannel` DO, the socket gate and jurisdiction helper, `DurableObjects` (`Notifier`), `RateLimitBindings` (`RateLimit`), config from vars and secrets | both Workers |
 | `rafi-model`, `rafi-app-core` | **new** (revision 9) | The types the app's server and browser exchange; every use case as a function over `App { db, chain, engine, notifier, policy }`, without HTTP | app |
-| `rafi` (app) | ported | Routes, auth, i18n, retention, the web UI, over `AppState` (which derefs to `rafi_app_core::App`); the `worker` feature is the App Worker's thin entry point (fetch, Cron, exports `RaffleChannel`) | |
+| `rafi` (app) | ported | Routes, auth, retention, the web UI, over `AppState` (which derefs to `rafi_app_core::App`); the `worker` feature is the App Worker's thin entry point (fetch, Cron, exports `RaffleChannel`) | |
 | `rafi-restate-worker` | **new** | Restate Worker: the adapter around `Endpoint::handle_with_options`, signature checks; wires `DrawWriter` over D1 and `DurableObjects`, built once per isolate | Restate Cloud |
 | `restate-rafi-endpoint` | kept, not deployed | The native endpoint, for self-hosting (§8): `DrawWriter` over SQLite (opened lazily), the `Polling` notifier | |
 | `rafi-store-d1-check`, `rafi-cloudflare-check` | local checks | Workers that drive the store and the channel under `wrangler dev` (`scripts/workers-check.sh`) | |

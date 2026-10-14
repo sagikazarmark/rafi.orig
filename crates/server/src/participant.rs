@@ -1,19 +1,16 @@
 //! The participant pages' HTTP side: the participant page (`/j/{code}`,
 //! and joining by posting its form), the device's own entry, and the rules
-//! and privacy pages. Which language, which raffle, which entrant and what
-//! the join did is decided here; [`rafi_pages`] renders them.
+//! and privacy pages. Which raffle, which entrant and what the join did is
+//! decided here; [`rafi_pages`] renders them.
 
 use axum::{
     Extension, Form, Json, Router,
-    extract::{Path, Query},
+    extract::Path,
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
-use rafi_pages::{
-    i18n::Lang,
-    participant::{self as pages, Entrant, Notice, Page, Raffle},
-};
+use rafi_pages::participant::{self as pages, Entrant, Notice, Page, Raffle};
 use rafi_store::{EntrantRow, RaffleRow};
 use serde::Deserialize;
 
@@ -27,11 +24,6 @@ pub fn routes() -> Router {
         .route("/api/j/{code}/me", get(me))
         .route("/rules/{slug}", get(rules))
         .route("/privacy/{slug}", get(privacy))
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct LangQuery {
-    lang: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -61,24 +53,6 @@ fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
         .filter_map(|kv| kv.trim().split_once('='))
         .find(|(k, _)| *k == name)
         .map(|(_, v)| v.to_owned())
-}
-
-/// Language: `?lang=`, then the `rafi_lang` cookie, then `Accept-Language`, then the raffle default.
-fn pick_lang(query: &LangQuery, headers: &HeaderMap, raffle: Option<&RaffleRow>) -> Lang {
-    if let Some(l) = &query.lang {
-        return Lang::parse(l);
-    }
-    if let Some(l) = cookie(headers, "rafi_lang") {
-        return Lang::parse(&l);
-    }
-    let accept = headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if accept.to_ascii_lowercase().starts_with("hu") {
-        return Lang::Hu;
-    }
-    raffle.map(|r| Lang::parse(&r.lang)).unwrap_or(Lang::En)
 }
 
 /// The public raffle joined with `code`; `None` if there's none (or the
@@ -138,7 +112,6 @@ fn organizer_of(raffle: &RaffleRow) -> rafi_pages::Organizer<'_> {
 fn render_page(
     raffle: &RaffleRow,
     live: &service::public::Participant,
-    lang: Lang,
     entrant: Option<&EntrantRow>,
     notice: Notice,
     form: &JoinForm,
@@ -147,7 +120,6 @@ fn render_page(
         raffle: raffle_of(raffle),
         view: &live.view,
         follow: live.follow.clone(),
-        lang,
         entrant: entrant.map(|e| Entrant {
             id: &e.id,
             display_name: &e.display_name,
@@ -160,22 +132,8 @@ fn render_page(
     })
 }
 
-fn not_found(lang: Lang) -> Response {
-    (StatusCode::NOT_FOUND, Html(pages::not_found(lang))).into_response()
-}
-
-fn with_lang_cookie(mut resp: Response, query: &LangQuery, secure: bool) -> Response {
-    if let Some(l) = &query.lang {
-        let lang = Lang::parse(l);
-        let secure = if secure { "; Secure" } else { "" };
-        if let Ok(v) = HeaderValue::from_str(&format!(
-            "rafi_lang={}; Path=/; Max-Age=31536000; SameSite=Lax{secure}",
-            lang.code()
-        )) {
-            resp.headers_mut().append(header::SET_COOKIE, v);
-        }
-    }
-    resp
+fn not_found() -> Response {
+    (StatusCode::NOT_FOUND, Html(pages::not_found())).into_response()
 }
 
 /// What phones see of `raffle`; `None` if it's gone (or the read failed).
@@ -192,43 +150,37 @@ async fn participant(app: &AppState, raffle: &RaffleRow) -> Option<service::publ
 async fn page(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
-    Query(q): Query<LangQuery>,
     headers: HeaderMap,
 ) -> Response {
     let Some(raffle) = load(&app, &code).await else {
-        return not_found(pick_lang(&q, &headers, None));
+        return not_found();
     };
     if raffle.join_code != code {
         return Redirect::to(&format!("/j/{}", raffle.join_code)).into_response();
     }
-    let lang = pick_lang(&q, &headers, Some(&raffle));
     let entrant = current_entrant(&app, &raffle, &headers).await;
     let Some(live) = participant(&app, &raffle).await else {
-        return not_found(lang);
+        return not_found();
     };
     let html = render_page(
         &raffle,
         &live,
-        lang,
         entrant.as_ref(),
         Notice::None,
         &JoinForm::default(),
     );
-    let resp = ([(header::CACHE_CONTROL, "no-store")], Html(html)).into_response();
-    with_lang_cookie(resp, &q, app.cfg.cookie_secure)
+    ([(header::CACHE_CONTROL, "no-store")], Html(html)).into_response()
 }
 
 async fn submit(
     Extension(app): Extension<AppState>,
     Path(code): Path<String>,
-    Query(q): Query<LangQuery>,
     headers: HeaderMap,
     Form(form): Form<JoinForm>,
 ) -> Response {
     let Some(raffle) = load(&app, &code).await else {
-        return not_found(pick_lang(&q, &headers, None));
+        return not_found();
     };
-    let lang = pick_lang(&q, &headers, Some(&raffle));
 
     // Already joined on this device: just show the page.
     if current_entrant(&app, &raffle, &headers).await.is_some() {
@@ -255,14 +207,14 @@ async fn submit(
         Err(refused) => refused,
     };
     let Some(live) = participant(&app, &raffle).await else {
-        return not_found(lang);
+        return not_found();
     };
     let form = if notice == Notice::AlreadyIn {
         JoinForm::default()
     } else {
         form
     };
-    let html = render_page(&raffle, &live, lang, None, notice, &form);
+    let html = render_page(&raffle, &live, None, notice, &form);
     (status, [(header::CACHE_CONTROL, "no-store")], Html(html)).into_response()
 }
 
@@ -287,19 +239,19 @@ async fn try_join(
     }
 }
 
-/// The i18n key of why a join was refused.
+/// Why a join was refused, as the page says it.
 fn join_error(e: service::JoinError) -> &'static str {
     use rafi_lifecycle::entrant::NameError;
     use service::JoinError as E;
     match e {
-        E::Closed => "reg_closed",
-        E::Name(NameError::Invalid) => "err_name",
-        E::Name(NameError::Blocked) => "err_name_blocked",
-        E::Email => "err_email",
-        E::Rules => "err_rules",
-        E::Full => "err_full",
-        E::Limited | E::Failed => "err_rate",
-        E::Proof => "err_bot",
+        E::Closed => "Registration is closed.",
+        E::Name(NameError::Invalid) => "Please enter a name (1–24 characters).",
+        E::Name(NameError::Blocked) => "Please choose a different name.",
+        E::Email => "Please enter a valid email address.",
+        E::Rules => "You need to accept the rules to take part.",
+        E::Full => "Sorry, this raffle is full: it has reached its maximum number of entrants.",
+        E::Limited | E::Failed => "Too many attempts. Please wait a minute.",
+        E::Proof => "Could not verify that you are human. Please reload the page and try again.",
     }
 }
 
@@ -330,16 +282,10 @@ async fn me(
     ([(header::CACHE_CONTROL, "no-store")], Json(body)).into_response()
 }
 
-async fn rules(
-    Extension(app): Extension<AppState>,
-    Path(slug): Path<String>,
-    Query(q): Query<LangQuery>,
-    headers: HeaderMap,
-) -> Response {
+async fn rules(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     let Some(r) = load_slug(&app, &slug).await else {
-        return not_found(pick_lang(&q, &headers, None));
+        return not_found();
     };
-    let lang = pick_lang(&q, &headers, Some(&r));
     let prizes = service::public::prizes(&app, &r.id)
         .await
         .unwrap_or_default();
@@ -357,22 +303,15 @@ async fn rules(
             .collect(),
         additional: &r.rules,
     };
-    Html(rafi_pages::rules(lang, &rules)).into_response()
+    Html(rafi_pages::rules(&rules)).into_response()
 }
 
-async fn privacy(
-    Extension(app): Extension<AppState>,
-    Path(slug): Path<String>,
-    Query(q): Query<LangQuery>,
-    headers: HeaderMap,
-) -> Response {
+async fn privacy(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     let Some(r) = load_slug(&app, &slug).await else {
-        return not_found(pick_lang(&q, &headers, None));
+        return not_found();
     };
-    let lang = pick_lang(&q, &headers, Some(&r));
     let retention = app.policy.retention;
     Html(rafi_pages::privacy(
-        lang,
         raffle_of(&r),
         organizer_of(&r),
         retention.nonwinners_days,

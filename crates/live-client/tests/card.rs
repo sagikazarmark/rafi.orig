@@ -8,8 +8,22 @@ use rafi_live_client::{
 
 const T: u64 = 1_700_000_000;
 
+/// Each string as its field name in brackets, to tell which one shows.
 fn strings() -> CardStrings {
-    CardStrings::from_lookup(|k| format!("[{k}]"))
+    let t = |k: &str| format!("[{k}]");
+    CardStrings {
+        you_won: t("you_won"),
+        go_to_organizer: t("go_to_organizer"),
+        thanks_won: t("thanks_won"),
+        thanks: t("thanks"),
+        drawing: t("drawing"),
+        not_this_time: t("not_this_time"),
+        draw_starting: t("draw_starting"),
+        prizes_left: t("prizes_left"),
+        waiting: t("waiting"),
+        locking: t("locking"),
+        drand_round: t("drand_round"),
+    }
 }
 
 fn draw(id: &str, prize: &str, outcome: DrawOutcome) -> DrawInput {
@@ -293,16 +307,4 @@ fn between_draws_for_an_entrant_and_a_visitor() {
 fn rendering_is_deterministic() {
     let c = Case::new(Phase::Drawing, mug(), vec![]).me("a");
     assert_eq!(c.render(), c.render());
-}
-
-#[test]
-fn strings_keys_match_fields() {
-    let json = serde_json::to_value(CardStrings::default()).unwrap();
-    let mut fields: Vec<_> = json.as_object().unwrap().keys().cloned().collect();
-    let mut keys: Vec<_> = CardStrings::KEYS.iter().map(|k| k.to_string()).collect();
-    fields.sort();
-    keys.sort();
-    assert_eq!(fields, keys);
-    let s = strings();
-    assert_eq!(s.locking, "[locking]");
 }

@@ -185,7 +185,6 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         slug: raffle.slug.clone(),
         title: raffle.title.clone(),
         description: raffle.description.clone(),
-        lang: raffle.lang.clone(),
         join_url: join_url(app, &raffle.join_code),
         join_code: raffle.join_code.clone(),
         entrant_count: entrants

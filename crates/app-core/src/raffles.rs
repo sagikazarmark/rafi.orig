@@ -55,7 +55,6 @@ pub fn settings_of(r: &RaffleRow) -> RaffleSettings {
     RaffleSettings {
         title: r.title.clone(),
         description: r.description.clone(),
-        lang: r.lang.clone(),
         organizer_name: r.organizer_name.clone(),
         contact_email: r.contact_email.clone(),
         rules: r.rules.clone(),
@@ -70,7 +69,6 @@ pub async fn update_settings(app: &App, owner: &str, id: &str, s: RaffleSettings
     let normalized = settings::Settings {
         title: &s.title,
         description: &s.description,
-        lang: &s.lang,
         organizer_name: &s.organizer_name,
         contact_email: &s.contact_email,
         rules: &s.rules,
@@ -92,7 +90,6 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
     raffles::Settings {
         title: s.title,
         description: s.description,
-        lang: s.lang,
         organizer_name: s.organizer_name,
         contact_email: s.contact_email,
         rules: s.rules,
@@ -142,7 +139,6 @@ pub async fn duplicate(app: &App, owner: &str, id: &str) -> Result<String> {
     let settings = raffles::Settings {
         title: &title,
         description: &raffle.description,
-        lang: settings::lang(&raffle.lang),
         organizer_name: &raffle.organizer_name,
         contact_email: &raffle.contact_email,
         rules: &raffle.rules,

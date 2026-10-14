@@ -10,15 +10,12 @@ pub const MAX_RULES_CHARS: usize = 5000;
 pub const MAX_PRIZE_QTY: u32 = 500;
 /// The highest minimum age a raffle can ask for.
 pub const MAX_MIN_AGE: u32 = 99;
-/// The languages a raffle's public pages come in; the first is the default.
-pub const LANGS: [&str; 2] = ["en", "hu"];
 
 /// A raffle's settings, as the organizer gave them or as stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Settings<'a> {
     pub title: &'a str,
     pub description: &'a str,
-    pub lang: &'a str,
     pub organizer_name: &'a str,
     pub contact_email: &'a str,
     pub rules: &'a str,
@@ -36,9 +33,8 @@ pub enum SettingsError {
 }
 
 impl<'a> Settings<'a> {
-    /// The settings as they are stored: texts trimmed, the title checked, an
-    /// unknown language as the default and the minimum age capped at
-    /// [`MAX_MIN_AGE`].
+    /// The settings as they are stored: texts trimmed, the title checked and
+    /// the minimum age capped at [`MAX_MIN_AGE`].
     pub fn normalize(self) -> Result<Self, SettingsError> {
         if !texts_fit(self.description, self.rules) {
             return Err(SettingsError::TooLong);
@@ -46,7 +42,6 @@ impl<'a> Settings<'a> {
         Ok(Self {
             title: title(self.title).ok_or(SettingsError::Title)?,
             description: self.description.trim(),
-            lang: lang(self.lang),
             organizer_name: self.organizer_name.trim(),
             contact_email: self.contact_email.trim(),
             rules: self.rules.trim(),
@@ -54,12 +49,6 @@ impl<'a> Settings<'a> {
             min_age: self.min_age.min(MAX_MIN_AGE),
         })
     }
-}
-
-/// The language `input` names, or the default ([`LANGS`]).
-pub fn lang(input: &str) -> &'static str {
-    let input = input.trim();
-    LANGS.into_iter().find(|l| *l == input).unwrap_or(LANGS[0])
 }
 
 /// `input` trimmed, if it is a valid title (or prize name): 1 to
@@ -111,7 +100,6 @@ mod tests {
         Settings {
             title,
             description: " About ",
-            lang: "de",
             organizer_name: " Org ",
             contact_email: "",
             rules: "",
@@ -126,10 +114,8 @@ mod tests {
         assert_eq!(s.title, "Meetup");
         assert_eq!(s.description, "About");
         assert_eq!(s.organizer_name, "Org");
-        assert_eq!(s.lang, "en", "an unknown language is the default");
         assert_eq!(s.min_age, MAX_MIN_AGE);
         assert_eq!(s.normalize(), Ok(s), "normalizing is idempotent");
-        assert_eq!(lang(" hu "), "hu");
         assert_eq!(settings(" ").normalize(), Err(SettingsError::Title));
         let long = "x".repeat(MAX_RULES_CHARS + 1);
         let s = Settings {

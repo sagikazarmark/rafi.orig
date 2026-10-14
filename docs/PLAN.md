@@ -1,6 +1,6 @@
 # Rafi: meetup raffle plan
 
-Status: the current state, 2026-10-15 (revision 12). How it got here is in the
+Status: the current state, 2026-10-15 (revision 13). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
 [raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md).
@@ -35,7 +35,8 @@ proving the winner at the stage without showing it on the projector (a private c
 (a verifiable draw per item, §6); prizes with several copies, drawn in an order picked live; remote entries, spam
 and bots (§9); GDPR and Hungarian gambling and tax rules (§10); sleeping phones (§8.6); a projector that never shows
 emails or admin buttons; undo and live changes (void, decline); a rehearsal mode (test mode, fake entrants); the
-after-event work (export, delivery, erasure); Hungarian name order, hence a **display name**; Hungarian and English.
+after-event work (export, delivery, erasure); Hungarian name order, hence a **display name**. The text is
+English only for now.
 
 ## 3. Decisions
 
@@ -60,7 +61,7 @@ after-event work (export, delivery, erasure); Hungarian name order, hence a **di
 
 | When | Organizer (`/admin`) | Projector (`/s/{slug}`) | Attendee phone (`/j/{CODE}`) |
 |---|---|---|---|
-| Before | Create the raffle and its prizes (quantity, sponsor); title, rules, language. Optionally rehearse in **test mode** with fake entrants. | | |
+| Before | Create the raffle and its prizes (quantity, sponsor); title, rules. Optionally rehearse in **test mode** with fake entrants. | | |
 | Meetup starts | Publish, then **Open registration**. | The prizes, the rules in short, "no phone? come to me", a QR code, the short URL and code, a live count and recent names. | Join form: display name, email, ☐ rules & privacy (required), ☐ emails about future meetups (optional). Then **"You're in!"** with a private claim code. |
 | During | **Add entrants without a phone.** Hide or rename trolls; remove duplicates. | The count grows. | The page can be closed; reopening it restores the state (§7). |
 | Start | **Start the draw:** closes registration, freezes the list, writes the manifest, opens the raffle. Pressing it again picks up where an attempt stopped. | "N entrants, M prizes". | "Draw starting!" |
@@ -194,9 +195,9 @@ rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantCha
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 rafi-altcha          the proof-of-work (ALTCHA-compatible): solve; issue and verify (`server`)
 rafi-model           the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
-rafi-pages           the server-rendered public pages (participant, rules, privacy); Lang, icons, the stylesheet's path
+rafi-pages           the server-rendered public pages (participant, rules, privacy); icons, the stylesheet's path
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
-                     join), the public reads, the retention run; typed errors; RateLimit; no HTTP, no i18n
+                     join), the public reads, the retention run; typed errors; RateLimit; no HTTP
 rafi-server          the HTTP side (routes, auth, the retention schedule); the native binary `rafi`
 rafi-web             the web app (admin, projector, verification page; Dioxus, `dx`)
 rafi-app-worker      the app on Workers: rafi-server's routes, the Cron, RaffleRoom
@@ -324,11 +325,11 @@ lifecycle's sense, unrelated to `Follow`.
 - **Lawful basis:** Art. 6(1)(b) to run the draw and deliver prizes; 6(1)(f) for duplicate and abuse checks; 6(1)(a),
   a separate, optional, unticked consent, for emails about future meetups (Planet49, Grt. 6. §, NAIH-6372/2012). The
   consent version is stored with each entry.
-- **Privacy notice** (`/privacy/{slug}`, Hungarian and English): controller, purposes and bases, processors
+- **Privacy notice** (`/privacy/{slug}`): controller, purposes and bases, processors
   (the host; Restate GmbH, DE, anonymous IDs only; Clerk, Inc., US under the DPF, organizers only), retention,
   rights, the NAIH. It names Hetzner as the host today; on Workers it must name Cloudflare, Inc. (US, DPF/SCCs) and
   say that D1 Time Travel keeps erased data up to 30 more days.
-- **Cookies:** the entry and language cookies are strictly necessary: no banner, no analytics.
+- **Cookies:** the entry cookie is strictly necessary: no banner, no analytics.
 - **Minimisation:** a display name and an email (optional for entrants the organizer adds). Emails never appear on
   the projector, in either view, or in Restate.
 - **Retention:** the hourly run dates a finished raffle's erasure (`RAFI_RETENTION_DAYS` /
@@ -423,6 +424,9 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   `rafi_lifecycle::entrant::Source`. The admin API is declared once, in `rafi-model`; the public pages render in
   `rafi-pages`. The app crate is split by what each build is: `rafi-web` (`dx`), `rafi-server` (axum, binary `rafi`)
   and `rafi-app-worker` (the Worker); no more `server`/`web`/`worker` features.
+- **13** (2026-10-15). English only, for now: `Lang` and the Hungarian text are gone, and so are the language
+  switch, its cookie and the raffle's `lang` setting (`0009_drop_raffle_lang.sql`). The pages hold their English text
+  inline; `CardStrings::default()` is the phone card's.
 
 ## Appendix: key sources
 

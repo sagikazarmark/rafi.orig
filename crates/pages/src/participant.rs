@@ -12,7 +12,7 @@ use dioxus::prelude::*;
 use rafi_live_client::{Card, CardStrings, Follow, PageConfig, ParticipantView, Phase};
 use serde::Serialize;
 
-use crate::{i18n::Lang, icons::I, style::STYLESHEET_URL};
+use crate::{icons::I, style::STYLESHEET_URL};
 
 /// The raffle, as the public pages show it.
 #[derive(Debug, Clone, Copy)]
@@ -36,7 +36,7 @@ pub struct Entrant<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Notice {
     None,
-    /// Refused: the [`Lang`] key of why.
+    /// Refused: why.
     Error(&'static str),
     /// That email is already in.
     AlreadyIn,
@@ -50,7 +50,6 @@ pub struct Page<'a> {
     pub view: &'a ParticipantView,
     /// How the page follows the raffle.
     pub follow: Follow,
-    pub lang: Lang,
     /// The entrant this device joined as, if any.
     pub entrant: Option<Entrant<'a>>,
     pub notice: Notice,
@@ -74,24 +73,22 @@ setTimeout(function(){if(!window.__rafiReady)window.rafiFallback()},8000);
 if(typeof WebAssembly!=="object"){window.rafiFallback()}else{import("/participant/rafi_participant.js").then(function(m){return m.default()}).catch(function(e){console.error(e);window.rafiFallback()})}"#;
 
 /// A whole document: `tail` is raw HTML appended to the body (scripts).
-pub(crate) fn document(lang: Lang, title: &str, body: String, tail: Option<String>) -> String {
+pub(crate) fn document(title: &str, body: String, tail: Option<String>) -> String {
     let title = escape(title);
     let css = escape(STYLESHEET_URL);
     let tail = tail.unwrap_or_default();
     format!(
-        "<!doctype html><html lang=\"{}\"><head><meta charset=\"utf-8\">\
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\
          <meta name=\"robots\" content=\"noindex\"><meta name=\"color-scheme\" content=\"light dark\">\
          <script>{HEAD_SCRIPT}</script>\
          <link rel=\"stylesheet\" href=\"{css}\">\
-         <title>{title}</title></head><body class=\"min-h-dvh bg-base-200 bg-dots\">{body}{tail}</body></html>",
-        lang.code()
+         <title>{title}</title></head><body class=\"min-h-dvh bg-base-200 bg-dots\">{body}{tail}</body></html>"
     )
 }
 
-/// Header shared by the participant pages: logo, language switch, theme toggle.
-fn header_bar(lang: Lang, switch_href: &str, test_mode: bool) -> Element {
-    let other = lang.other();
+/// Header shared by the participant pages: logo and theme toggle.
+fn header_bar(test_mode: bool) -> Element {
     let ticket = I::Ticket.svg("size-4");
     let theme_icons = format!(
         "{}{}{}",
@@ -106,10 +103,9 @@ fn header_bar(lang: Lang, switch_href: &str, test_mode: bool) -> Element {
                 "rafi"
             }
             if test_mode {
-                span { class: "badge badge-warning badge-sm font-bold", "🧪 {lang.t(\"test_mode\")}" }
+                span { class: "badge badge-warning badge-sm font-bold", "🧪 TEST MODE" }
             }
             span { class: "flex-1" }
-            a { class: "btn btn-ghost btn-sm btn-circle font-bold", href: "{switch_href}", hreflang: "{other.code()}", aria_label: "{other.code()}", "{other.code().to_uppercase()}" }
             button { id: "theme", class: "btn btn-ghost btn-sm btn-circle", r#type: "button", aria_label: "Theme", dangerous_inner_html: "{theme_icons}" }
         }
     }
@@ -136,23 +132,19 @@ pub fn page(page: Page<'_>) -> String {
         raffle,
         view,
         follow,
-        lang,
         entrant,
         notice,
         name,
         email,
         now_ms,
     } = page;
-    let t = |k: &str| lang.t(k);
     let phase = view.state;
-    let strings = CardStrings::from_lookup(|k| lang.t(k).to_owned());
+    let strings = CardStrings::default();
     let code = raffle.join_code;
-    let other = lang.other();
-    let switch_href = format!("/j/{code}?lang={}", other.code());
-    let rules_href = format!("/rules/{}?lang={}", raffle.slug, lang.code());
-    let privacy_href = format!("/privacy/{}?lang={}", raffle.slug, lang.code());
+    let rules_href = format!("/rules/{}", raffle.slug);
+    let privacy_href = format!("/privacy/{}", raffle.slug);
     let error = match notice {
-        Notice::Error(k) => Some(t(k)),
+        Notice::Error(why) => Some(why),
         _ => None,
     };
     let me = entrant.map(|e| e.id.to_owned());
@@ -178,59 +170,58 @@ pub fn page(page: Page<'_>) -> String {
         Some(e) => rsx! {
             section { class: "ticket bg-primary text-primary-content shadow-lg animate-pop",
                 div { class: "space-y-1 px-7 pt-6",
-                    p { class: "text-xs font-bold uppercase tracking-[0.2em] opacity-80", "🎟️ {t(\"youre_in\")}" }
+                    p { class: "text-xs font-bold uppercase tracking-[0.2em] opacity-80", "🎟️ You're in!" }
                     h2 { class: "break-words text-3xl font-extrabold", "{e.display_name}" }
                 }
                 div { class: "mx-7 my-4 border-t-2 border-dashed border-primary-content/40" }
                 div { class: "flex flex-col items-center gap-1 px-7 pb-6 text-center",
-                    span { class: "text-xs font-semibold uppercase tracking-widest opacity-75", "{t(\"claim_code\")}" }
+                    span { class: "text-xs font-semibold uppercase tracking-widest opacity-75", "Your claim code" }
                     strong { class: "claim-code text-5xl", "{e.claim_code}" }
-                    small { class: "text-sm opacity-80", "{t(\"claim_code_hint\")}" }
+                    small { class: "text-sm opacity-80", "If you win, show this code to the organizer." }
                 }
             }
             {live}
-            button { id: "wake", class: "btn btn-outline btn-block rounded-full", r#type: "button", "{t(\"keep_screen_on\")}" }
-            p { class: "text-center text-sm text-base-content/60", "{t(\"keep_open\")}" }
+            button { id: "wake", class: "btn btn-outline btn-block rounded-full", r#type: "button", "Keep my screen on" }
+            p { class: "text-center text-sm text-base-content/60", "You can close this page. Come back any time — your entry is safe." }
         },
         // The join form: no live card here.
         None if joining => {
-            let join_label = format!("{} 🎟️", t("join"));
             rsx! {
-                form { class: "{card}", method: "post", action: "/j/{code}?lang={lang.code()}", id: "join",
+                form { class: "{card}", method: "post", action: "/j/{code}", id: "join",
                     div { class: "card-body gap-1",
-                        h2 { class: "card-title text-2xl", "{t(\"join_title\")} " span { class: "inline-block animate-float", "🎁" } }
+                        h2 { class: "card-title text-2xl", "Join the raffle " span { class: "inline-block animate-float", "🎁" } }
                         if let Some(err) = error {
                             div { class: "alert alert-error alert-soft my-2", role: "alert", "{err}" }
                         }
                         fieldset { class: "fieldset",
-                            legend { class: "fieldset-legend text-sm", "{t(\"display_name\")}" }
+                            legend { class: "fieldset-legend text-sm", "Name shown on the screen" }
                             input { class: "input input-lg w-full", id: "name", name: "name", required: true, maxlength: "{rafi_lifecycle::entrant::MAX_NAME_CHARS}", autocomplete: "nickname", value: "{name}" }
-                            p { class: "label", "{t(\"display_name_hint\")}" }
+                            p { class: "label", "A first name or nickname is enough." }
                         }
                         fieldset { class: "fieldset",
-                            legend { class: "fieldset-legend text-sm", "{t(\"email\")}" }
+                            legend { class: "fieldset-legend text-sm", "Email" }
                             input { class: "input input-lg w-full", id: "email", name: "email", r#type: "email", required: true, autocomplete: "email", inputmode: "email", value: "{email}" }
-                            p { class: "label whitespace-normal", "{t(\"email_hint\")}" }
+                            p { class: "label whitespace-normal", "Only to tell entries apart and to deliver prizes. Never shown." }
                         }
                         label { class: "mt-3 flex items-start gap-3",
                             input { class: "checkbox checkbox-primary mt-0.5", r#type: "checkbox", name: "rules", value: "on", required: true }
                             span { class: "text-sm",
-                                "{t(\"accept_rules\")} "
-                                a { class: "link link-primary", href: "{rules_href}", target: "_blank", "{t(\"rules\")}" }
+                                "I accept the raffle rules and the privacy notice. "
+                                a { class: "link link-primary", href: "{rules_href}", target: "_blank", "Rules" }
                                 " · "
-                                a { class: "link link-primary", href: "{privacy_href}", target: "_blank", "{t(\"privacy\")}" }
+                                a { class: "link link-primary", href: "{privacy_href}", target: "_blank", "Privacy notice" }
                             }
                         }
                         label { class: "mt-2 flex items-start gap-3",
                             input { class: "checkbox mt-0.5", r#type: "checkbox", name: "marketing", value: "on" }
-                            span { class: "text-sm text-base-content/80", "{t(\"marketing\")}" }
+                            span { class: "text-sm text-base-content/80", "Email me about future meetups (optional)." }
                         }
                         input { r#type: "hidden", name: "altcha", id: "altcha" }
                         // Enabled by the WebAssembly (or the fallback) once the
                         // proof-of-work is solved; it then shows `data-label`.
-                        button { class: "btn btn-primary btn-lg btn-block mt-4 rounded-full", r#type: "submit", id: "submit", disabled: true, "data-label": "{join_label}",
+                        button { class: "btn btn-primary btn-lg btn-block mt-4 rounded-full", r#type: "submit", id: "submit", disabled: true, "data-label": "Join 🎟️",
                             span { class: "loading loading-spinner loading-md" }
-                            "{t(\"solving\")}"
+                            "Getting ready…"
                         }
                     }
                 }
@@ -238,10 +229,16 @@ pub fn page(page: Page<'_>) -> String {
         }
         None => {
             let (emoji, msg) = match (notice, phase) {
-                (Notice::AlreadyIn, _) => ("👋", t("already_in")),
-                (Notice::Error(k), _) => ("⚠️", t(k)),
-                (_, Phase::Ready) => ("⏳", t("reg_not_open")),
-                _ => ("🔒", t("reg_closed")),
+                (Notice::AlreadyIn, _) => (
+                    "👋",
+                    "This email is already entered. Your entry is safe — watch the screen. If you win, the organizer will confirm you by email.",
+                ),
+                (Notice::Error(why), _) => ("⚠️", why),
+                (_, Phase::Ready) => (
+                    "⏳",
+                    "Registration is not open yet. Keep an eye on the screen!",
+                ),
+                _ => ("🔒", "Registration is closed."),
             };
             rsx! {
                 section { class: "{card} items-center gap-2 p-6 text-center",
@@ -254,16 +251,16 @@ pub fn page(page: Page<'_>) -> String {
     };
 
     let title = raffle.title;
-    let header = header_bar(lang, &switch_href, raffle.test_mode);
+    let header = header_bar(raffle.test_mode);
     let body = dioxus::ssr::render_element(rsx! {
         main { class: "mx-auto flex max-w-md flex-col gap-4 px-4 pb-10 pt-4",
             {header}
             h1 { class: "text-2xl font-extrabold leading-tight", "{title}" }
             {main}
             footer { class: "mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 text-sm text-base-content/60",
-                a { class: "link link-hover", href: "{rules_href}", "{t(\"rules\")}" }
-                a { class: "link link-hover", href: "{privacy_href}", "{t(\"privacy\")}" }
-                a { class: "link link-hover", href: "/v/{raffle.slug}", "{t(\"verify_link\")}" }
+                a { class: "link link-hover", href: "{rules_href}", "Rules" }
+                a { class: "link link-hover", href: "{privacy_href}", "Privacy notice" }
+                a { class: "link link-hover", href: "/v/{raffle.slug}", "Check the draw yourself" }
             }
         }
     });
@@ -280,23 +277,23 @@ pub fn page(page: Page<'_>) -> String {
         follow,
         needs_altcha: joining,
         altcha_url: PageConfig::ALTCHA_URL.into(),
-        screen_on: lang.t("screen_on").to_owned(),
-        keep_screen_on: lang.t("keep_screen_on").to_owned(),
+        screen_on: "Screen will stay on".to_owned(),
+        keep_screen_on: "Keep my screen on".to_owned(),
     };
     let tail = format!(
         "<script type=\"application/json\" id=\"rafi-config\">{}</script><script>{LOADER}</script>",
         script_json(&config)
     );
-    document(lang, raffle.title, body, Some(tail))
+    document(raffle.title, body, Some(tail))
 }
 
 /// The page for a raffle that isn't there (or isn't public), as HTML.
-pub fn not_found(lang: Lang) -> String {
+pub fn not_found() -> String {
     let body = dioxus::ssr::render_element(rsx! {
         main { class: "mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-3 px-4 text-center",
             span { class: "text-6xl", "🎟️" }
-            p { class: "text-xl font-bold", "{lang.t(\"not_found\")}" }
+            p { class: "text-xl font-bold", "This raffle does not exist." }
         }
     });
-    document(lang, "Rafi", body, None)
+    document("Rafi", body, None)
 }

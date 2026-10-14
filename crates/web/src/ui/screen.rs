@@ -5,10 +5,7 @@ use rafi_lifecycle::RaffleState;
 use rafi_raffle::Outcome;
 
 use rafi_live_client::ParticipantView;
-use rafi_pages::{
-    i18n::Lang,
-    icons::{I, Icon},
-};
+use rafi_pages::icons::{I, Icon};
 
 use super::{
     Brand, ThemeToggle,
@@ -37,14 +34,13 @@ fn ScreenInner(slug: String) -> Element {
             }
         };
     };
-    let lang = Lang::parse(&v.lang);
     let v = v.clone();
     drop(guard);
     let ahead = live.ahead_of(&v);
 
     let body = match v.state {
         RaffleState::Draft => {
-            rsx! { p { class: "text-3xl font-bold text-base-content/60", "{lang.t(\"not_found\")}" } }
+            rsx! { p { class: "text-3xl font-bold text-base-content/60", "This raffle does not exist." } }
         }
         RaffleState::Ready | RaffleState::Open | RaffleState::Closed => {
             rsx! { Intro { view: v.clone() } }
@@ -59,7 +55,7 @@ fn ScreenInner(slug: String) -> Element {
             header { class: "flex items-center gap-4",
                 h1 { class: "flex-1 text-[2.2em] font-extrabold leading-tight", "{v.title}" }
                 if v.test_mode {
-                    span { class: "badge badge-warning badge-lg font-bold", "🧪 {lang.t(\"test_mode\")}" }
+                    span { class: "badge badge-warning badge-lg font-bold", "🧪 TEST MODE" }
                 }
                 div { class: "flex items-center gap-1 opacity-40 transition hover:opacity-100",
                     ThemeToggle {}
@@ -109,10 +105,9 @@ fn qr_svg(url: &str) -> String {
 
 #[component]
 fn PrizeList(view: RaffleView) -> Element {
-    let lang = Lang::parse(&view.lang);
     rsx! {
         section { class: "space-y-[0.6em]",
-            h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/50", "{lang.t(\"prizes\")}" }
+            h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/50", "Prizes" }
             ul { class: "space-y-[0.5em]",
                 for p in view.prizes.iter() {
                     li {
@@ -132,8 +127,6 @@ fn PrizeList(view: RaffleView) -> Element {
 
 #[component]
 fn Intro(view: RaffleView) -> Element {
-    let lang = Lang::parse(&view.lang);
-    let t = |k: &str| lang.t(k);
     let qr = qr_svg(&view.join_url);
     let short = view
         .join_url
@@ -150,7 +143,7 @@ fn Intro(view: RaffleView) -> Element {
                 PrizeList { view: view.clone() }
                 div { class: "inline-flex items-center gap-[0.6em] rounded-box bg-accent px-[1em] py-[0.6em] font-bold text-accent-content -rotate-1 shadow-sm",
                     span { class: "text-[1.4em]", "📵" }
-                    "{t(\"no_phone\")}"
+                    "No smartphone? Come to the organizer!"
                 }
             }
             div { class: "flex flex-col items-center gap-[0.8em] text-center",
@@ -163,24 +156,24 @@ fn Intro(view: RaffleView) -> Element {
                                 div { class: "[&>svg]:h-auto [&>svg]:w-full", dangerous_inner_html: "{qr}" }
                             }
                         }
-                        p { class: "font-display text-[1.6em] font-extrabold", "{t(\"scan_to_join\")}" }
+                        p { class: "font-display text-[1.6em] font-extrabold", "Scan to join" }
                         p { class: "text-[1.05em]",
-                            "{t(\"or_visit\")} "
+                            "or visit "
                             span { class: "rounded-lg bg-base-200 px-[0.4em] py-[0.1em] font-mono font-bold", "{short}" }
                         }
                     },
                     RaffleState::Closed => rsx! {
                         span { class: "text-[4em]", "🔒" }
-                        p { class: "font-display text-[2em] font-extrabold", "{t(\"reg_closed\")}" }
+                        p { class: "font-display text-[2em] font-extrabold", "Registration is closed." }
                     },
                     _ => rsx! {
                         span { class: "animate-float text-[5em]", "🎟️" }
-                        p { class: "font-display text-[2em] font-extrabold", "{t(\"registration_soon\")}" }
+                        p { class: "font-display text-[2em] font-extrabold", "Registration opens soon" }
                     },
                 }
                 div { class: "flex items-baseline gap-[0.4em]",
                     span { key: "{view.entrant_count}", class: "inline-block animate-pop font-display text-[2.6em] font-black leading-none text-primary", "{view.entrant_count}" }
-                    span { class: "text-[1.2em] font-semibold text-base-content/60", "{t(\"entrants\")}" }
+                    span { class: "text-[1.2em] font-semibold text-base-content/60", "entrants" }
                 }
                 ul { class: "flex max-h-[11vh] flex-wrap justify-center gap-[0.4em] overflow-hidden", aria_hidden: "true",
                     for (i , name) in view.recent_names.iter().enumerate() {
@@ -194,8 +187,6 @@ fn Intro(view: RaffleView) -> Element {
 
 #[component]
 fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
-    let lang = Lang::parse(&view.lang);
-    let t = |k: &str| lang.t(k);
     let now = use_clock(200);
     let left: u32 = view.prizes.iter().map(|p| p.left).sum();
     let offset = view.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
@@ -234,7 +225,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
         let secs = ((remaining_ms.max(0) + 999) / 1000).min(99);
         rsx! {
             div { class: "flex flex-col items-center gap-[0.8em] text-center", role: "status",
-                p { class: "badge badge-primary badge-lg gap-2 font-bold uppercase tracking-widest", Icon { i: I::Dice, class: "size-[1.1em]" } "{t(\"drawing\")}" }
+                p { class: "badge badge-primary badge-lg gap-2 font-bold uppercase tracking-widest", Icon { i: I::Dice, class: "size-[1.1em]" } "Drawing" }
                 h2 { class: "text-[2.8em] font-extrabold leading-tight", "{prize_name}" }
                 div { class: "bounce-dots flex gap-[0.5em]", aria_hidden: "true",
                     for i in 0..7 {
@@ -249,19 +240,19 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
                     span { class: "loading loading-dots loading-lg text-primary" }
                 }
                 if view.last_failure.is_some() && view.current.is_some() {
-                    p { class: "alert alert-warning alert-soft text-[0.8em]", "⏳ {t(\"retrying_round\")} {round}" }
+                    p { class: "alert alert-warning alert-soft text-[0.8em]", "⏳ Still fetching drand round {round}" }
                 }
-                p { class: "text-[0.9em] text-base-content/60", "{t(\"locking\")} · {t(\"drand_round\")} {round}" }
+                p { class: "text-[0.9em] text-base-content/60", "Locking in public randomness · drand round {round}" }
             }
         }
     } else if let Some(reveal) = winner {
-        rsx! { Winner { reveal, lang: lang.code().to_owned() } }
+        rsx! { Winner { reveal } }
     } else {
         rsx! {
             div { class: "flex flex-col items-center gap-[0.6em] text-center",
                 span { class: "animate-float text-[5em]", "🎁" }
-                p { class: "font-display text-[3em] font-black", "{left} " span { class: "text-base-content/60", "{t(\"prizes_left\")}" } }
-                p { class: "text-[1.2em] text-base-content/60", "{view.entrant_count} {t(\"entrants\")}" }
+                p { class: "font-display text-[3em] font-black", "{left} " span { class: "text-base-content/60", "prizes left" } }
+                p { class: "text-[1.2em] text-base-content/60", "{view.entrant_count} entrants" }
                 if let Some(f) = &view.last_failure {
                     p { class: "alert alert-warning alert-soft text-[0.8em]", "⚠ {f}" }
                 }
@@ -276,7 +267,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
             }
             aside { class: "space-y-[2em]",
                 PrizeList { view: view.clone() }
-                History { draws: view.draws.clone(), lang: lang.code().to_owned() }
+                History { draws: view.draws.clone() }
             }
         }
     }
@@ -292,8 +283,7 @@ struct Reveal {
 }
 
 #[component]
-fn Winner(reveal: Reveal, lang: String) -> Element {
-    let lang = Lang::parse(&lang);
+fn Winner(reveal: Reveal) -> Element {
     // Keyed by who and what, so the full view catching up with the live
     // channel doesn't replay the animation.
     let key = format!("{}→{}", reveal.display_name, reveal.prize_name);
@@ -308,7 +298,7 @@ fn Winner(reveal: Reveal, lang: String) -> Element {
             h2 { class: "gradient-text animate-reveal py-[0.1em] text-[clamp(3rem,9vw,11rem)] font-black leading-none", "{reveal.display_name}" }
             if let Some(round) = reveal.round {
                 p { class: "text-[0.9em] text-base-content/60",
-                    "{lang.t(\"drand_round\")} {round}"
+                    "drand round {round}"
                 }
             }
         }
@@ -316,14 +306,13 @@ fn Winner(reveal: Reveal, lang: String) -> Element {
 }
 
 #[component]
-fn History(draws: Vec<DrawView>, lang: String) -> Element {
-    let lang = Lang::parse(&lang);
+fn History(draws: Vec<DrawView>) -> Element {
     if draws.is_empty() {
         return rsx! {};
     }
     rsx! {
         section { class: "space-y-[0.6em]",
-            h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/50", "{lang.t(\"winners\")}" }
+            h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/50", "Winners" }
             ul { class: "space-y-[0.4em]",
                 for d in draws.iter().rev() {
                     li { key: "{d.k}", class: "flex items-center gap-[0.5em]",
@@ -337,8 +326,8 @@ fn History(draws: Vec<DrawView>, lang: String) -> Element {
                         span { class: if matches!(d.outcome, Outcome::NotHere | Outcome::Declined) { "font-bold line-through opacity-50" } else { "font-bold" }, "{d.display_name}" }
                         span { class: "truncate text-[0.85em] text-base-content/60", "{d.prize_name}" }
                         match d.outcome {
-                            Outcome::NotHere => rsx! { span { class: "badge badge-ghost badge-sm", "{lang.t(\"not_here\")}" } },
-                            Outcome::Declined => rsx! { span { class: "badge badge-ghost badge-sm", "{lang.t(\"declined\")}" } },
+                            Outcome::NotHere => rsx! { span { class: "badge badge-ghost badge-sm", "not here" } },
+                            Outcome::Declined => rsx! { span { class: "badge badge-ghost badge-sm", "declined" } },
                             _ => rsx! {},
                         }
                     }
@@ -350,8 +339,6 @@ fn History(draws: Vec<DrawView>, lang: String) -> Element {
 
 #[component]
 fn Finished(view: RaffleView) -> Element {
-    let lang = Lang::parse(&view.lang);
-    let t = |k: &str| lang.t(k);
     let winners: Vec<DrawView> = view
         .draws
         .iter()
@@ -366,7 +353,7 @@ fn Finished(view: RaffleView) -> Element {
                 }
             }
             p { class: "text-[4em]", "🎉" }
-            h2 { class: "gradient-text text-[3.5em] font-black leading-none", "{t(\"thanks\")}" }
+            h2 { class: "gradient-text text-[3.5em] font-black leading-none", "Thanks for playing!" }
             if !winners.is_empty() {
                 div { class: "flex max-w-[70vw] flex-wrap justify-center gap-[0.6em]",
                     for d in winners {
@@ -379,7 +366,7 @@ fn Finished(view: RaffleView) -> Element {
             }
             p { class: "inline-flex items-center gap-2 text-[0.9em] text-base-content/60",
                 Icon { i: I::ShieldCheck, class: "size-[1.2em]" }
-                "{t(\"verify_link\")}: /v/{view.slug}"
+                "Check the draw yourself: /v/{view.slug}"
             }
         }
     }

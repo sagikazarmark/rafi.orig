@@ -14,9 +14,6 @@ pub(super) fn Header(
     let mut ask_freeze = use_signal(|| false);
     let mut ask_end = use_signal(|| false);
     let mut busy = use_signal(|| false);
-    // The admin is in English; these strings also have their Hungarian
-    // versions in i18n.
-    let t = |k: &str| Lang::En.t(k);
     let nav = navigator();
     let toast = use_toast();
     let screen_url = format!("{}/s/{}", admin.public_url, v.slug);
@@ -112,7 +109,7 @@ pub(super) fn Header(
             busy.set(true);
             match api::end_live_updates(id).await {
                 Ok(()) => {
-                    toast.success(t("live_ended").to_owned(), ToastOptions::new());
+                    toast.success("Live updates ended".to_owned(), ToastOptions::new());
                     on_change.call(());
                 }
                 Err(e) => error.set(Some(err_text(e))),
@@ -227,10 +224,10 @@ pub(super) fn Header(
                             Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Icon { i: I::Undo } "Retry handing the list to the raffle engine" }
                         },
                         RaffleState::Finished | RaffleState::Purged if v.live_ended => rsx! {
-                            span { class: "badge badge-ghost gap-1", Icon { i: I::Check, class: "size-3.5" } "{t(\"live_ended\")}" }
+                            span { class: "badge badge-ghost gap-1", Icon { i: I::Check, class: "size-3.5" } "Live updates ended" }
                         },
                         RaffleState::Finished | RaffleState::Purged => rsx! {
-                            Button { class: "btn-outline", disabled: busy(), onclick: move |_| ask_end.set(true), Icon { i: I::Flag } "{t(\"end_live\")}" }
+                            Button { class: "btn-outline", disabled: busy(), onclick: move |_| ask_end.set(true), Icon { i: I::Flag } "End live updates" }
                         },
                         _ => rsx! {},
                     }
@@ -250,9 +247,9 @@ pub(super) fn Header(
         }
         Confirm {
             open: ask_end,
-            title: t("end_live_title"),
-            body: t("end_live_body"),
-            action: t("end_live"),
+            title: "End live updates for this raffle?",
+            body: "Phones and the projector stop following the raffle live. The results stay on the pages and the verification page.",
+            action: "End live updates",
             on_confirm: move |_| { spawn(end_live()); },
         }
         Confirm {

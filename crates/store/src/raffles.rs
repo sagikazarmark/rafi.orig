@@ -32,7 +32,6 @@ pub struct RaffleRow {
     pub join_code: String,
     pub title: String,
     pub description: String,
-    pub lang: String,
     pub organizer_name: String,
     pub contact_email: String,
     pub rules: String,
@@ -96,7 +95,6 @@ pub struct NewRaffle<'a> {
 pub struct Settings<'a> {
     pub title: &'a str,
     pub description: &'a str,
-    pub lang: &'a str,
     pub organizer_name: &'a str,
     pub contact_email: &'a str,
     pub rules: &'a str,
@@ -165,12 +163,11 @@ pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<()> 
 
 fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     db.query(
-        "UPDATE raffles SET title = ?, description = ?, lang = ?, organizer_name = ?, contact_email = ?, rules = ?,
+        "UPDATE raffles SET title = ?, description = ?, organizer_name = ?, contact_email = ?, rules = ?,
          event_date = ?, min_age = ?, test_mode = ?, updated_at = ? WHERE id = ?",
     )
     .bind(s.title)
     .bind(s.description)
-    .bind(s.lang)
     .bind(s.organizer_name)
     .bind(s.contact_email)
     .bind(s.rules)

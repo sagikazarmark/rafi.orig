@@ -83,7 +83,7 @@ crates/participant            rafi-participant: the participant page's WebAssemb
 crates/model                  rafi-model: the contract between the app's server and browser: views, and the admin API declared
                               once (`admin_functions!`: the server's `Admin` trait and `dispatch`, the browser's client)
 crates/pages                  rafi-pages: the server-rendered public pages (participant, rules, privacy) and what they share with
-                              the web app: their English and Hungarian text, the icons, the stylesheet's path
+                              the web app: the icons and the stylesheet's path
 crates/app-core               rafi-app-core: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
 crates/server                 rafi-server: the axum server (participant pages, public JSON, the admin API) and the native
                               binary, `rafi`, which also serves the web app's files
