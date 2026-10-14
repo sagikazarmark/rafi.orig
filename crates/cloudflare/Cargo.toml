@@ -12,9 +12,9 @@ publish = false
 anyhow = "1"
 js-sys = "0.3"
 partyline-worker = "0.3"
-rafi-live = { path = "../live", features = ["raffle"] }
-rafi-platform = { path = "../platform" }
-rafi-store.workspace = true
-serde_json.workspace = true
+rafi-live = { workspace = true, features = ["raffle"] }
+rafi-platform = { workspace = true }
+rafi-store = { workspace = true }
+serde_json = { workspace = true }
 wasm-bindgen = "0.2"
 worker = "0.8.7"

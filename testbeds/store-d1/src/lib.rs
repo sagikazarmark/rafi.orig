@@ -2,7 +2,7 @@
 //! (`rafi_store::conformance`) against D1.
 //!
 //! ```shell
-//! cd crates/store-d1-check
+//! cd testbeds/store-d1
 //! wrangler d1 migrations apply rafi-store-check --local
 //! wrangler dev --local   # then: curl http://localhost:8787/
 //! ```

@@ -14,7 +14,7 @@ default = ["postgres"]
 ## D1, and ignore it. Without it, rafi-store builds only SQLite natively.
 postgres = ["sqlx/postgres", "sqlx/tls-rustls-aws-lc-rs", "dep:tokio"]
 ## The storage conformance suite (`conformance`): the scenarios every backend
-## must pass. `tests/conformance.rs` runs them natively; `store-d1-check` on D1.
+## must pass. `tests/conformance.rs` runs them natively; `testbeds/store-d1` on D1.
 conformance = ["dep:futures-util"]
 ## An embedded PostgreSQL (Oliphaunt: a local server from prebuilt native
 ## binaries) for the conformance suite, so every `cargo test -p rafi-store`
@@ -24,12 +24,12 @@ embedded-postgres = ["postgres", "conformance", "dep:oliphaunt"]
 
 [dependencies]
 anyhow = "1"
-rafi-lifecycle.workspace = true
-rafi-raffle.workspace = true
-rafi-engine = { path = "../engine" }
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
+rafi-lifecycle = { workspace = true }
+rafi-raffle = { workspace = true }
+rafi-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
 # The conformance suite races futures on one task (any runtime, Workers too).
 futures-util = { version = "0.3", default-features = false, features = ["alloc"], optional = true }
 

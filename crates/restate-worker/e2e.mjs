@@ -1,12 +1,12 @@
 // A draw end to end on Workers: Restate (a local restate-server) calls this
 // Worker in request-response mode; the Worker writes D1 and nudges the
-// raffle's RaffleRoom (hosted by crates/cloudflare-check), which pushes to a
+// raffle's RaffleRoom (hosted by testbeds/cloudflare), which pushes to a
 // phone connected over partyline.
 //
 // Setup (shared local state for both Workers):
-//   wrangler d1 migrations apply rafi-cloudflare-check --local --persist-to $ST   (in crates/cloudflare-check)
+//   wrangler d1 migrations apply rafi-cloudflare-check --local --persist-to $ST   (in testbeds/cloudflare)
 //   restate-server &
-//   (cd crates/cloudflare-check && wrangler dev --port 8790 --persist-to $ST) &
+//   (cd testbeds/cloudflare && wrangler dev --port 8790 --persist-to $ST) &
 //   (cd crates/restate-worker && wrangler dev --port 8791 --persist-to $ST) &
 //   curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
 //        -d '{"uri":"http://127.0.0.1:8791","use_http_11":true}'

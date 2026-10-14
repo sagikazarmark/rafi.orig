@@ -20,17 +20,17 @@ raffle = ["dep:rafi-lifecycle", "dep:rafi-raffle"]
 [dependencies]
 base64 = "0.22"
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals"], optional = true }
-hex.workspace = true
+hex = { workspace = true }
 hmac = { version = "0.12", optional = true }
 partyline = "0.3"
 rafi-raffle = { workspace = true, optional = true }
 rafi-lifecycle = { workspace = true, optional = true }
-serde.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 dioxus-ssr = "=0.7.10"
 # Itself with `raffle`, so its tests run with the workspace's.
 rafi-live = { path = ".", features = ["raffle", "card"] }
-rafi-raffle.workspace = true
+rafi-raffle = { workspace = true }

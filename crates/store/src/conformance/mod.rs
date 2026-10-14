@@ -32,7 +32,7 @@
 //!   names a throwaway database, Postgres ([`Postgres`], a fresh schema per
 //!   scenario), one test each, named `<backend>::<scenario>`
 //!   (`sqlite::domain.join_cap`).
-//! - `crates/store-d1-check` runs them against D1 under `wrangler dev`
+//! - `testbeds/store-d1` runs them against D1 under `wrangler dev`
 //!   (`scripts/workers-check.sh`), and answers with each scenario's outcome.
 //!
 //! # Adding a backend
@@ -43,7 +43,7 @@
 //!    (a new in-memory database, a new schema, or emptied tables).
 //! 3. Run [`SCENARIOS`] through it: add it to `tests/conformance.rs` if it
 //!    runs natively, or call [`run_all`] from wherever it runs (as
-//!    `store-d1-check` does). It is done when every scenario passes or is
+//!    `testbeds/store-d1` does). It is done when every scenario passes or is
 //!    skipped for a capability it really lacks.
 //!
 //! A new requirement on the query layer is a new `query.*` scenario here,

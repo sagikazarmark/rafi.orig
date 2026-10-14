@@ -13,17 +13,17 @@ mock-chain = ["drand/test-chain"]
 
 [dependencies]
 drand = { workspace = true, features = ["bls12-381"] }
-serde.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
-hex.workspace = true
-thiserror.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 drand = { workspace = true, features = ["test-chain"] }
 rafi-raffle = { path = ".", features = ["mock-chain"] }
 proptest = "1"
-sha2.workspace = true
-hex.workspace = true
-serde_json.workspace = true
-serde.workspace = true
+sha2 = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
