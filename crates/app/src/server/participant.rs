@@ -688,8 +688,8 @@ async fn privacy(
     } else {
         r.organizer_name.clone()
     };
-    let days_nw = app.cfg.retention_nonwinners_days;
-    let days_w = app.cfg.retention_winners_days;
+    let days_nw = app.policy.retention.nonwinners_days;
+    let days_w = app.policy.retention.winners_days;
     let sections = match lang {
         Lang::En => vec![
             ("Controller".to_owned(), vec![format!("{controller}{}", contact(&r))]),

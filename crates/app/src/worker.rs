@@ -5,7 +5,7 @@
 //!   native server ([`server::routes`]) behind Clerk. Workers Assets serves the
 //!   web app and the participant scripts before the Worker is called
 //!   (`run_worker_first` in `wrangler.toml` lists the Worker's paths).
-//! - `scheduled`: the Cron Trigger runs [`server::retention::run`].
+//! - `scheduled`: the Cron Trigger runs [`rafi_app_core::retention::run`].
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
@@ -135,7 +135,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
             return;
         }
     };
-    match server::retention::run(&app).await {
+    match server::service::retention::run(&app).await {
         Ok(report) => worker::console_log!(
             "rafi: retention: {} erased, {} live channels ended",
             report.erased,

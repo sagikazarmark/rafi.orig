@@ -65,6 +65,6 @@ pub async fn redeem(app: &App, payload: &str) -> rafi_store::Result<bool> {
 }
 
 /// Deletes the challenges that have expired (they can't be redeemed anyway).
-pub async fn purge_expired(app: &App) -> rafi_store::Result<()> {
+pub(crate) async fn purge_expired(app: &App) -> rafi_store::Result<()> {
     rafi_store::altcha::purge_expired(&app.db, ids::now()).await
 }

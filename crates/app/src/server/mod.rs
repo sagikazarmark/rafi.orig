@@ -16,6 +16,7 @@ pub mod auth;
 pub mod config;
 pub mod participant;
 pub mod public;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod retention;
 
 pub use rafi_app_core::{self as service, codes, ids, view};
@@ -101,17 +102,14 @@ impl AppState {
                     key: cfg.altcha_key.clone(),
                     max: cfg.altcha_max,
                 },
+                retention: service::Retention {
+                    enabled: cfg.retention_enabled,
+                    nonwinners_days: cfg.retention_nonwinners_days,
+                    winners_days: cfg.retention_winners_days,
+                },
             },
         };
         Ok(Self(Arc::new(Inner { core, cfg })))
-    }
-
-    /// When personal data of a finished raffle is erased (the retention settings).
-    pub fn purge_after(&self) -> rafi_store::PurgeAfter {
-        rafi_store::PurgeAfter::days(
-            self.cfg.retention_nonwinners_days,
-            self.cfg.retention_winners_days,
-        )
     }
 }
 

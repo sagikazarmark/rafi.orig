@@ -489,7 +489,7 @@ async fn full_raffle_flow() {
         .run()
         .await
         .unwrap();
-    let report = super::retention::run(&app).await.unwrap();
+    let report = service::retention::run(&app).await.unwrap();
     assert_eq!(report.erased, 6);
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert!(
@@ -518,7 +518,7 @@ async fn full_raffle_flow() {
         .collect();
     ids.sort();
     assert_eq!(logged, ids);
-    assert_eq!(super::retention::run(&app).await.unwrap().erased, 0);
+    assert_eq!(service::retention::run(&app).await.unwrap().erased, 0);
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(
         rafi_raffle::verify(
@@ -1418,7 +1418,7 @@ async fn proof_of_work_replays_are_refused() {
         .run()
         .await
         .unwrap();
-    super::retention::run(&app).await.unwrap();
+    service::retention::run(&app).await.unwrap();
     let (left,): (i64,) = app
         .db
         .query("SELECT COUNT(*) FROM altcha_used")
@@ -1564,14 +1564,14 @@ async fn retention_ends_channels_and_logs_erasures() {
     let now = super::ids::now();
     app.db
         .query("UPDATE raffles SET finished_at = ? WHERE id = ?")
-        .bind(now - super::retention::CHANNEL_GRACE_SECS - 60)
+        .bind(now - service::retention::CHANNEL_GRACE_SECS - 60)
         .bind(&old.id)
         .run()
         .await
         .unwrap();
 
     // Erasure is off: only the channel goes.
-    let report = super::retention::run(&app).await.unwrap();
+    let report = service::retention::run(&app).await.unwrap();
     assert_eq!(report.erased, 0);
     assert_eq!(report.channels_ended, 1);
     assert_eq!(live.ended(), [RaffleId::new(&old.id)]);
@@ -1593,7 +1593,7 @@ async fn retention_ends_channels_and_logs_erasures() {
         .unwrap();
     assert!(ok_at.parse::<i64>().unwrap() >= now);
     assert_eq!(
-        super::retention::run(&app).await.unwrap().channels_ended,
+        service::retention::run(&app).await.unwrap().channels_ended,
         0,
         "once"
     );
@@ -1615,7 +1615,7 @@ async fn retention_ends_channels_and_logs_erasures() {
         .run()
         .await
         .unwrap();
-    let report = super::retention::run(&app).await.unwrap();
+    let report = service::retention::run(&app).await.unwrap();
     assert_eq!(report.erased, 3);
     let entrants = entrants::list(&app.db, &old.id).await.unwrap();
     assert!(

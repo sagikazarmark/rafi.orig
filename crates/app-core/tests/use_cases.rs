@@ -3,7 +3,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use rafi_app_core::{self as app, App, Error, Limiter, Policy, ProofOfWork, Refusal};
+use rafi_app_core::{self as app, App, Error, Limiter, Policy, ProofOfWork, Refusal, Retention};
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
 use rafi_live_server::{LiveUpdates, Polling};
@@ -36,6 +36,11 @@ async fn app() -> App {
             proof_of_work: ProofOfWork {
                 key: b"test-key".to_vec(),
                 max: 1000,
+            },
+            retention: Retention {
+                enabled: true,
+                nonwinners_days: 30,
+                winners_days: 90,
             },
         },
     }

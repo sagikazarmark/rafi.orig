@@ -161,7 +161,7 @@ pub fn AdminHome() -> Element {
     let mut raffles = use_resource(api::list_raffles);
     let me = use_resource(api::whoami);
     let nav = navigator();
-    let retention_stale = matches!(&*me.read(), Some(Ok(me)) if me.retention_stale((crate::model::now_unix_ms() / 1000) as i64));
+    let retention_stale = matches!(&*me.read(), Some(Ok(me)) if me.retention_stale);
 
     rsx! {
         main { class: "mx-auto max-w-6xl space-y-8 px-4 py-8",
