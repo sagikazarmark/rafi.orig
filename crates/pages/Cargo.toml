@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
+dioxus-icons = "=0.1.0"
 rafi-lifecycle = { workspace = true }
 rafi-live-client = { workspace = true, features = ["card"] }
 serde = { workspace = true }
