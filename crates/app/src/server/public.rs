@@ -7,7 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use rafi_store::{RaffleRow, live::Snapshot, raffles};
+use rafi_store::RaffleRow;
 
 use super::{AppState, service, view};
 
@@ -22,9 +22,9 @@ pub fn routes() -> Router {
 }
 
 async fn public_raffle(app: &AppState, slug: &str) -> Result<RaffleRow, StatusCode> {
-    match raffles::by_slug(&app.db, slug).await {
-        Ok(Some(r)) if r.state.is_public() => Ok(r),
-        Ok(_) => Err(StatusCode::NOT_FOUND),
+    match service::public::raffle(app, slug).await {
+        Ok(r) => Ok(r),
+        Err(service::Error::NotFound) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
             tracing::error!(error = %e, "loading raffle");
             Err(StatusCode::INTERNAL_SERVER_ERROR)
@@ -55,12 +55,8 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
         Ok(r) => r,
         Err(status) => return status.into_response(),
     };
-    match Snapshot::read(&app.db, &raffle.id).await {
-        Ok(Some(snap)) => (
-            [(header::CACHE_CONTROL, "no-store")],
-            Json(view::participant(&snap)),
-        )
-            .into_response(),
+    match service::public::participant(&app, &raffle.id).await {
+        Ok(Some(p)) => ([(header::CACHE_CONTROL, "no-store")], Json(p.view)).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!(error = %e, "reading the participant view");
@@ -91,7 +87,7 @@ async fn challenge(Extension(app): Extension<AppState>) -> Response {
 /// Number of raffles that are live right now. The deploy pipeline refuses to
 /// restart the server while this is non-zero.
 async fn status(Extension(app): Extension<AppState>) -> Response {
-    match raffles::live_count(&app.db).await {
+    match service::public::live_count(&app).await {
         Ok(n) => (
             [(header::CACHE_CONTROL, "no-store")],
             Json(serde_json::json!({ "live_raffles": n })),

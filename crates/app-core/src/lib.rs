@@ -20,6 +20,7 @@ mod entrants;
 mod error;
 pub mod ids;
 mod prizes;
+pub mod public;
 mod raffles;
 mod ratelimit;
 mod reads;

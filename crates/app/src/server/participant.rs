@@ -17,10 +17,10 @@ use axum::{
 };
 use dioxus::prelude::*;
 use rafi_live_client::{Card, CardStrings, PageConfig, Phase};
-use rafi_store::{EntrantRow, RaffleRow, entrants, live::Snapshot, prizes, raffles};
+use rafi_store::{EntrantRow, RaffleRow};
 use serde::{Deserialize, Serialize};
 
-use super::{AppState, ids, service};
+use super::{AppState, service};
 use crate::{i18n::Lang, icons::I};
 
 const COOKIE_MAX_AGE: i64 = 3 * 86_400;
@@ -85,25 +85,36 @@ fn pick_lang(query: &LangQuery, headers: &HeaderMap, raffle: Option<&RaffleRow>)
     raffle.map(|r| Lang::parse(&r.lang)).unwrap_or(Lang::En)
 }
 
-fn normalize_code(code: &str) -> String {
-    super::codes::normalize(code)
-}
-
+/// The public raffle joined with `code`; `None` if there's none (or the
+/// read failed).
 async fn load(app: &AppState, code: &str) -> Option<RaffleRow> {
-    let raffle = raffles::by_join_code(&app.db, &normalize_code(code))
-        .await
-        .ok()
-        .flatten()?;
-    raffle.state.is_public().then_some(raffle)
+    found(service::public::raffle_by_join_code(app, code).await)
 }
 
+/// Raffle `slug`, if the public may see it.
+async fn load_slug(app: &AppState, slug: &str) -> Option<RaffleRow> {
+    found(service::public::raffle(app, slug).await)
+}
+
+fn found(raffle: service::Result<RaffleRow>) -> Option<RaffleRow> {
+    match raffle {
+        Ok(r) => Some(r),
+        Err(service::Error::NotFound) => None,
+        Err(e) => {
+            tracing::error!(error = %e, "loading raffle");
+            None
+        }
+    }
+}
+
+/// The entrant this device joined `raffle` as (its cookie).
 async fn current_entrant(
     app: &AppState,
     raffle: &RaffleRow,
     headers: &HeaderMap,
 ) -> Option<EntrantRow> {
     let token = cookie(headers, &cookie_name(&raffle.id))?;
-    entrants::by_token(&app.db, &raffle.id, &ids::token_hash(&token))
+    service::public::entrant(app, &raffle.id, &token)
         .await
         .ok()
         .flatten()
@@ -187,25 +198,25 @@ enum Notice {
 
 struct PageCtx<'a> {
     raffle: &'a RaffleRow,
-    /// What phones see, read in one snapshot.
-    snapshot: &'a Snapshot,
+    /// What phones see, read in one snapshot, and how they follow it.
+    live: &'a service::public::Participant,
     lang: Lang,
     entrant: Option<&'a EntrantRow>,
     notice: Notice,
     form: JoinForm,
 }
 
-fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
+fn render_page(ctx: PageCtx<'_>) -> String {
     let PageCtx {
         raffle,
-        snapshot,
+        live: participant,
         lang,
         entrant,
         notice,
         form,
     } = ctx;
     let t = |k: &str| lang.t(k);
-    let view = service::view::participant(snapshot);
+    let view = &participant.view;
     let phase = view.state;
     let strings = CardStrings::from_lookup(|k| lang.t(k).to_owned());
     let now_ms = crate::model::now_unix_ms();
@@ -342,7 +353,7 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
         strings: strings.clone(),
         participant_url: format!("/api/r/{}/participant", raffle.slug),
         server_now_ms: now_ms,
-        follow: app.follow(&raffle.id, !snapshot.channel_open()),
+        follow: participant.follow.clone(),
         needs_altcha: joining,
         altcha_url: PageConfig::ALTCHA_URL.into(),
         screen_on: lang.t("screen_on").to_owned(),
@@ -384,9 +395,9 @@ fn with_lang_cookie(mut resp: Response, query: &LangQuery, secure: bool) -> Resp
 }
 
 /// What phones see of `raffle`; `None` if it's gone (or the read failed).
-async fn snapshot(app: &AppState, raffle: &RaffleRow) -> Option<Snapshot> {
-    match Snapshot::read(&app.db, &raffle.id).await {
-        Ok(s) => s,
+async fn participant(app: &AppState, raffle: &RaffleRow) -> Option<service::public::Participant> {
+    match service::public::participant(app, &raffle.id).await {
+        Ok(p) => p,
         Err(e) => {
             tracing::error!(error = %e, "reading the participant view");
             None
@@ -408,20 +419,17 @@ async fn page(
     }
     let lang = pick_lang(&q, &headers, Some(&raffle));
     let entrant = current_entrant(&app, &raffle, &headers).await;
-    let Some(snapshot) = snapshot(&app, &raffle).await else {
+    let Some(live) = participant(&app, &raffle).await else {
         return not_found(lang);
     };
-    let html = render_page(
-        &app,
-        PageCtx {
-            raffle: &raffle,
-            snapshot: &snapshot,
-            lang,
-            entrant: entrant.as_ref(),
-            notice: Notice::None,
-            form: JoinForm::default(),
-        },
-    );
+    let html = render_page(PageCtx {
+        raffle: &raffle,
+        live: &live,
+        lang,
+        entrant: entrant.as_ref(),
+        notice: Notice::None,
+        form: JoinForm::default(),
+    });
     let resp = ([(header::CACHE_CONTROL, "no-store")], Html(html)).into_response();
     with_lang_cookie(resp, &q, app.cfg.cookie_secure)
 }
@@ -462,7 +470,7 @@ async fn submit(
         }
         Err(refused) => refused,
     };
-    let Some(snapshot) = snapshot(&app, &raffle).await else {
+    let Some(live) = participant(&app, &raffle).await else {
         return not_found(lang);
     };
     let form = if notice == Notice::AlreadyIn {
@@ -470,17 +478,14 @@ async fn submit(
     } else {
         form
     };
-    let html = render_page(
-        &app,
-        PageCtx {
-            raffle: &raffle,
-            snapshot: &snapshot,
-            lang,
-            entrant: None,
-            notice,
-            form,
-        },
-    );
+    let html = render_page(PageCtx {
+        raffle: &raffle,
+        live: &live,
+        lang,
+        entrant: None,
+        notice,
+        form,
+    });
     (status, [(header::CACHE_CONTROL, "no-store")], Html(html)).into_response()
 }
 
@@ -581,14 +586,13 @@ async fn rules(
     Query(q): Query<LangQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let Ok(Some(r)) = raffles::by_slug(&app.db, &slug).await else {
+    let Some(r) = load_slug(&app, &slug).await else {
         return not_found(pick_lang(&q, &headers, None));
     };
-    if !r.state.is_public() {
-        return not_found(pick_lang(&q, &headers, None));
-    }
     let lang = pick_lang(&q, &headers, Some(&r));
-    let prizes = prizes::list(&app.db, &r.id).await.unwrap_or_default();
+    let prizes = service::public::prizes(&app, &r.id)
+        .await
+        .unwrap_or_default();
     let prizes: Vec<String> = prizes
         .iter()
         .map(|i| {
@@ -675,12 +679,9 @@ async fn privacy(
     Query(q): Query<LangQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let Ok(Some(r)) = raffles::by_slug(&app.db, &slug).await else {
+    let Some(r) = load_slug(&app, &slug).await else {
         return not_found(pick_lang(&q, &headers, None));
     };
-    if !r.state.is_public() {
-        return not_found(pick_lang(&q, &headers, None));
-    }
     let lang = pick_lang(&q, &headers, Some(&r));
     let controller = if r.organizer_name.is_empty() {
         "The raffle organizer".to_owned()
