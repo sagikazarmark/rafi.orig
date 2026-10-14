@@ -9,7 +9,7 @@
 //! throwaway database. A backend that isn't available here, or lacks
 //! a capability a scenario needs, reports the test as ignored, with the
 //! reason. D1 runs the same scenarios through
-//! `crates/store-d1-check`.
+//! `testbeds/store-d1`.
 
 use std::sync::Arc;
 

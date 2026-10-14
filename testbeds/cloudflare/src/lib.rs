@@ -2,7 +2,7 @@
 //! the way the app and the raffle engine would.
 //!
 //! ```shell
-//! cd crates/cloudflare-check
+//! cd testbeds/cloudflare
 //! wrangler d1 migrations apply rafi-cloudflare-check --local
 //! wrangler dev --local --port 8790 &
 //! node scenario.mjs http://127.0.0.1:8790

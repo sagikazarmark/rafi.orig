@@ -64,7 +64,6 @@ crates/raffle                 rafi-raffle: the raffle: draw algorithm, state mac
 crates/lifecycle              rafi-lifecycle: the raffle's lifecycle in the app (pure): its states, starting the draw, who may
                               join, entrants' names and emails, settings, prizes as the raffle's items
 crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the raffle engine's write, the snapshot phones are shown
-crates/store-d1-check         rafi-store-d1-check: a Worker running rafi-store's conformance suite on D1 (wrangler dev)
 crates/engine                 rafi-engine: the raffle engine's contract (RaffleEngine, RaffleStore, RaffleNotifier); behind features,
                               the drand client engines draw with (settings, the round to commit to), an in-process engine
                               (tests, development) and the engine conformance suite
@@ -77,13 +76,15 @@ crates/live                   rafi-live: what a phone sees (participant view and
                               raffle as drawn
 crates/platform               rafi-platform: what a deployment provides (Notifier, RateLimit, Notify for the raffle engine)
 crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleRoom Durable Object, notifier, rate limits, config)
-crates/cloudflare-check       rafi-cloudflare-check: a Worker hosting RaffleRoom for the live channel's checks (wrangler dev)
 crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
 crates/model                  rafi-model: the types the app's server and browser exchange (the app's `rafi::model`)
 crates/app-core               rafi-app-core: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
 crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (participant pages, JSON APIs);
                               the native server binary and, with `worker`, the app's Cloudflare Worker
 migrations                    SQLite (and D1) schema; migrations/postgres: the same for Postgres
+testbeds/store-d1             rafi-store-d1-check: a Worker running rafi-store's conformance suite on D1
+testbeds/cloudflare           rafi-cloudflare-check: a Worker hosting RaffleRoom for the live channel's checks
+                              (testbeds are never deployed; scripts/workers-check.sh runs them under wrangler dev)
 tools                         verify.py: independent verifier (Python standard library only)
 testdata                      shared test vectors
 compose.yaml                  a local Restate server for development
@@ -199,7 +200,7 @@ backend lacks, as ignored with the reason. The tiers:
 | SQLite (in memory) | always |
 | embedded Postgres | by default: a local PostgreSQL 18 from prebuilt binaries ([Oliphaunt](https://oliphaunt.dev)), one server per run (started on first use, about 3 s) with a fresh schema per scenario; no install needed. The first build downloads about 13 MB. `RAFI_TEST_EMBEDDED_POSTGRES=off` skips it |
 | Postgres | when `RAFI_TEST_POSTGRES_URL` names a throwaway database (a fresh schema per scenario); CI sets it |
-| D1 | under `wrangler dev`, through `crates/store-d1-check` (`./scripts/workers-check.sh`, below) |
+| D1 | under `wrangler dev`, through `testbeds/store-d1` (`./scripts/workers-check.sh`, below) |
 
 A new backend implements `rafi_store::conformance::Harness` (a name, its capabilities, and a fresh, migrated
 database per scenario) and passes the suite; see the module's documentation.
@@ -305,7 +306,7 @@ restate deployments register http://127.0.0.1:8791 --use-http1.1
 ```
 
 `./scripts/workers-check.sh` runs every Workers check locally: rafi-store's conformance suite on D1, the live channel over WebSockets
-(`crates/cloudflare-check`), the participant page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
+(`testbeds/cloudflare`), the participant page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
 job runs it.
 
 Deploying (needs a Cloudflare account and Restate Cloud): see the comments at the top of `crates/app/wrangler.toml` and

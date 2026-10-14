@@ -14,7 +14,7 @@ default = ["postgres"]
 ## D1, and ignore it. Without it, rafi-store builds only SQLite natively.
 postgres = ["sqlx/postgres", "sqlx/tls-rustls-aws-lc-rs", "dep:tokio"]
 ## The storage conformance suite (`conformance`): the scenarios every backend
-## must pass. `tests/conformance.rs` runs them natively; `store-d1-check` on D1.
+## must pass. `tests/conformance.rs` runs them natively; `testbeds/store-d1` on D1.
 conformance = ["dep:futures-util"]
 ## An embedded PostgreSQL (Oliphaunt: a local server from prebuilt native
 ## binaries) for the conformance suite, so every `cargo test -p rafi-store`

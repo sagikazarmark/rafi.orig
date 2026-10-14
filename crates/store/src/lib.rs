@@ -33,7 +33,7 @@
 //! What every backend must do is pinned down by the storage conformance
 //! suite, `conformance` (the `conformance` feature): named scenarios that
 //! `tests/conformance.rs` runs against SQLite and Postgres, and
-//! `crates/store-d1-check` against D1.
+//! `testbeds/store-d1` against D1.
 
 pub mod altcha;
 pub mod audit;
