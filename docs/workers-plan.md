@@ -357,7 +357,7 @@ Decided 2026-10-08. Cloudflare is one deployment, not an assumption of the code.
 In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done; §11); (2) all SQL into `rafi-store`, written for both dialects (done; §11); (3) Postgres, natively for self-hosting (done; §11).
 
 - **`rafi-platform`:** the interfaces a deployment provides:
-  - `Notifier`: "this raffle changed" by ID, "end its live updates", and the `LiveTransport` clients should use;
+  - `Notifier`: "this raffle changed" by ID, "end its live updates", and the `LiveTransport` clients should use (since 2026-10-14, the first two only; see §11);
   - `RateLimit`, with the `Limit` keys;
   - `DrawStore`, where the draw engine writes draw states (since moved to `rafi-engine`);
   - the publish rule (since moved to `rafi_live::publish`);
@@ -370,7 +370,7 @@ In three passes: (1) the interfaces, `rafi-cloudflare` and `LiveTransport` (done
   - `poll`;
   - later `sse`, for example Mercure.
 
-  Adding a strategy means a `Notifier` implementation plus a client transport.
+  Adding a strategy means a `Notifier` implementation plus a client transport (since 2026-10-14: plus the function saying how clients follow it, which `LiveUpdates::new` pairs with the notifier; §11).
 - **`rafi-cloudflare`** (`rafi-channel` renamed) holds all the Cloudflare glue:
   - the `RaffleChannel` DO, the gate and the jurisdiction helper;
   - the `Notifier` over Durable Objects;
@@ -487,6 +487,9 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
   - **The wasm32 deadline race is done:** `RestateClient` races each synchronous call against a `gloo-timers` timer, so on the app Worker a call past `RESTATE_TIMEOUT_SECS` is `Pending`, as natively.
   - **`rafi-store` no longer depends on `rafi-live`:** `live::Snapshot` is data (the raffle's `RaffleState`; hidden names come back as `NULL` from the SQL). `rafi_cloudflare::view` and the app's `server::view::participant` build the view with `rafi_live::raffle::view` (revision 9 made them one function, `Snapshot::participant_view`, behind rafi-store's `live` feature; since 2026-10-14 they are two again, `rafi_cloudflare::participant_view` and `rafi_app_core::view::participant`, and rafi-store has no `live` feature); `HIDDEN_NAME` is `rafi-live`'s. The phone still pulls in neither `rafi-drawing` nor drand.
   - **Unknown raffle states fail loudly:** `RaffleRow.state` is a `RaffleState`, decoded by the row decoder; nothing falls back to `draft`. The store's SQL state lists come from `rafi-raffle`'s predicates (`raffles::states`).
+- **Live updates (2026-10-14).**
+  - **`rafi-platform` no longer depends on `rafi-live`:** `Notifier` is `notify` and `end`. How clients follow a raffle is the app's: `rafi_app_core::LiveUpdates::new(notifier, follow)` takes a notifier and a function of it and the raffle's ID, so a deployment can't push over one channel and tell clients another, and a Mercure topic can still name the raffle. `LiveUpdates::polling()` natively; the Worker passes `DurableObjects` and `DurableObjects::follow`. `Polling` is a unit struct. The use cases call `app.live_updates`.
+  - **Renames:** `LiveTransport` is `Follow`, and the page config's and full view's `live` field is `follow` (a page cached across the deploy fails until it reloads). `RaffleLive` is `ParticipantChannel`, its wire name still `raffle`. The screens' and the phone's channel components are `ChannelSubscription`. The `RaffleChannel` Durable Object keeps its name (a class rename needs a wrangler migration). [PLAN.md](PLAN.md) §8.6 has the vocabulary.
 - **Still needs your accounts:**
   - staging and production on Cloudflare: D1 with `--jurisdiction eu`, secrets, custom domains;
   - the Restate Cloud deployment;

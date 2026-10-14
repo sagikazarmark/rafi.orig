@@ -190,10 +190,10 @@ rafi-lifecycle       the raffle's lifecycle in the app: states, starting the dra
 rafi-engine          the engine contract: RaffleEngine, RaffleStore, RaffleNotifier; DrandClient (`drand`), LocalEngine (`local`), the suite (`conformance`)
 rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's RaffleEngine
 rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's RaffleStore; the phones' snapshot
-rafi-live            what a phone sees: ParticipantView, screen(), Card (`card`), proof-of-work, LiveTransport, PageConfig, publish rule
+rafi-live            what a phone sees: ParticipantView, ParticipantChannel, screen(), Card (`card`), proof-of-work, Follow, PageConfig, publish rule
 rafi-platform        what a deployment provides: Notifier, RateLimit, Notify (a Notifier as the engine's RaffleNotifier)
 rafi-model           the types the app's server and browser exchange
-rafi-app-core        every use case, over App { db, chain, engine, notifier, policy }; typed errors; no HTTP, no i18n
+rafi-app-core        every use case, over App { db, chain, engine, live_updates, policy }; typed errors; no HTTP, no i18n
 rafi                 the HTTP side (routes, participant pages, auth, retention) and the web UI
 rafi-participant     the participant page's WASM and its JavaScript fallback
 ```
@@ -267,14 +267,29 @@ same command ID is safe.
   view** (state, the current draw, the last draw that wasn't a no-show, winners by entrant ID, prizes left) has no
   personal data beyond the last drawn entrant's public name. The **full view** (projector, admin) adds the count,
   recent names, prizes, every draw and the server's time.
-- **Phones** follow the server's `LiveTransport`: the raffle's `RaffleChannel` on Workers, polling
-  `/api/r/{slug}/participant` natively. They accept only a newer `v`.
+- **Phones** follow the raffle as the server's `Follow` says: over its participant channel (the raffle's
+  `RaffleChannel` on Workers), or polling `/api/r/{slug}/participant` natively. They accept only a newer `v`.
+- **Each deployment's `LiveUpdates`** (`rafi-app-core`) pairs its `Notifier` with how clients follow a raffle, a
+  function of that notifier and the raffle's ID (a Mercure topic would name the raffle): `LiveUpdates::polling()`
+  natively, `DurableObjects` and `DurableObjects::follow` on Workers. Once live updates end, clients poll.
 - **The projector and admin** poll the full view every 2.5 s while the raffle is live (accepting `v >=`, since recent
   names change with time); on Workers they reveal the winner from the participant channel too.
 - **`RaffleChannel`** is nudged by the app (lifecycle, edits; not joins) and by the engine host after each raffle
   write. It reads the raffle in one D1 batch and publishes by `rafi_live::publish::decide`; a 15 s alarm repairs a
   lost nudge. **End live updates**, deleting or purging the raffle, or the Cron a day after it finished destroys it
   (final view, sockets closed with 4403, storage deleted).
+
+| Term | Meaning | Not |
+|---|---|---|
+| **Live updates** | A raffle's changes pushed to screens and phones, until the organizer ends them | realtime, stream |
+| **Participant view** | The slim, public state a phone's card renders from | phone view |
+| **Participant channel** | The partyline channel carrying the latest participant view, one per raffle (`ParticipantChannel`) | feed, topic |
+| **Follow** | How a client keeps its view fresh: poll, partyline or (reserved) SSE (`Follow`) | transport, subscription |
+| **Notifier** | The server side: "this raffle changed", "end its live updates" | publisher |
+| **Live channel** | A raffle's participant channel as hosted: on Workers, its `RaffleChannel` Durable Object | hub |
+
+"Follows the raffle" also says that `RaffleState` mirrors the raffle's progress (`follows_raffle`); that is the
+lifecycle's sense, unrelated to `Follow`.
 
 ## 9. Abuse and remote entries
 

@@ -72,8 +72,8 @@ crates/engine-restate         rafi-engine-restate: the `Raffle` virtual object a
                               RaffleEngine over the ingress (the SDK's generated clients)
 crates/restate-rafi-endpoint  restate-rafi: the native binary serving the Restate services (config, logging, Dockerfile); self-hosting
 crates/restate-worker         rafi-restate-worker: the same services as a Cloudflare Worker, on D1, nudging the live channel
-crates/live                   rafi-live: what a phone sees (participant view, the live channel's publish rule, proof-of-work, live
-                              transport, page config); `card`: the Dioxus card; `raffle` (servers only): the view built from a
+crates/live                   rafi-live: what a phone sees (participant view and channel, the live channel's publish rule,
+                              proof-of-work, how clients follow, page config); `card`: the Dioxus card; `raffle` (servers only): the view built from a
                               raffle as drawn
 crates/platform               rafi-platform: what a deployment provides (Notifier, RateLimit, Notify for the raffle engine)
 crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleChannel Durable Object, notifier, rate limits, config)
