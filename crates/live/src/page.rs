@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{CardStrings, LiveTransport, ParticipantView, Phase};
+use crate::{CardStrings, Follow, ParticipantView, Phase};
 
 /// What the server embeds in `#rafi-config`. One type for both sides, so
 /// they can't disagree; `fallback.js` reads the same fields (a test here
@@ -27,7 +27,7 @@ pub struct PageConfig {
     pub server_now_ms: u64,
     /// How to follow the raffle: subscribe to its partyline channel
     /// (`/partyline/raffle/{id}`), or poll `participant_url`.
-    pub live: LiveTransport,
+    pub follow: Follow,
     /// The join form is on the page and needs a proof-of-work.
     #[serde(default)]
     pub needs_altcha: bool,
@@ -66,7 +66,7 @@ mod tests {
             strings: CardStrings::default(),
             participant_url: "/api/r/s/participant".into(),
             server_now_ms: 1,
-            live: LiveTransport::poll(),
+            follow: Follow::poll(),
             needs_altcha: true,
             altcha_url: altcha_url(),
             screen_on: "on".into(),

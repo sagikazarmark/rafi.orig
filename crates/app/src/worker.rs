@@ -82,7 +82,7 @@ fn app(env: &Env) -> anyhow::Result<App> {
         engine,
         server::service::LiveUpdates::new(
             Arc::new(DurableObjects::new(env.clone())),
-            DurableObjects::transport,
+            DurableObjects::follow,
         ),
         Arc::new(RateLimitBindings::new(env.clone())),
     )?;

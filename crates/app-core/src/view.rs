@@ -179,7 +179,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         .publicly_verifiable();
     Ok(RaffleView {
         v: raffle.version.max(0) as u64,
-        live: app.transport(&raffle.id, raffle.live_ended_at.is_some()),
+        follow: app.follow(&raffle.id, raffle.live_ended_at.is_some()),
         live_ended: raffle.live_ended_at.is_some(),
         raffle_id: raffle.id.clone(),
         slug: raffle.slug.clone(),

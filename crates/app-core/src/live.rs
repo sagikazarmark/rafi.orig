@@ -3,7 +3,7 @@
 
 use std::{fmt, sync::Arc};
 
-use rafi_live::LiveTransport;
+use rafi_live::Follow;
 use rafi_platform::{BoxFuture, Notifier, Polling};
 
 /// How a deployment pushes raffles' changes to clients, and how clients
@@ -12,26 +12,26 @@ use rafi_platform::{BoxFuture, Notifier, Polling};
 #[derive(Clone)]
 pub struct LiveUpdates {
     notifier: Arc<dyn Notifier>,
-    transport: Arc<dyn Fn(&str) -> LiveTransport + Send + Sync>,
+    follow: Arc<dyn Fn(&str) -> Follow + Send + Sync>,
 }
 
 impl LiveUpdates {
-    /// Live updates through `notifier`; clients follow a raffle as
-    /// `transport` says for it (a Mercure topic, say, names the raffle).
+    /// Live updates through `notifier`; clients follow a raffle as `follow`
+    /// says for it (a Mercure topic, say, names the raffle).
     pub fn new<N: Notifier>(
         notifier: Arc<N>,
-        transport: impl Fn(&N, &str) -> LiveTransport + Send + Sync + 'static,
+        follow: impl Fn(&N, &str) -> Follow + Send + Sync + 'static,
     ) -> Self {
         let n = notifier.clone();
         Self {
             notifier,
-            transport: Arc::new(move |raffle_id| transport(&n, raffle_id)),
+            follow: Arc::new(move |raffle_id| follow(&n, raffle_id)),
         }
     }
 
-    /// No push: clients poll ([`LiveTransport::poll`]).
+    /// No push: clients poll ([`Follow::poll`]).
     pub fn polling() -> Self {
-        Self::new(Arc::new(Polling), |_, _| LiveTransport::poll())
+        Self::new(Arc::new(Polling), |_, _| Follow::poll())
     }
 
     /// What phones see of `raffle_id` may have changed ([`Notifier::notify`]).
@@ -45,8 +45,8 @@ impl LiveUpdates {
     }
 
     /// How clients follow `raffle_id` while its live updates run.
-    pub fn transport(&self, raffle_id: &str) -> LiveTransport {
-        (self.transport)(raffle_id)
+    pub fn follow(&self, raffle_id: &str) -> Follow {
+        (self.follow)(raffle_id)
     }
 }
 
@@ -63,9 +63,9 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn the_notifier_and_its_transport() {
+    async fn the_notifier_and_how_to_follow() {
         let recording = Arc::new(Recording::default());
-        let live = LiveUpdates::new(recording.clone(), |_, id| LiveTransport::Sse {
+        let live = LiveUpdates::new(recording.clone(), |_, id| Follow::Sse {
             url: format!("/hub?topic={id}"),
         });
         live.notify("a").await;
@@ -73,11 +73,11 @@ mod tests {
         assert_eq!(recording.notified(), ["a"]);
         assert_eq!(recording.ended(), ["b"]);
         assert_eq!(
-            live.transport("a"),
-            LiveTransport::Sse {
+            live.follow("a"),
+            Follow::Sse {
                 url: "/hub?topic=a".into()
             }
         );
-        assert_eq!(LiveUpdates::polling().transport("a"), LiveTransport::poll());
+        assert_eq!(LiveUpdates::polling().follow("a"), Follow::poll());
     }
 }

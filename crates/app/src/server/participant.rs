@@ -343,7 +343,7 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
         strings: strings.clone(),
         participant_url: format!("/api/r/{}/participant", raffle.slug),
         server_now_ms: now_ms,
-        live: app.transport(&raffle.id, !snapshot.channel_open()),
+        follow: app.follow(&raffle.id, !snapshot.channel_open()),
         needs_altcha: joining,
         altcha_url: PageConfig::ALTCHA_URL.into(),
         screen_on: lang.t("screen_on").to_owned(),

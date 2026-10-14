@@ -172,7 +172,7 @@ async fn page(
         "strings": strings,
         "participant_url": format!("/participant?r={raffle}"),
         "server_now_ms": now_ms,
-        "live": DurableObjects::new(env.clone()).transport(raffle),
+        "follow": DurableObjects::new(env.clone()).follow(raffle),
         "screen_on": "Screen stays on",
         "keep_screen_on": "Keep the screen on",
     });

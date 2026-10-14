@@ -11,7 +11,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use rafi_lifecycle::RaffleState;
-use rafi_live::LiveTransport;
+use rafi_live::Follow;
 use rafi_platform::{Limiter, Recording};
 use rafi_raffle::{ItemStatus, Resolution};
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
@@ -81,7 +81,7 @@ async fn app_with_engine(
 /// partyline.
 fn recording() -> (Arc<Recording>, service::LiveUpdates) {
     let recording = Arc::new(Recording::default());
-    let live = service::LiveUpdates::new(recording.clone(), |_, _| LiveTransport::Partyline {
+    let live = service::LiveUpdates::new(recording.clone(), |_, _| Follow::Partyline {
         base_url: None,
     });
     (recording, live)
@@ -623,7 +623,7 @@ async fn full_view_v_is_the_version_column() {
     assert_eq!(v0, version(&app, &raffle.id).await);
     assert!(view["server_now_ms"].as_u64().unwrap() > 0);
     assert_eq!(
-        view["live"],
+        view["follow"],
         serde_json::json!({"kind": "poll", "every_ms": 2500}),
         "no push natively: clients poll"
     );
@@ -747,7 +747,7 @@ async fn participant_view_has_no_personal_data() {
     .await;
     assert!(page.contains("id=\"rafi-config\""));
     assert!(page.contains(&format!("\"participant_url\":\"{url}\"")));
-    assert!(page.contains(r#""live":{"kind":"poll","every_ms":2500}"#));
+    assert!(page.contains(r#""follow":{"kind":"poll","every_ms":2500}"#));
     assert!(
         !page.contains(&other.display_name),
         "a non-winner's name on the page"
@@ -1462,7 +1462,7 @@ async fn ending_live_updates() {
     let raffle = finished_raffle(&app).await;
     assert!(raffle.live_ended_at.is_none());
     let view = super::view::build(&app, &raffle.id).await.unwrap().unwrap();
-    assert_eq!(view.live, LiveTransport::Partyline { base_url: None });
+    assert_eq!(view.follow, Follow::Partyline { base_url: None });
     assert!(!view.live_ended);
 
     service::end_live(&app, OWNER, &raffle.id).await.unwrap();
@@ -1470,7 +1470,7 @@ async fn ending_live_updates() {
     let ended = r.live_ended_at.expect("live_ended_at is set");
     assert_eq!(live.ended(), std::slice::from_ref(&raffle.id));
     let view = super::view::build(&app, &raffle.id).await.unwrap().unwrap();
-    assert_eq!(view.live, LiveTransport::poll(), "ended: plain polling");
+    assert_eq!(view.follow, Follow::poll(), "ended: plain polling");
     assert!(view.live_ended);
 
     // Again: the channel is destroyed again, the time stays.

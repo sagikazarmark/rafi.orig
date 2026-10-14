@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use rafi_live::LiveTransport;
+use rafi_live::Follow;
 use rafi_platform::{BoxFuture, Notifier};
 use worker::{
     Delay, Env,
@@ -26,8 +26,8 @@ impl DurableObjects {
     }
 
     /// Clients follow a raffle over partyline, at its object.
-    pub fn transport(&self, _raffle_id: &str) -> LiveTransport {
-        LiveTransport::Partyline { base_url: None }
+    pub fn follow(&self, _raffle_id: &str) -> Follow {
+        Follow::Partyline { base_url: None }
     }
 }
 

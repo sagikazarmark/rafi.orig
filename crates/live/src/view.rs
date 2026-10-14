@@ -50,7 +50,7 @@ impl Phase {
     }
 
     /// Whether the raffle is public and not over, which is when a page
-    /// subscribes to [`RaffleLive`](crate::RaffleLive). Ready is included so a
+    /// subscribes to [`ParticipantChannel`](crate::ParticipantChannel). Ready is included so a
     /// visitor's page can reload when registration opens.
     pub fn is_live(self) -> bool {
         matches!(
@@ -63,7 +63,7 @@ impl Phase {
 /// What a phone needs, and nothing more.
 ///
 /// The Durable Object builds it from one consistent read of the database (see
-/// [`ParticipantView::new`]) and publishes it on [`RaffleLive`](crate::RaffleLive);
+/// [`ParticipantView::new`]) and publishes it on [`ParticipantChannel`](crate::ParticipantChannel);
 /// the server also embeds it in the participant page. It has no time-dependent
 /// fields, so [`v`](Self::v) alone orders views.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

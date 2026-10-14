@@ -65,13 +65,13 @@ pub struct Policy {
 }
 
 impl App {
-    /// How clients follow `raffle_id`: the deployment's transport while its
-    /// live updates run, plain polling once they've ended.
-    pub fn transport(&self, raffle_id: &str, live_ended: bool) -> rafi_live::LiveTransport {
+    /// How clients follow `raffle_id`: as the deployment's live updates say
+    /// while they run, plain polling once they've ended.
+    pub fn follow(&self, raffle_id: &str, live_ended: bool) -> rafi_live::Follow {
         if live_ended {
-            rafi_live::LiveTransport::poll()
+            rafi_live::Follow::poll()
         } else {
-            self.live_updates.transport(raffle_id)
+            self.live_updates.follow(raffle_id)
         }
     }
 

@@ -14,7 +14,7 @@ use std::{cell::Cell, time::Duration};
 
 use partyline_worker::{Hub, HubConfig, close, reject};
 use rafi_live::publish::{Decision, decide};
-use rafi_live::{ParticipantView, RaffleLive};
+use rafi_live::{ParticipantChannel, ParticipantView};
 use rafi_store::{Db, live::Snapshot};
 
 use worker::{
@@ -58,7 +58,7 @@ pub fn participant_view(snapshot: &Snapshot) -> ParticipantView {
 
 #[durable_object]
 pub struct RaffleChannel {
-    hub: Hub<RaffleLive>,
+    hub: Hub<ParticipantChannel>,
     env: Env,
     /// Set first thing by destroy; checked after every `await`.
     destroyed: Cell<bool>,

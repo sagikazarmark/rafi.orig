@@ -11,8 +11,8 @@
 //! writes the state to a [`RaffleStore`](rafi_engine::RaffleStore) (the app's
 //! database), then tells clients through a
 //! [`RaffleNotifier`](rafi_engine::RaffleNotifier), best effort. Which
-//! database and which live transport is up to the deployment: this crate
-//! knows neither.
+//! database, and how live updates reach clients, is up to the deployment:
+//! this crate knows neither.
 //!
 //! [`EngineInfo`] is a keyless service next to it: `info` reports the
 //! engine's beacon source, which the app checks before opening a raffle.
