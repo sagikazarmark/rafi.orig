@@ -11,13 +11,16 @@ rust-version = "1.92"
 [workspace.dependencies]
 rafi-lifecycle = { path = "crates/lifecycle" }
 rafi-raffle = { path = "crates/raffle" }
-drand = { version = "0.3", default-features = false }
-restate-drand = { version = "0.3", default-features = false }
-rafi-store = { path = "crates/store" }
 rafi-model = { path = "crates/model" }
-rafi-app-core = { path = "crates/app-core" }
+rafi-store = { path = "crates/store" }
+rafi-engine = { path = "crates/engine" }
+rafi-engine-restate = { path = "crates/engine-restate" }
+rafi-platform = { path = "crates/platform" }
 rafi-live = { path = "crates/live" }
 rafi-cloudflare = { path = "crates/cloudflare" }
+rafi-app-core = { path = "crates/app-core" }
+drand = { version = "0.3", default-features = false }
+restate-drand = { version = "0.3", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

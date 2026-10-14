@@ -10,20 +10,20 @@ publish = false
 [dependencies]
 anyhow = "1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
-hex.workspace = true
-rafi-raffle.workspace = true
-rafi-engine = { path = "../engine" }
-rafi-live = { path = "../live", features = ["raffle"] }
-rafi-model.workspace = true
-rafi-platform = { path = "../platform" }
-rafi-lifecycle.workspace = true
-rafi-store.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
-thiserror.workspace = true
+hex = { workspace = true }
+rafi-raffle = { workspace = true }
+rafi-engine = { workspace = true }
+rafi-live = { workspace = true, features = ["raffle"] }
+rafi-model = { workspace = true }
+rafi-platform = { workspace = true }
+rafi-lifecycle = { workspace = true }
+rafi-store = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
 tracing = "0.1"
 
 [dev-dependencies]
-rafi-lifecycle.workspace = true
-rafi-engine = { path = "../engine", features = ["local", "mock-drand"] }
+rafi-lifecycle = { workspace = true }
+rafi-engine = { workspace = true, features = ["local", "mock-drand"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -13,10 +13,10 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-rafi-engine = { path = "../engine", features = ["drand"] }
-rafi-engine-restate = { path = "../engine-restate" }
-rafi-raffle.workspace = true
-rafi-store.workspace = true
+rafi-engine = { workspace = true, features = ["drand"] }
+rafi-engine-restate = { workspace = true }
+rafi-raffle = { workspace = true }
+rafi-store = { workspace = true }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
@@ -26,7 +26,7 @@ restate-ext = { version = "0.3", features = ["shutdown"] }
 # `http_server` serves the endpoint; `rust_crypto` verifies configured identity keys;
 # `tracing-span-filter` provides the filter that drops log lines re-emitted on replay.
 restate-sdk = { workspace = true, features = ["http_server", "rust_crypto", "tracing-span-filter"] }
-serde.workspace = true
+serde = { workspace = true }
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

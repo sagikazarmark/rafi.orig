@@ -7,10 +7,10 @@ rust-version.workspace = true
 description = "A Rafi raffle's lifecycle in the app: its states and the rules on them, starting the draw, entrants and settings"
 
 [dependencies]
-rafi-raffle.workspace = true
-serde.workspace = true
+rafi-raffle = { workspace = true }
+serde = { workspace = true }
 
 [dev-dependencies]
 drand = { workspace = true, features = ["test-chain"] }
 proptest = "1"
-serde_json.workspace = true
+serde_json = { workspace = true }

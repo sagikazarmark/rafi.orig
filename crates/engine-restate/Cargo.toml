@@ -9,13 +9,13 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-rafi-raffle.workspace = true
+rafi-raffle = { workspace = true }
 restate-drand = { workspace = true }
-rafi-engine = { path = "../engine", features = ["drand"] }
-rafi-platform = { path = "../platform" }
+rafi-engine = { workspace = true, features = ["drand"] }
+rafi-platform = { workspace = true }
 restate-sdk = { workspace = true }
-serde.workspace = true
-serde_json.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
 tracing = "0.1"
 
 # The app's client: the SDK's generated ingress clients over reqwest.
@@ -30,6 +30,6 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 
 [dev-dependencies]
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
-rafi-engine = { path = "../engine", features = ["conformance"] }
+rafi-engine = { workspace = true, features = ["conformance"] }
 restate-e2e-harness = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

@@ -24,12 +24,12 @@ embedded-postgres = ["postgres", "conformance", "dep:oliphaunt"]
 
 [dependencies]
 anyhow = "1"
-rafi-lifecycle.workspace = true
-rafi-raffle.workspace = true
-rafi-engine = { path = "../engine" }
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
+rafi-lifecycle = { workspace = true }
+rafi-raffle = { workspace = true }
+rafi-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
 # The conformance suite races futures on one task (any runtime, Workers too).
 futures-util = { version = "0.3", default-features = false, features = ["alloc"], optional = true }
 

@@ -25,9 +25,9 @@ conformance = ["dep:tokio", "dep:serde_json", "mock-drand"]
 
 [dependencies]
 anyhow = "1"
-rafi-raffle.workspace = true
-serde.workspace = true
-thiserror.workspace = true
+rafi-raffle = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
 
 # drand
 drand = { workspace = true, features = ["client", "rustls", "bls12-381"], optional = true }
@@ -42,5 +42,5 @@ serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 rafi-engine = { path = ".", features = ["local", "conformance"] }
-serde_json.workspace = true
+serde_json = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
