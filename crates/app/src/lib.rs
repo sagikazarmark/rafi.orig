@@ -21,14 +21,9 @@ pub mod api;
 #[cfg(feature = "web")]
 #[allow(unused_imports, dead_code)]
 mod components;
-#[cfg_attr(not(feature = "web"), allow(dead_code))]
-pub mod i18n;
-#[cfg_attr(not(feature = "web"), allow(dead_code))]
-pub mod icons;
 pub use rafi_model as model;
 #[cfg(feature = "server")]
 pub mod server;
-pub mod style;
 #[cfg(feature = "web")]
 pub mod ui;
 #[cfg(all(feature = "worker", target_arch = "wasm32"))]

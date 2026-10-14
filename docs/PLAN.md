@@ -193,10 +193,11 @@ rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter,
 rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), Follow, PageConfig
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 rafi-altcha          the proof-of-work (ALTCHA-compatible): solve; issue and verify (`server`)
-rafi-model           the types the app's server and browser exchange
+rafi-model           the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
+rafi-pages           the server-rendered public pages (participant, rules, privacy); Lang, icons, the stylesheet's path
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP, no i18n
-rafi                 the HTTP side (routes, participant pages, auth, the retention schedule) and the web UI
+rafi                 the HTTP side (routes, auth, the retention schedule) and the web UI
 rafi-participant     the participant page's WASM and its JavaScript fallback
 ```
 
@@ -417,7 +418,8 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   the proof-of-work and the join (`JoinRequest`); the participant and public pages read through `app_core::public`;
   the retention run is `app_core::retention`, and the server says whether erasure looks stopped
   (`Me.retention_stale`). `rafi_model::Lifecycle` is `LifecycleCommand`; an entrant's source is
-  `rafi_lifecycle::entrant::Source`.
+  `rafi_lifecycle::entrant::Source`. The admin API is declared once, in `rafi-model`; the public pages render in
+  `rafi-pages`.
 
 ## Appendix: key sources
 

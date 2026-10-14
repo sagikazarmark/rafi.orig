@@ -3,13 +3,11 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use rafi_pages::icons::{I, Icon};
 use rafi_raffle::{EntrantId, Event, ItemId};
 
 use super::{Brand, ThemeToggle};
-use crate::{
-    api,
-    icons::{I, Icon},
-};
+use crate::api;
 
 #[component]
 pub fn Verify(slug: String) -> Element {

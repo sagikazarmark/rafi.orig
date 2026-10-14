@@ -10,6 +10,10 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use rafi_lifecycle::{RaffleState, entrant::Source};
+use rafi_pages::{
+    i18n::Lang,
+    icons::{I, Icon},
+};
 use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
 
 use super::{
@@ -32,8 +36,6 @@ use crate::{
         tabs::{TabContent, TabContentAppearance, TabTrigger, Tabs, TabsAppearance},
         toast::{ToastOptions, use_toast},
     },
-    i18n::Lang,
-    icons::{I, Icon},
     model::{
         AdminEntrant, EntrantPatch, LifecycleCommand, Prize, RaffleAdmin as AdminData, RaffleView,
         StartStep,

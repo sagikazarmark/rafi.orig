@@ -8,6 +8,8 @@
 @import "tailwindcss" source(none);
 
 @source "./src/**/*.rs";
+/* The server-rendered public pages (participant, rules, privacy). */
+@source "../pages/src/**/*.rs";
 /* The participant page's card, its WebAssembly and its JavaScript fallback. */
 @source "../live-client/src/**/*.rs";
 @source "../participant/src/**/*.rs";

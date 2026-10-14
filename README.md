@@ -80,7 +80,10 @@ crates/altcha                 rafi-altcha: the self-hosted proof-of-work (ALTCHA
                               and verifying it
 crates/cloudflare             rafi-cloudflare: the Cloudflare glue both Workers share (RaffleRoom Durable Object, notifier, config)
 crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
-crates/model                  rafi-model: the types the app's server and browser exchange (the app's `rafi::model`)
+crates/model                  rafi-model: the contract between the app's server and browser: views, and the admin API declared
+                              once (`admin_functions!`: the server's `Admin` trait and `dispatch`, the browser's client)
+crates/pages                  rafi-pages: the server-rendered public pages (participant, rules, privacy) and what they share with
+                              the web app: their English and Hungarian text, the icons, the stylesheet's path
 crates/app-core               rafi-app-core: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
 crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (participant pages, JSON APIs);
                               the native server binary and, with `worker`, the app's Cloudflare Worker

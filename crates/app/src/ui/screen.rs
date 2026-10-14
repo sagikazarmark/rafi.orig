@@ -5,16 +5,16 @@ use rafi_lifecycle::RaffleState;
 use rafi_raffle::Outcome;
 
 use rafi_live_client::ParticipantView;
+use rafi_pages::{
+    i18n::Lang,
+    icons::{I, Icon},
+};
 
 use super::{
     Brand, ThemeToggle,
     live::{use_clock, use_live_view},
 };
-use crate::{
-    i18n::Lang,
-    icons::{I, Icon},
-    model::{DrawView, RaffleView},
-};
+use crate::model::{DrawView, RaffleView};
 
 #[component]
 pub fn Screen(slug: String) -> Element {

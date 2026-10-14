@@ -4713,6 +4713,7 @@ dependencies = [
  "rafi-live-client",
  "rafi-live-server",
  "rafi-model",
+ "rafi-pages",
  "rafi-raffle",
  "rafi-store",
  "restate-e2e-harness",
@@ -4883,6 +4884,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rafi-pages"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "rafi-lifecycle",
+ "rafi-live-client",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

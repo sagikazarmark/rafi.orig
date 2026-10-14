@@ -8,6 +8,7 @@ use rafi_lifecycle::{
     entrant::{self, MAX_NAME_CHARS},
     settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
 };
+use rafi_pages::icons::{I, Icon};
 
 use crate::{
     api::{self, ApiError},
@@ -20,7 +21,6 @@ use crate::{
         textarea::TextareaField,
         toast::{ToastOptions, use_toast},
     },
-    icons::{I, Icon},
     model::{PrizeInput, RaffleSettings},
 };
 
