@@ -29,6 +29,7 @@ use axum::{Extension, Router};
 use rafi_app_core::RateLimit;
 use rafi_engine::Engine;
 use rafi_engine_restate::RestateClient;
+use rafi_live_server::LiveUpdates;
 use rafi_store::Db;
 
 use self::config::Config;
@@ -75,7 +76,7 @@ impl AppState {
             cfg,
             db,
             engine,
-            service::LiveUpdates::polling(),
+            LiveUpdates::polling(),
             Arc::new(service::Limiter::default()),
         )
     }
@@ -86,7 +87,7 @@ impl AppState {
         cfg: Config,
         db: Db,
         engine: Option<Arc<dyn Engine>>,
-        live_updates: service::LiveUpdates,
+        live_updates: LiveUpdates,
         limiter: Arc<dyn RateLimit>,
     ) -> anyhow::Result<Self> {
         let core = service::App {

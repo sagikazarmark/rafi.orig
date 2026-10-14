@@ -18,7 +18,6 @@ mod draw;
 mod entrants;
 mod error;
 pub mod ids;
-mod live;
 mod prizes;
 mod raffles;
 mod ratelimit;
@@ -28,6 +27,7 @@ pub mod view;
 use std::sync::Arc;
 
 use rafi_engine::Engine;
+use rafi_live_server::LiveUpdates;
 use rafi_raffle::drand::ChainHash;
 use rafi_store::{Db, RaffleRow, raffles as store};
 
@@ -37,7 +37,6 @@ pub use entrants::{
     purge, remove_entrant,
 };
 pub use error::{Error, Refusal, Result};
-pub use live::LiveUpdates;
 pub use prizes::{delete_prize, upsert_prize};
 pub use raffles::{create, delete, duplicate, lifecycle, list, settings_of, update_settings};
 #[cfg(not(target_arch = "wasm32"))]

@@ -85,7 +85,7 @@ fn app(env: &Env) -> anyhow::Result<App> {
         cfg,
         rafi_cloudflare::database(env)?,
         engine,
-        server::service::LiveUpdates::new(
+        rafi_live_server::LiveUpdates::new(
             Arc::new(DurableObjects::new(env.clone())),
             DurableObjects::follow,
         ),

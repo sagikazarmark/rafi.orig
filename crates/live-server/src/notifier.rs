@@ -13,8 +13,8 @@ use rafi_raffle::RaffleId;
 /// back itself (nothing is pushed from the caller), logs its failures and
 /// never returns them, since clients recover on their own (re-reads,
 /// polling). Where there's no push at all, clients poll and [`Polling`] does
-/// nothing. How clients follow a raffle is the app's to tell them, from the
-/// deployment's notifier (`rafi_app_core::LiveUpdates`).
+/// nothing. How clients follow a raffle is told with the notifier, in
+/// [`LiveUpdates`](crate::LiveUpdates).
 pub trait Notifier: Observer {
     /// Ends the raffle's live updates: clients get the final view, then are
     /// disconnected, and anything kept for the raffle is deleted. Set

@@ -3,8 +3,8 @@
 
 use std::{fmt, sync::Arc};
 
+use crate::{Notifier, Polling};
 use rafi_live_client::Follow;
-use rafi_live_server::{Notifier, Polling};
 use rafi_raffle::RaffleId;
 
 /// How a deployment pushes raffles' changes to clients, and how clients
@@ -60,9 +60,8 @@ impl fmt::Debug for LiveUpdates {
 
 #[cfg(test)]
 mod tests {
-    use rafi_live_server::Recording;
-
     use super::*;
+    use crate::Recording;
 
     #[tokio::test]
     async fn the_notifier_and_how_to_follow() {

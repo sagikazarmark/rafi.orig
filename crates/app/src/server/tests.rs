@@ -13,7 +13,7 @@ use http_body_util::BodyExt;
 use rafi_app_core::Limiter;
 use rafi_lifecycle::RaffleState;
 use rafi_live_client::Follow;
-use rafi_live_server::Recording;
+use rafi_live_server::{LiveUpdates, Recording};
 use rafi_raffle::{ItemStatus, RaffleId, Resolution};
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
 use tower::ServiceExt;
@@ -30,7 +30,7 @@ async fn app() -> AppState {
 }
 
 async fn app_with(cfg: Config) -> AppState {
-    app_with_live(cfg, service::LiveUpdates::polling()).await
+    app_with_live(cfg, LiveUpdates::polling()).await
 }
 
 /// The raffle engine's drand: the mock chain, no lead.
@@ -43,7 +43,7 @@ fn mock_drand() -> rafi_engine::drand::DrandConfig {
     }
 }
 
-async fn app_with_live(cfg: Config, live: service::LiveUpdates) -> AppState {
+async fn app_with_live(cfg: Config, live: LiveUpdates) -> AppState {
     app_with_engine(cfg, mock_drand(), live).await
 }
 
@@ -53,7 +53,7 @@ async fn app_with_live(cfg: Config, live: service::LiveUpdates) -> AppState {
 async fn app_with_engine(
     mut cfg: Config,
     drand: rafi_engine::drand::DrandConfig,
-    live: service::LiveUpdates,
+    live: LiveUpdates,
 ) -> AppState {
     if cfg.database_url == Config::for_tests().database_url
         && let Some(url) = rafi_store::testing::postgres_url().await
@@ -80,9 +80,9 @@ async fn app_with_engine(
 
 /// Live updates that record every call and tell clients to subscribe over
 /// partyline.
-fn recording() -> (Arc<Recording>, service::LiveUpdates) {
+fn recording() -> (Arc<Recording>, LiveUpdates) {
     let recording = Arc::new(Recording::default());
-    let live = service::LiveUpdates::new(recording.clone(), |_, _| Follow::Partyline {
+    let live = LiveUpdates::new(recording.clone(), |_, _| Follow::Partyline {
         base_url: None,
     });
     (recording, live)
@@ -219,7 +219,7 @@ async fn unreachable_drand_app() -> AppState {
         lead_secs: 3,
         timeout_secs: 1,
     };
-    app_with_engine(cfg, drand, service::LiveUpdates::polling()).await
+    app_with_engine(cfg, drand, LiveUpdates::polling()).await
 }
 
 #[tokio::test]
@@ -846,7 +846,7 @@ async fn join_requires_proof_of_work_and_consent() {
 async fn an_engine_on_another_chain_is_refused_before_freezing() {
     let mut cfg = Config::for_tests();
     cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
-    let app = app_with_engine(cfg, mock_drand(), service::LiveUpdates::polling()).await;
+    let app = app_with_engine(cfg, mock_drand(), LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
         .await
@@ -1248,7 +1248,7 @@ async fn only_handing_over_passes_a_waiting_draw() {
         lead_secs: 3,
         ..mock_drand()
     };
-    let app = app_with_engine(Config::for_tests(), drand, service::LiveUpdates::polling()).await;
+    let app = app_with_engine(Config::for_tests(), drand, LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 2)]).await;
     for i in 0..3 {
         service::add_manual(&app, OWNER, &raffle.id, &format!("Person {i}"), None)

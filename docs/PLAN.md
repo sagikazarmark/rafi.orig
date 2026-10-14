@@ -191,7 +191,7 @@ rafi-engine          the engine contract: Engine, Store, Observer; DrandClient (
 rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's Engine
 rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; the phones' snapshot
 rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), solving the proof-of-work, Follow, PageConfig
-rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), the view of a raffle as drawn, the publish rule, issuing and verifying the proof-of-work
+rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule, issuing and verifying the proof-of-work
 rafi-model           the types the app's server and browser exchange
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, policy }; typed errors; RateLimit; no HTTP, no i18n
 rafi                 the HTTP side (routes, participant pages, auth, retention) and the web UI
@@ -269,7 +269,7 @@ same command ID is safe.
   recent names, prizes, every draw and the server's time.
 - **Phones** follow the raffle as the server's `Follow` says: over its participant channel (the raffle's
   `RaffleRoom` on Workers), or polling `/api/r/{slug}/participant` natively. They accept only a newer `v`.
-- **Each deployment's `LiveUpdates`** (`rafi-app-core`) pairs its `Notifier` with how clients follow a raffle, a
+- **Each deployment's `LiveUpdates`** (`rafi-live-server`) pairs its `Notifier` with how clients follow a raffle, a
   function of that notifier and the raffle's ID (a Mercure topic would name the raffle): `LiveUpdates::polling()`
   natively, `DurableObjects` and `DurableObjects::follow` on Workers. Once live updates end, clients poll.
 - **The projector and admin** poll the full view every 2.5 s while the raffle is live (accepting `v >=`, since recent
@@ -408,7 +408,7 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
 - **11** (2026-10-14). `rafi-platform` dissolved: the engine contract is `Engine` / `Store` / `Observer`; `rafi-live`
   split into `rafi-live-client` (the phone's) and `rafi-live-server`, whose `Notifier` is an `Observer` that can also
   end live updates, so a deployment hands its notifier to the engine as is (`Notify` gone); `RateLimit` is
-  `rafi-app-core`'s, its Workers bindings the app Worker's.
+  `rafi-app-core`'s, its Workers bindings the app Worker's; `LiveUpdates` moved to `rafi-live-server`.
 
 ## Appendix: key sources
 
