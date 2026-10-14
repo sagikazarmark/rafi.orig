@@ -1402,13 +1402,13 @@ async fn proof_of_work_replays_are_refused() {
             solution.expires_at().unwrap() as i64
         )]
     );
-    assert!(!super::altcha::redeem(&app, &altcha).await.unwrap());
+    assert!(!service::altcha::redeem(&app, &altcha).await.unwrap());
 
     // A forged solution never reaches the table.
     let mut forged = solution.clone();
     forged.signature = "00".repeat(32);
     assert!(
-        !super::altcha::redeem(&app, &forged.to_payload())
+        !service::altcha::redeem(&app, &forged.to_payload())
             .await
             .unwrap()
     );

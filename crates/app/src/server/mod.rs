@@ -12,7 +12,6 @@
 //! own.
 
 pub mod admin;
-pub mod altcha;
 pub mod auth;
 pub mod config;
 pub mod participant;
@@ -41,10 +40,9 @@ pub struct Inner {
     pub cfg: Config,
     /// What the use cases run against: the database, the drand chain
     /// ([`Config::chain`]), the raffle engine (`None` without
-    /// `RESTATE_INGRESS_URL`) and the live updates. `Inner` derefs to it.
+    /// `RESTATE_INGRESS_URL`), the live updates and the join's rate limits.
+    /// `Inner` derefs to it.
     pub core: service::App,
-    /// The join rate limits.
-    pub limiter: Arc<dyn RateLimit>,
 }
 
 impl Deref for AppState {
@@ -95,12 +93,17 @@ impl AppState {
             db,
             engine,
             live_updates,
+            limiter,
             policy: service::Policy {
                 public_url: cfg.public_url.clone(),
                 max_entrants: cfg.max_entrants,
+                proof_of_work: service::ProofOfWork {
+                    key: cfg.altcha_key.clone(),
+                    max: cfg.altcha_max,
+                },
             },
         };
-        Ok(Self(Arc::new(Inner { core, limiter, cfg })))
+        Ok(Self(Arc::new(Inner { core, cfg })))
     }
 
     /// When personal data of a finished raffle is erased (the retention settings).

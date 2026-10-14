@@ -4,8 +4,8 @@
 //! the verification data).
 //!
 //! Each use case is a function over an [`App`]: the database, the raffle
-//! engine and the [`LiveUpdates`] the deployment plugs in, and the
-//! deployment's [`Policy`]. The rules come from `rafi-lifecycle` and
+//! engine, the [`LiveUpdates`] and the join's [`RateLimit`] the deployment
+//! plugs in, and the deployment's [`Policy`]. The rules come from `rafi-lifecycle` and
 //! `rafi-raffle`; a use case sequences the reads and writes around them. A
 //! refusal is a typed [`Refusal`]; the HTTP layer only maps it.
 //!
@@ -13,6 +13,7 @@
 //! clients ([`App::live_updates`]). Joins don't: they never change it. The
 //! raffle engine notifies after its own writes.
 
+pub mod altcha;
 pub mod codes;
 mod draw;
 mod entrants;
@@ -31,10 +32,11 @@ use rafi_live_server::LiveUpdates;
 use rafi_raffle::drand::ChainHash;
 use rafi_store::{Db, RaffleRow, raffles as store};
 
+pub use altcha::ProofOfWork;
 pub use draw::{command, start_draw};
 pub use entrants::{
-    CONSENT_VERSION, JoinError, JoinOutcome, add_fakes, add_manual, end_live, join, patch_entrant,
-    purge, remove_entrant,
+    CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_fakes, add_manual, end_live, join,
+    patch_entrant, purge, remove_entrant,
 };
 pub use error::{Error, Refusal, Result};
 pub use prizes::{delete_prize, upsert_prize};
@@ -54,6 +56,8 @@ pub struct App {
     pub engine: Option<Arc<dyn Engine>>,
     /// Live updates to clients (natively: none, clients poll).
     pub live_updates: LiveUpdates,
+    /// The join's rate limits.
+    pub limiter: Arc<dyn RateLimit>,
     pub policy: Policy,
 }
 
@@ -65,6 +69,8 @@ pub struct Policy {
     /// The most entrants a raffle takes: the hard limit behind the join's
     /// (soft) rate limits.
     pub max_entrants: i64,
+    /// The join form's proof-of-work.
+    pub proof_of_work: ProofOfWork,
 }
 
 impl App {

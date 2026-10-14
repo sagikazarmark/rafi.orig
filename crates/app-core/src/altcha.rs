@@ -5,16 +5,36 @@
 //! challenge is kept until it expires, and a second redemption is refused.
 //! The retention run deletes expired ones.
 
-pub use rafi_altcha::Challenge;
-use rafi_altcha::Solution;
+use std::fmt;
 
-use super::{AppState, ids};
+use rafi_altcha::{Challenge, Solution};
+
+use crate::{App, ids};
+
+/// The proof-of-work's settings.
+#[derive(Clone)]
+pub struct ProofOfWork {
+    /// The HMAC key challenges are signed with.
+    pub key: Vec<u8>,
+    /// The largest secret number: how much work a challenge takes.
+    pub max: u64,
+}
+
+impl fmt::Debug for ProofOfWork {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProofOfWork")
+            .field("key", &"<redacted>")
+            .field("max", &self.max)
+            .finish()
+    }
+}
 
 /// A fresh challenge.
-pub fn challenge(app: &AppState) -> Challenge {
+pub fn challenge(app: &App) -> Challenge {
+    let pow = &app.policy.proof_of_work;
     rafi_altcha::issue(
-        &app.cfg.altcha_key,
-        app.cfg.altcha_max,
+        &pow.key,
+        pow.max,
         now(),
         u64::from_be_bytes(ids::random_bytes::<8>()),
         ids::random_bytes::<12>(),
@@ -27,12 +47,12 @@ fn now() -> u64 {
 
 /// Redeems a posted solution (base64 JSON): `true` if it is valid, unexpired
 /// and redeemed for the first time.
-pub async fn redeem(app: &AppState, payload: &str) -> rafi_store::Result<bool> {
+pub async fn redeem(app: &App, payload: &str) -> rafi_store::Result<bool> {
     let Some(solution) = Solution::from_payload(payload) else {
         return Ok(false);
     };
     // The signature first: only the server's own challenges reach the table.
-    if !rafi_altcha::verify(&app.cfg.altcha_key, &solution, now()) {
+    if !rafi_altcha::verify(&app.policy.proof_of_work.key, &solution, now()) {
         return Ok(false);
     }
     let expires_at = solution.expires_at().unwrap_or_default();
@@ -45,6 +65,6 @@ pub async fn redeem(app: &AppState, payload: &str) -> rafi_store::Result<bool> {
 }
 
 /// Deletes the challenges that have expired (they can't be redeemed anyway).
-pub async fn purge_expired(app: &AppState) -> rafi_store::Result<()> {
+pub async fn purge_expired(app: &App) -> rafi_store::Result<()> {
     rafi_store::altcha::purge_expired(&app.db, ids::now()).await
 }

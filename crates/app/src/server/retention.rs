@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use rafi_store::retention as store;
 
-use super::{AppState, altcha, ids};
+use super::{AppState, ids, service};
 
 /// How long after finishing a raffle keeps its live channel, unless the
 /// organizer ends live updates earlier.
@@ -72,7 +72,7 @@ pub async fn run(app: &AppState) -> anyhow::Result<Report> {
     } else {
         0
     };
-    altcha::purge_expired(app).await?;
+    service::altcha::purge_expired(app).await?;
     let channels_ended = end_channels(app, now).await;
     store::record_ok(&app.db, now).await?;
     Ok(Report {

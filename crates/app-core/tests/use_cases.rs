@@ -3,7 +3,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use rafi_app_core::{self as app, App, Error, Policy, Refusal};
+use rafi_app_core::{self as app, App, Error, Limiter, Policy, ProofOfWork, Refusal};
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
 use rafi_live_server::{LiveUpdates, Polling};
@@ -29,9 +29,14 @@ async fn app() -> App {
         chain,
         engine: Some(Arc::new(engine)),
         live_updates: LiveUpdates::polling(),
+        limiter: Arc::new(Limiter::default()),
         policy: Policy {
             public_url: "http://localhost".into(),
             max_entrants: 100,
+            proof_of_work: ProofOfWork {
+                key: b"test-key".to_vec(),
+                max: 1000,
+            },
         },
     }
 }
@@ -220,7 +225,17 @@ async fn joining_follows_the_raffle_rules() {
     let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
     let join = |name: &'static str, email: &'static str, rules: bool| {
         let (app, raffle) = (app.clone(), raffle.clone());
-        async move { app::join(&app, &raffle, name, email, rules, false).await }
+        async move {
+            let proof = solved(&app);
+            let req = app::JoinRequest {
+                name,
+                email,
+                rules,
+                marketing: false,
+                proof: &proof,
+            };
+            app::join(&app, &raffle, &req).await
+        }
     };
     assert_eq!(
         join("Anna", "anna@x.org", false).await,
@@ -237,5 +252,71 @@ async fn joining_follows_the_raffle_rules() {
     assert_eq!(
         join("Anna", "Anna@X.org", true).await,
         Ok(app::JoinOutcome::AlreadyIn)
+    );
+}
+
+/// A solved proof-of-work, as the join form posts it.
+fn solved(app: &App) -> String {
+    rafi_altcha::solve(&app::altcha::challenge(app))
+        .expect("solvable")
+        .to_payload()
+}
+
+#[tokio::test]
+async fn a_join_needs_a_fresh_proof_of_work() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &[]).await;
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    let proof = solved(&app);
+    let req = |name, email, proof| app::JoinRequest {
+        name,
+        email,
+        rules: true,
+        marketing: false,
+        proof,
+    };
+    assert_eq!(
+        app::join(&app, &raffle, &req("Bot", "bot@x.org", "")).await,
+        Err(app::JoinError::Proof)
+    );
+    assert!(matches!(
+        app::join(&app, &raffle, &req("Anna", "anna@x.org", &proof)).await,
+        Ok(app::JoinOutcome::Joined { .. })
+    ));
+    assert_eq!(
+        app::join(&app, &raffle, &req("Bea", "bea@x.org", &proof)).await,
+        Err(app::JoinError::Proof),
+        "a proof-of-work is redeemed once"
+    );
+}
+
+#[tokio::test]
+async fn joins_are_rate_limited_per_email() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &[]).await;
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    let (budget, _) = app::Limit::JoinPerEmail.budget();
+    for _ in 0..budget {
+        let proof = solved(&app);
+        let req = app::JoinRequest {
+            name: "Anna",
+            email: "anna@x.org",
+            rules: true,
+            marketing: false,
+            proof: &proof,
+        };
+        app::join(&app, &raffle, &req).await.unwrap();
+    }
+    let proof = solved(&app);
+    let req = app::JoinRequest {
+        name: "Anna",
+        email: "ANNA@x.org",
+        rules: true,
+        marketing: false,
+        proof: &proof,
+    };
+    assert_eq!(
+        app::join(&app, &raffle, &req).await,
+        Err(app::JoinError::Limited)
     );
 }

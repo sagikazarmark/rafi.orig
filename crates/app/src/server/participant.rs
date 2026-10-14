@@ -16,12 +16,11 @@ use axum::{
     routing::get,
 };
 use dioxus::prelude::*;
-use rafi_app_core::Limit;
 use rafi_live_client::{Card, CardStrings, PageConfig, Phase};
 use rafi_store::{EntrantRow, RaffleRow, entrants, live::Snapshot, prizes, raffles};
 use serde::{Deserialize, Serialize};
 
-use super::{AppState, altcha, ids, service};
+use super::{AppState, ids, service};
 use crate::{i18n::Lang, icons::I};
 
 const COOKIE_MAX_AGE: i64 = 3 * 86_400;
@@ -485,54 +484,24 @@ async fn submit(
     (status, [(header::CACHE_CONTROL, "no-store")], Html(html)).into_response()
 }
 
-/// Rate limits, the proof-of-work, then the join itself. Returns the
-/// entrant's cookie token, or why (and with what status) the join was refused.
+/// Joins `raffle` with the posted form. Returns the entrant's cookie token,
+/// or why (and with what status) the join was refused.
 async fn try_join(
     app: &AppState,
     raffle: &RaffleRow,
     form: &JoinForm,
 ) -> Result<String, (Notice, StatusCode)> {
-    // An email that doesn't normalize is refused by the join itself; it gets
-    // no per-email bucket, rather than one shared by every malformed address.
-    let email_key = rafi_lifecycle::entrant::Email::parse(&form.email).map(|e| e.key);
-    let limited = !app.limiter.allow(Limit::JoinPerRaffle, &raffle.id).await
-        || match &email_key {
-            Some(key) => {
-                !app.limiter
-                    .allow(Limit::JoinPerEmail, &format!("{}:{key}", raffle.id))
-                    .await
-            }
-            None => false,
-        };
-    if limited {
-        return Err((Notice::Error("err_rate"), StatusCode::TOO_MANY_REQUESTS));
-    }
-    match altcha::redeem(app, &form.altcha).await {
-        Ok(true) => {}
-        Ok(false) => {
-            return Err((Notice::Error("err_bot"), StatusCode::UNPROCESSABLE_ENTITY));
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "redeeming a proof-of-work");
-            return Err((Notice::Error("err_rate"), StatusCode::SERVICE_UNAVAILABLE));
-        }
-    }
-    let joined = service::join(
-        app,
-        raffle,
-        &form.name,
-        &form.email,
-        form.rules.is_some(),
-        form.marketing.is_some(),
-    )
-    .await;
-    match joined {
+    let req = service::JoinRequest {
+        name: &form.name,
+        email: &form.email,
+        rules: form.rules.is_some(),
+        marketing: form.marketing.is_some(),
+        proof: &form.altcha,
+    };
+    match service::join(app, raffle, &req).await {
         Ok(service::JoinOutcome::Joined { token }) => Ok(token),
         Ok(service::JoinOutcome::AlreadyIn) => Err((Notice::AlreadyIn, StatusCode::OK)),
-        Err(e) => Err((
-            Notice::Error(join_error(e)),
-            StatusCode::UNPROCESSABLE_ENTITY,
-        )),
+        Err(e) => Err((Notice::Error(join_error(e)), join_status(e))),
     }
 }
 
@@ -547,7 +516,17 @@ fn join_error(e: service::JoinError) -> &'static str {
         E::Email => "err_email",
         E::Rules => "err_rules",
         E::Full => "err_full",
-        E::Failed => "err_rate",
+        E::Limited | E::Failed => "err_rate",
+        E::Proof => "err_bot",
+    }
+}
+
+fn join_status(e: service::JoinError) -> StatusCode {
+    use service::JoinError as E;
+    match e {
+        E::Limited => StatusCode::TOO_MANY_REQUESTS,
+        E::Failed => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::UNPROCESSABLE_ENTITY,
     }
 }
 

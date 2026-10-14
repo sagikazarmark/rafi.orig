@@ -9,7 +9,7 @@ use axum::{
 };
 use rafi_store::{RaffleRow, live::Snapshot, raffles};
 
-use super::{AppState, altcha, service, view};
+use super::{AppState, service, view};
 
 pub fn routes() -> Router {
     Router::new()
@@ -83,7 +83,7 @@ async fn verify_json(Extension(app): Extension<AppState>, Path(slug): Path<Strin
 async fn challenge(Extension(app): Extension<AppState>) -> Response {
     (
         [(header::CACHE_CONTROL, "no-store")],
-        Json(altcha::challenge(&app)),
+        Json(service::altcha::challenge(&app)),
     )
         .into_response()
 }
