@@ -206,7 +206,7 @@ fn render_page(app: &AppState, ctx: PageCtx<'_>) -> String {
         form,
     } = ctx;
     let t = |k: &str| lang.t(k);
-    let view = snapshot.participant_view();
+    let view = service::view::participant(snapshot);
     let phase = view.state;
     let strings = CardStrings::from_lookup(|k| lang.t(k).to_owned());
     let now_ms = crate::model::now_unix_ms();

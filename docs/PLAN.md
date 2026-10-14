@@ -245,7 +245,7 @@ phones ────────────────▶ app ◀── databas
 | The raffle's log (manifest + event log, `raffles.log`) | the database, written by the engine after every change: the projection, and the record. The newest version wins. |
 | The live raffle | the engine (Restate object state), from opening to finish. |
 | Erasures | the database (`erasures`: entrant ID and time only); a restore must re-apply them. |
-| The participant view | `RaffleChannel` (Workers), built from one snapshot (`Snapshot::participant_view`); destroyed when live updates end. |
+| The participant view | `RaffleChannel` (Workers), built from one snapshot (`rafi_cloudflare::participant_view`); destroyed when live updates end. |
 
 ### 8.5 The raffle engine
 

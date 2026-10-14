@@ -10,7 +10,7 @@
 
 #![cfg(target_arch = "wasm32")]
 
-use rafi_cloudflare::DurableObjects;
+use rafi_cloudflare::{DurableObjects, participant_view};
 pub use rafi_cloudflare::RaffleChannel;
 use rafi_platform::Notifier;
 use rafi_raffle::{BeaconSource, Event, ItemStatus, Manifest, ManifestItem, Raffle};
@@ -144,7 +144,7 @@ async fn page(
         .await
         .map_err(err)?
         .ok_or_else(|| err("no such raffle"))?;
-    let view = snap.participant_view();
+    let view = participant_view(&snap);
     let strings = CardStrings::from_lookup(|k| {
         STRINGS
             .iter()
@@ -285,7 +285,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
     if path == "/participant" {
         let snap = Snapshot::read(&db, raffle).await.map_err(err)?;
-        return Response::from_json(&snap.map(|s| s.participant_view()));
+        return Response::from_json(&snap.as_ref().map(participant_view));
     }
     if req.method() != Method::Post {
         return Response::error("Not Found", 404);
