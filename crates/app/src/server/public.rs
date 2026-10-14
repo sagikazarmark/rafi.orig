@@ -58,7 +58,7 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
     match Snapshot::read(&app.db, &raffle.id).await {
         Ok(Some(snap)) => (
             [(header::CACHE_CONTROL, "no-store")],
-            Json(snap.participant_view()),
+            Json(view::participant(&snap)),
         )
             .into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),

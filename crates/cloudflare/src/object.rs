@@ -44,6 +44,18 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS rafi_channel (
     last TEXT
 )";
 
+/// What phones see of a raffle read as `snapshot`. The same view as
+/// `rafi_app_core::view::participant`, which builds it for the native server.
+pub fn participant_view(snapshot: &Snapshot) -> ParticipantView {
+    rafi_live::raffle::view(rafi_live::raffle::Input {
+        version: snapshot.version,
+        state: snapshot.state,
+        raffle: snapshot.drawn.as_ref(),
+        names: &snapshot.names,
+        prize_qty: snapshot.prize_qty,
+    })
+}
+
 #[durable_object]
 pub struct RaffleChannel {
     hub: Hub<RaffleLive>,
@@ -130,7 +142,7 @@ impl RaffleChannel {
     /// the fan-out runs without awaiting, so the stored version and the
     /// published view can't diverge.
     async fn apply(&self, raffle_id: &str, snapshot: &Snapshot) -> Result<Decision> {
-        let view = snapshot.participant_view();
+        let view = participant_view(snapshot);
         let (seen, last) = match self.meta() {
             Some((_, seen, last)) => (seen, last),
             None => (0, None),
@@ -176,7 +188,7 @@ impl RaffleChannel {
         self.destroyed.set(true);
         // Phones that slept through the end get the final view before the close.
         if let Ok(Some(snapshot)) = Snapshot::read(&self.db()?, raffle_id).await {
-            let view = snapshot.participant_view();
+            let view = participant_view(&snapshot);
             let (seen, last) = self.meta().map_or((0, None), |(_, s, l)| (s, l));
             if decide(true, seen, last.as_ref(), &view) == Decision::Publish {
                 self.hub.publish(&view).await?;

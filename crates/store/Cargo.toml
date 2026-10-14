@@ -21,16 +21,12 @@ conformance = ["dep:futures-util"]
 ## checks the Postgres dialect without a server installed. Only rafi-store's
 ## own tests turn it on (the self-dependency below); nothing else builds it.
 embedded-postgres = ["postgres", "conformance", "dep:oliphaunt"]
-## `Snapshot::participant_view`: what phones see, built by `rafi-live`. For
-## the servers that show phones a raffle; the engine hosts leave it off.
-live = ["dep:rafi-live"]
 
 [dependencies]
 anyhow = "1"
 rafi-lifecycle.workspace = true
 rafi-raffle.workspace = true
 rafi-engine = { path = "../engine" }
-rafi-live = { path = "../live", features = ["raffle"], optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

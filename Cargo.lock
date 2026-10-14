@@ -4931,7 +4931,6 @@ dependencies = [
  "oliphaunt",
  "rafi-engine",
  "rafi-lifecycle",
- "rafi-live",
  "rafi-raffle",
  "rafi-store",
  "serde",
