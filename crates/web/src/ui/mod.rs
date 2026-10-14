@@ -17,7 +17,7 @@ use verify::Verify;
 
 use crate::components::toast::{ToastBlock, ToastProvider};
 
-/// Bundled without a hash, at `rafi_pages::style::STYLESHEET_URL`, so the participant pages and
+/// Bundled without a hash, at rafi-server's `pages::style::STYLESHEET_URL`, so the participant pages and
 /// `index.html` can link it too. Generic options: dx (0.7.9) ignores the hash flag for CSS options.
 const TAILWIND_CSS: Asset = asset!(
     "/assets/tailwind.css",

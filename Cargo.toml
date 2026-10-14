@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/altcha", "crates/lifecycle", "crates/raffle", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/server", "crates/web", "crates/app-worker", "crates/live-client", "crates/live-server", "testbeds/store-d1", "crates/cloudflare", "testbeds/cloudflare", "crates/restate-worker", "crates/participant", "crates/model", "crates/pages", "crates/app-core"]
+members = ["crates/altcha", "crates/lifecycle", "crates/raffle", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/server", "crates/web", "crates/app-worker", "crates/live-client", "crates/live-server", "testbeds/store-d1", "crates/cloudflare", "testbeds/cloudflare", "crates/restate-worker", "crates/participant", "crates/model", "crates/app-core"]
 
 [workspace.package]
 edition = "2024"
@@ -13,7 +13,6 @@ rafi-altcha = { path = "crates/altcha" }
 rafi-lifecycle = { path = "crates/lifecycle" }
 rafi-raffle = { path = "crates/raffle" }
 rafi-model = { path = "crates/model" }
-rafi-pages = { path = "crates/pages" }
 rafi-store = { path = "crates/store" }
 rafi-engine = { path = "crates/engine" }
 rafi-engine-restate = { path = "crates/engine-restate" }

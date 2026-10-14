@@ -4865,18 +4865,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-pages"
-version = "0.1.0"
-dependencies = [
- "dioxus",
- "dioxus-icons",
- "rafi-lifecycle",
- "rafi-live-client",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "rafi-participant"
 version = "0.1.0"
 dependencies = [
@@ -4930,7 +4918,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "dioxus",
  "dioxus-clerk",
+ "dioxus-icons",
  "http-body-util",
  "rafi-altcha",
  "rafi-app-core",
@@ -4940,7 +4930,6 @@ dependencies = [
  "rafi-live-client",
  "rafi-live-server",
  "rafi-model",
- "rafi-pages",
  "rafi-raffle",
  "rafi-store",
  "restate-e2e-harness",

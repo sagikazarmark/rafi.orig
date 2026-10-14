@@ -82,8 +82,6 @@ crates/cloudflare             rafi-cloudflare: the Cloudflare glue both Workers 
 crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
 crates/model                  rafi-model: the contract between the app's server and browser: views, and the admin API declared
                               once (`admin_functions!`: the server's `Admin` trait and `dispatch`, the browser's client)
-crates/pages                  rafi-pages: the server-rendered public pages (participant, rules, privacy), linking the web app's
-                              stylesheet
 crates/app-core               rafi-app-core: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
 crates/server                 rafi-server: the axum server (participant pages, public JSON, the admin API) and the native
                               binary, `rafi`, which also serves the web app's files

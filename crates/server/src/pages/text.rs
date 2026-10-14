@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 use dioxus_icons::lucide::ArrowLeft;
 
-use crate::participant::{Raffle, document};
+use super::participant::{Raffle, document};
 
 /// Who runs the raffle, as the rules and the privacy notice name them.
 #[derive(Debug, Clone, Copy)]

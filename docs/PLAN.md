@@ -1,6 +1,6 @@
 # Rafi: meetup raffle plan
 
-Status: the current state, 2026-10-15 (revision 13). How it got here is in the
+Status: the current state, 2026-10-15 (revision 14). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
 [raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md).
@@ -195,10 +195,9 @@ rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantCha
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 rafi-altcha          the proof-of-work (ALTCHA-compatible): solve; issue and verify (`server`)
 rafi-model           the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
-rafi-pages           the server-rendered public pages (participant, rules, privacy); the stylesheet's path
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP
-rafi-server          the HTTP side (routes, auth, the retention schedule); the native binary `rafi`
+rafi-server          the HTTP side (routes, auth, the retention schedule, the public pages); the native binary `rafi`
 rafi-web             the web app (admin, projector, verification page; Dioxus, `dx`)
 rafi-app-worker      the app on Workers: rafi-server's routes, the Cron, RaffleRoom
 rafi-participant     the participant page's WASM and its JavaScript fallback
@@ -427,6 +426,8 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
 - **13** (2026-10-15). English only, for now: `Lang` and the Hungarian text are gone, and so are the language
   switch, its cookie and the raffle's `lang` setting (`0009_drop_raffle_lang.sql`). The pages hold their English text
   inline; `CardStrings::default()` is the phone card's.
+- **14** (2026-10-15). The icons are `dioxus-icons`' Lucide components, used directly. With the language and the
+  icons gone, `rafi-pages` shared nothing with the web app: the public pages render in `rafi-server` (`pages`).
 
 ## Appendix: key sources
 

@@ -20,14 +20,16 @@ mock-drand = ["rafi-raffle/mock-chain"]
 [dependencies]
 anyhow = "1"
 axum = { version = "0.8", default-features = false, features = ["form", "json", "query", "matched-path", "original-uri"] }
+dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
 dioxus-clerk = { version = "0.6", features = ["server"] }
+dioxus-icons = "=0.1.0"
 rafi-app-core = { workspace = true }
 rafi-engine = { workspace = true }
 rafi-engine-restate = { workspace = true }
 rafi-lifecycle = { workspace = true }
+rafi-live-client = { workspace = true, features = ["card"] }
 rafi-live-server = { workspace = true }
 rafi-model = { workspace = true }
-rafi-pages = { workspace = true }
 rafi-raffle = { workspace = true }
 rafi-store = { workspace = true }
 serde = { workspace = true }

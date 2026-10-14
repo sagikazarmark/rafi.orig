@@ -1,7 +1,7 @@
 //! The participant pages' HTTP side: the participant page (`/j/{code}`,
 //! and joining by posting its form), the device's own entry, and the rules
 //! and privacy pages. Which raffle, which entrant and what the join did is
-//! decided here; [`rafi_pages`] renders them.
+//! decided here; [`pages`](crate::pages) renders them.
 
 use axum::{
     Extension, Form, Json, Router,
@@ -10,11 +10,14 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
-use rafi_pages::participant::{self as pages, Entrant, Notice, Page, Raffle};
 use rafi_store::{EntrantRow, RaffleRow};
 use serde::Deserialize;
 
-use super::{AppState, service};
+use super::{
+    AppState,
+    pages::{self, Entrant, Notice, Page, Raffle},
+    service,
+};
 
 const COOKIE_MAX_AGE: i64 = 3 * 86_400;
 
@@ -101,8 +104,8 @@ fn raffle_of(raffle: &RaffleRow) -> Raffle<'_> {
     }
 }
 
-fn organizer_of(raffle: &RaffleRow) -> rafi_pages::Organizer<'_> {
-    rafi_pages::Organizer {
+fn organizer_of(raffle: &RaffleRow) -> pages::Organizer<'_> {
+    pages::Organizer {
         name: &raffle.organizer_name,
         contact_email: &raffle.contact_email,
     }
@@ -289,13 +292,13 @@ async fn rules(Extension(app): Extension<AppState>, Path(slug): Path<String>) ->
     let prizes = service::public::prizes(&app, &r.id)
         .await
         .unwrap_or_default();
-    let rules = rafi_pages::Rules {
+    let rules = pages::Rules {
         raffle: raffle_of(&r),
         organizer: organizer_of(&r),
         min_age: r.min_age,
         prizes: prizes
             .iter()
-            .map(|i| rafi_pages::PrizeLine {
+            .map(|i| pages::PrizeLine {
                 qty: i.qty,
                 name: &i.name,
                 sponsor: &i.sponsor,
@@ -303,7 +306,7 @@ async fn rules(Extension(app): Extension<AppState>, Path(slug): Path<String>) ->
             .collect(),
         additional: &r.rules,
     };
-    Html(rafi_pages::rules(&rules)).into_response()
+    Html(pages::rules(&rules)).into_response()
 }
 
 async fn privacy(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
@@ -311,7 +314,7 @@ async fn privacy(Extension(app): Extension<AppState>, Path(slug): Path<String>) 
         return not_found();
     };
     let retention = app.policy.retention;
-    Html(rafi_pages::privacy(
+    Html(pages::privacy(
         raffle_of(&r),
         organizer_of(&r),
         retention.nonwinners_days,

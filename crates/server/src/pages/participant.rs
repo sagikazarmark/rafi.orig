@@ -14,7 +14,7 @@ use serde::Serialize;
 
 use dioxus_icons::lucide::{Monitor, Moon, Sun, Ticket};
 
-use crate::style::STYLESHEET_URL;
+use super::style::STYLESHEET_URL;
 
 /// The raffle, as the public pages show it.
 #[derive(Debug, Clone, Copy)]
