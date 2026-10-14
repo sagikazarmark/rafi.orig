@@ -18,10 +18,10 @@ server = ["dep:hmac"]
 raffle = ["dep:rafi-raffle", "dep:rafi-drawing"]
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals"], optional = true }
 hex.workspace = true
-hmac = { version = "0.12", optional = true }
+hmac = { version = "0.13", optional = true }
 partyline = "0.3"
 rafi-drawing = { workspace = true, optional = true }
 rafi-raffle = { workspace = true, optional = true }
