@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use rafi_live::LiveTransport;
+use rafi_live::Follow;
 use rafi_platform::{BoxFuture, Notifier};
 use worker::{
     Delay, Env,
@@ -15,7 +15,7 @@ use crate::gate;
 /// by the object's periodic re-read (about 15 s).
 const ATTEMPTS: u32 = 3;
 
-/// Live updates through one [`RaffleChannel`](crate::RaffleChannel) per raffle:
+/// Live updates through one [`RaffleRoom`](crate::RaffleRoom) per raffle:
 /// clients subscribe over partyline.
 pub struct DurableObjects(SendWrapper<Env>);
 
@@ -23,6 +23,11 @@ impl DurableObjects {
     /// Over this request's bindings ([`gate::BINDING`]).
     pub fn new(env: Env) -> Self {
         Self(SendWrapper(env))
+    }
+
+    /// Clients follow a raffle over partyline, at its object.
+    pub fn follow(&self, _raffle_id: &str) -> Follow {
+        Follow::Partyline { base_url: None }
     }
 }
 
@@ -54,9 +59,5 @@ impl Notifier for DurableObjects {
                 .await
                 .map_err(|e| anyhow::anyhow!("ending the live channel of {raffle_id}: {e}"))
         }))
-    }
-
-    fn transport(&self, _raffle_id: &str) -> LiveTransport {
-        LiveTransport::Partyline { base_url: None }
     }
 }

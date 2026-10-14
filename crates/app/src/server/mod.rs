@@ -27,7 +27,7 @@ use std::{ops::Deref, sync::Arc};
 use axum::{Extension, Router};
 use rafi_engine::RaffleEngine;
 use rafi_engine_restate::RestateClient;
-use rafi_platform::{Notifier, RateLimit};
+use rafi_platform::RateLimit;
 use rafi_store::Db;
 
 use self::config::Config;
@@ -39,7 +39,7 @@ pub struct Inner {
     pub cfg: Config,
     /// What the use cases run against: the database, the drand chain
     /// ([`Config::chain`]), the raffle engine (`None` without
-    /// `RESTATE_INGRESS_URL`) and the notifier. `Inner` derefs to it.
+    /// `RESTATE_INGRESS_URL`) and the live updates. `Inner` derefs to it.
     pub core: service::App,
     /// The join rate limits.
     pub limiter: Arc<dyn RateLimit>,
@@ -74,25 +74,25 @@ impl AppState {
             cfg,
             db,
             engine,
-            Arc::new(rafi_platform::Polling::default()),
+            service::LiveUpdates::polling(),
             Arc::new(rafi_platform::Limiter::default()),
         )
     }
 
-    /// The app over a database, a raffle engine and the platform's notifier and
-    /// rate limits.
+    /// The app over a database, a raffle engine and the platform's live
+    /// updates and rate limits.
     pub fn from_parts(
         cfg: Config,
         db: Db,
         engine: Option<Arc<dyn RaffleEngine>>,
-        notifier: Arc<dyn Notifier>,
+        live_updates: service::LiveUpdates,
         limiter: Arc<dyn RateLimit>,
     ) -> anyhow::Result<Self> {
         let core = service::App {
             chain: cfg.chain()?,
             db,
             engine,
-            notifier,
+            live_updates,
             policy: service::Policy {
                 public_url: cfg.public_url.clone(),
                 max_entrants: cfg.max_entrants,

@@ -5,7 +5,7 @@
 //! `<script type="application/json" id="rafi-config">`. This module then:
 //!
 //! - mounts the card into `#live` and keeps it current the way the server's
-//!   `live` transport says: from the raffle's partyline channel while the
+//!   `follow` says: from the raffle's participant channel while the
 //!   raffle is live, or by polling `participant_url`; and from
 //!   `participant_url` when the page wakes, reconnects or the channel stops;
 //! - solves the join form's proof-of-work and enables its button;

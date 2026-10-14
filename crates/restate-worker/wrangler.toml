@@ -23,10 +23,10 @@ database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000" # the app's D1 ID
 migrations_dir = "../../migrations"
 
-# The app's live channels (the RaffleChannel class lives in the `rafi` Worker).
+# The app's live channels (the RaffleRoom class lives in the `rafi` Worker).
 [[durable_objects.bindings]]
-name = "RAFFLE_CHANNEL"
-class_name = "RaffleChannel"
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
 script_name = "rafi"
 
 [observability]
@@ -49,8 +49,8 @@ database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "../../migrations"
 
 [[env.dev.durable_objects.bindings]]
-name = "RAFFLE_CHANNEL"
-class_name = "RaffleChannel"
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
 script_name = "rafi-dev"
 
 [env.dev.vars]
@@ -72,8 +72,8 @@ database_id = "00000000-0000-0000-0000-000000000001"
 migrations_dir = "../../migrations"
 
 [[env.check.durable_objects.bindings]]
-name = "RAFFLE_CHANNEL"
-class_name = "RaffleChannel"
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
 script_name = "rafi-cloudflare-check"
 
 [env.check.vars]

@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 
 use rafi_lifecycle::RaffleState;
+use rafi_live::ParticipantView;
 use rafi_model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
 use rafi_raffle::{BeaconSource, Event, ItemId, ItemStatus};
-use rafi_live::ParticipantView;
 use rafi_store::{live::Snapshot, view::Full};
 
 use crate::{App, ids};
@@ -179,7 +179,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         .publicly_verifiable();
     Ok(RaffleView {
         v: raffle.version.max(0) as u64,
-        live: app.transport(&raffle.id, raffle.live_ended_at.is_some()),
+        follow: app.follow(&raffle.id, raffle.live_ended_at.is_some()),
         live_ended: raffle.live_ended_at.is_some(),
         raffle_id: raffle.id.clone(),
         slug: raffle.slug.clone(),

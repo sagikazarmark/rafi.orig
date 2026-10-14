@@ -4,8 +4,7 @@
 //! implementations (Cloudflare's live in `rafi-cloudflare`, the native ones
 //! here and in `rafi-store`):
 //!
-//! - [`Notifier`]: "this raffle changed", "end its live updates", and which
-//!   [`LiveTransport`] clients use;
+//! - [`Notifier`]: "this raffle changed" and "end its live updates";
 //! - [`RateLimit`], with the [`Limit`] keys;
 //! - [`Notify`]: a [`Notifier`] as the raffle engine's `RaffleNotifier`;
 //! - [`sendable`]: a `Send` future from one that is only `Send` natively
@@ -24,7 +23,6 @@ use std::{future::Future, pin::Pin};
 
 pub use notifier::{Notifier, Polling, Recording};
 pub use notify::Notify;
-pub use rafi_live::LiveTransport;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ratelimit::Limiter;
 pub use ratelimit::{Limit, RateLimit};

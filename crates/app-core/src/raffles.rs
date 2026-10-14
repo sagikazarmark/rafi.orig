@@ -110,7 +110,7 @@ pub async fn delete(app: &App, owner: &str, id: &str) -> Result<()> {
     raffles::delete(&app.db, id).await?;
     audit::record(&app.db, id, owner, "delete", "").await?;
     // Best effort: the raffle is gone either way, and its channel finds nothing to show.
-    if let Err(e) = app.notifier.end(id).await {
+    if let Err(e) = app.live_updates.end(id).await {
         tracing::warn!(raffle_id = id, error = %e, "ending the live channel of a deleted raffle failed");
     }
     Ok(())
@@ -193,6 +193,6 @@ pub async fn lifecycle(app: &App, owner: &str, id: &str, action: Lifecycle) -> R
         return Err(Refusal::Changed.into());
     }
     audit::record(&app.db, id, owner, to.as_str(), "").await?;
-    app.notifier.notify(id).await;
+    app.live_updates.notify(id).await;
     Ok(())
 }

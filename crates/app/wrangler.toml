@@ -36,12 +36,12 @@ migrations_dir = "../../migrations"
 
 # One live channel per raffle; IDs come from the EU jurisdiction (RAFI_DO_JURISDICTION).
 [[durable_objects.bindings]]
-name = "RAFFLE_CHANNEL"
-class_name = "RaffleChannel"
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
 
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["RaffleChannel"]
+new_sqlite_classes = ["RaffleRoom"]
 
 # Soft limits (approximate, per location). Keys are never IP addresses: a
 # venue shares one. The hard limit is the entrant cap (RAFI_MAX_ENTRANTS).
@@ -88,8 +88,8 @@ database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "../../migrations"
 
 [[env.dev.durable_objects.bindings]]
-name = "RAFFLE_CHANNEL"
-class_name = "RaffleChannel"
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
 
 [[env.dev.ratelimits]]
 name = "JOIN_PER_RAFFLE_LIMITER"

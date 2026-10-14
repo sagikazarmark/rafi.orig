@@ -4,13 +4,13 @@
 //! the verification data).
 //!
 //! Each use case is a function over an [`App`]: the database, the raffle
-//! engine and the live notifier the deployment plugs in, and the
+//! engine and the [`LiveUpdates`] the deployment plugs in, and the
 //! deployment's [`Policy`]. The rules come from `rafi-lifecycle` and
 //! `rafi-raffle`; a use case sequences the reads and writes around them. A
 //! refusal is a typed [`Refusal`]; the HTTP layer only maps it.
 //!
 //! Every write that changes what phones see (the participant view) notifies
-//! clients ([`App::notifier`]). Joins don't: they never change it. The
+//! clients ([`App::live_updates`]). Joins don't: they never change it. The
 //! raffle engine notifies after its own writes.
 
 pub mod codes;
@@ -18,6 +18,7 @@ mod draw;
 mod entrants;
 mod error;
 pub mod ids;
+mod live;
 mod prizes;
 mod raffles;
 mod reads;
@@ -26,7 +27,6 @@ pub mod view;
 use std::sync::Arc;
 
 use rafi_engine::RaffleEngine;
-use rafi_platform::Notifier;
 use rafi_raffle::drand::ChainHash;
 use rafi_store::{Db, RaffleRow, raffles as store};
 
@@ -36,6 +36,7 @@ pub use entrants::{
     purge, remove_entrant,
 };
 pub use error::{Error, Refusal, Result};
+pub use live::LiveUpdates;
 pub use prizes::{delete_prize, upsert_prize};
 pub use raffles::{create, delete, duplicate, lifecycle, list, settings_of, update_settings};
 pub use reads::{admin, export_csv, verify_data};
@@ -49,7 +50,7 @@ pub struct App {
     /// The raffle engine; `None` on a server without one.
     pub engine: Option<Arc<dyn RaffleEngine>>,
     /// Live updates to clients (natively: none, clients poll).
-    pub notifier: Arc<dyn Notifier>,
+    pub live_updates: LiveUpdates,
     pub policy: Policy,
 }
 
@@ -64,13 +65,13 @@ pub struct Policy {
 }
 
 impl App {
-    /// How clients follow `raffle_id`: the deployment's transport while its
-    /// live updates run, plain polling once they've ended.
-    pub fn transport(&self, raffle_id: &str, live_ended: bool) -> rafi_live::LiveTransport {
+    /// How clients follow `raffle_id`: as the deployment's live updates say
+    /// while they run, plain polling once they've ended.
+    pub fn follow(&self, raffle_id: &str, live_ended: bool) -> rafi_live::Follow {
         if live_ended {
-            rafi_live::LiveTransport::poll()
+            rafi_live::Follow::poll()
         } else {
-            self.notifier.transport(raffle_id)
+            self.live_updates.follow(raffle_id)
         }
     }
 

@@ -1,4 +1,4 @@
-//! The `RaffleChannel` Durable Object: one per raffle, pushing the participant
+//! The `RaffleRoom` Durable Object: one per raffle, pushing the participant
 //! view to phones over a partyline Latest channel.
 //!
 //! It holds no workflow state. Whenever it is nudged (and every 15 s while
@@ -14,7 +14,7 @@ use std::{cell::Cell, time::Duration};
 
 use partyline_worker::{Hub, HubConfig, close, reject};
 use rafi_live::publish::{Decision, decide};
-use rafi_live::{ParticipantView, RaffleLive};
+use rafi_live::{ParticipantChannel, ParticipantView};
 use rafi_store::{Db, live::Snapshot};
 
 use worker::{
@@ -57,14 +57,14 @@ pub fn participant_view(snapshot: &Snapshot) -> ParticipantView {
 }
 
 #[durable_object]
-pub struct RaffleChannel {
-    hub: Hub<RaffleLive>,
+pub struct RaffleRoom {
+    hub: Hub<ParticipantChannel>,
     env: Env,
     /// Set first thing by destroy; checked after every `await`.
     destroyed: Cell<bool>,
 }
 
-impl RaffleChannel {
+impl RaffleRoom {
     fn sql(&self) -> worker::SqlStorage {
         self.hub.state().storage().sql()
     }
@@ -204,11 +204,11 @@ impl RaffleChannel {
     }
 }
 
-impl DurableObject for RaffleChannel {
+impl DurableObject for RaffleRoom {
     fn new(state: State, env: Env) -> Self {
         let hub = Hub::new(state, HubConfig::default().max_event_bytes(MAX_VIEW_BYTES));
         if let Err(e) = hub.state().storage().sql().exec(SCHEMA, None) {
-            worker::console_error!("RaffleChannel: creating the table failed: {e}");
+            worker::console_error!("RaffleRoom: creating the table failed: {e}");
         }
         Self {
             hub,

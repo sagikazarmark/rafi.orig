@@ -13,8 +13,8 @@ use worker::{Env, Headers, Method, ObjectNamespace, Request, RequestInit, Respon
 
 use crate::object::RAFFLE_HEADER;
 
-/// The Durable Object binding of [`crate::RaffleChannel`].
-pub const BINDING: &str = "RAFFLE_CHANNEL";
+/// The Durable Object binding of [`crate::RaffleRoom`].
+pub const BINDING: &str = "RAFFLE_ROOM";
 
 /// The rate-limiting binding for socket connects, keyed by raffle (never by
 /// IP: a venue shares one address). Optional.
@@ -61,7 +61,7 @@ async fn call(env: &Env, raffle_id: &str, path: &str) -> Result<String> {
     let text = res.text().await?;
     if res.status_code() != 200 {
         return Err(worker::Error::RustError(format!(
-            "RaffleChannel {path}: {} {text}",
+            "RaffleRoom {path}: {} {text}",
             res.status_code()
         )));
     }

@@ -1,12 +1,12 @@
 //! The app on Cloudflare Workers.
 //!
 //! - `fetch`: phones' live-channel sockets (`/partyline/raffle/{id}`) go to the
-//!   raffle's [`RaffleChannel`]; everything else is the same axum routes as the
+//!   raffle's [`RaffleRoom`]; everything else is the same axum routes as the
 //!   native server ([`server::routes`]) behind Clerk. Workers Assets serves the
 //!   web app and the participant scripts before the Worker is called
 //!   (`run_worker_first` in `wrangler.toml` lists the Worker's paths).
 //! - `scheduled`: the Cron Trigger runs [`server::retention::run`].
-//! - [`RaffleChannel`] is exported from here, so the class lives in this Worker.
+//! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
 //! raffles' Durable Objects, the rate-limiting bindings, and configuration
@@ -22,7 +22,7 @@ use std::{cell::OnceCell, sync::Arc};
 
 use axum::body::Body;
 use dioxus_clerk::server::{ClerkAuthLayer, ClerkAuthLayerConfig};
-pub use rafi_cloudflare::RaffleChannel;
+pub use rafi_cloudflare::RaffleRoom;
 use rafi_cloudflare::{DurableObjects, RateLimitBindings, lookup};
 use tower_service::Service;
 use worker::{Context, Env, HttpRequest, ScheduleContext, ScheduledEvent, event};
@@ -80,7 +80,10 @@ fn app(env: &Env) -> anyhow::Result<App> {
         cfg,
         rafi_cloudflare::database(env)?,
         engine,
-        Arc::new(DurableObjects::new(env.clone())),
+        server::service::LiveUpdates::new(
+            Arc::new(DurableObjects::new(env.clone())),
+            DurableObjects::follow,
+        ),
         Arc::new(RateLimitBindings::new(env.clone())),
     )?;
     Ok((app, auth))

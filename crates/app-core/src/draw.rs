@@ -63,7 +63,7 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
             if !raffles::freeze(&app.db, id, from).await? {
                 return Err(Refusal::Changed.into());
             }
-            app.notifier.notify(id).await;
+            app.live_updates.notify(id).await;
             write_manifest(app, owner, id, items, from).await?
         }
         Start::WriteManifest { unfreeze_to } => {
@@ -113,7 +113,7 @@ async fn write_manifest(
             .unfreeze(unfreeze_to)
             .ok_or_else(|| anyhow::anyhow!("cannot unfreeze to {}", unfreeze_to.as_str()))?;
         raffles::unfreeze(&app.db, id, to).await?;
-        app.notifier.notify(id).await;
+        app.live_updates.notify(id).await;
         return Err(Refusal::Start(refusal).into());
     }
     // The app alone decides the chain; the raffle engine refuses a mismatch.

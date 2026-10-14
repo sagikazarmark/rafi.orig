@@ -17,12 +17,12 @@ database_id = "00000000-0000-0000-0000-000000000001"
 migrations_dir = "../../migrations"
 
 [[durable_objects.bindings]]
-name = "RAFFLE_CHANNEL"
-class_name = "RaffleChannel"
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
 
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["RaffleChannel"]
+new_sqlite_classes = ["RaffleRoom"]
 
 # workerd (wrangler dev) doesn't implement jurisdictions; production uses "eu".
 [vars]

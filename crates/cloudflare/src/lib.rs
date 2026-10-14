@@ -1,7 +1,7 @@
 //! Rafi on Cloudflare Workers: all of the Cloudflare glue, behind the
 //! interfaces in `rafi-platform`.
 //!
-//! - [`RaffleChannel`]: one Durable Object per raffle, pushing the
+//! - [`RaffleRoom`]: one Durable Object per raffle, pushing the
 //!   participant view to phones over a partyline Latest channel. Only the
 //!   object builds the view ([`participant_view`]): writers [`nudge`] it, and it reads
 //!   the raffle back in one snapshot (`rafi_store::live::Snapshot`) and
@@ -29,5 +29,5 @@ mod ratelimit;
 pub use config::{D1_BINDING, database, lookup};
 pub use gate::{BINDING, CONNECT_LIMITER, JURISDICTION_VAR, connect, destroy, namespace, nudge};
 pub use notifier::DurableObjects;
-pub use object::{RaffleChannel, participant_view};
+pub use object::{RaffleRoom, participant_view};
 pub use ratelimit::RateLimitBindings;

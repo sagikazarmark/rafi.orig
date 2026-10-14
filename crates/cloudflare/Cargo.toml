@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi on Cloudflare Workers: the per-raffle RaffleChannel Durable Object, and the platform interfaces over Workers bindings"
+description = "Rafi on Cloudflare Workers: the per-raffle RaffleRoom Durable Object, and the platform interfaces over Workers bindings"
 publish = false
 
 # Everything here is Workers glue: the crate is empty on other targets.

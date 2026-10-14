@@ -321,7 +321,7 @@ fn LiveRefresh(slug: String, version: u64, on_change: EventHandler<()>) -> Eleme
             on_change.call(());
         }
     });
-    live.feed()
+    live.subscription()
 }
 
 #[component]

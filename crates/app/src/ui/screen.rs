@@ -67,7 +67,7 @@ fn ScreenInner(slug: String) -> Element {
                 }
             }
             {body}
-            {live.feed()}
+            {live.subscription()}
             footer { class: "flex items-center justify-between text-[0.7em] text-base-content/50",
                 Brand { size: "text-[1.1em]" }
                 span { class: "inline-flex items-center gap-1", Icon { i: I::ShieldCheck, class: "size-[1.2em]" } "drand · provably fair" }
