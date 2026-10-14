@@ -18,7 +18,7 @@ pub struct RaffleView {
     /// How to follow the raffle besides polling this view: where the
     /// deployment pushes the participant view (`partyline`), screens
     /// subscribe to it for the reveal; otherwise they only poll.
-    pub follow: rafi_live::Follow,
+    pub follow: rafi_live_client::Follow,
     /// The organizer ended live updates.
     #[serde(default)]
     pub live_ended: bool,

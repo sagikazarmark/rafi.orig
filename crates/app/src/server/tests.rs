@@ -11,7 +11,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use rafi_lifecycle::RaffleState;
-use rafi_live::Follow;
+use rafi_live_client::Follow;
 use rafi_platform::{Limiter, Recording};
 use rafi_raffle::{ItemStatus, Resolution};
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
@@ -102,7 +102,7 @@ async fn solved_altcha(router: &Router) -> String {
     )
     .await;
     let challenge = serde_json::from_str(&body).expect("challenge json");
-    rafi_live::altcha::solve(&challenge)
+    rafi_live_client::altcha::solve(&challenge)
         .expect("solvable")
         .to_payload()
 }
@@ -1387,7 +1387,7 @@ async fn proof_of_work_replays_are_refused() {
     assert!(page.contains("human"), "{page}");
     assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 1);
 
-    let solution = rafi_live::altcha::Solution::from_payload(&altcha).unwrap();
+    let solution = rafi_live_client::altcha::Solution::from_payload(&altcha).unwrap();
     let rows: Vec<(String, i64)> = app
         .db
         .query("SELECT challenge, expires_at FROM altcha_used")

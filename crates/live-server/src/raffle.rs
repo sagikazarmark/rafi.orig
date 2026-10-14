@@ -1,39 +1,35 @@
-//! The participant view of a raffle (the `raffle` feature): for the servers
-//! that build views. The phone only reads them, so it builds without this,
-//! `rafi-lifecycle` and `rafi-raffle`.
+//! The participant view of a raffle, built from what the servers read. The
+//! phone only reads views, so it needs neither `rafi-lifecycle` nor
+//! `rafi-raffle`.
 
 use std::collections::HashMap;
 
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::{ItemId, Outcome, Raffle};
 
-use crate::{Current, DrawInput, DrawOutcome, ParticipantView, Phase};
+use rafi_live_client::{Current, DrawInput, DrawOutcome, ParticipantView, Phase, public_name};
 
-impl From<RaffleState> for Phase {
-    /// One to one: a state added to the raffle doesn't build until phones
-    /// know it.
-    fn from(state: RaffleState) -> Self {
-        match state {
-            RaffleState::Draft => Self::Draft,
-            RaffleState::Ready => Self::Ready,
-            RaffleState::Open => Self::Open,
-            RaffleState::Closed => Self::Closed,
-            RaffleState::Frozen => Self::Frozen,
-            RaffleState::Drawing => Self::Drawing,
-            RaffleState::Finished => Self::Finished,
-            RaffleState::Purged => Self::Purged,
-        }
+/// The phase phones see for `state`. One to one: a state added to the
+/// raffle doesn't build until phones know it.
+pub fn phase(state: RaffleState) -> Phase {
+    match state {
+        RaffleState::Draft => Phase::Draft,
+        RaffleState::Ready => Phase::Ready,
+        RaffleState::Open => Phase::Open,
+        RaffleState::Closed => Phase::Closed,
+        RaffleState::Frozen => Phase::Frozen,
+        RaffleState::Drawing => Phase::Drawing,
+        RaffleState::Finished => Phase::Finished,
+        RaffleState::Purged => Phase::Purged,
     }
 }
 
-impl From<Outcome> for DrawOutcome {
-    fn from(outcome: Outcome) -> Self {
-        match outcome {
-            Outcome::Drawn => Self::Drawn,
-            Outcome::Claimed => Self::Claimed,
-            Outcome::NotHere => Self::NotHere,
-            Outcome::Declined => Self::Declined,
-        }
+fn outcome(outcome: Outcome) -> DrawOutcome {
+    match outcome {
+        Outcome::Drawn => DrawOutcome::Drawn,
+        Outcome::Claimed => DrawOutcome::Claimed,
+        Outcome::NotHere => DrawOutcome::NotHere,
+        Outcome::Declined => DrawOutcome::Declined,
     }
 }
 
@@ -46,7 +42,7 @@ pub struct Input<'a> {
     /// The raffle as drawn, once the engine opened it.
     pub raffle: Option<&'a Raffle>,
     /// The display names of the drawn entrants only, by entrant ID; `None`
-    /// for one the organizer hid (shown as [`HIDDEN_NAME`](crate::HIDDEN_NAME)).
+    /// for one the organizer hid (shown as [`HIDDEN_NAME`](rafi_live_client::HIDDEN_NAME)).
     pub names: &'a HashMap<String, Option<String>>,
     /// The prizes' total quantity: what is left before the raffle opens.
     pub prize_qty: u32,
@@ -54,18 +50,18 @@ pub struct Input<'a> {
 
 /// The participant view of a raffle.
 pub fn view(input: Input<'_>) -> ParticipantView {
-    let state = input.state.into();
+    let state = phase(input.state);
     let Some(raffle) = input.raffle else {
         return ParticipantView::new(input.version, state, None, [], input.prize_qty);
     };
     let item_name = |id: &ItemId| raffle.item(id).map(|i| i.name.clone()).unwrap_or_default();
     let draws = raffle.draws().into_iter().map(|d| {
         let id = d.entrant.as_str();
-        let display_name = crate::public_name(id, input.names.get(id).map(Option::as_deref));
+        let display_name = public_name(id, input.names.get(id).map(Option::as_deref));
         DrawInput {
             display_name,
             prize_name: item_name(&d.item),
-            outcome: d.outcome.into(),
+            outcome: outcome(d.outcome),
             entrant_id: d.entrant.into_string(),
         }
     });
@@ -87,8 +83,9 @@ pub fn view(input: Input<'_>) -> ParticipantView {
 mod tests {
     use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
 
+    use rafi_live_client::HIDDEN_NAME;
+
     use super::*;
-    use crate::HIDDEN_NAME;
 
     fn manifest() -> Manifest {
         Manifest::new(
@@ -134,7 +131,7 @@ mod tests {
     #[test]
     fn every_state_has_its_phase() {
         for state in RaffleState::ALL {
-            let phase = Phase::from(state);
+            let phase = phase(state);
             assert_eq!(
                 serde_json::to_value(phase).unwrap(),
                 serde_json::to_value(state).unwrap()

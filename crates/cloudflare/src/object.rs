@@ -13,8 +13,8 @@
 use std::{cell::Cell, time::Duration};
 
 use partyline_worker::{Hub, HubConfig, close, reject};
-use rafi_live::publish::{Decision, decide};
-use rafi_live::{ParticipantChannel, ParticipantView};
+use rafi_live_client::{ParticipantChannel, ParticipantView};
+use rafi_live_server::publish::{Decision, decide};
 use rafi_store::{Db, live::Snapshot};
 
 use worker::{
@@ -47,7 +47,7 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS rafi_channel (
 /// What phones see of a raffle read as `snapshot`. The same view as
 /// `rafi_app_core::view::participant`, which builds it for the native server.
 pub fn participant_view(snapshot: &Snapshot) -> ParticipantView {
-    rafi_live::raffle::view(rafi_live::raffle::Input {
+    rafi_live_server::raffle::view(rafi_live_server::raffle::Input {
         version: snapshot.version,
         state: snapshot.state,
         raffle: snapshot.drawn.as_ref(),

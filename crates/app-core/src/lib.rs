@@ -67,9 +67,9 @@ pub struct Policy {
 impl App {
     /// How clients follow `raffle_id`: as the deployment's live updates say
     /// while they run, plain polling once they've ended.
-    pub fn follow(&self, raffle_id: &str, live_ended: bool) -> rafi_live::Follow {
+    pub fn follow(&self, raffle_id: &str, live_ended: bool) -> rafi_live_client::Follow {
         if live_ended {
-            rafi_live::Follow::poll()
+            rafi_live_client::Follow::poll()
         } else {
             self.live_updates.follow(raffle_id)
         }

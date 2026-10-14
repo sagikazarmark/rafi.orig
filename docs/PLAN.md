@@ -106,7 +106,7 @@ A raffle is stored as its manifest and its event log (`Announced`, `Drawn`, `Sta
 `Voided`, `Finished`); everything else is rebuilt from them. Whether a command would go through now is the
 raffle's own rule, `Raffle::admit`, which the app checks against the projection.
 
-A phone's screen is a pure function (`rafi_live::screen`) of the participant view and its own entrant ID.
+A phone's screen is a pure function (`rafi_live_client::screen`) of the participant view and its own entrant ID.
 
 ## 6. Verifiable per-item draw (`rafi-draw-v1`)
 
@@ -190,7 +190,8 @@ rafi-lifecycle       the raffle's lifecycle in the app: states, starting the dra
 rafi-engine          the engine contract: Engine, Store, Observer; DrandClient (`drand`), LocalEngine (`local`), the suite (`conformance`)
 rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's Engine
 rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; the phones' snapshot
-rafi-live            what a phone sees: ParticipantView, ParticipantChannel, screen(), Card (`card`), proof-of-work, Follow, PageConfig, publish rule
+rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), solving the proof-of-work, Follow, PageConfig
+rafi-live-server     the servers' side: the view of a raffle as drawn, the publish rule, issuing and verifying the proof-of-work
 rafi-platform        what a deployment provides: Notifier, RateLimit, Notify (a Notifier as the engine's Observer)
 rafi-model           the types the app's server and browser exchange
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, policy }; typed errors; no HTTP, no i18n
@@ -203,8 +204,8 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 - A manifest and an engine run a whole raffle: the engine knows nothing of the app (no lifecycle, no settings). A
   host says what a raffle's clients follow (`rafi_platform::Notify`, on Workers; the native host passes no notifier,
   since its clients poll), and the app's retention run dates erasure.
-- `rafi-engine` depends on no platform crate, and nothing below the app pulls in Dioxus (`rafi-live`'s `card` is
-  off). The phone builds `rafi-live` without `raffle`: no `rafi-raffle`, drand or BLS.
+- `rafi-engine` depends on no platform crate, and nothing below the app pulls in Dioxus (`rafi-live-client`'s `card`
+  is off). The phone builds only `rafi-live-client`: no `rafi-raffle`, drand or BLS.
 - The server sends the admin what it may do (`RaffleAdmin.actions`, `AdminEntrant.deliverable`); the UI derives no
   rules.
 
@@ -275,7 +276,7 @@ same command ID is safe.
 - **The projector and admin** poll the full view every 2.5 s while the raffle is live (accepting `v >=`, since recent
   names change with time); on Workers they reveal the winner from the participant channel too.
 - **`RaffleRoom`** is nudged by the app (lifecycle, edits; not joins) and by the engine host after each raffle
-  write. It reads the raffle in one D1 batch and publishes by `rafi_live::publish::decide`; a 15 s alarm repairs a
+  write. It reads the raffle in one D1 batch and publishes by `rafi_live_server::publish::decide`; a 15 s alarm repairs a
   lost nudge. **End live updates**, deleting or purging the raffle, or the Cron a day after it finished destroys it
   (final view, sockets closed with 4403, storage deleted).
 
@@ -303,7 +304,7 @@ lifecycle's sense, unrelated to `Follow`.
   claim"; the organizer can remove entrants before the freeze; the no-show rule does the rest. Rotating QR codes were
   rejected (scan failures).
 - **Display names:** a blocklist, hide or rename in one tap, a 5 s delay on the projector. Hidden names show as
-  ★ ★ ★ (`rafi_live::public_name`).
+  ★ ★ ★ (`rafi_live_client::public_name`).
 
 ## 10. Privacy and legal (Hungary / EU)
 

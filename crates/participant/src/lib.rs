@@ -1,7 +1,7 @@
 //! The participant phone page's WebAssembly.
 //!
 //! The server renders the whole page, including the live card (the same
-//! [`rafi_live::Card`]), and embeds the page's state as JSON in
+//! [`rafi_live_client::Card`]), and embeds the page's state as JSON in
 //! `<script type="application/json" id="rafi-config">`. This module then:
 //!
 //! - mounts the card into `#live` and keeps it current the way the server's

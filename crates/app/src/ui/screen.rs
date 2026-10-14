@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::Outcome;
 
-use rafi_live::ParticipantView;
+use rafi_live_client::ParticipantView;
 
 use super::{
     Brand, ThemeToggle,

@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use rafi_live::Follow;
+use rafi_live_client::Follow;
 use rafi_platform::{BoxFuture, Notifier};
 use worker::{
     Delay, Env,

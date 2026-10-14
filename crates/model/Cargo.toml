@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 rafi-raffle = { workspace = true }
-rafi-live = { workspace = true }
+rafi-live-client = { workspace = true }
 rafi-lifecycle = { workspace = true }
 serde = { workspace = true }
 

@@ -137,7 +137,7 @@ async fn page(
     nowasm: bool,
 ) -> Result<Response> {
     use dioxus::prelude::*;
-    use rafi_live::{Card, CardStrings};
+    use rafi_live_client::{Card, CardStrings};
 
     let snap = Snapshot::read(db, raffle)
         .await
@@ -200,14 +200,14 @@ if(typeof WebAssembly!=="object"){{window.rafiFallback()}}else{{import("/partici
     Response::from_html(html)
 }
 
-fn altcha_challenge() -> rafi_live::altcha::Challenge {
+fn altcha_challenge() -> rafi_live_client::altcha::Challenge {
     let random = || (js_sys::Math::random() * u32::MAX as f64) as u64;
     let mut salt = [0u8; 12];
     for b in &mut salt {
         *b = random() as u8;
     }
     let now = (js_sys::Date::now() / 1000.0) as u64;
-    rafi_live::altcha::issue(b"check-key", 30_000, now, random() % 30_000, salt)
+    rafi_live_server::altcha::issue(b"check-key", 30_000, now, random() % 30_000, salt)
 }
 
 /// Appends `event` to the stored raffle, the way the engine's projection

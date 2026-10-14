@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lifecycle", "crates/raffle", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live", "testbeds/store-d1", "crates/platform", "crates/cloudflare", "testbeds/cloudflare", "crates/restate-worker", "crates/participant", "crates/model", "crates/app-core"]
+members = ["crates/lifecycle", "crates/raffle", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live-client", "crates/live-server", "testbeds/store-d1", "crates/platform", "crates/cloudflare", "testbeds/cloudflare", "crates/restate-worker", "crates/participant", "crates/model", "crates/app-core"]
 
 [workspace.package]
 edition = "2024"
@@ -16,7 +16,8 @@ rafi-store = { path = "crates/store" }
 rafi-engine = { path = "crates/engine" }
 rafi-engine-restate = { path = "crates/engine-restate" }
 rafi-platform = { path = "crates/platform" }
-rafi-live = { path = "crates/live" }
+rafi-live-client = { path = "crates/live-client" }
+rafi-live-server = { path = "crates/live-server" }
 rafi-cloudflare = { path = "crates/cloudflare" }
 rafi-app-core = { path = "crates/app-core" }
 drand = { version = "0.3", default-features = false }

@@ -164,8 +164,10 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
         .await?
         .into_iter()
         .map(|e| {
-            let name =
-                rafi_live::public_name(&e.id, Some((!e.hidden).then_some(e.display_name.as_str())));
+            let name = rafi_live_client::public_name(
+                &e.id,
+                Some((!e.hidden).then_some(e.display_name.as_str())),
+            );
             (e.id, name)
         })
         .collect();

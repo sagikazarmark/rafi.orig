@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use rafi_lifecycle::RaffleState;
-use rafi_live::ParticipantView;
+use rafi_live_client::ParticipantView;
 use rafi_model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
 use rafi_raffle::{BeaconSource, Event, ItemId, ItemStatus};
 use rafi_store::{live::Snapshot, view::Full};
@@ -30,7 +30,7 @@ pub async fn build(app: &App, raffle_id: &str) -> anyhow::Result<Option<RaffleVi
 /// What phones see of a raffle read as `snapshot`. The same view as
 /// `rafi_cloudflare::participant_view`, which builds it on Workers.
 pub fn participant(snapshot: &Snapshot) -> ParticipantView {
-    rafi_live::raffle::view(rafi_live::raffle::Input {
+    rafi_live_server::raffle::view(rafi_live_server::raffle::Input {
         version: snapshot.version,
         state: snapshot.state,
         raffle: snapshot.drawn.as_ref(),
@@ -55,7 +55,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
             (e.id.as_str(), name)
         })
         .collect();
-    let name_of = |id: &str| rafi_live::public_name(id, known.get(id).copied());
+    let name_of = |id: &str| rafi_live_client::public_name(id, known.get(id).copied());
 
     let recent_names = entrants
         .iter()

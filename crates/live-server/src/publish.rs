@@ -1,6 +1,6 @@
 //! When a live channel publishes a freshly built participant view.
 
-use crate::ParticipantView;
+use rafi_live_client::ParticipantView;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
@@ -35,7 +35,7 @@ pub fn decide(
 
 #[cfg(test)]
 mod tests {
-    use crate::Phase;
+    use rafi_live_client::Phase;
 
     use super::*;
 

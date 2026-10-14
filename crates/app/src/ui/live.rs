@@ -19,7 +19,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use partyline_dioxus::{BaseUrl, ChannelOptions, Status, use_channel_latest};
-use rafi_live::{Follow, ParticipantChannel, ParticipantView};
+use rafi_live_client::{Follow, ParticipantChannel, ParticipantView};
 
 use crate::model::RaffleView;
 

@@ -3,7 +3,7 @@
 
 use dioxus::prelude::*;
 use partyline_dioxus::{BaseUrl, ChannelOptions, Status, use_channel_latest};
-use rafi_live::{Card, Follow, ParticipantChannel, ParticipantView, Screen};
+use rafi_live_client::{Card, Follow, ParticipantChannel, ParticipantView, Screen};
 use wasm_bindgen::{JsCast, closure::Closure};
 
 use crate::{clock, config::PageConfig, extras};
@@ -131,7 +131,8 @@ fn App() -> Element {
     // Reading the view inside the effect re-runs it on every new view.
     let (reload_me, page_state) = (me.clone(), cfg.page_state);
     use_effect(move || {
-        let screen = rafi_live::screen(&view(), reload_me.as_deref(), page_state, clock::now_ms());
+        let screen =
+            rafi_live_client::screen(&view(), reload_me.as_deref(), page_state, clock::now_ms());
         if matches!(screen, Screen::Reload)
             && let Some(window) = web_sys::window()
         {

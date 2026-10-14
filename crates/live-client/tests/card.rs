@@ -1,7 +1,7 @@
 //! Server-renders [`Card`] for every [`Screen`] variant.
 
 use dioxus::prelude::*;
-use rafi_live::{
+use rafi_live_client::{
     CARD, Card, CardStrings, Current, DrawInput, DrawOutcome, ParticipantView, Phase, Screen, WON,
     screen,
 };

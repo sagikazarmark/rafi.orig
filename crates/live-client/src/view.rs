@@ -21,7 +21,7 @@ pub fn public_name(id: &str, known: Option<Option<&str>>) -> String {
 ///
 /// Mirrors `rafi_lifecycle::RaffleState` variant for variant, with the same
 /// serde names. It lives here so the phone doesn't depend on `rafi-lifecycle`;
-/// the `raffle` feature maps one to the other with an exhaustive match, so
+/// `rafi-live-server` maps one to the other with an exhaustive match, so
 /// the two can't drift apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -111,7 +111,7 @@ pub struct Winner {
 }
 
 /// How a drawn entrant's turn ended. Mirrors `rafi_raffle::Outcome` (mapped
-/// exhaustively with the `raffle` feature).
+/// exhaustively by `rafi-live-server`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DrawOutcome {

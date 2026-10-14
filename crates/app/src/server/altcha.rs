@@ -1,12 +1,13 @@
 //! The join form's proof-of-work: issuing challenges and redeeming solutions
-//! ([`rafi_live::altcha`]'s scheme, ALTCHA-compatible).
+//! ([`rafi_live_client::altcha`]'s scheme, ALTCHA-compatible).
 //!
 //! Each challenge is accepted once ([`rafi_store::altcha`]): a redeemed
 //! challenge is kept until it expires, and a second redemption is refused.
 //! The retention run deletes expired ones.
 
-pub use rafi_live::altcha::Challenge;
-use rafi_live::altcha::{self, Solution};
+pub use rafi_live_client::altcha::Challenge;
+use rafi_live_client::altcha::Solution;
+use rafi_live_server::altcha;
 
 use super::{AppState, ids};
 

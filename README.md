@@ -71,9 +71,10 @@ crates/engine-restate         rafi-engine-restate: the `Raffle` virtual object a
                               Engine over the ingress (the SDK's generated clients)
 crates/restate-rafi-endpoint  restate-rafi: the native binary serving the Restate services (config, logging, Dockerfile); self-hosting
 crates/restate-worker         rafi-restate-worker: the same services as a Cloudflare Worker, on D1, nudging the live channel
-crates/live                   rafi-live: what a phone sees (participant view and channel, the live channel's publish rule,
-                              proof-of-work, how clients follow, page config); `card`: the Dioxus card; `raffle` (servers only): the view built from a
-                              raffle as drawn
+crates/live-client            rafi-live-client: what a phone sees and runs (participant view and channel, how clients follow,
+                              page config, solving the proof-of-work); `card`: the Dioxus card
+crates/live-server            rafi-live-server: the servers' side (the view built from a raffle as drawn, the live channel's
+                              publish rule, issuing and verifying the proof-of-work)
 crates/platform               rafi-platform: what a deployment provides (Notifier, RateLimit, Notify for the raffle engine)
 crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleRoom Durable Object, notifier, rate limits, config)
 crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
@@ -115,7 +116,7 @@ the server's JSON routes (`POST /api/admin/<function>`) on the same origin.
 
 The participant page's WebAssembly and its fallback are built into `crates/participant/dist`, which the server serves at
 `/participant/` (`RAFI_PARTICIPANT_DIR`). Without it the participant page still renders, but phones can't join or follow the
-draw. Build it once, and again when `crates/participant` or `crates/live` change (it needs `wasm-bindgen-cli` at the
+draw. Build it once, and again when `crates/participant` or `crates/live-client` change (it needs `wasm-bindgen-cli` at the
 version in `Cargo.lock`, and `wasm-opt` from binaryen):
 
 ```sh

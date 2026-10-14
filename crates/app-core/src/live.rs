@@ -3,7 +3,7 @@
 
 use std::{fmt, sync::Arc};
 
-use rafi_live::Follow;
+use rafi_live_client::Follow;
 use rafi_platform::{BoxFuture, Notifier, Polling};
 
 /// How a deployment pushes raffles' changes to clients, and how clients

@@ -3,7 +3,7 @@
 //! Whatever pushes live updates (a live channel, the polling endpoint, the
 //! participant page) reads the raffle through [`Snapshot`], so every one of them
 //! shows the same thing. The snapshot is data: the servers that show phones a
-//! raffle build the participant view from it with `rafi_live::raffle::view`.
+//! raffle build the participant view from it with `rafi_live_server::raffle::view`.
 //! Everything comes from one [`Db::batch_rows`], so the version and the
 //! content are one consistent snapshot: a write can't land between them and
 //! leave a view labelled newer than what it holds.

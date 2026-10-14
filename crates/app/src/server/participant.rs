@@ -1,9 +1,9 @@
 //! The participant phone page.
 //!
 //! The server renders the whole page, including the live card
-//! ([`rafi_live::Card`], the same component the phone's WebAssembly mounts),
+//! ([`rafi_live_client::Card`], the same component the phone's WebAssembly mounts),
 //! and embeds the page's state as JSON in `#rafi-config` (see
-//! [`rafi_live::PageConfig`]). An inline loader then
+//! [`rafi_live_client::PageConfig`]). An inline loader then
 //! starts the WebAssembly from `/participant/` (`./scripts/participant.sh`), or the
 //! JavaScript fallback when it can't run. They keep the card current, solve
 //! the join form's proof-of-work and enable its button.
@@ -16,7 +16,7 @@ use axum::{
     routing::get,
 };
 use dioxus::prelude::*;
-use rafi_live::{Card, CardStrings, PageConfig, Phase};
+use rafi_live_client::{Card, CardStrings, PageConfig, Phase};
 use rafi_platform::Limit;
 use rafi_store::{EntrantRow, RaffleRow, entrants, live::Snapshot, prizes, raffles};
 use serde::{Deserialize, Serialize};

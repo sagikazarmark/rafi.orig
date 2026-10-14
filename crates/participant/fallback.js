@@ -1,7 +1,7 @@
 // Rafi participant page, JavaScript fallback: runs when the WebAssembly can't
 // (no WebAssembly, iOS Lockdown Mode; not ready in time; a panic). It does the
 // same job without the live channel: polls the participant view, renders the
-// card the way rafi-live's Card does, solves the proof-of-work, and keeps the
+// card the way rafi-live-client's Card does, solves the proof-of-work, and keeps the
 // theme toggle and the wake/sound button working. The page's config is the
 // JSON in #rafi-config (see crates/participant/src/config.rs).
 // Class names here are scanned by Tailwind (see tailwind.css).
@@ -35,7 +35,7 @@
   function isOver(s) { return s === "finished" || s === "purged"; }
   function isLive(s) { return s === "ready" || s === "open" || s === "closed" || s === "frozen" || s === "drawing"; }
 
-  // ---- The card (mirrors rafi_live::screen and Card) ----
+  // ---- The card (mirrors rafi_live_client::screen and Card) ----
   function render(v, announce) {
     if (!live || !v) return;
     if (!me && v.state === "open" && cfg.page_state !== "open") { location.reload(); return; }

@@ -1,5 +1,8 @@
-//! What a phone sees live, shared by the raffle's Durable Object, the app
-//! server and the participant WASM.
+//! The client side of live updates: what a phone sees, how it follows a
+//! raffle and renders it, and the join form's proof-of-work. The participant
+//! WASM runs it; the servers that build and render views for phones (the
+//! raffle's Durable Object, the app server) use it too, and keep their own
+//! side in `rafi-live-server`.
 //!
 //! - [`ParticipantView`]: the slim view pushed to phones, and [`Phase`], a
 //!   lightweight mirror of the raffle state;
@@ -7,26 +10,20 @@
 //! - [`screen()`]: which card a phone shows, as a pure function;
 //! - with the `card` feature, `Card`: the Dioxus component that renders it,
 //!   on the server (SSR) and in the WASM alike, with [`CardStrings`];
-//! - [`altcha`]: rafi's proof-of-work for the join form;
+//! - [`altcha`]: rafi's proof-of-work for the join form, and solving it;
 //! - [`Follow`]: how clients follow a raffle on this deployment;
-//! - [`PageConfig`]: the participant page's embedded state;
-//! - [`publish::decide`]: when a live channel publishes a participant view;
-//! - with the `raffle` feature, `raffle::view`: the participant view of a
-//!   raffle as drawn, for the servers that build views.
+//! - [`PageConfig`]: the participant page's embedded state.
 //!
-//! This crate must stay light enough for the phone: without `raffle` it
-//! doesn't depend on `rafi-raffle` (which pulls in drand and BLS), without
-//! `card` not on Dioxus (so the engine hosts don't build a UI framework), and it
-//! reads no clock and no randomness of its own, so it runs unchanged on
+//! This crate must stay light enough for the phone: it doesn't depend on
+//! `rafi-raffle` (which pulls in drand and BLS), without `card` not on Dioxus
+//! (so the engine hosts don't build a UI framework), and it reads no clock
+//! and no randomness of its own, so it runs unchanged on
 //! `wasm32-unknown-unknown`.
 
 pub mod altcha;
 mod card;
 mod follow;
 mod page;
-pub mod publish;
-#[cfg(feature = "raffle")]
-pub mod raffle;
 mod screen;
 mod view;
 

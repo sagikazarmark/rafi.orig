@@ -16,7 +16,8 @@ rafi-lifecycle = { workspace = true }
 rafi-raffle = { workspace = true }
 rafi-model = { workspace = true }
 rafi-store = { workspace = true, optional = true }
-rafi-live = { workspace = true, features = ["raffle", "card"] }
+rafi-live-client = { workspace = true, features = ["card"] }
+rafi-live-server = { workspace = true, optional = true }
 rafi-platform = { workspace = true, optional = true }
 rafi-engine = { workspace = true, optional = true }
 # The web app adds `launch`, `web`, `devtools` and `logger`; the server only renders (`ssr`).
@@ -99,7 +100,7 @@ server = [
     "dep:rafi-engine-restate",
     "dep:rafi-app-core",
     "dep:rafi-store",
-    "rafi-live/server",
+    "dep:rafi-live-server",
     "dep:rafi-platform",
     "dep:rafi-engine",
     "dep:tracing",
