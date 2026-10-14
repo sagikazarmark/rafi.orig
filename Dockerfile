@@ -20,16 +20,16 @@ RUN apt-get update \
     && cargo install dioxus-cli@0.7.10 --locked \
     && cargo install wasm-bindgen-cli --version 0.2.129 --locked
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --features server --recipe-path recipe.json -p rafi
+RUN cargo chef cook --release --recipe-path recipe.json -p rafi-server
 COPY . .
 # The publishable key is public; the web app bakes it in (without it the admin runs with dev auth).
 ARG CLERK_PUBLISHABLE_KEY
 ENV CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
-# -> target/dx/rafi/release/web/public
-RUN cd crates/app && dx bundle --platform web --release
+# -> target/dx/rafi-web/release/web/public
+RUN cd crates/web && dx bundle --platform web --release
 # -> crates/participant/dist: the participant page's WebAssembly and fallback
 RUN ./scripts/participant.sh
-RUN cargo build --release --locked -p rafi --features server
+RUN cargo build --release --locked -p rafi-server
 
 FROM debian:bookworm-slim AS runtime
 # The same user as restate-rafi, which writes the same database file.
@@ -37,7 +37,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /data && chown 65532:65532 /data
-COPY --from=builder /app/target/dx/rafi/release/web/public/ /usr/local/app/public/
+COPY --from=builder /app/target/dx/rafi-web/release/web/public/ /usr/local/app/public/
 COPY --from=builder /app/crates/participant/dist/ /usr/local/app/participant/
 COPY --from=builder /app/target/release/rafi /usr/local/app/server
 WORKDIR /usr/local/app

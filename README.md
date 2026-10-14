@@ -85,8 +85,10 @@ crates/model                  rafi-model: the contract between the app's server 
 crates/pages                  rafi-pages: the server-rendered public pages (participant, rules, privacy) and what they share with
                               the web app: their English and Hungarian text, the icons, the stylesheet's path
 crates/app-core               rafi-app-core: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
-crates/app                    rafi: Dioxus 0.7 web app (admin, projector, verify) + axum server (participant pages, JSON APIs);
-                              the native server binary and, with `worker`, the app's Cloudflare Worker
+crates/server                 rafi-server: the axum server (participant pages, public JSON, the admin API) and the native
+                              binary, `rafi`, which also serves the web app's files
+crates/web                    rafi-web: the Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx`
+crates/app-worker             rafi-app-worker: the app on Cloudflare Workers (rafi-server's routes, the Cron, RaffleRoom)
 migrations                    SQLite (and D1) schema; migrations/postgres: the same for Postgres
 testbeds/store-d1             rafi-store-d1-check: a Worker running rafi-store's conformance suite on D1
 testbeds/cloudflare           rafi-cloudflare-check: a Worker hosting RaffleRoom for the live channel's checks
@@ -105,19 +107,19 @@ Requirements: Rust stable with `wasm32-unknown-unknown`, and `dx` **0.7.10** (it
 cargo install dioxus-cli@0.7.10 --locked
 ```
 
-The UI uses **Tailwind CSS v4 + daisyUI 5** (vendored as single-file plugins in `crates/app/vendor/`, no npm),
-with custom light (`rafi`) and dark (`rafi-dark`) themes defined in [`crates/app/tailwind.css`](crates/app/tailwind.css).
+The UI uses **Tailwind CSS v4 + daisyUI 5** (vendored as single-file plugins in `crates/web/vendor/`, no npm),
+with custom light (`rafi`) and dark (`rafi-dark`) themes defined in [`crates/web/tailwind.css`](crates/web/tailwind.css).
 `dx` compiles it automatically; before a plain `cargo build`/`clippy` of the web app on a fresh checkout run `./scripts/tailwind.sh`.
 Organizer forms use [dioform](https://crates.io/crates/dioform) (typed fields, validation, managed async submit)
 rendered with components from the [dioxus-daisyui-components](https://github.com/sagikazarmark/dioxus-daisyui-components)
 registry (fields, select, switch, buttons, alert dialogs, dropdown menu, tabs, toasts), installed into
-`crates/app/src/components/` with `dx components add <name> --path <registry checkout>`. Treat that directory as
+`crates/web/src/components/` with `dx components add <name> --path <registry checkout>`. Treat that directory as
 vendored: update it by re-installing (`--force`), not by editing.
 
-The app is two builds of one crate (`crates/app`, package `rafi`): the **web app** (admin, projector and
-verification page; a Dioxus single-page app built by `dx`, `--features web`) and the **server** (participant pages,
-the public and admin JSON APIs, and the web app's files; plain `cargo`, `--features server`). The web app calls
-the server's JSON routes (`POST /api/admin/<function>`) on the same origin.
+The app is two crates: the **web app** (`crates/web`, `rafi-web`: admin, projector and verification page; a Dioxus
+single-page app built by `dx`) and the **server** (`crates/server`, `rafi-server`: participant pages, the public and
+admin JSON APIs, and the web app's files; plain `cargo`, binary `rafi`). The web app calls the server's JSON routes
+(`POST /api/admin/<function>`) on the same origin; both sides of that API come from one declaration in `rafi-model`.
 
 The participant page's WebAssembly and its fallback are built into `crates/participant/dist`, which the server serves at
 `/participant/` (`RAFI_PARTICIPANT_DIR`). Without it the participant page still renders, but phones can't join or follow the
@@ -132,11 +134,11 @@ cargo install wasm-bindgen-cli --version 0.2.129 --locked
 Draws need Restate (see below). For the admin and the pages alone, run without Clerk, in two terminals:
 
 ```sh
-# the server; dx proxies /api/, /j/, /rules/, /privacy/ and /participant/ to it (crates/app/Dioxus.toml)
-RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi --features server
+# the server; dx proxies /api/, /j/, /rules/, /privacy/ and /participant/ to it (crates/web/Dioxus.toml)
+RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi-server
 
 # the web app, with hot reload
-cd crates/app && dx serve --port 8787
+cd crates/web && dx serve --port 8787
 ```
 
 Then open <http://localhost:8787/admin>. To work offline, add `RAFI_DRAND_CHAIN=mock` and `--features mock-drand`
@@ -147,14 +149,14 @@ To test with phones on your network, set `RAFI_PUBLIC_URL` to your machine's LAN
 The server alone serves everything once the web app is bundled (this is what the container image runs):
 
 ```sh
-(cd crates/app && dx bundle --platform web --release)   # -> target/dx/rafi/release/web/public
+(cd crates/web && dx bundle --platform web --release)   # -> target/dx/rafi-web/release/web/public
 ./scripts/participant.sh                                 # -> crates/participant/dist
-RAFI_DEV_AUTH=1 cargo run --release -p rafi --features server   # http://localhost:8080
+RAFI_DEV_AUTH=1 cargo run --release -p rafi-server       # http://localhost:8080
 ```
 
 It listens on `IP`:`PORT` (default `127.0.0.1:8080`), serves the participant scripts at `/participant/` from
 `RAFI_PARTICIPANT_DIR` (default `crates/participant/dist`), and the web app from `RAFI_PUBLIC_DIR`
-(default `target/dx/rafi/release/web/public`), both relative to the working directory, falling back to the web
+(default `target/dx/rafi-web/release/web/public`), both relative to the working directory, falling back to the web
 app's `index.html` for its own routes.
 
 With Restate: Restate runs in Docker ([`compose.yaml`](compose.yaml)), the app and `restate-rafi` on your
@@ -168,8 +170,8 @@ docker compose up -d       # Restate: ingress on :8080, admin API and UI on :907
 
 # the server (it creates the database) and the web app
 RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http://localhost:8080 \
-  PORT=8788 cargo run -p rafi --features server
-(cd crates/app && dx serve --port 8787)
+  PORT=8788 cargo run -p rafi-server
+(cd crates/web && dx serve --port 8787)
 
 # the raffle engine, in another terminal (offline: add --features mock-drand and RESTATE_RAFI_DRAND__MOCK=true,
 # matching the app's RAFI_DRAND_CHAIN=mock; the app refuses to start a draw on an engine on another chain)
@@ -187,8 +189,8 @@ and leave `RAFI_DEV_AUTH` unset.
 
 ```sh
 export RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)   # a pinned restate-server for the end-to-end tests
-cargo test --workspace --exclude rafi -- --include-ignored  # the rules, the app's use cases, drand, store, the engine conformance suite (local runner and the Raffle object on restate-server)
-cargo test -p rafi --features server -- --include-ignored   # app (with the in-process raffle engine), and app + restate-rafi + restate-server
+cargo test --workspace --exclude rafi-server --exclude rafi-web -- --include-ignored  # the rules, the app's use cases, drand, store, the engine conformance suite (local runner and the Raffle object on restate-server)
+cargo test -p rafi-server -- --include-ignored             # app (with the in-process raffle engine), and app + restate-rafi + restate-server
 python3 tools/verify.py --vectors testdata/draw-vectors.json
 ```
 
@@ -237,7 +239,7 @@ The app:
 | Variable | Default | |
 |---|---|---|
 | `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address (the image sets `0.0.0.0`) |
-| `RAFI_PUBLIC_DIR` | `target/dx/rafi/release/web/public` | The bundled web app (the image sets `/usr/local/app/public`) |
+| `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app (the image sets `/usr/local/app/public`) |
 | `RAFI_PARTICIPANT_DIR` | `crates/participant/dist` | The participant page's WebAssembly and fallback, from `./scripts/participant.sh` (the image sets `/usr/local/app/participant`) |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL (QR codes, links) |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `restate-rafi`: SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`, the database must exist). The app applies the migrations on start |
@@ -296,7 +298,7 @@ during a live raffle (`/api/status` shows `live_raffles`).
 The plan and its decisions: [`docs/workers-plan.md`](docs/workers-plan.md). Cloudflare is one deployment, not an
 assumption of the code: the app and the raffle engine are written against small interfaces (the engine's `Store` and
 `Observer`, the live `Notifier`, the app's `RateLimit`), and `crates/cloudflare` (`rafi-cloudflare`) implements the
-shared ones over Workers bindings. Two Workers wire it up: the app (`crates/app`, feature `worker`, which also hosts the
+shared ones over Workers bindings. Two Workers wire it up: the app (`crates/app-worker`, which also hosts the
 per-raffle `RaffleRoom` Durable Object and counts joins on its rate-limiting bindings) and the raffle engine
 (`crates/restate-worker`), with the D1 database they share.
 
@@ -304,9 +306,9 @@ Local development, everything under `wrangler dev` (the tools are in `devenv.nix
 `Cargo.lock`):
 
 ```sh
-./scripts/app-assets.sh                                   # web app bundle + participant scripts -> crates/app/worker-assets
-(cd crates/app && wrangler d1 migrations apply rafi --local --env dev)
-(cd crates/app && wrangler dev --env dev)                 # http://127.0.0.1:8787, dev auth, mock drand
+./scripts/app-assets.sh                                   # web app bundle + participant scripts -> crates/app-worker/worker-assets
+(cd crates/app-worker && wrangler d1 migrations apply rafi --local --env dev)
+(cd crates/app-worker && wrangler dev --env dev)          # http://127.0.0.1:8787, dev auth, mock drand
 (cd crates/restate-worker && wrangler dev --env dev --port 8791)
 # a local restate-server with its ingress on :18080, then:
 restate deployments register http://127.0.0.1:8791 --use-http1.1
@@ -316,7 +318,7 @@ restate deployments register http://127.0.0.1:8791 --use-http1.1
 (`testbeds/cloudflare`), the participant page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
 job runs it.
 
-Deploying (needs a Cloudflare account and Restate Cloud): see the comments at the top of `crates/app/wrangler.toml` and
+Deploying (needs a Cloudflare account and Restate Cloud): see the comments at the top of `crates/app-worker/wrangler.toml` and
 `crates/restate-worker/wrangler.toml` (D1 created with `--jurisdiction eu`, the secrets, registering the raffle engine
 with Restate Cloud per release). Don't deploy while a raffle is live: a deploy restarts the Durable Objects.
 

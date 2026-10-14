@@ -18,7 +18,7 @@ workers_dev = false
 preview_urls = false
 
 [build]
-command = "worker-build --release --features worker"
+command = "worker-build --release"
 
 # The web app (admin, projector, verification page) and the participant scripts.
 # Paths the Worker answers go to it first; anything else is a file, or the web
@@ -79,7 +79,7 @@ RAFI_DO_JURISDICTION = "eu"
 workers_dev = true
 
 [env.dev.build]
-command = "worker-build --release --features worker-dev"
+command = "worker-build --release --features dev"
 
 [[env.dev.d1_databases]]
 binding = "DB"

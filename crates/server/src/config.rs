@@ -60,7 +60,7 @@ impl Config {
             .to_owned();
         let altcha_key = var("RAFI_ALTCHA_KEY")
             .map(|k| k.into_bytes())
-            .unwrap_or_else(|| crate::server::ids::random_bytes::<32>().to_vec());
+            .unwrap_or_else(|| crate::ids::random_bytes::<32>().to_vec());
         Self {
             database_url: var("RAFI_DATABASE_URL").unwrap_or_else(|| "sqlite://rafi.db".into()),
             cookie_secure: var("RAFI_COOKIE_SECURE")

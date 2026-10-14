@@ -1,9 +1,11 @@
-//! Server side: participant pages, public and admin APIs. The database and all
-//! its SQL are in `rafi-store`.
+//! Rafi's server: the HTTP side of the app. Participant pages, public and
+//! admin APIs, over the use cases in `rafi-app-core` (re-exported as
+//! [`service`]): it maps requests onto them and their results onto
+//! responses. The pages render in `rafi-pages`; the database and all its SQL
+//! are in `rafi-store`.
 //!
-//! What the app does lives in `rafi-app-core` (re-exported as [`service`]):
-//! this is its HTTP side, which maps requests onto those use cases and their
-//! results onto responses.
+//! The native binary (`rafi`, `main.rs`) serves it with the web app's files;
+//! on Cloudflare Workers, `rafi-app-worker` does.
 //!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small

@@ -156,7 +156,7 @@ fn render_page(
         notice,
         name: &form.name,
         email: &form.email,
-        now_ms: crate::model::now_unix_ms(),
+        now_ms: rafi_model::now_unix_ms(),
     })
 }
 

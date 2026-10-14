@@ -1,8 +1,9 @@
-//! The app on Cloudflare Workers.
+//! The app on Cloudflare Workers (`worker-build`, `wrangler.toml`): the
+//! Worker named `rafi`.
 //!
 //! - `fetch`: phones' live-channel sockets (`/partyline/raffle/{id}`) go to the
 //!   raffle's [`RaffleRoom`]; everything else is the same axum routes as the
-//!   native server ([`server::routes`]) behind Clerk. Workers Assets serves the
+//!   native server ([`rafi_server::routes`]) behind Clerk. Workers Assets serves the
 //!   web app and the participant scripts before the Worker is called
 //!   (`run_worker_first` in `wrangler.toml` lists the Worker's paths).
 //! - `scheduled`: the Cron Trigger runs [`rafi_app_core::retention::run`].
@@ -13,11 +14,13 @@
 //! secrets (see `wrangler.toml`). The join's rate limits, the app's own, are
 //! here ([`RateLimitBindings`]).
 //! Missing secrets fail closed: every request is refused rather than run with
-//! a default. Dev auth and mock drand need the `worker-dev` feature.
+//! a default. Dev auth and mock drand need the `dev` feature.
 //!
 //! The app is built once per isolate ([`cached`]): the bindings and vars are
 //! the isolate's, and Clerk's layer keeps its verified signing keys (JWKS)
 //! between requests instead of fetching them for each.
+
+#![cfg(target_arch = "wasm32")]
 
 use std::{cell::OnceCell, sync::Arc};
 
@@ -28,7 +31,7 @@ use rafi_cloudflare::{DurableObjects, lookup};
 use tower_service::Service;
 use worker::{Context, Env, HttpRequest, ScheduleContext, ScheduledEvent, event};
 
-use crate::server::{self, AppState, config::Config};
+use rafi_server::{self as server, AppState, config::Config};
 
 mod ratelimit;
 
@@ -60,9 +63,9 @@ fn app(env: &Env) -> anyhow::Result<App> {
         "RAFI_RETENTION" => lookup(env, name).or_else(|| Some("1".into())),
         _ => lookup(env, name),
     });
-    let dev = cfg!(feature = "worker-dev");
+    let dev = cfg!(feature = "dev");
     if cfg.dev_auth && !dev {
-        anyhow::bail!("RAFI_DEV_AUTH is set, but this build has no `worker-dev` feature");
+        anyhow::bail!("RAFI_DEV_AUTH is set, but this build has no `dev` feature");
     }
     if lookup(env, "RAFI_ALTCHA_KEY").is_none() {
         anyhow::bail!("RAFI_ALTCHA_KEY is not set");

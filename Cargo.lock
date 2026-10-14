@@ -4684,56 +4684,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
-name = "rafi"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "dioform",
- "dioxus",
- "dioxus-clerk",
- "dioxus-field",
- "dioxus-primitives",
- "futures-util",
- "getrandom 0.3.4",
- "gloo-net 0.6.0",
- "gloo-timers 0.3.0",
- "hex",
- "http",
- "http-body-util",
- "js-sys",
- "partyline-dioxus",
- "qrcode",
- "rafi-altcha",
- "rafi-app-core",
- "rafi-cloudflare",
- "rafi-engine",
- "rafi-engine-restate",
- "rafi-lifecycle",
- "rafi-live-client",
- "rafi-live-server",
- "rafi-model",
- "rafi-pages",
- "rafi-raffle",
- "rafi-store",
- "restate-e2e-harness",
- "restate-sdk",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "tower",
- "tower-http",
- "tower-service",
- "tracing",
- "uuid",
- "wasm-bindgen",
- "web-sys",
- "worker",
-]
-
-[[package]]
 name = "rafi-altcha"
 version = "0.1.0"
 dependencies = [
@@ -4766,6 +4716,23 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "rafi-app-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "dioxus-clerk",
+ "http",
+ "rafi-app-core",
+ "rafi-cloudflare",
+ "rafi-engine",
+ "rafi-live-server",
+ "rafi-server",
+ "tower-service",
+ "worker",
 ]
 
 [[package]]
@@ -4946,6 +4913,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "rafi-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "dioxus-clerk",
+ "http-body-util",
+ "rafi-altcha",
+ "rafi-app-core",
+ "rafi-engine",
+ "rafi-engine-restate",
+ "rafi-lifecycle",
+ "rafi-live-client",
+ "rafi-live-server",
+ "rafi-model",
+ "rafi-pages",
+ "rafi-raffle",
+ "rafi-store",
+ "restate-e2e-harness",
+ "restate-sdk",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "rafi-store"
 version = "0.1.0"
 dependencies = [
@@ -4975,6 +4973,34 @@ dependencies = [
  "rafi-store",
  "serde_json",
  "worker",
+]
+
+[[package]]
+name = "rafi-web"
+version = "0.1.0"
+dependencies = [
+ "dioform",
+ "dioxus",
+ "dioxus-clerk",
+ "dioxus-field",
+ "dioxus-primitives",
+ "futures-util",
+ "getrandom 0.3.4",
+ "gloo-net 0.6.0",
+ "gloo-timers 0.3.0",
+ "js-sys",
+ "partyline-dioxus",
+ "qrcode",
+ "rafi-lifecycle",
+ "rafi-live-client",
+ "rafi-model",
+ "rafi-pages",
+ "rafi-raffle",
+ "serde",
+ "serde_json",
+ "uuid",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

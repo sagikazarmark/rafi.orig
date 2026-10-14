@@ -1,13 +1,16 @@
-//! Rafi's entry points: the native server (`server`) or the web app (`web`).
-//! Everything else is in the library (`lib.rs`).
+//! The native server: `rafi`. Everything but the entry point is in the
+//! library; on Workers, `rafi-app-worker` serves the same routes.
 
-#[cfg(all(feature = "server", not(target_arch = "wasm32")))]
+use anyhow::Context as _;
+use rafi_server as server;
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    use anyhow::Context as _;
-    use rafi::server;
-
-    dioxus::logger::initialize_default();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .init();
     let cfg = server::config::Config::from_env();
     if cfg.dev_auth {
         tracing::warn!("RAFI_DEV_AUTH is on: admin pages are NOT protected");
@@ -34,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| default.into())
     };
     // The web bundle: `dx bundle --platform web --release` writes it here.
-    let public_dir = dir("RAFI_PUBLIC_DIR", "target/dx/rafi/release/web/public");
+    let public_dir = dir("RAFI_PUBLIC_DIR", "target/dx/rafi-web/release/web/public");
     if !public_dir.join("index.html").is_file() {
         tracing::warn!(
             dir = %public_dir.display(),
@@ -73,7 +76,6 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Ctrl-C or SIGTERM (`docker stop`).
-#[cfg(all(feature = "server", not(target_arch = "wasm32")))]
 async fn shutdown() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -92,20 +94,3 @@ async fn shutdown() {
         () = term => {}
     }
 }
-
-#[cfg(all(feature = "web", not(feature = "server")))]
-fn main() {
-    dioxus::launch(rafi::ui::App);
-}
-
-#[cfg(not(any(feature = "web", feature = "server")))]
-fn main() {
-    eprintln!(
-        "Build rafi with `--features server` (the server) or `--features web` (the web app)."
-    );
-}
-
-/// On Cloudflare Workers the entry points are in the library (`worker`
-/// feature); the binary has nothing to run.
-#[cfg(all(feature = "server", target_arch = "wasm32"))]
-fn main() {}

@@ -25,7 +25,7 @@ use super::{
     config::{Config, RestateConfig},
     service, view,
 };
-use crate::model::{LifecycleCommand, PrizeInput};
+use rafi_model::{LifecycleCommand, PrizeInput};
 
 const OWNER: &str = "user_restate";
 const SERVER: ServerSpec = ServerSpec {

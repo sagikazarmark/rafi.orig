@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compiles crates/app/tailwind.css -> crates/app/assets/tailwind.css with the same
+# Compiles crates/web/tailwind.css -> crates/web/assets/tailwind.css with the same
 # standalone Tailwind version dx uses. `dx serve`/`dx bundle` do this
 # automatically; run it before plain `cargo build`/`cargo test` on a fresh checkout.
 set -euo pipefail
@@ -18,5 +18,5 @@ if [ ! -x "$BIN" ]; then
   curl -sSfL -o "$BIN" "https://github.com/tailwindlabs/tailwindcss/releases/download/${VERSION}/${ASSET}"
   chmod +x "$BIN"
 fi
-cd "${ROOT}/crates/app"
+cd "${ROOT}/crates/web"
 "$BIN" -i tailwind.css -o assets/tailwind.css --minify "$@"

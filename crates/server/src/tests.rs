@@ -21,7 +21,7 @@ use tower::ServiceExt;
 use rafi_raffle::{Decision, DrawRequest};
 
 use super::{AppState, config::Config, routes, service};
-use crate::model::{LifecycleCommand, PrizeInput};
+use rafi_model::{LifecycleCommand, PrizeInput};
 
 const OWNER: &str = "user_test";
 
@@ -728,7 +728,7 @@ async fn participant_view_has_no_personal_data() {
         OWNER,
         &raffle.id,
         winner_id.as_str(),
-        crate::model::EntrantPatch {
+        rafi_model::EntrantPatch {
             hidden: Some(true),
             ..Default::default()
         },
@@ -939,7 +939,7 @@ async fn admin_requires_clerk_session() {
     );
     let (status, _, body) = send(&router, req).await;
     assert!(status.is_success(), "{status}: {body}");
-    let me: crate::model::Me = serde_json::from_str(&body).unwrap();
+    let me: rafi_model::Me = serde_json::from_str(&body).unwrap();
     assert_eq!(me.owner_id, "user_2abc");
     assert!(!me.dev_auth);
 
@@ -977,7 +977,7 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
 
     let (status, _, body) = send(&router, admin_call("whoami", "")).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let me: crate::model::Me = serde_json::from_str(&body).unwrap();
+    let me: rafi_model::Me = serde_json::from_str(&body).unwrap();
     assert_eq!((me.owner_id.as_str(), me.dev_auth), ("dev", true));
 
     let (status, _, body) = send(
@@ -990,7 +990,7 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
 
     let (status, _, body) = send(&router, admin_call("list_raffles", "{}")).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let list: Vec<crate::model::RaffleSummary> = serde_json::from_str(&body).unwrap();
+    let list: Vec<rafi_model::RaffleSummary> = serde_json::from_str(&body).unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].title, "Meetup #1");
 
@@ -1520,7 +1520,7 @@ async fn writes_nudge_and_destroy_the_channel() {
         OWNER,
         &raffle.id,
         &anna,
-        crate::model::EntrantPatch {
+        rafi_model::EntrantPatch {
             hidden: Some(true),
             ..Default::default()
         },

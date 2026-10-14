@@ -197,7 +197,9 @@ rafi-model           the contract between the app's server and browser: the view
 rafi-pages           the server-rendered public pages (participant, rules, privacy); Lang, icons, the stylesheet's path
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP, no i18n
-rafi                 the HTTP side (routes, auth, the retention schedule) and the web UI
+rafi-server          the HTTP side (routes, auth, the retention schedule); the native binary `rafi`
+rafi-web             the web app (admin, projector, verification page; Dioxus, `dx`)
+rafi-app-worker      the app on Workers: rafi-server's routes, the Cron, RaffleRoom
 rafi-participant     the participant page's WASM and its JavaScript fallback
 ```
 
@@ -216,7 +218,7 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 
 | | Native (self-hosting) | Cloudflare Workers (planned production) |
 |---|---|---|
-| App | `rafi --features server`; an hourly retention task; in-memory rate limits | `rafi --features worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleRoom` |
+| App | `rafi-server` (binary `rafi`); an hourly retention task; in-memory rate limits | `rafi-app-worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleRoom` |
 | Database | SQLite or Postgres (`RAFI_DATABASE_URL`) | D1, EU jurisdiction |
 | Raffle engine | `restate-rafi` (`crates/restate-rafi-endpoint`) on the same database | `rafi-restate-worker`, called by Restate Cloud over HTTPS (request-response, signed) |
 | Live updates | none pushed: clients poll | `RaffleRoom`, a Durable Object per raffle (partyline) |
@@ -341,7 +343,7 @@ lifecycle's sense, unrelated to `Follow`.
 ## 11. Hosting and operations
 
 - **Production (planned): Cloudflare Workers.** The app Worker (with `RaffleRoom`), `rafi-restate-worker` and one
-  D1 database ([workers-plan.md](workers-plan.md); the comments in `crates/app/wrangler.toml` and
+  D1 database ([workers-plan.md](workers-plan.md); the comments in `crates/app-worker/wrangler.toml` and
   `crates/restate-worker/wrangler.toml`). Missing secrets stop a Worker; dev auth and mock drand are compiled out of
   release builds.
 - **Self-hosting: the native server.** `deploy/compose.yaml` runs Caddy, the app and `restate-rafi` on one VM
@@ -419,7 +421,8 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   the retention run is `app_core::retention`, and the server says whether erasure looks stopped
   (`Me.retention_stale`). `rafi_model::Lifecycle` is `LifecycleCommand`; an entrant's source is
   `rafi_lifecycle::entrant::Source`. The admin API is declared once, in `rafi-model`; the public pages render in
-  `rafi-pages`.
+  `rafi-pages`. The app crate is split by what each build is: `rafi-web` (`dx`), `rafi-server` (axum, binary `rafi`)
+  and `rafi-app-worker` (the Worker); no more `server`/`web`/`worker` features.
 
 ## Appendix: key sources
 
