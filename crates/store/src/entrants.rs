@@ -1,6 +1,6 @@
 //! A raffle's entrants, and erasing their personal data.
 
-use rafi_lifecycle::RaffleState;
+use rafi_lifecycle::{RaffleState, entrant::Source};
 use serde::Deserialize;
 
 use crate::{Db, Result, now};
@@ -13,7 +13,7 @@ pub struct EntrantRow {
     pub display_name: String,
     pub email_raw: Option<String>,
     pub email_norm: Option<String>,
-    pub source: String,
+    pub source: Source,
     pub hidden: bool,
     pub claim_code: String,
     pub token_hash: Option<String>,
@@ -130,9 +130,10 @@ pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64) -> Result<bool> {
         .query(format!(
             "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, token_hash,
                                    consent_version, consent_rules_at, consent_marketing, created_at)
-             SELECT ?1, ?2, ?3, ?4, ?5, 'self', ?6, ?7, ?8, ?9, ?10, ?11
+             SELECT ?1, ?2, ?3, ?4, ?5, '{source}', ?6, ?7, ?8, ?9, ?10, ?11
              WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ?2 AND state IN ({joinable}))
                AND (SELECT COUNT(*) FROM entrants WHERE raffle_id = ?2) < ?12",
+            source = Source::SelfService.as_str(),
             joinable = crate::raffles::states(RaffleState::joinable),
         ))
         .bind(j.id)
@@ -183,8 +184,9 @@ pub async fn insert_manual(db: &Db, m: &Manual<'_>) -> Result<bool> {
         .query(format!(
             "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code,
                                    consent_version, consent_rules_at, created_at)
-             SELECT ?1, ?2, ?3, ?4, ?5, 'manual', ?6, ?7, ?8, ?9
+             SELECT ?1, ?2, ?3, ?4, ?5, '{}', ?6, ?7, ?8, ?9
              WHERE {}",
+            Source::Manual.as_str(),
             editable(2)
         ))
         .bind(m.id)
@@ -228,7 +230,12 @@ pub async fn insert_fakes(
             let values: Vec<String> = (0..chunk.len())
                 .map(|r| {
                     let p = 5 + 3 * r;
-                    format!("(?{p}, ?1, ?{}, 'fake', ?{}, ?2, ?3, ?4)", p + 1, p + 2)
+                    format!(
+                        "(?{p}, ?1, ?{}, '{}', ?{}, ?2, ?3, ?4)",
+                        p + 1,
+                        Source::Fake.as_str(),
+                        p + 2
+                    )
                 })
                 .collect();
             let insert = db

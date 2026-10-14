@@ -2,7 +2,32 @@
 //! makes them one entrant (the store refuses a second entry with the same
 //! [`Email::key`]).
 
+use serde::{Deserialize, Serialize};
+
 use crate::RaffleState;
+
+/// How an entrant got in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    /// Joined on the participant page.
+    #[serde(rename = "self")]
+    SelfService,
+    /// Added by the organizer.
+    Manual,
+    /// Made up to try a raffle out (test mode only: [`fakes`]).
+    Fake,
+}
+
+impl Source {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SelfService => "self",
+            Self::Manual => "manual",
+            Self::Fake => "fake",
+        }
+    }
+}
 
 /// The longest display name, in characters.
 pub const MAX_NAME_CHARS: usize = 24;

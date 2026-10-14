@@ -25,7 +25,7 @@ use super::{
     config::{Config, RestateConfig},
     service, view,
 };
-use crate::model::{Lifecycle, PrizeInput};
+use crate::model::{LifecycleCommand, PrizeInput};
 
 const OWNER: &str = "user_restate";
 const SERVER: ServerSpec = ServerSpec {
@@ -108,10 +108,10 @@ async fn app_and_restate_rafi_share_the_database() {
     )
     .await
     .unwrap();
-    service::lifecycle(&app, OWNER, &id, Lifecycle::Publish)
+    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
-    service::lifecycle(&app, OWNER, &id, Lifecycle::Open)
+    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     for i in 0..3 {

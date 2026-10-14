@@ -7,9 +7,7 @@ use rafi_lifecycle::{
     self as lifecycle, RaffleState,
     start::{self, Start},
 };
-use rafi_model::{
-    AdminActions, AdminEntrant, EntrantSource, Prize, RaffleAdmin, StartStep, VerifyData,
-};
+use rafi_model::{AdminActions, AdminEntrant, Prize, RaffleAdmin, StartStep, VerifyData};
 use rafi_raffle::{ItemId, Outcome, Raffle};
 use rafi_store::{entrants, raffles, view::Full};
 
@@ -87,7 +85,7 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>) -> Vec<AdminEntrant> {
                 id: e.id.clone(),
                 display_name: e.display_name.clone(),
                 email: e.email_raw.clone(),
-                source: EntrantSource::parse(&e.source),
+                source: e.source,
                 hidden: e.hidden,
                 claim_code: e.claim_code.clone(),
                 marketing: e.consent_marketing,

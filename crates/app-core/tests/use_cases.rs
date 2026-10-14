@@ -7,7 +7,7 @@ use rafi_app_core::{self as app, App, Error, Limiter, Policy, ProofOfWork, Refus
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
 use rafi_live_server::{LiveUpdates, Polling};
-use rafi_model::{EntrantPatch, Lifecycle, PrizeInput, StartStep};
+use rafi_model::{EntrantPatch, LifecycleCommand, PrizeInput, StartStep};
 use rafi_raffle::{Decision, DrawRequest, ItemStatus, Resolution};
 use rafi_store::{Db, RaffleWriter, entrants, raffles};
 
@@ -65,10 +65,10 @@ async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
     )
     .await
     .unwrap();
-    app::lifecycle(app, OWNER, &id, Lifecycle::Publish)
+    app::lifecycle(app, OWNER, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
-    app::lifecycle(app, OWNER, &id, Lifecycle::Open)
+    app::lifecycle(app, OWNER, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     let mut ids = Vec::new();

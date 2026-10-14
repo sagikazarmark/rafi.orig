@@ -1,6 +1,6 @@
 # Rafi: meetup raffle plan
 
-Status: the current state, 2026-10-14 (revision 11). How it got here is in the
+Status: the current state, 2026-10-15 (revision 12). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
 [raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md).
@@ -194,8 +194,9 @@ rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantCha
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 rafi-altcha          the proof-of-work (ALTCHA-compatible): solve; issue and verify (`server`)
 rafi-model           the types the app's server and browser exchange
-rafi-app-core        every use case, over App { db, chain, engine, live_updates, policy }; typed errors; RateLimit; no HTTP, no i18n
-rafi                 the HTTP side (routes, participant pages, auth, retention) and the web UI
+rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
+                     join), the public reads, the retention run; typed errors; RateLimit; no HTTP, no i18n
+rafi                 the HTTP side (routes, participant pages, auth, the retention schedule) and the web UI
 rafi-participant     the participant page's WASM and its JavaScript fallback
 ```
 
@@ -412,6 +413,11 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   end live updates, so a deployment hands its notifier to the engine as is (`Notify` gone); `RateLimit` is
   `rafi-app-core`'s, its Workers bindings the app Worker's; `LiveUpdates` moved to `rafi-live-server`; the
   proof-of-work is its own crate, `rafi-altcha`.
+- **12** (2026-10-15). `rafi-app-core` is the use-case layer the HTTP side only maps: joining runs the rate limits,
+  the proof-of-work and the join (`JoinRequest`); the participant and public pages read through `app_core::public`;
+  the retention run is `app_core::retention`, and the server says whether erasure looks stopped
+  (`Me.retention_stale`). `rafi_model::Lifecycle` is `LifecycleCommand`; an entrant's source is
+  `rafi_lifecycle::entrant::Source`.
 
 ## Appendix: key sources
 

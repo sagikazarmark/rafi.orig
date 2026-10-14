@@ -23,7 +23,7 @@ pub(super) fn Header(
     let verify_url = format!("{}/v/{}", admin.public_url, v.slug);
 
     let id = admin.id.clone();
-    let act = move |action: Lifecycle| {
+    let act = move |action: LifecycleCommand| {
         let id = id.clone();
         async move {
             busy.set(true);
@@ -207,21 +207,21 @@ pub(super) fn Header(
                 div { class: "flex flex-wrap items-center gap-2",
                     match v.state {
                         RaffleState::Draft => rsx! {
-                            Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(Lifecycle::Publish)); } },
+                            Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Publish)); } },
                                 Icon { i: I::Play } "Publish the intro screen"
                             }
                         },
                         RaffleState::Ready => rsx! {
-                            Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(Lifecycle::Open)); } }, Icon { i: I::Ticket } "Open registration" }
-                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(Lifecycle::Unpublish)); } }, Icon { i: I::Undo } "Unpublish" }
+                            Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, Icon { i: I::Ticket } "Open registration" }
+                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } }, Icon { i: I::Undo } "Unpublish" }
                         },
                         RaffleState::Open => rsx! {
                             Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: move |_| ask_freeze.set(true), Icon { i: I::Lock } "Freeze list & start the draw" }
-                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(Lifecycle::Close)); } }, "Close registration" }
+                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Close)); } }, "Close registration" }
                         },
                         RaffleState::Closed => rsx! {
                             Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: move |_| ask_freeze.set(true), Icon { i: I::Lock } "Freeze list & start the draw" }
-                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(Lifecycle::Open)); } }, "Reopen registration" }
+                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, "Reopen registration" }
                         },
                         RaffleState::Frozen if unconfirmed => rsx! {
                             Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Icon { i: I::Undo } "Retry handing the list to the raffle engine" }

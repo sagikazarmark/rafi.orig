@@ -135,9 +135,9 @@ fn EntrantRow(
     };
     let won = e.deliverable;
     let avatar = match e.source {
-        EntrantSource::Manual => "bg-secondary text-secondary-content",
-        EntrantSource::Fake => "bg-warning text-warning-content",
-        EntrantSource::SelfService => "bg-primary text-primary-content",
+        Source::Manual => "bg-secondary text-secondary-content",
+        Source::Fake => "bg-warning text-warning-content",
+        Source::SelfService => "bg-primary text-primary-content",
     };
 
     rsx! {
@@ -159,8 +159,8 @@ fn EntrantRow(
                                 p { class: "font-semibold", "{e.display_name}" }
                                 div { class: "flex gap-1",
                                     if e.hidden { span { class: "badge badge-ghost badge-xs", "hidden on screen" } }
-                                    if e.source == EntrantSource::Manual { span { class: "badge badge-secondary badge-soft badge-xs", "no phone" } }
-                                    if e.source == EntrantSource::Fake { span { class: "badge badge-warning badge-soft badge-xs", "fake" } }
+                                    if e.source == Source::Manual { span { class: "badge badge-secondary badge-soft badge-xs", "no phone" } }
+                                    if e.source == Source::Fake { span { class: "badge badge-warning badge-soft badge-xs", "fake" } }
                                 }
                             }
                         }

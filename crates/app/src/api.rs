@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::model::VerifyData;
 #[cfg(any(feature = "web", feature = "server"))]
 use crate::model::{
-    EntrantPatch, Lifecycle, Me, PrizeInput, RaffleAdmin, RaffleSettings, RaffleSummary,
+    EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleSettings, RaffleSummary,
 };
 #[cfg(feature = "server")]
 use crate::server::{AppState, service};
@@ -132,7 +132,7 @@ admin_api! {
     fn delete_prize(id: String, prize_id: String) -> () =
         |app, owner| service::delete_prize(app, owner, &id, &prize_id);
 
-    fn lifecycle(id: String, action: Lifecycle) -> () =
+    fn lifecycle(id: String, action: LifecycleCommand) -> () =
         |app, owner| service::lifecycle(app, owner, &id, action);
 
     fn start_draw(id: String) -> () = |app, owner| service::start_draw(app, owner, &id);

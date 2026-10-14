@@ -9,7 +9,7 @@ mod prizes;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use rafi_lifecycle::RaffleState;
+use rafi_lifecycle::{RaffleState, entrant::Source};
 use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
 
 use super::{
@@ -35,8 +35,8 @@ use crate::{
     i18n::Lang,
     icons::{I, Icon},
     model::{
-        AdminEntrant, EntrantPatch, EntrantSource, Lifecycle, Prize, RaffleAdmin as AdminData,
-        RaffleView, StartStep,
+        AdminEntrant, EntrantPatch, LifecycleCommand, Prize, RaffleAdmin as AdminData, RaffleView,
+        StartStep,
     },
 };
 
@@ -332,7 +332,7 @@ fn Stats(admin: AdminData) -> Element {
     let manual = admin
         .entrants
         .iter()
-        .filter(|e| e.source == EntrantSource::Manual)
+        .filter(|e| e.source == Source::Manual)
         .count();
     let winners = v
         .draws

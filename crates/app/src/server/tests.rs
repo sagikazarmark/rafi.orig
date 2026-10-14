@@ -21,7 +21,7 @@ use tower::ServiceExt;
 use rafi_raffle::{Decision, DrawRequest};
 
 use super::{AppState, config::Config, routes, service};
-use crate::model::{Lifecycle, PrizeInput};
+use crate::model::{LifecycleCommand, PrizeInput};
 
 const OWNER: &str = "user_test";
 
@@ -176,10 +176,10 @@ async fn setup_open(app: &AppState, prizes: &[(&str, u32)]) -> RaffleRow {
         .await
         .unwrap();
     }
-    service::lifecycle(app, OWNER, &id, Lifecycle::Publish)
+    service::lifecycle(app, OWNER, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
-    service::lifecycle(app, OWNER, &id, Lifecycle::Open)
+    service::lifecycle(app, OWNER, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     raffles::get(&app.db, &id).await.unwrap().unwrap()
@@ -1027,15 +1027,15 @@ async fn lifecycle_guards() {
     let app = app().await;
     let id = service::create(&app, OWNER, "Guards").await.unwrap();
     assert!(
-        service::lifecycle(&app, OWNER, &id, Lifecycle::Open)
+        service::lifecycle(&app, OWNER, &id, LifecycleCommand::Open)
             .await
             .is_err(),
         "cannot open a draft"
     );
-    service::lifecycle(&app, OWNER, &id, Lifecycle::Publish)
+    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
-    service::lifecycle(&app, OWNER, &id, Lifecycle::Open)
+    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     assert!(
@@ -1129,7 +1129,11 @@ async fn fake_entrants_are_added_in_one_batch() {
     .unwrap();
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert_eq!(entrants.len(), rafi_lifecycle::entrant::MAX_FAKES as usize);
-    assert!(entrants.iter().all(|e| e.source == "fake" && !e.hidden));
+    assert!(
+        entrants
+            .iter()
+            .all(|e| e.source == rafi_lifecycle::entrant::Source::Fake && !e.hidden)
+    );
     let ids: std::collections::HashSet<_> = entrants.iter().map(|e| &e.id).collect();
     assert_eq!(ids.len(), entrants.len());
 }

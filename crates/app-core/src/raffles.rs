@@ -2,7 +2,7 @@
 //! through the lifecycle.
 
 use rafi_lifecycle::{self as lifecycle, settings};
-use rafi_model::{Lifecycle, RaffleSettings, RaffleSummary};
+use rafi_model::{LifecycleCommand, RaffleSettings, RaffleSummary};
 use rafi_store::{RaffleRow, audit, prizes, raffles};
 
 use crate::{App, Refusal, Result, ids, owned};
@@ -177,13 +177,13 @@ pub async fn duplicate(app: &App, owner: &str, id: &str) -> Result<String> {
     Err(Refusal::JoinCodes.into())
 }
 
-pub async fn lifecycle(app: &App, owner: &str, id: &str, action: Lifecycle) -> Result<()> {
+pub async fn lifecycle(app: &App, owner: &str, id: &str, action: LifecycleCommand) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     let command = match action {
-        Lifecycle::Publish => lifecycle::Command::Publish,
-        Lifecycle::Unpublish => lifecycle::Command::Unpublish,
-        Lifecycle::Open => lifecycle::Command::Open,
-        Lifecycle::Close => lifecycle::Command::Close,
+        LifecycleCommand::Publish => lifecycle::Command::Publish,
+        LifecycleCommand::Unpublish => lifecycle::Command::Unpublish,
+        LifecycleCommand::Open => lifecycle::Command::Open,
+        LifecycleCommand::Close => lifecycle::Command::Close,
     };
     let from = raffle.state;
     let to = from

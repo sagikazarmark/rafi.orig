@@ -327,7 +327,10 @@ pub(super) async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
     let a = entrants::by_token(db, "r1", "a").await.map_err(fail)?;
     check(
         a.is_some_and(|a| {
-            a.id == "a" && a.source == "self" && a.consent_rules_at.is_some() && !a.hidden
+            a.id == "a"
+                && a.source == rafi_lifecycle::entrant::Source::SelfService
+                && a.consent_rules_at.is_some()
+                && !a.hidden
         }),
         "found by token",
     )?;
@@ -384,9 +387,11 @@ pub(super) async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
     let list = entrants::list(db, "r1").await.map_err(fail)?;
     check(
         list.len() == 70
-            && list
-                .iter()
-                .all(|e| e.source == "fake" && e.created_at == 5 && e.email_norm.is_none()),
+            && list.iter().all(|e| {
+                e.source == rafi_lifecycle::entrant::Source::Fake
+                    && e.created_at == 5
+                    && e.email_norm.is_none()
+            }),
         "seventy fakes",
     )?;
     check(

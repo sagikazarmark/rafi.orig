@@ -136,40 +136,13 @@ pub struct PrizeInput {
     pub position: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EntrantSource {
-    #[serde(rename = "self")]
-    SelfService,
-    Manual,
-    Fake,
-}
-
-impl EntrantSource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::SelfService => "self",
-            Self::Manual => "manual",
-            Self::Fake => "fake",
-        }
-    }
-
-    pub fn parse(s: &str) -> Self {
-        match s {
-            "manual" => Self::Manual,
-            "fake" => Self::Fake,
-            _ => Self::SelfService,
-        }
-    }
-}
-
 /// An entrant as the organizer sees it (includes personal data).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdminEntrant {
     pub id: String,
     pub display_name: String,
     pub email: Option<String>,
-    pub source: EntrantSource,
+    pub source: rafi_lifecycle::entrant::Source,
     pub hidden: bool,
     pub claim_code: String,
     pub marketing: bool,
@@ -232,9 +205,12 @@ pub enum StartStep {
     Started,
 }
 
+/// A lifecycle command the organizer gives from the admin page: the
+/// organizer's subset of `rafi_lifecycle::Command` (freezing is starting the
+/// draw, purging is its own action).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Lifecycle {
+pub enum LifecycleCommand {
     Publish,
     Unpublish,
     Open,
