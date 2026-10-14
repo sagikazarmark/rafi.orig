@@ -12,7 +12,6 @@ anyhow = "1"
 rafi-raffle = { workspace = true }
 restate-drand = { workspace = true }
 rafi-engine = { workspace = true, features = ["drand"] }
-rafi-platform = { workspace = true }
 restate-sdk = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

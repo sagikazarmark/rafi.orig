@@ -6,8 +6,8 @@ use std::{sync::Arc, time::Duration};
 use rafi_app_core::{self as app, App, Error, LiveUpdates, Policy, Refusal};
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
+use rafi_live_server::Polling;
 use rafi_model::{EntrantPatch, Lifecycle, PrizeInput, StartStep};
-use rafi_platform::{Notify, Polling};
 use rafi_raffle::{Decision, DrawRequest, ItemStatus, Resolution};
 use rafi_store::{Db, RaffleWriter, entrants, raffles};
 
@@ -23,11 +23,7 @@ async fn app() -> App {
     })
     .expect("drand");
     let chain = drand.chain_hash();
-    let engine = LocalEngine::new(
-        drand,
-        RaffleWriter::new(db.clone()),
-        Notify::new(Polling, rafi_raffle::RaffleId::as_str),
-    );
+    let engine = LocalEngine::new(drand, RaffleWriter::new(db.clone()), Polling);
     App {
         db,
         chain,

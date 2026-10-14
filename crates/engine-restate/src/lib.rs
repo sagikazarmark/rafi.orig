@@ -25,6 +25,7 @@
 
 mod client;
 mod info;
+mod send;
 mod service;
 mod status;
 

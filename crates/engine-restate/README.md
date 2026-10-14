@@ -25,9 +25,8 @@ Committing to a round and awaiting its beacon go through [`restate-drand`](https
 After every change the raffle goes to a `Store` (the app's database), then, if the host gave one, clients are
 told through an `Observer`, best effort, as a journaled step of its own; both are [`rafi-engine`](../engine)'s
 ports. A host whose clients poll the store passes no observer, and no step is journaled (`restate-rafi`). On Workers,
-`rafi_platform::Notify` adapts a [`rafi-platform`](../platform) `Notifier`, with the host saying what each raffle's
-clients follow (for rafi, the raffle's own ID: `RaffleId::as_str`). `services` binds both services the way every host
-does.
+the observer is the live notifier (a [`rafi-live-server`](../live-server) `Notifier`), which nudges the raffle's
+room. `services` binds both services the way every host does.
 
 ```rust
 use std::sync::Arc;

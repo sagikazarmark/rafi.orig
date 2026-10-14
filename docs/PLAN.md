@@ -1,6 +1,6 @@
 # Rafi: meetup raffle plan
 
-Status: the current state, 2026-10-10 (revision 10). How it got here is in the
+Status: the current state, 2026-10-14 (revision 11). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
 [raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md).
@@ -191,10 +191,9 @@ rafi-engine          the engine contract: Engine, Store, Observer; DrandClient (
 rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's Engine
 rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; the phones' snapshot
 rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), solving the proof-of-work, Follow, PageConfig
-rafi-live-server     the servers' side: the view of a raffle as drawn, the publish rule, issuing and verifying the proof-of-work
-rafi-platform        what a deployment provides: Notifier, RateLimit, Notify (a Notifier as the engine's Observer)
+rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), the view of a raffle as drawn, the publish rule, issuing and verifying the proof-of-work
 rafi-model           the types the app's server and browser exchange
-rafi-app-core        every use case, over App { db, chain, engine, live_updates, policy }; typed errors; no HTTP, no i18n
+rafi-app-core        every use case, over App { db, chain, engine, live_updates, policy }; typed errors; RateLimit; no HTTP, no i18n
 rafi                 the HTTP side (routes, participant pages, auth, retention) and the web UI
 rafi-participant     the participant page's WASM and its JavaScript fallback
 ```
@@ -202,9 +201,9 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 - The rules live in `rafi-raffle` and `rafi-lifecycle`; the store, the engines and the app ask them. The store's SQL
   state lists are generated from them.
 - A manifest and an engine run a whole raffle: the engine knows nothing of the app (no lifecycle, no settings). A
-  host says what a raffle's clients follow (`rafi_platform::Notify`, on Workers; the native host passes no notifier,
-  since its clients poll), and the app's retention run dates erasure.
-- `rafi-engine` depends on no platform crate, and nothing below the app pulls in Dioxus (`rafi-live-client`'s `card`
+  host passes the engine its live notifier as the `Observer` (on Workers; the native host passes none, since its
+  clients poll), and the app's retention run dates erasure.
+- `rafi-engine` depends on no live or Cloudflare crate, and nothing below the app pulls in Dioxus (`rafi-live-client`'s `card`
   is off). The phone builds only `rafi-live-client`: no `rafi-raffle`, drand or BLS.
 - The server sends the admin what it may do (`RaffleAdmin.actions`, `AdminEntrant.deliverable`); the UI derives no
   rules.
@@ -406,6 +405,10 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   (`Raffle`, `RaffleId`; the manifest names its `raffle`), the app's rules are `rafi-lifecycle`, the engine contract is
   `RaffleEngine` / `RaffleStore` / `RaffleNotifier`, the Restate object is `Raffle` again, and the row stores it as
   `raffles.log`. Draws and items keep their names.
+- **11** (2026-10-14). `rafi-platform` dissolved: the engine contract is `Engine` / `Store` / `Observer`; `rafi-live`
+  split into `rafi-live-client` (the phone's) and `rafi-live-server`, whose `Notifier` is an `Observer` that can also
+  end live updates, so a deployment hands its notifier to the engine as is (`Notify` gone); `RateLimit` is
+  `rafi-app-core`'s, its Workers bindings the app Worker's.
 
 ## Appendix: key sources
 

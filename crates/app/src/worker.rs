@@ -9,8 +9,9 @@
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
-//! raffles' Durable Objects, the rate-limiting bindings, and configuration
-//! from the Worker's vars and secrets (see `wrangler.toml`).
+//! raffles' Durable Objects and configuration from the Worker's vars and
+//! secrets (see `wrangler.toml`). The join's rate limits, the app's own, are
+//! here ([`RateLimitBindings`]).
 //! Missing secrets fail closed: every request is refused rather than run with
 //! a default. Dev auth and mock drand need the `worker-dev` feature.
 //!
@@ -23,11 +24,15 @@ use std::{cell::OnceCell, sync::Arc};
 use axum::body::Body;
 use dioxus_clerk::server::{ClerkAuthLayer, ClerkAuthLayerConfig};
 pub use rafi_cloudflare::RaffleRoom;
-use rafi_cloudflare::{DurableObjects, RateLimitBindings, lookup};
+use rafi_cloudflare::{DurableObjects, lookup};
 use tower_service::Service;
 use worker::{Context, Env, HttpRequest, ScheduleContext, ScheduledEvent, event};
 
 use crate::server::{self, AppState, config::Config};
+
+mod ratelimit;
+
+use ratelimit::RateLimitBindings;
 
 type App = (AppState, Option<ClerkAuthLayer>);
 

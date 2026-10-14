@@ -23,7 +23,6 @@ use std::{cell::OnceCell, rc::Rc, sync::Arc};
 use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
 use rafi_engine::drand::{DrandClient, DrandConfig};
-use rafi_platform::Notify;
 use rafi_store::RaffleWriter;
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};
 use worker::{Context, Env, HttpRequest, Result, event};
@@ -41,12 +40,9 @@ fn drand_config(env: &Env) -> DrandConfig {
 fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
     let store = RaffleWriter::new(rafi_cloudflare::database(env)?);
     let drand = DrandClient::new(drand_config(env))?;
-    // A raffle's changes go to its channel.
-    let notifier = Notify::new(
-        DurableObjects::new(env.clone()),
-        rafi_raffle::RaffleId::as_str,
-    );
-    let (raffle, info) = rafi_engine_restate::services(drand, store, Some(Arc::new(notifier)));
+    // A raffle's changes go to its room.
+    let observer = Arc::new(DurableObjects::new(env.clone()));
+    let (raffle, info) = rafi_engine_restate::services(drand, store, Some(observer));
     let mut builder = Endpoint::builder();
     let keys = lookup(env, "RESTATE_IDENTITY_KEYS").unwrap_or_default();
     let keys: Vec<&str> = keys

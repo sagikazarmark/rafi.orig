@@ -4,7 +4,8 @@
 use std::{fmt, sync::Arc};
 
 use rafi_live_client::Follow;
-use rafi_platform::{BoxFuture, Notifier, Polling};
+use rafi_live_server::{Notifier, Polling};
+use rafi_raffle::RaffleId;
 
 /// How a deployment pushes raffles' changes to clients, and how clients
 /// follow them. Built from one notifier and a function of that notifier, so
@@ -34,14 +35,15 @@ impl LiveUpdates {
         Self::new(Arc::new(Polling), |_, _| Follow::poll())
     }
 
-    /// What phones see of `raffle_id` may have changed ([`Notifier::notify`]).
-    pub fn notify<'a>(&'a self, raffle_id: &'a str) -> BoxFuture<'a, ()> {
-        self.notifier.notify(raffle_id)
+    /// What phones see of `raffle_id` may have changed
+    /// ([`changed`](rafi_engine::Observer::changed)).
+    pub async fn notify(&self, raffle_id: &str) {
+        self.notifier.changed(&RaffleId::new(raffle_id)).await
     }
 
     /// Ends the raffle's live updates ([`Notifier::end`]).
-    pub fn end<'a>(&'a self, raffle_id: &'a str) -> BoxFuture<'a, anyhow::Result<()>> {
-        self.notifier.end(raffle_id)
+    pub async fn end(&self, raffle_id: &str) -> anyhow::Result<()> {
+        self.notifier.end(&RaffleId::new(raffle_id)).await
     }
 
     /// How clients follow `raffle_id` while its live updates run.
@@ -58,7 +60,7 @@ impl fmt::Debug for LiveUpdates {
 
 #[cfg(test)]
 mod tests {
-    use rafi_platform::Recording;
+    use rafi_live_server::Recording;
 
     use super::*;
 
@@ -70,8 +72,8 @@ mod tests {
         });
         live.notify("a").await;
         live.end("b").await.unwrap();
-        assert_eq!(recording.notified(), ["a"]);
-        assert_eq!(recording.ended(), ["b"]);
+        assert_eq!(recording.notified(), [RaffleId::new("a")]);
+        assert_eq!(recording.ended(), [RaffleId::new("b")]);
         assert_eq!(
             live.follow("a"),
             Follow::Sse {

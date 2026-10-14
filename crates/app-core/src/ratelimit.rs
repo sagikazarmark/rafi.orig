@@ -8,7 +8,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use crate::BoxFuture;
+use rafi_engine::BoxFuture;
 
 /// The limits the app checks. Each has its own budget (on Workers, its own
 /// rate-limiting binding).
@@ -56,7 +56,7 @@ mod native {
     };
 
     use super::{Limit, RateLimit};
-    use crate::BoxFuture;
+    use rafi_engine::BoxFuture;
 
     /// Tiny keyed fixed-window rate limiter, in memory (one native process).
     #[derive(Clone, Default)]

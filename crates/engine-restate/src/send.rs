@@ -10,7 +10,7 @@ use std::future::Future;
 /// is only one thread to run it on. Everywhere else the future must already
 /// be `Send`, and this returns it unchanged.
 #[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
-pub fn sendable<F: Future>(future: F) -> impl Future<Output = F::Output> + Send {
+pub(crate) fn sendable<F: Future>(future: F) -> impl Future<Output = F::Output> + Send {
     one_thread::OneThread(future)
 }
 
@@ -20,7 +20,7 @@ pub fn sendable<F: Future>(future: F) -> impl Future<Output = F::Output> + Send 
 /// is only one thread to run it on. Everywhere else the future must already
 /// be `Send`, and this returns it unchanged.
 #[cfg(not(all(target_arch = "wasm32", not(target_feature = "atomics"))))]
-pub fn sendable<F: Future + Send>(future: F) -> impl Future<Output = F::Output> + Send {
+pub(crate) fn sendable<F: Future + Send>(future: F) -> impl Future<Output = F::Output> + Send {
     future
 }
 

@@ -1,6 +1,7 @@
-//! The `RateLimit` over Workers' rate-limiting bindings.
+//! The join's [`RateLimit`] over Workers' rate-limiting bindings.
 
-use rafi_platform::{BoxFuture, Limit, RateLimit};
+use rafi_app_core::{Limit, RateLimit};
+use rafi_engine::BoxFuture;
 use worker::{
     Env,
     send::{SendFuture, SendWrapper},

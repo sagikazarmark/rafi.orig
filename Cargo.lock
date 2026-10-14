@@ -4712,7 +4712,6 @@ dependencies = [
  "rafi-live-client",
  "rafi-live-server",
  "rafi-model",
- "rafi-platform",
  "rafi-raffle",
  "rafi-store",
  "restate-e2e-harness",
@@ -4744,7 +4743,6 @@ dependencies = [
  "rafi-live-client",
  "rafi-live-server",
  "rafi-model",
- "rafi-platform",
  "rafi-raffle",
  "rafi-store",
  "serde_json",
@@ -4761,9 +4759,10 @@ dependencies = [
  "anyhow",
  "js-sys",
  "partyline-worker",
+ "rafi-engine",
  "rafi-live-client",
  "rafi-live-server",
- "rafi-platform",
+ "rafi-raffle",
  "rafi-store",
  "serde_json",
  "wasm-bindgen",
@@ -4811,7 +4810,6 @@ dependencies = [
  "gloo-timers 0.3.0",
  "http",
  "rafi-engine",
- "rafi-platform",
  "rafi-raffle",
  "reqwest 0.13.5",
  "restate-drand",
@@ -4853,13 +4851,16 @@ dependencies = [
 name = "rafi-live-server"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "hex",
  "hmac 0.12.1",
+ "rafi-engine",
  "rafi-lifecycle",
  "rafi-live-client",
  "rafi-raffle",
  "serde_json",
  "sha2 0.10.9",
+ "tokio",
 ]
 
 [[package]]
@@ -4892,16 +4893,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-platform"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "rafi-engine",
- "rafi-raffle",
- "tokio",
-]
-
-[[package]]
 name = "rafi-raffle"
 version = "0.1.0"
 dependencies = [
@@ -4925,8 +4916,6 @@ dependencies = [
  "rafi-cloudflare",
  "rafi-engine",
  "rafi-engine-restate",
- "rafi-platform",
- "rafi-raffle",
  "rafi-store",
  "restate-sdk",
  "worker",

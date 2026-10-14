@@ -73,10 +73,10 @@ crates/restate-rafi-endpoint  restate-rafi: the native binary serving the Restat
 crates/restate-worker         rafi-restate-worker: the same services as a Cloudflare Worker, on D1, nudging the live channel
 crates/live-client            rafi-live-client: what a phone sees and runs (participant view and channel, how clients follow,
                               page config, solving the proof-of-work); `card`: the Dioxus card
-crates/live-server            rafi-live-server: the servers' side (the view built from a raffle as drawn, the live channel's
-                              publish rule, issuing and verifying the proof-of-work)
-crates/platform               rafi-platform: what a deployment provides (Notifier, RateLimit, Notify for the raffle engine)
-crates/cloudflare             rafi-cloudflare: all Cloudflare glue (RaffleRoom Durable Object, notifier, rate limits, config)
+crates/live-server            rafi-live-server: the servers' side (the Notifier a deployment pushes through, also the raffle
+                              engine's Observer; the view built from a raffle as drawn, the live channel's publish rule,
+                              issuing and verifying the proof-of-work)
+crates/cloudflare             rafi-cloudflare: the Cloudflare glue both Workers share (RaffleRoom Durable Object, notifier, config)
 crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
 crates/model                  rafi-model: the types the app's server and browser exchange (the app's `rafi::model`)
 crates/app-core               rafi-app-core: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
@@ -289,9 +289,10 @@ during a live raffle (`/api/status` shows `live_raffles`).
 ## Cloudflare Workers
 
 The plan and its decisions: [`docs/workers-plan.md`](docs/workers-plan.md). Cloudflare is one deployment, not an
-assumption of the code: the app and the raffle engine are written against `rafi-platform`'s interfaces, and
-`crates/cloudflare` (`rafi-cloudflare`) implements them over Workers bindings. Two Workers wire it up: the app
-(`crates/app`, feature `worker`, which also hosts the per-raffle `RaffleRoom` Durable Object) and the raffle engine
+assumption of the code: the app and the raffle engine are written against small interfaces (the engine's `Store` and
+`Observer`, the live `Notifier`, the app's `RateLimit`), and `crates/cloudflare` (`rafi-cloudflare`) implements the
+shared ones over Workers bindings. Two Workers wire it up: the app (`crates/app`, feature `worker`, which also hosts the
+per-raffle `RaffleRoom` Durable Object and counts joins on its rate-limiting bindings) and the raffle engine
 (`crates/restate-worker`), with the D1 database they share.
 
 Local development, everything under `wrangler dev` (the tools are in `devenv.nix`; wasm-bindgen-cli must match

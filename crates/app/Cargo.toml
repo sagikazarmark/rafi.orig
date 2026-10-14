@@ -18,7 +18,6 @@ rafi-model = { workspace = true }
 rafi-store = { workspace = true, optional = true }
 rafi-live-client = { workspace = true, features = ["card"] }
 rafi-live-server = { workspace = true, optional = true }
-rafi-platform = { workspace = true, optional = true }
 rafi-engine = { workspace = true, optional = true }
 # The web app adds `launch`, `web`, `devtools` and `logger`; the server only renders (`ssr`).
 dioxus = { version = "=0.7.10", default-features = false, features = ["router", "lib"] }
@@ -101,7 +100,6 @@ server = [
     "dep:rafi-app-core",
     "dep:rafi-store",
     "dep:rafi-live-server",
-    "dep:rafi-platform",
     "dep:rafi-engine",
     "dep:tracing",
     "dep:anyhow",

@@ -7,8 +7,8 @@ use rafi_raffle::RaffleId;
 use crate::BoxFuture;
 
 /// Told each time an engine has stored a raffle, so the host can tell
-/// clients it changed (`rafi_platform::Notify` maps a raffle to what they
-/// follow). Best effort: failures are logged, never returned (clients
+/// clients it changed (rafi's live notifier is one,
+/// `rafi_live_server::Notifier`). Best effort: failures are logged, never returned (clients
 /// re-read on their own).
 ///
 /// Engines wait for it before the raffle's next command, and impose no

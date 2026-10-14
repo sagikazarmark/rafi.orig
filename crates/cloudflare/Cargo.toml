@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi on Cloudflare Workers: the per-raffle RaffleRoom Durable Object, and the platform interfaces over Workers bindings"
+description = "Rafi on Cloudflare Workers: the per-raffle RaffleRoom Durable Object, the live notifier over it, and the Workers bindings Rafi reads"
 publish = false
 
 # Everything here is Workers glue: the crate is empty on other targets.
@@ -12,9 +12,10 @@ publish = false
 anyhow = "1"
 js-sys = "0.3"
 partyline-worker = "0.3"
+rafi-engine = { workspace = true }
 rafi-live-client = { workspace = true }
 rafi-live-server = { workspace = true }
-rafi-platform = { workspace = true }
+rafi-raffle = { workspace = true }
 rafi-store = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = "0.2"

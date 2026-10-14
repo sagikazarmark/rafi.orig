@@ -16,8 +16,8 @@ use axum::{
     routing::get,
 };
 use dioxus::prelude::*;
+use rafi_app_core::Limit;
 use rafi_live_client::{Card, CardStrings, PageConfig, Phase};
-use rafi_platform::Limit;
 use rafi_store::{EntrantRow, RaffleRow, entrants, live::Snapshot, prizes, raffles};
 use serde::{Deserialize, Serialize};
 

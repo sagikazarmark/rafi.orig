@@ -10,7 +10,7 @@
 //!   without personal data.
 //! - **Proof-of-work:** expired challenges are forgotten.
 //! - **Live updates:** a raffle that finished more than a day ago and still
-//!   has live updates gets them ended ([`Notifier::end`](rafi_platform::Notifier::end);
+//!   has live updates gets them ended ([`Notifier::end`](rafi_live_server::Notifier::end);
 //!   on Workers, its channel object is destroyed), whether or not erasure is on.
 //!
 //! The database side is [`rafi_store::retention`]: set-based writes, a few

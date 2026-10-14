@@ -64,7 +64,7 @@ jobs:
         run: |
           cargo clippy --target wasm32-unknown-unknown \
             -p rafi-lifecycle -p rafi-raffle -p rafi-model -p rafi-app-core \
-            -p rafi-store -p rafi-store-d1-check -p rafi-live-client -p rafi-live-server -p rafi-platform -p rafi-cloudflare -p rafi-cloudflare-check \
+            -p rafi-store -p rafi-store-d1-check -p rafi-live-client -p rafi-live-server -p rafi-cloudflare -p rafi-cloudflare-check \
             -p rafi-engine -p rafi-engine-restate -p rafi-participant -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker --features dev -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker -- -D warnings

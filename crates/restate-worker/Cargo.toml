@@ -22,10 +22,8 @@ anyhow = "1"
 http = "1"
 http-body-util = "0.1"
 rafi-cloudflare = { workspace = true }
-rafi-platform = { workspace = true }
 rafi-store = { workspace = true }
 rafi-engine = { workspace = true, features = ["drand"] }
 rafi-engine-restate = { workspace = true }
-rafi-raffle = { workspace = true }
 restate-sdk = { workspace = true, features = ["rust_crypto"] }
 worker = { version = "0.8.7", features = ["http"] }

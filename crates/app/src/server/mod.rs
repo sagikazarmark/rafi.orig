@@ -7,8 +7,9 @@
 //!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small
-//! interfaces from `rafi-platform` in [`AppState`] ([`Engine`],
-//! [`Notifier`], [`RateLimit`]); each deployment plugs in its own.
+//! interfaces in [`AppState`] ([`Engine`], the live updates'
+//! `rafi_live_server::Notifier`, [`RateLimit`]); each deployment plugs in its
+//! own.
 
 pub mod admin;
 pub mod altcha;
@@ -25,9 +26,9 @@ use std::path::PathBuf;
 use std::{ops::Deref, sync::Arc};
 
 use axum::{Extension, Router};
+use rafi_app_core::RateLimit;
 use rafi_engine::Engine;
 use rafi_engine_restate::RestateClient;
-use rafi_platform::RateLimit;
 use rafi_store::Db;
 
 use self::config::Config;
@@ -75,7 +76,7 @@ impl AppState {
             db,
             engine,
             service::LiveUpdates::polling(),
-            Arc::new(rafi_platform::Limiter::default()),
+            Arc::new(service::Limiter::default()),
         )
     }
 

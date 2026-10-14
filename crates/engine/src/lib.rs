@@ -9,8 +9,8 @@
 //!
 //! - [`Engine`]: the port the app draws through, with its contract;
 //! - [`Store`]: where an engine writes every new state (the projection);
-//! - [`Observer`]: how it tells clients a raffle changed (a host maps
-//!   raffles to what clients follow, `rafi_platform::Notify` for rafi).
+//! - [`Observer`]: who it tells that a raffle changed (for rafi, the
+//!   deployment's live notifier, `rafi_live_server::Notifier`).
 //!
 //! Whether an engine would take a command now is the raffle's own rule
 //! ([`Raffle::admit`](rafi_raffle::Raffle::admit)), checked against the
@@ -43,6 +43,7 @@ pub use store::{MemoryStore, Store};
 use std::{future::Future, pin::Pin};
 
 /// A boxed, sendable future, so the contract works with trait objects (axum
-/// and the Restate SDK require `Send`). The same type as
-/// `rafi_platform::BoxFuture`.
+/// and the Restate SDK require `Send`); Rafi's other ports use it too.
+/// Implementations whose futures aren't `Send` (Workers' bindings,
+/// single-threaded) wrap them, for example with `worker::send::SendFuture`.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

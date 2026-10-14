@@ -10,10 +10,11 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
+use rafi_app_core::Limiter;
 use rafi_lifecycle::RaffleState;
 use rafi_live_client::Follow;
-use rafi_platform::{Limiter, Recording};
-use rafi_raffle::{ItemStatus, Resolution};
+use rafi_live_server::Recording;
+use rafi_raffle::{ItemStatus, RaffleId, Resolution};
 use rafi_store::{RaffleRow, entrants, prizes, raffles};
 use tower::ServiceExt;
 
@@ -65,7 +66,7 @@ async fn app_with_engine(
     let engine = rafi_engine::local::LocalEngine::new(
         rafi_engine::drand::DrandClient::new(drand).expect("drand configuration"),
         rafi_store::RaffleWriter::new(db.clone()),
-        rafi_platform::Notify::new(rafi_platform::Polling, rafi_raffle::RaffleId::as_str),
+        rafi_live_server::Polling,
     );
     AppState::from_parts(
         cfg,
@@ -1468,7 +1469,7 @@ async fn ending_live_updates() {
     service::end_live(&app, OWNER, &raffle.id).await.unwrap();
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     let ended = r.live_ended_at.expect("live_ended_at is set");
-    assert_eq!(live.ended(), std::slice::from_ref(&raffle.id));
+    assert_eq!(live.ended(), [RaffleId::new(&raffle.id)]);
     let view = super::view::build(&app, &raffle.id).await.unwrap().unwrap();
     assert_eq!(view.follow, Follow::poll(), "ended: plain polling");
     assert!(view.live_ended);
@@ -1530,7 +1531,7 @@ async fn writes_nudge_and_destroy_the_channel() {
         .await
         .unwrap();
     service::purge(&app, OWNER, &raffle.id).await.unwrap();
-    assert_eq!(live.ended(), std::slice::from_ref(&raffle.id));
+    assert_eq!(live.ended(), [RaffleId::new(&raffle.id)]);
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state, RaffleState::Purged);
     assert!(r.live_ended_at.is_some(), "a purge ends live updates");
@@ -1545,7 +1546,10 @@ async fn writes_nudge_and_destroy_the_channel() {
 
     let other = service::create(&app, OWNER, "Other").await.unwrap();
     service::delete(&app, OWNER, &other).await.unwrap();
-    assert_eq!(live.ended(), [raffle.id.clone(), other]);
+    assert_eq!(
+        live.ended(),
+        [RaffleId::new(&raffle.id), RaffleId::new(other)]
+    );
 }
 
 /// The retention run ends the live channel of raffles finished over a day
@@ -1570,7 +1574,7 @@ async fn retention_ends_channels_and_logs_erasures() {
     let report = super::retention::run(&app).await.unwrap();
     assert_eq!(report.erased, 0);
     assert_eq!(report.channels_ended, 1);
-    assert_eq!(live.ended(), std::slice::from_ref(&old.id));
+    assert_eq!(live.ended(), [RaffleId::new(&old.id)]);
     let r = raffles::get(&app.db, &old.id).await.unwrap().unwrap();
     assert!(r.live_ended_at.is_some());
     assert!(

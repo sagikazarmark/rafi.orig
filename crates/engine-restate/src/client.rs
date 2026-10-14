@@ -23,15 +23,14 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use bytes::Bytes;
-use rafi_engine::{Engine, EngineError, EngineInfo};
-use rafi_platform::{BoxFuture, sendable};
+use rafi_engine::{BoxFuture, Engine, EngineError, EngineInfo};
 use rafi_raffle::{Decision, DrawRequest, Manifest, RaffleId};
 use restate_sdk::{
     ingress::{CallResponse, Client, ClientError, RequestExecutor},
     serde::Json,
 };
 
-use crate::{EngineInfoIngressClient, RaffleIngressClient, status::refusal_kind};
+use crate::{EngineInfoIngressClient, RaffleIngressClient, send::sendable, status::refusal_kind};
 
 /// How to reach the ingress.
 #[derive(Debug, Clone)]
