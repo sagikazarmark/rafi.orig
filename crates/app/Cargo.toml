@@ -15,7 +15,6 @@ crate-type = ["cdylib", "rlib"]
 rafi-lifecycle.workspace = true
 rafi-raffle.workspace = true
 rafi-model.workspace = true
-rafi-drand = { path = "../drand", optional = true }
 rafi-store = { workspace = true, optional = true }
 rafi-live = { path = "../live", features = ["raffle", "card"] }
 rafi-platform = { path = "../platform", optional = true }
@@ -65,8 +64,8 @@ rafi-cloudflare = { path = "../cloudflare", optional = true }
 http = { version = "1", optional = true }
 
 [dev-dependencies]
-rafi-drand = { path = "../drand", features = ["mock"] }
-rafi-engine = { path = "../engine", features = ["local"] }
+rafi-raffle = { workspace = true, features = ["mock-chain"] }
+rafi-engine = { path = "../engine", features = ["local", "mock-drand"] }
 restate-e2e-harness = "0.3"
 restate-sdk = { workspace = true }
 dioxus-clerk = { version = "0.6", features = ["server", "testing"] }
@@ -77,7 +76,7 @@ http-body-util = "0.1"
 default = []
 ## Allow `RAFI_DRAND_CHAIN=mock` (or `RAFI_DRAND_MOCK=1`): raffles commit to a
 ## public test chain (offline development). Release builds refuse it.
-mock-drand = ["dep:rafi-drand", "rafi-drand/mock"]
+mock-drand = ["rafi-raffle/mock-chain"]
 web = [
     "dioxus/web",
     "dioxus/launch",

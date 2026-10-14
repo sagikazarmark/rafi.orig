@@ -10,9 +10,8 @@ publish = false
 [dependencies]
 anyhow = "1"
 rafi-raffle.workspace = true
-rafi-drand = { path = "../drand" }
 restate-drand = { workspace = true }
-rafi-engine = { path = "../engine" }
+rafi-engine = { path = "../engine", features = ["drand"] }
 rafi-platform = { path = "../platform" }
 restate-sdk = { workspace = true }
 serde.workspace = true
@@ -30,7 +29,7 @@ futures-util = { version = "0.3", default-features = false }
 gloo-timers = { version = "0.3", features = ["futures"] }
 
 [dev-dependencies]
-rafi-drand = { path = "../drand", features = ["mock"] }
+rafi-raffle = { workspace = true, features = ["mock-chain"] }
 rafi-engine = { path = "../engine", features = ["conformance"] }
 restate-e2e-harness = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

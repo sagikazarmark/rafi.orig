@@ -10,8 +10,8 @@
 
 use std::time::Duration;
 
-use rafi_drand::{DrandClient, DrandConfig};
 use rafi_engine::RaffleEngine;
+use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine_restate::RestateClient;
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::{Decision, DrawRequest};
@@ -191,7 +191,7 @@ async fn app_and_restate_rafi_share_the_database() {
         &data.manifest,
         &data.manifest_hash,
         &data.events,
-        rafi_drand::resolve_chain,
+        rafi_raffle::drand::resolve_chain,
     );
     assert!(report.ok(), "{report:#?}");
     assert_eq!(report.draws.len(), 1);

@@ -13,10 +13,9 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-rafi-engine = { path = "../engine" }
+rafi-engine = { path = "../engine", features = ["drand"] }
 rafi-engine-restate = { path = "../engine-restate" }
 rafi-raffle.workspace = true
-rafi-drand = { path = "../drand" }
 rafi-store.workspace = true
 
 anyhow = "1"
@@ -34,7 +33,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [features]
 ## Allow `drand.mock = true`: draws from a public test chain (development only).
-mock-drand = ["rafi-drand/mock"]
+mock-drand = ["rafi-engine/mock-drand"]
 
 [dev-dependencies]
 figment = { version = "0.10", features = ["env", "json", "toml", "yaml", "test"] }

@@ -185,10 +185,9 @@ The projector is the source of truth: a fake "you won" screen lacks the winner's
 ### 8.1 Layers
 
 ```
-rafi-raffle          the raffle: manifest, state machine and admission, rafi-draw-v1, verifier (pure; also WASM)
+rafi-raffle          the raffle: manifest, state machine and admission, rafi-draw-v1, verifier (pure; also WASM); the mock chain (`mock-chain`)
 rafi-lifecycle       the raffle's lifecycle in the app: states, starting the draw, entrants, settings, prizes as items (pure)
-rafi-drand           rafi's drand settings (chain, relays, lead, timeout) on the `drand` crate
-rafi-engine          the engine contract: RaffleEngine, RaffleStore, RaffleNotifier; LocalEngine (`local`), the suite (`conformance`)
+rafi-engine          the engine contract: RaffleEngine, RaffleStore, RaffleNotifier; DrandClient (`drand`), LocalEngine (`local`), the suite (`conformance`)
 rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's RaffleEngine
 rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's RaffleStore; the phones' snapshot
 rafi-live            what a phone sees: ParticipantView, screen(), Card (`card`), proof-of-work, LiveTransport, PageConfig, publish rule

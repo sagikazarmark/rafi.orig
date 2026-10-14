@@ -8,7 +8,7 @@ use figment::{
     Figment,
     providers::{Env, Format, Json, Toml, Yaml},
 };
-use rafi_drand::DrandConfig;
+use rafi_engine::drand::DrandConfig;
 use rafi_store::{Db, RaffleWriter};
 use restate_config::{EndpointConfig, ServiceOptionsConfig};
 use serde::{Deserialize, Serialize};

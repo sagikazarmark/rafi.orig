@@ -4,18 +4,24 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The Rafi raffle engine's contract: the port the app draws through, the store engines write to, and what an engine admits; an in-process engine and the conformance suite behind features"
+description = "The Rafi raffle engine's contract: the port the app draws through, the store engines write to, and what an engine admits; the drand client engines draw with, an in-process engine and the conformance suite behind features"
 publish = false
 
 [features]
+## `drand`: the drand client every engine draws with (`DrandConfig`,
+## `DrandClient`): Rafi's chain, relays, lead and fetch timeout.
+drand = ["dep:drand", "dep:reqwest"]
+## `mock-drand`: allow `mock = true`, drawing from the mock chain (a test
+## chain with a public seed; development and tests only).
+mock-drand = ["drand", "drand/test-chain", "rafi-raffle/mock-chain"]
 ## `local`: an in-process engine (`LocalEngine`), for tests and development.
 ## Never a production engine: enable it from `[dev-dependencies]` only
 ## (docs/engine-plan.md). Native only.
-local = ["dep:tokio", "dep:tracing", "dep:rafi-drand"]
+local = ["dep:tokio", "dep:tracing", "drand"]
 ## `conformance`: the scenarios every raffle engine must pass. This crate's
 ## tests run it on `LocalEngine`; `rafi-engine-restate`'s on the `Raffle`
 ## object through the app's client.
-conformance = ["dep:tokio", "dep:serde_json", "dep:rafi-drand", "rafi-drand/mock"]
+conformance = ["dep:tokio", "dep:serde_json", "mock-drand"]
 
 [dependencies]
 anyhow = "1"
@@ -23,8 +29,11 @@ rafi-raffle.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
+# drand
+drand = { workspace = true, features = ["client", "rustls", "bls12-381"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"], optional = true }
+
 # local, conformance
-rafi-drand = { path = "../drand", optional = true }
 tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net", "io-util"], optional = true }
 tracing = { version = "0.1", optional = true }
 
@@ -33,5 +42,5 @@ serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 rafi-engine = { path = ".", features = ["local", "conformance"] }
-rafi-drand = { path = "../drand", features = ["mock"] }
+serde_json.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

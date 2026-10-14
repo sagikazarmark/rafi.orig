@@ -32,7 +32,7 @@ does.
 ```rust
 use std::sync::Arc;
 
-use rafi_drand::{DrandClient, DrandConfig};
+use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::{MemoryRaffleStore, RecordingNotifier};
 
 let drand = DrandClient::new(DrandConfig::default())?;

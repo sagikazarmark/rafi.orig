@@ -28,7 +28,7 @@ use std::{
 };
 
 use crate::BoxFuture;
-use rafi_drand::DrandClient;
+use crate::drand::DrandClient;
 use rafi_raffle::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Error as RaffleError, ErrorKind, Manifest,
     Raffle, RaffleId,
@@ -325,8 +325,8 @@ impl Io {
 
 #[cfg(test)]
 mod tests {
+    use crate::drand::DrandConfig;
     use crate::{MemoryRaffleStore, RecordingNotifier};
-    use rafi_drand::DrandConfig;
     use rafi_raffle::{ItemStatus, ManifestItem};
 
     use super::*;

@@ -19,12 +19,7 @@ mod manifest;
 mod raffle;
 mod verify;
 
-/// The drand types this crate's API is made of (a [`BeaconSource`] names a
-/// drand chain; a draw completes with a verified beacon), and the public
-/// chains the verifier knows.
-pub mod drand {
-    pub use drand::{Beacon, ChainHash, ChainInfo, VerifiedBeacon, Verifier, chains};
-}
+pub mod drand;
 
 pub use beacon::BeaconSource;
 pub use command::{BeaconFetch, Command, Decision, DrawRequest, Resolution};

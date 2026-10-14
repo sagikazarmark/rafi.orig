@@ -27,11 +27,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use crate::drand::{DrandClient, DrandConfig};
 use crate::{
     BoxFuture, EngineError, MemoryRaffleStore, RaffleEngine, RaffleNotifier, RaffleStore,
     RecordingNotifier,
 };
-use rafi_drand::{DrandClient, DrandConfig};
 use rafi_raffle::{
     BeaconSource, Command, Decision, DrawRequest, ErrorKind, Event, ItemStatus, Manifest,
     ManifestItem, Raffle, Resolution, verify,
@@ -341,7 +341,7 @@ async fn forging_relay() -> Result<String, String> {
         .map_err(|e| format!("binding the forging relay: {e}"))?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
     tokio::spawn(async move {
-        let forger = rafi_drand::mock_chain();
+        let forger = rafi_raffle::drand::mock_chain();
         while let Ok((mut socket, _)) = listener.accept().await {
             let mut buf = vec![0u8; 4096];
             let n = socket.read(&mut buf).await.unwrap_or(0);
@@ -434,7 +434,7 @@ fn verified(doc: &Manifest, state: &Raffle) -> Result<rafi_raffle::Report, Strin
         &doc.canonical_json(),
         &state.manifest_hash().to_string(),
         state.events(),
-        rafi_drand::resolve_chain,
+        rafi_raffle::drand::resolve_chain,
     );
     ensure!(report.manifest_hash_ok, "the manifest hash doesn't verify");
     ensure!(
@@ -484,7 +484,7 @@ async fn open_is_idempotent_per_manifest(fx: Arc<Fixture>, id: String) -> Result
     let quicknet = rafi_raffle::drand::chains::QUICKNET_HASH;
     chain.beacon = BeaconSource::Drand(quicknet);
     if fx.drand.chain_hash() == quicknet {
-        chain.beacon = BeaconSource::Drand(rafi_drand::mock_chain().chain().hash());
+        chain.beacon = BeaconSource::Drand(rafi_raffle::drand::mock_chain().chain().hash());
     }
     match fx.engine.open(&chain).await {
         Err(EngineError::Rejected {

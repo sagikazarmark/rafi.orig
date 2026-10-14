@@ -34,7 +34,7 @@ pub use service::{Raffle, RaffleIngressClient, SERVICE_NAME};
 
 use std::sync::Arc;
 
-use rafi_drand::DrandClient;
+use rafi_engine::drand::DrandClient;
 use rafi_engine::{RaffleNotifier, RaffleStore};
 
 /// The engine's services, as every host binds them: the [`Raffle`] object,

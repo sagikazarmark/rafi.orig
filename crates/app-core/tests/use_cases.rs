@@ -4,7 +4,7 @@
 use std::{sync::Arc, time::Duration};
 
 use rafi_app_core::{self as app, App, Error, Policy, Refusal};
-use rafi_drand::{DrandClient, DrandConfig};
+use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
 use rafi_model::{EntrantPatch, Lifecycle, PrizeInput, StartStep};
 use rafi_platform::{Notify, Polling};

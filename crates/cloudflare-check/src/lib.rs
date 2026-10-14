@@ -99,12 +99,7 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
 /// chain the Restate Worker uses in development) and the frozen raffle row.
 /// Returns the manifest to hand to `Raffle/{id}/open`.
 async fn prepare(db: &Db, raffle: &str) -> Result<String> {
-    let chain = rafi_drand::DrandClient::new(rafi_drand::DrandConfig {
-        mock: true,
-        ..Default::default()
-    })
-    .map_err(err)?
-    .chain_hash();
+    let chain = rafi_raffle::drand::mock_chain().chain().hash();
     let doc = manifest(raffle, BeaconSource::Drand(chain));
     let json = doc.canonical_json();
     db.query("UPDATE raffles SET state = 'frozen', manifest = ?, manifest_hash = ? WHERE id = ?")
