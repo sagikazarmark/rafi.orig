@@ -7,7 +7,9 @@ mod screen;
 mod verify;
 
 use dioxus::prelude::*;
-use rafi_pages::icons::{I, Icon};
+use dioxus_icons::lucide::{
+    Dice5, Monitor, Moon, QrCode, ShieldCheck, Sparkles, Sun, Ticket, Trophy,
+};
 
 use admin::{AdminHome, RaffleAdmin};
 use screen::Screen;
@@ -15,7 +17,7 @@ use verify::Verify;
 
 use crate::components::toast::{ToastBlock, ToastProvider};
 
-/// Bundled without a hash, at [`rafi_pages::style::STYLESHEET_URL`], so the participant pages and
+/// Bundled without a hash, at `rafi_pages::style::STYLESHEET_URL`, so the participant pages and
 /// `index.html` can link it too. Generic options: dx (0.7.9) ignores the hash flag for CSS options.
 const TAILWIND_CSS: Asset = asset!(
     "/assets/tailwind.css",
@@ -74,7 +76,7 @@ pub fn Brand(#[props(default = "text-xl".to_string())] size: String) -> Element 
     rsx! {
         span { class: "brand {size}",
             span { class: "grid place-items-center rounded-xl bg-primary p-1.5 text-primary-content -rotate-6 shadow-sm",
-                Icon { i: I::Ticket, class: "size-5" }
+                Ticket { class: "size-5" }
             }
             "rafi"
         }
@@ -97,9 +99,9 @@ pub fn ThemeToggle(#[props(default)] class: String) -> Element {
         });
     });
     let (icon, label, next) = match mode().as_str() {
-        "rafi" => (I::Sun, "Light theme", "rafi-dark"),
-        "rafi-dark" => (I::Moon, "Dark theme", "system"),
-        _ => (I::Monitor, "System theme", "rafi"),
+        "rafi" => (rsx! { Sun { class: "size-5" } }, "Light theme", "rafi-dark"),
+        "rafi-dark" => (rsx! { Moon { class: "size-5" } }, "Dark theme", "system"),
+        _ => (rsx! { Monitor { class: "size-5" } }, "System theme", "rafi"),
     };
     rsx! {
         button {
@@ -113,7 +115,7 @@ pub fn ThemeToggle(#[props(default)] class: String) -> Element {
                 document::eval(&js);
                 mode.set(next.to_owned());
             },
-            Icon { i: icon, class: "size-5" }
+            {icon}
         }
     }
 }
@@ -131,7 +133,7 @@ fn Home() -> Element {
             main { class: "mx-auto grid max-w-6xl items-center gap-12 px-5 pb-20 pt-10 lg:grid-cols-[1.2fr_1fr]",
                 div { class: "space-y-6",
                     span { class: "badge badge-soft badge-secondary gap-1.5 font-semibold",
-                        Icon { i: I::Sparkles, class: "size-3.5" }
+                        Sparkles { class: "size-3.5" }
                         "For meetups, conferences & community events"
                     }
                     h1 { class: "text-5xl font-extrabold leading-[1.05] sm:text-6xl",
@@ -145,11 +147,11 @@ fn Home() -> Element {
                     }
                     div { class: "flex flex-wrap gap-3",
                         Link { class: "btn btn-primary btn-lg hover-wiggle", to: Route::AdminHome {},
-                            Icon { i: I::Ticket }
+                            Ticket { class: "size-5" }
                             "Start a raffle"
                         }
                         a { class: "btn btn-ghost btn-lg", href: "https://drand.love", target: "_blank",
-                            Icon { i: I::ShieldCheck }
+                            ShieldCheck { class: "size-5" }
                             "How fairness works"
                         }
                     }
@@ -166,26 +168,26 @@ fn Home() -> Element {
                                 p { class: "text-xs uppercase tracking-widest opacity-70", "Claim code" }
                                 p { class: "claim-code text-3xl", "K7Q2" }
                             }
-                            Icon { i: I::Trophy, class: "size-12 opacity-90" }
+                            Trophy { class: "size-12 opacity-90" }
                         }
                     }
                 }
             }
             section { class: "mx-auto grid max-w-6xl gap-4 px-5 pb-24 md:grid-cols-3",
-                Feature { icon: I::QrCode, title: "Scan & join", body: "No app, no account. A name and an email on any phone, even on shaky venue wifi." }
-                Feature { icon: I::Dice, title: "Drawn in public", body: "Every prize commits to a future drand round first. The countdown is the suspense." }
-                Feature { icon: I::ShieldCheck, title: "Check it yourself", body: "Anyone can re-run every draw in the browser afterwards. Personal data is erased automatically." }
+                Feature { icon: rsx! { QrCode { class: "size-6" } }, title: "Scan & join", body: "No app, no account. A name and an email on any phone, even on shaky venue wifi." }
+                Feature { icon: rsx! { Dice5 { class: "size-6" } }, title: "Drawn in public", body: "Every prize commits to a future drand round first. The countdown is the suspense." }
+                Feature { icon: rsx! { ShieldCheck { class: "size-6" } }, title: "Check it yourself", body: "Anyone can re-run every draw in the browser afterwards. Personal data is erased automatically." }
             }
         }
     }
 }
 
 #[component]
-fn Feature(icon: I, title: String, body: String) -> Element {
+fn Feature(icon: Element, title: String, body: String) -> Element {
     rsx! {
         div { class: "card bg-base-100 shadow-sm ring-1 ring-base-300 transition hover:-translate-y-1 hover:shadow-md",
             div { class: "card-body",
-                span { class: "grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary", Icon { i: icon, class: "size-6" } }
+                span { class: "grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary", {icon} }
                 h3 { class: "card-title text-xl", "{title}" }
                 p { class: "text-base-content/70", "{body}" }
             }

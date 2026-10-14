@@ -1,5 +1,7 @@
 //! The people tab: entrants, adding and editing them.
 
+use dioxus_icons::lucide::{Check, Eye, EyeOff, Pencil, Trash, Users};
+
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -40,7 +42,7 @@ pub(super) fn People(
     rsx! {
         Panel {
             title: "People",
-            icon: I::Users,
+            icon: rsx! { Users { class: "size-5" } },
             actions: rsx! {
                 span { class: "badge badge-soft badge-primary", "{admin.entrants.len()} entrants" }
                 if admin.settings.test_mode && editable {
@@ -60,7 +62,7 @@ pub(super) fn People(
                 }
             } else {
                 label { class: "input w-full",
-                    Icon { i: I::Eye, class: "size-4 opacity-50" }
+                    Eye { class: "size-4 opacity-50" }
                     input { class: "grow", r#type: "search", placeholder: "Search by name, email or claim code", value: "{filter}", oninput: move |e| filter.set(e.value()) }
                 }
                 div { class: "overflow-x-auto",
@@ -147,7 +149,7 @@ fn EntrantRow(
                     Some(val) => rsx! {
                         form { class: "join", onsubmit: { let patch = patch.clone(); move |ev: FormEvent| { ev.prevent_default(); let name = renaming().unwrap_or_default(); renaming.set(None); patch(EntrantPatch { display_name: Some(name), ..Default::default() }) } },
                             input { class: "input input-sm join-item", value: "{val}", maxlength: "{rafi_lifecycle::entrant::MAX_NAME_CHARS}", oninput: move |ev| renaming.set(Some(ev.value())) }
-                            button { class: "btn btn-sm btn-primary join-item", r#type: "submit", Icon { i: I::Check, class: "size-4" } }
+                            button { class: "btn btn-sm btn-primary join-item", r#type: "submit", Check { class: "size-4" } }
                         }
                     },
                     None => rsx! {
@@ -177,9 +179,9 @@ fn EntrantRow(
                             class: "btn btn-ghost btn-xs btn-square tooltip",
                             "data-tip": if e.hidden { "Show name on screen" } else { "Hide name on screen" },
                             onclick: { let patch = patch.clone(); let hidden = !e.hidden; move |_| patch(EntrantPatch { hidden: Some(hidden), ..Default::default() }) },
-                            if e.hidden { Icon { i: I::Eye, class: "size-4" } } else { Icon { i: I::EyeOff, class: "size-4" } }
+                            if e.hidden { Eye { class: "size-4" } } else { EyeOff { class: "size-4" } }
                         }
-                        button { class: "btn btn-ghost btn-xs btn-square tooltip", "data-tip": "Rename", onclick: { let n = e.display_name.clone(); move |_| renaming.set(Some(n.clone())) }, Icon { i: I::Pencil, class: "size-4" } }
+                        button { class: "btn btn-ghost btn-xs btn-square tooltip", "data-tip": "Rename", onclick: { let n = e.display_name.clone(); move |_| renaming.set(Some(n.clone())) }, Pencil { class: "size-4" } }
                         if won {
                             button {
                                 class: if e.delivered { "btn btn-success btn-xs" } else { "btn btn-ghost btn-xs" },
@@ -191,7 +193,7 @@ fn EntrantRow(
                             class: "btn btn-ghost btn-xs btn-square tooltip text-error",
                             "data-tip": if editable { "Remove" } else { "Erase personal data" },
                             onclick: move |_| confirm.set(true),
-                            Icon { i: I::Trash, class: "size-4" }
+                            Trash { class: "size-4" }
                         }
                     }
                     Confirm {

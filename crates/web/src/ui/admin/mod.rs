@@ -9,8 +9,8 @@ mod prizes;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use dioxus_icons::lucide::{ArrowLeft, Dice5, Gift, SlidersVertical, TriangleAlert, Trophy, Users};
 use rafi_lifecycle::{RaffleState, entrant::Source};
-use rafi_pages::icons::{I, Icon};
 use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
 
 use super::{
@@ -133,7 +133,7 @@ fn Confirm(
 #[component]
 fn Panel(
     title: String,
-    icon: I,
+    icon: Element,
     #[props(default = VNode::empty())] actions: Element,
     children: Element,
 ) -> Element {
@@ -141,7 +141,7 @@ fn Panel(
         section { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
             div { class: "card-body gap-4",
                 div { class: "flex flex-wrap items-center gap-3",
-                    span { class: "grid size-9 place-items-center rounded-xl bg-primary/10 text-primary", Icon { i: icon, class: "size-5" } }
+                    span { class: "grid size-9 place-items-center rounded-xl bg-primary/10 text-primary", {icon} }
                     h2 { class: "card-title flex-1 text-xl", "{title}" }
                     {actions}
                 }
@@ -170,7 +170,7 @@ pub fn AdminHome() -> Element {
             }
             if retention_stale {
                 div { role: "alert", class: "alert alert-warning alert-soft",
-                    Icon { i: I::Alert }
+                    TriangleAlert { class: "size-5" }
                     span { "Automatic erasure of personal data hasn't run in the last two hours. Check the scheduled job (the Cron Trigger on Workers)." }
                 }
             }
@@ -183,7 +183,7 @@ pub fn AdminHome() -> Element {
                 None => rsx! { div { class: "grid place-items-center py-16", span { class: "loading loading-dots loading-lg text-primary" } } },
                 Some(Err(e)) => rsx! {
                     div { role: "alert", class: "alert alert-error alert-soft",
-                        Icon { i: I::Alert }
+                        TriangleAlert { class: "size-5" }
                         span { "{err_text(e.clone())}" }
                         button { class: "btn btn-sm", onclick: move |_| raffles.restart(), "Retry" }
                     }
@@ -210,7 +210,7 @@ pub fn AdminHome() -> Element {
                                     h2 { class: "card-title text-lg leading-snug", "{r.title}" }
                                     div { class: "flex flex-wrap items-center gap-2 text-sm",
                                         StateBadge { state: r.state }
-                                        span { class: "inline-flex items-center gap-1 text-base-content/60", Icon { i: I::Users, class: "size-4" } "{r.entrant_count}" }
+                                        span { class: "inline-flex items-center gap-1 text-base-content/60", Users { class: "size-4" } "{r.entrant_count}" }
                                     }
                                 }
                             }
@@ -245,8 +245,8 @@ pub fn RaffleAdmin(id: String) -> Element {
             let msg = err_text(e.clone());
             return rsx! {
                 main { class: "mx-auto max-w-6xl space-y-4 px-4 py-8",
-                    div { role: "alert", class: "alert alert-error alert-soft", Icon { i: I::Alert } span { "{msg}" } }
-                    Link { class: "btn btn-ghost", to: Route::AdminHome {}, Icon { i: I::ArrowLeft } "All raffles" }
+                    div { role: "alert", class: "alert alert-error alert-soft", TriangleAlert { class: "size-5" } span { "{msg}" } }
+                    Link { class: "btn btn-ghost", to: Route::AdminHome {}, ArrowLeft { class: "size-5" } "All raffles" }
                 }
             };
         }
@@ -260,20 +260,24 @@ pub fn RaffleAdmin(id: String) -> Element {
     let drawable = admin.actions.draw;
     let default_tab = if drawable { "draw" } else { "prizes" };
     let current = tab().unwrap_or_else(|| default_tab.to_owned());
-    let mut tabs: Vec<(&'static str, &'static str, I)> = Vec::new();
+    let mut tabs: Vec<(&'static str, &'static str, Element)> = Vec::new();
     if drawable {
-        tabs.push(("draw", "Draw", I::Dice));
+        tabs.push(("draw", "Draw", rsx! { Dice5 { class: "size-4" } }));
     }
     tabs.extend([
-        ("prizes", "Prizes", I::Gift),
-        ("people", "People", I::Users),
-        ("settings", "Settings", I::Sliders),
+        ("prizes", "Prizes", rsx! { Gift { class: "size-4" } }),
+        ("people", "People", rsx! { Users { class: "size-4" } }),
+        (
+            "settings",
+            "Settings",
+            rsx! { SlidersVertical { class: "size-4" } },
+        ),
     ]);
 
     rsx! {
         document::Title { "{admin.settings.title} — Rafi" }
         main { class: "mx-auto max-w-6xl space-y-6 px-4 py-6",
-            Link { class: "btn btn-ghost btn-sm -ml-2", to: Route::AdminHome {}, Icon { i: I::ArrowLeft, class: "size-4" } "All raffles" }
+            Link { class: "btn btn-ghost btn-sm -ml-2", to: Route::AdminHome {}, ArrowLeft { class: "size-4" } "All raffles" }
             if state.is_public() {
                 LiveRefresh { key: "{admin.view.slug}", slug: admin.view.slug.clone(), version: admin.view.v, on_change: move |_| data.restart() }
             }
@@ -288,7 +292,7 @@ pub fn RaffleAdmin(id: String) -> Element {
                 on_value_change: move |value| tab.set(Some(value)),
                 for (index , (value , label , icon)) in tabs.into_iter().enumerate() {
                     TabTrigger { key: "t-{value}", value: value.to_owned(), index, class: "gap-2",
-                        Icon { i: icon, class: "size-4" }
+                        {icon}
                         "{label}"
                     }
                     TabContent { value: value.to_owned(), index, appearance: TabContentAppearance::None, class: "w-full",
@@ -297,7 +301,7 @@ pub fn RaffleAdmin(id: String) -> Element {
                             "prizes" => rsx! { Prizes { admin: admin.clone(), error, on_change: move |_| reload() } },
                             "people" => rsx! { People { admin: admin.clone(), error, on_change: move |_| reload() } },
                             _ => rsx! {
-                                Panel { title: "Settings", icon: I::Sliders,
+                                Panel { title: "Settings", icon: rsx! { SlidersVertical { class: "size-5" } },
                                     SettingsForm { raffle_id: admin.id.clone(), settings: admin.settings.clone(), on_saved: move |_| reload() }
                                 }
                             },
@@ -341,19 +345,19 @@ fn Stats(admin: AdminData) -> Element {
     rsx! {
         div { class: "stats stats-vertical w-full bg-base-100 shadow-sm ring-1 ring-base-300 sm:stats-horizontal",
             div { class: "stat",
-                div { class: "stat-figure text-primary", Icon { i: I::Users, class: "size-8" } }
+                div { class: "stat-figure text-primary", Users { class: "size-8" } }
                 div { class: "stat-title", "Entrants" }
                 div { class: "stat-value text-primary", "{v.entrant_count}" }
                 div { class: "stat-desc", "{manual} added by you" }
             }
             div { class: "stat",
-                div { class: "stat-figure text-secondary", Icon { i: I::Gift, class: "size-8" } }
+                div { class: "stat-figure text-secondary", Gift { class: "size-8" } }
                 div { class: "stat-title", "Prizes left" }
                 div { class: "stat-value text-secondary", "{left}" }
                 div { class: "stat-desc", "of {total}" }
             }
             div { class: "stat",
-                div { class: "stat-figure text-accent", Icon { i: I::Trophy, class: "size-8" } }
+                div { class: "stat-figure text-accent", Trophy { class: "size-8" } }
                 div { class: "stat-title", "Winners" }
                 div { class: "stat-value", "{winners}" }
                 div { class: "stat-desc", "{v.draws.len()} draws so far" }

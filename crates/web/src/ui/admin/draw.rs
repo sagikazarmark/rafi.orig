@@ -1,5 +1,7 @@
 //! The draw console: drawing each prize and deciding its winner.
 
+use dioxus_icons::lucide::{Check, Dice5, Flag, Lock, TriangleAlert};
+
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -128,7 +130,7 @@ pub(super) fn DrawConsole(
             }
             if let (true, Some(cur), Some(u)) = (stalled, &pending, pending_item.clone()) {
                 div { role: "alert", class: "alert alert-warning alert-soft items-start",
-                    Icon { i: I::Alert }
+                    TriangleAlert { class: "size-5" }
                     div { class: "space-y-2",
                         p { class: "font-semibold",
                             "Round {cur.round} could not be fetched yet"
@@ -147,17 +149,17 @@ pub(super) fn DrawConsole(
                 }
             } else if let (Some(f), None) = (&v.last_failure, &pending) {
                 div { role: "alert", class: "alert alert-soft items-start",
-                    Icon { i: I::Alert }
+                    TriangleAlert { class: "size-5" }
                     p { "The last draw ended without its beacon: {f}" }
                 }
             }
             Panel {
                 title: "Prizes to draw",
-                icon: I::Dice,
+                icon: rsx! { Dice5 { class: "size-5" } },
                 actions: rsx! {
                     if let Some(hash) = &v.manifest_hash {
                         span { class: "tooltip tooltip-left", "data-tip": "Manifest hash: {hash}",
-                            span { class: "badge badge-ghost gap-1 font-mono", Icon { i: I::Lock, class: "size-3.5" } "{&hash[..10]}…" }
+                            span { class: "badge badge-ghost gap-1 font-mono", Lock { class: "size-3.5" } "{&hash[..10]}…" }
                         }
                     }
                 },
@@ -203,12 +205,12 @@ pub(super) fn DrawConsole(
                                         match u.status {
                                             ItemStatus::Available if drawable => rsx! {
                                                 button { class: "btn btn-primary hover-wiggle", disabled: busy, onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone()) },
-                                                    Icon { i: I::Dice } "Draw"
+                                                    Dice5 { class: "size-5" } "Draw"
                                                 }
                                                 button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let void = void.clone(); let uid = uid.clone(); move |_| void(uid.clone()) }, "Withdraw" }
                                             },
                                             ItemStatus::Drawn if drawable => rsx! {
-                                                button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Icon { i: I::Check } "Handed over" }
+                                                button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Check { class: "size-5" } "Handed over" }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::NotHere) }, "Not here" }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Declined) }, "Declined" }
                                             },
@@ -230,7 +232,7 @@ pub(super) fn DrawConsole(
                             class: if items_left == 0 { "hover-wiggle" } else { "btn-ghost" },
                             disabled: busy,
                             onclick: move |_| ask_finish.set(true),
-                            Icon { i: I::Flag }
+                            Flag { class: "size-5" }
                             "Finish the raffle"
                         }
                     }

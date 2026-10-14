@@ -12,7 +12,9 @@ use dioxus::prelude::*;
 use rafi_live_client::{Card, CardStrings, Follow, PageConfig, ParticipantView, Phase};
 use serde::Serialize;
 
-use crate::{icons::I, style::STYLESHEET_URL};
+use dioxus_icons::lucide::{Monitor, Moon, Sun, Ticket};
+
+use crate::style::STYLESHEET_URL;
 
 /// The raffle, as the public pages show it.
 #[derive(Debug, Clone, Copy)]
@@ -89,24 +91,23 @@ pub(crate) fn document(title: &str, body: String, tail: Option<String>) -> Strin
 
 /// Header shared by the participant pages: logo and theme toggle.
 fn header_bar(test_mode: bool) -> Element {
-    let ticket = I::Ticket.svg("size-4");
-    let theme_icons = format!(
-        "{}{}{}",
-        I::Monitor.svg("size-4 theme-icon-system"),
-        I::Sun.svg("size-4 theme-icon-light hidden"),
-        I::Moon.svg("size-4 theme-icon-dark hidden")
-    );
     rsx! {
         header { class: "flex items-center gap-2",
             span { class: "brand text-lg",
-                span { class: "grid place-items-center rounded-lg bg-primary p-1 text-primary-content -rotate-6", dangerous_inner_html: "{ticket}" }
+                span { class: "grid place-items-center rounded-lg bg-primary p-1 text-primary-content -rotate-6",
+                    Ticket { class: "size-4" }
+                }
                 "rafi"
             }
             if test_mode {
                 span { class: "badge badge-warning badge-sm font-bold", "🧪 TEST MODE" }
             }
             span { class: "flex-1" }
-            button { id: "theme", class: "btn btn-ghost btn-sm btn-circle", r#type: "button", aria_label: "Theme", dangerous_inner_html: "{theme_icons}" }
+            button { id: "theme", class: "btn btn-ghost btn-sm btn-circle", r#type: "button", aria_label: "Theme",
+                Monitor { class: "size-4 theme-icon-system" }
+                Sun { class: "size-4 theme-icon-light hidden" }
+                Moon { class: "size-4 theme-icon-dark hidden" }
+            }
         }
     }
 }

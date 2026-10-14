@@ -4,8 +4,8 @@ use dioxus::prelude::*;
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::Outcome;
 
+use dioxus_icons::lucide::{Dice5, Maximize, ShieldCheck, Trophy};
 use rafi_live_client::ParticipantView;
-use rafi_pages::icons::{I, Icon};
 
 use super::{
     Brand, ThemeToggle,
@@ -66,7 +66,7 @@ fn ScreenInner(slug: String) -> Element {
             {live.subscription()}
             footer { class: "flex items-center justify-between text-[0.7em] text-base-content/50",
                 Brand { size: "text-[1.1em]" }
-                span { class: "inline-flex items-center gap-1", Icon { i: I::ShieldCheck, class: "size-[1.2em]" } "drand · provably fair" }
+                span { class: "inline-flex items-center gap-1", ShieldCheck { class: "size-[1.2em]" } "drand · provably fair" }
             }
         }
     }
@@ -84,7 +84,7 @@ fn FullscreenButton() -> Element {
                      if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch (e) {} })()",
                 );
             },
-            Icon { i: I::Maximize, class: "size-5" }
+            Maximize { class: "size-5" }
         }
     }
 }
@@ -225,7 +225,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
         let secs = ((remaining_ms.max(0) + 999) / 1000).min(99);
         rsx! {
             div { class: "flex flex-col items-center gap-[0.8em] text-center", role: "status",
-                p { class: "badge badge-primary badge-lg gap-2 font-bold uppercase tracking-widest", Icon { i: I::Dice, class: "size-[1.1em]" } "Drawing" }
+                p { class: "badge badge-primary badge-lg gap-2 font-bold uppercase tracking-widest", Dice5 { class: "size-[1.1em]" } "Drawing" }
                 h2 { class: "text-[2.8em] font-extrabold leading-tight", "{prize_name}" }
                 div { class: "bounce-dots flex gap-[0.5em]", aria_hidden: "true",
                     for i in 0..7 {
@@ -294,7 +294,7 @@ fn Winner(reveal: Reveal) -> Element {
                     span { key: "{i}", style: "--i: {i}" }
                 }
             }
-            span { class: "badge badge-secondary badge-lg gap-2 font-bold", Icon { i: I::Trophy, class: "size-[1.1em]" } "{reveal.prize_name}" }
+            span { class: "badge badge-secondary badge-lg gap-2 font-bold", Trophy { class: "size-[1.1em]" } "{reveal.prize_name}" }
             h2 { class: "gradient-text animate-reveal py-[0.1em] text-[clamp(3rem,9vw,11rem)] font-black leading-none", "{reveal.display_name}" }
             if let Some(round) = reveal.round {
                 p { class: "text-[0.9em] text-base-content/60",
@@ -365,7 +365,7 @@ fn Finished(view: RaffleView) -> Element {
                 }
             }
             p { class: "inline-flex items-center gap-2 text-[0.9em] text-base-content/60",
-                Icon { i: I::ShieldCheck, class: "size-[1.2em]" }
+                ShieldCheck { class: "size-[1.2em]" }
                 "Check the draw yourself: /v/{view.slug}"
             }
         }

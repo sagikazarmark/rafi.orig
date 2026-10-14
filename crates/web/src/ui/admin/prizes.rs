@@ -1,5 +1,7 @@
 //! The prizes tab.
 
+use dioxus_icons::lucide::{Gift, Lock, Pencil, Trash};
+
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -18,10 +20,10 @@ pub(super) fn Prizes(
     rsx! {
         Panel {
             title: "Prizes",
-            icon: I::Gift,
+            icon: rsx! { Gift { class: "size-5" } },
             actions: rsx! {
                 span { class: "badge badge-soft badge-secondary", "{total} to give away" }
-                if !editable { span { class: "badge badge-ghost gap-1", Icon { i: I::Lock, class: "size-3.5" } "locked" } }
+                if !editable { span { class: "badge badge-ghost gap-1", Lock { class: "size-3.5" } "locked" } }
             },
             if admin.prizes.is_empty() {
                 div { class: "rounded-box border-2 border-dashed border-base-300 py-10 text-center",
@@ -90,8 +92,8 @@ fn PrizeRow(
                 if !prize.sponsor.is_empty() { p { class: "text-sm text-base-content/60", "by {prize.sponsor}" } }
             }
             if editable {
-                button { class: "btn btn-ghost btn-sm btn-square", title: "Edit", aria_label: "Edit {prize.name}", onclick: move |_| editing.set(true), Icon { i: I::Pencil, class: "size-4" } }
-                button { class: "btn btn-ghost btn-sm btn-square text-error", title: "Remove", aria_label: "Remove {prize.name}", onclick: remove, Icon { i: I::Trash, class: "size-4" } }
+                button { class: "btn btn-ghost btn-sm btn-square", title: "Edit", aria_label: "Edit {prize.name}", onclick: move |_| editing.set(true), Pencil { class: "size-4" } }
+                button { class: "btn btn-ghost btn-sm btn-square text-error", title: "Remove", aria_label: "Remove {prize.name}", onclick: remove, Trash { class: "size-4" } }
             }
         }
     }

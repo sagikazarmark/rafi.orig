@@ -1,5 +1,10 @@
 //! The raffle's header: its state, the next lifecycle step and the menu.
 
+use dioxus_icons::lucide::{
+    Check, Copy, Download, Ellipsis, Flag, Lock, Monitor, Play, QrCode, ShieldCheck, Ticket, Trash,
+    Undo2, Zap,
+};
+
 use super::*;
 
 #[component]
@@ -136,14 +141,27 @@ pub(super) fn Header(
         "delete" => ask_delete.set(true),
         _ => {}
     });
-    let mut menu: Vec<(&'static str, &'static str, I)> = vec![("duplicate", "Duplicate", I::Copy)];
+    let mut menu: Vec<(&'static str, &'static str, Element)> =
+        vec![("duplicate", "Duplicate", rsx! { Copy { class: "size-4" } })];
     if can_export {
-        menu.push(("export", "Export winners (CSV)", I::Download));
+        menu.push((
+            "export",
+            "Export winners (CSV)",
+            rsx! { Download { class: "size-4" } },
+        ));
     }
     if can_purge {
-        menu.push(("purge", "Erase personal data now", I::Trash));
+        menu.push((
+            "purge",
+            "Erase personal data now",
+            rsx! { Trash { class: "size-4" } },
+        ));
     }
-    menu.push(("delete", "Delete raffle", I::Trash));
+    menu.push((
+        "delete",
+        "Delete raffle",
+        rsx! { Trash { class: "size-4" } },
+    ));
 
     rsx! {
         section { class: "card overflow-hidden bg-base-100 shadow-sm ring-1 ring-base-300",
@@ -155,11 +173,11 @@ pub(super) fn Header(
                         div { class: "flex flex-wrap items-center gap-2",
                             StateBadge { state: v.state }
                             if v.test_mode { span { class: "badge badge-warning gap-1 font-semibold", "🧪 test mode" } }
-                            if !v.verifiable { span { class: "badge badge-warning gap-1", title: "Draws use the mock drand chain: nobody can verify them", Icon { i: I::Zap, class: "size-3.5" } "mock drand" } }
+                            if !v.verifiable { span { class: "badge badge-warning gap-1", title: "Draws use the mock drand chain: nobody can verify them", Zap { class: "size-3.5" } "mock drand" } }
                         }
                     }
                     DropdownMenu { align: DropdownMenuAlign::End,
-                        DropdownMenuTrigger { class: "btn-ghost btn-circle", aria_label: "More actions", Icon { i: I::More } }
+                        DropdownMenuTrigger { class: "btn-ghost btn-circle", aria_label: "More actions", Ellipsis { class: "size-5" } }
                         DropdownMenuContent { class: "z-20 w-60",
                             for (index , (value , label , icon)) in menu.into_iter().enumerate() {
                                 DropdownMenuItem::<String> {
@@ -168,7 +186,7 @@ pub(super) fn Header(
                                     index,
                                     on_select: on_menu,
                                     class: if matches!(value, "purge" | "delete") { "text-error" } else { "" },
-                                    Icon { i: icon, class: "size-4" }
+                                    {icon}
                                     "{label}"
                                 }
                             }
@@ -178,10 +196,10 @@ pub(super) fn Header(
                 Steps { state: v.state }
                 if v.state.is_public() {
                     div { class: "flex flex-wrap items-center gap-2",
-                        a { class: "btn btn-neutral btn-sm", href: "{screen_url}", target: "_blank", Icon { i: I::Monitor, class: "size-4" } "Projector screen" }
+                        a { class: "btn btn-neutral btn-sm", href: "{screen_url}", target: "_blank", Monitor { class: "size-4" } "Projector screen" }
                         div { class: "join",
                             span { class: "join-item inline-flex h-8 items-center gap-1.5 border border-base-300 bg-base-200 px-3 font-mono text-sm",
-                                Icon { i: I::QrCode, class: "size-4 opacity-60" }
+                                QrCode { class: "size-4 opacity-60" }
                                 "{v.join_url}"
                             }
                             Button {
@@ -192,12 +210,12 @@ pub(super) fn Header(
                                     copy_to_clipboard(join_url.clone());
                                     toast.info("📋 Join link copied".to_owned(), ToastOptions::new());
                                 },
-                                Icon { i: I::Copy, class: "size-4" }
+                                Copy { class: "size-4" }
                             }
                         }
                         span { class: "badge badge-lg badge-accent font-mono font-bold tracking-widest", "{v.join_code}" }
                         if v.manifest_hash.is_some() {
-                            a { class: "btn btn-ghost btn-sm", href: "{verify_url}", target: "_blank", Icon { i: I::ShieldCheck, class: "size-4" } "Verification page" }
+                            a { class: "btn btn-ghost btn-sm", href: "{verify_url}", target: "_blank", ShieldCheck { class: "size-4" } "Verification page" }
                         }
                     }
                 }
@@ -205,29 +223,29 @@ pub(super) fn Header(
                     match v.state {
                         RaffleState::Draft => rsx! {
                             Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Publish)); } },
-                                Icon { i: I::Play } "Publish the intro screen"
+                                Play { class: "size-5" } "Publish the intro screen"
                             }
                         },
                         RaffleState::Ready => rsx! {
-                            Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, Icon { i: I::Ticket } "Open registration" }
-                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } }, Icon { i: I::Undo } "Unpublish" }
+                            Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, Ticket { class: "size-5" } "Open registration" }
+                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } }, Undo2 { class: "size-5" } "Unpublish" }
                         },
                         RaffleState::Open => rsx! {
-                            Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: move |_| ask_freeze.set(true), Icon { i: I::Lock } "Freeze list & start the draw" }
+                            Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: move |_| ask_freeze.set(true), Lock { class: "size-5" } "Freeze list & start the draw" }
                             Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Close)); } }, "Close registration" }
                         },
                         RaffleState::Closed => rsx! {
-                            Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: move |_| ask_freeze.set(true), Icon { i: I::Lock } "Freeze list & start the draw" }
+                            Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: move |_| ask_freeze.set(true), Lock { class: "size-5" } "Freeze list & start the draw" }
                             Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, "Reopen registration" }
                         },
                         RaffleState::Frozen if unconfirmed => rsx! {
-                            Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Icon { i: I::Undo } "Retry handing the list to the raffle engine" }
+                            Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Undo2 { class: "size-5" } "Retry handing the list to the raffle engine" }
                         },
                         RaffleState::Finished | RaffleState::Purged if v.live_ended => rsx! {
-                            span { class: "badge badge-ghost gap-1", Icon { i: I::Check, class: "size-3.5" } "Live updates ended" }
+                            span { class: "badge badge-ghost gap-1", Check { class: "size-3.5" } "Live updates ended" }
                         },
                         RaffleState::Finished | RaffleState::Purged => rsx! {
-                            Button { class: "btn-outline", disabled: busy(), onclick: move |_| ask_end.set(true), Icon { i: I::Flag } "End live updates" }
+                            Button { class: "btn-outline", disabled: busy(), onclick: move |_| ask_end.set(true), Flag { class: "size-5" } "End live updates" }
                         },
                         _ => rsx! {},
                     }

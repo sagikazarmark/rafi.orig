@@ -4,11 +4,11 @@
 
 use dioform::prelude::*;
 use dioxus::prelude::*;
+use dioxus_icons::lucide::{Check, Gift, Plus, Smartphone, Sparkles, TriangleAlert, Undo2};
 use rafi_lifecycle::{
     entrant::{self, MAX_NAME_CHARS},
     settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
 };
-use rafi_pages::icons::{I, Icon};
 
 use crate::{
     api::{self, ApiError},
@@ -31,7 +31,7 @@ pub fn err_text(e: ApiError) -> String {
 fn FormErrors(errors: Vec<String>) -> Element {
     rsx! {
         for e in errors {
-            div { role: "alert", class: "alert alert-error alert-soft py-2 text-sm", Icon { i: I::Alert, class: "size-4" } "{e}" }
+            div { role: "alert", class: "alert alert-error alert-soft py-2 text-sm", TriangleAlert { class: "size-4" } "{e}" }
         }
     }
 }
@@ -121,13 +121,13 @@ pub fn CreateRaffleForm(on_created: EventHandler<String>) -> Element {
                     required: true,
                     maxlength: "{MAX_TITLE_CHARS}",
                     placeholder: "e.g. “Cloud Native Budapest — October”",
-                    prefix: rsx! { Icon { i: I::Sparkles, class: "size-5 text-secondary" } },
+                    prefix: rsx! { Sparkles { class: "size-5 text-secondary" } },
                     wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
                 }
                 FormErrors { errors: form_errors }
             }
             Button { color: ButtonColor::Primary, size: ButtonSize::Lg, class: "hover-wiggle sm:mb-6", r#type: "submit", disabled: busy,
-                if busy { span { class: "loading loading-spinner loading-sm" } } else { Icon { i: I::Plus } }
+                if busy { span { class: "loading loading-spinner loading-sm" } } else { Plus { class: "size-5" } }
                 "Create"
             }
         }
@@ -257,7 +257,7 @@ pub fn PrizeForm(
             }
             div { class: "flex gap-2 sm:pt-[1.85rem]",
                 Button { color: if editing { ButtonColor::Primary } else { ButtonColor::Secondary }, r#type: "submit", disabled: busy,
-                    if editing { Icon { i: I::Check } "Save" } else { Icon { i: I::Gift } "Add prize" }
+                    if editing { Check { class: "size-5" } "Save" } else { Gift { class: "size-5" } "Add prize" }
                 }
                 if let Some(cancel) = on_cancel {
                     Button { class: "btn-ghost", r#type: "button", onclick: move |_| cancel.call(()), "Cancel" }
@@ -339,7 +339,7 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
                 required: true,
                 maxlength: "{MAX_NAME_CHARS}",
                 placeholder: "Shown on the screen",
-                prefix: rsx! { Icon { i: I::Phone, class: "size-4 opacity-60" } },
+                prefix: rsx! { Smartphone { class: "size-4 opacity-60" } },
                 wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
             }
             InputField {
@@ -351,7 +351,7 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
             }
             div { class: "sm:pt-[1.85rem]",
                 Button { color: ButtonColor::Secondary, r#type: "submit", disabled: busy,
-                    Icon { i: I::Plus }
+                    Plus { class: "size-5" }
                     "Add entrant"
                 }
             }
@@ -527,11 +527,11 @@ pub fn SettingsForm(
             }
             div { class: "mt-4 flex flex-wrap items-center gap-3 md:col-span-2",
                 Button { color: ButtonColor::Primary, r#type: "submit", disabled: !dirty || busy,
-                    if busy { span { class: "loading loading-spinner loading-sm" } } else { Icon { i: I::Check } }
+                    if busy { span { class: "loading loading-spinner loading-sm" } } else { Check { class: "size-5" } }
                     "Save settings"
                 }
                 if dirty {
-                    Button { class: "btn-ghost", r#type: "button", onclick: move |_| reset.reset(), Icon { i: I::Undo, class: "size-4" } "Discard changes" }
+                    Button { class: "btn-ghost", r#type: "button", onclick: move |_| reset.reset(), Undo2 { class: "size-4" } "Discard changes" }
                 }
                 FormErrors { errors: form_err }
             }

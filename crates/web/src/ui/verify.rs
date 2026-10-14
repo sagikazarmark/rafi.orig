@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use rafi_pages::icons::{I, Icon};
+use dioxus_icons::lucide::{Check, Dice5, Download, Flag, Lock, ShieldCheck, TriangleAlert, X};
 use rafi_raffle::{EntrantId, Event, ItemId};
 
 use super::{Brand, ThemeToggle};
@@ -61,7 +61,7 @@ pub fn Verify(slug: String) -> Element {
             let prizes = doc.as_ref().map(|d| d.items.len()).unwrap_or_default();
             rsx! {
                 div { class: "space-y-2",
-                    p { class: "badge badge-soft badge-primary gap-1 font-semibold", Icon { i: I::ShieldCheck, class: "size-3.5" } "Independent verification" }
+                    p { class: "badge badge-soft badge-primary gap-1 font-semibold", ShieldCheck { class: "size-3.5" } "Independent verification" }
                     h1 { class: "text-4xl font-extrabold", "{d.title}" }
                 }
                 if ok {
@@ -88,7 +88,7 @@ pub fn Verify(slug: String) -> Element {
                 }
                 if !report.abandoned.is_empty() {
                     div { role: "alert", class: "alert alert-warning alert-soft items-start",
-                        Icon { i: I::Alert }
+                        TriangleAlert { class: "size-5" }
                         div { class: "space-y-1",
                             p { class: "font-semibold", "Some committed rounds did not decide their draw:" }
                             ul { class: "list-inside list-disc text-sm",
@@ -119,7 +119,7 @@ pub fn Verify(slug: String) -> Element {
                 }
                 section { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
                     div { class: "card-body",
-                        h2 { class: "card-title", Icon { i: I::Dice, class: "size-5 text-primary" } "Draws" }
+                        h2 { class: "card-title", Dice5 { class: "size-5 text-primary" } "Draws" }
                         div { class: "overflow-x-auto",
                             table { class: "table",
                                 thead { tr { th { "#" } th { "Prize" } th { "drand round" } th { "Pool" } th { "Winner" } th {} } }
@@ -168,7 +168,7 @@ pub fn Verify(slug: String) -> Element {
                                 for (i , e) in d.events.iter().enumerate() {
                                     li { key: "{i}",
                                         if i > 0 { hr {} }
-                                        div { class: "timeline-middle text-primary", Icon { i: event_icon(e), class: "size-4" } }
+                                        div { class: "timeline-middle text-primary", {event_icon(e)} }
                                         div { class: "timeline-end mb-2 text-sm", "{describe(e, &names, &item_names)}" }
                                         if i + 1 < d.events.len() { hr {} }
                                     }
@@ -186,7 +186,7 @@ pub fn Verify(slug: String) -> Element {
                                 pre { "data-prefix": "$", code { "curl -O {json_href}" } }
                                 pre { "data-prefix": "$", code { "python3 verify.py --fetch verify.json" } }
                             }
-                            a { class: "btn btn-sm btn-outline w-fit", href: "{json_href}", Icon { i: I::Download, class: "size-4" } "verify.json" }
+                            a { class: "btn btn-sm btn-outline w-fit", href: "{json_href}", Download { class: "size-4" } "verify.json" }
                             details { class: "collapse collapse-arrow mt-2 bg-base-200",
                                 summary { class: "collapse-title text-sm font-semibold", "Manifest" }
                                 div { class: "collapse-content",
@@ -214,14 +214,15 @@ pub fn Verify(slug: String) -> Element {
     }
 }
 
-fn event_icon(e: &Event) -> I {
+fn event_icon(e: &Event) -> Element {
+    let class = "size-4";
     match e {
-        Event::Announced { .. } => I::Lock,
-        Event::Drawn { .. } => I::Dice,
-        Event::Stalled { .. } | Event::Abandoned { .. } => I::Alert,
-        Event::Resolved { .. } => I::Check,
-        Event::Voided { .. } => I::X,
-        Event::Finished => I::Flag,
+        Event::Announced { .. } => rsx! { Lock { class } },
+        Event::Drawn { .. } => rsx! { Dice5 { class } },
+        Event::Stalled { .. } | Event::Abandoned { .. } => rsx! { TriangleAlert { class } },
+        Event::Resolved { .. } => rsx! { Check { class } },
+        Event::Voided { .. } => rsx! { X { class } },
+        Event::Finished => rsx! { Flag { class } },
     }
 }
 

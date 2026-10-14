@@ -1,11 +1,9 @@
 //! The raffle's rules and its privacy notice: text pages.
 
 use dioxus::prelude::*;
+use dioxus_icons::lucide::ArrowLeft;
 
-use crate::{
-    icons::I,
-    participant::{Raffle, document},
-};
+use crate::participant::{Raffle, document};
 
 /// Who runs the raffle, as the rules and the privacy notice name them.
 #[derive(Debug, Clone, Copy)]
@@ -50,10 +48,12 @@ pub struct Rules<'a> {
 /// participant page.
 fn text_page(title: &str, back: String, sections: Vec<(String, Vec<String>)>) -> String {
     let title_owned = title.to_owned();
-    let back_icon = I::ArrowLeft.svg("size-4");
     let body = dioxus::ssr::render_element(rsx! {
         main { class: "mx-auto flex max-w-2xl flex-col gap-4 px-4 py-8",
-            a { class: "btn btn-ghost btn-sm w-fit", href: "{back}", span { dangerous_inner_html: "{back_icon}" } "rafi" }
+            a { class: "btn btn-ghost btn-sm w-fit", href: "{back}",
+                ArrowLeft { class: "size-4" }
+                "rafi"
+            }
             h1 { class: "text-3xl font-extrabold", "{title_owned}" }
             for (heading , paras) in sections {
                 section { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",

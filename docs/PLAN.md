@@ -195,7 +195,7 @@ rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantCha
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 rafi-altcha          the proof-of-work (ALTCHA-compatible): solve; issue and verify (`server`)
 rafi-model           the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
-rafi-pages           the server-rendered public pages (participant, rules, privacy); icons, the stylesheet's path
+rafi-pages           the server-rendered public pages (participant, rules, privacy); the stylesheet's path
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP
 rafi-server          the HTTP side (routes, auth, the retention schedule); the native binary `rafi`
