@@ -8,9 +8,9 @@
 //! new one), and every beacon is BLS-verified against the committed chain.
 //!
 //! The object only ever sees anonymous entrant IDs. After every change it
-//! writes the state to a [`RaffleStore`](rafi_engine::RaffleStore) (the app's
+//! writes the state to a [`Store`](rafi_engine::Store) (the app's
 //! database), then tells clients through a
-//! [`RaffleNotifier`](rafi_engine::RaffleNotifier), best effort. Which
+//! [`Observer`](rafi_engine::Observer), best effort. Which
 //! database, and how live updates reach clients, is up to the deployment:
 //! this crate knows neither.
 //!
@@ -20,7 +20,7 @@
 //! What the services do is independent of how they are configured or served;
 //! the `restate-rafi-endpoint` crate (native) and `rafi-restate-worker`
 //! (Cloudflare Workers) serve them, both built by [`services`]. The app reaches them through
-//! [`RestateClient`], its [`RaffleEngine`](rafi_engine::RaffleEngine) over
+//! [`RestateClient`], its [`Engine`](rafi_engine::Engine) over
 //! the ingress.
 
 mod client;
@@ -35,17 +35,17 @@ pub use service::{Raffle, RaffleIngressClient, SERVICE_NAME};
 use std::sync::Arc;
 
 use rafi_engine::drand::DrandClient;
-use rafi_engine::{RaffleNotifier, RaffleStore};
+use rafi_engine::{Observer, Store};
 
 /// The engine's services, as every host binds them: the [`Raffle`] object,
-/// drawing with `drand`, writing to `store` and telling `notifier` (`None`
+/// drawing with `drand`, writing to `store` and telling `observer` (`None`
 /// where clients poll and nobody needs telling); and [`EngineInfo`],
 /// answering for the same drand chain.
 pub fn services(
     drand: DrandClient,
-    store: impl RaffleStore,
-    notifier: Option<Arc<dyn RaffleNotifier>>,
+    store: impl Store,
+    observer: Option<Arc<dyn Observer>>,
 ) -> (Raffle, EngineInfo) {
     let info = EngineInfo::new(&drand);
-    (Raffle::new(drand, store, notifier), info)
+    (Raffle::new(drand, store, observer), info)
 }

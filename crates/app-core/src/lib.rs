@@ -26,7 +26,7 @@ pub mod view;
 
 use std::sync::Arc;
 
-use rafi_engine::RaffleEngine;
+use rafi_engine::Engine;
 use rafi_raffle::drand::ChainHash;
 use rafi_store::{Db, RaffleRow, raffles as store};
 
@@ -48,7 +48,7 @@ pub struct App {
     /// The drand chain new raffles commit to.
     pub chain: ChainHash,
     /// The raffle engine; `None` on a server without one.
-    pub engine: Option<Arc<dyn RaffleEngine>>,
+    pub engine: Option<Arc<dyn Engine>>,
     /// Live updates to clients (natively: none, clients poll).
     pub live_updates: LiveUpdates,
     pub policy: Policy,
@@ -76,7 +76,7 @@ impl App {
     }
 
     /// The raffle engine, or a refusal if this server has none.
-    fn engine(&self) -> Result<&dyn RaffleEngine> {
+    fn engine(&self) -> Result<&dyn Engine> {
         self.engine
             .as_deref()
             .ok_or(Error::Refused(Refusal::NoEngine))

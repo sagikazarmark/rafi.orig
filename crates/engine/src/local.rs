@@ -1,6 +1,6 @@
 //! An in-process raffle engine, for tests and development only.
 //!
-//! [`LocalEngine`] keeps the [`RaffleEngine`] contract the way the `Raffle`
+//! [`LocalEngine`] keeps the [`Engine`] contract the way the `Raffle`
 //! Restate virtual object does, without its durability:
 //!
 //! - one queue per raffle, worked off in arrival order by one task, so
@@ -8,7 +8,7 @@
 //!   draw waits for its beacon applies after the draw settles;
 //! - draws are accepted at once (queued) and settle in the background;
 //! - every command ID is applied once;
-//! - every new state is written to the [`RaffleStore`] (retried), then clients
+//! - every new state is written to the [`Store`] (retried), then clients
 //!   are notified, best effort;
 //! - the raffle is forgotten once it finishes.
 //!
@@ -34,7 +34,7 @@ use rafi_raffle::{
     Raffle, RaffleId,
 };
 
-use crate::{EngineError, EngineInfo, NOT_OPEN, RaffleEngine, RaffleNotifier, RaffleStore};
+use crate::{Engine, EngineError, EngineInfo, NOT_OPEN, Observer, Store};
 use tokio::sync::{mpsc, watch};
 
 /// Unix seconds now.
@@ -63,8 +63,8 @@ struct Shared {
 /// What a raffle's task needs.
 struct Io {
     drand: DrandClient,
-    store: Arc<dyn RaffleStore>,
-    notifier: Arc<dyn RaffleNotifier>,
+    store: Arc<dyn Store>,
+    observer: Arc<dyn Observer>,
     clock: Clock,
 }
 
@@ -113,22 +113,18 @@ impl Builder {
 
 impl LocalEngine {
     /// Draws with `drand`, writes every state to `store` and tells clients
-    /// through `notifier`. System clock; no deadline.
-    pub fn new(drand: DrandClient, store: impl RaffleStore, notifier: impl RaffleNotifier) -> Self {
-        Self::builder(drand, store, notifier).build()
+    /// through `observer`. System clock; no deadline.
+    pub fn new(drand: DrandClient, store: impl Store, observer: impl Observer) -> Self {
+        Self::builder(drand, store, observer).build()
     }
 
     /// [`LocalEngine::new`], configured further.
-    pub fn builder(
-        drand: DrandClient,
-        store: impl RaffleStore,
-        notifier: impl RaffleNotifier,
-    ) -> Builder {
+    pub fn builder(drand: DrandClient, store: impl Store, observer: impl Observer) -> Builder {
         Builder {
             io: Io {
                 drand,
                 store: Arc::new(store),
-                notifier: Arc::new(notifier),
+                observer: Arc::new(observer),
                 clock: Arc::new(|| {
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -199,7 +195,7 @@ impl LocalEngine {
     }
 }
 
-impl RaffleEngine for LocalEngine {
+impl Engine for LocalEngine {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
         let beacon = BeaconSource::Drand(self.shared.io.drand.chain_hash());
         Box::pin(async move { Ok(EngineInfo { beacon }) })
@@ -319,14 +315,14 @@ impl Io {
                 }
             }
         }
-        self.notifier.changed(state.id()).await;
+        self.observer.changed(state.id()).await;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::drand::DrandConfig;
-    use crate::{MemoryRaffleStore, RecordingNotifier};
+    use crate::{MemoryStore, RecordingObserver};
     use rafi_raffle::{ItemStatus, ManifestItem};
 
     use super::*;
@@ -353,7 +349,7 @@ mod tests {
         )
     }
 
-    async fn projected(store: &MemoryRaffleStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
+    async fn projected(store: &MemoryStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
         for _ in 0..200 {
             if let Some(s) = store.latest("r1")
                 && f(&s)
@@ -369,9 +365,9 @@ mod tests {
     async fn a_raffle_from_opening_to_finish() {
         let drand = mock_drand();
         let doc = doc(&drand);
-        let store = MemoryRaffleStore::default();
-        let notifier = Arc::new(RecordingNotifier::default());
-        let engine = LocalEngine::new(drand, store.clone(), notifier.clone());
+        let store = MemoryStore::default();
+        let observer = Arc::new(RecordingObserver::default());
+        let engine = LocalEngine::new(drand, store.clone(), observer.clone());
 
         assert_eq!(engine.info().await.unwrap().beacon, doc.beacon);
         engine.open(&doc).await.unwrap();
@@ -389,7 +385,7 @@ mod tests {
             .await
             .unwrap();
         let finished = projected(&store, |s| s.is_finished()).await;
-        assert!(!notifier.notified().is_empty());
+        assert!(!observer.notified().is_empty());
 
         // Forgotten: further commands are refused as not found.
         let err = engine

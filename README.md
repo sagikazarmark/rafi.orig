@@ -35,7 +35,7 @@ The raffle (its state machine, the draw algorithm and the engine's rules) lives 
 (pure Rust, no IO): a manifest and an engine run a whole raffle, and nothing of the app is needed to draw or verify
 it. What the app adds around it (the lifecycle, starting the draw, entrants, settings) is in
 [`crates/lifecycle`](crates/lifecycle). The app's use cases ([`crates/app-core`](crates/app-core)) talk to **the
-raffle engine** through one interface (`RaffleEngine`, in [`crates/engine`](crates/engine); its contract is
+raffle engine** through one interface (`Engine`, in [`crates/engine`](crates/engine); its contract is
 documented there) and can't tell one engine from another. The engine is the **Restate virtual object** `Raffle`
 (keyed by the raffle's ID; [`crates/engine-restate`](crates/engine-restate)): the app calls it through the Restate
 ingress, with the client the Restate SDK generates from the object, and it writes the raffle's log after every
@@ -64,11 +64,11 @@ crates/raffle                 rafi-raffle: the raffle: draw algorithm, state mac
 crates/lifecycle              rafi-lifecycle: the raffle's lifecycle in the app (pure): its states, starting the draw, who may
                               join, entrants' names and emails, settings, prizes as the raffle's items
 crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the raffle engine's write, the snapshot phones are shown
-crates/engine                 rafi-engine: the raffle engine's contract (RaffleEngine, RaffleStore, RaffleNotifier); behind features,
+crates/engine                 rafi-engine: the raffle engine's contract (Engine, Store, Observer); behind features,
                               the drand client engines draw with (settings, the round to commit to), an in-process engine
                               (tests, development) and the engine conformance suite
 crates/engine-restate         rafi-engine-restate: the `Raffle` virtual object and the `EngineInfo` service, and the app's
-                              RaffleEngine over the ingress (the SDK's generated clients)
+                              Engine over the ingress (the SDK's generated clients)
 crates/restate-rafi-endpoint  restate-rafi: the native binary serving the Restate services (config, logging, Dockerfile); self-hosting
 crates/restate-worker         rafi-restate-worker: the same services as a Cloudflare Worker, on D1, nudging the live channel
 crates/live                   rafi-live: what a phone sees (participant view and channel, the live channel's publish rule,
@@ -206,7 +206,7 @@ A new backend implements `rafi_store::conformance::Harness` (a name, its capabil
 database per scenario) and passes the suite; see the module's documentation.
 
 **The engine conformance suite** (`rafi_engine::conformance`) is the contract every raffle engine must pass,
-through the `RaffleEngine` interface alone: the fairness rules (the round is committed before its beacon is asked for;
+through the `Engine` interface alone: the fairness rules (the round is committed before its beacon is asked for;
 a withheld or forged beacon stalls the draw on its round and a retry fetches the same round; abandons are
 logged; nothing changes a pending draw's pool; every log passes the verifier) and the contract
 (idempotency, one command at a time per raffle, asynchronous draws, refusals with their kind, a raffle forgotten

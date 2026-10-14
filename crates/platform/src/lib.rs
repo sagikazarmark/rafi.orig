@@ -6,7 +6,7 @@
 //!
 //! - [`Notifier`]: "this raffle changed" and "end its live updates";
 //! - [`RateLimit`], with the [`Limit`] keys;
-//! - [`Notify`]: a [`Notifier`] as the raffle engine's `RaffleNotifier`;
+//! - [`Notify`]: a [`Notifier`] as the raffle engine's `Observer`;
 //! - [`sendable`]: a `Send` future from one that is only `Send` natively
 //!   (wasm32 is single-threaded).
 //!

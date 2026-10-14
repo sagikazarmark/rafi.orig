@@ -16,7 +16,7 @@ use std::{
 
 use rafi_engine::BoxFuture;
 use rafi_engine::{
-    RaffleEngine,
+    Engine,
     conformance::{self, Deployed, Deployment, EngineHarness},
 };
 use rafi_engine_restate::{ClientConfig, RestateClient};
@@ -32,7 +32,7 @@ struct Running {
 }
 
 impl Deployed for Running {
-    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn RaffleEngine> {
+    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn Engine> {
         Arc::new(RestateClient::new(ClientConfig {
             ingress_url: self.restate.ingress_url().to_owned(),
             api_key: String::new(),
@@ -62,7 +62,7 @@ impl EngineHarness for OnRestate {
             }));
             let restate = launcher.launch(spec).await;
             // Bound as every host binds them.
-            let (raffle, info) = rafi_engine_restate::services(d.drand, d.store, Some(d.notifier));
+            let (raffle, info) = rafi_engine_restate::services(d.drand, d.store, Some(d.observer));
             restate
                 .deploy(Endpoint::builder().bind(raffle).bind(info).build())
                 .await;

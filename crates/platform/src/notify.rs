@@ -1,6 +1,6 @@
 //! A deployment's [`Notifier`] as the raffle engine's notifier.
 
-use rafi_engine::RaffleNotifier;
+use rafi_engine::Observer;
 use rafi_raffle::RaffleId;
 
 use crate::{BoxFuture, Notifier};
@@ -18,7 +18,7 @@ impl<N: Notifier> Notify<N> {
     }
 }
 
-impl<N: Notifier> RaffleNotifier for Notify<N> {
+impl<N: Notifier> Observer for Notify<N> {
     fn changed<'a>(&'a self, raffle: &'a RaffleId) -> BoxFuture<'a, ()> {
         self.notifier.notify((self.subject)(raffle))
     }

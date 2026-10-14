@@ -44,7 +44,7 @@ after-event work (export, delivery, erasure); Hungarian name order, hence a **di
 | Multiple wins | **One win per person.** Once drawn, an entrant leaves the pool whatever the outcome. If it runs dry, pass 2 draws from earlier winners who didn't forfeit (§6.2). |
 | No-show | **Draw again; the no-show is out.** "Not here" and "Declined" forfeit the item, which is drawn again with a new round. Both are in the public log. |
 | Fairness | **Verifiable, one draw per item** (§6). |
-| Raffle engine | **Restate**, behind the `RaffleEngine` contract (§8.5). It sees anonymous IDs only. No fallback engine: `LocalEngine` is for tests and development. |
+| Raffle engine | **Restate**, behind the `Engine` contract (§8.5). It sees anonymous IDs only. No fallback engine: `LocalEngine` is for tests and development. |
 | drand chain | **The app decides** (`RAFI_DRAND_CHAIN`, quicknet); the engine refuses a mismatch. Release builds accept only public chains. |
 | Live updates | On Workers a Durable Object per raffle pushes the participant view to phones; natively phones poll. The projector and admin poll the full view every 2.5 s (§8.6). |
 | Auth | Clerk. A raffle belongs to the active organization, or else the user; every admin call checks it. |
@@ -187,11 +187,11 @@ The projector is the source of truth: a fake "you won" screen lacks the winner's
 ```
 rafi-raffle          the raffle: manifest, state machine and admission, rafi-draw-v1, verifier (pure; also WASM); the mock chain (`mock-chain`)
 rafi-lifecycle       the raffle's lifecycle in the app: states, starting the draw, entrants, settings, prizes as items (pure)
-rafi-engine          the engine contract: RaffleEngine, RaffleStore, RaffleNotifier; DrandClient (`drand`), LocalEngine (`local`), the suite (`conformance`)
-rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's RaffleEngine
-rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's RaffleStore; the phones' snapshot
+rafi-engine          the engine contract: Engine, Store, Observer; DrandClient (`drand`), LocalEngine (`local`), the suite (`conformance`)
+rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's Engine
+rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; the phones' snapshot
 rafi-live            what a phone sees: ParticipantView, ParticipantChannel, screen(), Card (`card`), proof-of-work, Follow, PageConfig, publish rule
-rafi-platform        what a deployment provides: Notifier, RateLimit, Notify (a Notifier as the engine's RaffleNotifier)
+rafi-platform        what a deployment provides: Notifier, RateLimit, Notify (a Notifier as the engine's Observer)
 rafi-model           the types the app's server and browser exchange
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, policy }; typed errors; no HTTP, no i18n
 rafi                 the HTTP side (routes, participant pages, auth, retention) and the web UI
@@ -249,7 +249,7 @@ phones ────────────────▶ app ◀── databas
 
 ### 8.5 The raffle engine
 
-The app sees an engine only as `RaffleEngine` (`info`, `open`, `draw`, `decide`) and can't tell `LocalEngine` from
+The app sees an engine only as `Engine` (`info`, `open`, `draw`, `decide`) and can't tell `LocalEngine` from
 Restate. The contract is documented in `crates/engine/src/engine.rs` and checked by the conformance suite on both:
 state is read from the projection; opening is idempotent per manifest; draws are accepted asynchronously (a refused
 draw is silent, so the app checks `Raffle::admit` first) and decisions apply when the call returns; commands for one
@@ -258,7 +258,7 @@ raffle apply one at a time, so a decision sent during a draw queues behind it (p
 once, and reused with another command answers like the first and applies nothing; the projection is the record (an
 engine retries a failed write and applies nothing else meanwhile, an abandon included); after finish the engine
 forgets the raffle, and callers must not open it again (past Restate's 1 h idempotency retention it would open,
-unpublished); a `RaffleNotifier` bounds its own time. `Unavailable` doesn't mean "not applied": retrying with the
+unpublished); a `Observer` bounds its own time. `Unavailable` doesn't mean "not applied": retrying with the
 same command ID is safe.
 
 ### 8.6 Live updates

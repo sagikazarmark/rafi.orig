@@ -3,7 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use rafi_engine::drand::DrandClient;
-use rafi_engine::{NOT_OPEN, RaffleNotifier, RaffleStore};
+use rafi_engine::{NOT_OPEN, Observer, Store};
 use rafi_raffle::{
     BeaconFetch, BeaconSource, Decision, DrawRequest, Error as RaffleError, ErrorKind, Manifest,
     Raffle as State,
@@ -22,19 +22,15 @@ const STATE: &str = "state";
 /// The raffle engine for one raffle per key.
 pub struct Raffle {
     drand: Drand,
-    store: Arc<dyn RaffleStore>,
-    notifier: Option<Arc<dyn RaffleNotifier>>,
+    store: Arc<dyn Store>,
+    observer: Option<Arc<dyn Observer>>,
 }
 
 impl Raffle {
     /// Draws with `drand`, writes every state to `store` and tells clients
-    /// through `notifier`. Without one (clients poll the store), no
+    /// through `observer`. Without one (clients poll the store), no
     /// notification step is journaled at all.
-    pub fn new(
-        drand: DrandClient,
-        store: impl RaffleStore,
-        notifier: Option<Arc<dyn RaffleNotifier>>,
-    ) -> Self {
+    pub fn new(drand: DrandClient, store: impl Store, observer: Option<Arc<dyn Observer>>) -> Self {
         let config = drand.config();
         let drand = Drand::new(drand.client().clone())
             .with_lead(Duration::from_secs(config.lead_secs))
@@ -42,7 +38,7 @@ impl Raffle {
         Self {
             drand,
             store: Arc::new(store),
-            notifier,
+            observer,
         }
     }
 
@@ -90,17 +86,17 @@ impl Raffle {
                 .max_delay(Duration::from_secs(5)),
         )
         .await?;
-        // Its own journaled step, so a replay doesn't notify again. The notifier
+        // Its own journaled step, so a replay doesn't notify again. The observer
         // logs and drops its own failures (clients re-read on their own), so a
         // stuck notification can't block the raffle's object, and the step
         // doesn't retry them: its attempts only cover the step itself failing.
-        let Some(notifier) = self.notifier.as_deref() else {
+        let Some(observer) = self.observer.as_deref() else {
             return Ok(());
         };
         let raffle_id = state.id();
         let notified = ctx
             .run(|| async move {
-                notifier.changed(raffle_id).await;
+                observer.changed(raffle_id).await;
                 Ok(())
             })
             .name("notify")

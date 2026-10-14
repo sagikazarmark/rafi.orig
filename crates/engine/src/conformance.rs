@@ -1,14 +1,14 @@
 //! The engine conformance suite: the scenarios every raffle engine must pass,
-//! through the [`RaffleEngine`] port alone.
+//! through the [`Engine`] port alone.
 //!
 //! An engine provides an [`EngineHarness`]: it deploys the engine for a
-//! [`Deployment`] (drand, store, notifier) and hands out clients of it. The
+//! [`Deployment`] (drand, store, observer) and hands out clients of it. The
 //! suite deploys once per [`Profile`] (a drand setup and a store behaviour),
 //! runs that profile's scenarios against it side by side (each on its own
 //! raffle), and observes results only through the projection (the store) and
 //! the port's replies.
 //!
-//! Besides the contract ([`RaffleEngine`]), the scenarios pin the fairness rules:
+//! Besides the contract ([`Engine`]), the scenarios pin the fairness rules:
 //! the commitment (Announce) is recorded before the beacon is asked for; a
 //! withheld or invalid beacon stalls the draw on its round and a retry fetches
 //! the same round; the only exit without the beacon (abandon) is logged; nothing changes a pending draw's pool; and every log the engine
@@ -28,10 +28,7 @@ use std::{
 };
 
 use crate::drand::{DrandClient, DrandConfig};
-use crate::{
-    BoxFuture, EngineError, MemoryRaffleStore, RaffleEngine, RaffleNotifier, RaffleStore,
-    RecordingNotifier,
-};
+use crate::{BoxFuture, Engine, EngineError, MemoryStore, Observer, RecordingObserver, Store};
 use rafi_raffle::{
     BeaconSource, Command, Decision, DrawRequest, ErrorKind, Event, ItemStatus, Manifest,
     ManifestItem, Raffle, Resolution, verify,
@@ -45,8 +42,8 @@ use tokio::{
 /// What an engine is deployed with.
 pub struct Deployment {
     pub drand: DrandClient,
-    pub store: Arc<dyn RaffleStore>,
-    pub notifier: Arc<dyn RaffleNotifier>,
+    pub store: Arc<dyn Store>,
+    pub observer: Arc<dyn Observer>,
 }
 
 /// An engine under test.
@@ -55,7 +52,7 @@ pub trait EngineHarness: Send + Sync {
     fn name(&self) -> &str;
 
     /// Deploys an engine drawing with `deployment.drand`, writing to its store
-    /// and notifying its notifier.
+    /// and notifying its observer.
     fn deploy(&self, deployment: Deployment) -> BoxFuture<'_, Result<Arc<dyn Deployed>, String>>;
 }
 
@@ -63,7 +60,7 @@ pub trait EngineHarness: Send + Sync {
 pub trait Deployed: Send + Sync {
     /// A client of the engine. With `deadline`, a synchronous call gives up
     /// waiting after it ([`EngineError::Pending`]).
-    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn RaffleEngine>;
+    fn engine(&self, deadline: Option<Duration>) -> Arc<dyn Engine>;
 }
 
 /// A drand setup and a store behaviour; the suite deploys once per profile.
@@ -174,10 +171,10 @@ fn scenarios(profile: Profile) -> Vec<(&'static str, Scenario)> {
 /// One deployed engine and what the suite observes it through.
 pub struct Fixture {
     deployed: Arc<dyn Deployed>,
-    engine: Arc<dyn RaffleEngine>,
+    engine: Arc<dyn Engine>,
     /// Every state the engine wrote (behind the flaky store's failures).
-    store: MemoryRaffleStore,
-    notifier: Arc<RecordingNotifier>,
+    store: MemoryStore,
+    observer: Arc<RecordingObserver>,
     drand: DrandClient,
 }
 
@@ -190,9 +187,9 @@ impl Fixture {
             Profile::Forged => quicknet(forging_relay().await?),
         };
         let drand = DrandClient::new(config).map_err(|e| format!("drand: {e:#}"))?;
-        let store = MemoryRaffleStore::default();
-        let notifier = Arc::new(RecordingNotifier::default());
-        let writes: Arc<dyn RaffleStore> = match profile {
+        let store = MemoryStore::default();
+        let observer = Arc::new(RecordingObserver::default());
+        let writes: Arc<dyn Store> = match profile {
             Profile::FlakyStore => Arc::new(FlakyStore {
                 inner: store.clone(),
                 failures: Mutex::default(),
@@ -203,14 +200,14 @@ impl Fixture {
             .deploy(Deployment {
                 drand: drand.clone(),
                 store: writes,
-                notifier: notifier.clone(),
+                observer: observer.clone(),
             })
             .await?;
         Ok(Self {
             engine: deployed.engine(None),
             deployed,
             store,
-            notifier,
+            observer,
             drand,
         })
     }
@@ -380,11 +377,11 @@ fn hex(bytes: &[u8]) -> String {
 
 /// Fails the first [`FLAKY_FAILURES`] writes of each raffle.
 struct FlakyStore {
-    inner: MemoryRaffleStore,
+    inner: MemoryStore,
     failures: Mutex<HashMap<String, u32>>,
 }
 
-impl RaffleStore for FlakyStore {
+impl Store for FlakyStore {
     fn save_raffle<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         let failed = {
             let mut failures = self.failures.lock().expect("failures lock");
@@ -464,7 +461,7 @@ async fn open_is_idempotent_per_manifest(fx: Arc<Fixture>, id: String) -> Result
         "{opened:?}"
     );
     ensure!(
-        fx.notifier.notified().iter().any(|d| d.as_str() == id),
+        fx.observer.notified().iter().any(|d| d.as_str() == id),
         "clients were not notified"
     );
     fx.engine

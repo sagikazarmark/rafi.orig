@@ -18,7 +18,7 @@
 //! - [`view::Full`]: what the projector and the admin see, and
 //!   [`live::Snapshot`]: what phones see, each read in one snapshot;
 //! - [`save_raffle`], the raffle engine's only write; [`RaffleWriter`] offers
-//!   it as the engine's [`RaffleStore`]. It carries no app policy, so the
+//!   it as the engine's [`Store`](rafi_engine::Store). It carries no app policy, so the
 //!   engine's hosts need none of the app's settings.
 //!
 //! The SQL is written for SQLite (and D1) and Postgres alike: `?`/`?N`
@@ -58,7 +58,6 @@ pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
 use rafi_engine::BoxFuture;
-use rafi_engine::RaffleStore;
 use rafi_raffle::Raffle;
 pub use value::{Row, Value};
 
@@ -165,7 +164,7 @@ pub(crate) fn parse_raffle(json: &str) -> Result<Raffle> {
     serde_json::from_str(json).map_err(|e| Error::Decode(format!("the stored raffle: {e}")))
 }
 
-/// The raffle engine's [`RaffleStore`] over this database: [`save_raffle`].
+/// The raffle engine's [`Store`](rafi_engine::Store) over this database: [`save_raffle`].
 #[derive(Clone)]
 pub struct RaffleWriter {
     db: Db,
@@ -177,7 +176,7 @@ impl RaffleWriter {
     }
 }
 
-impl RaffleStore for RaffleWriter {
+impl rafi_engine::Store for RaffleWriter {
     fn save_raffle<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         Box::pin(async move {
             save_raffle(&self.db, state)
@@ -221,6 +220,8 @@ pub mod testing {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    use rafi_engine::Store as _;
+
     use super::*;
 
     #[tokio::test]

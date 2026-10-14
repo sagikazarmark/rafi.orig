@@ -7,9 +7,9 @@
 //! survives restarts. The app can't tell one engine from another: it sees
 //! only this contract.
 //!
-//! - [`RaffleEngine`]: the port the app draws through, with its contract;
-//! - [`RaffleStore`]: where an engine writes every new state (the projection);
-//! - [`RaffleNotifier`]: how it tells clients a raffle changed (a host maps
+//! - [`Engine`]: the port the app draws through, with its contract;
+//! - [`Store`]: where an engine writes every new state (the projection);
+//! - [`Observer`]: how it tells clients a raffle changed (a host maps
 //!   raffles to what clients follow, `rafi_platform::Notify` for rafi).
 //!
 //! Whether an engine would take a command now is the raffle's own rule
@@ -26,7 +26,7 @@
 //! must pass.
 
 mod engine;
-mod notify;
+mod observer;
 mod store;
 
 #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
@@ -36,9 +36,9 @@ pub mod drand;
 #[cfg(all(feature = "local", not(target_arch = "wasm32")))]
 pub mod local;
 
-pub use engine::{EngineError, EngineInfo, NOT_OPEN, RaffleEngine};
-pub use notify::{RaffleNotifier, RecordingNotifier};
-pub use store::{MemoryRaffleStore, RaffleStore};
+pub use engine::{Engine, EngineError, EngineInfo, NOT_OPEN};
+pub use observer::{Observer, RecordingObserver};
+pub use store::{MemoryStore, Store};
 
 use std::{future::Future, pin::Pin};
 

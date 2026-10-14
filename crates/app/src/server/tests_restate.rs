@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use rafi_engine::RaffleEngine;
+use rafi_engine::Engine;
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine_restate::RestateClient;
 use rafi_lifecycle::RaffleState;

@@ -1,11 +1,11 @@
 //! The raffle engine through the Restate ingress, as the app sees it:
-//! [`RestateClient`] implements [`RaffleEngine`] over the clients the SDK
+//! [`RestateClient`] implements [`Engine`] over the clients the SDK
 //! generates from the services ([`RaffleIngressClient`],
 //! [`EngineInfoIngressClient`]), so the handlers' names and types are the
 //! services' own.
 //!
 //! - Opening and decisions are calls; a draw is sent and settles in the
-//!   background, as the [`RaffleEngine`] contract says.
+//!   background, as the [`Engine`] contract says.
 //! - Each call carries an idempotency key (the open key, or the command ID),
 //!   so a retry applies once.
 //! - A refusal is a handler's terminal error: the ingress marks it
@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use bytes::Bytes;
-use rafi_engine::{EngineError, EngineInfo, RaffleEngine};
+use rafi_engine::{Engine, EngineError, EngineInfo};
 use rafi_platform::{BoxFuture, sendable};
 use rafi_raffle::{Decision, DrawRequest, Manifest, RaffleId};
 use restate_sdk::{
@@ -212,7 +212,7 @@ fn refusal(path: &str, status: u16, from_handler: bool, text: &str) -> EngineErr
     }
 }
 
-impl RaffleEngine for RestateClient {
+impl Engine for RestateClient {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
         Box::pin(sendable(async move {
             let path = "EngineInfo/info";

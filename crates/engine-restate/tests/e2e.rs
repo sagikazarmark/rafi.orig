@@ -9,8 +9,8 @@
 
 use std::time::Duration;
 
-use rafi_engine::MemoryRaffleStore;
-use rafi_engine::RecordingNotifier;
+use rafi_engine::MemoryStore;
+use rafi_engine::RecordingObserver;
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine_restate::SERVICE_NAME;
 use rafi_raffle::{
@@ -48,7 +48,7 @@ fn doc(entrants: usize) -> Manifest {
 }
 
 /// Waits until the latest projection satisfies `f`.
-async fn projected(store: &MemoryRaffleStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
+async fn projected(store: &MemoryStore, f: impl Fn(&Raffle) -> bool) -> Raffle {
     for _ in 0..200 {
         if let Some(s) = store.latest(RAFFLE)
             && f(&s)
@@ -79,15 +79,15 @@ async fn e2e_raffle() {
         ..DrandConfig::default()
     })
     .unwrap();
-    let store = MemoryRaffleStore::default();
-    let notifier = std::sync::Arc::new(RecordingNotifier::default());
+    let store = MemoryStore::default();
+    let observer = std::sync::Arc::new(RecordingObserver::default());
     restate
         .deploy(
             Endpoint::builder()
                 .bind(rafi_engine_restate::Raffle::new(
                     drand,
                     store.clone(),
-                    Some(notifier.clone()),
+                    Some(observer.clone()),
                 ))
                 .build(),
         )
@@ -247,10 +247,10 @@ async fn e2e_raffle() {
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.body, Value::Null, "state is cleared after finishing");
     assert!(
-        notifier.notified().iter().all(|id| id.as_str() == RAFFLE)
-            && notifier.notified().len() >= 4,
+        observer.notified().iter().all(|id| id.as_str() == RAFFLE)
+            && observer.notified().len() >= 4,
         "every write notifies clients: {:?}",
-        notifier.notified()
+        observer.notified()
     );
 
     // The projected log verifies independently.
@@ -282,15 +282,15 @@ async fn e2e_stalled_draw() {
         timeout_secs: 1,
     })
     .unwrap();
-    let store = MemoryRaffleStore::default();
-    let notifier = std::sync::Arc::new(RecordingNotifier::default());
+    let store = MemoryStore::default();
+    let observer = std::sync::Arc::new(RecordingObserver::default());
     restate
         .deploy(
             Endpoint::builder()
                 .bind(rafi_engine_restate::Raffle::new(
                     drand,
                     store.clone(),
-                    Some(notifier.clone()),
+                    Some(observer.clone()),
                 ))
                 .build(),
         )
@@ -370,15 +370,15 @@ async fn e2e_cancelled_draw_stalls() {
         ..DrandConfig::default()
     })
     .unwrap();
-    let store = MemoryRaffleStore::default();
-    let notifier = std::sync::Arc::new(RecordingNotifier::default());
+    let store = MemoryStore::default();
+    let observer = std::sync::Arc::new(RecordingObserver::default());
     restate
         .deploy(
             Endpoint::builder()
                 .bind(rafi_engine_restate::Raffle::new(
                     drand,
                     store.clone(),
-                    Some(notifier.clone()),
+                    Some(observer.clone()),
                 ))
                 .build(),
         )

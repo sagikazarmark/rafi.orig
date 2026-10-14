@@ -56,7 +56,7 @@ impl From<RaffleError> for EngineError {
 
 /// The raffle engine: owns each raffle from opening to finish, applies the
 /// draw rules (`rafi_raffle`) and writes every new state to the
-/// projection ([`RaffleStore`](crate::RaffleStore)), then notifies clients.
+/// projection ([`Store`](crate::Store)), then notifies clients.
 ///
 /// The contract every engine keeps:
 ///
@@ -89,7 +89,7 @@ impl From<RaffleError> for EngineError {
 ///   retention window it would open the raffle again, unpublished. Callers
 ///   must therefore not open a raffle they finished: rafi's lifecycle
 ///   opens one only from a frozen raffle (`rafi_lifecycle::start::next`).
-pub trait RaffleEngine: Send + Sync + 'static {
+pub trait Engine: Send + Sync + 'static {
     /// The engine's beacon source; also tells whether it is reachable.
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>>;
 
@@ -114,7 +114,7 @@ pub trait RaffleEngine: Send + Sync + 'static {
     ) -> BoxFuture<'a, Result<(), EngineError>>;
 }
 
-impl<T: RaffleEngine + ?Sized> RaffleEngine for Arc<T> {
+impl<T: Engine + ?Sized> Engine for Arc<T> {
     fn info(&self) -> BoxFuture<'_, Result<EngineInfo, EngineError>> {
         (**self).info()
     }

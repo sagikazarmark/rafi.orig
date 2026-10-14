@@ -7,7 +7,7 @@ use rafi_raffle::Raffle;
 use crate::BoxFuture;
 
 /// The raffle engine's only write: a raffle, after every change.
-pub trait RaffleStore: Send + Sync + 'static {
+pub trait Store: Send + Sync + 'static {
     /// Stores `state`. Called at least once per change (the engine retries),
     /// so it must be idempotent: a state is written only when it is newer
     /// ([`Raffle::version`]) than the stored one, and for the manifest the
@@ -15,7 +15,7 @@ pub trait RaffleStore: Send + Sync + 'static {
     fn save_raffle<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>>;
 }
 
-impl<T: RaffleStore + ?Sized> RaffleStore for Arc<T> {
+impl<T: Store + ?Sized> Store for Arc<T> {
     fn save_raffle<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         (**self).save_raffle(state)
     }
@@ -23,11 +23,11 @@ impl<T: RaffleStore + ?Sized> RaffleStore for Arc<T> {
 
 /// Keeps every raffle it is handed, in memory (tests, local experiments).
 #[derive(Clone, Default)]
-pub struct MemoryRaffleStore {
+pub struct MemoryStore {
     states: Arc<Mutex<Vec<Raffle>>>,
 }
 
-impl MemoryRaffleStore {
+impl MemoryStore {
     /// Every state received so far, in order (retries and refused ones
     /// included).
     pub fn states(&self) -> Vec<Raffle> {
@@ -51,7 +51,7 @@ fn latest<'a>(states: &'a [Raffle], raffle_id: &str) -> Option<&'a Raffle> {
         .max_by_key(|s| s.version())
 }
 
-impl RaffleStore for MemoryRaffleStore {
+impl Store for MemoryStore {
     /// Keeps every state; writes it (as [`latest`](Self::latest) sees it)
     /// only when it is newer, and for the manifest the raffle's first state
     /// had: a stored raffle belongs to the entrant list it was opened with.
@@ -90,7 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn writes_newer_states_of_the_opened_manifest_only() {
-        let store = MemoryRaffleStore::default();
+        let store = MemoryStore::default();
         let mut first = raffle("a");
         assert!(store.save_raffle(&first).await.unwrap());
         assert!(!store.save_raffle(&first).await.unwrap(), "a retry");

@@ -16,15 +16,15 @@ entrant IDs. The rules are `rafi-raffle`'s; the object only does I/O.
 
 `EngineInfo` is a keyless service next to it: `info` reports the engine's beacon source.
 
-The app reaches both through `RestateClient`, its `RaffleEngine` ([`rafi-engine`](../engine)) over the ingress. It
+The app reaches both through `RestateClient`, its `Engine` ([`rafi-engine`](../engine)) over the ingress. It
 wraps the clients the SDK generates from the services (`RaffleIngressClient`, `EngineInfoIngressClient`), so the
 handlers' names and types are the services' own; what it adds is the engine contract: a handler's terminal error is a
 refusal with its kind, anything else means the engine is unavailable, and a call that outlasts the timeout is pending.
 
 Committing to a round and awaiting its beacon go through [`restate-drand`](https://crates.io/crates/restate-drand).
-After every change the raffle goes to a `RaffleStore` (the app's database), then, if the host gave one, clients are
-told through a `RaffleNotifier`, best effort, as a journaled step of its own; both are [`rafi-engine`](../engine)'s
-ports. A host whose clients poll the store passes no notifier, and no step is journaled (`restate-rafi`). On Workers,
+After every change the raffle goes to a `Store` (the app's database), then, if the host gave one, clients are
+told through an `Observer`, best effort, as a journaled step of its own; both are [`rafi-engine`](../engine)'s
+ports. A host whose clients poll the store passes no observer, and no step is journaled (`restate-rafi`). On Workers,
 `rafi_platform::Notify` adapts a [`rafi-platform`](../platform) `Notifier`, with the host saying what each raffle's
 clients follow (for rafi, the raffle's own ID: `RaffleId::as_str`). `services` binds both services the way every host
 does.
@@ -33,12 +33,12 @@ does.
 use std::sync::Arc;
 
 use rafi_engine::drand::{DrandClient, DrandConfig};
-use rafi_engine::{MemoryRaffleStore, RecordingNotifier};
+use rafi_engine::{MemoryStore, RecordingObserver};
 
 let drand = DrandClient::new(DrandConfig::default())?;
-// Clients that poll the store need no notifier: pass None.
-let notifier = Arc::new(RecordingNotifier::default());
-let (raffle, info) = rafi_engine_restate::services(drand, MemoryRaffleStore::default(), Some(notifier));
+// Clients that poll the store need no observer: pass None.
+let observer = Arc::new(RecordingObserver::default());
+let (raffle, info) = rafi_engine_restate::services(drand, MemoryStore::default(), Some(observer));
 let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(raffle).bind(info).build();
 ```
 
