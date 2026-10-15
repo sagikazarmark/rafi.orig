@@ -14,7 +14,7 @@ Verified:
 Not yet:
 
 - **Safari:** not run; safaridriver needs `sudo safaridriver --enable` once.
-- **M4:** the benchmark (the demo's `?bench`) is in, with desktop results (M4 below). Still needed: old phones over HTTPS, and a deployed Worker. Until then `RAFI_ALTCHA_COST` defaults to the provisional 1,000.
+- **M4:** the benchmark (the demo's `/bench`) is in, with desktop results (M4 below). Still needed: old phones over HTTPS, and a deployed Worker. Until then `RAFI_ALTCHA_COST` defaults to the provisional 1,000.
 
 What changed from the text below while implementing it:
 
@@ -22,7 +22,13 @@ What changed from the text below while implementing it:
 - **`embed-worker`:** embedding `WORKER_JS` is a default feature. Rafi turns it off and loads its workers from `/participant/altcha-worker.js`, the file `fallback.js` uses.
 - **The phone bundle:** after dropping the embedded copy, the untagged-enum reply and `to_uppercase`, it is 276,553 B gzipped against `main`'s 267,656. That leaves about 10 KB of the 280 KB budget.
 - **`RawChallenge::usable_for()`** is the deadline rule of §3.3, shared by the hook and rafi's `extras.rs`. `AltchaError` gained `Cancelled`. There's no `build.rs`: plain `cfg(target_arch)` and the `native` feature.
-- **The demo** is `crates/dioxus-altcha/examples/altcha-demo`, with its own `[workspace]`. CI checks it builds and runs `wasm_solve` in Chrome and Firefox (the Workers job).
+- **The demo** is `crates/dioxus-altcha/examples/altcha-demo`, a Dioxus fullstack app with its own `[workspace]`:
+  - server functions issue and verify, with an in-memory replay set;
+  - the page has a difficulty slider, solve-on-load or solve-on-submit, and attacks the server refuses (a replay, a changed counter, a lower cost, no payload);
+  - `/strict` is served under `worker-src 'self'` and loads the workers from `/altcha-worker.js`;
+  - `/bench` measures.
+
+  CI lints both of its builds, and runs `wasm_solve` in Chrome and Firefox (the Workers job).
 - **`testbeds/cloudflare` was broken on `main`:** it still called `CardStrings::from_lookup`, removed with the language switch. It now builds its `CardStrings` directly.
 
 ## 1. Goal
@@ -382,7 +388,7 @@ The server and the client switch protocols in one change: a page loaded before t
    - **Server:** one verification's CPU time on a deployed Worker.
    - **Then:** set `RAFI_ALTCHA_COST`'s default for Android Chrome, and decide on deterministic mode (§2.4).
 
-   **How:** build the demo (`cd crates/dioxus-altcha/examples/altcha-demo && dx build --platform web --release`), serve its `public` directory over HTTPS (e.g. `cloudflared tunnel --url http://localhost:8766` in front of `python3 -m http.server 8766`), and open `/?bench&costs=1000,3000,5000&workers=1,2,4&runs=30` on each phone, screen on, until it says `done`. Each run prints, per cost:
+   **How:** run the demo (`cd crates/dioxus-altcha/examples/altcha-demo && dx serve --release --port 8766`) behind HTTPS (e.g. `cloudflared tunnel --url http://localhost:8766`), and open `/bench?costs=1000,3000,5000&workers=1,2,4&runs=30` on each phone, screen on, until it says `done`. Use a release build: the Rust-wasm comparison is several times slower in a debug build. Each run prints, per cost:
    - the median and p95 to solve at each worker count;
    - the same challenges solved by `altcha`'s Rust in wasm on one thread (the §2.1 comparison);
    - one `verify_solution` in wasm, a proxy for a Worker's CPU (Workers run V8, as Chrome does). The deployed Worker's own figure still needs the deploy.

@@ -1,135 +1,149 @@
-//! dioxus-altcha in a browser: `dx serve` here, then open the page.
+//! dioxus-altcha end to end, as a Dioxus fullstack app: `dx serve` here.
 //!
-//! The page issues the challenges and verifies the solutions itself, with a
-//! key in its source: a demo of the client side, not a way to protect a form.
-//! `?bench` measures instead (see bench.rs).
+//! - `/`: a form protected by the proof-of-work. The server issues the
+//!   challenges and verifies the solutions (server functions, src/server.rs).
+//! - `/strict`: the same under `Content-Security-Policy: worker-src 'self'`,
+//!   which blocks `blob:` workers; the workers load from `/altcha-worker.js`.
+//! - `/bench`: measurements on whatever device opens it (src/bench.rs).
 
 mod bench;
+mod demo;
+mod server;
 
 use dioxus::prelude::*;
-use dioxus_altcha::{
-    AltchaField, AltchaState, RawChallenge, UseAltcha, altcha, decode_payload, use_altcha,
-};
 
-const KEY: &str = "demo-only-key";
+const CSS: Asset = asset!("/assets/main.css");
+
+#[derive(Clone, Debug, PartialEq, Routable)]
+enum Route {
+    #[layout(Layout)]
+    #[route("/")]
+    Home {},
+    #[route("/strict")]
+    Strict {},
+    #[route("/bench")]
+    Bench {},
+}
 
 fn main() {
-    let bench = web_sys::window()
-        .and_then(|w| w.location().search().ok())
-        .is_some_and(|s| s.contains("bench"));
-    dioxus::launch(if bench { bench::Bench } else { App });
+    #[cfg(not(feature = "server"))]
+    dioxus::launch(App);
+
+    #[cfg(feature = "server")]
+    dioxus::serve(|| async move { Ok(serve::router()) });
 }
 
 #[component]
 fn App() -> Element {
-    let mut mounted = use_signal(|| true);
-    let mut cost = use_signal(|| 5_000u32);
     rsx! {
-        main { style: "font-family: system-ui; max-width: 40rem; margin: 2rem auto; padding: 0 1rem",
+        document::Stylesheet { href: CSS }
+        document::Title { "dioxus-altcha" }
+        Router::<Route> {}
+    }
+}
+
+#[component]
+fn Layout() -> Element {
+    let route = use_route::<Route>();
+    // Plain links, not the router's: each page is a full load, so the server's
+    // headers (the strict page's CSP) apply.
+    let link = |to: Route, text: &'static str| {
+        let class = if route == to { "active" } else { "" };
+        rsx! {
+            a { class, href: "{to}", "{text}" }
+        }
+    };
+    rsx! {
+        header {
             h1 { "dioxus-altcha" }
-            p {
-                "The page issues and verifies the challenges itself, with a key in its source: "
-                "a demo of the client side only."
+            nav {
+                {link(Route::Home {}, "Demo")}
+                {link(Route::Strict {}, "Strict CSP")}
+                {link(Route::Bench {}, "Bench")}
             }
-            p {
-                label {
-                    "PBKDF2 cost (iterations per attempt, about 256 attempts) "
-                    input {
-                        r#type: "number",
-                        min: "1",
-                        value: "{cost}",
-                        oninput: move |e| {
-                            if let Ok(v) = e.value().parse::<u32>() {
-                                cost.set(v.max(1));
-                            }
-                        },
-                    }
-                }
-            }
-            p {
-                button { onclick: move |_| mounted.toggle(),
-                    if mounted() { "Unmount the form (cancels a solve)" } else { "Mount the form" }
-                }
-            }
-            if mounted() {
-                Form { cost: cost() }
-            }
+        }
+        main { Outlet::<Route> {} }
+        footer {
+            "ALTCHA v2 proof-of-work: the server issues and verifies with the "
+            code { "altcha" }
+            " crate; the browser solves in Web Workers on WebCrypto."
         }
     }
 }
 
 #[component]
-fn Form(cost: u32) -> Element {
-    // The hook keeps the latest closure: a new cost applies to the next fetch.
-    let altcha = use_altcha(move || async move { issue(cost) });
-    let mut verdict = use_signal(|| None::<String>);
+fn Home() -> Element {
     rsx! {
-        form {
-            onsubmit: move |e: FormEvent| async move {
-                e.prevent_default();
-                let result = match altcha.solved().await {
-                    Ok(payload) => verify(&payload),
-                    Err(e) => format!("no solution: {e}"),
-                };
-                verdict.set(Some(result));
-                // The challenge is spent.
-                altcha.refresh();
-            },
-            AltchaField { altcha }
-            p { "State: " strong { {label(altcha)} } }
-            button { r#type: "submit", "Submit" }
-            " "
-            button { r#type: "button", onclick: move |_| altcha.refresh(), "New challenge" }
+        p { class: "lead",
+            "The server sends a challenge, the browser finds a counter whose PBKDF2 key starts with "
+            code { "00" }
+            " (about 256 tries), and the form posts the solution. The server checks it and accepts each challenge once."
         }
-        if let Some(v) = verdict() {
-            p { "{v}" }
-        }
+        demo::Demo { strict: false }
     }
 }
 
-fn label(altcha: UseAltcha) -> String {
-    match altcha.state() {
-        AltchaState::Idle => "idle".into(),
-        AltchaState::Fetching => "fetching".into(),
-        AltchaState::Solving => "solving…".into(),
-        AltchaState::Solved { payload } => format!("solved ({} bytes)", payload.len()),
-        AltchaState::Expired => "expired".into(),
-        AltchaState::Failed(e) => format!("failed: {e}"),
+#[component]
+fn Strict() -> Element {
+    rsx! {
+        p { class: "lead",
+            "This page is served with "
+            code { "Content-Security-Policy: worker-src 'self'" }
+            ", so the embedded "
+            code { "blob:" }
+            " worker can't start. The workers load from "
+            code { "/altcha-worker.js" }
+            " instead ("
+            code { "SolveOptions::worker_url" }
+            "), which the server serves from "
+            code { "dioxus_altcha::WORKER_JS" }
+            "."
+        }
+        demo::Demo { strict: true }
     }
 }
 
-/// What a server would do on `GET /api/altcha`.
-fn issue(cost: u32) -> Result<RawChallenge, String> {
-    let now = (js_sys::Date::now() / 1000.0) as i64;
-    altcha::create_challenge(altcha::CreateChallengeOptions {
-        algorithm: "PBKDF2/SHA-256".into(),
-        cost,
-        key_prefix: "00".into(),
-        expires_at: Some(now + 120),
-        hmac_signature_secret: Some(KEY.into()),
-        ..Default::default()
-    })
-    .map(|c| RawChallenge::from_challenge(&c))
-    .map_err(|e| e.to_string())
+#[component]
+fn Bench() -> Element {
+    rsx! {
+        bench::Bench {}
+    }
 }
 
-/// What a server would do with the posted form value.
-fn verify(payload: &str) -> String {
-    let payload = match decode_payload(payload) {
-        Ok(p) => p,
-        Err(e) => return format!("refused: {e}"),
+#[cfg(feature = "server")]
+mod serve {
+    use dioxus::server::axum::{
+        Router,
+        extract::Request,
+        http::{HeaderValue, header},
+        middleware::{self, Next},
+        response::{IntoResponse, Response},
+        routing::get,
     };
-    let solved_ms = payload.solution.time.unwrap_or_default();
-    match altcha::verify_solution(altcha::VerifySolutionOptions::new(
-        &payload.challenge,
-        &payload.solution,
-        KEY,
-    )) {
-        Ok(r) if r.verified => format!(
-            "verified: counter {}, solved in {solved_ms:.0} ms",
-            payload.solution.counter
-        ),
-        Ok(r) => format!("refused: {r:?}"),
-        Err(e) => format!("refused: {e}"),
+
+    pub fn router() -> Router {
+        dioxus::server::router(super::App)
+            .route("/altcha-worker.js", get(worker))
+            .layer(middleware::from_fn(csp))
+    }
+
+    /// The solver, for pages whose CSP forbids `blob:` workers.
+    async fn worker() -> impl IntoResponse {
+        (
+            [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+            dioxus_altcha::WORKER_JS,
+        )
+    }
+
+    async fn csp(req: Request, next: Next) -> Response {
+        let strict = req.uri().path() == "/strict";
+        let mut res = next.run(req).await;
+        if strict {
+            res.headers_mut().insert(
+                header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static("worker-src 'self'"),
+            );
+        }
+        res
     }
 }

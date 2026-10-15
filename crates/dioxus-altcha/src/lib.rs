@@ -215,6 +215,10 @@ impl SolveOptions {
         self
     }
 
+    #[cfg_attr(
+        not(any(target_arch = "wasm32", feature = "native")),
+        allow(dead_code)
+    )]
     fn timeout_or_default(&self) -> Option<Duration> {
         self.timeout.unwrap_or(Some(Self::DEFAULT_TIMEOUT))
     }

@@ -58,7 +58,9 @@ let ok = altcha::verify_solution(altcha::VerifySolutionOptions::new(&payload.cha
   `wasm32-unknown-unknown`. To verify on Cloudflare Workers, patch in
   [altcha-org/altcha-lib-rs#1](https://github.com/altcha-org/altcha-lib-rs/pull/1) until it's released.
 
-`examples/altcha-demo` issues, solves and verifies in one page (`dx serve` there).
+`examples/altcha-demo` is the whole thing as a Dioxus fullstack app (`dx serve` there). Server functions issue and
+verify, and the page has a difficulty slider, solve-on-load or solve-on-submit, attacks the server refuses, a strict-CSP
+page and a bench.
 
 ## Tests
 
