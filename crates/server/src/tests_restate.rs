@@ -1,4 +1,4 @@
-//! The app and the separate `restate-rafi` service, end to end: the app calls
+//! The app and the separate `rafi-restate` service, end to end: the app calls
 //! the `Raffle` object through a real `restate-server`'s ingress, the object
 //! writes every state into the app's SQLite file, or Postgres schema with
 //! `RAFI_TEST_POSTGRES_URL` set (through its own connection pool, as the
@@ -47,7 +47,7 @@ async fn wait_for<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> 
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs RESTATE_SERVER_BIN"]
-async fn app_and_restate_rafi_share_the_database() {
+async fn app_and_rafi_restate_share_the_database() {
     let Some(launcher) = launcher_or_skip(ReusePolicy::Never) else {
         return;
     };
@@ -122,7 +122,7 @@ async fn app_and_restate_rafi_share_the_database() {
     // Freeze: the service writes the frozen state.
     service::start_draw(&app, OWNER, &id)
         .await
-        .expect("freeze via restate-rafi");
+        .expect("freeze via rafi-restate");
     let r = wait_for(&app, &id, |r| r.log.is_some()).await;
     let item = r.drawn().unwrap().unwrap().items()[0].id.clone();
 

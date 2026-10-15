@@ -1,5 +1,5 @@
 //! The native schedule of the retention run
-//! ([`rafi_app_core::retention`]): hourly, in a task. On Workers the Cron
+//! ([`rafi_app::retention`]): hourly, in a task. On Workers the Cron
 //! Trigger runs it.
 
 use std::time::Duration;

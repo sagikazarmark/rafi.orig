@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # check=skip=CopyIgnoredFile
-# The `restate-rafi` service (the draw engine). Build from the repository root:
-#   docker build -f apps/restate-rafi/Dockerfile .
+# The `rafi-restate` service (the draw engine). Build from the repository root:
+#   docker build -f apps/restate/Dockerfile .
 
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707 AS xx
 
@@ -36,13 +36,13 @@ RUN xx-apt-get update && \
 
 COPY --from=deps /usr/src/app/recipe.json recipe.json
 
-RUN xx-cargo chef cook --locked --release --package restate-rafi --recipe-path recipe.json
+RUN xx-cargo chef cook --locked --release --package rafi-restate --recipe-path recipe.json
 
 COPY . .
 
-RUN xx-cargo build --locked --release --package restate-rafi --bin restate-rafi
-RUN xx-verify ./target/$(xx-cargo --print-target-triple)/release/restate-rafi
-RUN cp ./target/$(xx-cargo --print-target-triple)/release/restate-rafi /usr/local/bin/restate-rafi
+RUN xx-cargo build --locked --release --package rafi-restate --bin rafi-restate
+RUN xx-verify ./target/$(xx-cargo --print-target-triple)/release/rafi-restate
+RUN cp ./target/$(xx-cargo --print-target-triple)/release/rafi-restate /usr/local/bin/rafi-restate
 
 
 FROM debian:13.6-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
@@ -55,7 +55,7 @@ RUN apt-get update && \
 # Where the app's database is shared (a volume), owned by the user both images run as.
 RUN mkdir -p /data && chown 65532:65532 /data
 
-COPY --from=builder /usr/local/bin/restate-rafi /usr/local/bin/
+COPY --from=builder /usr/local/bin/rafi-restate /usr/local/bin/
 
 ENV RUST_LOG=info
 
@@ -63,4 +63,4 @@ EXPOSE 9080
 
 USER 65532:65532
 
-CMD ["restate-rafi"]
+CMD ["rafi-restate"]

@@ -4827,7 +4827,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-app-core"
+name = "rafi-app"
 version = "0.1.0"
 dependencies = [
  "altcha",
@@ -4848,23 +4848,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "rafi-app-worker"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "dioxus-clerk",
- "http",
- "rafi-app-core",
- "rafi-cloudflare",
- "rafi-engine",
- "rafi-live-server",
- "rafi-server",
- "tower-service",
- "worker",
 ]
 
 [[package]]
@@ -5009,6 +4992,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "rafi-restate"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "figment",
+ "rafi-engine",
+ "rafi-engine-restate",
+ "rafi-raffle",
+ "rafi-store",
+ "restate-config",
+ "restate-ext",
+ "restate-sdk",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "rafi-restate-worker"
 version = "0.1.0"
 dependencies = [
@@ -5036,7 +5039,7 @@ dependencies = [
  "hex",
  "http-body-util",
  "rafi-api",
- "rafi-app-core",
+ "rafi-app",
  "rafi-engine",
  "rafi-engine-restate",
  "rafi-lifecycle",
@@ -5113,6 +5116,23 @@ dependencies = [
  "uuid",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "rafi-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "dioxus-clerk",
+ "http",
+ "rafi-app",
+ "rafi-cloudflare",
+ "rafi-engine",
+ "rafi-live-server",
+ "rafi-server",
+ "tower-service",
+ "worker",
 ]
 
 [[package]]
@@ -5399,26 +5419,6 @@ dependencies = [
  "tokio",
  "tracing",
  "web-time",
-]
-
-[[package]]
-name = "restate-rafi"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "figment",
- "rafi-engine",
- "rafi-engine-restate",
- "rafi-raffle",
- "rafi-store",
- "restate-config",
- "restate-ext",
- "restate-sdk",
- "serde",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

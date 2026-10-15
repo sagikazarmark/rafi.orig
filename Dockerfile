@@ -38,7 +38,7 @@ RUN ./scripts/participant.sh
 RUN cargo build --release --locked -p rafi
 
 FROM debian:bookworm-slim AS runtime
-# The same user as restate-rafi, which writes the same database file.
+# The same user as rafi-restate, which writes the same database file.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \

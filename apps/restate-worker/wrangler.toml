@@ -16,7 +16,7 @@ preview_urls = false
 [build]
 command = "worker-build --release"
 
-# The app's database: the same D1 as apps/app-worker/wrangler.toml.
+# The app's database: the same D1 as apps/worker/wrangler.toml.
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
@@ -35,7 +35,7 @@ enabled = false
 [vars]
 RAFI_DO_JURISDICTION = "eu"
 
-# Next to the app's dev Worker (`wrangler dev --env dev` in apps/app-worker).
+# Next to the app's dev Worker (`wrangler dev --env dev` in apps/worker).
 [env.dev]
 workers_dev = true
 

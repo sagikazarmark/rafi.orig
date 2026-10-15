@@ -6,8 +6,8 @@
 #   docker compose up -d --build                     # or build from this checkout
 #
 #   caddy (HTTPS) -> rafi (the app) -> Restate Cloud ingress
-#   Restate Cloud -> caddy :9080 (HTTPS) -> restate-rafi (the draw engine)
-#   rafi and restate-rafi share the SQLite database on the `data` volume.
+#   Restate Cloud -> caddy :9080 (HTTPS) -> rafi-restate (the draw engine)
+#   rafi and rafi-restate share the SQLite database on the `data` volume.
 #
 # Register the draw engine once (and again when its handlers change):
 #   restate deployments register https://$RAFI_DOMAIN:9080
@@ -20,7 +20,7 @@
 # PostgreSQL instead of SQLite: uncomment the `postgres` service and its volume below, and set both
 # database URLs to it (the app migrates the database on start; until then the draw engine retries):
 #   rafi:          RAFI_DATABASE_URL: postgres://rafi:${POSTGRES_PASSWORD}@postgres/rafi
-#   restate-rafi:  RESTATE_RAFI_DATABASE__URL: postgres://rafi:${POSTGRES_PASSWORD}@postgres/rafi
+#   rafi-restate:  RAFI_RESTATE_DATABASE__URL: postgres://rafi:${POSTGRES_PASSWORD}@postgres/rafi
 # and add `postgres` to their `depends_on`. They then no longer need the `data` volume.
 
 services:
@@ -41,7 +41,7 @@ services:
       - caddy-config:/config
     depends_on:
       - rafi
-      - restate-rafi
+      - rafi-restate
 
   rafi:
     build:
@@ -61,15 +61,15 @@ services:
 
   # The draw engine: the `Raffle` virtual object. Writes raffles into the shared database and
   # only accepts requests signed by your Restate environment (RESTATE_IDENTITY_KEYS).
-  restate-rafi:
+  rafi-restate:
     build:
       context: ..
-      dockerfile: apps/restate-rafi/Dockerfile
-    image: ${RESTATE_RAFI_IMAGE:-ghcr.io/sagikazarmark/restate-rafi:latest}
+      dockerfile: apps/restate/Dockerfile
+    image: ${RAFI_RESTATE_IMAGE:-ghcr.io/sagikazarmark/rafi-restate:latest}
     restart: unless-stopped
     environment:
-      RESTATE_RAFI_DATABASE__URL: sqlite:///data/rafi.db
-      RESTATE_RAFI_ENDPOINT__IDENTITY_KEYS: ${RESTATE_IDENTITY_KEYS:-}
+      RAFI_RESTATE_DATABASE__URL: sqlite:///data/rafi.db
+      RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS: ${RESTATE_IDENTITY_KEYS:-}
     volumes:
       - data:/data
     depends_on:
@@ -84,7 +84,7 @@ services:
     volumes:
       - restate-data:/restate-data
 
-  # Registers restate-rafi with the self-hosted Restate (again on every `up`).
+  # Registers rafi-restate with the self-hosted Restate (again on every `up`).
   register:
     profiles: [self-hosted]
     image: curlimages/curl:8.16.0
@@ -95,13 +95,13 @@ services:
       - |
         until curl -fsS -X POST http://restate:9070/deployments \
           -H 'content-type: application/json' \
-          -d '{"uri": "http://restate-rafi:9080", "force": true}' -o /dev/null; do
-          echo "waiting for restate and restate-rafi..."; sleep 2
+          -d '{"uri": "http://rafi-restate:9080", "force": true}' -o /dev/null; do
+          echo "waiting for restate and rafi-restate..."; sleep 2
         done
-        echo "registered restate-rafi"
+        echo "registered rafi-restate"
     depends_on:
       - restate
-      - restate-rafi
+      - rafi-restate
 
   # postgres:
   #   image: postgres:16

@@ -6,7 +6,7 @@ use std::env;
 use anyhow::{anyhow, bail};
 use rafi_raffle::drand::{ChainHash, chains};
 
-/// How the app reaches the `restate-rafi` service: through the Restate ingress.
+/// How the app reaches the `rafi-restate` service: through the Restate ingress.
 pub use rafi_engine_restate::ClientConfig as RestateConfig;
 
 #[derive(Debug, Clone)]
@@ -16,7 +16,7 @@ pub struct Config {
     pub public_url: String,
     /// Skip Clerk and treat every admin request as user `dev`. Never use in production.
     pub dev_auth: bool,
-    /// The raffle engine: the `Raffle` virtual object of the `restate-rafi`
+    /// The raffle engine: the `Raffle` virtual object of the `rafi-restate`
     /// service. Without an ingress URL, draws can't start.
     pub restate: RestateConfig,
     /// The drand chain new raffles commit to (`RAFI_DRAND_CHAIN`, a chain

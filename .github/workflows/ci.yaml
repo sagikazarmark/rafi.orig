@@ -80,14 +80,14 @@ jobs:
       - name: Clippy (Workers crates)
         run: |
           cargo clippy --target wasm32-unknown-unknown \
-            -p dioxus-altcha -p rafi-lifecycle -p rafi-raffle -p rafi-api -p rafi-app-core \
+            -p dioxus-altcha -p rafi-lifecycle -p rafi-raffle -p rafi-api -p rafi-app \
             -p rafi-store -p rafi-store-d1-check -p rafi-live-client -p rafi-live-server -p rafi-cloudflare -p rafi-cloudflare-check \
             -p rafi-engine -p rafi-engine-restate -p rafi-participant -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker --features dev -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-server --lib -- -D warnings
-          cargo clippy --target wasm32-unknown-unknown -p rafi-app-worker -- -D warnings
-          cargo clippy --target wasm32-unknown-unknown -p rafi-app-worker --features dev -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown -p rafi-worker -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown -p rafi-worker --features dev -- -D warnings
 
   workers:
     name: Workers (wrangler dev)
@@ -141,8 +141,8 @@ jobs:
           - name: rafi
             dockerfile: Dockerfile
             platforms: linux/amd64
-          - name: restate-rafi
-            dockerfile: apps/restate-rafi/Dockerfile
+          - name: rafi-restate
+            dockerfile: apps/restate/Dockerfile
             platforms: linux/amd64,linux/arm64
     steps:
       - uses: actions/checkout@v7

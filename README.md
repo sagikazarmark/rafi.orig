@@ -34,15 +34,15 @@ See [`docs/PLAN.md`](docs/PLAN.md) for the design and the reasoning behind it.
 The raffle (its state machine, the draw algorithm and the engine's rules) lives in [`crates/raffle`](crates/raffle)
 (pure Rust, no IO): a manifest and an engine run a whole raffle, and nothing of the app is needed to draw or verify
 it. What the app adds around it (the lifecycle, starting the draw, entrants, settings) is in
-[`crates/lifecycle`](crates/lifecycle). The app's use cases ([`crates/app-core`](crates/app-core)) talk to **the
+[`crates/lifecycle`](crates/lifecycle). The app's use cases ([`crates/app`](crates/app)) talk to **the
 raffle engine** through one interface (`Engine`, in [`crates/engine`](crates/engine); its contract is
 documented there) and can't tell one engine from another. The engine is the **Restate virtual object** `Raffle`
 (keyed by the raffle's ID; [`crates/engine-restate`](crates/engine-restate)): the app calls it through the Restate
 ingress, with the client the Restate SDK generates from the object, and it writes the raffle's log after every
 change straight into the app's database.
 Production is planned on Cloudflare Workers, where the engine is **`rafi-restate-worker`**
-([`apps/restate-worker`](apps/restate-worker)); for self-hosting it is **`restate-rafi`**
-([`apps/restate-rafi`](apps/restate-rafi)), a separate native service. Rafi relies on Restate
+([`apps/restate-worker`](apps/restate-worker)); for self-hosting it is **`rafi-restate`**
+([`apps/restate`](apps/restate)), a separate native service. Rafi relies on Restate
 for draws: there is no in-process fallback in production (`rafi-engine`'s `local` feature is for tests and
 development only). Restate only ever sees anonymous IDs. The app decides which drand chain raffles commit to
 (`RAFI_DRAND_CHAIN`); the engine only checks it. See [`docs/engine-plan.md`](docs/engine-plan.md).
@@ -79,13 +79,13 @@ crates/dioxus-altcha          dioxus-altcha: ALTCHA v2 proof-of-work solved in t
 crates/cloudflare             rafi-cloudflare: the Cloudflare glue both Workers share (RaffleRoom Durable Object, notifier, config)
 crates/api                    rafi-api: the contract between the app's server and browser: views, and the admin API declared
                               once (`admin_functions!`: the server's `Admin` trait and `dispatch`, the browser's client)
-crates/app-core               rafi-app-core: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
+crates/app                    rafi-app: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
 crates/server                 rafi-server: the axum server (participant pages, public JSON, the admin API); `rafi` serves it
-                              natively, rafi-app-worker on Workers
+                              natively, rafi-worker on Workers
 
 apps/rafi                     rafi: the native binary serving rafi-server and the web app's files; self-hosting
-apps/app-worker               rafi-app-worker: the app on Cloudflare Workers (rafi-server's routes, the Cron, RaffleRoom)
-apps/restate-rafi             restate-rafi: the native binary serving the Restate services (config, logging, Dockerfile); self-hosting
+apps/worker                   rafi-worker: the app on Cloudflare Workers (rafi-server's routes, the Cron, RaffleRoom)
+apps/restate                  rafi-restate: the native binary serving the Restate services (config, logging, Dockerfile); self-hosting
 apps/restate-worker           rafi-restate-worker: the same services as a Cloudflare Worker, on D1, nudging the live channel
 apps/web                      rafi-web: the Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx`
 apps/participant              rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
@@ -97,7 +97,7 @@ testbeds/cloudflare           rafi-cloudflare-check: a Worker hosting RaffleRoom
 tools                         verify.py: independent verifier (Python standard library only)
 testdata                      shared test vectors
 compose.yaml                  a local Restate server for development
-deploy                        self-hosting: docker compose (Caddy, the app, restate-rafi, optionally Restate)
+deploy                        self-hosting: docker compose (Caddy, the app, rafi-restate, optionally Restate)
 ```
 
 ## Development
@@ -164,7 +164,7 @@ It listens on `IP`:`PORT` (default `127.0.0.1:8080`), serves the participant scr
 (default `target/dx/rafi-web/release/web/public`), both relative to the working directory, falling back to the web
 app's `index.html` for its own routes.
 
-With Restate: Restate runs in Docker ([`compose.yaml`](compose.yaml)), the app and `restate-rafi` on your
+With Restate: Restate runs in Docker ([`compose.yaml`](compose.yaml)), the app and `rafi-restate` on your
 machine, both on the same database file:
 
 ```sh
@@ -178,9 +178,9 @@ RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http:/
   PORT=8788 cargo run -p rafi
 (cd apps/web && dx serve --port 8787)
 
-# the raffle engine, in another terminal (offline: add --features mock-drand and RESTATE_RAFI_DRAND__MOCK=true,
+# the raffle engine, in another terminal (offline: add --features mock-drand and RAFI_RESTATE_DRAND__MOCK=true,
 # matching the app's RAFI_DRAND_CHAIN=mock; the app refuses to start a draw on an engine on another chain)
-RESTATE_RAFI_DATABASE__URL="$RAFI_DATABASE_URL" cargo run -p restate-rafi
+RAFI_RESTATE_DATABASE__URL="$RAFI_DATABASE_URL" cargo run -p rafi-restate
 
 # once, and again whenever the services' handlers change (Raffle, EngineInfo)
 curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
@@ -195,7 +195,7 @@ and leave `RAFI_DEV_AUTH` unset.
 ```sh
 export RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)   # a pinned restate-server for the end-to-end tests
 cargo test --workspace --exclude rafi-server --exclude rafi-web -- --include-ignored  # the rules, the app's use cases, drand, store, the engine conformance suite (local runner and the Raffle object on restate-server)
-cargo test -p rafi-server -- --include-ignored             # app (with the in-process raffle engine), and app + restate-rafi + restate-server
+cargo test -p rafi-server -- --include-ignored             # app (with the in-process raffle engine), and app + rafi-restate + restate-server
 python3 tools/verify.py --vectors testdata/draw-vectors.json
 ```
 
@@ -247,11 +247,11 @@ The app:
 | `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app (the image sets `/usr/local/app/public`) |
 | `RAFI_PARTICIPANT_DIR` | `apps/participant/dist` | The participant page's WebAssembly and fallback, from `./scripts/participant.sh` (the image sets `/usr/local/app/participant`) |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL (QR codes, links) |
-| `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `restate-rafi`: SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`, the database must exist). The app applies the migrations on start |
+| `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate`: SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`, the database must exist). The app applies the migrations on start |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |
 | `CLERK_SECRET_KEY` | | Clerk backend key (`CLERK_PUBLISHABLE_KEY` at build time) |
 | `RESTATE_INGRESS_URL`, `RESTATE_API_KEY` | | The raffle engine's Restate ingress (Restate Cloud: an API key with ingress access). Without it, draws can't start |
-| `RESTATE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits: a command queued behind a draw waiting for its beacon may take the engine's drand lead plus fetch timeout; past this it is accepted and applies later. Keep it above `lead_secs + timeout_secs` of `restate-rafi` |
+| `RESTATE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits: a command queued behind a draw waiting for its beacon may take the engine's drand lead plus fetch timeout; past this it is accepted and applies later. Keep it above `lead_secs + timeout_secs` of `rafi-restate` |
 | `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to (a chain hash). Release builds accept only public drand chains; `mock` (a public test chain, *not* verifiable) needs `--features mock-drand`. The raffle engine must draw from the same chain: the app refuses to start a draw otherwise |
 | `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
 | `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges (ALTCHA v2); not empty |
@@ -260,8 +260,8 @@ The app:
 | `RAFI_RETENTION` | off | Erase personal data after the event in the hourly retention run (otherwise erase by hand in the admin). The run always ends live updates a day after a raffle finishes and forgets expired proof-of-work challenges |
 | `RAFI_RETENTION_DAYS` / `RAFI_RETENTION_WINNERS_DAYS` | `30` / `90` | Erase personal data after the event. The first erasing run that sees a raffle finished dates its erasure with these; a date once set is kept. The raffle engine needs neither |
 
-`restate-rafi` (draw settings, database, identity keys):
-see [`apps/restate-rafi`](apps/restate-rafi/README.md).
+`rafi-restate` (draw settings, database, identity keys):
+see [`apps/restate`](apps/restate/README.md).
 
 ## Self-hosting
 
@@ -275,27 +275,27 @@ docker compose pull && docker compose up -d
 restate deployments register https://$RAFI_DOMAIN:9080   # once, and when the handlers change (Raffle, EngineInfo)
 ```
 
-[`deploy/compose.yaml`](deploy/compose.yaml) runs Caddy (automatic HTTPS), the app and `restate-rafi` from the GHCR
-images (`docker compose up -d --build` builds them from the checkout instead). The app and `restate-rafi` share the
-SQLite database on a volume. Restate Cloud reaches `restate-rafi` at `https://$RAFI_DOMAIN:9080`, where Caddy
-terminates TLS; `restate-rafi` only accepts requests signed with the environment's key (`RESTATE_IDENTITY_KEYS`, the
+[`deploy/compose.yaml`](deploy/compose.yaml) runs Caddy (automatic HTTPS), the app and `rafi-restate` from the GHCR
+images (`docker compose up -d --build` builds them from the checkout instead). The app and `rafi-restate` share the
+SQLite database on a volume. Restate Cloud reaches `rafi-restate` at `https://$RAFI_DOMAIN:9080`, where Caddy
+terminates TLS; `rafi-restate` only accepts requests signed with the environment's key (`RESTATE_IDENTITY_KEYS`, the
 environment's signing public key). The app calls the Restate Cloud ingress with an API key that has ingress access
 (`RESTATE_API_KEY`). Open ports: 22, 80, 443 (TCP and UDP) and 9080.
 
 Without Restate Cloud, `docker compose --profile self-hosted up -d` also runs a Restate server on the VM and registers
-`restate-rafi` with it (see the comments in `compose.yaml`).
+`rafi-restate` with it (see the comments in `compose.yaml`).
 
 PostgreSQL instead of SQLite: point both at the same, existing database, the app with
-`RAFI_DATABASE_URL=postgres://user:password@host/rafi` and `restate-rafi` with the same URL in `database.url`
-(`RESTATE_RAFI_DATABASE__URL`). The app applies the migrations (`migrations/postgres`) on start, as it does for
-SQLite; until it has, `restate-rafi`'s writes fail and Restate retries them. Transactions run serializable, as on
+`RAFI_DATABASE_URL=postgres://user:password@host/rafi` and `rafi-restate` with the same URL in `database.url`
+(`RAFI_RESTATE_DATABASE__URL`). The app applies the migrations (`migrations/postgres`) on start, as it does for
+SQLite; until it has, `rafi-restate`'s writes fail and Restate retries them. Transactions run serializable, as on
 SQLite. Connections use TLS when the server offers it; add `?sslmode=verify-full` to require it, against the Mozilla
 root certificates or `sslrootcert=<file>`. `deploy/compose.yaml` keeps SQLite; its comments show the Postgres
 variant.
 
 To update: build and push new images (CI does it on `main`; by hand, `docker buildx build --platform linux/amd64
 --build-arg CLERK_PUBLISHABLE_KEY -t ghcr.io/sagikazarmark/rafi:latest --push .` and the same for
-`apps/restate-rafi/Dockerfile`), then `docker compose pull && docker compose up -d` on the VM. Avoid it
+`apps/restate/Dockerfile`), then `docker compose pull && docker compose up -d` on the VM. Avoid it
 during a live raffle (`/api/status` shows `live_raffles`).
 
 ## Cloudflare Workers
@@ -303,7 +303,7 @@ during a live raffle (`/api/status` shows `live_raffles`).
 The plan and its decisions: [`docs/workers-plan.md`](docs/workers-plan.md). Cloudflare is one deployment, not an
 assumption of the code: the app and the raffle engine are written against small interfaces (the engine's `Store` and
 `Observer`, the live `Notifier`, the app's `RateLimit`), and `crates/cloudflare` (`rafi-cloudflare`) implements the
-shared ones over Workers bindings. Two Workers wire it up: the app (`apps/app-worker`, which also hosts the
+shared ones over Workers bindings. Two Workers wire it up: the app (`apps/worker`, which also hosts the
 per-raffle `RaffleRoom` Durable Object and counts joins on its rate-limiting bindings) and the raffle engine
 (`apps/restate-worker`), with the D1 database they share.
 
@@ -311,9 +311,9 @@ Local development, everything under `wrangler dev` (the tools are in `devenv.nix
 `Cargo.lock`):
 
 ```sh
-./scripts/app-assets.sh                                   # web app bundle + participant scripts -> apps/app-worker/worker-assets
-(cd apps/app-worker && wrangler d1 migrations apply rafi --local --env dev)
-(cd apps/app-worker && wrangler dev --env dev)          # http://127.0.0.1:8787, dev auth, mock drand
+./scripts/app-assets.sh                                   # web app bundle + participant scripts -> apps/worker/worker-assets
+(cd apps/worker && wrangler d1 migrations apply rafi --local --env dev)
+(cd apps/worker && wrangler dev --env dev)                # http://127.0.0.1:8787, dev auth, mock drand
 (cd apps/restate-worker && wrangler dev --env dev --port 8791)
 # a local restate-server with its ingress on :18080, then:
 restate deployments register http://127.0.0.1:8791 --use-http1.1
@@ -323,7 +323,7 @@ restate deployments register http://127.0.0.1:8791 --use-http1.1
 (`testbeds/cloudflare`), the participant page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
 job runs it.
 
-Deploying (needs a Cloudflare account and Restate Cloud): see the comments at the top of `apps/app-worker/wrangler.toml` and
+Deploying (needs a Cloudflare account and Restate Cloud): see the comments at the top of `apps/worker/wrangler.toml` and
 `apps/restate-worker/wrangler.toml` (D1 created with `--jurisdiction eu`, the secrets, registering the raffle engine
 with Restate Cloud per release). Don't deploy while a raffle is live: a deploy restarts the Durable Objects.
 

@@ -8,7 +8,7 @@
 #      CHROMIUM (or `chromium`) is available;
 #   4. a draw through Restate into the live channel (apps/restate-worker/e2e.mjs),
 #      when RESTATE_SERVER_BIN is set (./scripts/restate-server.sh prints it);
-#   5. a whole evening on the app Worker itself (apps/app-worker/evening.mjs): the
+#   5. a whole evening on the app Worker itself (apps/worker/evening.mjs): the
 #      admin API, a phone joining in Chromium, draws through Restate, the end.
 #      Needs RESTATE_SERVER_BIN, Chromium and dx (for the web app bundle).
 #
@@ -99,13 +99,13 @@ fi
 if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev/null; then
   step "an evening on the app Worker"
   "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
-  (cd "$ROOT/apps/app-worker" && worker-build --release --features dev) >"$LOGS/build-app.log" 2>&1
-  (cd "$ROOT/apps/app-worker" && $WRANGLER d1 migrations apply rafi --local --env dev --persist-to "$STATE/wrangler") >/dev/null
-  serve apps/app-worker 8787 /healthz --env dev
+  (cd "$ROOT/apps/worker" && worker-build --release --features dev) >"$LOGS/build-app.log" 2>&1
+  (cd "$ROOT/apps/worker" && $WRANGLER d1 migrations apply rafi --local --env dev --persist-to "$STATE/wrangler") >/dev/null
+  serve apps/worker 8787 /healthz --env dev
   serve apps/restate-worker 8792 /discover --env dev
   curl -s -m 30 -X POST http://127.0.0.1:19070/deployments -H 'content-type: application/json' \
     -d '{"uri":"http://127.0.0.1:8792","use_http_11":true,"force":true}' >/dev/null
-  CHROMIUM="$CHROMIUM" APP=http://127.0.0.1:8787 node "$ROOT/apps/app-worker/evening.mjs" "$STATE/chrome-app"
+  CHROMIUM="$CHROMIUM" APP=http://127.0.0.1:8787 node "$ROOT/apps/worker/evening.mjs" "$STATE/chrome-app"
 else
   step "an evening on the app Worker: skipped (needs RESTATE_SERVER_BIN, Chromium and dx)"
 fi

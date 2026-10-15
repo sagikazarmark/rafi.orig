@@ -24,7 +24,7 @@ refusal with its kind, anything else means the engine is unavailable, and a call
 Committing to a round and awaiting its beacon go through [`restate-drand`](https://crates.io/crates/restate-drand).
 After every change the raffle goes to a `Store` (the app's database), then, if the host gave one, clients are
 told through an `Observer`, best effort, as a journaled step of its own; both are [`rafi-engine`](../engine)'s
-ports. A host whose clients poll the store passes no observer, and no step is journaled (`restate-rafi`). On Workers,
+ports. A host whose clients poll the store passes no observer, and no step is journaled (`rafi-restate`). On Workers,
 the observer is the live notifier (a [`rafi-live-server`](../live-server) `Notifier`), which nudges the raffle's
 room. `services` binds both services the way every host does.
 
@@ -41,7 +41,7 @@ let (raffle, info) = rafi_engine_restate::services(drand, MemoryStore::default()
 let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(raffle).bind(info).build();
 ```
 
-[`restate-rafi`](../../apps/restate-rafi) is the binary that serves the services;
+[`rafi-restate`](../../apps/restate) is the binary that serves the services;
 [`rafi-restate-worker`](../../apps/restate-worker) serves them on Cloudflare Workers.
 
 ## Tests

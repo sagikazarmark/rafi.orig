@@ -10,7 +10,7 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use rafi_app_core::Limiter;
+use rafi_app::Limiter;
 use rafi_lifecycle::RaffleState;
 use rafi_live_client::Follow;
 use rafi_live_server::{LiveUpdates, Recording};

@@ -7,4 +7,4 @@
 !/migrations/
 **/target
 apps/web/assets/tailwind.css
-apps/app-worker/worker-assets
+apps/worker/worker-assets

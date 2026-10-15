@@ -195,11 +195,11 @@ rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantCha
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 dioxus-altcha        ALTCHA v2 solved in the browser (Web Workers on WebCrypto) and a Dioxus hook; no rafi dependencies
 rafi-api             the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
-rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
+rafi-app             every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP
 rafi-server          the HTTP side (routes, auth, the retention schedule, the public pages); the native binary `rafi`
 rafi-web             the web app (admin, projector, verification page; Dioxus, `dx`)
-rafi-app-worker      the app on Workers: rafi-server's routes, the Cron, RaffleRoom
+rafi-worker          the app on Workers: rafi-server's routes, the Cron, RaffleRoom
 rafi-participant     the participant page's WASM and its JavaScript fallback
 ```
 
@@ -218,9 +218,9 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 
 | | Native (self-hosting) | Cloudflare Workers (planned production) |
 |---|---|---|
-| App | `rafi-server` (binary `rafi`); an hourly retention task; in-memory rate limits | `rafi-app-worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleRoom` |
+| App | `rafi-server` (binary `rafi`); an hourly retention task; in-memory rate limits | `rafi-worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleRoom` |
 | Database | SQLite or Postgres (`RAFI_DATABASE_URL`) | D1, EU jurisdiction |
-| Raffle engine | `restate-rafi` (`apps/restate-rafi`) on the same database | `rafi-restate-worker`, called by Restate Cloud over HTTPS (request-response, signed) |
+| Raffle engine | `rafi-restate` (`apps/restate`) on the same database | `rafi-restate-worker`, called by Restate Cloud over HTTPS (request-response, signed) |
 | Live updates | none pushed: clients poll | `RaffleRoom`, a Durable Object per raffle (partyline) |
 | Edge | Caddy | Cloudflare |
 
@@ -344,10 +344,10 @@ lifecycle's sense, unrelated to `Follow`.
 ## 11. Hosting and operations
 
 - **Production (planned): Cloudflare Workers.** The app Worker (with `RaffleRoom`), `rafi-restate-worker` and one
-  D1 database ([workers-plan.md](workers-plan.md); the comments in `apps/app-worker/wrangler.toml` and
+  D1 database ([workers-plan.md](workers-plan.md); the comments in `apps/worker/wrangler.toml` and
   `apps/restate-worker/wrangler.toml`). Missing secrets stop a Worker; dev auth and mock drand are compiled out of
   release builds.
-- **Self-hosting: the native server.** `deploy/compose.yaml` runs Caddy, the app and `restate-rafi` on one VM
+- **Self-hosting: the native server.** `deploy/compose.yaml` runs Caddy, the app and `rafi-restate` on one VM
   (SQLite on a shared volume, or Postgres), against Restate Cloud or, with `--profile self-hosted`, Restate on the
   VM. Development runs Restate in Docker (`compose.yaml`).
 - **Restate:** register the engine again whenever its handlers change. On Workers the object uses its built-in
@@ -365,8 +365,8 @@ lifecycle's sense, unrelated to `Follow`.
   and that only claimed winners are deliverable. `tools/verify.py` agrees with the vectors.
 - The engine conformance suite on `LocalEngine` and on the `Raffle` object against `restate-server` 1.7.13.
 - The storage conformance suite on SQLite, an embedded Postgres 18, Postgres 16 (CI) and D1 under `wrangler dev`.
-- The app: use-case tests (`crates/app-core/tests/use_cases.rs`), HTTP tests, and an end-to-end test of the app,
-  `restate-rafi` and `restate-server` on one database.
+- The app: use-case tests (`crates/app/tests/use_cases.rs`), HTTP tests, and an end-to-end test of the app,
+  `rafi-restate` and `restate-server` on one database.
 - Workers, locally (`scripts/workers-check.sh`): D1, the live channel, the participant page in headless Chromium
   (the fallback too), a draw through Restate on the Workers endpoint, and a whole evening on the app Worker.
 - Sizes, compressed: the app Worker 847 KB, the Restate Worker 914 KB, the participant WASM 263 KB (budget 280 KB).

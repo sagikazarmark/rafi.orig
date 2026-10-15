@@ -1,4 +1,4 @@
-# Local Restate server for development. The app and the `restate-rafi` draw
+# Local Restate server for development. The app and the `rafi-restate` draw
 # engine run on the host (see the README); Restate reaches the engine at
 # http://host.docker.internal:9080.
 services:

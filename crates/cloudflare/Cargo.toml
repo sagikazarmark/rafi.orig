@@ -9,7 +9,7 @@ publish = false
 
 [features]
 ## `room`: the RaffleRoom Durable Object and the gate for phones' sockets
-## (`connect`), for the Worker that hosts the objects (rafi-app-worker). Off,
+## (`connect`), for the Worker that hosts the objects (rafi-worker). Off,
 ## only what reaches them (`nudge`, `destroy`, `DurableObjects`): a
 ## `#[durable_object]` in a dependency is exported from every Worker that
 ## links it, so the Restate Worker leaves it off.

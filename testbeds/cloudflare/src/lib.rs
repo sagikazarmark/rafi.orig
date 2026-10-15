@@ -196,7 +196,7 @@ if(typeof WebAssembly!=="object"){{window.rafiFallback()}}else{{import("/partici
 
 fn altcha_challenge() -> altcha::Challenge {
     let now = (js_sys::Date::now() / 1000.0) as i64;
-    // As the app issues them (rafi-app-core's altcha), cheap.
+    // As the app issues them (rafi-app's altcha), cheap.
     altcha::create_challenge(altcha::CreateChallengeOptions {
         algorithm: "PBKDF2/SHA-256".into(),
         cost: 100,

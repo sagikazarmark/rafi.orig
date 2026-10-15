@@ -20,7 +20,7 @@ rafi-engine-restate = { path = "crates/engine-restate" }
 rafi-live-client = { path = "crates/live-client" }
 rafi-live-server = { path = "crates/live-server" }
 rafi-cloudflare = { path = "crates/cloudflare" }
-rafi-app-core = { path = "crates/app-core" }
+rafi-app = { path = "crates/app" }
 rafi-server = { path = "crates/server" }
 drand = { version = "0.3", default-features = false }
 restate-drand = { version = "0.3", default-features = false }
@@ -53,5 +53,5 @@ codegen-units = 1
 restate-sdk = { git = "https://github.com/sagikazarmark/restate-sdk-rust", branch = "wasm" }
 # altcha's solve_challenge and verify_solution read std clocks, which panic on
 # wasm32-unknown-unknown; this uses web-time (altcha-org/altcha-lib-rs#1).
-# rafi-app-worker verifies on Workers. Drop this once it is released.
+# rafi-worker verifies on Workers. Drop this once it is released.
 altcha = { git = "https://github.com/sagikazarmark/altcha-lib-rs", rev = "d2f9476826fe0965d687bed142e920ca2b91430a" }

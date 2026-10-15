@@ -2,7 +2,7 @@
 // auth), a phone in headless Chromium joining through the real form, draws
 // through Restate, the live channel, and the end. Step 5 of scripts/workers-check.sh.
 //
-//   node apps/app-worker/evening.mjs "$(mktemp -d)"
+//   node apps/worker/evening.mjs "$(mktemp -d)"
 
 import { spawn } from "node:child_process";
 

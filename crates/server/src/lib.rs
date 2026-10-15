@@ -1,11 +1,11 @@
 //! Rafi's server: the HTTP side of the app. Participant pages, public and
-//! admin APIs, over the use cases in `rafi-app-core` (re-exported as
+//! admin APIs, over the use cases in `rafi-app` (re-exported as
 //! [`service`]): it maps requests onto them and their results onto
 //! responses. The pages render in [`pages`]; the database and all its SQL
 //! are in `rafi-store`.
 //!
 //! The native binary (`rafi`, `apps/rafi`) serves it with the web app's files;
-//! on Cloudflare Workers, `rafi-app-worker` does.
+//! on Cloudflare Workers, `rafi-worker` does.
 //!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small
@@ -22,14 +22,14 @@ pub mod public;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod retention;
 
-pub use rafi_app_core::{self as service, codes, ids, view};
+pub use rafi_app::{self as service, codes, ids, view};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 use std::{ops::Deref, sync::Arc};
 
 use axum::{Extension, Router};
-use rafi_app_core::RateLimit;
+use rafi_app::RateLimit;
 use rafi_engine::Engine;
 use rafi_engine_restate::RestateClient;
 use rafi_live_server::LiveUpdates;
@@ -113,7 +113,7 @@ impl AppState {
     }
 }
 
-/// The raffle engine `cfg` points at: the `restate-rafi` service through the
+/// The raffle engine `cfg` points at: the `rafi-restate` service through the
 /// Restate ingress; `None` without `RESTATE_INGRESS_URL`.
 pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn Engine>> {
     (!cfg.restate.ingress_url.is_empty())

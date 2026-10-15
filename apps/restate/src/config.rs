@@ -1,5 +1,5 @@
 //! Endpoint configuration: a file (JSON, YAML or TOML) merged with
-//! `RESTATE_RAFI_`-prefixed environment variables (`__` separates levels).
+//! `RAFI_RESTATE_`-prefixed environment variables (`__` separates levels).
 
 use std::path::Path;
 
@@ -13,8 +13,8 @@ use rafi_store::{Db, RaffleWriter};
 use restate_config::{EndpointConfig, ServiceOptionsConfig};
 use serde::{Deserialize, Serialize};
 
-/// The environment variable prefix (e.g. `RESTATE_RAFI_DATABASE__URL`).
-pub const ENV_PREFIX: &str = "RESTATE_RAFI_";
+/// The environment variable prefix (e.g. `RAFI_RESTATE_DATABASE__URL`).
+pub const ENV_PREFIX: &str = "RAFI_RESTATE_";
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -143,14 +143,14 @@ mod tests {
                 inactivity_timeout = "5m"
                 "#,
             )?;
-            jail.set_env("RESTATE_RAFI_DRAND__LEAD_SECS", "9");
+            jail.set_env("RAFI_RESTATE_DRAND__LEAD_SECS", "9");
             jail.set_env(
-                "RESTATE_RAFI_DRAND__RELAYS",
+                "RAFI_RESTATE_DRAND__RELAYS",
                 "[https://a.example, https://b.example]",
             );
-            jail.set_env("RESTATE_RAFI_ENDPOINT__LISTENER", "127.0.0.1:9999");
+            jail.set_env("RAFI_RESTATE_ENDPOINT__LISTENER", "127.0.0.1:9999");
             jail.set_env(
-                "RESTATE_RAFI_ENDPOINT__IDENTITY_KEYS",
+                "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS",
                 "publickeyv1_a, publickeyv1_b",
             );
             let cfg = Config::load(Some(Path::new("rafi.toml"))).expect("config");
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn unknown_keys_are_rejected() {
         figment::Jail::expect_with(|jail| {
-            jail.set_env("RESTATE_RAFI_DATABSE__URL", "typo");
+            jail.set_env("RAFI_RESTATE_DATABSE__URL", "typo");
             assert!(Config::load(None).is_err());
             Ok(())
         });

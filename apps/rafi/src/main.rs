@@ -1,5 +1,5 @@
 //! The native server: `rafi`. Everything but the entry point is in
-//! `rafi-server`; on Workers, `rafi-app-worker` serves the same routes.
+//! `rafi-server`; on Workers, `rafi-worker` serves the same routes.
 
 use anyhow::Context as _;
 use rafi_server as server;
