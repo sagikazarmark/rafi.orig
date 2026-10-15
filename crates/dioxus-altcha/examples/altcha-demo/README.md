@@ -14,7 +14,9 @@ dx serve            # then http://127.0.0.1:8080
   - The page has a difficulty slider (the server's `cost`).
   - It can solve on load (`Auto::OnMount`) or on submit (`Auto::Off` and `solved().await`).
   - After a join, attack buttons replay or change the accepted payload, and show why the server refuses each.
-- **`/strict`:** the same page, served with `Content-Security-Policy: worker-src 'self'`.
+- **`/strict`:** the same page, served with `Content-Security-Policy: worker-src 'self'`. That restricts workers
+  only: a full strict CSP (`script-src 'self'`) would also need allowances for Dioxus's own inline scripts, and would
+  block the embedded fallback below, which loads the solver as a `blob:` script.
   - The embedded `blob:` worker is blocked, so the workers load from `/altcha-worker.js`, which the server serves from
     `dioxus_altcha::WORKER_JS` (`SolveOptions::worker_url`).
   - A checkbox uses the embedded worker anyway, to show the fallback to solving on the page.

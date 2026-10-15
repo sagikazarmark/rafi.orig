@@ -41,7 +41,9 @@ let ok = altcha::verify_solution(altcha::VerifySolutionOptions::new(&payload.cha
 - **Algorithms:** `PBKDF2/SHA-256|384|512`, and iterated `SHA-*`, which is slow above `cost` 1. Not `SCRYPT` or `ARGON2ID`.
 - **Workers:** up to 4. Chromium runs every worker's PBKDF2 on one thread, so on Android more workers don't help;
   Safari and Firefox scale.
-- **No workers?** If none can start (a CSP, an odd webview), it solves on the main thread, yielding to the page.
+- **No workers?** If none can start (a CSP, an odd webview), it solves on the main thread, yielding to the page. It
+  loads the solver there as a `<script>` from the workers' URL: under a CSP that also restricts scripts, that needs
+  `worker_url` (same-origin), since a `blob:` script is blocked too.
 - **Secure context:** WebCrypto needs HTTPS or localhost.
 - **CSP:** the workers start from a `blob:` URL (`worker-src blob:`). Otherwise serve `WORKER_JS` as a file and set
   `SolveOptions::worker_url`. Without the default `embed-worker` feature, that's required, and the solver isn't in

@@ -150,7 +150,8 @@ mod imp {
         Url::create_object_url_with_blob(&blob).map_err(|e| SolveError::Worker(js_error(&e)))
     }
 
-    /// Starts `n` workers on `url`; `false` if the first can't be created.
+    /// Starts up to `n` workers on `url`, splitting the counters among those
+    /// that could be created; `false` if none could.
     fn start_workers(
         guard: &mut Guard,
         url: &str,
@@ -158,9 +159,9 @@ mod imp {
         n: usize,
         events: &mpsc::UnboundedSender<Event>,
     ) -> bool {
-        for i in 0..n {
+        for _ in 0..n {
             let Ok(worker) = Worker::new(url) else {
-                return !guard.workers.is_empty();
+                break;
             };
             let tx = events.clone();
             let on_message: OnMessage = Closure::new(move |e: MessageEvent| {
@@ -173,17 +174,22 @@ mod imp {
             });
             worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
             worker.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+            guard.workers.push((worker, on_message, on_error));
+        }
+        // The step is how many started: with fewer than asked, no counter
+        // goes untried.
+        let step = guard.workers.len();
+        for (i, (worker, _, _)) in guard.workers.iter().enumerate() {
             let message = format!(
-                r#"{{"challenge":{},"start":{i},"step":{n}}}"#,
+                r#"{{"challenge":{},"start":{i},"step":{step}}}"#,
                 challenge.json()
             );
             if worker.post_message(&message.into()).is_err() {
-                worker.terminate();
-                continue;
+                // Counted as a worker that couldn't run.
+                let _ = events.unbounded_send(Event::Error);
             }
-            guard.workers.push((worker, on_message, on_error));
         }
-        !guard.workers.is_empty()
+        step > 0
     }
 
     /// Loads the solver script into the page (once) and returns `altchaSolve`.

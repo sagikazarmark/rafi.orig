@@ -169,3 +169,35 @@ async fn solves_again_when_expired() {
     assert_ne!(first, second);
     assert!(verifies(&second));
 }
+
+thread_local! {
+    static REFRESHED: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
+}
+
+fn refresh_then_solved() -> Element {
+    let altcha = use_altcha(issue);
+    HANDLE.with(|h| *h.borrow_mut() = Some(altcha));
+    use_hook(|| {
+        spawn(async move {
+            let spent = altcha.solved().await.unwrap();
+            // As after a submit: the payload is spent, the next is fresh.
+            altcha.refresh();
+            let fresh = altcha.solved().await.unwrap();
+            REFRESHED.with(|r| *r.borrow_mut() = Some((spent, fresh)));
+        })
+    });
+    rsx! {}
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn solved_after_refresh_is_fresh() {
+    let mut dom = VirtualDom::new(refresh_then_solved);
+    dom.rebuild_in_place();
+    run_until(&mut dom, || REFRESHED.with(|r| r.borrow().is_some())).await;
+    let (spent, fresh) = REFRESHED.with(|r| r.borrow_mut().take()).unwrap();
+    assert_ne!(
+        spent, fresh,
+        "refresh() then solved() returned the spent payload"
+    );
+    assert!(verifies(&fresh));
+}

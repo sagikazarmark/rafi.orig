@@ -21,7 +21,10 @@ What changed from the text below while implementing it:
 - **Rafi's key prefix is a constant**, `"00"` (`KEY_PREFIX`). `ProofOfWork::new(key, cost)` validates the key and the cost at startup; there is no `key_prefix` setting, and tests use `cost: 1` with the same prefix (about 256 one-round tries).
 - **`embed-worker`:** embedding `WORKER_JS` is a default feature. Rafi turns it off and loads its workers from `/participant/altcha-worker.js`, the file `fallback.js` uses.
 - **The phone bundle:** after dropping the embedded copy, the untagged-enum reply and `to_uppercase`, it is 276,553 B gzipped against `main`'s 267,656. That leaves about 10 KB of the 280 KB budget.
-- **`RawChallenge::usable_for()`** is the deadline rule of §3.3, shared by the hook and rafi's `extras.rs`. `AltchaError` gained `Cancelled`. There's no `build.rs`: plain `cfg(target_arch)` and the `native` feature.
+- **`RawChallenge::usable_for()`** is the deadline rule of §3.3, shared by the hook and rafi's `extras.rs`. The margin is 30 s, at most half the time left, so a short-lived challenge isn't expired on arrival. `AltchaError` gained `Cancelled`. There's no `build.rs`: plain `cfg(target_arch)` and the `native` feature.
+- **The solver** in `worker.js` is `altchaSolve(challenge, start, step, ctl)`; `ctl` (`{yieldMs, cancelled}`) is the main thread's.
+- **Tests:** the hook is covered in a VirtualDom (mount, solve on demand, expiry, `refresh()` then `solved()`) rather than as a pure reducer; only `can_start` and the deadline rule are pure. The back/forward-cache refresh needs a real browser and has no test yet. The ES2017 check is a scan for syntax beyond ES2017, not a parse.
+- **The main-thread fallback** loads the solver as a `<script>` from the same URL as the workers. Under a CSP that also restricts scripts (`script-src 'self'`), that only works with `worker_url` (same-origin), not the embedded `blob:` copy. The demo's `/strict` page sends `worker-src 'self'` only.
 - **The demo** is `crates/dioxus-altcha/examples/altcha-demo`, a Dioxus fullstack app with its own `[workspace]`:
   - server functions issue and verify, with an in-memory replay set;
   - the page has a difficulty slider, solve-on-load or solve-on-submit, and attacks the server refuses (a replay, a changed counter, a lower cost, no payload);
@@ -50,7 +53,7 @@ The crate lives in this workspace (`crates/dioxus-altcha`, `publish = false`) wi
   - **Counter limit:** past `0xffffffff` the worker stops with an error, rather than wrapping like Rust's `wrapping_add`.
   - **`SCRYPT`, `ARGON2ID`:** rejected before any worker starts.
 - **PBKDF2 is the supported path.** The iterated-SHA variant awaits one promise per round, which measured 82× slower than PBKDF2 at `cost` 1000 under node. It works, but only makes sense with `cost` around 1.
-- **Structure:** `worker.js` defines `solve(challenge, start, step)`. It wires `self.onmessage` only when `typeof WorkerGlobalScope !== "undefined"`, so the main thread and node can call the same function.
+- **Structure:** `worker.js` defines `altchaSolve(challenge, start, step, ctl)`. It wires `self.onmessage` only when `typeof WorkerGlobalScope !== "undefined"`, so the main thread and node can call the same function.
   - The language level is ES2017: `async`/`await` but no `?.`, `??`, BigInt, class fields or modules.
 - **Loading the worker:**
   - A classic worker (module workers need Safari 15+ and Firefox 114+).
@@ -62,7 +65,7 @@ The crate lives in this workspace (`crates/dioxus-altcha`, `publish = false`) wi
   - **Chromium serializes PBKDF2:** it runs on one process-wide WebCrypto thread for every worker (`components/webcrypto/webcrypto_impl.cc`, crbug 623700). On Android Chrome, Android WebView and in-app browsers, more workers don't make it faster; two keep that thread busy.
   - Safari (a queue per global) and Firefox (a thread pool) do scale.
   - So Android Chrome is the slow population, and M4 sets the difficulty for it.
-- **Main-thread fallback:** if creating the workers throws, or every worker reports `error` before its first message (CSP, odd webviews), `solve` runs `solve()` on the main thread instead. It yields with `setTimeout(0)` about every 150 ms, as the widget does. PBKDF2 runs off the calling thread in all three engines, so the page stays responsive.
+- **Main-thread fallback:** if creating the workers throws, or every worker reports `error` before its first message (CSP, odd webviews), `solve` runs `altchaSolve()` on the main thread instead. It yields with `setTimeout(0)` about every 150 ms, as the widget does. PBKDF2 runs off the calling thread in all three engines, so the page stays responsive.
 - **Secure context:** `crypto.subtle` exists only on HTTPS and localhost. `solve` checks `isSecureContext && crypto.subtle` first and fails at once with `InsecureContext`. Testing on a phone at `http://192.168.x.x` therefore no longer works, which today's Rust `sha2` solver allowed. Use a tunnel, mkcert, or a deployed preview.
 - **Why not Rust in the worker:**
   - The app's own wasm can't be reused: it would run `main`, which launches Dioxus with no `document`.
@@ -120,7 +123,6 @@ The crate lives in this workspace (`crates/dioxus-altcha`, `publish = false`) wi
 
 ```
 crates/dioxus-altcha/
-  build.rs           cfg alias: `web` = wasm32 + not(feature "native")
   src/lib.rs         re-exports, RawChallenge, payload encoding and decoding
   src/solve.rs       solve(): workers, fallback, timeout, cancellation
   src/hook.rs        use_altcha, UseAltcha, AltchaState, AltchaField
@@ -160,7 +162,7 @@ impl SolveOptions {
     pub fn worker_url(self, url: impl Into<String>) -> Self; // default: a Blob of WORKER_JS
 }
 
-/// On every target. Without `web` (or `native`, §5 M5): Err(UnsupportedTarget).
+/// On every target. Outside the browser without `native` (§5 M5): Err(UnsupportedTarget).
 pub async fn solve(challenge: &RawChallenge, opts: &SolveOptions) -> Result<altcha::Solution, SolveError>;
 
 /// `GET` the URL, read the body as a RawChallenge. On every target, like `solve`.
@@ -260,7 +262,7 @@ pub fn AltchaField(
   onsubmit: move |e| async move { e.prevent_default(); let p = altcha.solved().await?; submit(p).await }
   ```
 - **Expiry:**
-  - The deadline is relative to receipt: receipt time (`performance.now()`) plus `expiresAt − Date.now()`, minus a margin of 30 s.
+  - The deadline is relative to receipt: receipt time (`performance.now()`) plus `expiresAt − Date.now()`, minus a margin of 30 s (at most half the time left).
   - If that's not in (0, 24 h], the phone's clock is too far off to judge, and the hook leaves expiry to the server instead of looping fetch, solve, expired. The widget has the same skew but only shows "expired".
   - The expiry sleep runs inside the same task, so cancelling or unmounting kills it.
   - With `Auto::OnMount` it fetches and solves again, at most once per deadline. `payload()` and `solved()` check the deadline themselves, since background tabs throttle timers.
@@ -272,7 +274,7 @@ pub fn AltchaField(
 - **Options are read on the first render only.**
 - **Dioxus features:** `macro`, `html`, `signals`, `hooks`. The app picks the renderer.
 - **Progress:** none. The total is unknown, and the widget shows a spinner.
-- **The hook's state machine** (start, refresh, expiry, bfcache) is a pure reducer, tested natively.
+- **The hook's state machine** (start, refresh, expiry, bfcache) is tested natively, in a VirtualDom with the `native` solver; `can_start` and the deadline rule are pure.
 
 ### 3.4 Tests
 
@@ -283,12 +285,13 @@ pub fn AltchaField(
   2. Solve them with `solve()` from `worker.js`, loaded with `readFileSync` + `new Function` in the main realm (`globalThis.self = globalThis`).
   3. Check each solution with `verify_solution`.
 
-  Also check that `SCRYPT` comes back as `{error}`, and that the file parses at ES2017.
+  Also check that `SCRYPT` comes back as `{error}`, and that the file uses no syntax beyond ES2017 (a token scan).
 - **wasm-bindgen-test** (`tests/wasm_solve.rs`, headless Chrome and Firefox; Safari by hand with safaridriver):
   - `solve` on a cheap challenge;
   - dropping it mid-solve terminates the workers;
   - the timeout;
-  - a broken `worker_url` falls back to the main thread.
+  - workers that can't be created (a throwing `Worker`) fall back to the main thread, and fewer workers than asked still search every counter;
+  - a missing script fails (the workers report `error`, and the fallback can't load it either).
 - **Payload tests:**
   - `payload` and then `decode_payload` round-trip;
   - unknown challenge fields survive the round trip;
@@ -359,7 +362,7 @@ The server and the client switch protocols in one change: a page loaded before t
   - On `pageshow` with `persisted` (back/forward cache), it clears the input and solves again.
   - A wasm panic starts `fallback.js` while the Rust workers keep running, because Drop doesn't run after an abort. That costs about a second of duplicate work and is harmless.
 - **`fallback.js`:**
-  - `solveAltcha` loads `/participant/altcha-worker.js` and starts the same workers, with the same counter split. If they fail, it loads the script into the page and calls `solve()` on the main thread.
+  - `solveAltcha` loads `/participant/altcha-worker.js` and starts the same workers, with the same counter split. If they fail, it loads the script into the page and calls `altchaSolve()` on the main thread.
   - It encodes with `btoa('{"challenge":' + raw + ',"solution":' + JSON.stringify(s) + '}')`, where `raw` is the challenge response's text, so the challenge passes through untouched.
   - A worker `error` event counts as failure, and Join is enabled, as today. On Workers, a missing file returns `index.html` with status 200 (`not_found_handling = "single-page-application"`).
   - It also solves again on a restored `pageshow`, which it already listens for.
@@ -390,7 +393,7 @@ The server and the client switch protocols in one change: a page loaded before t
 
    **How:** run the demo (`cd crates/dioxus-altcha/examples/altcha-demo && dx serve --release --port 8766`) behind HTTPS (e.g. `cloudflared tunnel --url http://localhost:8766`), and open `/bench?costs=1000,3000,5000&workers=1,2,4&runs=30` on each phone, screen on, until it says `done`. Use a release build: the Rust-wasm comparison is several times slower in a debug build. Each run prints, per cost:
    - the median and p95 to solve at each worker count;
-   - the same challenges solved by `altcha`'s Rust in wasm on one thread (the §2.1 comparison);
+   - other challenges at the same cost solved by `altcha`'s Rust in wasm on one thread (the §2.1 comparison);
    - one `verify_solution` in wasm, a proxy for a Worker's CPU (Workers run V8, as Chrome does). The deployed Worker's own figure still needs the deploy.
 
    **Desktop results** (2026-10-15, an Apple M-series Mac with 14 cores, headless; 30 runs, 10 for Rust-wasm, ms). These are a baseline only; old phones are several times slower:

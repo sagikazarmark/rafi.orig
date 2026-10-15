@@ -97,7 +97,11 @@ fn Strict() -> Element {
             code { "SolveOptions::worker_url" }
             "), which the server serves from "
             code { "dioxus_altcha::WORKER_JS" }
-            "."
+            ". The policy restricts workers only; with "
+            code { "script-src" }
+            " restricted too, the embedded fallback couldn't load its "
+            code { "blob:" }
+            " script either."
         }
         demo::Demo { strict: true }
     }

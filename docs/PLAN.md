@@ -301,7 +301,8 @@ lifecycle's sense, unrelated to `Follow`.
 ## 9. Abuse and remote entries
 
 - **One entry per normalized email per raffle** (`UNIQUE(raffle_id, email_norm)`). No fingerprinting.
-- **Proof-of-work** on the join form, verified with HMAC and redeemed once (a table, so it holds on Workers).
+- **Proof-of-work** on the join form (ALTCHA v2, PBKDF2/SHA-256): the challenge is HMAC-signed, the solution
+  verified with `altcha::verify_solution`, and each challenge redeemed once by its nonce (a table, so it holds on Workers).
 - **Rate limits** per raffle (600/min) and per raffle and email (5/min), never per IP: a venue shares one. On Workers
   they're bindings (soft, per location); the hard limit is the entrant cap in the database (`RAFI_MAX_ENTRANTS`,
   2000). Edge protection by IP is the platform's (Cloudflare, or Caddy).

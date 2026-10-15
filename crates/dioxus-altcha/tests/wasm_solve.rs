@@ -57,13 +57,15 @@ fn terminated() -> f64 {
         .unwrap()
 }
 
+/// Undoes both patches: the constructor first, so `terminate` goes back on
+/// the real `Worker`'s prototype.
 fn restore_worker() {
     js_sys::eval(
-        "if (globalThis.__realTerminate) {
+        "if (globalThis.__RealWorker) { globalThis.Worker = __RealWorker; delete globalThis.__RealWorker; }
+         if (globalThis.__realTerminate) {
            Worker.prototype.terminate = __realTerminate;
            delete globalThis.__realTerminate;
-         }
-         if (globalThis.__RealWorker) { globalThis.Worker = __RealWorker; delete globalThis.__RealWorker; }",
+         }",
     )
     .unwrap();
 }
@@ -141,4 +143,26 @@ async fn refuses_unsupported_algorithms() {
         solve(&raw, &SolveOptions::new()).await.unwrap_err(),
         SolveError::UnsupportedAlgorithm("ARGON2ID".into())
     );
+}
+
+#[wasm_bindgen_test]
+async fn fewer_workers_than_asked_still_search_every_counter() {
+    // Only the first worker can be created: it must take every counter.
+    count_terminations();
+    js_sys::eval(
+        "globalThis.__RealWorker = Worker;
+         let made = 0;
+         globalThis.Worker = function (url) {
+           if (made++ > 0) throw new Error('no more workers');
+           return new __RealWorker(url);
+         };",
+    )
+    .unwrap();
+    let challenge = issue(100, "00");
+    let raw = RawChallenge::from_challenge(&challenge);
+    let result = solve(&raw, &SolveOptions::new().workers(3)).await;
+    restore_worker();
+    let solution = result.unwrap();
+    assert!(verified(&challenge, &solution));
+    assert_eq!(terminated(), 1.0);
 }

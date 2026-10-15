@@ -232,16 +232,18 @@ where
     });
     let auto = opts.auto;
     let refresh = use_callback(move |()| {
+        // The spent payload goes at once: until the new task runs, a
+        // `solved()` must wait for a fresh one, not return this.
+        deadline.set(None);
+        state.set(AltchaState::Idle);
         if auto == Auto::OnMount {
+            // Cancels the current task and starts another; `solved()` callers
+            // keep waiting for its result.
             run.call(());
-            return;
-        }
-        if let Some(t) = task.write().take() {
+        } else if let Some(t) = task.write().take() {
             t.cancel();
             done.wake(Err(AltchaError::Cancelled));
         }
-        deadline.set(None);
-        state.set(AltchaState::Idle);
     });
 
     let read = use_hook(move || ReadSignal::from(state));

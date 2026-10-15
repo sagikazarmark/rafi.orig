@@ -19,7 +19,9 @@
 //! WebCrypto needs a secure context (HTTPS or localhost). The workers start
 //! from a `blob:` URL, which a Content Security Policy must allow
 //! (`worker-src blob:`); otherwise serve [`WORKER_JS`] as a file and set
-//! [`SolveOptions::worker_url`].
+//! [`SolveOptions::worker_url`]. That also keeps the main-thread fallback
+//! working under a CSP that restricts scripts (`script-src`): it loads the
+//! solver as a `<script>` from the same URL.
 
 mod fetch;
 mod hook;
@@ -215,10 +217,7 @@ impl SolveOptions {
         self
     }
 
-    #[cfg_attr(
-        not(any(target_arch = "wasm32", feature = "native")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(any(target_arch = "wasm32", feature = "native")), allow(dead_code))]
     fn timeout_or_default(&self) -> Option<Duration> {
         self.timeout.unwrap_or(Some(Self::DEFAULT_TIMEOUT))
     }

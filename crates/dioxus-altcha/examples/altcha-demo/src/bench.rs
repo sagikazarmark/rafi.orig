@@ -1,12 +1,13 @@
-//! `?bench`: the plan's M4 measurements, on whatever device opens the page.
+//! `/bench`: the plan's M4 measurements, on whatever device opens the page.
 //!
 //! `/bench?costs=1000,5000&workers=1,2,4&runs=30` — for each cost and worker
 //! count, the median and p95 time to solve (fresh challenges, prefix "00");
-//! the same challenges solved by `altcha`'s Rust in wasm on the main thread
-//! (the §2.1 comparison); and one verification's time (wasm, the proxy for a
-//! Worker's CPU). The results end with a line `done`, and are also in
-//! `window.__bench` (JSON) for scripts. It issues its own challenges in the
-//! page, so it measures the device alone; the browser's side only.
+//! other challenges at the same cost solved by `altcha`'s Rust in wasm on the
+//! main thread (the §2.1 comparison); and one verification's time (wasm, the
+//! proxy for a Worker's CPU). A setting that can't run says why (e.g. plain
+//! HTTP: WebCrypto needs a secure context). The results end with a line
+//! `done`, and are also in `window.__bench` (JSON) for scripts. It issues its
+//! own challenges in the page, so it measures the device alone.
 
 use dioxus::prelude::*;
 
@@ -50,10 +51,22 @@ mod web {
         js_sys::Date::now()
     }
 
-    fn stats(mut ms: Vec<f64>) -> (f64, f64) {
+    /// The median and p95, or `None` with no samples.
+    fn stats(mut ms: Vec<f64>) -> Option<(f64, f64)> {
+        if ms.is_empty() {
+            return None;
+        }
         ms.sort_by(f64::total_cmp);
         let at = |q: f64| ms[((ms.len() as f64 - 1.0) * q).round() as usize];
-        (at(0.5), at(0.95))
+        Some((at(0.5), at(0.95)))
+    }
+
+    /// `median=…ms p95=…ms`, or why there's nothing to report.
+    fn summary(ms: Vec<f64>, digits: usize, failure: &Option<String>) -> String {
+        match stats(ms) {
+            Some((median, p95)) => format!("median={median:.digits$}ms p95={p95:.digits$}ms"),
+            None => format!("no result: {}", failure.as_deref().unwrap_or("nothing ran")),
+        }
     }
 
     fn challenge(cost: u32) -> altcha::Challenge {
@@ -100,56 +113,54 @@ mod web {
                 );
                 for &cost in &costs {
                     for &n in &workers {
-                        let mut ms = Vec::new();
+                        let (mut ms, mut failure) = (Vec::new(), None);
                         for _ in 0..runs {
                             let raw = RawChallenge::from_challenge(&challenge(cost));
                             let opts = SolveOptions::new()
                                 .workers(n as usize)
                                 .timeout(Some(Duration::from_secs(300)));
                             let t = now();
-                            if solve(&raw, &opts).await.is_ok() {
-                                ms.push(now() - t);
+                            match solve(&raw, &opts).await {
+                                Ok(_) => ms.push(now() - t),
+                                // E.g. plain HTTP: WebCrypto needs a secure context.
+                                Err(e) => failure = Some(e.to_string()),
                             }
                             yield_now().await;
                         }
-                        let (median, p95) = stats(ms);
                         log(
-                            format!(
-                                "solve cost={cost} workers={n} median={median:.0}ms p95={p95:.0}ms"
-                            ),
+                            format!("solve cost={cost} workers={n} {}", summary(ms, 0, &failure)),
                             &mut out,
                         );
                     }
-                    // The same work in altcha's Rust, wasm, one thread (fewer runs: it blocks the page).
-                    let mut ms = Vec::new();
-                    let mut verify = Vec::new();
+                    // Other challenges at the same cost, in altcha's Rust, wasm, one thread
+                    // (fewer runs: it blocks the page).
+                    let (mut ms, mut verify, mut failure) = (Vec::new(), Vec::new(), None);
                     for _ in 0..runs.min(10) {
                         let c = challenge(cost);
                         let t = now();
-                        let solution =
-                            altcha::solve_challenge(altcha::SolveChallengeOptions::new(&c))
-                                .ok()
-                                .flatten();
-                        ms.push(now() - t);
-                        if let Some(s) = solution {
-                            let t = now();
-                            let _ = altcha::verify_solution(altcha::VerifySolutionOptions::new(
-                                &c, &s, KEY,
-                            ));
-                            verify.push(now() - t);
+                        match altcha::solve_challenge(altcha::SolveChallengeOptions::new(&c)) {
+                            Ok(Some(s)) => {
+                                ms.push(now() - t);
+                                let t = now();
+                                let _ = altcha::verify_solution(
+                                    altcha::VerifySolutionOptions::new(&c, &s, KEY),
+                                );
+                                verify.push(now() - t);
+                            }
+                            Ok(None) => failure = Some("timed out".into()),
+                            Err(e) => failure = Some(e.to_string()),
                         }
                         yield_now().await;
                     }
-                    let (median, p95) = stats(ms);
                     log(
                         format!(
-                            "rust-wasm cost={cost} workers=1 median={median:.0}ms p95={p95:.0}ms"
+                            "rust-wasm cost={cost} workers=1 {}",
+                            summary(ms, 0, &failure)
                         ),
                         &mut out,
                     );
-                    let (median, p95) = stats(verify);
                     log(
-                        format!("verify cost={cost} median={median:.1}ms p95={p95:.1}ms"),
+                        format!("verify cost={cost} {}", summary(verify, 1, &failure)),
                         &mut out,
                     );
                 }
