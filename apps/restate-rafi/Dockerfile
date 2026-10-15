@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # check=skip=CopyIgnoredFile
 # The `restate-rafi` service (the draw engine). Build from the repository root:
-#   docker build -f crates/restate-rafi-endpoint/Dockerfile .
+#   docker build -f apps/restate-rafi/Dockerfile .
 
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707 AS xx
 
@@ -36,11 +36,11 @@ RUN xx-apt-get update && \
 
 COPY --from=deps /usr/src/app/recipe.json recipe.json
 
-RUN xx-cargo chef cook --locked --release --package restate-rafi-endpoint --recipe-path recipe.json
+RUN xx-cargo chef cook --locked --release --package restate-rafi --recipe-path recipe.json
 
 COPY . .
 
-RUN xx-cargo build --locked --release --package restate-rafi-endpoint --bin restate-rafi
+RUN xx-cargo build --locked --release --package restate-rafi --bin restate-rafi
 RUN xx-verify ./target/$(xx-cargo --print-target-triple)/release/restate-rafi
 RUN cp ./target/$(xx-cargo --print-target-triple)/release/restate-rafi /usr/local/bin/restate-rafi
 

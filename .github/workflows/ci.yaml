@@ -53,9 +53,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cmd-format: devenv shell -- {0}
       # rafi-web's asset!() needs the stylesheet to exist. Entering the shell
-      # installs crates/web's npm packages (daisyUI).
+      # installs apps/web's npm packages (daisyUI).
       - name: Build the stylesheet (Tailwind CSS + daisyUI)
-        working-directory: crates/web
+        working-directory: apps/web
         run: tailwindcss -i tailwind.css -o assets/tailwind.css --minify
       - name: Format
         run: cargo fmt --all --check
@@ -68,11 +68,13 @@ jobs:
       - name: App (incl. end-to-end with the Restate engine and restate-server)
         run: cargo test -p rafi-server --locked -- --include-ignored
       - name: Clippy (libraries and the draw engine)
-        run: cargo clippy --workspace --exclude rafi-server --exclude rafi-web --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude rafi-server --exclude rafi --exclude rafi-web --all-targets -- -D warnings
       - name: Clippy (app server)
         run: |
           cargo clippy -p rafi-server --all-targets -- -D warnings
           cargo clippy -p rafi-server --features mock-drand --all-targets -- -D warnings
+          cargo clippy -p rafi --all-targets -- -D warnings
+          cargo clippy -p rafi --features mock-drand --all-targets -- -D warnings
       - name: Clippy (app web)
         run: cargo clippy -p rafi-web --target wasm32-unknown-unknown -- -D warnings
       - name: Clippy (Workers crates)
@@ -140,7 +142,7 @@ jobs:
             dockerfile: Dockerfile
             platforms: linux/amd64
           - name: restate-rafi
-            dockerfile: crates/restate-rafi-endpoint/Dockerfile
+            dockerfile: apps/restate-rafi/Dockerfile
             platforms: linux/amd64,linux/arm64
     steps:
       - uses: actions/checkout@v7

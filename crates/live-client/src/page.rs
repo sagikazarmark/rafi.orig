@@ -54,7 +54,7 @@ mod tests {
 
     use super::*;
 
-    const FALLBACK: &str = include_str!("../../participant/fallback.js");
+    const FALLBACK: &str = include_str!("../../../apps/participant/fallback.js");
 
     fn config() -> PageConfig {
         PageConfig {

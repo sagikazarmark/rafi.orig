@@ -7,7 +7,7 @@
 //   wrangler d1 migrations apply rafi-cloudflare-check --local --persist-to $ST   (in testbeds/cloudflare)
 //   restate-server &
 //   (cd testbeds/cloudflare && wrangler dev --port 8790 --persist-to $ST) &
-//   (cd crates/restate-worker && wrangler dev --port 8791 --persist-to $ST) &
+//   (cd apps/restate-worker && wrangler dev --port 8791 --persist-to $ST) &
 //   curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
 //        -d '{"uri":"http://127.0.0.1:8791","use_http_11":true}'
 //   node e2e.mjs

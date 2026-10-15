@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Builds the participant page's WebAssembly (crates/participant) into a directory
+# Builds the participant page's WebAssembly (apps/participant) into a directory
 # the server serves at /participant/: rafi_participant.js, rafi_participant_bg.wasm,
 # fallback.js and altcha-worker.js (dioxus-altcha's proof-of-work solver).
 #
-#   ./scripts/participant.sh [out-dir]   # default: crates/participant/dist
+#   ./scripts/participant.sh [out-dir]   # default: apps/participant/dist
 #
 # Needs wasm-bindgen-cli at the version in Cargo.lock, and wasm-opt (binaryen).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="${1:-$ROOT/crates/participant/dist}"
+OUT="${1:-$ROOT/apps/participant/dist}"
 
 want=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' "$ROOT/Cargo.lock")
 have=$(wasm-bindgen --version 2>/dev/null | awk '{ print $2 }' || true)
@@ -33,7 +33,7 @@ wasm-opt -Oz --strip-debug --strip-producers \
 
 # The JavaScript fallback, loaded by the page when the WebAssembly can't run,
 # and the proof-of-work solver it starts its workers from.
-cp "$ROOT/crates/participant/fallback.js" "$OUT/fallback.js"
+cp "$ROOT/apps/participant/fallback.js" "$OUT/fallback.js"
 cp "$ROOT/crates/dioxus-altcha/src/worker.js" "$OUT/altcha-worker.js"
 
 wasm=$(gzip -9c "$OUT/rafi_participant_bg.wasm" | wc -c | tr -d ' ')

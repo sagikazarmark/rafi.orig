@@ -41,8 +41,8 @@ let (raffle, info) = rafi_engine_restate::services(drand, MemoryStore::default()
 let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(raffle).bind(info).build();
 ```
 
-[`restate-rafi-endpoint`](../restate-rafi-endpoint) is the binary that serves the services;
-[`rafi-restate-worker`](../restate-worker) serves them on Cloudflare Workers.
+[`restate-rafi`](../../apps/restate-rafi) is the binary that serves the services;
+[`rafi-restate-worker`](../../apps/restate-worker) serves them on Cloudflare Workers.
 
 ## Tests
 

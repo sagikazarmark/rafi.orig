@@ -1,9 +1,10 @@
 *
 !/crates/
+!/apps/
 !/testbeds/
 !Cargo.*
 !**/Cargo.*
 !/migrations/
 **/target
-crates/web/assets/tailwind.css
-crates/app-worker/worker-assets
+apps/web/assets/tailwind.css
+apps/app-worker/worker-assets

@@ -18,9 +18,9 @@ language, the crate's internal structure, and its boundaries with the rest of th
    listing an entrant twice replays under v1 and can report `ok()`. It also never compares the
    published `Event::Draw.index`. Engines validate on open, so honest logs are fine; the gap is
    exactly the doctored or foreign log a verifier exists for.
-2. **The Workers e2e check is stale.** `crates/restate-worker/e2e.mjs` (run by
+2. **The Workers e2e check is stale.** `apps/restate-worker/e2e.mjs` (run by
    `scripts/workers-check.sh`) still calls `/Raffle/{id}/freeze` and sends
-   `{cmd:"draw", unit_id, offline}`; `crates/app/evening.mjs` likewise. The only end-to-end check
+   `{cmd:"draw", unit_id, offline}`; `apps/app-worker/evening.mjs` likewise. The only end-to-end check
    of the Workers path fails as written.
 3. **The aggregate's serde shape is the storage format.** Restate keeps `Json<Drawing>`; SQL stores
    it and queries its internals by JSON path (`items[].status = 'claimed'` for retention,

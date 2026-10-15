@@ -220,7 +220,7 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 |---|---|---|
 | App | `rafi-server` (binary `rafi`); an hourly retention task; in-memory rate limits | `rafi-app-worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleRoom` |
 | Database | SQLite or Postgres (`RAFI_DATABASE_URL`) | D1, EU jurisdiction |
-| Raffle engine | `restate-rafi` (`crates/restate-rafi-endpoint`) on the same database | `rafi-restate-worker`, called by Restate Cloud over HTTPS (request-response, signed) |
+| Raffle engine | `restate-rafi` (`apps/restate-rafi`) on the same database | `rafi-restate-worker`, called by Restate Cloud over HTTPS (request-response, signed) |
 | Live updates | none pushed: clients poll | `RaffleRoom`, a Durable Object per raffle (partyline) |
 | Edge | Caddy | Cloudflare |
 
@@ -344,8 +344,8 @@ lifecycle's sense, unrelated to `Follow`.
 ## 11. Hosting and operations
 
 - **Production (planned): Cloudflare Workers.** The app Worker (with `RaffleRoom`), `rafi-restate-worker` and one
-  D1 database ([workers-plan.md](workers-plan.md); the comments in `crates/app-worker/wrangler.toml` and
-  `crates/restate-worker/wrangler.toml`). Missing secrets stop a Worker; dev auth and mock drand are compiled out of
+  D1 database ([workers-plan.md](workers-plan.md); the comments in `apps/app-worker/wrangler.toml` and
+  `apps/restate-worker/wrangler.toml`). Missing secrets stop a Worker; dev auth and mock drand are compiled out of
   release builds.
 - **Self-hosting: the native server.** `deploy/compose.yaml` runs Caddy, the app and `restate-rafi` on one VM
   (SQLite on a shared volume, or Postgres), against Restate Cloud or, with `--profile self-hosted`, Restate on the

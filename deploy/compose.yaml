@@ -64,7 +64,7 @@ services:
   restate-rafi:
     build:
       context: ..
-      dockerfile: crates/restate-rafi-endpoint/Dockerfile
+      dockerfile: apps/restate-rafi/Dockerfile
     image: ${RESTATE_RAFI_IMAGE:-ghcr.io/sagikazarmark/restate-rafi:latest}
     restart: unless-stopped
     environment:

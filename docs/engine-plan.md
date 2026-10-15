@@ -180,7 +180,7 @@ Landing: trait + `RestateClient` implementing it while still in the app; tests s
   non-optional; the SDK must stay out of the app's Worker bundle).
 - App depends on it `optional` under `server` (the app also builds as the browser bundle).
 - `restate-rafi` gains a keyless `RaffleEngine` service with an `info` handler (`{chain}`), replacing
-  the `/restate/health` probe. Both `restate-rafi-endpoint` and `restate-worker/src/lib.rs` bind it.
+  the `/restate/health` probe. Both `restate-rafi` and `restate-worker/src/lib.rs` bind it.
   Deploy checklist: deploy the engine, re-register the Restate (Cloud) deployment so the new service
   is discovered, then deploy the app that calls it.
 
@@ -427,7 +427,7 @@ The app keeps the organizer-facing wording (`refusal`).
   without its server features). Restate stays out of `rafi-engine`: no feature there.
 - The keyless info service `DrawingEngine` becomes `EngineInfo` (no clash with the trait).
   Deploying it re-registers the endpoint's services.
-- Unchanged: `restate-rafi-endpoint` (the host for every Restate service, named after it), the
+- Unchanged: `restate-rafi` (the host for every Restate service, named after it), the
   deployed service name `restate-rafi`, the `RESTATE_RAFI_*` environment.
 
 ### Step 5 — Docs
@@ -476,7 +476,7 @@ The engine and its hosts know drawings, not raffles, and none of the app's setti
 - **No retention in the engine:** `rafi_store::save_drawing(db, state)` and `DrawWriter::new(db)`
   take no `PurgeAfter`. They store the drawing, move the raffle along its lifecycle and time
   `finished_at`; the app's retention run dates erasure (`rafi_store::retention::date_purges`). The
-  hosts lost their retention settings: `database.retention_*_days` in `restate-rafi-endpoint` (an
+  hosts lost their retention settings: `database.retention_*_days` in `restate-rafi` (an
   unknown key now fails), `RAFI_RETENTION_*` in `rafi-restate-worker`.
 - **Deadline on wasm32:** `RestateClient` races a synchronous call against a `gloo-timers` timer,
   so past `timeout_secs` it returns `EngineError::Pending` on Workers too.
@@ -495,7 +495,7 @@ store. The contract crate now depends on nothing but `rafi-drawing`; the platfor
   deployment's `Notifier` as the engine's `DrawingNotifier`, mapping a drawing to its raffle) is
   `rafi_platform::Notify`. The live channel's publish rule moved from `rafi_platform::rule` to `rafi_live::publish`,
   and `rafi-live`'s Dioxus `Card` is behind a `card` feature. `cargo tree` shows no Dioxus under `rafi-engine`,
-  `rafi-engine-restate`, `rafi-store`, `restate-rafi-endpoint`, `rafi-restate-worker` or `rafi-platform`.
+  `rafi-engine-restate`, `rafi-store`, `restate-rafi`, `rafi-restate-worker` or `rafi-platform`.
 - **Restate's wire mapping is Restate's:** `status_code` and `refusal_kind` moved into `rafi-engine-restate`.
   `EngineError::not_open()` is gone. One `EngineInfo` type (serde) is both the contract's and the Restate
   `EngineInfo` service's answer.

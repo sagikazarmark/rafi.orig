@@ -40,10 +40,10 @@
       targets = [ "wasm32-unknown-unknown" ];
     };
 
-    # daisyUI for crates/web/tailwind.css, installed on entering the shell.
+    # daisyUI for apps/web/tailwind.css, installed on entering the shell.
     javascript = {
       enable = true;
-      directory = "${config.devenv.root}/crates/web";
+      directory = "${config.devenv.root}/apps/web";
       npm.enable = true;
       npm.install.enable = true;
     };

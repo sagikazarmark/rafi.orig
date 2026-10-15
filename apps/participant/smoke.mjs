@@ -4,7 +4,7 @@
 //
 //   ./scripts/participant.sh testbeds/cloudflare/site/participant
 //   (cd testbeds/cloudflare && wrangler dev --port 8790) &
-//   CHROMIUM=$(which chromium) node crates/participant/smoke.mjs "$(mktemp -d)"
+//   CHROMIUM=$(which chromium) node apps/participant/smoke.mjs "$(mktemp -d)"
 
 import { spawn } from "node:child_process";
 

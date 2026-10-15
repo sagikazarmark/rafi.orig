@@ -210,7 +210,7 @@ Inside `rafi-drawing` and its callers:
 
 ### Step 9 — "Attendee" → "participant" (independent)
 
-- The leftover meetup wording: `crates/attendee` → `crates/participant` (`rafi-participant`),
+- The leftover meetup wording: `crates/attendee` → `apps/participant` (`rafi-participant`),
   `app/src/server/attendee.rs`, UI text ("the attendee page"), the entrants' store module and
   live crate mentions. The phone-facing view is already the participant view
   (`/api/r/{slug}/participant`).

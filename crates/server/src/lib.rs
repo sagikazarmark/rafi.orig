@@ -4,7 +4,7 @@
 //! responses. The pages render in [`pages`]; the database and all its SQL
 //! are in `rafi-store`.
 //!
-//! The native binary (`rafi`, `main.rs`) serves it with the web app's files;
+//! The native binary (`rafi`, `apps/rafi`) serves it with the web app's files;
 //! on Cloudflare Workers, `rafi-app-worker` does.
 //!
 //! The server keeps no state of its own between requests: everything is in

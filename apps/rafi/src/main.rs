@@ -1,5 +1,5 @@
-//! The native server: `rafi`. Everything but the entry point is in the
-//! library; on Workers, `rafi-app-worker` serves the same routes.
+//! The native server: `rafi`. Everything but the entry point is in
+//! `rafi-server`; on Workers, `rafi-app-worker` serves the same routes.
 
 use anyhow::Context as _;
 use rafi_server as server;
@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
     // The participant page's WebAssembly and fallback: `./scripts/participant.sh` writes them here.
-    let participant_dir = dir("RAFI_PARTICIPANT_DIR", "crates/participant/dist");
+    let participant_dir = dir("RAFI_PARTICIPANT_DIR", "apps/participant/dist");
     if !participant_dir.join("fallback.js").is_file() {
         tracing::warn!(
             dir = %participant_dir.display(),

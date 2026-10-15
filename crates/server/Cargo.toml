@@ -4,13 +4,8 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi's server: the participant pages, the public JSON and the admin API over HTTP (axum), natively and on Cloudflare Workers"
+description = "Rafi's server: the participant pages, the public JSON and the admin API over HTTP (axum), served natively by `rafi` and on Cloudflare Workers by `rafi-app-worker`"
 publish = false
-
-# The native server keeps the app's name.
-[[bin]]
-name = "rafi"
-path = "src/main.rs"
 
 [features]
 ## Allow `RAFI_DRAND_CHAIN=mock` (or `RAFI_DRAND_MOCK=1`): raffles commit to a
@@ -42,7 +37,6 @@ tracing = "0.1"
 axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.7", features = ["fs"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
 dioxus-clerk = { version = "0.6", features = ["server", "testing"] }

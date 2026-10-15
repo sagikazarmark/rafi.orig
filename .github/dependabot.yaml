@@ -11,7 +11,7 @@ updates:
           - "*"
 
   - package-ecosystem: npm
-    directory: /crates/web
+    directory: /apps/web
     schedule:
       interval: daily
 

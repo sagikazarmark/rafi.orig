@@ -9,9 +9,9 @@
 
 @source "./src/**/*.rs";
 /* The server-rendered public pages (participant, rules, privacy). */
-@source "../server/src/pages/**/*.rs";
+@source "../../crates/server/src/pages/**/*.rs";
 /* The participant page's card, its WebAssembly and its JavaScript fallback. */
-@source "../live-client/src/**/*.rs";
+@source "../../crates/live-client/src/**/*.rs";
 @source "../participant/src/**/*.rs";
 @source "../participant/fallback.js";
 

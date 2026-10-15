@@ -3,7 +3,7 @@
 // same job without the live channel: polls the participant view, renders the
 // card the way rafi-live-client's Card does, solves the proof-of-work, and keeps the
 // theme toggle and the wake/sound button working. The page's config is the
-// JSON in #rafi-config (see crates/participant/src/config.rs).
+// JSON in #rafi-config (see apps/participant/src/config.rs).
 // Class names here are scanned by Tailwind (see tailwind.css).
 (function () {
   "use strict";

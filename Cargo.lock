@@ -4802,6 +4802,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "rafi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "dioxus-clerk",
+ "rafi-server",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "rafi-api"
 version = "0.1.0"
 dependencies = [
@@ -5039,7 +5052,6 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -5390,7 +5402,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "restate-rafi-endpoint"
+name = "restate-rafi"
 version = "0.1.0"
 dependencies = [
  "anyhow",

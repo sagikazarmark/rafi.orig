@@ -1,6 +1,6 @@
-# restate-rafi-endpoint
+# restate-rafi
 
-**Standalone endpoint serving the Rafi raffle engine's Restate services ([`rafi-engine-restate`](../engine-restate)) for [Restate](https://restate.dev/).**
+**Standalone endpoint serving the Rafi raffle engine's Restate services ([`rafi-engine-restate`](../../crates/engine-restate)) for [Restate](https://restate.dev/).**
 
 It writes the draw state into the Rafi app's SQLite database, so it runs next to the app with access to the
 same file (the same machine, or a shared volume). The app owns the schema and creates the file.
@@ -16,8 +16,8 @@ docker pull ghcr.io/sagikazarmark/restate-rafi:latest
 Build from source (from the repository root):
 
 ```bash
-cargo build --release -p restate-rafi-endpoint     # target/release/restate-rafi
-docker build -f crates/restate-rafi-endpoint/Dockerfile .
+cargo build --release -p restate-rafi     # target/release/restate-rafi
+docker build -f apps/restate-rafi/Dockerfile .
 ```
 
 ## Quick Start

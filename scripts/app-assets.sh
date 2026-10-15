@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Assembles the app Worker's static files (crates/app-worker/worker-assets, served by
+# Assembles the app Worker's static files (apps/app-worker/worker-assets, served by
 # Workers Assets): the web app bundle (dx) and the participant scripts.
 #
 #   ./scripts/app-assets.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="$ROOT/crates/app-worker/worker-assets"
+OUT="$ROOT/apps/app-worker/worker-assets"
 
-(cd "$ROOT/crates/web" && npm ci --no-fund --no-audit && dx bundle --platform web --release)
+(cd "$ROOT/apps/web" && npm ci --no-fund --no-audit && dx bundle --platform web --release)
 "$ROOT/scripts/participant.sh" "$OUT.participant.tmp"
 
 rm -rf "${OUT:?}"

@@ -58,7 +58,7 @@ In prose: "the raffle engine" (was "the drawing engine"), "a raffle is drawn ite
 - **`RaffleState` keeps its name, and `RaffleState::Drawing` its name and labels** ("Drawing" / "Sorsolás"). With no
   `Drawing` type left, it reads as "being drawn". drawing-plan.md's accepted gap (the aggregate exists from `Frozen`)
   stays.
-- **The engine hosts don't depend on the lifecycle.** `restate-worker` and `restate-rafi-endpoint` use
+- **The engine hosts don't depend on the lifecycle.** `restate-worker` and `restate-rafi` use
   `rafi_raffle::drawing::raffle_id` and nothing else from it; with `RaffleId` it is `as_str()`. `drawing_id` and
   `raffle_id` go.
 - **The Restate object is `Raffle`.** drawing-plan.md renamed it `Raffle` → `Drawing` so that raffle vocabulary
@@ -107,7 +107,7 @@ Steps 1 and 2 must stay in this order: the lifecycle crate moves off the `rafi-r
 
 - `git mv crates/raffle crates/lifecycle`; package `rafi-lifecycle`; workspace `Cargo.toml`.
 - `rafi_raffle::` → `rafi_lifecycle::` in its seven dependents (app, app-core, model, restate-worker, live, store,
-  restate-rafi-endpoint) and the `-p` list in `.github/workflows/ci.yaml`.
+  restate-rafi) and the `-p` list in `.github/workflows/ci.yaml`.
 - The `drawing` module keeps its name until step 6. No renames, no behavior change.
 
 ### Step 2 — `rafi-drawing` → `rafi-raffle` (move only)
@@ -157,7 +157,7 @@ Inside `rafi-raffle` and its callers:
   `Notify::new` `RaffleId::as_str`, which says which raffle's live channel to ping).
 - `RaffleState::follows_drawing` → `follows_raffle`; tests (`the_lifecycle_follows_the_raffle`,
   `commands_leave_drawing_and_finishing_to_the_raffle`).
-- `restate-worker` and `restate-rafi-endpoint` drop `rafi-lifecycle` from their dependencies.
+- `restate-worker` and `restate-rafi` drop `rafi-lifecycle` from their dependencies.
 
 ### Step 7 — Store and SQL
 

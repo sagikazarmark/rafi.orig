@@ -245,7 +245,7 @@ Rafi relies on Restate. There is no fallback draw path:
 | `rafi-model`, `rafi-app-core` | **new** (revision 9) | The types the app's server and browser exchange; every use case as a function over `App { db, chain, engine, notifier, policy }`, without HTTP | app |
 | `rafi` (app) | ported | Routes, auth, retention, the web UI, over `AppState` (which derefs to `rafi_app_core::App`); the `worker` feature is the App Worker's thin entry point (fetch, Cron, exports `RaffleChannel`) | |
 | `rafi-restate-worker` | **new** | Restate Worker: the adapter around `Endpoint::handle_with_options`, signature checks; wires `DrawWriter` over D1 and `DurableObjects`, built once per isolate | Restate Cloud |
-| `restate-rafi-endpoint` | kept, not deployed | The native endpoint, for self-hosting (§8): `DrawWriter` over SQLite (opened lazily), the `Polling` notifier | |
+| `restate-rafi` | kept, not deployed | The native endpoint, for self-hosting (§8): `DrawWriter` over SQLite (opened lazily), the `Polling` notifier | |
 | `rafi-store-d1-check`, `rafi-cloudflare-check` | local checks | Workers that drive the store and the channel under `wrangler dev` (`scripts/workers-check.sh`) | |
 
 The phone builds `rafi-live` without its `raffle` feature, so it doesn't depend on `rafi-raffle`, which pulls in drand and BLS through `rafi-drawing`. Servers turn it on: `rafi_live::raffle` maps `RaffleState` to `rafi-live`'s enum and builds the view.
@@ -347,7 +347,7 @@ The phone builds `rafi-live` without its `raffle` feature, so it doesn't depend 
 
 | Spike fails | Fallback |
 |---|---|
-| (b) Restate Worker | Keep the Restate handler as a container (current `restate-rafi-endpoint`) writing to D1 over its HTTP API, and nudging through an authenticated Worker route. |
+| (b) Restate Worker | Keep the Restate handler as a container (current `restate-rafi`) writing to D1 over its HTTP API, and nudging through an authenticated Worker route. |
 | (e) Bundle size | Split Workers by role (public/attendee, admin, DO, Restate), connected by service bindings. |
 
 ## 7a. Ports: Workers supported, not required
@@ -396,11 +396,11 @@ Self-hosting is supported alongside Workers (§7a). The native server takes:
 - **a notifier:** `Polling` for now; Mercure over SSE is the reserved `sse` transport;
 - **a rate limiter:** in-memory.
 
-The draw engine runs as `restate-rafi-endpoint` against the same database. `deploy/compose.yaml` keeps SQLite, with a commented-out Postgres variant.
+The draw engine runs as `restate-rafi` against the same database. `deploy/compose.yaml` keeps SQLite, with a commented-out Postgres variant.
 
 ## 9. Decided
 
-- **Self-hosting:** supported alongside Workers (§7a, §8): the native server with SQLite or Postgres and `restate-rafi-endpoint`.
+- **Self-hosting:** supported alongside Workers (§7a, §8): the native server with SQLite or Postgres and `restate-rafi`.
 - **Ending live updates:** manual, with Cron cleanup as the safety net.
 - **Restate SDK:** the `wasm` git branch until the upstream PR is released.
 - **ALTCHA:** v2 with the official crate since 2026-10-15 ([dioxus-altcha-plan.md](dioxus-altcha-plan.md)).
@@ -440,7 +440,7 @@ Findings from building M1–M4 on the `cloudflare` branch, verified locally unde
     - the Cron runs `retention::run`;
     - the `RaffleChannel` class is exported.
   - `crates/app/wrangler.toml` holds production and `[env.dev]`.
-  - Locally, `crates/app/evening.mjs` passes a whole evening on the app Worker: setup, a phone joining in Chromium, a draw through Restate reaching the phone live, the finish, End live updates.
+  - Locally, `apps/app-worker/evening.mjs` passes a whole evening on the app Worker: setup, a phone joining in Chromium, a draw through Restate reaching the phone live, the finish, End live updates.
 - **M7, the projector:** in the same evening, the projector tab shows the countdown and reveals the winner 5 ms after the phone. The reveal comes from the participant channel, and the full view is polled every 2.5 s.
 - **M0(e), bundle sizes:** compressed, the app Worker is 847 KB, the Restate Worker 914 KB and the attendee WASM 263 KB. All are under Workers' limits. BLS CPU time still needs a deployed Worker.
 - **Ports and adapters, pass 1 (§7a).** `rafi-platform` holds the interfaces; `rafi-channel` became `rafi-cloudflare`, the only crate (with the two Worker entry points) that knows Cloudflare. In practice:
