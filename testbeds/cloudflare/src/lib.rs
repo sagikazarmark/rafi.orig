@@ -10,8 +10,9 @@
 
 #![cfg(target_arch = "wasm32")]
 
+use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleRoom;
-use rafi_cloudflare::{DurableObjects, participant_view};
+use rafi_live_server::raffle::view as participant_view;
 use rafi_raffle::{BeaconSource, Event, ItemStatus, Manifest, ManifestItem, Raffle};
 use rafi_store::{Db, live::Snapshot};
 use worker::{Context, Env, Method, Request, Response, Result, event};

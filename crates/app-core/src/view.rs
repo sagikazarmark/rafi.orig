@@ -1,13 +1,12 @@
 //! The full view of a raffle ([`RaffleView`]): what the projector and the
-//! admin page show; and the [`participant`] view: what phones show.
+//! admin page show.
 
 use std::collections::HashMap;
 
 use rafi_lifecycle::RaffleState;
-use rafi_live_client::ParticipantView;
 use rafi_model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
 use rafi_raffle::{BeaconSource, Event, ItemId, ItemStatus};
-use rafi_store::{live::Snapshot, view::Full};
+use rafi_store::view::Full;
 
 use crate::{App, ids};
 
@@ -25,18 +24,6 @@ pub async fn build(app: &App, raffle_id: &str) -> anyhow::Result<Option<RaffleVi
         Some(full) => Ok(Some(of(app, &full)?)),
         None => Ok(None),
     }
-}
-
-/// What phones see of a raffle read as `snapshot`. The same view as
-/// `rafi_cloudflare::participant_view`, which builds it on Workers.
-pub fn participant(snapshot: &Snapshot) -> ParticipantView {
-    rafi_live_server::raffle::view(rafi_live_server::raffle::Input {
-        version: snapshot.version,
-        state: snapshot.state,
-        raffle: snapshot.drawn.as_ref(),
-        names: &snapshot.names,
-        prize_qty: snapshot.prize_qty,
-    })
 }
 
 /// The full view of a raffle read as `full`.

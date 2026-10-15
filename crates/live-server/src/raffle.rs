@@ -1,11 +1,10 @@
-//! The participant view of a raffle, built from what the servers read. The
-//! phone only reads views, so it needs neither `rafi-lifecycle` nor
-//! `rafi-raffle`.
-
-use std::collections::HashMap;
+//! The participant view of a raffle, built from what the servers read
+//! ([`Snapshot`]). The phone only reads views, so it needs neither
+//! `rafi-lifecycle` nor `rafi-raffle`.
 
 use rafi_lifecycle::RaffleState;
-use rafi_raffle::{ItemId, Outcome, Raffle};
+use rafi_raffle::{ItemId, Outcome};
+use rafi_store::live::Snapshot;
 
 use rafi_live_client::{Current, DrawInput, DrawOutcome, ParticipantView, Phase, public_name};
 
@@ -33,31 +32,18 @@ fn outcome(outcome: Outcome) -> DrawOutcome {
     }
 }
 
-/// What a participant view is built from: one consistent read of the raffle.
-#[derive(Debug, Clone, Copy)]
-pub struct Input<'a> {
-    /// The raffle's version: the view's [`v`](ParticipantView::v).
-    pub version: u64,
-    pub state: RaffleState,
-    /// The raffle as drawn, once the engine opened it.
-    pub raffle: Option<&'a Raffle>,
-    /// The display names of the drawn entrants only, by entrant ID; `None`
-    /// for one the organizer hid (shown as [`HIDDEN_NAME`](rafi_live_client::HIDDEN_NAME)).
-    pub names: &'a HashMap<String, Option<String>>,
-    /// The prizes' total quantity: what is left before the raffle opens.
-    pub prize_qty: u32,
-}
-
-/// The participant view of a raffle.
-pub fn view(input: Input<'_>) -> ParticipantView {
-    let state = phase(input.state);
-    let Some(raffle) = input.raffle else {
-        return ParticipantView::new(input.version, state, None, [], input.prize_qty);
+/// What phones see of a raffle read as `snapshot`. Every server that shows
+/// phones a raffle builds it here: the app server, the polling endpoint and
+/// the raffle's live channel.
+pub fn view(snapshot: &Snapshot) -> ParticipantView {
+    let state = phase(snapshot.state);
+    let Some(raffle) = &snapshot.drawn else {
+        return ParticipantView::new(snapshot.version, state, None, [], snapshot.prize_qty);
     };
     let item_name = |id: &ItemId| raffle.item(id).map(|i| i.name.clone()).unwrap_or_default();
     let draws = raffle.draws().into_iter().map(|d| {
         let id = d.entrant.as_str();
-        let display_name = public_name(id, input.names.get(id).map(Option::as_deref));
+        let display_name = public_name(id, snapshot.names.get(id).map(Option::as_deref));
         DrawInput {
             display_name,
             prize_name: item_name(&d.item),
@@ -71,7 +57,7 @@ pub fn view(input: Input<'_>) -> ParticipantView {
         round_time: p.round_time,
     });
     ParticipantView::new(
-        input.version,
+        snapshot.version,
         state,
         current,
         draws.collect::<Vec<_>>(),
@@ -81,7 +67,9 @@ pub fn view(input: Input<'_>) -> ParticipantView {
 
 #[cfg(test)]
 mod tests {
-    use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
+    use std::collections::HashMap;
+
+    use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Raffle, Resolution};
 
     use rafi_live_client::HIDDEN_NAME;
 
@@ -115,14 +103,12 @@ mod tests {
         }
     }
 
-    fn input<'a>(
-        raffle: Option<&'a Raffle>,
-        names: &'a HashMap<String, Option<String>>,
-    ) -> Input<'a> {
-        Input {
-            version: 4,
+    fn snapshot(drawn: Option<Raffle>, names: HashMap<String, Option<String>>) -> Snapshot {
+        Snapshot {
             state: RaffleState::Drawing,
-            raffle,
+            version: 4,
+            live_ended_at: None,
+            drawn,
             names,
             prize_qty: 2,
         }
@@ -143,8 +129,7 @@ mod tests {
 
     #[test]
     fn before_the_raffle_opens_it_counts_prizes() {
-        let names = HashMap::new();
-        let v = view(input(None, &names));
+        let v = view(&snapshot(None, HashMap::new()));
         assert_eq!(v.prizes_left, 2);
         assert_eq!(v.v, 4);
         assert!(v.winners.is_empty());
@@ -166,7 +151,7 @@ mod tests {
         )
         .unwrap();
         let names = HashMap::from([(a.clone(), Some("Anna".to_owned())), (b.clone(), None)]);
-        let v = view(input(Some(&raffle), &names));
+        let v = view(&snapshot(Some(raffle), names.clone()));
         assert_eq!(v.last.as_ref().unwrap().display_name, HIDDEN_NAME);
         assert_eq!(v.winners.len(), 2);
         assert!(v.winners[0].claimed);
@@ -188,7 +173,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let v = view(input(Some(&raffle), &names));
+        let v = view(&snapshot(Some(raffle), names));
         assert_eq!(v.winners.len(), 1);
         assert_eq!(
             v.last.unwrap().display_name,
@@ -200,7 +185,7 @@ mod tests {
     #[test]
     fn a_name_not_read_shows_the_id() {
         let raffle = Raffle::restore(&manifest(), &[drawn(1, &"a".repeat(32), "u1")]).unwrap();
-        let v = view(input(Some(&raffle), &HashMap::new()));
+        let v = view(&snapshot(Some(raffle), HashMap::new()));
         assert_eq!(v.last.unwrap().display_name, "#aaaaaa");
     }
 }

@@ -3,9 +3,10 @@
 //!
 //! - [`RaffleRoom`]: one Durable Object per raffle, pushing the
 //!   participant view to phones over a partyline Latest channel. Only the
-//!   object builds the view ([`participant_view`]): writers [`nudge`] it, and it reads
-//!   the raffle back in one snapshot (`rafi_store::live::Snapshot`) and
-//!   publishes by `rafi_live_server::publish::decide`;
+//!   object builds the view: writers [`nudge`] it, and it reads the raffle
+//!   back in one snapshot (`rafi_store::live::Snapshot`), builds the view with
+//!   `rafi_live_server::raffle::view` and publishes by
+//!   `rafi_live_server::publish::decide`;
 //! - [`connect`]: the Worker's gate for phones' sockets, and [`namespace`],
 //!   the objects' namespace in the configured jurisdiction;
 //! - [`DurableObjects`]: the `rafi_live_server::Notifier` over those objects
@@ -26,4 +27,4 @@ mod object;
 pub use config::{D1_BINDING, database, lookup};
 pub use gate::{BINDING, CONNECT_LIMITER, JURISDICTION_VAR, connect, destroy, namespace, nudge};
 pub use notifier::DurableObjects;
-pub use object::{RaffleRoom, participant_view};
+pub use object::RaffleRoom;

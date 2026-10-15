@@ -19,6 +19,7 @@ getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
 rafi-cloudflare = { workspace = true }
 rafi-live-client = { workspace = true, features = ["card"] }
+rafi-live-server = { workspace = true }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
 rafi-store = { workspace = true }
 serde_json = { workspace = true }
