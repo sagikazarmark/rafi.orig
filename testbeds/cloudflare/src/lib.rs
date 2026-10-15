@@ -111,20 +111,6 @@ async fn prepare(db: &Db, raffle: &str) -> Result<String> {
     Ok(json)
 }
 
-const STRINGS: &[(&str, &str)] = &[
-    ("you_won", "You won!"),
-    ("go_to_organizer", "Go to the organizer"),
-    ("thanks_won", "Thanks, enjoy!"),
-    ("thanks", "Thanks for joining"),
-    ("drawing", "Drawing"),
-    ("not_this_time", "Not this time"),
-    ("draw_starting", "The draw is starting"),
-    ("prizes_left", "prizes left"),
-    ("waiting", "Waiting for the draw"),
-    ("locking", "Locking"),
-    ("drand_round", "drand round"),
-];
-
 /// A stand-in for the participant page: the server-rendered card, the embedded
 /// config, the inline loader with its fallback, and the WASM. `me` picks the
 /// entrant (`anna`, `bence`, or none for a visitor); `nowasm=1` removes
@@ -144,13 +130,20 @@ async fn page(
         .map_err(err)?
         .ok_or_else(|| err("no such raffle"))?;
     let view = participant_view(&snap);
-    let strings = CardStrings::from_lookup(|k| {
-        STRINGS
-            .iter()
-            .find(|(key, _)| *key == k)
-            .map(|(_, v)| (*v).to_owned())
-            .unwrap_or_default()
-    });
+    // Its own strings, not the defaults: smoke.mjs checks they reach the card.
+    let strings = CardStrings {
+        you_won: "You won!".into(),
+        go_to_organizer: "Go to the organizer".into(),
+        thanks_won: "Thanks, enjoy!".into(),
+        thanks: "Thanks for joining".into(),
+        drawing: "Drawing".into(),
+        not_this_time: "Not this time".into(),
+        draw_starting: "The draw is starting".into(),
+        prizes_left: "prizes left".into(),
+        waiting: "Waiting for the draw".into(),
+        locking: "Locking".into(),
+        drand_round: "drand round".into(),
+    };
     let me = me.map(|m| entrant(raffle, m));
     let now_ms = js_sys::Date::now() as u64;
     let card = dioxus::ssr::render_element(rsx! {
