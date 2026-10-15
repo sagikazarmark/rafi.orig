@@ -21,7 +21,7 @@ use dioxus::prelude::*;
 use partyline_dioxus::{BaseUrl, ChannelOptions, Status, use_channel_latest};
 use rafi_live_client::{Follow, ParticipantChannel, ParticipantView};
 
-use crate::model::RaffleView;
+use rafi_api::RaffleView;
 
 /// How often the full view is polled while the raffle is live, unless the
 /// server asks for polling at another interval.
@@ -151,11 +151,11 @@ fn ChannelSubscription(live: LiveView, raffle_id: String, base_url: Option<Strin
 
 /// Milliseconds since the epoch, updated every `every_ms`.
 pub fn use_clock(every_ms: u32) -> Signal<u64> {
-    let mut now = use_signal(crate::model::now_unix_ms);
+    let mut now = use_signal(crate::ui::now_ms);
     use_future(move || async move {
         loop {
             gloo_timers::future::TimeoutFuture::new(every_ms).await;
-            now.set(crate::model::now_unix_ms());
+            now.set(crate::ui::now_ms());
         }
     });
     now

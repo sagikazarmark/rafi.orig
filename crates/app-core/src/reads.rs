@@ -3,11 +3,11 @@
 
 use std::collections::HashMap;
 
+use rafi_api::{AdminActions, AdminEntrant, Prize, RaffleAdmin, StartStep, VerifyData};
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
     start::{self, Start},
 };
-use rafi_model::{AdminActions, AdminEntrant, Prize, RaffleAdmin, StartStep, VerifyData};
 use rafi_raffle::{ItemId, Outcome, Raffle};
 use rafi_store::{entrants, raffles, view::Full};
 

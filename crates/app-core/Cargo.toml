@@ -17,7 +17,7 @@ rafi-raffle = { workspace = true }
 rafi-engine = { workspace = true }
 rafi-live-client = { workspace = true }
 rafi-live-server = { workspace = true }
-rafi-model = { workspace = true }
+rafi-api = { workspace = true }
 rafi-lifecycle = { workspace = true }
 rafi-store = { workspace = true }
 serde_json = { workspace = true }

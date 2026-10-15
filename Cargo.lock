@@ -4802,6 +4802,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "rafi-api"
+version = "0.1.0"
+dependencies = [
+ "rafi-lifecycle",
+ "rafi-live-client",
+ "rafi-raffle",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "rafi-app-core"
 version = "0.1.0"
 dependencies = [
@@ -4811,11 +4823,11 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
  "hex",
+ "rafi-api",
  "rafi-engine",
  "rafi-lifecycle",
  "rafi-live-client",
  "rafi-live-server",
- "rafi-model",
  "rafi-raffle",
  "rafi-store",
  "serde_json",
@@ -4951,19 +4963,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-model"
-version = "0.1.0"
-dependencies = [
- "js-sys",
- "rafi-lifecycle",
- "rafi-live-client",
- "rafi-raffle",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "rafi-participant"
 version = "0.1.0"
 dependencies = [
@@ -5023,13 +5022,13 @@ dependencies = [
  "dioxus-icons",
  "hex",
  "http-body-util",
+ "rafi-api",
  "rafi-app-core",
  "rafi-engine",
  "rafi-engine-restate",
  "rafi-lifecycle",
  "rafi-live-client",
  "rafi-live-server",
- "rafi-model",
  "rafi-raffle",
  "rafi-store",
  "restate-e2e-harness",
@@ -5093,9 +5092,9 @@ dependencies = [
  "js-sys",
  "partyline-dioxus",
  "qrcode",
+ "rafi-api",
  "rafi-lifecycle",
  "rafi-live-client",
- "rafi-model",
  "rafi-raffle",
  "serde",
  "serde_json",

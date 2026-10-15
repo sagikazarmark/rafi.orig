@@ -33,10 +33,10 @@ use crate::{
         tabs::{TabContent, TabContentAppearance, TabTrigger, Tabs, TabsAppearance},
         toast::{ToastOptions, use_toast},
     },
-    model::{
-        AdminEntrant, EntrantPatch, LifecycleCommand, Prize, RaffleAdmin as AdminData, RaffleView,
-        StartStep,
-    },
+};
+use rafi_api::{
+    AdminEntrant, EntrantPatch, LifecycleCommand, Prize, RaffleAdmin as AdminData, RaffleView,
+    StartStep,
 };
 
 use self::{draw::DrawConsole, header::Header, people::People, prizes::Prizes};

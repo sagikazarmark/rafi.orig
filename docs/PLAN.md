@@ -194,7 +194,7 @@ rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter,
 rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), Follow, PageConfig
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 dioxus-altcha        ALTCHA v2 solved in the browser (Web Workers on WebCrypto) and a Dioxus hook; no rafi dependencies
-rafi-model           the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
+rafi-api             the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP
 rafi-server          the HTTP side (routes, auth, the retention schedule, the public pages); the native binary `rafi`

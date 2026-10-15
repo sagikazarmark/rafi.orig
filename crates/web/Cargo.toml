@@ -23,7 +23,7 @@ partyline-dioxus = "0.3"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rafi-lifecycle = { workspace = true }
 rafi-live-client = { workspace = true, features = ["card"] }
-rafi-model = { workspace = true }
+rafi-api = { workspace = true }
 rafi-raffle = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -1,8 +1,8 @@
 //! Raffles: creating, configuring, copying, deleting and moving them
 //! through the lifecycle.
 
+use rafi_api::{LifecycleCommand, RaffleSettings, RaffleSummary};
 use rafi_lifecycle::{self as lifecycle, settings};
-use rafi_model::{LifecycleCommand, RaffleSettings, RaffleSummary};
 use rafi_store::{RaffleRow, audit, prizes, raffles};
 
 use crate::{App, Refusal, Result, ids, owned};

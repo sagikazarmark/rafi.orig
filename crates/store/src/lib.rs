@@ -76,6 +76,20 @@ pub fn now() -> i64 {
     }
 }
 
+/// The current time in unix milliseconds; see [`now`].
+pub fn now_ms() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64)
+    }
+}
+
 /// When personal data of a finished raffle is erased, counted from when it
 /// finished: the app's retention settings ([`retention::date_purges`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

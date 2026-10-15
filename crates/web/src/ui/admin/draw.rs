@@ -96,7 +96,7 @@ pub(super) fn DrawConsole(
         .filter(|u| matches!(u.status, ItemStatus::Available | ItemStatus::Drawn))
         .count();
     let pending_item = pending.as_ref().map(|p| p.item.clone());
-    let offset = v.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
+    let offset = v.server_now_ms as i64 - crate::ui::now_ms() as i64;
     // A pending draw whose beacon could not be fetched (or whose fetch was lost,
     // e.g. a restart): it stays on its round; the organizer can retry or
     // abandon it.

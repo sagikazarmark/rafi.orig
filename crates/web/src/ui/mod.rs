@@ -288,3 +288,8 @@ pub fn copy_to_clipboard(text: String) {
 pub fn command_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
+
+/// The browser's clock, in unix milliseconds.
+pub fn now_ms() -> u64 {
+    js_sys::Date::now() as u64
+}

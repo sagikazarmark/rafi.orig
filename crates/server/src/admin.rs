@@ -1,4 +1,4 @@
-//! The admin API's server side ([`rafi_model::api`]): `POST /api/admin/{name}`
+//! The admin API's server side ([`rafi_api::admin`]): `POST /api/admin/{name}`
 //! with JSON arguments, for the signed-in organizer only. [`Admin`] maps each
 //! function onto its use case.
 
@@ -12,9 +12,9 @@ use axum::{
 };
 use dioxus_clerk::server::ClerkAuth;
 
-use rafi_model::{
+use rafi_api::{
     EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleSettings, RaffleSummary,
-    api::{self, Admin, ApiError, ItemId, Resolution},
+    admin::{self, Admin, ApiError, ItemId, Resolution},
 };
 use rafi_raffle::{Decision, DrawRequest};
 
@@ -23,7 +23,7 @@ use super::{
     service::{self, Error},
 };
 
-type DispatchError = api::DispatchError<Error>;
+type DispatchError = admin::DispatchError<Error>;
 
 pub fn routes() -> Router {
     Router::new().route("/api/admin/{name}", post(call))
@@ -40,7 +40,7 @@ async fn call(
     let Some(owner) = auth::owner(&app, auth) else {
         return error(StatusCode::UNAUTHORIZED, "Please sign in.");
     };
-    match api::dispatch(&app, &owner, &name, &args).await {
+    match admin::dispatch(&app, &owner, &name, &args).await {
         Ok(value) => ([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response(),
         Err(e) => app_error(&name, e),
     }

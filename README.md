@@ -80,7 +80,7 @@ crates/dioxus-altcha          dioxus-altcha: ALTCHA v2 proof-of-work solved in t
                               Dioxus hook; no rafi dependencies (docs/dioxus-altcha-plan.md). The server side is the `altcha` crate
 crates/cloudflare             rafi-cloudflare: the Cloudflare glue both Workers share (RaffleRoom Durable Object, notifier, config)
 crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
-crates/model                  rafi-model: the contract between the app's server and browser: views, and the admin API declared
+crates/api                    rafi-api: the contract between the app's server and browser: views, and the admin API declared
                               once (`admin_functions!`: the server's `Admin` trait and `dispatch`, the browser's client)
 crates/app-core               rafi-app-core: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
 crates/server                 rafi-server: the axum server (participant pages, public JSON, the admin API) and the native
@@ -119,7 +119,7 @@ vendored: update it by re-installing (`--force`), not by editing.
 The app is two crates: the **web app** (`crates/web`, `rafi-web`: admin, projector and verification page; a Dioxus
 single-page app built by `dx`) and the **server** (`crates/server`, `rafi-server`: participant pages, the public and
 admin JSON APIs, and the web app's files; plain `cargo`, binary `rafi`). The web app calls the server's JSON routes
-(`POST /api/admin/<function>`) on the same origin; both sides of that API come from one declaration in `rafi-model`.
+(`POST /api/admin/<function>`) on the same origin; both sides of that API come from one declaration in `rafi-api`.
 
 The participant page's WebAssembly and its fallback are built into `crates/participant/dist`, which the server serves at
 `/participant/` (`RAFI_PARTICIPANT_DIR`). Without it the participant page still renders, but phones can't join or follow the

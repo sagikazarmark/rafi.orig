@@ -19,8 +19,8 @@ use crate::{
         textarea::TextareaField,
         toast::{ToastOptions, use_toast},
     },
-    model::{PrizeInput, RaffleSettings},
 };
+use rafi_api::{PrizeInput, RaffleSettings};
 
 pub fn err_text(e: ApiError) -> String {
     e.message

@@ -131,7 +131,7 @@ fn render_page(
         notice,
         name: &form.name,
         email: &form.email,
-        now_ms: rafi_model::now_unix_ms(),
+        now_ms: service::ids::now_ms(),
     })
 }
 

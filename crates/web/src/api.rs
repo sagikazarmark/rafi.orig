@@ -1,10 +1,10 @@
-//! The admin API's browser client ([`rafi_model::api`]): one function per
-//! admin function, generated from [`rafi_model::admin_functions!`], that
+//! The admin API's browser client ([`rafi_api::admin`]): one function per
+//! admin function, generated from [`rafi_api::admin_functions!`], that
 //! POSTs its arguments to `/api/admin/<name>` and decodes the reply; and
 //! the public reads the web app makes.
 
-pub use rafi_model::api::ApiError;
-use rafi_model::{RaffleView, VerifyData};
+pub use rafi_api::admin::ApiError;
+use rafi_api::{RaffleView, VerifyData};
 
 macro_rules! client_side {
     ($(
@@ -16,14 +16,14 @@ macro_rules! client_side {
             pub async fn $name($($arg: $ty),*) -> Result<$ret, ApiError> {
                 #[derive(serde::Serialize)]
                 struct Args { $($arg: $ty),* }
-                let path = format!("{}{}", rafi_model::api::PATH, stringify!($name));
+                let path = format!("{}{}", rafi_api::admin::PATH, stringify!($name));
                 client::post(&path, &Args { $($arg),* }).await
             }
         )*
     };
 }
 
-rafi_model::admin_functions!(client_side);
+rafi_api::admin_functions!(client_side);
 
 /// Public: data for the verification page (`/api/r/<slug>/verify.json`, no session needed).
 pub async fn get_verify(slug: String) -> Result<VerifyData, ApiError> {

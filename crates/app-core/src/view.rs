@@ -3,8 +3,8 @@
 
 use std::collections::HashMap;
 
+use rafi_api::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
 use rafi_lifecycle::RaffleState;
-use rafi_model::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
 use rafi_raffle::{BeaconSource, Event, ItemId, ItemStatus};
 use rafi_store::view::Full;
 
@@ -185,7 +185,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         draws,
         last_failure,
         manifest_hash: raffle.manifest_hash.clone(),
-        server_now_ms: rafi_model::now_unix_ms(),
+        server_now_ms: crate::ids::now_ms(),
         test_mode: raffle.test_mode,
         verifiable,
         state,

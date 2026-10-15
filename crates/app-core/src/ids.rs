@@ -62,6 +62,11 @@ pub fn now() -> i64 {
     rafi_store::now()
 }
 
+/// Unix milliseconds, like [`now`].
+pub fn now_ms() -> u64 {
+    rafi_store::now_ms()
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

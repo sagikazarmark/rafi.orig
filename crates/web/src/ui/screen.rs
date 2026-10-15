@@ -11,7 +11,7 @@ use super::{
     Brand, ThemeToggle,
     live::{use_clock, use_live_view},
 };
-use crate::model::{DrawView, RaffleView};
+use rafi_api::{DrawView, RaffleView};
 
 #[component]
 pub fn Screen(slug: String) -> Element {
@@ -189,7 +189,7 @@ fn Intro(view: RaffleView) -> Element {
 fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
     let now = use_clock(200);
     let left: u32 = view.prizes.iter().map(|p| p.left).sum();
-    let offset = view.server_now_ms as i64 - crate::model::now_unix_ms() as i64;
+    let offset = view.server_now_ms as i64 - crate::ui::now_ms() as i64;
 
     // The draw in progress and the latest winner: from the live channel's
     // participant view while it's ahead (the reveal comes first), otherwise

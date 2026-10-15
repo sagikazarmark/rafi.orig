@@ -1,7 +1,7 @@
 //! The contract between the Rafi app's server and browser: the views screens
-//! poll, and the [`api`]: the admin functions, their arguments and results.
+//! poll, and the [`admin`] API: its functions, their arguments and results.
 
-pub mod api;
+pub mod admin;
 
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::{EntrantId, Event, ItemId, ItemStatus, Outcome};
@@ -238,23 +238,4 @@ pub struct Me {
     /// succeeded lately: erasure may have stopped.
     #[serde(default)]
     pub retention_stale: bool,
-}
-
-pub fn now_unix_ms() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        js_sys_now()
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or_default()
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn js_sys_now() -> u64 {
-    js_sys::Date::now() as u64
 }

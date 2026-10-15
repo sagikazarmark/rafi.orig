@@ -43,15 +43,15 @@ macro_rules! admin_functions {
             fn lifecycle(id: String, action: $crate::LifecycleCommand) -> ();
             /// Freezes the entrants and hands the raffle to the engine.
             fn start_draw(id: String) -> ();
-            fn draw_item(id: String, item: $crate::api::ItemId, command_id: String) -> ();
+            fn draw_item(id: String, item: $crate::admin::ItemId, command_id: String) -> ();
             fn resolve_item(
                 id: String,
-                item: $crate::api::ItemId,
-                resolution: $crate::api::Resolution,
+                item: $crate::admin::ItemId,
+                resolution: $crate::admin::Resolution,
                 command_id: String,
             ) -> ();
-            fn void_item(id: String, item: $crate::api::ItemId, command_id: String) -> ();
-            fn abandon_draw(id: String, item: $crate::api::ItemId, command_id: String) -> ();
+            fn void_item(id: String, item: $crate::admin::ItemId, command_id: String) -> ();
+            fn abandon_draw(id: String, item: $crate::admin::ItemId, command_id: String) -> ();
             fn finish_raffle(id: String, command_id: String) -> ();
             fn end_live_updates(id: String) -> ();
             /// Adds an entrant by hand; returns their ID.
