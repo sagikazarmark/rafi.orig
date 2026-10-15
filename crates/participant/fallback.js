@@ -154,28 +154,96 @@
   }
 
   // ---- Proof of work (join form) ----
-  function hex(buf) {
-    return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+  // The WebAssembly's solver, dioxus-altcha's worker.js, served next to this
+  // file: workers splitting the counters, or this page if they can't start.
+  var SOLVER = "/participant/altcha-worker.js";
+  var powDeadline = null, powRun = 0;
+  function loadSolver() {
+    return new Promise(function (resolve, reject) {
+      if (typeof window.altchaSolve === "function") return resolve(window.altchaSolve);
+      var s = document.createElement("script");
+      s.src = SOLVER;
+      s.onload = function () {
+        if (typeof window.altchaSolve === "function") resolve(window.altchaSolve);
+        else reject(new Error("no solver"));
+      };
+      s.onerror = function () { reject(new Error("no solver")); };
+      document.head.appendChild(s);
+    });
   }
-  async function solveAltcha() {
+  // Rejects with null when no worker could run: then the page solves.
+  function solveInWorkers(raw) {
+    return new Promise(function (resolve, reject) {
+      var workers = [], errors = 0, done = false;
+      var n = Math.min(Math.max(navigator.hardwareConcurrency || 2, 1), 4);
+      function finish(settle, value) {
+        if (done) return;
+        done = true;
+        workers.forEach(function (w) { w.onmessage = null; w.onerror = null; w.terminate(); });
+        settle(value);
+      }
+      for (var i = 0; i < n; i++) {
+        var w;
+        try { w = new Worker(SOLVER); } catch (e) { break; }
+        w.onmessage = function (e) {
+          var r = JSON.parse(e.data);
+          if (r.error) finish(reject, new Error(r.error)); else finish(resolve, r);
+        };
+        // A worker that can't load (a 404 served as the app's index.html
+        // fails to parse) reports `error` before any message.
+        w.onerror = function (e) {
+          e.preventDefault();
+          if (++errors >= workers.length) finish(reject, null);
+        };
+        w.postMessage('{"challenge":' + raw + ',"start":' + i + ',"step":' + n + "}");
+        workers.push(w);
+      }
+      if (!workers.length) finish(reject, null);
+    });
+  }
+  // The time left to post a solution, as dioxus-altcha's usable_for: until
+  // expiry less a margin, or null if this phone's clock can't tell.
+  function usableFor(challenge) {
+    var at = challenge.parameters && challenge.parameters.expiresAt;
+    if (!at) return null;
+    var left = at * 1000 - Date.now();
+    if (!(left > 0 && left <= 864e5)) return null;
+    return left - Math.min(30000, left / 2);
+  }
+  async function solveAltcha(then) {
     var input = document.getElementById("altcha");
     var submit = document.getElementById("submit");
     if (!input || !submit) return;
+    var run = ++powRun;
+    input.value = "";
+    powDeadline = null;
+    submit.disabled = true;
+    var value = "", deadline = null;
     try {
-      if (window.crypto && crypto.subtle) {
-        var c = await (await fetch(cfg.altcha_url || "/api/altcha", { cache: "no-store" })).json();
-        var enc = new TextEncoder();
-        for (var n = 0; n <= c.maxnumber; n++) {
-          if (hex(await crypto.subtle.digest("SHA-256", enc.encode(c.salt + n))) === c.challenge) {
-            input.value = btoa(JSON.stringify({ algorithm: c.algorithm, challenge: c.challenge, number: n, salt: c.salt, signature: c.signature }));
-            break;
-          }
-        }
+      if (window.isSecureContext && window.crypto && crypto.subtle) {
+        var raw = await (await fetch(cfg.altcha_url || "/api/altcha", { cache: "no-store" })).text();
+        var challenge = JSON.parse(raw);
+        var solution = await solveInWorkers(raw).catch(function (e) {
+          if (e) throw e;
+          return loadSolver().then(function (solve) {
+            return solve(challenge, 0, 1, { yieldMs: 150 });
+          });
+        });
+        // The challenge as received: re-serializing it could change what was signed.
+        value = btoa('{"challenge":' + raw + ',"solution":' + JSON.stringify(solution) + "}");
+        var left = usableFor(challenge);
+        if (left != null) deadline = performance.now() + left;
       }
     } catch (e) { /* the server will ask to retry */ }
+    if (run !== powRun) return;
+    input.value = value;
+    powDeadline = deadline;
     var label = submit.getAttribute("data-label");
     if (label) submit.innerHTML = label;
     submit.disabled = false;
+    if (then && value) {
+      if (then.requestSubmit) then.requestSubmit(); else then.submit();
+    }
   }
 
   // ---- Wake lock and sound (need a user gesture) ----
@@ -222,6 +290,19 @@
   if (wakeBtn) wakeBtn.addEventListener("click", keepAwake);
   var form = document.getElementById("join");
   if (form) form.addEventListener("submit", unlockAudio);
+  // A solution past its deadline (a phone left on the form) is solved again
+  // before the form posts.
+  if (form && cfg.needs_altcha) form.addEventListener("submit", function (e) {
+    var input = document.getElementById("altcha");
+    if (powDeadline != null && performance.now() >= powDeadline && input && input.value) {
+      e.preventDefault();
+      solveAltcha(form);
+    }
+  });
+  // Back/forward cache: the restored solution is spent.
+  window.addEventListener("pageshow", function (e) {
+    if (e.persisted && cfg.needs_altcha) solveAltcha(null);
+  });
 
   function resume() { if (document.visibilityState === "visible") poll(); }
   document.addEventListener("visibilitychange", resume);
@@ -229,7 +310,7 @@
   window.addEventListener("online", resume);
   window.addEventListener("focus", resume);
 
-  if (cfg.needs_altcha) solveAltcha();
+  if (cfg.needs_altcha) solveAltcha(null);
   if (view) render(view, false);
   if (view && isLive(view.state)) { poll(); schedule(); setInterval(schedule, 5000); }
 })();

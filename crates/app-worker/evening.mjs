@@ -71,6 +71,7 @@ async function tab(url) {
   };
   const call = (method, params = {}) => new Promise((r) => { const i = ++n; waiting.set(i, r); sock.send(JSON.stringify({ id: i, method, params })); });
   return {
+    call,
     js: async (expr) => (await call("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true })).result?.result?.value,
     close: () => sock.close(),
   };
@@ -137,6 +138,29 @@ check(admin.view.live_ended === true, "live updates are ended");
 const late = new WebSocket(`${base.replace(/^http/, "ws")}/partyline/raffle/${id}?v=1`);
 const closed = await new Promise((r) => { late.onclose = (e) => r(e.code); setTimeout(() => r(null), 5000); });
 check(closed === 4403, `a socket after the end is refused (${closed})`);
+
+// A phone without WebAssembly joins through fallback.js, which solves with
+// the same worker script (/participant/altcha-worker.js). Its own raffle, so
+// the draw above keeps one entrant.
+const other = await api("create_raffle", { title: `Workers evening, no wasm ${Date.now()}` });
+await api("save_prize", { id: other, prize: { id: null, name: "Sticker", sponsor: "", description: "", qty: 1, position: 0 } });
+await api("lifecycle", { id: other, action: "publish" });
+await api("lifecycle", { id: other, action: "open" });
+const otherCode = (await api("get_raffle", { id: other })).view.join_code;
+const nowasm = await tab("about:blank");
+await nowasm.call("Page.enable");
+await nowasm.call("Page.addScriptToEvaluateOnNewDocument", { source: "delete window.WebAssembly;" });
+await nowasm.call("Page.navigate", { url: `${base}/j/${otherCode}` });
+check(await until(() => nowasm.js(`!!window.__rafiFallbackRunning && !!document.getElementById("submit") && !document.getElementById("submit").disabled && document.getElementById("altcha").value.length > 0`), 30000),
+  "no WebAssembly: the fallback solves the proof-of-work");
+await nowasm.js(`(() => {
+  document.getElementById("name").value = "Bence";
+  document.getElementById("email").value = "bence@example.com";
+  document.querySelector("input[name=rules]").checked = true;
+  document.getElementById("join").requestSubmit();
+})()`);
+check(await until(() => nowasm.js(`!!document.querySelector(".claim-code")`), 15000), "and Bence joins with it");
+nowasm.close();
 
 const real = errors.filter((e) => !/WebSocket|4403|ERR_/i.test(e));
 check(real.length === 0, `no console errors${real.length ? ": " + real.join(" | ") : ""}`);

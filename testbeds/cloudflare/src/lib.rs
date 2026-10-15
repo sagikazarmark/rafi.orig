@@ -193,14 +193,18 @@ if(typeof WebAssembly!=="object"){{window.rafiFallback()}}else{{import("/partici
     Response::from_html(html)
 }
 
-fn altcha_challenge() -> rafi_altcha::Challenge {
-    let random = || (js_sys::Math::random() * u32::MAX as f64) as u64;
-    let mut salt = [0u8; 12];
-    for b in &mut salt {
-        *b = random() as u8;
-    }
-    let now = (js_sys::Date::now() / 1000.0) as u64;
-    rafi_altcha::issue(b"check-key", 30_000, now, random() % 30_000, salt)
+fn altcha_challenge() -> altcha::Challenge {
+    let now = (js_sys::Date::now() / 1000.0) as i64;
+    // As the app issues them (rafi-app-core's altcha), cheap.
+    altcha::create_challenge(altcha::CreateChallengeOptions {
+        algorithm: "PBKDF2/SHA-256".into(),
+        cost: 100,
+        key_prefix: "00".into(),
+        expires_at: Some(now + 20 * 60),
+        hmac_signature_secret: Some("check-key".into()),
+        ..Default::default()
+    })
+    .expect("valid options")
 }
 
 /// Appends `event` to the stored raffle, the way the engine's projection

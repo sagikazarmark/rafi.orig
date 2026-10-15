@@ -24,9 +24,12 @@ pub struct Config {
     /// raffle engine only checks it. `mock` (or `RAFI_DRAND_MOCK=1`) is the mock
     /// chain, in development builds only.
     pub drand_chain: String,
-    pub altcha_key: Vec<u8>,
-    /// Maximum proof-of-work number (difficulty).
-    pub altcha_max: u64,
+    /// The proof-of-work's HMAC key (`RAFI_ALTCHA_KEY`). Random when unset,
+    /// so challenges die with the process.
+    pub altcha_key: String,
+    /// The proof-of-work's difficulty (`RAFI_ALTCHA_COST`): PBKDF2 iterations
+    /// per attempt, about 256 attempts per solve.
+    pub altcha_cost: u32,
     pub cookie_secure: bool,
     /// The most entrants a raffle takes (`RAFI_MAX_ENTRANTS`): the hard limit
     /// behind the soft rate limits.
@@ -58,9 +61,9 @@ impl Config {
             .unwrap_or_else(|| "http://localhost:8080".into())
             .trim_end_matches('/')
             .to_owned();
-        let altcha_key = var("RAFI_ALTCHA_KEY")
-            .map(|k| k.into_bytes())
-            .unwrap_or_else(|| crate::ids::random_bytes::<32>().to_vec());
+        // Hex: the key is a string, and raw random bytes aren't UTF-8.
+        let altcha_key =
+            var("RAFI_ALTCHA_KEY").unwrap_or_else(|| hex::encode(crate::ids::random_bytes::<32>()));
         Self {
             database_url: var("RAFI_DATABASE_URL").unwrap_or_else(|| "sqlite://rafi.db".into()),
             cookie_secure: var("RAFI_COOKIE_SECURE")
@@ -83,9 +86,9 @@ impl Config {
                 .or_else(|| flag("RAFI_DRAND_MOCK").then(|| MOCK.to_owned()))
                 .unwrap_or_else(|| chains::QUICKNET_HASH.to_string()),
             altcha_key,
-            altcha_max: var("RAFI_ALTCHA_MAX")
+            altcha_cost: var("RAFI_ALTCHA_COST")
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(30_000),
+                .unwrap_or(DEFAULT_ALTCHA_COST),
             max_entrants: var("RAFI_MAX_ENTRANTS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2000),
@@ -120,8 +123,8 @@ impl Config {
                 timeout_secs: RestateConfig::DEFAULT_TIMEOUT_SECS,
             },
             drand_chain: MOCK.into(),
-            altcha_key: b"test-key".to_vec(),
-            altcha_max: 50,
+            altcha_key: "test-key".into(),
+            altcha_cost: 1,
             cookie_secure: false,
             max_entrants: 2000,
             retention_enabled: false,
@@ -130,6 +133,10 @@ impl Config {
         }
     }
 }
+
+/// `RAFI_ALTCHA_COST` when unset. Provisional: to be set from measurements
+/// on old phones (docs/dioxus-altcha-plan.md, M4).
+pub const DEFAULT_ALTCHA_COST: u32 = 1000;
 
 /// The alias for the mock chain in `RAFI_DRAND_CHAIN`.
 const MOCK: &str = "mock";

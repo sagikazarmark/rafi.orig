@@ -33,10 +33,7 @@ async fn app() -> App {
         policy: Policy {
             public_url: "http://localhost".into(),
             max_entrants: 100,
-            proof_of_work: ProofOfWork {
-                key: b"test-key".to_vec(),
-                max: 1000,
-            },
+            proof_of_work: ProofOfWork::new("test-key", 1).unwrap(),
             retention: Retention {
                 enabled: true,
                 nonwinners_days: 30,
@@ -262,9 +259,14 @@ async fn joining_follows_the_raffle_rules() {
 
 /// A solved proof-of-work, as the join form posts it.
 fn solved(app: &App) -> String {
-    rafi_altcha::solve(&app::altcha::challenge(app))
-        .expect("solvable")
-        .to_payload()
+    let challenge = app::altcha::challenge(app).unwrap();
+    let solution = altcha::solve_challenge(altcha::SolveChallengeOptions::new(&challenge))
+        .unwrap()
+        .expect("solvable");
+    app::altcha::encode(&altcha::Payload {
+        challenge,
+        solution,
+    })
 }
 
 #[tokio::test]

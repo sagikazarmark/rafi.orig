@@ -12,12 +12,12 @@ crate-type = ["cdylib", "rlib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "hooks", "launch", "web"] }
+dioxus-altcha = { workspace = true }
 futures-channel = "0.3"
 futures-util = { version = "0.3", default-features = false }
 gloo-timers = { version = "0.3", features = ["futures"] }
 js-sys = "0.3"
 partyline-dioxus = "0.3"
-rafi-altcha = { workspace = true }
 rafi-live-client = { workspace = true, features = ["card"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -26,7 +26,7 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "AudioBuffer", "AudioBufferSourceNode", "AudioContext", "AudioContextState", "AudioDestinationNode",
     "AudioNode", "AudioParam", "AudioScheduledSourceNode", "BaseAudioContext", "Document", "DomTokenList",
-    "Element", "Event", "EventTarget", "GainNode", "HtmlButtonElement", "HtmlElement", "HtmlInputElement",
-    "Location", "Navigator", "Node", "OscillatorNode", "OscillatorType", "Headers", "Response", "Storage", "VisibilityState",
+    "Element", "Event", "EventTarget", "GainNode", "HtmlButtonElement", "HtmlElement", "HtmlFormElement", "HtmlInputElement",
+    "Location", "Navigator", "Node", "OscillatorNode", "OscillatorType", "Headers", "PageTransitionEvent", "Performance", "Response", "Storage", "VisibilityState",
     "Window", "console",
 ] }

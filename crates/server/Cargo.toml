@@ -23,6 +23,7 @@ axum = { version = "0.8", default-features = false, features = ["form", "json", 
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
 dioxus-clerk = { version = "0.6", features = ["server"] }
 dioxus-icons = "=0.1.0"
+hex = { workspace = true }
 rafi-app-core = { workspace = true }
 rafi-engine = { workspace = true }
 rafi-engine-restate = { workspace = true }
@@ -46,7 +47,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 [dev-dependencies]
 dioxus-clerk = { version = "0.6", features = ["server", "testing"] }
 http-body-util = "0.1"
-rafi-altcha = { workspace = true }
+altcha = { workspace = true }
 rafi-engine = { workspace = true, features = ["local", "mock-drand"] }
 rafi-live-client = { workspace = true }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }

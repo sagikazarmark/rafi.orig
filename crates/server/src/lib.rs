@@ -101,10 +101,7 @@ impl AppState {
             policy: service::Policy {
                 public_url: cfg.public_url.clone(),
                 max_entrants: cfg.max_entrants,
-                proof_of_work: service::ProofOfWork {
-                    key: cfg.altcha_key.clone(),
-                    max: cfg.altcha_max,
-                },
+                proof_of_work: service::ProofOfWork::new(cfg.altcha_key.clone(), cfg.altcha_cost)?,
                 retention: service::Retention {
                     enabled: cfg.retention_enabled,
                     nonwinners_days: cfg.retention_nonwinners_days,

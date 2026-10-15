@@ -252,7 +252,7 @@ The phone builds `rafi-live` without its `raffle` feature, so it doesn't depend 
 
 ### Reuse
 
-- **ALTCHA:** rafi's own scheme for now. Contribute the `web-time` fix to the official `altcha` crate later, then move to protocol v2.
+- **ALTCHA:** done (2026-10-15): the `web-time` fix is upstream as altcha-org/altcha-lib-rs#1 (rafi patches it in until it's released), and rafi is on protocol v2; see [dioxus-altcha-plan.md](dioxus-altcha-plan.md).
 - **Wake lock:** stays in `rafi-participant`.
 - **Vibrate, the chime and the theme toggle:** stay in `rafi-participant`, which owns the toggle (the inline `<head>` script stays in the page).
 - **Restate:** the `wasm` branch fixes are in an open upstream PR; rafi uses the git branch until it's released. The Workers adapter can go upstream later.
@@ -403,7 +403,7 @@ The draw engine runs as `restate-rafi-endpoint` against the same database. `depl
 - **Self-hosting:** supported alongside Workers (§7a, §8): the native server with SQLite or Postgres and `restate-rafi-endpoint`.
 - **Ending live updates:** manual, with Cron cleanup as the safety net.
 - **Restate SDK:** the `wasm` git branch until the upstream PR is released.
-- **ALTCHA:** rafi's own scheme; upstream fix later.
+- **ALTCHA:** v2 with the official crate since 2026-10-15 ([dioxus-altcha-plan.md](dioxus-altcha-plan.md)).
 - **Wake lock:** in `rafi-participant`.
 - **Emergency draws:** none; rely on Restate.
 - **Store:** own API, with `worker::D1Database` behind it.

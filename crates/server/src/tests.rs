@@ -102,10 +102,25 @@ async fn solved_altcha(router: &Router) -> String {
         Request::get("/api/altcha").body(Body::empty()).unwrap(),
     )
     .await;
-    let challenge = serde_json::from_str(&body).expect("challenge json");
-    rafi_altcha::solve(&challenge)
-        .expect("solvable")
-        .to_payload()
+    solve_altcha(serde_json::from_str(&body).expect("challenge json"))
+}
+
+/// The join form's value for `challenge`, solved from counter `from`.
+fn solve_altcha_from(challenge: altcha::Challenge, from: u32) -> altcha::Payload {
+    let solution = altcha::solve_challenge(altcha::SolveChallengeOptions {
+        counter_start: from,
+        ..altcha::SolveChallengeOptions::new(&challenge)
+    })
+    .unwrap()
+    .expect("solvable");
+    altcha::Payload {
+        challenge,
+        solution,
+    }
+}
+
+fn solve_altcha(challenge: altcha::Challenge) -> String {
+    service::altcha::encode(&solve_altcha_from(challenge, 0))
 }
 
 fn form(fields: &[(&str, &str)]) -> String {
@@ -1392,7 +1407,7 @@ async fn proof_of_work_replays_are_refused() {
     assert!(page.contains("human"), "{page}");
     assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 1);
 
-    let solution = rafi_altcha::Solution::from_payload(&altcha).unwrap();
+    let payload = service::altcha::decode(&altcha).unwrap();
     let rows: Vec<(String, i64)> = app
         .db
         .query("SELECT challenge, expires_at FROM altcha_used")
@@ -1402,17 +1417,17 @@ async fn proof_of_work_replays_are_refused() {
     assert_eq!(
         rows,
         [(
-            solution.challenge.clone(),
-            solution.expires_at().unwrap() as i64
+            payload.challenge.parameters.nonce.clone(),
+            payload.challenge.parameters.expires_at.unwrap()
         )]
     );
     assert!(!service::altcha::redeem(&app, &altcha).await.unwrap());
 
     // A forged solution never reaches the table.
-    let mut forged = solution.clone();
-    forged.signature = "00".repeat(32);
+    let mut forged = payload.clone();
+    forged.challenge.signature = Some("00".repeat(32));
     assert!(
-        !service::altcha::redeem(&app, &forged.to_payload())
+        !service::altcha::redeem(&app, &service::altcha::encode(&forged))
             .await
             .unwrap()
     );
@@ -1430,6 +1445,67 @@ async fn proof_of_work_replays_are_refused() {
         .await
         .unwrap();
     assert_eq!(left, 1, "only the unexpired challenge stays");
+}
+
+/// Only the server's own, unexpired, correctly solved challenges pass, each
+/// once.
+#[tokio::test]
+async fn proof_of_work_forgeries_are_refused() {
+    let app = app().await;
+    let issue = |key: &str, expires_at: Option<i64>| {
+        altcha::create_challenge(altcha::CreateChallengeOptions {
+            algorithm: service::altcha::ALGORITHM.into(),
+            cost: 1,
+            key_prefix: service::altcha::KEY_PREFIX.into(),
+            expires_at,
+            hmac_signature_secret: Some(key.into()),
+            ..Default::default()
+        })
+        .unwrap()
+    };
+    let soon = Some(service::ids::now() + 600);
+    let refused = async |payload: &altcha::Payload| {
+        !service::altcha::redeem(&app, &service::altcha::encode(payload))
+            .await
+            .unwrap()
+    };
+
+    let expired = solve_altcha_from(issue("test-key", Some(service::ids::now() - 1)), 0);
+    assert!(refused(&expired).await, "expired");
+    let foreign = solve_altcha_from(issue("another-key", soon), 0);
+    assert!(refused(&foreign).await, "signed with another key");
+    let eternal = solve_altcha_from(issue("test-key", None), 0);
+    assert!(refused(&eternal).await, "no expiresAt");
+
+    let good = solve_altcha_from(issue("test-key", soon), 0);
+    let mut cheaper = good.clone();
+    cheaper.challenge.parameters.cost = 0;
+    assert!(refused(&cheaper).await, "a changed parameter");
+    let mut counter = good.clone();
+    counter.solution.counter += 1;
+    assert!(refused(&counter).await, "a tampered counter");
+    let mut key = good.clone();
+    key.solution.derived_key = format!("00{}", "1".repeat(62));
+    assert!(refused(&key).await, "the wrong derived key");
+
+    // Accepted once; another valid counter for the same challenge is a replay.
+    assert!(!refused(&good).await, "the genuine solution");
+    let other = solve_altcha_from(good.challenge.clone(), good.solution.counter + 1);
+    assert_ne!(other.solution.counter, good.solution.counter);
+    assert!(
+        refused(&other).await,
+        "a second solution of the same challenge"
+    );
+
+    assert!(
+        !service::altcha::redeem(&app, "not base64!").await.unwrap(),
+        "junk"
+    );
+    let long = "A".repeat(service::altcha::MAX_PAYLOAD_LEN + 4);
+    assert!(
+        !service::altcha::redeem(&app, &long).await.unwrap(),
+        "too long"
+    );
 }
 
 /// A raffle with three entrants, frozen and finished without draws.

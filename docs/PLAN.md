@@ -54,7 +54,7 @@ English only for now.
 | Item order | Picked live: nobody can know an outcome in advance. |
 | Eligibility, age | In the rules. Minimum age 16 by default. |
 | Retention | Non-winners' personal data is erased 30 days after the event; winners' after 90, or 30 once their prize is delivered. The anonymous raffle (manifest and log) is kept (§10). |
-| Bot protection | Rafi's own proof-of-work (ALTCHA-compatible, self-hosted), one entry per email, rate limits per raffle and per email (never per IP), an entrant cap. No Turnstile. |
+| Bot protection | A self-hosted ALTCHA v2 proof-of-work (the `altcha` crate on the server, `dioxus-altcha` on the phone), one entry per email, rate limits per raffle and per email (never per IP), an entrant cap. No Turnstile. |
 | Winner emails | Not in v1. |
 
 ## 4. The event, end to end
@@ -193,7 +193,7 @@ rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`)
 rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; the phones' snapshot
 rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), Follow, PageConfig
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
-rafi-altcha          the proof-of-work (ALTCHA-compatible): solve; issue and verify (`server`)
+dioxus-altcha        ALTCHA v2 solved in the browser (Web Workers on WebCrypto) and a Dioxus hook; no rafi dependencies
 rafi-model           the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
 rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP
@@ -209,8 +209,8 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
   host passes the engine its live notifier as the `Observer` (on Workers; the native host passes none, since its
   clients poll), and the app's retention run dates erasure.
 - `rafi-engine` depends on no live or Cloudflare crate, and nothing below the app pulls in Dioxus (`rafi-live-client`'s `card`
-  is off). The phone builds only `rafi-live-client` and `rafi-altcha` (without `server`): no `rafi-raffle`, drand,
-  BLS or HMAC.
+  is off). The phone builds only `rafi-live-client` and `dioxus-altcha` (the `altcha` crate's types; its key
+  derivation isn't linked): no `rafi-raffle`, drand, BLS or HMAC.
 - The server sends the admin what it may do (`RaffleAdmin.actions`, `AdminEntrant.deliverable`); the UI derives no
   rules.
 
@@ -428,6 +428,11 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   inline; `CardStrings::default()` is the phone card's.
 - **14** (2026-10-15). The icons are `dioxus-icons`' Lucide components, used directly. With the language and the
   icons gone, `rafi-pages` shared nothing with the web app: the public pages render in `rafi-server` (`pages`).
+- **15** (2026-10-15). The proof-of-work is ALTCHA v2 ([dioxus-altcha-plan.md](dioxus-altcha-plan.md)): the server
+  issues and verifies with the official `altcha` crate (PBKDF2/SHA-256, `RAFI_ALTCHA_COST` replaces
+  `RAFI_ALTCHA_MAX`; patched for Workers' clocks until upstream releases), and records each challenge's nonce. Phones
+  solve with `dioxus-altcha`, a reusable crate in this workspace: Web Workers on WebCrypto, from
+  `/participant/altcha-worker.js`, which `fallback.js` uses too. `rafi-altcha` is gone.
 
 ## Appendix: key sources
 

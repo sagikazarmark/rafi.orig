@@ -76,8 +76,8 @@ crates/live-client            rafi-live-client: what a phone sees and runs (part
 crates/live-server            rafi-live-server: the servers' side (the Notifier a deployment pushes through, also the raffle
                               engine's Observer; LiveUpdates; the view built from a raffle as drawn, the live channel's
                               publish rule)
-crates/altcha                 rafi-altcha: the self-hosted proof-of-work (ALTCHA-compatible): solving it; `server`: issuing
-                              and verifying it
+crates/dioxus-altcha          dioxus-altcha: ALTCHA v2 proof-of-work solved in the browser (Web Workers on WebCrypto), with a
+                              Dioxus hook; no rafi dependencies (docs/dioxus-altcha-plan.md). The server side is the `altcha` crate
 crates/cloudflare             rafi-cloudflare: the Cloudflare glue both Workers share (RaffleRoom Durable Object, notifier, config)
 crates/participant            rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
 crates/model                  rafi-model: the contract between the app's server and browser: views, and the admin API declared
@@ -123,7 +123,7 @@ admin JSON APIs, and the web app's files; plain `cargo`, binary `rafi`). The web
 
 The participant page's WebAssembly and its fallback are built into `crates/participant/dist`, which the server serves at
 `/participant/` (`RAFI_PARTICIPANT_DIR`). Without it the participant page still renders, but phones can't join or follow the
-draw. Build it once, and again when `crates/participant`, `crates/live-client` or `crates/altcha` change (it needs `wasm-bindgen-cli` at the
+draw. Build it once, and again when `crates/participant`, `crates/live-client` or `crates/dioxus-altcha` change (it needs `wasm-bindgen-cli` at the
 version in `Cargo.lock`, and `wasm-opt` from binaryen):
 
 ```sh
@@ -145,6 +145,8 @@ Then open <http://localhost:8787/admin>. To work offline, add `RAFI_DRAND_CHAIN=
 to the server, and the mock chain to the raffle engine: draws then use a test chain with a public key (the `drand`
 crate's `TestChain`) and are *not* verifiable.
 To test with phones on your network, set `RAFI_PUBLIC_URL` to your machine's LAN address and run `dx serve --addr 0.0.0.0`.
+Joining needs HTTPS there: phones solve the proof-of-work with WebCrypto, which browsers only offer on HTTPS and localhost.
+Use a tunnel (e.g. `cloudflared tunnel --url http://localhost:8787`) or a certificate for the LAN address (mkcert).
 
 The server alone serves everything once the web app is bundled (this is what the container image runs):
 
@@ -249,8 +251,8 @@ The app:
 | `RESTATE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits: a command queued behind a draw waiting for its beacon may take the engine's drand lead plus fetch timeout; past this it is accepted and applies later. Keep it above `lead_secs + timeout_secs` of `restate-rafi` |
 | `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to (a chain hash). Release builds accept only public drand chains; `mock` (a public test chain, *not* verifiable) needs `--features mock-drand`. The raffle engine must draw from the same chain: the app refuses to start a draw otherwise |
 | `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
-| `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenge |
-| `RAFI_ALTCHA_MAX` | `30000` | Proof-of-work difficulty |
+| `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges (ALTCHA v2); not empty |
+| `RAFI_ALTCHA_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve (at least 1; provisional, see docs/dioxus-altcha-plan.md M4) |
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes |
 | `RAFI_RETENTION` | off | Erase personal data after the event in the hourly retention run (otherwise erase by hand in the admin). The run always ends live updates a day after a raffle finishes and forgets expired proof-of-work challenges |
 | `RAFI_RETENTION_DAYS` / `RAFI_RETENTION_WINNERS_DAYS` | `30` / `90` | Erase personal data after the event. The first erasing run that sees a raffle finished dates its erasure with these; a date once set is kept. The raffle engine needs neither |

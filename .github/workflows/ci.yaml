@@ -75,7 +75,7 @@ jobs:
       - name: Clippy (Workers crates)
         run: |
           cargo clippy --target wasm32-unknown-unknown \
-            -p rafi-altcha -p rafi-lifecycle -p rafi-raffle -p rafi-model -p rafi-app-core \
+            -p dioxus-altcha -p rafi-lifecycle -p rafi-raffle -p rafi-model -p rafi-app-core \
             -p rafi-store -p rafi-store-d1-check -p rafi-live-client -p rafi-live-server -p rafi-cloudflare -p rafi-cloudflare-check \
             -p rafi-engine -p rafi-engine-restate -p rafi-participant -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker --features dev -- -D warnings
@@ -109,6 +109,17 @@ jobs:
         run: echo "RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)" >> "$GITHUB_ENV"
       - name: D1, the live channel, the participant page in Chrome, a draw through Restate, an evening on the app
         run: CHROMIUM=$(command -v google-chrome) ./scripts/workers-check.sh
+      # wasm-bindgen-test-runner comes with wasm-bindgen-cli above; the runner
+      # image has Chrome, Firefox and their drivers.
+      - name: dioxus-altcha's solver in headless Chrome and Firefox
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: |
+          CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test -p dioxus-altcha --target wasm32-unknown-unknown --test wasm_solve
+          GECKODRIVER="$GECKOWEBDRIVER/geckodriver" cargo test -p dioxus-altcha --target wasm32-unknown-unknown --test wasm_solve
+      - name: dioxus-altcha's demo builds
+        working-directory: crates/dioxus-altcha/examples/altcha-demo
+        run: cargo check --target wasm32-unknown-unknown
 
 
   deny:

@@ -1,0 +1,62 @@
+[package]
+name = "dioxus-altcha"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.92"
+description = "ALTCHA v2 proof-of-work for Dioxus: solved in Web Workers on WebCrypto, with a hook and a form field"
+readme = "README.md"
+keywords = ["dioxus", "altcha", "captcha", "proof-of-work", "wasm"]
+categories = ["wasm", "web-programming", "gui"]
+publish = false
+
+# Versions are explicit (not `workspace = true`) so the crate can move out of
+# this workspace unchanged.
+
+[features]
+default = ["embed-worker"]
+## Embed the solver and start the workers from a `blob:` URL. Without it, set
+## `SolveOptions::worker_url` to where the app serves `WORKER_JS`.
+embed-worker = []
+## Solve natively on threads (`altcha::solve_challenge`), for Dioxus desktop
+## and mobile. Off by default: on liveview the hook's task runs on the server.
+native = []
+
+[dependencies]
+altcha = "1"
+base64 = "0.22"
+dioxus = { version = "0.7", default-features = false, features = ["macro", "html", "signals", "hooks"] }
+futures-channel = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+thiserror = "2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# `altcha` uses rand 0.8's thread_rng, which needs getrandom 0.2's JS backend
+# to build for the browser (it's never called here).
+getrandom = { version = "0.2", features = ["js"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "AddEventListenerOptions", "Blob", "BlobPropertyBag", "Document", "Element", "Event", "EventTarget",
+    "HtmlHeadElement", "HtmlScriptElement", "MessageEvent", "Navigator", "Node", "PageTransitionEvent",
+    "Performance", "Request", "RequestCache", "RequestInit", "Response", "Url", "VisibilityState",
+    "Window", "Worker", "WorkerOptions", "WorkerType",
+] }
+
+[dev-dependencies]
+# Itself with `native`, so the hook's tests can solve on the host.
+dioxus-altcha = { path = ".", features = ["native", "embed-worker"] }
+dioxus = { version = "0.7", default-features = false, features = ["macro", "html", "signals", "hooks"] }
+dioxus-ssr = "0.7"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+gloo-timers = { version = "0.3", features = ["futures"] }
+js-sys = "0.3"
+wasm-bindgen-test = "0.3"

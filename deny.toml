@@ -31,6 +31,9 @@ allow-git = [
   # restate-sdk made safe on wasm32 (Cloudflare Workers); upstream PR open.
   # Remove with the [patch.crates-io] entry once it's released.
   "https://github.com/sagikazarmark/restate-sdk-rust",
+  # altcha with web-time (wasm32 clocks); upstream PR open.
+  # Remove with the [patch.crates-io] entry once it's released.
+  "https://github.com/sagikazarmark/altcha-lib-rs",
 ]
 
 [advisories]
