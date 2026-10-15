@@ -14,7 +14,10 @@ use std::{cell::Cell, time::Duration};
 
 use partyline_worker::{Hub, HubConfig, close, reject};
 use rafi_live_client::{ParticipantChannel, ParticipantView};
-use rafi_live_server::publish::{Decision, decide};
+use rafi_live_server::{
+    publish::{Decision, decide},
+    raffle,
+};
 use rafi_store::{Db, live::Snapshot};
 
 use worker::{
@@ -22,8 +25,7 @@ use worker::{
     wasm_bindgen,
 };
 
-/// The header carrying the raffle ID on requests to the object.
-pub(crate) const RAFFLE_HEADER: &str = "x-rafi-lifecycle";
+use crate::gate::RAFFLE_HEADER;
 
 /// How often the object re-reads the raffle while sockets are open.
 const REREAD: Duration = Duration::from_secs(15);
@@ -43,18 +45,6 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS rafi_channel (
     seen_v INTEGER NOT NULL DEFAULT 0,
     last TEXT
 )";
-
-/// What phones see of a raffle read as `snapshot`. The same view as
-/// `rafi_app_core::view::participant`, which builds it for the native server.
-pub fn participant_view(snapshot: &Snapshot) -> ParticipantView {
-    rafi_live_server::raffle::view(rafi_live_server::raffle::Input {
-        version: snapshot.version,
-        state: snapshot.state,
-        raffle: snapshot.drawn.as_ref(),
-        names: &snapshot.names,
-        prize_qty: snapshot.prize_qty,
-    })
-}
 
 #[durable_object]
 pub struct RaffleRoom {
@@ -142,7 +132,7 @@ impl RaffleRoom {
     /// the fan-out runs without awaiting, so the stored version and the
     /// published view can't diverge.
     async fn apply(&self, raffle_id: &str, snapshot: &Snapshot) -> Result<Decision> {
-        let view = participant_view(snapshot);
+        let view = raffle::view(snapshot);
         let (seen, last) = match self.meta() {
             Some((_, seen, last)) => (seen, last),
             None => (0, None),
@@ -188,7 +178,7 @@ impl RaffleRoom {
         self.destroyed.set(true);
         // Phones that slept through the end get the final view before the close.
         if let Ok(Some(snapshot)) = Snapshot::read(&self.db()?, raffle_id).await {
-            let view = participant_view(&snapshot);
+            let view = raffle::view(&snapshot);
             let (seen, last) = self.meta().map_or((0, None), |(_, s, l)| (s, l));
             if decide(true, seen, last.as_ref(), &view) == Decision::Publish {
                 self.hub.publish(&view).await?;

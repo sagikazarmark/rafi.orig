@@ -23,7 +23,7 @@ axum = { version = "0.8", default-features = false }
 dioxus-clerk = { version = "0.6", features = ["server", "worker"] }
 http = "1"
 rafi-app-core = { workspace = true }
-rafi-cloudflare = { workspace = true }
+rafi-cloudflare = { workspace = true, features = ["room"] }
 rafi-engine = { workspace = true }
 rafi-live-server = { workspace = true }
 rafi-server = { workspace = true }

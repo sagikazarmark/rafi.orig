@@ -17,7 +17,7 @@ use crate::gate;
 /// by the object's periodic re-read (about 15 s).
 const ATTEMPTS: u32 = 3;
 
-/// Live updates through one [`RaffleRoom`](crate::RaffleRoom) per raffle:
+/// Live updates through one `RaffleRoom` per raffle:
 /// clients subscribe over partyline.
 pub struct DurableObjects(SendWrapper<Env>);
 

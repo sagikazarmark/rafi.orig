@@ -4836,6 +4836,7 @@ dependencies = [
  "js-sys",
  "rafi-cloudflare",
  "rafi-live-client",
+ "rafi-live-server",
  "rafi-raffle",
  "rafi-store",
  "serde_json",
@@ -4911,6 +4912,7 @@ dependencies = [
  "rafi-lifecycle",
  "rafi-live-client",
  "rafi-raffle",
+ "rafi-store",
  "serde_json",
  "tokio",
 ]

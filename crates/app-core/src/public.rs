@@ -5,7 +5,7 @@
 use rafi_live_client::{Follow, ParticipantView};
 use rafi_store::{EntrantRow, PrizeRow, RaffleRow, entrants, live::Snapshot, prizes, raffles};
 
-use crate::{App, Error, Result, codes, ids, view};
+use crate::{App, Error, Result, codes, ids};
 
 /// Raffle `slug`; not found unless the public may see it.
 pub async fn raffle(app: &App, slug: &str) -> Result<RaffleRow> {
@@ -43,7 +43,7 @@ pub async fn participant(app: &App, raffle_id: &str) -> Result<Option<Participan
         return Ok(None);
     };
     Ok(Some(Participant {
-        view: view::participant(&snapshot),
+        view: rafi_live_server::raffle::view(&snapshot),
         follow: app.follow(raffle_id, !snapshot.channel_open()),
     }))
 }
