@@ -52,7 +52,9 @@ ws.onmessage = (m) => {
   if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
   if (msg.method === "Runtime.exceptionThrown") errors.push(msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text);
   if (msg.method === "Runtime.consoleAPICalled" && msg.params.type === "error") errors.push(msg.params.args.map((a) => a.value ?? a.description).join(" "));
+  if (msg.method === "Page.backForwardCacheNotUsed") bfcacheNotUsed = msg.params.notRestoredExplanations.map((e) => e.reason);
 };
+let bfcacheNotUsed = null;
 const send = (method, params = {}) => new Promise((r) => { const i = ++seq; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const js = async (expr) => (await send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true })).result?.result?.value;
 const until = async (pred, ms = 10000) => { for (let t = 0; t < ms; t += 100) { if (await pred()) return true; await sleep(100); } return false; };
@@ -82,6 +84,33 @@ await send("Page.enable");
 await send("Page.navigate", { url: `${base}/j/${code}` });
 check(await until(() => js(`!!document.getElementById("submit") && !document.getElementById("submit").disabled`), 20000),
   "the proof-of-work enables Join");
+
+// Back/forward cache: leave the join page and come back. Restored from the
+// cache, it holds a payload that may be spent, so it must solve again.
+const altchaValue = `document.getElementById("altcha")?.value ?? ""`;
+const before = await js(altchaValue);
+await js("window.__notReloaded = true");
+await send("Page.navigate", { url: `${base}/api/status` });
+await until(async () => (await js("location.pathname")) === "/api/status");
+const history = (await send("Page.getNavigationHistory")).result;
+await send("Page.navigateToHistoryEntry", { entryId: history.entries[history.currentIndex - 1].id });
+await until(async () => (await js("location.pathname")) === `/j/${code}`);
+const joinReady = `!!document.getElementById("submit") && !document.getElementById("submit").disabled && !!document.getElementById("altcha").value`;
+if (await js("window.__notReloaded === true")) {
+  check(await until(async () => { const v = await js(altchaValue); return !!v && v !== before; }, 20000),
+    "a join page restored from the back/forward cache solves again");
+} else {
+  // Chrome doesn't cache the join page (it's no-store; the reasons are
+  // logged), but other browsers may. Its handler, then, with the event a
+  // restore fires.
+  console.log(`     (not restored from the back/forward cache: ${bfcacheNotUsed?.join(", ") ?? "unknown"}; simulating)`);
+  check(await until(() => js(joinReady), 20000), "Join is enabled again after coming back");
+  const reloaded = await js(altchaValue);
+  await js(`window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))`);
+  check(await until(async () => { const v = await js(altchaValue); return !!v && v !== reloaded; }, 20000),
+    "a pageshow from the back/forward cache solves again");
+}
+check(await until(() => js(joinReady), 20000), "Join is enabled after it");
 await js(`(() => {
   document.getElementById("name").value = "Anna";
   document.getElementById("email").value = "anna@example.com";
@@ -153,6 +182,10 @@ await nowasm.call("Page.addScriptToEvaluateOnNewDocument", { source: "delete win
 await nowasm.call("Page.navigate", { url: `${base}/j/${otherCode}` });
 check(await until(() => nowasm.js(`!!window.__rafiFallbackRunning && !!document.getElementById("submit") && !document.getElementById("submit").disabled && document.getElementById("altcha").value.length > 0`), 30000),
   "no WebAssembly: the fallback solves the proof-of-work");
+const fallbackValue = await nowasm.js(`document.getElementById("altcha").value`);
+await nowasm.js(`window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))`);
+check(await until(async () => { const v = await nowasm.js(`document.getElementById("altcha").value`); return !!v && v !== fallbackValue; }, 20000),
+  "and solves again on a pageshow from the back/forward cache");
 await nowasm.js(`(() => {
   document.getElementById("name").value = "Bence";
   document.getElementById("email").value = "bence@example.com";
