@@ -4,7 +4,7 @@
 //! - `RaffleRoom` (the `room` feature): one Durable Object per raffle, pushing the
 //!   participant view to phones over a partyline Latest channel. Only the
 //!   object builds the view: writers [`nudge`] it, and it reads the raffle
-//!   back in one snapshot (`rafi_store::live::Snapshot`), builds the view with
+//!   back in one snapshot (`rafi_store::live::snapshot`), builds the view with
 //!   `rafi_live_server::raffle::view` and publishes by
 //!   `rafi_live_server::publish::decide`;
 //! - `connect` (the `room` feature): the Worker's gate for phones' sockets,

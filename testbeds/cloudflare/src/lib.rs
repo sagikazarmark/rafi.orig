@@ -14,7 +14,7 @@ use rafi_cloudflare::DurableObjects;
 pub use rafi_cloudflare::RaffleRoom;
 use rafi_live_server::raffle::view as participant_view;
 use rafi_raffle::{BeaconSource, Event, ItemStatus, Manifest, ManifestItem, Raffle};
-use rafi_store::{Db, live::Snapshot};
+use rafi_store::{Db, live};
 use worker::{Context, Env, Method, Request, Response, Result, event};
 
 fn err(e: impl std::fmt::Display) -> worker::Error {
@@ -126,7 +126,7 @@ async fn page(
     use dioxus::prelude::*;
     use rafi_live_client::{Card, CardStrings};
 
-    let snap = Snapshot::read(db, raffle)
+    let snap = live::snapshot(db, raffle)
         .await
         .map_err(err)?
         .ok_or_else(|| err("no such raffle"))?;
@@ -281,7 +281,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .await;
     }
     if path == "/participant" {
-        let snap = Snapshot::read(&db, raffle).await.map_err(err)?;
+        let snap = live::snapshot(&db, raffle).await.map_err(err)?;
         return Response::from_json(&snap.as_ref().map(participant_view));
     }
     if req.method() != Method::Post {

@@ -5,8 +5,8 @@ use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle,
 
 use super::{Outcome, check, fail};
 use crate::{
-    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants, live::Snapshot, prizes, raffles,
-    retention, save_raffle, view::Full,
+    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants, live, prizes, raffles, retention,
+    save_raffle, view::Full,
 };
 
 const PURGE: PurgeAfter = PurgeAfter {
@@ -816,7 +816,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         "writing the draw",
     )?;
 
-    let snap = Snapshot::read(db, "r1")
+    let snap = live::snapshot(db, "r1")
         .await
         .map_err(fail)?
         .ok_or("the raffle is gone")?;
@@ -834,7 +834,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         "the raffle's version",
     )?;
     check(
-        Snapshot::read(db, "nope").await.map_err(fail)?.is_none(),
+        live::snapshot(db, "nope").await.map_err(fail)?.is_none(),
         "no such raffle",
     )
 }

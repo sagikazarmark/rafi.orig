@@ -3,7 +3,7 @@
 //! the prizes the rules list, and how many raffles are live.
 
 use rafi_live_client::{Follow, ParticipantView};
-use rafi_store::{EntrantRow, PrizeRow, RaffleRow, entrants, live::Snapshot, prizes, raffles};
+use rafi_store::{EntrantRow, PrizeRow, RaffleRow, entrants, live, prizes, raffles};
 
 use crate::{App, Error, Result, codes, ids};
 
@@ -39,7 +39,7 @@ pub struct Participant {
 /// What phones see of raffle `raffle_id` now, read in one snapshot; `None`
 /// if it's gone.
 pub async fn participant(app: &App, raffle_id: &str) -> Result<Option<Participant>> {
-    let Some(snapshot) = Snapshot::read(&app.db, raffle_id).await? else {
+    let Some(snapshot) = live::snapshot(&app.db, raffle_id).await? else {
         return Ok(None);
     };
     Ok(Some(Participant {

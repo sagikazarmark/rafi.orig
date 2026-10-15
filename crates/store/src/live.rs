@@ -1,36 +1,18 @@
 //! Reading what phones see from the database.
 //!
 //! Whatever pushes live updates (a live channel, the polling endpoint, the
-//! participant page) reads the raffle through [`Snapshot`], so every one of them
-//! shows the same thing. The snapshot is data: the servers that show phones a
-//! raffle build the participant view from it with `rafi_live_server::raffle::view`.
-//! Everything comes from one [`Db::batch_rows`], so the version and the
-//! content are one consistent snapshot: a write can't land between them and
-//! leave a view labelled newer than what it holds.
-
-use std::collections::HashMap;
+//! participant page) reads the raffle through [`snapshot`], so every one of them
+//! shows the same thing. The [`Snapshot`] and its rules are `rafi-lifecycle`'s;
+//! the servers that show phones a raffle build the participant view from it with
+//! `rafi_live_server::raffle::view`. Everything comes from one
+//! [`Db::batch_rows`], so the version and the content are one consistent
+//! snapshot: a write can't land between them and leave a view labelled newer
+//! than what it holds.
 
 use crate::{Db, Result, dialect};
 use rafi_lifecycle::RaffleState;
-use rafi_raffle::Raffle;
+use rafi_lifecycle::live::Snapshot;
 use serde::Deserialize;
-
-/// The raffle as phones see it, read in one snapshot.
-#[derive(Debug, Clone)]
-pub struct Snapshot {
-    pub state: RaffleState,
-    /// Bumped by every write that changes what phones see.
-    pub version: u64,
-    pub live_ended_at: Option<i64>,
-    /// The raffle as drawn, once the engine has opened it.
-    pub drawn: Option<Raffle>,
-    /// The display names of the drawn entrants only, by ID: no other name
-    /// leaves the database. `None` for one the organizer hid: that name isn't
-    /// read either.
-    pub names: HashMap<String, Option<String>>,
-    /// The prizes' total quantity (what is left before the raffle opens).
-    pub prize_qty: u32,
-}
 
 #[derive(Deserialize)]
 struct RaffleRow {
@@ -46,71 +28,60 @@ struct NameRow {
     display_name: Option<String>,
 }
 
-impl Snapshot {
-    /// Reads the raffle, or `None` if it doesn't exist.
-    pub async fn read(db: &Db, raffle_id: &str) -> Result<Option<Self>> {
-        let mut sets = db
-            .batch_rows(vec![
-                db.query(
-                    "SELECT state, version, live_ended_at, log FROM raffles WHERE id = ?1",
+/// Reads the raffle, or `None` if it doesn't exist.
+pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
+    let mut sets = db
+        .batch_rows(vec![
+            db.query(
+                "SELECT state, version, live_ended_at, log FROM raffles WHERE id = ?1",
+            )
+            .bind(raffle_id),
+            // Only the entrants that were drawn, and only the names shown.
+            db.query(format!(
+                "SELECT e.id, CASE WHEN e.hidden = 1 THEN NULL ELSE e.display_name END AS display_name
+                 FROM entrants e
+                 WHERE e.raffle_id = ?1 AND e.id IN ({})",
+                dialect::entrants_in(
+                    db.dialect(),
+                    "(SELECT drawn_entrants FROM raffles WHERE id = ?1)",
                 )
+            ))
+            .bind(raffle_id),
+            db.query("SELECT COALESCE(SUM(qty), 0) FROM prizes WHERE raffle_id = ?1")
                 .bind(raffle_id),
-                // Only the entrants that were drawn, and only the names shown.
-                db.query(format!(
-                    "SELECT e.id, CASE WHEN e.hidden = 1 THEN NULL ELSE e.display_name END AS display_name
-                     FROM entrants e
-                     WHERE e.raffle_id = ?1 AND e.id IN ({})",
-                    dialect::entrants_in(
-                        db.dialect(),
-                        "(SELECT drawn_entrants FROM raffles WHERE id = ?1)",
-                    )
-                ))
-                .bind(raffle_id),
-                db.query("SELECT COALESCE(SUM(qty), 0) FROM prizes WHERE raffle_id = ?1")
-                    .bind(raffle_id),
-            ])
-            .await?;
-        let qty_rows = sets.pop().unwrap_or_default();
-        let name_rows = sets.pop().unwrap_or_default();
-        let Some(raffle) = sets.pop().and_then(|rows| rows.into_iter().next()) else {
-            return Ok(None);
-        };
-        let raffle: RaffleRow = raffle.decode()?;
-        let names = name_rows
-            .into_iter()
-            .map(|r| r.decode::<NameRow>().map(|n| (n.id, n.display_name)))
-            .collect::<Result<_>>()?;
-        let prize_qty = qty_rows
-            .into_iter()
-            .next()
-            .map(|r| r.decode::<(i64,)>())
-            .transpose()?
-            .map_or(0, |(q,)| q.max(0) as u32);
-        Ok(Some(Self {
-            state: raffle.state,
-            version: raffle.version.max(0) as u64,
-            live_ended_at: raffle.live_ended_at,
-            drawn: raffle.log.as_deref().map(crate::parse_raffle).transpose()?,
-            names,
-            prize_qty,
-        }))
-    }
-
-    /// Whether the live channel still runs: live updates haven't been ended.
-    pub fn channel_open(&self) -> bool {
-        self.live_ended_at.is_none()
-    }
-
-    /// Whether phones should hold a socket: the channel is open and the raffle
-    /// is public and not over.
-    pub fn accepts_sockets(&self) -> bool {
-        self.channel_open() && self.state.is_public() && !self.state.is_over()
-    }
+        ])
+        .await?;
+    let qty_rows = sets.pop().unwrap_or_default();
+    let name_rows = sets.pop().unwrap_or_default();
+    let Some(raffle) = sets.pop().and_then(|rows| rows.into_iter().next()) else {
+        return Ok(None);
+    };
+    let raffle: RaffleRow = raffle.decode()?;
+    let names = name_rows
+        .into_iter()
+        .map(|r| r.decode::<NameRow>().map(|n| (n.id, n.display_name)))
+        .collect::<Result<_>>()?;
+    let prize_qty = qty_rows
+        .into_iter()
+        .next()
+        .map(|r| r.decode::<(i64,)>())
+        .transpose()?
+        .map_or(0, |(q,)| q.max(0) as u32);
+    Ok(Some(Snapshot {
+        state: raffle.state,
+        version: raffle.version.max(0) as u64,
+        live_ended_at: raffle.live_ended_at,
+        drawn: raffle.log.as_deref().map(crate::parse_raffle).transpose()?,
+        names,
+        prize_qty,
+    }))
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
+    use std::collections::HashMap;
+
+    use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Raffle, Resolution};
 
     use super::*;
 
@@ -216,12 +187,12 @@ mod tests {
     async fn before_the_freeze_counts_prizes() {
         let db = Db::connect("sqlite::memory:").await.unwrap();
         raffle(&db).await;
-        let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
+        let snap = snapshot(&db, "r1").await.unwrap().unwrap();
         assert_eq!(snap.state, RaffleState::Open);
         assert_eq!(snap.prize_qty, 2);
         assert!(snap.drawn.is_none() && snap.names.is_empty());
         assert!(snap.accepts_sockets());
-        assert!(Snapshot::read(&db, "nope").await.unwrap().is_none());
+        assert!(snapshot(&db, "nope").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -230,7 +201,7 @@ mod tests {
         let mut log = raffle(&db).await;
         log.draw(&"b".repeat(32), "u1");
         store(&db, &log, "drawing").await;
-        let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
+        let snap = snapshot(&db, "r1").await.unwrap().unwrap();
         assert_eq!(
             snap.names,
             HashMap::from([("b".repeat(32), None)]),
@@ -239,7 +210,7 @@ mod tests {
         let k = log.draw(&"a".repeat(32), "u2");
         log.resolve(k, Resolution::Claimed);
         store(&db, &log, "drawing").await;
-        let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
+        let snap = snapshot(&db, "r1").await.unwrap().unwrap();
         assert_eq!(snap.names[&"a".repeat(32)].as_deref(), Some("Anna"));
         assert_eq!(snap.drawn.unwrap().draws().len(), 2);
     }
@@ -252,7 +223,7 @@ mod tests {
             .run()
             .await
             .unwrap();
-        assert!(Snapshot::read(&db, "r1").await.is_err());
+        assert!(snapshot(&db, "r1").await.is_err());
     }
 
     #[tokio::test]
@@ -263,7 +234,7 @@ mod tests {
             .run()
             .await
             .unwrap();
-        assert!(Snapshot::read(&db, "r1").await.is_err(), "never guessed");
+        assert!(snapshot(&db, "r1").await.is_err(), "never guessed");
         assert!(crate::raffles::get(&db, "r1").await.is_err());
     }
 
@@ -275,7 +246,7 @@ mod tests {
             .run()
             .await
             .unwrap();
-        let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
+        let snap = snapshot(&db, "r1").await.unwrap().unwrap();
         assert!(!snap.channel_open());
         assert!(!snap.accepts_sockets());
     }

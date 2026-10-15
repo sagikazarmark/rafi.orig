@@ -13,12 +13,13 @@
 use std::{cell::Cell, time::Duration};
 
 use partyline_worker::{Hub, HubConfig, close, reject};
+use rafi_lifecycle::live::Snapshot;
 use rafi_live_client::{ParticipantChannel, ParticipantView};
 use rafi_live_server::{
     publish::{Decision, decide},
     raffle,
 };
-use rafi_store::{Db, live::Snapshot};
+use rafi_store::{Db, live};
 
 use worker::{
     DurableObject, Env, Method, Request, Response, Result, SqlStorageValue, State, durable_object,
@@ -112,7 +113,7 @@ impl RaffleRoom {
         if self.destroyed.get() {
             return Ok((Decision::Ignore, false));
         }
-        let snapshot = Snapshot::read(&self.db()?, raffle_id)
+        let snapshot = live::snapshot(&self.db()?, raffle_id)
             .await
             .map_err(|e| worker::Error::RustError(e.to_string()))?;
         // D1 is external I/O: other requests (destroy, say) can run meanwhile.
@@ -177,7 +178,7 @@ impl RaffleRoom {
     async fn destroy(&self, raffle_id: &str) -> Result<()> {
         self.destroyed.set(true);
         // Phones that slept through the end get the final view before the close.
-        if let Ok(Some(snapshot)) = Snapshot::read(&self.db()?, raffle_id).await {
+        if let Ok(Some(snapshot)) = live::snapshot(&self.db()?, raffle_id).await {
             let view = raffle::view(&snapshot);
             let (seen, last) = self.meta().map_or((0, None), |(_, s, l)| (s, l));
             if decide(true, seen, last.as_ref(), &view) == Decision::Publish {

@@ -62,8 +62,8 @@ app ──ingress──▶ Restate ──▶ engine host (Raffle) ──▶ data
 crates/raffle                 rafi-raffle: the raffle: draw algorithm, state machine and its admission rule, manifest, verifier
                               (pure, tested, vectors); `mock-chain`: the mock drand chain (development and tests)
 crates/lifecycle              rafi-lifecycle: the raffle's lifecycle in the app (pure): its states, starting the draw, who may
-                              join, entrants' names and emails, settings, prizes as the raffle's items
-crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the raffle engine's write, the snapshot phones are shown
+                              join, entrants' names and emails, settings, prizes as the raffle's items, what phones see
+crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the raffle engine's write, reading the snapshot phones are shown
 crates/engine                 rafi-engine: the raffle engine's contract (Engine, Store, Observer); behind features,
                               the drand client engines draw with (settings, the round to commit to), an in-process engine
                               (tests, development) and the engine conformance suite

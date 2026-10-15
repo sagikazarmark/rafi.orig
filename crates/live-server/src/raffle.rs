@@ -3,8 +3,8 @@
 //! `rafi-lifecycle` nor `rafi-raffle`.
 
 use rafi_lifecycle::RaffleState;
+use rafi_lifecycle::live::Snapshot;
 use rafi_raffle::{ItemId, Outcome};
-use rafi_store::live::Snapshot;
 
 use rafi_live_client::{Current, DrawInput, DrawOutcome, ParticipantView, Phase, public_name};
 

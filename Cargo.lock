@@ -4862,6 +4862,7 @@ dependencies = [
  "js-sys",
  "partyline-worker",
  "rafi-engine",
+ "rafi-lifecycle",
  "rafi-live-client",
  "rafi-live-server",
  "rafi-raffle",
@@ -4957,7 +4958,6 @@ dependencies = [
  "rafi-lifecycle",
  "rafi-live-client",
  "rafi-raffle",
- "rafi-store",
  "serde_json",
  "tokio",
 ]

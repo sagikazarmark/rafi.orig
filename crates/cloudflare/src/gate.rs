@@ -11,7 +11,6 @@ use worker::{Env, Headers, Method, ObjectNamespace, Request, RequestInit, Result
 #[cfg(feature = "room")]
 use {
     partyline_worker::{close, reject},
-    rafi_store::live::Snapshot,
     worker::Response,
 };
 
@@ -99,7 +98,7 @@ pub async fn destroy(env: &Env, raffle_id: &str) -> Result<()> {
 #[cfg(feature = "room")]
 pub async fn connect(env: &Env, raffle_id: &str, req: Request) -> Result<Response> {
     let db = crate::database(env)?;
-    let open = match Snapshot::read(&db, raffle_id).await {
+    let open = match rafi_store::live::snapshot(&db, raffle_id).await {
         Ok(Some(s)) => s.accepts_sockets(),
         Ok(None) => false,
         Err(e) => {

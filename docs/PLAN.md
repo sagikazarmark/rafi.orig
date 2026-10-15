@@ -187,10 +187,10 @@ The projector is the source of truth: a fake "you won" screen lacks the winner's
 
 ```
 rafi-raffle          the raffle: manifest, state machine and admission, rafi-draw-v1, verifier (pure; also WASM); the mock chain (`mock-chain`)
-rafi-lifecycle       the raffle's lifecycle in the app: states, starting the draw, entrants, settings, prizes as items (pure)
+rafi-lifecycle       the raffle's lifecycle in the app: states, starting the draw, entrants, settings, prizes as items, what phones see (Snapshot) (pure)
 rafi-engine          the engine contract: Engine, Store, Observer; DrandClient (`drand`), LocalEngine (`local`), the suite (`conformance`)
 rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's Engine
-rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; the phones' snapshot
+rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; reading the phones' Snapshot
 rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), Follow, PageConfig
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 dioxus-altcha        ALTCHA v2 solved in the browser (Web Workers on WebCrypto) and a Dioxus hook; no rafi dependencies
@@ -251,7 +251,7 @@ phones ────────────────▶ app ◀── databas
 | The raffle's log (manifest + event log, `raffles.log`) | the database, written by the engine after every change: the projection, and the record. The newest version wins. |
 | The live raffle | the engine (Restate object state), from opening to finish. |
 | Erasures | the database (`erasures`: entrant ID and time only); a restore must re-apply them. |
-| The participant view | `RaffleRoom` (Workers), built from one snapshot (`rafi_cloudflare::participant_view`); destroyed when live updates end. |
+| The participant view | `RaffleRoom` (Workers), built from one snapshot (`rafi_live_server::raffle::view`); destroyed when live updates end. |
 
 ### 8.5 The raffle engine
 

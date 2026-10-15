@@ -21,6 +21,7 @@ anyhow = "1"
 js-sys = "0.3"
 partyline-worker = { version = "0.3", optional = true }
 rafi-engine = { workspace = true }
+rafi-lifecycle = { workspace = true }
 rafi-live-client = { workspace = true }
 rafi-live-server = { workspace = true }
 rafi-raffle = { workspace = true }

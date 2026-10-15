@@ -6,7 +6,7 @@
 //! - [`LiveUpdates`]: a deployment's notifier, paired with how clients
 //!   follow each raffle;
 //! - [`raffle::view`]: the participant view of a raffle, from what the store
-//!   read of it (`rafi_store::live::Snapshot`);
+//!   read of it (`rafi_lifecycle::live::Snapshot`);
 //! - [`publish::decide`]: when a live channel publishes a participant view.
 //!
 //! It reads no clock and no randomness of its own, so it runs unchanged on

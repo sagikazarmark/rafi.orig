@@ -13,7 +13,6 @@ rafi-engine = { workspace = true }
 rafi-lifecycle = { workspace = true }
 rafi-live-client = { workspace = true }
 rafi-raffle = { workspace = true }
-rafi-store = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

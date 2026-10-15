@@ -16,7 +16,7 @@
 //! - [`audit`], [`altcha`] (redeemed proof-of-work challenges), [`retention`]
 //!   (erasure, ending live channels, `meta`);
 //! - [`view::Full`]: what the projector and the admin see, and
-//!   [`live::Snapshot`]: what phones see, each read in one snapshot;
+//!   [`live::snapshot`]: what phones see, each read in one snapshot;
 //! - [`save_raffle`], the raffle engine's only write; [`RaffleWriter`] offers
 //!   it as the engine's [`Store`](rafi_engine::Store). It carries no app policy, so the
 //!   engine's hosts need none of the app's settings.
