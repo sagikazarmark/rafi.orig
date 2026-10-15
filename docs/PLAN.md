@@ -197,9 +197,15 @@ dioxus-altcha        ALTCHA v2 solved in the browser (Web Workers on WebCrypto) 
 rafi-api             the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
 rafi-app             every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP
-rafi-server          the HTTP side (routes, auth, the retention schedule, the public pages); the native binary `rafi`
-rafi-web             the web app (admin, projector, verification page; Dioxus, `dx`)
+rafi-server          the HTTP side (routes, auth, the retention schedule, the public pages); a library both app hosts serve
+rafi-cloudflare      the Cloudflare glue both Workers share: RaffleRoom (`room`), its notifier, the Workers bindings
+
+apps/
+rafi                 the app, native: rafi-server's routes and the web app's files (axum)
 rafi-worker          the app on Workers: rafi-server's routes, the Cron, RaffleRoom
+rafi-restate         the raffle engine, native: rafi-engine-restate's services (config, Dockerfile)
+rafi-restate-worker  the raffle engine on Workers, on D1, nudging RaffleRoom
+rafi-web             the web app (admin, projector, verification page; Dioxus, `dx`)
 rafi-participant     the participant page's WASM and its JavaScript fallback
 ```
 
