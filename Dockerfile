@@ -12,11 +12,16 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 # wasm-bindgen-cli must match the wasm-bindgen version in Cargo.lock; binaryen
-# brings wasm-opt (both for ./scripts/participant.sh); npm installs daisyUI for the
+# brings wasm-opt (both for ./scripts/participant.sh), at devenv's version: Debian's
+# is too old to parse what rustc emits (table.fill); npm installs daisyUI for the
 # stylesheet.
+ARG BINARYEN=version_132
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends binaryen npm \
+    && apt-get install -y --no-install-recommends npm \
     && rm -rf /var/lib/apt/lists/* \
+    && curl -sSfL "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN}/binaryen-${BINARYEN}-$(uname -m)-linux.tar.gz" \
+       | tar -xz -C /opt \
+    && ln -s "/opt/binaryen-${BINARYEN}/bin/wasm-opt" /usr/local/bin/wasm-opt \
     && rustup target add wasm32-unknown-unknown \
     && cargo install dioxus-cli@0.7.10 --locked \
     && cargo install wasm-bindgen-cli --version 0.2.129 --locked

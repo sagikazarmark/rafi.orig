@@ -12,6 +12,13 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+defaults:
+  run:
+    # Every step runs in the devenv shell, with the project's toolchain and
+    # tools at the versions used locally (wasm-bindgen at Cargo.lock's, dx,
+    # worker-build, wasm-opt, wrangler, node, tailwindcss).
+    shell: devenv shell -- bash -e {0}
+
 jobs:
   test:
     name: Test
@@ -34,26 +41,22 @@ jobs:
     env:
       RAFI_TEST_POSTGRES_URL: postgres://rafi:rafi@localhost:5432/rafi_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          targets: wasm32-unknown-unknown
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@f2d55def32daee3f89bb3dfa0499b439a988392a # v0.2.0
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          node-version: 24
-      # rafi-web's asset!() needs the stylesheet to exist; dx isn't installed here.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
+      # rafi-web's asset!() needs the stylesheet to exist. Entering the shell
+      # installs crates/web's npm packages (daisyUI).
       - name: Build the stylesheet (Tailwind CSS + daisyUI)
         working-directory: crates/web
-        env:
-          TAILWIND_VERSION: v4.3.3 # devenv's tailwindcss
-        run: |
-          npm ci --no-fund --no-audit
-          curl -sSfL -o "$RUNNER_TEMP/tailwindcss" \
-            "https://github.com/tailwindlabs/tailwindcss/releases/download/$TAILWIND_VERSION/tailwindcss-linux-x64"
-          chmod +x "$RUNNER_TEMP/tailwindcss"
-          "$RUNNER_TEMP/tailwindcss" -i tailwind.css -o assets/tailwind.css --minify
+        run: tailwindcss -i tailwind.css -o assets/tailwind.css --minify
       - name: Format
         run: cargo fmt --all --check
       - name: Download restate-server (end-to-end tests)
@@ -88,29 +91,22 @@ jobs:
     name: Workers (wrangler dev)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@f2d55def32daee3f89bb3dfa0499b439a988392a # v0.2.0
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          node-version: 24
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-binstall
-      - name: Tools (wasm-bindgen at the lockfile's version, worker-build, wasm-opt, wrangler)
-        run: |
-          WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)
-          cargo binstall -y --locked "wasm-bindgen-cli@$WASM_BINDGEN" worker-build dioxus-cli@0.7.10
-          sudo apt-get update && sudo apt-get install -y binaryen
-          npm install -g wrangler@4.94.0
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
       - name: Download restate-server
         run: echo "RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)" >> "$GITHUB_ENV"
+      # Chrome and the browser drivers are the runner image's.
       - name: D1, the live channel, the participant page in Chrome, a draw through Restate, an evening on the app
         run: CHROMIUM=$(command -v google-chrome) ./scripts/workers-check.sh
-      # wasm-bindgen-test-runner comes with wasm-bindgen-cli above; the runner
-      # image has Chrome, Firefox and their drivers.
       - name: dioxus-altcha's solver in headless Chrome and Firefox
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
@@ -122,7 +118,6 @@ jobs:
         run: |
           cargo clippy --target wasm32-unknown-unknown --features web -- -D warnings
           cargo clippy --features server -- -D warnings
-
 
   deny:
     name: cargo-deny

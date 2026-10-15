@@ -139,12 +139,27 @@ impl UseAltcha {
 
     /// The form value, solving first if need be: for solving on submit.
     ///
-    /// ```ignore
-    /// onsubmit: move |e| async move {
-    ///     e.prevent_default();
-    ///     let payload = altcha.solved().await?;
-    ///     submit(payload).await
+    /// ```no_run
+    /// # use dioxus::prelude::*;
+    /// # use dioxus_altcha::{AltchaOptions, Auto, fetch_challenge, use_altcha_with_options};
+    /// # async fn submit(_payload: String) {}
+    /// # fn Join() -> Element {
+    /// let altcha = use_altcha_with_options(
+    ///     || fetch_challenge("/api/altcha"),
+    ///     AltchaOptions::new().auto(Auto::Off),
+    /// );
+    /// rsx! {
+    ///     form {
+    ///         onsubmit: move |e: FormEvent| async move {
+    ///             e.prevent_default();
+    ///             if let Ok(payload) = altcha.solved().await {
+    ///                 submit(payload).await;
+    ///             }
+    ///         },
+    ///         button { r#type: "submit", "Join" }
+    ///     }
     /// }
+    /// # }
     /// ```
     pub async fn solved(&self) -> Result<String, AltchaError> {
         if let Some(payload) = self.usable_payload() {
@@ -186,9 +201,18 @@ fn can_start(state: &AltchaState, deadline: Option<f64>, now: f64) -> bool {
 
 /// [`use_altcha_with_options`] with the defaults: solves on mount.
 ///
-/// ```ignore
+/// ```no_run
+/// # use dioxus::prelude::*;
+/// # use dioxus_altcha::{AltchaField, fetch_challenge, use_altcha};
+/// # fn Join() -> Element {
 /// let altcha = use_altcha(|| fetch_challenge("/api/altcha"));
-/// rsx! { form { AltchaField { altcha } /* ... */ } }
+/// rsx! {
+///     form { method: "post", action: "/join",
+///         AltchaField { altcha }
+///         button { disabled: altcha.payload().is_none(), "Join" }
+///     }
+/// }
+/// # }
 /// ```
 pub fn use_altcha<F, Fut, E>(fetch: F) -> UseAltcha
 where
