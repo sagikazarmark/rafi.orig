@@ -3,7 +3,7 @@
 use rafi_store::Db;
 use worker::{Env, Result};
 
-/// The D1 binding of rafi's database (the app, the drawing engine and the
+/// The D1 binding of rafi's database (the app, the raffle engine and the
 /// channel objects all read and write it).
 pub const D1_BINDING: &str = "DB";
 

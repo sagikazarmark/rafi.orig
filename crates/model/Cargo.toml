@@ -4,14 +4,16 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The types the Rafi app's server and browser exchange: views, the admin API's arguments and results"
+description = "The contract between the Rafi app's server and browser: the views screens poll, and the admin API (its functions, arguments, results and errors)"
 publish = false
 
 [dependencies]
-rafi-drawing.workspace = true
-rafi-live = { path = "../live" }
-rafi-raffle.workspace = true
-serde.workspace = true
+rafi-raffle = { workspace = true }
+rafi-live-client = { workspace = true }
+rafi-lifecycle = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"

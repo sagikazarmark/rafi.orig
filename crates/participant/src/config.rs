@@ -1,6 +1,6 @@
 //! The page's embedded state.
 
-pub use rafi_live::PageConfig;
+pub use rafi_live_client::PageConfig;
 
 pub fn load() -> Option<PageConfig> {
     let json = web_sys::window()?

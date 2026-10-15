@@ -1,8 +1,8 @@
 //! Raffles: creating, configuring, copying, deleting and moving them
 //! through the lifecycle.
 
-use rafi_model::{Lifecycle, RaffleSettings, RaffleSummary};
-use rafi_raffle::{self as raffle, settings};
+use rafi_lifecycle::{self as lifecycle, settings};
+use rafi_model::{LifecycleCommand, RaffleSettings, RaffleSummary};
 use rafi_store::{RaffleRow, audit, prizes, raffles};
 
 use crate::{App, Refusal, Result, ids, owned};
@@ -55,7 +55,6 @@ pub fn settings_of(r: &RaffleRow) -> RaffleSettings {
     RaffleSettings {
         title: r.title.clone(),
         description: r.description.clone(),
-        lang: r.lang.clone(),
         organizer_name: r.organizer_name.clone(),
         contact_email: r.contact_email.clone(),
         rules: r.rules.clone(),
@@ -70,7 +69,6 @@ pub async fn update_settings(app: &App, owner: &str, id: &str, s: RaffleSettings
     let normalized = settings::Settings {
         title: &s.title,
         description: &s.description,
-        lang: &s.lang,
         organizer_name: &s.organizer_name,
         contact_email: &s.contact_email,
         rules: &s.rules,
@@ -92,7 +90,6 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
     raffles::Settings {
         title: s.title,
         description: s.description,
-        lang: s.lang,
         organizer_name: s.organizer_name,
         contact_email: s.contact_email,
         rules: s.rules,
@@ -104,13 +101,13 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
 
 pub async fn delete(app: &App, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
-    if !raffle::drawing::deletable(raffle.state, raffle.drawing()?.as_ref()) {
+    if !lifecycle::raffle::deletable(raffle.state, raffle.drawn()?.as_ref()) {
         return Err(Refusal::DrawPending.into());
     }
     raffles::delete(&app.db, id).await?;
     audit::record(&app.db, id, owner, "delete", "").await?;
     // Best effort: the raffle is gone either way, and its channel finds nothing to show.
-    if let Err(e) = app.notifier.end(id).await {
+    if let Err(e) = app.live_updates.end(id).await {
         tracing::warn!(raffle_id = id, error = %e, "ending the live channel of a deleted raffle failed");
     }
     Ok(())
@@ -142,7 +139,6 @@ pub async fn duplicate(app: &App, owner: &str, id: &str) -> Result<String> {
     let settings = raffles::Settings {
         title: &title,
         description: &raffle.description,
-        lang: settings::lang(&raffle.lang),
         organizer_name: &raffle.organizer_name,
         contact_email: &raffle.contact_email,
         rules: &raffle.rules,
@@ -177,13 +173,13 @@ pub async fn duplicate(app: &App, owner: &str, id: &str) -> Result<String> {
     Err(Refusal::JoinCodes.into())
 }
 
-pub async fn lifecycle(app: &App, owner: &str, id: &str, action: Lifecycle) -> Result<()> {
+pub async fn lifecycle(app: &App, owner: &str, id: &str, action: LifecycleCommand) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     let command = match action {
-        Lifecycle::Publish => raffle::Command::Publish,
-        Lifecycle::Unpublish => raffle::Command::Unpublish,
-        Lifecycle::Open => raffle::Command::Open,
-        Lifecycle::Close => raffle::Command::Close,
+        LifecycleCommand::Publish => lifecycle::Command::Publish,
+        LifecycleCommand::Unpublish => lifecycle::Command::Unpublish,
+        LifecycleCommand::Open => lifecycle::Command::Open,
+        LifecycleCommand::Close => lifecycle::Command::Close,
     };
     let from = raffle.state;
     let to = from
@@ -193,6 +189,6 @@ pub async fn lifecycle(app: &App, owner: &str, id: &str, action: Lifecycle) -> R
         return Err(Refusal::Changed.into());
     }
     audit::record(&app.db, id, owner, to.as_str(), "").await?;
-    app.notifier.notify(id).await;
+    app.live_updates.notify(id).await;
     Ok(())
 }

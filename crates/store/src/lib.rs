@@ -1,4 +1,4 @@
-//! Rafi's database, shared by the app, the drawing engine and the live channel.
+//! Rafi's database, shared by the app, the raffle engine and the live channel.
 //!
 //! The schema lives in `migrations/` at the workspace root. Natively the
 //! database is SQLite or, for self-hosting, PostgreSQL (through sqlx, chosen
@@ -17,8 +17,8 @@
 //!   (erasure, ending live channels, `meta`);
 //! - [`view::Full`]: what the projector and the admin see, and
 //!   [`live::Snapshot`]: what phones see, each read in one snapshot;
-//! - [`save_drawing`], the drawing engine's only write; [`DrawWriter`] offers
-//!   it as the engine's [`DrawStore`]. It carries no app policy, so the
+//! - [`save_raffle`], the raffle engine's only write; [`RaffleWriter`] offers
+//!   it as the engine's [`Store`](rafi_engine::Store). It carries no app policy, so the
 //!   engine's hosts need none of the app's settings.
 //!
 //! The SQL is written for SQLite (and D1) and Postgres alike: `?`/`?N`
@@ -33,7 +33,7 @@
 //! What every backend must do is pinned down by the storage conformance
 //! suite, `conformance` (the `conformance` feature): named scenarios that
 //! `tests/conformance.rs` runs against SQLite and Postgres, and
-//! `crates/store-d1-check` against D1.
+//! `testbeds/store-d1` against D1.
 
 pub mod altcha;
 pub mod audit;
@@ -57,9 +57,8 @@ pub use error::{Error, Result};
 pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
-use rafi_drawing::Drawing;
 use rafi_engine::BoxFuture;
-use rafi_engine::DrawStore;
+use rafi_raffle::Raffle;
 pub use value::{Row, Value};
 
 /// The current time in unix seconds. `std::time` aborts on
@@ -94,31 +93,31 @@ impl PurgeAfter {
     }
 }
 
-/// Stores a drawing engine's state for a raffle.
+/// Stores a raffle as its engine drew it: the raffle's log, after every change.
 ///
 /// Idempotent and safe to retry: a state is only written when it is newer than
 /// the stored one, and for the entrant list the raffle was frozen with. The
-/// raffle follows its drawing ([`rafi_raffle::drawing::lifecycle`]) to
+/// lifecycle follows the raffle ([`rafi_lifecycle::raffle::lifecycle`]) to
 /// `drawing` and `finished`, and its finish is timed. Nothing here is policy:
 /// when personal data is erased is the app's to date
 /// ([`retention::date_purges`]).
 ///
 /// Returns whether the state was written.
-pub async fn save_drawing(db: &Db, state: &Drawing) -> Result<bool> {
-    let stored = StoredDrawing::of(state)?;
-    let lifecycle = rafi_raffle::drawing::lifecycle(state).as_str();
+pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
+    let stored = StoredRaffle::of(state)?;
+    let lifecycle = rafi_lifecycle::raffle::lifecycle(state).as_str();
     let written = db
         .query(format!(
             "UPDATE raffles SET
-                drawing = ?1,
+                log = ?1,
                 drawn_entrants = ?7,
                 winners = ?8,
-                drawing_version = ?2,
+                log_version = ?2,
                 state = CASE WHEN state IN ({following}) THEN ?3 ELSE state END,
                 finished_at = CASE WHEN ?4 = 1 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
                 updated_at = ?5
-             WHERE id = ?6 AND manifest_hash = ?9 AND drawing_version < ?2",
-            following = raffles::states(rafi_raffle::RaffleState::follows_drawing),
+             WHERE id = ?6 AND manifest_hash = ?9 AND log_version < ?2",
+            following = raffles::states(rafi_lifecycle::RaffleState::follows_raffle),
         ))
         .bind(stored.json)
         .bind(state.version())
@@ -134,10 +133,10 @@ pub async fn save_drawing(db: &Db, state: &Drawing) -> Result<bool> {
     Ok(written > 0)
 }
 
-/// A drawing as the `raffles` row stores it: the drawing (its manifest and
+/// A raffle as the `raffles` row stores it: its log (the manifest and the
 /// event log), and the entrants the database itself needs from it, as JSON
 /// arrays of IDs.
-pub(crate) struct StoredDrawing {
+pub(crate) struct StoredRaffle {
     pub json: String,
     /// Every entrant drawn: only their names may leave the database.
     pub drawn_entrants: String,
@@ -145,8 +144,8 @@ pub(crate) struct StoredDrawing {
     pub winners: String,
 }
 
-impl StoredDrawing {
-    pub fn of(state: &Drawing) -> Result<Self> {
+impl StoredRaffle {
+    pub fn of(state: &Raffle) -> Result<Self> {
         Ok(Self {
             json: encode(state)?,
             drawn_entrants: encode(&state.drawn_entrants())?,
@@ -159,30 +158,30 @@ fn encode(value: &impl serde::Serialize) -> Result<String> {
     serde_json::to_string(value).map_err(|e| Error::Backend(e.to_string()))
 }
 
-/// Reads a stored drawing. One that doesn't load (another shape, or a log
-/// that isn't its own) is an error, never "no drawing yet".
-pub(crate) fn parse_drawing(json: &str) -> Result<Drawing> {
-    serde_json::from_str(json).map_err(|e| Error::Decode(format!("the stored drawing: {e}")))
+/// Reads a stored raffle log. One that doesn't load (another shape, or a log
+/// that isn't its own) is an error, never "not opened yet".
+pub(crate) fn parse_raffle(json: &str) -> Result<Raffle> {
+    serde_json::from_str(json).map_err(|e| Error::Decode(format!("the stored raffle: {e}")))
 }
 
-/// The drawing engine's [`DrawStore`] over this database: [`save_drawing`].
+/// The raffle engine's [`Store`](rafi_engine::Store) over this database: [`save_raffle`].
 #[derive(Clone)]
-pub struct DrawWriter {
+pub struct RaffleWriter {
     db: Db,
 }
 
-impl DrawWriter {
+impl RaffleWriter {
     pub fn new(db: Db) -> Self {
         Self { db }
     }
 }
 
-impl DrawStore for DrawWriter {
-    fn save_drawing<'a>(&'a self, state: &'a Drawing) -> BoxFuture<'a, anyhow::Result<bool>> {
+impl rafi_engine::Store for RaffleWriter {
+    fn save_raffle<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         Box::pin(async move {
-            save_drawing(&self.db, state)
+            save_raffle(&self.db, state)
                 .await
-                .map_err(|e| anyhow::anyhow!("writing the draw state: {e}"))
+                .map_err(|e| anyhow::anyhow!("writing the raffle: {e}"))
         })
     }
 }
@@ -221,6 +220,8 @@ pub mod testing {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    use rafi_engine::Store as _;
+
     use super::*;
 
     #[tokio::test]
@@ -228,19 +229,19 @@ mod tests {
         let path = std::env::temp_dir().join(format!("rafi-lazy-{}.db", std::process::id()));
         let db = Db::connect_lazy(&format!("sqlite://{}", path.display())).unwrap();
         assert!(!path.exists(), "the app creates the database");
-        let writer = DrawWriter::new(db);
-        let manifest = rafi_drawing::Manifest::new(
+        let writer = RaffleWriter::new(db);
+        let manifest = rafi_raffle::Manifest::new(
             "r1",
-            rafi_drawing::BeaconSource::QUICKNET,
+            rafi_raffle::BeaconSource::QUICKNET,
             vec!["a".repeat(32).into()],
-            vec![rafi_drawing::ManifestItem {
+            vec![rafi_raffle::ManifestItem {
                 id: "u1".into(),
                 name: "Book".into(),
             }],
         );
-        let drawing = Drawing::open(&manifest).unwrap();
+        let raffle = Raffle::open(&manifest).unwrap();
         assert!(
-            writer.save_drawing(&drawing).await.is_err(),
+            writer.save_raffle(&raffle).await.is_err(),
             "no database yet: the engine retries"
         );
         assert!(!path.exists());

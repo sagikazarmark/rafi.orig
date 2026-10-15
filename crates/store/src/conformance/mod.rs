@@ -17,7 +17,7 @@
 //! - **`domain.*`, the domain functions:** the freeze's steps, joins (the
 //!   cap, one entry per email, racing joins), fake entrants across
 //!   statements, erasure and its log, retention, ALTCHA replays, the full
-//!   view, the participant snapshot and [`save_drawing`](crate::save_drawing).
+//!   view, the participant snapshot and [`save_raffle`](crate::save_raffle).
 //!
 //! Scenarios use only the public API ([`Db`], [`Query`](crate::Query) and the
 //! domain modules), never a backend's internals, and each runs on a fresh,
@@ -32,7 +32,7 @@
 //!   names a throwaway database, Postgres ([`Postgres`], a fresh schema per
 //!   scenario), one test each, named `<backend>::<scenario>`
 //!   (`sqlite::domain.join_cap`).
-//! - `crates/store-d1-check` runs them against D1 under `wrangler dev`
+//! - `testbeds/store-d1` runs them against D1 under `wrangler dev`
 //!   (`scripts/workers-check.sh`), and answers with each scenario's outcome.
 //!
 //! # Adding a backend
@@ -43,7 +43,7 @@
 //!    (a new in-memory database, a new schema, or emptied tables).
 //! 3. Run [`SCENARIOS`] through it: add it to `tests/conformance.rs` if it
 //!    runs natively, or call [`run_all`] from wherever it runs (as
-//!    `store-d1-check` does). It is done when every scenario passes or is
+//!    `testbeds/store-d1` does). It is done when every scenario passes or is
 //!    skipped for a capability it really lacks.
 //!
 //! A new requirement on the query layer is a new `query.*` scenario here,
@@ -198,7 +198,7 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "query.ordering_ties" => query::ordering_ties,
     "query.param_limit" => query::param_limit,
     "query.version_triggers" => query::version_triggers,
-    "domain.save_drawing" => domain::keeps_the_newest_state,
+    "domain.save_raffle" => domain::keeps_the_newest_state,
     "domain.freeze_steps" => domain::freezes_in_steps,
     "domain.join_cap" => domain::joins_up_to_the_cap_once_per_email,
     "domain.join_cap_race" needs Capabilities::CONCURRENT_SESSIONS

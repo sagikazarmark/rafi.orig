@@ -5,17 +5,24 @@
 //! inline theme script in `<head>` stays JavaScript: it must run before the
 //! first paint.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
-use rafi_live::altcha;
+use dioxus_altcha::SolveOptions;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
-use web_sys::{AudioContext, Element, HtmlButtonElement, HtmlInputElement, OscillatorType};
+use web_sys::{
+    AudioContext, Element, HtmlButtonElement, HtmlFormElement, HtmlInputElement, OscillatorType,
+    PageTransitionEvent,
+};
 
 use crate::config::PageConfig;
 
 thread_local! {
     static AUDIO: RefCell<Option<AudioContext>> = const { RefCell::new(None) };
+    /// When the solved proof-of-work stops being usable (`performance.now()`).
+    static POW_DEADLINE: Cell<Option<f64>> = const { Cell::new(None) };
+    /// Bumped by each solve; a stale one doesn't touch the form.
+    static POW_RUN: Cell<u32> = const { Cell::new(0) };
 }
 
 fn document() -> Option<web_sys::Document> {
@@ -28,6 +35,16 @@ fn by_id<T: JsCast>(id: &str) -> Option<T> {
 
 fn listen(target: &web_sys::EventTarget, event: &str, f: impl FnMut() + 'static) {
     let f = Closure::<dyn FnMut()>::new(f);
+    let _ = target.add_event_listener_with_callback(event, f.as_ref().unchecked_ref());
+    f.forget();
+}
+
+fn listen_event(
+    target: &web_sys::EventTarget,
+    event: &str,
+    f: impl FnMut(web_sys::Event) + 'static,
+) {
+    let f = Closure::<dyn FnMut(web_sys::Event)>::new(f);
     let _ = target.add_event_listener_with_callback(event, f.as_ref().unchecked_ref());
     f.forget();
 }
@@ -50,7 +67,7 @@ pub fn init(cfg: &PageConfig) {
         listen(&form, "submit", unlock_audio);
     }
     if cfg.needs_altcha {
-        spawn_local(solve_altcha(cfg.altcha_url.clone()));
+        proof_of_work(cfg.altcha_url.clone());
     }
 }
 
@@ -110,27 +127,102 @@ fn theme_toggle() {
 
 // ---- Proof of work (join form) ----
 
-/// The Join button is rendered disabled; it's enabled once a solution is in
-/// the form (or the attempt failed: the server then asks to retry).
-async fn solve_altcha(url: String) {
-    let (Some(input), Some(submit)) = (
+/// dioxus-altcha's solver, served next to this module (scripts/participant.sh)
+/// for fallback.js too: one file, cached, instead of a copy in the wasm.
+const ALTCHA_WORKER: &str = "/participant/altcha-worker.js";
+
+fn now_ms() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or_else(js_sys::Date::now, |p| p.now())
+}
+
+/// Solves on load. A payload past its deadline (a phone left on the form
+/// for 20 minutes) is solved again before the form posts, and so is one in a
+/// page restored from the back/forward cache: it's spent.
+fn proof_of_work(url: String) {
+    let (Some(form), Some(input), Some(submit)) = (
+        by_id::<HtmlFormElement>("join"),
         by_id::<HtmlInputElement>("altcha"),
         by_id::<HtmlButtonElement>("submit"),
     ) else {
         return;
     };
-    if let Some(solution) = fetch_and_solve(&url).await {
-        input.set_value(&solution.to_payload());
+    let solve = {
+        let (url, input, submit) = (url, input.clone(), submit);
+        move |then: Option<HtmlFormElement>| {
+            spawn_local(solve_altcha(
+                url.clone(),
+                input.clone(),
+                submit.clone(),
+                then,
+            ));
+        }
+    };
+    solve(None);
+
+    let (resolve, f) = (solve.clone(), form.clone());
+    listen_event(&form, "submit", move |e| {
+        let stale = POW_DEADLINE.get().is_some_and(|d| now_ms() >= d);
+        if stale && !input.value().is_empty() {
+            e.prevent_default();
+            resolve(Some(f.clone()));
+        }
+    });
+    if let Some(window) = web_sys::window() {
+        listen_event(&window, "pageshow", move |e| {
+            if e.dyn_ref::<PageTransitionEvent>()
+                .is_some_and(PageTransitionEvent::persisted)
+            {
+                solve(None);
+            }
+        });
+    }
+}
+
+/// The Join button is rendered disabled; it's enabled once a solution is in
+/// the form (or the attempt failed: the server then asks to retry). With
+/// `then`, the form is posted once solved.
+async fn solve_altcha(
+    url: String,
+    input: HtmlInputElement,
+    submit: HtmlButtonElement,
+    then: Option<HtmlFormElement>,
+) {
+    let run = POW_RUN.get().wrapping_add(1);
+    POW_RUN.set(run);
+    input.set_value("");
+    POW_DEADLINE.set(None);
+    submit.set_disabled(true);
+    let solved = match dioxus_altcha::fetch_challenge(url).await {
+        Ok(challenge) => {
+            dioxus_altcha::solve(&challenge, &SolveOptions::new().worker_url(ALTCHA_WORKER))
+                .await
+                .ok()
+                .map(|solution| (dioxus_altcha::payload(&challenge, &solution), challenge))
+        }
+        Err(_) => None,
+    };
+    if POW_RUN.get() != run {
+        return;
+    }
+    if let Some((payload, challenge)) = solved {
+        input.set_value(&payload);
+        let deadline = challenge
+            .usable_for()
+            .map(|left| now_ms() + left.as_secs_f64() * 1000.0);
+        POW_DEADLINE.set(deadline);
     }
     if let Some(label) = submit.get_attribute("data-label") {
         submit.set_inner_html(&label);
     }
     submit.set_disabled(false);
-}
-
-async fn fetch_and_solve(url: &str) -> Option<altcha::Solution> {
-    let (challenge, _) = crate::net::get_json::<altcha::Challenge>(url).await?;
-    altcha::solve(&challenge)
+    if let Some(form) = then.filter(|_| !input.value().is_empty()) {
+        // requestSubmit runs the submit handlers again (Safari 16+).
+        if form.request_submit().is_err() {
+            let _ = form.submit();
+        }
+    }
 }
 
 // ---- Wake lock ----

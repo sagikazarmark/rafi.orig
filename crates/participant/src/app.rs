@@ -3,7 +3,7 @@
 
 use dioxus::prelude::*;
 use partyline_dioxus::{BaseUrl, ChannelOptions, Status, use_channel_latest};
-use rafi_live::{Card, LiveTransport, ParticipantView, RaffleLive, Screen};
+use rafi_live_client::{Card, Follow, ParticipantChannel, ParticipantView, Screen};
 use wasm_bindgen::{JsCast, closure::Closure};
 
 use crate::{clock, config::PageConfig, extras};
@@ -131,7 +131,8 @@ fn App() -> Element {
     // Reading the view inside the effect re-runs it on every new view.
     let (reload_me, page_state) = (me.clone(), cfg.page_state);
     use_effect(move || {
-        let screen = rafi_live::screen(&view(), reload_me.as_deref(), page_state, clock::now_ms());
+        let screen =
+            rafi_live_client::screen(&view(), reload_me.as_deref(), page_state, clock::now_ms());
         if matches!(screen, Screen::Reload)
             && let Some(window) = web_sys::window()
         {
@@ -144,7 +145,7 @@ fn App() -> Element {
     // The server says how to follow the raffle. Partyline subscribes (below);
     // polling (and SSE, which has no client yet) polls, twice as often while a
     // draw is pending.
-    let poll_ms = cfg.live.poll_every_ms();
+    let poll_ms = cfg.follow.poll_every_ms();
     use_future({
         let refetch = refetch.clone();
         move || {
@@ -169,8 +170,8 @@ fn App() -> Element {
         }
     });
 
-    let subscription = match &cfg.live {
-        LiveTransport::Partyline { base_url } if current.state.is_live() => Some(base_url.clone()),
+    let subscription = match &cfg.follow {
+        Follow::Partyline { base_url } if current.state.is_live() => Some(base_url.clone()),
         _ => None,
     };
     let me_for_live = me.clone();
@@ -185,7 +186,7 @@ fn App() -> Element {
             announce: announce(),
         }
         if let Some(base_url) = subscription {
-            Live {
+            ChannelSubscription {
                 raffle_id: cfg.raffle_id.clone(),
                 base_url,
                 on_view: move |fresh: ParticipantView| {
@@ -200,10 +201,10 @@ fn App() -> Element {
     }
 }
 
-/// The raffle's channel. Mounted only while the raffle is live: unmounting
-/// (the final view) closes the socket.
+/// The raffle's participant channel. Mounted only while the raffle is live:
+/// unmounting (the final view) closes the socket.
 #[component]
-fn Live(
+fn ChannelSubscription(
     raffle_id: String,
     base_url: Option<String>,
     on_view: EventHandler<ParticipantView>,
@@ -213,7 +214,7 @@ fn Live(
     if let Some(url) = base_url {
         options = options.base_url(BaseUrl::Explicit(url));
     }
-    let (latest, channel) = use_channel_latest::<RaffleLive>(options);
+    let (latest, channel) = use_channel_latest::<ParticipantChannel>(options);
     use_effect(move || {
         if let Some(fresh) = latest() {
             on_view.call(fresh);

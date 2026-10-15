@@ -1,9 +1,9 @@
 # Rafi: meetup raffle plan
 
-Status: the current state, 2026-10-10 (revision 9). How it got here is in the
+Status: the current state, 2026-10-15 (revision 14). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
-[drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md).
+[raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md).
 
 ## 1. Summary
 
@@ -13,9 +13,9 @@ A live raffle for meetups.
 - **During the meetup:** a **projector screen** shows the intro, a QR code and a live count. Attendees join on
   their phones with a **display name, email and consent to the rules**. There is no account. The organizer can
   **add people who have no phone**.
-- **Starting the draw:** registration closes and the entrant list is frozen. The drawing is opened from a published
+- **Starting the draw:** registration closes and the entrant list is frozen. The raffle is opened from a published
   **manifest**: the entrants (random IDs only), one item per prize copy, the algorithm and the beacon source.
-- **Drawing each item:** the organizer picks an item and presses **Draw**. The drawing engine commits to a **drand
+- **Drawing each item:** the organizer picks an item and presses **Draw**. The raffle engine commits to a **drand
   round about 6 s in the future** and announces it (the countdown), waits durably for it, verifies the beacon's BLS
   signature and picks a winner. The projector and the winner's phone show it; everyone else sees "not this time".
 - **No-show:** "Not here" (or "Declined") puts that person out, and the item is drawn again with a new round.
@@ -24,7 +24,7 @@ A live raffle for meetups.
 **Stack:** one app crate, `rafi`: the admin, projector and verification page are a Dioxus 0.7.10 single-page app;
 the server is axum (natively, or on Cloudflare Workers) with participant pages rendered by `dioxus::ssr`. Phones
 get a small WASM with a JavaScript fallback. The database is SQLite, PostgreSQL (self-hosting) or D1 (Workers).
-Draws run in a Restate virtual object, `Drawing`, on Restate Cloud (EU) or a self-hosted Restate. Auth is Clerk
+Draws run in a Restate virtual object, `Raffle`, on Restate Cloud (EU) or a self-hosted Restate. Auth is Clerk
 via `dioxus-clerk`. Production is planned on Cloudflare Workers; the native server stays for self-hosting (§11).
 
 ## 2. What a meetup raffle needs
@@ -35,7 +35,8 @@ proving the winner at the stage without showing it on the projector (a private c
 (a verifiable draw per item, §6); prizes with several copies, drawn in an order picked live; remote entries, spam
 and bots (§9); GDPR and Hungarian gambling and tax rules (§10); sleeping phones (§8.6); a projector that never shows
 emails or admin buttons; undo and live changes (void, decline); a rehearsal mode (test mode, fake entrants); the
-after-event work (export, delivery, erasure); Hungarian name order, hence a **display name**; Hungarian and English.
+after-event work (export, delivery, erasure); Hungarian name order, hence a **display name**. The text is
+English only for now.
 
 ## 3. Decisions
 
@@ -44,7 +45,7 @@ after-event work (export, delivery, erasure); Hungarian name order, hence a **di
 | Multiple wins | **One win per person.** Once drawn, an entrant leaves the pool whatever the outcome. If it runs dry, pass 2 draws from earlier winners who didn't forfeit (§6.2). |
 | No-show | **Draw again; the no-show is out.** "Not here" and "Declined" forfeit the item, which is drawn again with a new round. Both are in the public log. |
 | Fairness | **Verifiable, one draw per item** (§6). |
-| Drawing engine | **Restate**, behind the `DrawingEngine` contract (§8.5). It sees anonymous IDs only. No fallback engine: `LocalEngine` is for tests and development. |
+| Raffle engine | **Restate**, behind the `Engine` contract (§8.5). It sees anonymous IDs only. No fallback engine: `LocalEngine` is for tests and development. |
 | drand chain | **The app decides** (`RAFI_DRAND_CHAIN`, quicknet); the engine refuses a mismatch. Release builds accept only public chains. |
 | Live updates | On Workers a Durable Object per raffle pushes the participant view to phones; natively phones poll. The projector and admin poll the full view every 2.5 s (§8.6). |
 | Auth | Clerk. A raffle belongs to the active organization, or else the user; every admin call checks it. |
@@ -52,44 +53,44 @@ after-event work (export, delivery, erasure); Hungarian name order, hence a **di
 | On the projector | The display name as typed (≤ 24 characters), after 5 s; one tap hides or renames it. |
 | Item order | Picked live: nobody can know an outcome in advance. |
 | Eligibility, age | In the rules. Minimum age 16 by default. |
-| Retention | Non-winners' personal data is erased 30 days after the event; winners' after 90, or 30 once their prize is delivered. The anonymous drawing is kept (§10). |
-| Bot protection | Rafi's own proof-of-work (ALTCHA-compatible, self-hosted), one entry per email, rate limits per raffle and per email (never per IP), an entrant cap. No Turnstile. |
+| Retention | Non-winners' personal data is erased 30 days after the event; winners' after 90, or 30 once their prize is delivered. The anonymous raffle (manifest and log) is kept (§10). |
+| Bot protection | A self-hosted ALTCHA v2 proof-of-work (the `altcha` crate on the server, `dioxus-altcha` on the phone), one entry per email, rate limits per raffle and per email (never per IP), an entrant cap. No Turnstile. |
 | Winner emails | Not in v1. |
 
 ## 4. The event, end to end
 
 | When | Organizer (`/admin`) | Projector (`/s/{slug}`) | Attendee phone (`/j/{CODE}`) |
 |---|---|---|---|
-| Before | Create the raffle and its prizes (quantity, sponsor); title, rules, language. Optionally rehearse in **test mode** with fake entrants. | | |
+| Before | Create the raffle and its prizes (quantity, sponsor); title, rules. Optionally rehearse in **test mode** with fake entrants. | | |
 | Meetup starts | Publish, then **Open registration**. | The prizes, the rules in short, "no phone? come to me", a QR code, the short URL and code, a live count and recent names. | Join form: display name, email, ☐ rules & privacy (required), ☐ emails about future meetups (optional). Then **"You're in!"** with a private claim code. |
 | During | **Add entrants without a phone.** Hide or rename trolls; remove duplicates. | The count grows. | The page can be closed; reopening it restores the state (§7). |
-| Start | **Start the draw:** closes registration, freezes the list, writes the manifest, opens the drawing. Pressing it again picks up where an attempt stopped. | "N entrants, M prizes". | "Draw starting!" |
+| Start | **Start the draw:** closes registration, freezes the list, writes the manifest, opens the raffle. Pressing it again picks up where an attempt stopped. | "N entrants, M prizes". | "Draw starting!" |
 | Each item | Pick the item, **Draw**. The admin shows the winner's **claim code**. Then **Handed over**, or **Not here** / **Declined** (drawn again). While a draw waits for its round only **Handed over** goes through. | **"Locking in drand round R…"**, a countdown, the **winner's name**. | Winner: **YOU WON** with the claim code, a chime, vibration on Android. Everyone else: "Not this time", with the prizes left. |
 | End | **Finish**; **Export** the winners CSV; **End live updates.** | **Thanks for playing!**, winners, a link to the verification page. | Thanks screen; winners still see their prize. |
 | After | Mark prizes delivered. Erasure runs on schedule, or by hand. | | `/v/{slug}` verifies every draw. |
 
 ## 5. Lifecycle
 
-### Raffle (`rafi-raffle`)
+### Lifecycle (`rafi-lifecycle`)
 
 ```
 Draft ──publish──▶ Ready ──open──▶ Open ◀──open── Closed
                      ▲               │ close ───────▶ │
                      └──unpublish────┘                │
-        Open | Closed ──freeze──▶ Frozen   (the manifest is written; the engine opens the drawing)
-        Frozen ──first draw──▶ Drawing ──the drawing finishes──▶ Finished ──purge / retention──▶ Purged
+        Open | Closed ──freeze──▶ Frozen   (the manifest is written; the engine opens the raffle)
+        Frozen ──first draw──▶ Drawing ──the raffle finishes──▶ Finished ──purge / retention──▶ Purged
 ```
 
 - Organizer commands go through `RaffleState::apply`; the app and the store keep no rules of their own. From the
-  freeze until the drawing finishes, the raffle follows its drawing (`drawing::lifecycle`).
+  freeze until the raffle finishes, the lifecycle follows the raffle (`raffle::lifecycle`).
 - **Starting the draw** is separate writes, each guarded by the state it expects and safe to repeat (D1 has no
   interactive transactions): freeze, read the fixed list, write the manifest (or unfreeze if nobody is left), open
-  the drawing. `start::next` names the next step (`Freeze`, `WriteManifest`, `Resend`, `Started`). The app checks
+  the raffle. `start::next` names the next step (`Freeze`, `WriteManifest`, `Resend`, `Started`). The app checks
   the engine's beacon source before anything is frozen.
 - Joins, entrant and prize changes are guarded in SQL on the raffle's state: joins only while Open, the rest until
   the freeze. After it, items can only be **voided**. Only a winner who claimed can be marked delivered.
 
-### Drawing (`rafi-drawing`, owned by the engine)
+### Raffle (`rafi-raffle`, owned by the engine)
 
 ```
 open(manifest)                                   (the same manifest again: no-op; another: refused)
@@ -99,14 +100,14 @@ open(manifest)                                   (the same manifest again: no-op
        Drawn ──claimed──▶ Claimed
        Drawn ──not here | declined──▶ Available (a forfeit: the entrant is out)
        Available ──void──▶ Voided
- finish ──▶ Finished (the engine forgets the drawing)
+ finish ──▶ Finished (the engine forgets the raffle)
 ```
 
-A drawing is stored as its manifest and its event log (`Announced`, `Drawn`, `Stalled`, `Abandoned`, `Resolved`,
+A raffle is stored as its manifest and its event log (`Announced`, `Drawn`, `Stalled`, `Abandoned`, `Resolved`,
 `Voided`, `Finished`); everything else is rebuilt from them. Whether a command would go through now is the
-drawing's own rule, `Drawing::admit`, which the app checks against the projection.
+raffle's own rule, `Raffle::admit`, which the app checks against the projection.
 
-A phone's screen is a pure function (`rafi_live::screen`) of the participant view and its own entrant ID.
+A phone's screen is a pure function (`rafi_live_client::screen`) of the participant view and its own entrant ID.
 
 ## 6. Verifiable per-item draw (`rafi-draw-v1`)
 
@@ -126,7 +127,7 @@ A phone's screen is a pure function (`rafi_live::screen`) of the participant vie
 ### 6.2 Algorithm
 
 ```
-open:   manifest      = canonical JSON {algo:"rafi-draw-v1", drawing, beacon:{drand:<chain hash>}, entrants, items:[{id,name}]}
+open:   manifest      = canonical JSON {algo:"rafi-draw-v1", raffle, beacon:{drand:<chain hash>}, entrants, items:[{id,name}]}
                         entrants sorted, deduplicated, lowercase hex (random, 128-bit)
         manifest_hash = SHA256(manifest)                       — published at /v/{slug} before the first draw
 
@@ -150,8 +151,8 @@ draw k: R             = the first round at least 6 s (lead) after now — quickn
 
 `/v/{slug}` (data: `/api/r/{slug}/verify.json`) publishes the manifest (with display names until erasure, so people
 can check they're in), every draw (`k`, item, R, signature, randomness, pass, pool size, index, winner, outcome) and
-abandoned draws, and re-runs them in the browser (`rafi_drawing::verify_public`, WASM): the log is replayed through
-the drawing's own transitions and every BLS signature is checked.
+abandoned draws, and re-runs them in the browser (`rafi_raffle::verify_public`, WASM): the log is replayed through
+the raffle's own transitions and every BLS signature is checked.
 
 [`tools/verify.py`](../tools/verify.py) (Python standard library only) re-runs the algorithm independently; with
 `--fetch` it compares each signature with the public relays' (it doesn't check BLS). CI checks the Rust code and
@@ -162,7 +163,7 @@ the drawing's own transitions and every BLS signature is checked.
 - **More items than eligible entrants:** pass 2. **Nobody left:** the draw is refused; the item stays available.
 - **drand outage:** the engine waits up to 60 s past the round. Then the draw **stalls** on R; retrying fetches R
   again. The only way out is an explicit, logged **abandon**. There is no offline draw (dropped in revision 6).
-- **Restate outage:** there is no second engine (two engines owning a drawing could announce a draw on two rounds).
+- **Restate outage:** there is no second engine (two engines owning a raffle could announce a draw on two rounds).
   The app refuses to start a draw while the engine is unreachable; a stalled draw waits for Restate.
 
 ## 7. Entrant identity and coming back
@@ -185,26 +186,31 @@ The projector is the source of truth: a fake "you won" screen lacks the winner's
 ### 8.1 Layers
 
 ```
-rafi-drawing         the drawing: manifest, state machine and admission, rafi-draw-v1, verifier (pure; also WASM)
-rafi-raffle          the raffle's rules: lifecycle, starting the draw, entrants, settings, prizes as items (pure)
-rafi-drand           rafi's drand settings (chain, relays, lead, timeout) on the `drand` crate
-rafi-engine          the engine contract: DrawingEngine, DrawStore, DrawingNotifier; LocalEngine (`local`), the suite (`conformance`)
-rafi-engine-restate  the `Drawing` object and `EngineInfo` service (`services()`); RestateClient, the app's DrawingEngine
-rafi-store           all SQL (SQLite, Postgres, D1); save_drawing / DrawWriter, the engine's DrawStore; the phones' snapshot
-rafi-live            what a phone sees: ParticipantView, screen(), Card (`card`), proof-of-work, LiveTransport, PageConfig, publish rule
-rafi-platform        what a deployment provides: Notifier, RateLimit, Notify (a Notifier as the engine's DrawingNotifier)
-rafi-model           the types the app's server and browser exchange
-rafi-app-core        every use case, over App { db, chain, engine, notifier, policy }; typed errors; no HTTP, no i18n
-rafi                 the HTTP side (routes, participant pages, auth, retention) and the web UI
+rafi-raffle          the raffle: manifest, state machine and admission, rafi-draw-v1, verifier (pure; also WASM); the mock chain (`mock-chain`)
+rafi-lifecycle       the raffle's lifecycle in the app: states, starting the draw, entrants, settings, prizes as items (pure)
+rafi-engine          the engine contract: Engine, Store, Observer; DrandClient (`drand`), LocalEngine (`local`), the suite (`conformance`)
+rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`); RestateClient, the app's Engine
+rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; the phones' snapshot
+rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), Follow, PageConfig
+rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
+dioxus-altcha        ALTCHA v2 solved in the browser (Web Workers on WebCrypto) and a Dioxus hook; no rafi dependencies
+rafi-model           the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
+rafi-app-core        every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
+                     join), the public reads, the retention run; typed errors; RateLimit; no HTTP
+rafi-server          the HTTP side (routes, auth, the retention schedule, the public pages); the native binary `rafi`
+rafi-web             the web app (admin, projector, verification page; Dioxus, `dx`)
+rafi-app-worker      the app on Workers: rafi-server's routes, the Cron, RaffleRoom
 rafi-participant     the participant page's WASM and its JavaScript fallback
 ```
 
-- The rules live in `rafi-drawing` and `rafi-raffle`; the store, the engines and the app ask them. The store's SQL
+- The rules live in `rafi-raffle` and `rafi-lifecycle`; the store, the engines and the app ask them. The store's SQL
   state lists are generated from them.
-- The engine knows drawings, not raffles, and none of the app's settings: a host maps a drawing to its raffle
-  (`rafi_platform::Notify`), and the app's retention run dates erasure.
-- `rafi-engine` depends on no platform crate, and nothing below the app pulls in Dioxus (`rafi-live`'s `card` is
-  off). The phone builds `rafi-live` without `raffle`: no `rafi-drawing`, drand or BLS.
+- A manifest and an engine run a whole raffle: the engine knows nothing of the app (no lifecycle, no settings). A
+  host passes the engine its live notifier as the `Observer` (on Workers; the native host passes none, since its
+  clients poll), and the app's retention run dates erasure.
+- `rafi-engine` depends on no live or Cloudflare crate, and nothing below the app pulls in Dioxus (`rafi-live-client`'s `card`
+  is off). The phone builds only `rafi-live-client` and `dioxus-altcha` (the `altcha` crate's types; its key
+  derivation isn't linked): no `rafi-raffle`, drand, BLS or HMAC.
 - The server sends the admin what it may do (`RaffleAdmin.actions`, `AdminEntrant.deliverable`); the UI derives no
   rules.
 
@@ -212,15 +218,15 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 
 | | Native (self-hosting) | Cloudflare Workers (planned production) |
 |---|---|---|
-| App | `rafi --features server`; an hourly retention task; in-memory rate limits | `rafi --features worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleChannel` |
+| App | `rafi-server` (binary `rafi`); an hourly retention task; in-memory rate limits | `rafi-app-worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleRoom` |
 | Database | SQLite or Postgres (`RAFI_DATABASE_URL`) | D1, EU jurisdiction |
-| Drawing engine | `restate-rafi` (`crates/restate-rafi-endpoint`) on the same database | `rafi-restate-worker`, called by Restate Cloud over HTTPS (request-response, signed) |
-| Live updates | none pushed: clients poll | `RaffleChannel`, a Durable Object per raffle (partyline) |
+| Raffle engine | `restate-rafi` (`crates/restate-rafi-endpoint`) on the same database | `rafi-restate-worker`, called by Restate Cloud over HTTPS (request-response, signed) |
+| Live updates | none pushed: clients poll | `RaffleRoom`, a Durable Object per raffle (partyline) |
 | Edge | Caddy | Cloudflare |
 
 ```
-organizer, projector ──▶ app ──ingress──▶ Restate ──▶ Drawing (engine host) ──▶ database (the record)
-phones ────────────────▶ app ◀── database                      └──nudge──▶ RaffleChannel ──WebSocket──▶ phones (Workers)
+organizer, projector ──▶ app ──ingress──▶ Restate ──▶ Raffle (engine host)  ──▶ database (the record)
+phones ────────────────▶ app ◀── database                      └──nudge──▶ RaffleRoom ──WebSocket──▶ phones (Workers)
 ```
 
 ### 8.3 Routes
@@ -241,24 +247,24 @@ phones ────────────────▶ app ◀── databas
 | Data | Owner |
 |---|---|
 | Raffles, prizes, entrants (personal data), consents, claim codes, token hashes, audit | the database. Personal data never leaves the app. |
-| The manifest and its hash | the database, written before the drawing opens. |
-| The drawing (manifest + event log) | the database, written by the engine after every change: the projection, and the record. The newest version wins. |
-| The live drawing | the engine (Restate object state), from opening to finish. |
+| The manifest and its hash | the database, written before the raffle opens. |
+| The raffle's log (manifest + event log, `raffles.log`) | the database, written by the engine after every change: the projection, and the record. The newest version wins. |
+| The live raffle | the engine (Restate object state), from opening to finish. |
 | Erasures | the database (`erasures`: entrant ID and time only); a restore must re-apply them. |
-| The participant view | `RaffleChannel` (Workers), built from one snapshot (`Snapshot::participant_view`); destroyed when live updates end. |
+| The participant view | `RaffleRoom` (Workers), built from one snapshot (`rafi_cloudflare::participant_view`); destroyed when live updates end. |
 
-### 8.5 The drawing engine
+### 8.5 The raffle engine
 
-The app sees an engine only as `DrawingEngine` (`info`, `open`, `draw`, `decide`) and can't tell `LocalEngine` from
+The app sees an engine only as `Engine` (`info`, `open`, `draw`, `decide`) and can't tell `LocalEngine` from
 Restate. The contract is documented in `crates/engine/src/engine.rs` and checked by the conformance suite on both:
 state is read from the projection; opening is idempotent per manifest; draws are accepted asynchronously (a refused
-draw is silent, so the app checks `Drawing::admit` first) and decisions apply when the call returns; commands for one
-drawing apply one at a time, so a decision sent during a draw queues behind it (past the client's deadline,
+draw is silent, so the app checks `Raffle::admit` first) and decisions apply when the call returns; commands for one
+raffle apply one at a time, so a decision sent during a draw queues behind it (past the client's deadline,
 `RESTATE_TIMEOUT_SECS` = 90, the call returns `Pending` and the command still applies once); a command ID applies
 once, and reused with another command answers like the first and applies nothing; the projection is the record (an
 engine retries a failed write and applies nothing else meanwhile, an abandon included); after finish the engine
-forgets the drawing, and callers must not open it again (past Restate's 1 h idempotency retention it would open,
-unpublished); a `DrawingNotifier` bounds its own time. `Unavailable` doesn't mean "not applied": retrying with the
+forgets the raffle, and callers must not open it again (past Restate's 1 h idempotency retention it would open,
+unpublished); a `Observer` bounds its own time. `Unavailable` doesn't mean "not applied": retrying with the
 same command ID is safe.
 
 ### 8.6 Live updates
@@ -267,19 +273,36 @@ same command ID is safe.
   view** (state, the current draw, the last draw that wasn't a no-show, winners by entrant ID, prizes left) has no
   personal data beyond the last drawn entrant's public name. The **full view** (projector, admin) adds the count,
   recent names, prizes, every draw and the server's time.
-- **Phones** follow the server's `LiveTransport`: the raffle's `RaffleChannel` on Workers, polling
-  `/api/r/{slug}/participant` natively. They accept only a newer `v`.
+- **Phones** follow the raffle as the server's `Follow` says: over its participant channel (the raffle's
+  `RaffleRoom` on Workers), or polling `/api/r/{slug}/participant` natively. They accept only a newer `v`.
+- **Each deployment's `LiveUpdates`** (`rafi-live-server`) pairs its `Notifier` with how clients follow a raffle, a
+  function of that notifier and the raffle's ID (a Mercure topic would name the raffle): `LiveUpdates::polling()`
+  natively, `DurableObjects` and `DurableObjects::follow` on Workers. Once live updates end, clients poll.
 - **The projector and admin** poll the full view every 2.5 s while the raffle is live (accepting `v >=`, since recent
   names change with time); on Workers they reveal the winner from the participant channel too.
-- **`RaffleChannel`** is nudged by the app (lifecycle, edits; not joins) and by the engine host after each drawing
-  write. It reads the raffle in one D1 batch and publishes by `rafi_live::publish::decide`; a 15 s alarm repairs a
+- **`RaffleRoom`** is nudged by the app (lifecycle, edits; not joins) and by the engine host after each raffle
+  write. It reads the raffle in one D1 batch and publishes by `rafi_live_server::publish::decide`; a 15 s alarm repairs a
   lost nudge. **End live updates**, deleting or purging the raffle, or the Cron a day after it finished destroys it
   (final view, sockets closed with 4403, storage deleted).
+
+| Term | Meaning | Not |
+|---|---|---|
+| **Live updates** | A raffle's changes pushed to screens and phones, until the organizer ends them | realtime, stream |
+| **Participant view** | The slim, public state a phone's card renders from | phone view |
+| **Participant channel** | The partyline channel carrying the latest participant view, one per raffle (`ParticipantChannel`) | feed, topic |
+| **Follow** | How a client keeps its view fresh: poll, partyline or (reserved) SSE (`Follow`) | transport, subscription |
+| **Notifier** | The server side: "this raffle changed", "end its live updates" | publisher |
+| **Live channel** | A raffle's participant channel as hosted | hub |
+| **Raffle room** | On Workers, the Durable Object hosting one raffle's live channel (`RaffleRoom`) | channel, hub |
+
+"Follows the raffle" also says that `RaffleState` mirrors the raffle's progress (`follows_raffle`); that is the
+lifecycle's sense, unrelated to `Follow`.
 
 ## 9. Abuse and remote entries
 
 - **One entry per normalized email per raffle** (`UNIQUE(raffle_id, email_norm)`). No fingerprinting.
-- **Proof-of-work** on the join form, verified with HMAC and redeemed once (a table, so it holds on Workers).
+- **Proof-of-work** on the join form (ALTCHA v2, PBKDF2/SHA-256): the challenge is HMAC-signed, the solution
+  verified with `altcha::verify_solution`, and each challenge redeemed once by its nonce (a table, so it holds on Workers).
 - **Rate limits** per raffle (600/min) and per raffle and email (5/min), never per IP: a venue shares one. On Workers
   they're bindings (soft, per location); the hard limit is the entrant cap in the database (`RAFI_MAX_ENTRANTS`,
   2000). Edge protection by IP is the platform's (Cloudflare, or Caddy).
@@ -287,7 +310,7 @@ same command ID is safe.
   claim"; the organizer can remove entrants before the freeze; the no-show rule does the rest. Rotating QR codes were
   rejected (scan failures).
 - **Display names:** a blocklist, hide or rename in one tap, a 5 s delay on the projector. Hidden names show as
-  ★ ★ ★ (`rafi_live::public_name`).
+  ★ ★ ★ (`rafi_live_client::public_name`).
 
 ## 10. Privacy and legal (Hungary / EU)
 
@@ -302,26 +325,26 @@ same command ID is safe.
 - **Lawful basis:** Art. 6(1)(b) to run the draw and deliver prizes; 6(1)(f) for duplicate and abuse checks; 6(1)(a),
   a separate, optional, unticked consent, for emails about future meetups (Planet49, Grt. 6. §, NAIH-6372/2012). The
   consent version is stored with each entry.
-- **Privacy notice** (`/privacy/{slug}`, Hungarian and English): controller, purposes and bases, processors
+- **Privacy notice** (`/privacy/{slug}`): controller, purposes and bases, processors
   (the host; Restate GmbH, DE, anonymous IDs only; Clerk, Inc., US under the DPF, organizers only), retention,
   rights, the NAIH. It names Hetzner as the host today; on Workers it must name Cloudflare, Inc. (US, DPF/SCCs) and
   say that D1 Time Travel keeps erased data up to 30 more days.
-- **Cookies:** the entry and language cookies are strictly necessary: no banner, no analytics.
+- **Cookies:** the entry cookie is strictly necessary: no banner, no analytics.
 - **Minimisation:** a display name and an email (optional for entrants the organizer adds). Emails never appear on
   the projector, in either view, or in Restate.
 - **Retention:** the hourly run dates a finished raffle's erasure (`RAFI_RETENTION_DAYS` /
   `RAFI_RETENTION_WINNERS_DAYS`, 30 / 90) the first time it sees it, then erases what is due: names, emails, tokens
-  and claim codes go; entrant IDs and the drawing stay. Natively erasure is opt-in (`RAFI_RETENTION`); on Workers it
+  and claim codes go; entrant IDs and the raffle's log stay. Natively erasure is opt-in (`RAFI_RETENTION`); on Workers it
   is on unless switched off. The admin warns when the run is stale; the organizer can erase by hand.
 - **Restate** gets anonymous IDs and the manifest only, keeps journals and idempotency keys for 1 h, and forgets a
-  drawing at finish. It has no public DPA: ask, and list it in the notice.
+  raffle at finish. It has no public DPA: ask, and list it in the notice.
 - **On Workers:** D1 created with `--jurisdiction eu`, Durable Objects from an EU-jurisdiction namespace (fixed at
   creation); invocation logs off; no personal data in logs.
 
 ## 11. Hosting and operations
 
-- **Production (planned): Cloudflare Workers.** The app Worker (with `RaffleChannel`), `rafi-restate-worker` and one
-  D1 database ([workers-plan.md](workers-plan.md); the comments in `crates/app/wrangler.toml` and
+- **Production (planned): Cloudflare Workers.** The app Worker (with `RaffleRoom`), `rafi-restate-worker` and one
+  D1 database ([workers-plan.md](workers-plan.md); the comments in `crates/app-worker/wrangler.toml` and
   `crates/restate-worker/wrangler.toml`). Missing secrets stop a Worker; dev auth and mock drand are compiled out of
   release builds.
 - **Self-hosting: the native server.** `deploy/compose.yaml` runs Caddy, the app and `restate-rafi` on one VM
@@ -337,10 +360,10 @@ same command ID is safe.
 ## 12. Status
 
 **Verified, locally and in CI:**
-- `rafi-drawing` and `rafi-raffle`: unit, property and vector tests, among them an exhaustive `start::next` table,
-  a chi-square bias test of the selection, and properties that what `Drawing::admit` allows the engine can apply
+- `rafi-raffle` and `rafi-lifecycle`: unit, property and vector tests, among them an exhaustive `start::next` table,
+  a chi-square bias test of the selection, and properties that what `Raffle::admit` allows the engine can apply
   and that only claimed winners are deliverable. `tools/verify.py` agrees with the vectors.
-- The engine conformance suite on `LocalEngine` and on the `Drawing` object against `restate-server` 1.7.13.
+- The engine conformance suite on `LocalEngine` and on the `Raffle` object against `restate-server` 1.7.13.
 - The storage conformance suite on SQLite, an embedded Postgres 18, Postgres 16 (CI) and D1 under `wrangler dev`.
 - The app: use-case tests (`crates/app-core/tests/use_cases.rs`), HTTP tests, and an end-to-end test of the app,
   `restate-rafi` and `restate-server` on one database.
@@ -377,14 +400,40 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   Restate object is `Drawing`. Offline draws dropped (`7b8721f`).
 - **7** (2026-10-10). The engine contract in its own crate, `rafi-engine`; the Restate engine is `rafi-engine-restate`,
   with the SDK's generated client; `restate-rafi-client` and `raffles.engine` gone.
-- **8** (2026-10-10). `rafi-core` is `rafi-raffle` (`746f3a0`) and holds all the raffle's rules; the engine carries no app
-  policy; Workers planned for production, the native server kept for self-hosting.
+- **8** (2026-10-10). `rafi-core` is `rafi-raffle` (`746f3a0`; now `rafi-lifecycle`) and holds all the raffle's rules;
+  the engine carries no app policy; Workers planned for production, the native server kept for self-hosting.
 - **9** (2026-10-10). `rafi-engine` free of `rafi-platform` and Dioxus (`Notify` to `rafi-platform`, the publish rule to
   `rafi_live::publish`, `Card` behind `card`); the engine contract tidied and stated (reused command IDs, the
   projection as the record, no reopening, notifier deadlines); `rafi-raffle` gains settings normalization,
   `may_join`, `fakes`, `deliverable` (claimed winners only); `Start::Commit` is `Start::WriteManifest`; new crates
   `rafi-model` and `rafi-app-core`; entrant patches all-or-nothing, entrant and prize writes guarded on the raffle's
   state, the admin recovers a raffle frozen without a manifest. This document rewritten as the current state.
+- **10** (2026-10-10). The drawing is the raffle ([raffle-plan.md](raffle-plan.md)): `rafi-drawing` is `rafi-raffle`
+  (`Raffle`, `RaffleId`; the manifest names its `raffle`), the app's rules are `rafi-lifecycle`, the engine contract is
+  `RaffleEngine` / `RaffleStore` / `RaffleNotifier`, the Restate object is `Raffle` again, and the row stores it as
+  `raffles.log`. Draws and items keep their names.
+- **11** (2026-10-14). `rafi-platform` dissolved: the engine contract is `Engine` / `Store` / `Observer`; `rafi-live`
+  split into `rafi-live-client` (the phone's) and `rafi-live-server`, whose `Notifier` is an `Observer` that can also
+  end live updates, so a deployment hands its notifier to the engine as is (`Notify` gone); `RateLimit` is
+  `rafi-app-core`'s, its Workers bindings the app Worker's; `LiveUpdates` moved to `rafi-live-server`; the
+  proof-of-work is its own crate, `rafi-altcha`.
+- **12** (2026-10-15). `rafi-app-core` is the use-case layer the HTTP side only maps: joining runs the rate limits,
+  the proof-of-work and the join (`JoinRequest`); the participant and public pages read through `app_core::public`;
+  the retention run is `app_core::retention`, and the server says whether erasure looks stopped
+  (`Me.retention_stale`). `rafi_model::Lifecycle` is `LifecycleCommand`; an entrant's source is
+  `rafi_lifecycle::entrant::Source`. The admin API is declared once, in `rafi-model`; the public pages render in
+  `rafi-pages`. The app crate is split by what each build is: `rafi-web` (`dx`), `rafi-server` (axum, binary `rafi`)
+  and `rafi-app-worker` (the Worker); no more `server`/`web`/`worker` features.
+- **13** (2026-10-15). English only, for now: `Lang` and the Hungarian text are gone, and so are the language
+  switch, its cookie and the raffle's `lang` setting (`0009_drop_raffle_lang.sql`). The pages hold their English text
+  inline; `CardStrings::default()` is the phone card's.
+- **14** (2026-10-15). The icons are `dioxus-icons`' Lucide components, used directly. With the language and the
+  icons gone, `rafi-pages` shared nothing with the web app: the public pages render in `rafi-server` (`pages`).
+- **15** (2026-10-15). The proof-of-work is ALTCHA v2 ([dioxus-altcha-plan.md](dioxus-altcha-plan.md)): the server
+  issues and verifies with the official `altcha` crate (PBKDF2/SHA-256, `RAFI_ALTCHA_COST` replaces
+  `RAFI_ALTCHA_MAX`; patched for Workers' clocks until upstream releases), and records each challenge's nonce. Phones
+  solve with `dioxus-altcha`, a reusable crate in this workspace: Web Workers on WebCrypto, from
+  `/participant/altcha-worker.js`, which `fallback.js` uses too. `rafi-altcha` is gone.
 
 ## Appendix: key sources
 

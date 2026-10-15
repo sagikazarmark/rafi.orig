@@ -2,14 +2,14 @@
 
 use std::collections::HashSet;
 
-use rafi_model::EntrantPatch;
-use rafi_raffle::{
-    self as raffle,
+use rafi_lifecycle::{
+    self as lifecycle,
     entrant::{self, Email, JoinRefusal, NameError, Removal},
 };
+use rafi_model::EntrantPatch;
 use rafi_store::{RaffleRow, audit, entrants, raffles};
 
-use crate::{App, Error, Refusal, Result, ids, owned, view::NAME_DELAY_SECS};
+use crate::{App, Error, Limit, Refusal, Result, altcha, ids, owned, view::NAME_DELAY_SECS};
 
 /// Version of the consent text shown on the join form.
 pub const CONSENT_VERSION: &str = "2026-10-01";
@@ -50,20 +50,77 @@ pub enum JoinError {
     Rules,
     #[error("the raffle is full")]
     Full,
+    /// Over a join rate limit: too many joins for this raffle or this email
+    /// address just now.
+    #[error("too many joins; try again later")]
+    Limited,
+    /// The proof-of-work is missing, invalid, expired or already used.
+    #[error("no valid proof-of-work")]
+    Proof,
     /// The database failed; trying again later may work.
     #[error("the join failed")]
     Failed,
 }
 
-/// Self-service join from the participant page.
+/// What the join form posts.
+#[derive(Debug, Clone, Copy)]
+pub struct JoinRequest<'a> {
+    pub name: &'a str,
+    pub email: &'a str,
+    /// The raffle rules and the privacy notice were accepted.
+    pub rules: bool,
+    /// Consent to emails about future meetups.
+    pub marketing: bool,
+    /// The solved proof-of-work, as the form posts it (base64 JSON).
+    pub proof: &'a str,
+}
+
+/// Self-service join from the participant page: the rate limits, then the
+/// proof-of-work, then the join itself.
 pub async fn join(
     app: &App,
     raffle: &RaffleRow,
-    name: &str,
-    email: &str,
-    rules: bool,
-    marketing: bool,
+    req: &JoinRequest<'_>,
 ) -> std::result::Result<JoinOutcome, JoinError> {
+    // An email that doesn't normalize is refused by the join itself; it gets
+    // no per-email bucket, rather than one shared by every malformed address.
+    let email_key = Email::parse(req.email).map(|e| e.key);
+    let limited = !app.limiter.allow(Limit::JoinPerRaffle, &raffle.id).await
+        || match &email_key {
+            Some(key) => {
+                !app.limiter
+                    .allow(Limit::JoinPerEmail, &format!("{}:{key}", raffle.id))
+                    .await
+            }
+            None => false,
+        };
+    if limited {
+        return Err(JoinError::Limited);
+    }
+    match altcha::redeem(app, req.proof).await {
+        Ok(true) => {}
+        Ok(false) => return Err(JoinError::Proof),
+        Err(e) => {
+            tracing::error!(error = %e, "redeeming a proof-of-work");
+            return Err(JoinError::Failed);
+        }
+    }
+    enter(app, raffle, req).await
+}
+
+/// The join itself, once the abuse checks passed.
+async fn enter(
+    app: &App,
+    raffle: &RaffleRow,
+    req: &JoinRequest<'_>,
+) -> std::result::Result<JoinOutcome, JoinError> {
+    let JoinRequest {
+        name,
+        email,
+        rules,
+        marketing,
+        ..
+    } = *req;
     // Closed first: nothing else matters then.
     if let Err(JoinRefusal::Closed) = entrant::may_join(raffle.state, true) {
         return Err(JoinError::Closed);
@@ -236,7 +293,7 @@ pub async fn patch_entrant(
         None => None,
     };
     if patch.delivered.is_some()
-        && !raffle::drawing::deliverable(raffle.drawing()?.as_ref(), entrant_id)
+        && !lifecycle::raffle::deliverable(raffle.drawn()?.as_ref(), entrant_id)
     {
         return Err(Refusal::NotDeliverable.into());
     }
@@ -258,7 +315,7 @@ pub async fn patch_entrant(
     audit::record(&app.db, raffle_id, owner, "patch_entrant", entrant_id).await?;
     // A drawn entrant's name is on the phones.
     if patch.display_name.is_some() || patch.hidden.is_some() {
-        app.notifier.notify(raffle_id).await;
+        app.live_updates.notify(raffle_id).await;
     }
     Ok(())
 }
@@ -294,7 +351,7 @@ pub async fn remove_entrant(
         }
         None => return Ok(()),
     }
-    app.notifier.notify(raffle_id).await;
+    app.live_updates.notify(raffle_id).await;
     Ok(())
 }
 
@@ -302,14 +359,14 @@ pub async fn remove_entrant(
 /// its live channel.
 pub async fn purge(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
-    if raffle.state.apply(raffle::Command::Purge).is_none() {
+    if raffle.state.apply(lifecycle::Command::Purge).is_none() {
         return Err(Refusal::NotPurgeable.into());
     }
     entrants::erase(&app.db, raffle_id, None).await?;
     raffles::mark_purged(&app.db, raffle_id).await?;
     audit::record(&app.db, raffle_id, owner, "purge", "").await?;
     // Destroying the channel publishes the final (erased) view first.
-    app.notifier.end(raffle_id).await?;
+    app.live_updates.end(raffle_id).await?;
     Ok(())
 }
 
@@ -325,6 +382,6 @@ pub async fn end_live(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
     if raffle.live_ended_at.is_none() {
         audit::record(&app.db, raffle_id, owner, "end_live", "").await?;
     }
-    app.notifier.end(raffle_id).await?;
+    app.live_updates.end(raffle_id).await?;
     Ok(())
 }

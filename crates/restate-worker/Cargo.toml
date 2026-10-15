@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The Rafi draw engine (the `Drawing` Restate virtual object) as a Cloudflare Worker"
+description = "The Rafi draw engine (the `Raffle` Restate virtual object) as a Cloudflare Worker"
 publish = false
 
 [lib]
@@ -13,20 +13,17 @@ crate-type = ["cdylib", "rlib"]
 [features]
 ## Development only: accept requests without Restate identity keys, and allow
 ## `RAFI_DRAND_MOCK=1` (a public test chain). Never in a release build.
-dev = ["rafi-drand/mock"]
+dev = ["rafi-engine/mock-drand"]
 
 [dependencies]
-rafi-drand = { path = "../drand" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = "1"
 http = "1"
 http-body-util = "0.1"
-rafi-cloudflare = { path = "../cloudflare" }
-rafi-platform = { path = "../platform" }
-rafi-store.workspace = true
-rafi-engine = { path = "../engine" }
-rafi-engine-restate = { path = "../engine-restate" }
-rafi-raffle.workspace = true
+rafi-cloudflare = { workspace = true }
+rafi-store = { workspace = true }
+rafi-engine = { workspace = true, features = ["drand"] }
+rafi-engine-restate = { workspace = true }
 restate-sdk = { workspace = true, features = ["rust_crypto"] }
 worker = { version = "0.8.7", features = ["http"] }

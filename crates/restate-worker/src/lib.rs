@@ -1,7 +1,7 @@
-//! The Rafi drawing engine on Cloudflare Workers.
+//! The Rafi raffle engine on Cloudflare Workers.
 //!
 //! Restate calls this Worker over HTTPS in request-response mode; each request
-//! is handed to the SDK's [`Endpoint`]. This crate only wires the drawing engine
+//! is handed to the SDK's [`Endpoint`]. This crate only wires the raffle engine
 //! to Cloudflare: draw states go to D1 (the record) through rafi-store, then
 //! the raffle's Durable Object is nudged, best effort, through
 //! `rafi-cloudflare`.
@@ -18,13 +18,12 @@
 
 #![cfg(target_arch = "wasm32")]
 
-use std::{cell::OnceCell, rc::Rc};
+use std::{cell::OnceCell, rc::Rc, sync::Arc};
 
 use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
-use rafi_drand::{DrandClient, DrandConfig};
-use rafi_platform::Notify;
-use rafi_store::DrawWriter;
+use rafi_engine::drand::{DrandClient, DrandConfig};
+use rafi_store::RaffleWriter;
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};
 use worker::{Context, Env, HttpRequest, Result, event};
 
@@ -39,14 +38,11 @@ fn drand_config(env: &Env) -> DrandConfig {
 
 /// The SDK endpoint over the Worker's bindings.
 fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
-    let store = DrawWriter::new(rafi_cloudflare::database(env)?);
+    let store = RaffleWriter::new(rafi_cloudflare::database(env)?);
     let drand = DrandClient::new(drand_config(env))?;
-    // A drawing's changes go to its raffle's channel.
-    let notifier = Notify::new(
-        DurableObjects::new(env.clone()),
-        rafi_raffle::drawing::raffle_id,
-    );
-    let (drawing, info) = rafi_engine_restate::services(drand, store, notifier);
+    // A raffle's changes go to its room.
+    let observer = Arc::new(DurableObjects::new(env.clone()));
+    let (raffle, info) = rafi_engine_restate::services(drand, store, Some(observer));
     let mut builder = Endpoint::builder();
     let keys = lookup(env, "RESTATE_IDENTITY_KEYS").unwrap_or_default();
     let keys: Vec<&str> = keys
@@ -62,7 +58,7 @@ fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
             .identity_key(key)
             .map_err(|e| anyhow::anyhow!("invalid identity key: {e:?}"))?;
     }
-    Ok(builder.bind(drawing).bind(info).build())
+    Ok(builder.bind(raffle).bind(info).build())
 }
 
 thread_local! {

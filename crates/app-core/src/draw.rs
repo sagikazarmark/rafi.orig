@@ -1,18 +1,19 @@
 //! Starting the draw and sending it the organizer's commands.
 
-use rafi_drawing::{
-    BeaconSource, Command, Decision, DrawRequest, Manifest, ManifestHash, ManifestItem, Resolution,
-};
 use rafi_engine::EngineError;
-use rafi_raffle::{
-    self as raffle, RaffleState,
+use rafi_lifecycle::{
+    self as lifecycle, RaffleState,
     start::{self, Start},
+};
+use rafi_raffle::{
+    BeaconSource, Command, Decision, DrawRequest, Manifest, ManifestHash, ManifestItem, RaffleId,
+    Resolution,
 };
 use rafi_store::{audit, entrants, prizes, raffles};
 
 use crate::{App, Error, Refusal, Result, owned};
 
-/// A call to the drawing engine, as the organizer sees it. A call the engine
+/// A call to the raffle engine, as the organizer sees it. A call the engine
 /// accepted but hasn't settled yet ([`EngineError::Pending`]) succeeds: it
 /// applies once, and the screens follow the projection.
 fn confirmed(result: std::result::Result<(), EngineError>) -> Result<()> {
@@ -22,8 +23,8 @@ fn confirmed(result: std::result::Result<(), EngineError>) -> Result<()> {
     }
 }
 
-/// Closes registration, freezes the entrant list, writes the drawing's
-/// manifest from it, and hands that to the drawing engine.
+/// Closes registration, freezes the entrant list, writes the raffle's
+/// manifest from it, and hands that to the raffle engine.
 ///
 /// Each step is its own write ([`start`]), so calling it again picks up
 /// where an attempt stopped: a raffle left frozen without a manifest gets
@@ -35,7 +36,7 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
     let engine = app.engine()?;
     let info = engine.info().await?;
     // The app decides the beacon source; the engine would refuse another
-    // when the drawing opens, after the manifest is stored. Refuse before
+    // when the raffle opens, after the manifest is stored. Refuse before
     // anything is frozen.
     let beacon = BeaconSource::Drand(app.chain);
     if info.beacon != beacon {
@@ -49,7 +50,7 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
     let next = start::next(
         raffle.state,
         raffle.manifest.is_some(),
-        raffle.drawing.is_some(),
+        raffle.log.is_some(),
     )
     .map_err(Refusal::Start)?;
     let manifest = match next {
@@ -62,7 +63,7 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
             if !raffles::freeze(&app.db, id, from).await? {
                 return Err(Refusal::Changed.into());
             }
-            app.notifier.notify(id).await;
+            app.live_updates.notify(id).await;
             write_manifest(app, owner, id, items, from).await?
         }
         Start::WriteManifest { unfreeze_to } => {
@@ -75,14 +76,14 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
         Start::Started => return Ok(()),
     };
 
-    // The engine writes the opened drawing and nudges the channel itself.
+    // The engine writes the opened raffle and nudges the channel itself.
     confirmed(engine.open(&manifest).await)
 }
 
-/// The drawing's items for a raffle's prizes (one per copy), in draw order.
+/// The raffle's items for its prizes (one per copy), in draw order.
 async fn items(app: &App, id: &str) -> Result<Vec<ManifestItem>> {
     let prizes = prizes::list(&app.db, id).await?;
-    Ok(raffle::drawing::items(prizes.iter().map(|i| {
+    Ok(lifecycle::raffle::items(prizes.iter().map(|i| {
         (
             i.id.as_str(),
             i.name.as_str(),
@@ -112,12 +113,12 @@ async fn write_manifest(
             .unfreeze(unfreeze_to)
             .ok_or_else(|| anyhow::anyhow!("cannot unfreeze to {}", unfreeze_to.as_str()))?;
         raffles::unfreeze(&app.db, id, to).await?;
-        app.notifier.notify(id).await;
+        app.live_updates.notify(id).await;
         return Err(Refusal::Start(refusal).into());
     }
-    // The app alone decides the chain; the drawing engine refuses a mismatch.
+    // The app alone decides the chain; the raffle engine refuses a mismatch.
     let manifest =
-        raffle::drawing::manifest(id, BeaconSource::Drand(app.chain), entrant_ids, items);
+        lifecycle::raffle::manifest(id, BeaconSource::Drand(app.chain), entrant_ids, items);
     let json = manifest.canonical_json();
     let hash = ManifestHash::of(&json).to_string();
     if !raffles::set_manifest(&app.db, id, &json, &hash).await? {
@@ -145,13 +146,13 @@ pub async fn command(
     if !raffle.state.drawable() {
         return Err(Refusal::NotDrawing.into());
     }
-    let state = raffle.drawing()?.ok_or(Refusal::NotOpened)?;
+    let state = raffle.drawn()?.ok_or(Refusal::NotOpened)?;
 
     // Checked against the projection for immediate, friendly errors: a draw
     // the engine refused would go unnoticed.
     state.admit(&cmd).map_err(|error| match error {
-        rafi_drawing::Error::UnknownItem(_) => Error::NotFound,
-        error => Refusal::Drawing {
+        rafi_raffle::Error::UnknownItem(_) => Error::NotFound,
+        error => Refusal::Raffle {
             command: Some(cmd.clone()),
             error,
         }
@@ -161,17 +162,17 @@ pub async fn command(
     send(app, owner, id, cmd, command_id).await
 }
 
-/// Hands a validated command to the drawing engine, which writes the new
+/// Hands a validated command to the raffle engine, which writes the new
 /// state and nudges the channel itself, and audits it once the engine took it
 /// (applied, or accepted and queued). A command the engine refused, or
 /// couldn't be asked, isn't audited: the organizer's retry (same command ID,
 /// applied once) is.
 async fn send(app: &App, owner: &str, id: &str, cmd: Command, command_id: &str) -> Result<()> {
     let engine = app.engine()?;
-    let drawing = raffle::drawing::drawing_id(id);
+    let raffle = RaffleId::new(id);
     confirmed(match &cmd {
-        Command::Draw(request) => engine.draw(&drawing, request, command_id).await,
-        Command::Decide(decision) => engine.decide(&drawing, decision, command_id).await,
+        Command::Draw(request) => engine.draw(&raffle, request, command_id).await,
+        Command::Decide(decision) => engine.decide(&raffle, decision, command_id).await,
     })?;
     let (action, detail) = audited(&cmd);
     audit::record(&app.db, id, owner, action, &detail).await?;

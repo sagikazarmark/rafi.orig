@@ -1,6 +1,6 @@
 # The draw engine on Cloudflare Workers. The top level is production;
 # `[env.dev]` runs next to the app's dev Worker (rafi-dev) and `[env.check]`
-# next to crates/cloudflare-check (scripts/workers-check.sh).
+# next to testbeds/cloudflare (scripts/workers-check.sh).
 #
 # Before the first deploy:
 #   wrangler secret put RESTATE_IDENTITY_KEYS   # the Restate environment's public key(s)
@@ -16,17 +16,17 @@ preview_urls = false
 [build]
 command = "worker-build --release"
 
-# The app's database: the same D1 as crates/app/wrangler.toml.
+# The app's database: the same D1 as crates/app-worker/wrangler.toml.
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000" # the app's D1 ID
 migrations_dir = "../../migrations"
 
-# The app's live channels (the RaffleChannel class lives in the `rafi` Worker).
+# The app's live channels (the RaffleRoom class lives in the `rafi` Worker).
 [[durable_objects.bindings]]
-name = "RAFFLE_CHANNEL"
-class_name = "RaffleChannel"
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
 script_name = "rafi"
 
 [observability]
@@ -35,7 +35,7 @@ enabled = false
 [vars]
 RAFI_DO_JURISDICTION = "eu"
 
-# Next to the app's dev Worker (`wrangler dev --env dev` in crates/app).
+# Next to the app's dev Worker (`wrangler dev --env dev` in crates/app-worker).
 [env.dev]
 workers_dev = true
 
@@ -49,8 +49,8 @@ database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "../../migrations"
 
 [[env.dev.durable_objects.bindings]]
-name = "RAFFLE_CHANNEL"
-class_name = "RaffleChannel"
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
 script_name = "rafi-dev"
 
 [env.dev.vars]
@@ -58,7 +58,7 @@ RAFI_DO_JURISDICTION = "" # workerd doesn't implement jurisdictions
 RAFI_DRAND_MOCK = "1"
 RAFI_DRAND_LEAD_SECS = "3"
 
-# Next to crates/cloudflare-check (scripts/workers-check.sh).
+# Next to testbeds/cloudflare (scripts/workers-check.sh).
 [env.check]
 workers_dev = true
 
@@ -72,8 +72,8 @@ database_id = "00000000-0000-0000-0000-000000000001"
 migrations_dir = "../../migrations"
 
 [[env.check.durable_objects.bindings]]
-name = "RAFFLE_CHANNEL"
-class_name = "RaffleChannel"
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
 script_name = "rafi-cloudflare-check"
 
 [env.check.vars]

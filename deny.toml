@@ -31,6 +31,9 @@ allow-git = [
   # restate-sdk made safe on wasm32 (Cloudflare Workers); upstream PR open.
   # Remove with the [patch.crates-io] entry once it's released.
   "https://github.com/sagikazarmark/restate-sdk-rust",
+  # altcha with web-time (wasm32 clocks); upstream PR open.
+  # Remove with the [patch.crates-io] entry once it's released.
+  "https://github.com/sagikazarmark/altcha-lib-rs",
 ]
 
 [advisories]
@@ -39,4 +42,9 @@ ignore = [
   # private-key decryption/signing; Rafi only verifies Clerk JWT signatures with
   # public keys. No fixed `rsa` release exists yet.
   { id = "RUSTSEC-2023-0071", reason = "only RSA signature verification with public keys is used" },
+  # unsafe-libyaml is unmaintained (not a vulnerability), via figment's `yaml`
+  # in restate-rafi-endpoint. It only parses the operator's own config file;
+  # deployments configure the endpoint with RESTATE_RAFI_* variables. Drop
+  # YAML config files there if a vulnerability is ever reported.
+  { id = "RUSTSEC-2024-0449", reason = "unmaintained; parses only the operator's own config file" },
 ]

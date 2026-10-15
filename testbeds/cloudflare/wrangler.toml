@@ -1,0 +1,29 @@
+# Local only: drives rafi-cloudflare's Durable Object (see scenario.mjs).
+name = "rafi-cloudflare-check"
+main = "build/index.js"
+compatibility_date = "2026-05-01"
+
+[build]
+command = "worker-build --release"
+
+# The participant WASM (scripts/participant.sh site/participant), served at /participant/.
+[assets]
+directory = "./site"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rafi-cloudflare-check"
+database_id = "00000000-0000-0000-0000-000000000001"
+migrations_dir = "../../migrations"
+
+[[durable_objects.bindings]]
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RaffleRoom"]
+
+# workerd (wrangler dev) doesn't implement jurisdictions; production uses "eu".
+[vars]
+RAFI_DO_JURISDICTION = ""

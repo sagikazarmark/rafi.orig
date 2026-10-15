@@ -4,13 +4,26 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The raffle for Rafi: its lifecycle and rules, how it starts and uses a drawing, its entrants and settings"
+description = "Rafi's raffle: a verifiable raffle of items among entrants (the state machine, the draw algorithm, the manifest and the verifier)"
+
+[features]
+## `mock-chain`: the mock drand chain, a test chain with a public seed
+## (development and tests only; raffles on it are not publicly verifiable).
+mock-chain = ["drand/test-chain"]
 
 [dependencies]
-rafi-drawing.workspace = true
-serde.workspace = true
+drand = { workspace = true, features = ["bls12-381"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 drand = { workspace = true, features = ["test-chain"] }
+rafi-raffle = { path = ".", features = ["mock-chain"] }
 proptest = "1"
-serde_json.workspace = true
+sha2 = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }

@@ -3,11 +3,11 @@
 //! The freeze is three steps, since D1 has no interactive transactions:
 //! [`freeze`] closes registration, the caller reads the now-fixed entrant list
 //! ([`entrants::active_ids`](crate::entrants::active_ids)), then
-//! [`set_manifest`] stores the drawing's manifest (or [`unfreeze`] reverts when nobody is left).
+//! [`set_manifest`] stores the raffle's manifest (or [`unfreeze`] reverts when nobody is left).
 //! Each step is guarded by the state it expects, so retrying is safe.
 
-use rafi_drawing::Drawing;
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
+use rafi_raffle::Raffle;
 use serde::Deserialize;
 
 use crate::{Db, Query, Result, now, prizes::PrizeFields};
@@ -32,7 +32,6 @@ pub struct RaffleRow {
     pub join_code: String,
     pub title: String,
     pub description: String,
-    pub lang: String,
     pub organizer_name: String,
     pub contact_email: String,
     pub rules: String,
@@ -44,8 +43,10 @@ pub struct RaffleRow {
     pub manifest: Option<String>,
     pub manifest_hash: Option<String>,
     pub frozen_at: Option<i64>,
-    pub drawing: Option<String>,
-    pub drawing_version: i64,
+    /// The raffle as its engine drew it ([`crate::save_raffle`]): the
+    /// manifest and the event log.
+    pub log: Option<String>,
+    pub log_version: i64,
     pub finished_at: Option<i64>,
     pub purge_nonwinners_at: Option<i64>,
     pub purge_winners_at: Option<i64>,
@@ -60,12 +61,9 @@ pub struct RaffleRow {
 }
 
 impl RaffleRow {
-    /// The drawing, once the engine has opened it.
-    pub fn drawing(&self) -> Result<Option<Drawing>> {
-        self.drawing
-            .as_deref()
-            .map(crate::parse_drawing)
-            .transpose()
+    /// The raffle as drawn, once the engine has opened it.
+    pub fn drawn(&self) -> Result<Option<Raffle>> {
+        self.log.as_deref().map(crate::parse_raffle).transpose()
     }
 }
 
@@ -97,7 +95,6 @@ pub struct NewRaffle<'a> {
 pub struct Settings<'a> {
     pub title: &'a str,
     pub description: &'a str,
-    pub lang: &'a str,
     pub organizer_name: &'a str,
     pub contact_email: &'a str,
     pub rules: &'a str,
@@ -166,12 +163,11 @@ pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<()> 
 
 fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     db.query(
-        "UPDATE raffles SET title = ?, description = ?, lang = ?, organizer_name = ?, contact_email = ?, rules = ?,
+        "UPDATE raffles SET title = ?, description = ?, organizer_name = ?, contact_email = ?, rules = ?,
          event_date = ?, min_age = ?, test_mode = ?, updated_at = ? WHERE id = ?",
     )
     .bind(s.title)
     .bind(s.description)
-    .bind(s.lang)
     .bind(s.organizer_name)
     .bind(s.contact_email)
     .bind(s.rules)

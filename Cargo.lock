@@ -75,6 +75,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "altcha"
+version = "1.0.0"
+source = "git+https://github.com/sagikazarmark/altcha-lib-rs?rev=d2f9476826fe0965d687bed142e920ca2b91430a#d2f9476826fe0965d687bed142e920ca2b91430a"
+dependencies = [
+ "digest 0.10.7",
+ "hex",
+ "hmac 0.12.1",
+ "pbkdf2",
+ "rand 0.8.8",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "thiserror 2.0.21",
+ "web-time",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -635,6 +653,12 @@ dependencies = [
  "bytes",
  "either",
 ]
+
+[[package]]
+name = "cast"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
@@ -1379,6 +1403,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "dioxus-altcha"
+version = "0.1.0"
+dependencies = [
+ "altcha",
+ "base64 0.22.1",
+ "dioxus",
+ "dioxus-altcha",
+ "dioxus-ssr",
+ "futures-channel",
+ "futures-util",
+ "getrandom 0.2.17",
+ "gloo-timers 0.3.0",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "dioxus-asset-resolver"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1729,6 +1777,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "dioxus-icons"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ae929a4cdde2e51fca98ccb8a8fe2ea11640e5026c57486b15dbd5618ba7e56"
+dependencies = [
+ "dioxus",
+ "dioxus-signals",
+ "lazy-js-bundle",
 ]
 
 [[package]]
@@ -3774,6 +3833,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "minicov"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d"
+dependencies = [
+ "cc",
+ "walkdir",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4103,6 +4172,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "oorandom"
+version = "11.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
+
+[[package]]
 name = "openssl-probe"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4279,6 +4354,16 @@ name = "pastey"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
+
+[[package]]
+name = "pbkdf2"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+dependencies = [
+ "digest 0.10.7",
+ "hmac 0.12.1",
+]
 
 [[package]]
 name = "pear"
@@ -4684,74 +4769,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
-name = "rafi"
+name = "rafi-app-core"
+version = "0.1.0"
+dependencies = [
+ "altcha",
+ "anyhow",
+ "base64 0.22.1",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "hex",
+ "rafi-engine",
+ "rafi-lifecycle",
+ "rafi-live-client",
+ "rafi-live-server",
+ "rafi-model",
+ "rafi-raffle",
+ "rafi-store",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "rafi-app-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "dioform",
- "dioxus",
  "dioxus-clerk",
- "dioxus-field",
- "dioxus-primitives",
- "futures-util",
- "getrandom 0.3.4",
- "gloo-net 0.6.0",
- "gloo-timers 0.3.0",
- "hex",
  "http",
- "http-body-util",
- "js-sys",
- "partyline-dioxus",
- "qrcode",
  "rafi-app-core",
  "rafi-cloudflare",
- "rafi-drand",
- "rafi-drawing",
  "rafi-engine",
- "rafi-engine-restate",
- "rafi-live",
- "rafi-model",
- "rafi-platform",
- "rafi-raffle",
- "rafi-store",
- "restate-e2e-harness",
- "restate-sdk",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "tower",
- "tower-http",
+ "rafi-live-server",
+ "rafi-server",
  "tower-service",
- "tracing",
- "uuid",
- "wasm-bindgen",
- "web-sys",
  "worker",
-]
-
-[[package]]
-name = "rafi-app-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "getrandom 0.3.4",
- "hex",
- "rafi-drand",
- "rafi-drawing",
- "rafi-engine",
- "rafi-live",
- "rafi-model",
- "rafi-platform",
- "rafi-raffle",
- "rafi-store",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -4761,8 +4816,10 @@ dependencies = [
  "anyhow",
  "js-sys",
  "partyline-worker",
- "rafi-live",
- "rafi-platform",
+ "rafi-engine",
+ "rafi-live-client",
+ "rafi-live-server",
+ "rafi-raffle",
  "rafi-store",
  "serde_json",
  "wasm-bindgen",
@@ -4773,41 +4830,16 @@ dependencies = [
 name = "rafi-cloudflare-check"
 version = "0.0.0"
 dependencies = [
+ "altcha",
  "dioxus",
+ "getrandom 0.2.17",
  "js-sys",
  "rafi-cloudflare",
- "rafi-drand",
- "rafi-drawing",
- "rafi-live",
- "rafi-platform",
+ "rafi-live-client",
+ "rafi-raffle",
  "rafi-store",
  "serde_json",
  "worker",
-]
-
-[[package]]
-name = "rafi-drand"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "drand",
- "reqwest 0.13.5",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "rafi-drawing"
-version = "0.1.0"
-dependencies = [
- "drand",
- "hex",
- "proptest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4815,9 +4847,10 @@ name = "rafi-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "rafi-drand",
- "rafi-drawing",
+ "drand",
  "rafi-engine",
+ "rafi-raffle",
+ "reqwest 0.13.5",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4834,10 +4867,8 @@ dependencies = [
  "futures-util",
  "gloo-timers 0.3.0",
  "http",
- "rafi-drand",
- "rafi-drawing",
  "rafi-engine",
- "rafi-platform",
+ "rafi-raffle",
  "reqwest 0.13.5",
  "restate-drand",
  "restate-e2e-harness",
@@ -4849,21 +4880,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-live"
+name = "rafi-lifecycle"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
- "dioxus",
- "dioxus-ssr",
- "hex",
- "hmac 0.12.1",
- "partyline",
- "rafi-drawing",
- "rafi-live",
+ "drand",
+ "proptest",
  "rafi-raffle",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+]
+
+[[package]]
+name = "rafi-live-client"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "dioxus-ssr",
+ "partyline",
+ "rafi-live-client",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rafi-live-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rafi-engine",
+ "rafi-lifecycle",
+ "rafi-live-client",
+ "rafi-raffle",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -4871,10 +4920,12 @@ name = "rafi-model"
 version = "0.1.0"
 dependencies = [
  "js-sys",
- "rafi-drawing",
- "rafi-live",
+ "rafi-lifecycle",
+ "rafi-live-client",
  "rafi-raffle",
  "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4882,12 +4933,13 @@ name = "rafi-participant"
 version = "0.1.0"
 dependencies = [
  "dioxus",
+ "dioxus-altcha",
  "futures-channel",
  "futures-util",
  "gloo-timers 0.3.0",
  "js-sys",
  "partyline-dioxus",
- "rafi-live",
+ "rafi-live-client",
  "serde",
  "serde_json",
  "wasm-bindgen",
@@ -4896,25 +4948,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-platform"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "rafi-drawing",
- "rafi-engine",
- "rafi-live",
- "tokio",
-]
-
-[[package]]
 name = "rafi-raffle"
 version = "0.1.0"
 dependencies = [
  "drand",
+ "hex",
  "proptest",
- "rafi-drawing",
+ "rafi-raffle",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4925,14 +4969,44 @@ dependencies = [
  "http",
  "http-body-util",
  "rafi-cloudflare",
- "rafi-drand",
  "rafi-engine",
  "rafi-engine-restate",
- "rafi-platform",
- "rafi-raffle",
  "rafi-store",
  "restate-sdk",
  "worker",
+]
+
+[[package]]
+name = "rafi-server"
+version = "0.1.0"
+dependencies = [
+ "altcha",
+ "anyhow",
+ "axum",
+ "dioxus",
+ "dioxus-clerk",
+ "dioxus-icons",
+ "hex",
+ "http-body-util",
+ "rafi-app-core",
+ "rafi-engine",
+ "rafi-engine-restate",
+ "rafi-lifecycle",
+ "rafi-live-client",
+ "rafi-live-server",
+ "rafi-model",
+ "rafi-raffle",
+ "rafi-store",
+ "restate-e2e-harness",
+ "restate-sdk",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -4944,9 +5018,8 @@ dependencies = [
  "js-sys",
  "libtest-mimic",
  "oliphaunt",
- "rafi-drawing",
  "rafi-engine",
- "rafi-live",
+ "rafi-lifecycle",
  "rafi-raffle",
  "rafi-store",
  "serde",
@@ -4966,6 +5039,34 @@ dependencies = [
  "rafi-store",
  "serde_json",
  "worker",
+]
+
+[[package]]
+name = "rafi-web"
+version = "0.1.0"
+dependencies = [
+ "dioform",
+ "dioxus",
+ "dioxus-clerk",
+ "dioxus-field",
+ "dioxus-icons",
+ "dioxus-primitives",
+ "futures-util",
+ "getrandom 0.3.4",
+ "gloo-net 0.6.0",
+ "gloo-timers 0.3.0",
+ "js-sys",
+ "partyline-dioxus",
+ "qrcode",
+ "rafi-lifecycle",
+ "rafi-live-client",
+ "rafi-model",
+ "rafi-raffle",
+ "serde",
+ "serde_json",
+ "uuid",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -5261,10 +5362,8 @@ dependencies = [
  "anyhow",
  "clap",
  "figment",
- "rafi-drand",
  "rafi-engine",
  "rafi-engine-restate",
- "rafi-platform",
  "rafi-raffle",
  "rafi-store",
  "restate-config",
@@ -5442,9 +5541,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "once_cell",
@@ -6402,7 +6501,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -7195,6 +7294,45 @@ checksum = "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "wasm-bindgen-test"
+version = "0.3.79"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae7499dfd45780a0a91d7ee6bb9ac51970a4479a41a89da443fdda5a39547d42"
+dependencies = [
+ "async-trait",
+ "cast",
+ "js-sys",
+ "libm",
+ "minicov",
+ "nu-ansi-term",
+ "num-traits",
+ "oorandom",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
+ "wasm-bindgen-test-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-test-macro"
+version = "0.3.79"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b84b5ac638bfb168196a1a461fcc8f46a294a18b1b6be52133b4e0db122cc9f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "wasm-bindgen-test-shared"
+version = "0.2.129"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f692aa943ccd88363733b77063f32cfed5bc6cbea8e6e8b251b302f881606fe"
 
 [[package]]
 name = "wasm-streams"

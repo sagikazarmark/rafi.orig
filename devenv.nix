@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, config, ... }:
 
 {
   dotenv.enable = true;
@@ -40,11 +40,15 @@
       targets = [ "wasm32-unknown-unknown" ];
     };
 
+    # daisyUI for crates/web/tailwind.css, installed on entering the shell.
     javascript = {
       enable = true;
+      directory = "${config.devenv.root}/crates/web";
       npm.enable = true;
+      npm.install.enable = true;
     };
 
+    # dx (built without downloads) runs this tailwindcss.
     tailwindcss = {
       enable = true;
     };

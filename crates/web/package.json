@@ -1,0 +1,8 @@
+{
+  "name": "rafi-web",
+  "private": true,
+  "description": "daisyUI, the Tailwind plugin tailwind.css loads; dx runs its own standalone Tailwind CLI",
+  "devDependencies": {
+    "daisyui": "5.7.47"
+  }
+}

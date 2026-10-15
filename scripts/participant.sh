@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the participant page's WebAssembly (crates/participant) into a directory
-# the server serves at /participant/: rafi_participant.js and rafi_participant_bg.wasm.
+# the server serves at /participant/: rafi_participant.js, rafi_participant_bg.wasm,
+# fallback.js and altcha-worker.js (dioxus-altcha's proof-of-work solver).
 #
 #   ./scripts/participant.sh [out-dir]   # default: crates/participant/dist
 #
@@ -30,8 +31,10 @@ wasm-opt -Oz --strip-debug --strip-producers \
   --enable-sign-ext --enable-reference-types --enable-multivalue \
   "$OUT/rafi_participant_bg.wasm" -o "$OUT/rafi_participant_bg.wasm"
 
-# The JavaScript fallback, loaded by the page when the WebAssembly can't run.
+# The JavaScript fallback, loaded by the page when the WebAssembly can't run,
+# and the proof-of-work solver it starts its workers from.
 cp "$ROOT/crates/participant/fallback.js" "$OUT/fallback.js"
+cp "$ROOT/crates/dioxus-altcha/src/worker.js" "$OUT/altcha-worker.js"
 
 wasm=$(gzip -9c "$OUT/rafi_participant_bg.wasm" | wc -c | tr -d ' ')
 js=$(gzip -9c "$OUT/rafi_participant.js" | wc -c | tr -d ' ')

@@ -3,42 +3,51 @@
 //! shows), the participants' (joining) and the public reads (the full view,
 //! the verification data).
 //!
-//! Each use case is a function over an [`App`]: the database, the drawing
-//! engine and the live notifier the deployment plugs in, and the
-//! deployment's [`Policy`]. The rules come from `rafi-raffle` and
-//! `rafi-drawing`; a use case sequences the reads and writes around them. A
+//! Each use case is a function over an [`App`]: the database, the raffle
+//! engine, the [`LiveUpdates`] and the join's [`RateLimit`] the deployment
+//! plugs in, and the deployment's [`Policy`]. The rules come from `rafi-lifecycle` and
+//! `rafi-raffle`; a use case sequences the reads and writes around them. A
 //! refusal is a typed [`Refusal`]; the HTTP layer only maps it.
 //!
 //! Every write that changes what phones see (the participant view) notifies
-//! clients ([`App::notifier`]). Joins don't: they never change it. The
-//! drawing engine notifies after its own writes.
+//! clients ([`App::live_updates`]). Joins don't: they never change it. The
+//! raffle engine notifies after its own writes.
 
+pub mod altcha;
 pub mod codes;
 mod draw;
 mod entrants;
 mod error;
 pub mod ids;
 mod prizes;
+pub mod public;
 mod raffles;
+mod ratelimit;
 mod reads;
+pub mod retention;
 pub mod view;
 
 use std::sync::Arc;
 
-use rafi_drawing::drand::ChainHash;
-use rafi_engine::DrawingEngine;
-use rafi_platform::Notifier;
+use rafi_engine::Engine;
+use rafi_live_server::LiveUpdates;
+use rafi_raffle::drand::ChainHash;
 use rafi_store::{Db, RaffleRow, raffles as store};
 
+pub use altcha::ProofOfWork;
 pub use draw::{command, start_draw};
 pub use entrants::{
-    CONSENT_VERSION, JoinError, JoinOutcome, add_fakes, add_manual, end_live, join, patch_entrant,
-    purge, remove_entrant,
+    CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_fakes, add_manual, end_live, join,
+    patch_entrant, purge, remove_entrant,
 };
 pub use error::{Error, Refusal, Result};
 pub use prizes::{delete_prize, upsert_prize};
 pub use raffles::{create, delete, duplicate, lifecycle, list, settings_of, update_settings};
+#[cfg(not(target_arch = "wasm32"))]
+pub use ratelimit::Limiter;
+pub use ratelimit::{Limit, RateLimit};
 pub use reads::{admin, export_csv, verify_data};
+pub use retention::Retention;
 
 /// What the use cases run against.
 #[derive(Clone)]
@@ -46,10 +55,12 @@ pub struct App {
     pub db: Db,
     /// The drand chain new raffles commit to.
     pub chain: ChainHash,
-    /// The drawing engine; `None` on a server without one.
-    pub engine: Option<Arc<dyn DrawingEngine>>,
+    /// The raffle engine; `None` on a server without one.
+    pub engine: Option<Arc<dyn Engine>>,
     /// Live updates to clients (natively: none, clients poll).
-    pub notifier: Arc<dyn Notifier>,
+    pub live_updates: LiveUpdates,
+    /// The join's rate limits.
+    pub limiter: Arc<dyn RateLimit>,
     pub policy: Policy,
 }
 
@@ -61,21 +72,25 @@ pub struct Policy {
     /// The most entrants a raffle takes: the hard limit behind the join's
     /// (soft) rate limits.
     pub max_entrants: i64,
+    /// The join form's proof-of-work.
+    pub proof_of_work: ProofOfWork,
+    /// When personal data is erased.
+    pub retention: Retention,
 }
 
 impl App {
-    /// How clients follow `raffle_id`: the deployment's transport while its
-    /// live updates run, plain polling once they've ended.
-    pub fn transport(&self, raffle_id: &str, live_ended: bool) -> rafi_live::LiveTransport {
+    /// How clients follow `raffle_id`: as the deployment's live updates say
+    /// while they run, plain polling once they've ended.
+    pub fn follow(&self, raffle_id: &str, live_ended: bool) -> rafi_live_client::Follow {
         if live_ended {
-            rafi_live::LiveTransport::poll()
+            rafi_live_client::Follow::poll()
         } else {
-            self.notifier.transport(raffle_id)
+            self.live_updates.follow(raffle_id)
         }
     }
 
-    /// The drawing engine, or a refusal if this server has none.
-    fn engine(&self) -> Result<&dyn DrawingEngine> {
+    /// The raffle engine, or a refusal if this server has none.
+    fn engine(&self) -> Result<&dyn Engine> {
         self.engine
             .as_deref()
             .ok_or(Error::Refused(Refusal::NoEngine))

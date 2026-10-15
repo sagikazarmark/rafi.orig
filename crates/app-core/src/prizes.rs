@@ -1,7 +1,7 @@
 //! A raffle's prizes, while they can change (until the freeze).
 
+use rafi_lifecycle::settings;
 use rafi_model::PrizeInput;
-use rafi_raffle::settings;
 use rafi_store::prizes;
 
 use crate::{App, Error, Refusal, Result, ids, owned};
@@ -46,7 +46,7 @@ pub async fn upsert_prize(
         }
     };
     // Before the freeze, phones count the prizes from their quantities.
-    app.notifier.notify(raffle_id).await;
+    app.live_updates.notify(raffle_id).await;
     Ok(id)
 }
 
@@ -61,7 +61,7 @@ pub async fn delete_prize(app: &App, owner: &str, raffle_id: &str, prize_id: &st
             return Err(r.into());
         }
     }
-    app.notifier.notify(raffle_id).await;
+    app.live_updates.notify(raffle_id).await;
     Ok(())
 }
 

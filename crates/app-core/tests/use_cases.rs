@@ -1,15 +1,15 @@
-//! The use cases on their own: in-memory SQLite, the in-process drawing
+//! The use cases on their own: in-memory SQLite, the in-process raffle
 //! engine, mock drand, and no HTTP.
 
 use std::{sync::Arc, time::Duration};
 
-use rafi_app_core::{self as app, App, Error, Policy, Refusal};
-use rafi_drand::{DrandClient, DrandConfig};
-use rafi_drawing::{Decision, DrawRequest, ItemStatus, Resolution};
+use rafi_app_core::{self as app, App, Error, Limiter, Policy, ProofOfWork, Refusal, Retention};
+use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
-use rafi_model::{EntrantPatch, Lifecycle, PrizeInput, StartStep};
-use rafi_platform::{Notify, Polling};
-use rafi_store::{Db, DrawWriter, entrants, raffles};
+use rafi_live_server::{LiveUpdates, Polling};
+use rafi_model::{EntrantPatch, LifecycleCommand, PrizeInput, StartStep};
+use rafi_raffle::{Decision, DrawRequest, ItemStatus, Resolution};
+use rafi_store::{Db, RaffleWriter, entrants, raffles};
 
 const OWNER: &str = "organizer";
 
@@ -23,19 +23,22 @@ async fn app() -> App {
     })
     .expect("drand");
     let chain = drand.chain_hash();
-    let engine = LocalEngine::new(
-        drand,
-        DrawWriter::new(db.clone()),
-        Notify::new(Polling::default(), rafi_raffle::drawing::raffle_id),
-    );
+    let engine = LocalEngine::new(drand, RaffleWriter::new(db.clone()), Polling);
     App {
         db,
         chain,
         engine: Some(Arc::new(engine)),
-        notifier: Arc::new(Polling::default()),
+        live_updates: LiveUpdates::polling(),
+        limiter: Arc::new(Limiter::default()),
         policy: Policy {
             public_url: "http://localhost".into(),
             max_entrants: 100,
+            proof_of_work: ProofOfWork::new("test-key", 1).unwrap(),
+            retention: Retention {
+                enabled: true,
+                nonwinners_days: 30,
+                winners_days: 90,
+            },
         },
     }
 }
@@ -59,10 +62,10 @@ async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
     )
     .await
     .unwrap();
-    app::lifecycle(app, OWNER, &id, Lifecycle::Publish)
+    app::lifecycle(app, OWNER, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
-    app::lifecycle(app, OWNER, &id, Lifecycle::Open)
+    app::lifecycle(app, OWNER, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     let mut ids = Vec::new();
@@ -76,7 +79,7 @@ async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
 async fn drawn(app: &App, id: &str) -> String {
     for _ in 0..200 {
         let raffle = raffles::get(&app.db, id).await.unwrap().unwrap();
-        if let Some(winner) = raffle.drawing().unwrap().and_then(|d| {
+        if let Some(winner) = raffle.drawn().unwrap().and_then(|d| {
             d.items()
                 .iter()
                 .find(|i| i.status() == ItemStatus::Drawn)
@@ -187,7 +190,7 @@ async fn the_admin_page_offers_what_the_rules_allow() {
 
     // A freeze that stopped before its manifest was written.
     assert!(
-        raffles::freeze(&app.db, &id, rafi_raffle::RaffleState::Open)
+        raffles::freeze(&app.db, &id, rafi_lifecycle::RaffleState::Open)
             .await
             .unwrap()
     );
@@ -224,7 +227,17 @@ async fn joining_follows_the_raffle_rules() {
     let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
     let join = |name: &'static str, email: &'static str, rules: bool| {
         let (app, raffle) = (app.clone(), raffle.clone());
-        async move { app::join(&app, &raffle, name, email, rules, false).await }
+        async move {
+            let proof = solved(&app);
+            let req = app::JoinRequest {
+                name,
+                email,
+                rules,
+                marketing: false,
+                proof: &proof,
+            };
+            app::join(&app, &raffle, &req).await
+        }
     };
     assert_eq!(
         join("Anna", "anna@x.org", false).await,
@@ -241,5 +254,76 @@ async fn joining_follows_the_raffle_rules() {
     assert_eq!(
         join("Anna", "Anna@X.org", true).await,
         Ok(app::JoinOutcome::AlreadyIn)
+    );
+}
+
+/// A solved proof-of-work, as the join form posts it.
+fn solved(app: &App) -> String {
+    let challenge = app::altcha::challenge(app).unwrap();
+    let solution = altcha::solve_challenge(altcha::SolveChallengeOptions::new(&challenge))
+        .unwrap()
+        .expect("solvable");
+    app::altcha::encode(&altcha::Payload {
+        challenge,
+        solution,
+    })
+}
+
+#[tokio::test]
+async fn a_join_needs_a_fresh_proof_of_work() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &[]).await;
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    let proof = solved(&app);
+    let req = |name, email, proof| app::JoinRequest {
+        name,
+        email,
+        rules: true,
+        marketing: false,
+        proof,
+    };
+    assert_eq!(
+        app::join(&app, &raffle, &req("Bot", "bot@x.org", "")).await,
+        Err(app::JoinError::Proof)
+    );
+    assert!(matches!(
+        app::join(&app, &raffle, &req("Anna", "anna@x.org", &proof)).await,
+        Ok(app::JoinOutcome::Joined { .. })
+    ));
+    assert_eq!(
+        app::join(&app, &raffle, &req("Bea", "bea@x.org", &proof)).await,
+        Err(app::JoinError::Proof),
+        "a proof-of-work is redeemed once"
+    );
+}
+
+#[tokio::test]
+async fn joins_are_rate_limited_per_email() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &[]).await;
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    let (budget, _) = app::Limit::JoinPerEmail.budget();
+    for _ in 0..budget {
+        let proof = solved(&app);
+        let req = app::JoinRequest {
+            name: "Anna",
+            email: "anna@x.org",
+            rules: true,
+            marketing: false,
+            proof: &proof,
+        };
+        app::join(&app, &raffle, &req).await.unwrap();
+    }
+    let proof = solved(&app);
+    let req = app::JoinRequest {
+        name: "Anna",
+        email: "ANNA@x.org",
+        rules: true,
+        marketing: false,
+        proof: &proof,
+    };
+    assert_eq!(
+        app::join(&app, &raffle, &req).await,
+        Err(app::JoinError::Limited)
     );
 }

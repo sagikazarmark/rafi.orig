@@ -12,6 +12,13 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+defaults:
+  run:
+    # Every step runs in the devenv shell, with the project's toolchain and
+    # tools at the versions used locally (wasm-bindgen at Cargo.lock's, dx,
+    # worker-build, wasm-opt, wrangler, node, tailwindcss).
+    shell: devenv shell -- bash -e {0}
+
 jobs:
   test:
     name: Test
@@ -34,69 +41,83 @@ jobs:
     env:
       RAFI_TEST_POSTGRES_URL: postgres://rafi:rafi@localhost:5432/rafi_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          targets: wasm32-unknown-unknown
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+          persist-credentials: false
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@f2d55def32daee3f89bb3dfa0499b439a988392a # v0.2.0
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
+      # rafi-web's asset!() needs the stylesheet to exist. Entering the shell
+      # installs crates/web's npm packages (daisyUI).
       - name: Build the stylesheet (Tailwind CSS + daisyUI)
-        run: ./scripts/tailwind.sh
+        working-directory: crates/web
+        run: tailwindcss -i tailwind.css -o assets/tailwind.css --minify
       - name: Format
         run: cargo fmt --all --check
       - name: Download restate-server (end-to-end tests)
         run: echo "RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)" >> "$GITHUB_ENV"
       - name: Libraries and the draw engine (incl. end-to-end against restate-server)
-        run: cargo test --workspace --exclude rafi --locked -- --include-ignored
+        run: cargo test --workspace --exclude rafi-server --exclude rafi-web --locked -- --include-ignored
       - name: Independent verifier agrees with the test vectors
         run: python3 tools/verify.py --vectors testdata/draw-vectors.json
       - name: App (incl. end-to-end with the Restate engine and restate-server)
-        run: cargo test -p rafi --features server --locked -- --include-ignored
+        run: cargo test -p rafi-server --locked -- --include-ignored
       - name: Clippy (libraries and the draw engine)
-        run: cargo clippy --workspace --exclude rafi --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude rafi-server --exclude rafi-web --all-targets -- -D warnings
       - name: Clippy (app server)
         run: |
-          cargo clippy -p rafi --features server --all-targets -- -D warnings
-          cargo clippy -p rafi --features server,mock-drand --all-targets -- -D warnings
+          cargo clippy -p rafi-server --all-targets -- -D warnings
+          cargo clippy -p rafi-server --features mock-drand --all-targets -- -D warnings
       - name: Clippy (app web)
-        run: cargo clippy -p rafi --features web --target wasm32-unknown-unknown -- -D warnings
+        run: cargo clippy -p rafi-web --target wasm32-unknown-unknown -- -D warnings
       - name: Clippy (Workers crates)
         run: |
           cargo clippy --target wasm32-unknown-unknown \
-            -p rafi-raffle -p rafi-drawing -p rafi-drand -p rafi-model -p rafi-app-core \
-            -p rafi-store -p rafi-store-d1-check -p rafi-live -p rafi-platform -p rafi-cloudflare -p rafi-cloudflare-check \
+            -p dioxus-altcha -p rafi-lifecycle -p rafi-raffle -p rafi-model -p rafi-app-core \
+            -p rafi-store -p rafi-store-d1-check -p rafi-live-client -p rafi-live-server -p rafi-cloudflare -p rafi-cloudflare-check \
             -p rafi-engine -p rafi-engine-restate -p rafi-participant -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker --features dev -- -D warnings
           cargo clippy --target wasm32-unknown-unknown -p rafi-restate-worker -- -D warnings
-          cargo clippy --target wasm32-unknown-unknown -p rafi --features worker -- -D warnings
-          cargo clippy --target wasm32-unknown-unknown -p rafi --features worker-dev -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown -p rafi-server --lib -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown -p rafi-app-worker -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown -p rafi-app-worker --features dev -- -D warnings
 
   workers:
     name: Workers (wrangler dev)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@f2d55def32daee3f89bb3dfa0499b439a988392a # v0.2.0
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          node-version: 24
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-binstall
-      - name: Tools (wasm-bindgen at the lockfile's version, worker-build, wasm-opt, wrangler)
-        run: |
-          WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)
-          cargo binstall -y --locked "wasm-bindgen-cli@$WASM_BINDGEN" worker-build dioxus-cli@0.7.10
-          sudo apt-get update && sudo apt-get install -y binaryen
-          npm install -g wrangler@4.94.0
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
       - name: Download restate-server
         run: echo "RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)" >> "$GITHUB_ENV"
+      # Chrome and the browser drivers are the runner image's.
       - name: D1, the live channel, the participant page in Chrome, a draw through Restate, an evening on the app
         run: CHROMIUM=$(command -v google-chrome) ./scripts/workers-check.sh
-
+      - name: dioxus-altcha's solver in headless Chrome and Firefox
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: |
+          CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test -p dioxus-altcha --target wasm32-unknown-unknown --test wasm_solve
+          GECKODRIVER="$GECKOWEBDRIVER/geckodriver" cargo test -p dioxus-altcha --target wasm32-unknown-unknown --test wasm_solve
+      - name: dioxus-altcha's demo (fullstack) builds
+        working-directory: crates/dioxus-altcha/examples/altcha-demo
+        run: |
+          cargo clippy --target wasm32-unknown-unknown --features web -- -D warnings
+          cargo clippy --features server -- -D warnings
 
   deny:
     name: cargo-deny

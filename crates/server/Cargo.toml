@@ -1,0 +1,57 @@
+[package]
+name = "rafi-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Rafi's server: the participant pages, the public JSON and the admin API over HTTP (axum), natively and on Cloudflare Workers"
+publish = false
+
+# The native server keeps the app's name.
+[[bin]]
+name = "rafi"
+path = "src/main.rs"
+
+[features]
+## Allow `RAFI_DRAND_CHAIN=mock` (or `RAFI_DRAND_MOCK=1`): raffles commit to a
+## public test chain (offline development). Release builds refuse it.
+mock-drand = ["rafi-raffle/mock-chain"]
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", default-features = false, features = ["form", "json", "query", "matched-path", "original-uri"] }
+dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
+dioxus-clerk = { version = "0.6", features = ["server"] }
+dioxus-icons = "=0.1.0"
+hex = { workspace = true }
+rafi-app-core = { workspace = true }
+rafi-engine = { workspace = true }
+rafi-engine-restate = { workspace = true }
+rafi-lifecycle = { workspace = true }
+rafi-live-client = { workspace = true, features = ["card"] }
+rafi-live-server = { workspace = true }
+rafi-model = { workspace = true }
+rafi-raffle = { workspace = true }
+rafi-store = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = "0.1"
+
+# The native server's runtime.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+dioxus-clerk = { version = "0.6", features = ["server", "testing"] }
+http-body-util = "0.1"
+altcha = { workspace = true }
+rafi-engine = { workspace = true, features = ["local", "mock-drand"] }
+rafi-live-client = { workspace = true }
+rafi-raffle = { workspace = true, features = ["mock-chain"] }
+restate-e2e-harness = "0.3"
+restate-sdk = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
+uuid = { version = "1", features = ["v4"] }

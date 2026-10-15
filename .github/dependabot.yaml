@@ -10,6 +10,11 @@ updates:
         patterns:
           - "*"
 
+  - package-ecosystem: npm
+    directory: /crates/web
+    schedule:
+      interval: daily
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

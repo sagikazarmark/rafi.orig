@@ -1,9 +1,9 @@
 // The participant WASM in a real browser: headless Chromium over the DevTools
-// protocol (trusted clicks, console capture) against crates/cloudflare-check,
+// protocol (trusted clicks, console capture) against testbeds/cloudflare,
 // which serves a stand-in participant page and the live channel.
 //
-//   ./scripts/participant.sh crates/cloudflare-check/site/participant
-//   (cd crates/cloudflare-check && wrangler dev --port 8790) &
+//   ./scripts/participant.sh testbeds/cloudflare/site/participant
+//   (cd testbeds/cloudflare && wrangler dev --port 8790) &
 //   CHROMIUM=$(which chromium) node crates/participant/smoke.mjs "$(mktemp -d)"
 
 import { spawn } from "node:child_process";

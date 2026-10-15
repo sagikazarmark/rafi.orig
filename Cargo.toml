@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/raffle", "crates/drawing", "crates/drand", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/app", "crates/live", "crates/store-d1-check", "crates/platform", "crates/cloudflare", "crates/cloudflare-check", "crates/restate-worker", "crates/participant", "crates/model", "crates/app-core"]
+members = ["crates/dioxus-altcha", "crates/lifecycle", "crates/raffle", "crates/store", "crates/engine-restate", "crates/engine", "crates/restate-rafi-endpoint", "crates/server", "crates/web", "crates/app-worker", "crates/live-client", "crates/live-server", "testbeds/store-d1", "crates/cloudflare", "testbeds/cloudflare", "crates/restate-worker", "crates/participant", "crates/model", "crates/app-core"]
 
 [workspace.package]
 edition = "2024"
@@ -9,14 +9,21 @@ repository = "https://github.com/sagikazarmark/rafi"
 rust-version = "1.92"
 
 [workspace.dependencies]
+dioxus-altcha = { path = "crates/dioxus-altcha", default-features = false }
+altcha = "1"
+rafi-lifecycle = { path = "crates/lifecycle" }
 rafi-raffle = { path = "crates/raffle" }
-rafi-drawing = { path = "crates/drawing" }
-rafi-drand = { path = "crates/drand" }
+rafi-model = { path = "crates/model" }
+rafi-store = { path = "crates/store" }
+rafi-engine = { path = "crates/engine" }
+rafi-engine-restate = { path = "crates/engine-restate" }
+rafi-live-client = { path = "crates/live-client" }
+rafi-live-server = { path = "crates/live-server" }
+rafi-cloudflare = { path = "crates/cloudflare" }
+rafi-app-core = { path = "crates/app-core" }
+rafi-server = { path = "crates/server" }
 drand = { version = "0.3", default-features = false }
 restate-drand = { version = "0.3", default-features = false }
-rafi-store = { path = "crates/store" }
-rafi-model = { path = "crates/model" }
-rafi-app-core = { path = "crates/app-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -44,3 +51,7 @@ codegen-units = 1
 # backends. Upstream PR open; drop this once it is released.
 [patch.crates-io]
 restate-sdk = { git = "https://github.com/sagikazarmark/restate-sdk-rust", branch = "wasm" }
+# altcha's solve_challenge and verify_solution read std clocks, which panic on
+# wasm32-unknown-unknown; this uses web-time (altcha-org/altcha-lib-rs#1).
+# rafi-app-worker verifies on Workers. Drop this once it is released.
+altcha = { git = "https://github.com/sagikazarmark/altcha-lib-rs", rev = "d2f9476826fe0965d687bed142e920ca2b91430a" }

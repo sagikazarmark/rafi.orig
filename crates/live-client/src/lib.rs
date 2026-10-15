@@ -1,0 +1,51 @@
+//! The client side of live updates: what a phone sees, how it follows a
+//! raffle and renders it. The participant
+//! WASM runs it; the servers that build and render views for phones (the
+//! raffle's Durable Object, the app server) use it too, and keep their own
+//! side in `rafi-live-server`.
+//!
+//! - [`ParticipantView`]: the slim view pushed to phones, and [`Phase`], a
+//!   lightweight mirror of the raffle state;
+//! - [`ParticipantChannel`]: the partyline channel that carries it;
+//! - [`screen()`]: which card a phone shows, as a pure function;
+//! - with the `card` feature, `Card`: the Dioxus component that renders it,
+//!   on the server (SSR) and in the WASM alike, with [`CardStrings`];
+//! - [`Follow`]: how clients follow a raffle on this deployment;
+//! - [`PageConfig`]: the participant page's embedded state.
+//!
+//! This crate must stay light enough for the phone: it doesn't depend on
+//! `rafi-raffle` (which pulls in drand and BLS), without `card` not on Dioxus
+//! (so the engine hosts don't build a UI framework), and it reads no clock
+//! and no randomness of its own, so it runs unchanged on
+//! `wasm32-unknown-unknown`.
+
+mod card;
+mod follow;
+mod page;
+mod screen;
+mod view;
+
+pub use card::{CARD, CardStrings, WON};
+#[cfg(feature = "card")]
+pub use card::{Card, CardProps};
+pub use follow::{DEFAULT_POLL_MS, Follow};
+pub use page::PageConfig;
+pub use screen::{Screen, screen};
+pub use view::{
+    Current, DrawInput, DrawOutcome, HIDDEN_NAME, LastDraw, ParticipantView, Phase, Winner,
+    public_name,
+};
+
+/// A raffle's participant channel (one per raffle, not per participant):
+/// phones follow the latest [`ParticipantView`].
+///
+/// Latest mode keeps only the newest event, so a phone that (re)connects gets
+/// the current view and nothing older. Phones order views by
+/// [`ParticipantView::v`], so they need no partyline cursor.
+pub struct ParticipantChannel;
+
+impl partyline::Channel for ParticipantChannel {
+    const NAME: &'static str = "raffle";
+    const MODE: partyline::Mode = partyline::Mode::Latest;
+    type Event = ParticipantView;
+}

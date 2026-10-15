@@ -2,16 +2,17 @@
 //!
 //! Whatever pushes live updates (a live channel, the polling endpoint, the
 //! participant page) reads the raffle through [`Snapshot`], so every one of them
-//! shows the same thing; [`Snapshot::participant_view`] (the `live` feature)
-//! builds the participant view from it. Everything comes from one [`Db::batch_rows`], so the version and the
+//! shows the same thing. The snapshot is data: the servers that show phones a
+//! raffle build the participant view from it with `rafi_live_server::raffle::view`.
+//! Everything comes from one [`Db::batch_rows`], so the version and the
 //! content are one consistent snapshot: a write can't land between them and
 //! leave a view labelled newer than what it holds.
 
 use std::collections::HashMap;
 
 use crate::{Db, Result, dialect};
-use rafi_drawing::Drawing;
-use rafi_raffle::RaffleState;
+use rafi_lifecycle::RaffleState;
+use rafi_raffle::Raffle;
 use serde::Deserialize;
 
 /// The raffle as phones see it, read in one snapshot.
@@ -21,27 +22,14 @@ pub struct Snapshot {
     /// Bumped by every write that changes what phones see.
     pub version: u64,
     pub live_ended_at: Option<i64>,
-    pub drawing: Option<Drawing>,
+    /// The raffle as drawn, once the engine has opened it.
+    pub drawn: Option<Raffle>,
     /// The display names of the drawn entrants only, by ID: no other name
     /// leaves the database. `None` for one the organizer hid: that name isn't
     /// read either.
     pub names: HashMap<String, Option<String>>,
-    /// The prizes' total quantity (what is left before the drawing opens).
+    /// The prizes' total quantity (what is left before the raffle opens).
     pub prize_qty: u32,
-}
-
-#[cfg(feature = "live")]
-impl Snapshot {
-    /// What phones see of the raffle.
-    pub fn participant_view(&self) -> rafi_live::ParticipantView {
-        rafi_live::raffle::view(rafi_live::raffle::Raffle {
-            version: self.version,
-            state: self.state,
-            drawing: self.drawing.as_ref(),
-            names: &self.names,
-            prize_qty: self.prize_qty,
-        })
-    }
 }
 
 #[derive(Deserialize)]
@@ -49,7 +37,7 @@ struct RaffleRow {
     state: RaffleState,
     version: i64,
     live_ended_at: Option<i64>,
-    drawing: Option<String>,
+    log: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -64,7 +52,7 @@ impl Snapshot {
         let mut sets = db
             .batch_rows(vec![
                 db.query(
-                    "SELECT state, version, live_ended_at, drawing FROM raffles WHERE id = ?1",
+                    "SELECT state, version, live_ended_at, log FROM raffles WHERE id = ?1",
                 )
                 .bind(raffle_id),
                 // Only the entrants that were drawn, and only the names shown.
@@ -102,11 +90,7 @@ impl Snapshot {
             state: raffle.state,
             version: raffle.version.max(0) as u64,
             live_ended_at: raffle.live_ended_at,
-            drawing: raffle
-                .drawing
-                .as_deref()
-                .map(crate::parse_drawing)
-                .transpose()?,
+            drawn: raffle.log.as_deref().map(crate::parse_raffle).transpose()?,
             names,
             prize_qty,
         }))
@@ -126,11 +110,11 @@ impl Snapshot {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use rafi_drawing::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
+    use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Resolution};
 
     use super::*;
 
-    /// A drawing as its engine would have logged it.
+    /// A raffle as its engine would have logged it.
     struct Log {
         manifest: Manifest,
         events: Vec<Event>,
@@ -163,8 +147,8 @@ mod tests {
             self.events.push(Event::Resolved { k, resolution });
         }
 
-        fn drawing(&self) -> Drawing {
-            Drawing::restore(&self.manifest, &self.events).unwrap()
+        fn raffle(&self) -> Raffle {
+            Raffle::restore(&self.manifest, &self.events).unwrap()
         }
     }
 
@@ -218,8 +202,8 @@ mod tests {
     }
 
     async fn store(db: &Db, log: &Log, lifecycle: &str) {
-        let stored = crate::StoredDrawing::of(&log.drawing()).unwrap();
-        db.query("UPDATE raffles SET state = ?, drawing = ?, drawn_entrants = ? WHERE id = 'r1'")
+        let stored = crate::StoredRaffle::of(&log.raffle()).unwrap();
+        db.query("UPDATE raffles SET state = ?, log = ?, drawn_entrants = ? WHERE id = 'r1'")
             .bind(lifecycle)
             .bind(stored.json)
             .bind(stored.drawn_entrants)
@@ -235,7 +219,7 @@ mod tests {
         let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
         assert_eq!(snap.state, RaffleState::Open);
         assert_eq!(snap.prize_qty, 2);
-        assert!(snap.drawing.is_none() && snap.names.is_empty());
+        assert!(snap.drawn.is_none() && snap.names.is_empty());
         assert!(snap.accepts_sockets());
         assert!(Snapshot::read(&db, "nope").await.unwrap().is_none());
     }
@@ -257,14 +241,14 @@ mod tests {
         store(&db, &log, "drawing").await;
         let snap = Snapshot::read(&db, "r1").await.unwrap().unwrap();
         assert_eq!(snap.names[&"a".repeat(32)].as_deref(), Some("Anna"));
-        assert_eq!(snap.drawing.unwrap().draws().len(), 2);
+        assert_eq!(snap.drawn.unwrap().draws().len(), 2);
     }
 
     #[tokio::test]
-    async fn a_drawing_that_does_not_load_is_an_error() {
+    async fn a_log_that_does_not_load_is_an_error() {
         let db = Db::connect("sqlite::memory:").await.unwrap();
         raffle(&db).await;
-        db.query(r#"UPDATE raffles SET drawing = '{"items": []}' WHERE id = 'r1'"#)
+        db.query(r#"UPDATE raffles SET log = '{"items": []}' WHERE id = 'r1'"#)
             .run()
             .await
             .unwrap();
