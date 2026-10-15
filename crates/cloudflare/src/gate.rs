@@ -6,18 +6,24 @@
 //! `worker` has no jurisdiction API yet, so the namespace's JavaScript method
 //! is called directly.
 
-use partyline_worker::{close, reject};
-use rafi_store::live::Snapshot;
 use wasm_bindgen::{JsCast, JsValue};
-use worker::{Env, Headers, Method, ObjectNamespace, Request, RequestInit, Response, Result, Stub};
+use worker::{Env, Headers, Method, ObjectNamespace, Request, RequestInit, Result, Stub};
+#[cfg(feature = "room")]
+use {
+    partyline_worker::{close, reject},
+    rafi_store::live::Snapshot,
+    worker::Response,
+};
 
-use crate::object::RAFFLE_HEADER;
-
-/// The Durable Object binding of [`crate::RaffleRoom`].
+/// The Durable Object binding of the `RaffleRoom` objects.
 pub const BINDING: &str = "RAFFLE_ROOM";
+
+/// The header carrying the raffle ID on requests to the object.
+pub(crate) const RAFFLE_HEADER: &str = "x-rafi-lifecycle";
 
 /// The rate-limiting binding for socket connects, keyed by raffle (never by
 /// IP: a venue shares one address). Optional.
+#[cfg(feature = "room")]
 pub const CONNECT_LIMITER: &str = "CONNECT_LIMITER";
 
 /// The variable naming the objects' jurisdiction. Defaults to `eu`; set it to
@@ -90,6 +96,7 @@ pub async fn destroy(env: &Env, raffle_id: &str) -> Result<()> {
 /// Refusals accept the socket and close it with 4403, never an HTTP error:
 /// browsers see a failed upgrade as a network error (1006) and keep retrying,
 /// while 4403 tells the partyline client to stop (and rafi's page to poll).
+#[cfg(feature = "room")]
 pub async fn connect(env: &Env, raffle_id: &str, req: Request) -> Result<Response> {
     let db = crate::database(env)?;
     let open = match Snapshot::read(&db, raffle_id).await {

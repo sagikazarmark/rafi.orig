@@ -4,19 +4,27 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi on Cloudflare Workers: the per-raffle RaffleRoom Durable Object, the live notifier over it, and the Workers bindings Rafi reads"
+description = "Rafi on Cloudflare Workers: the per-raffle RaffleRoom Durable Object (the `room` feature), the live notifier over it, and the Workers bindings Rafi reads"
 publish = false
+
+[features]
+## `room`: the RaffleRoom Durable Object and the gate for phones' sockets
+## (`connect`), for the Worker that hosts the objects (rafi-app-worker). Off,
+## only what reaches them (`nudge`, `destroy`, `DurableObjects`): a
+## `#[durable_object]` in a dependency is exported from every Worker that
+## links it, so the Restate Worker leaves it off.
+room = ["dep:partyline-worker", "dep:serde_json"]
 
 # Everything here is Workers glue: the crate is empty on other targets.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = "1"
 js-sys = "0.3"
-partyline-worker = "0.3"
+partyline-worker = { version = "0.3", optional = true }
 rafi-engine = { workspace = true }
 rafi-live-client = { workspace = true }
 rafi-live-server = { workspace = true }
 rafi-raffle = { workspace = true }
 rafi-store = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, optional = true }
 wasm-bindgen = "0.2"
 worker = "0.8.7"

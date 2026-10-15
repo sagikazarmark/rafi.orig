@@ -25,8 +25,7 @@ use worker::{
     wasm_bindgen,
 };
 
-/// The header carrying the raffle ID on requests to the object.
-pub(crate) const RAFFLE_HEADER: &str = "x-rafi-lifecycle";
+use crate::gate::RAFFLE_HEADER;
 
 /// How often the object re-reads the raffle while sockets are open.
 const REREAD: Duration = Duration::from_secs(15);
