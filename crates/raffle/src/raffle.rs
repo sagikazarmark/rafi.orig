@@ -151,6 +151,21 @@ pub enum Event {
     Finished,
 }
 
+impl Event {
+    /// The event's type: its serialized `type` tag (`"drawn"`, …).
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Announced { .. } => "announced",
+            Self::Drawn { .. } => "drawn",
+            Self::Stalled { .. } => "stalled",
+            Self::Abandoned { .. } => "abandoned",
+            Self::Resolved { .. } => "resolved",
+            Self::Voided { .. } => "voided",
+            Self::Finished => "finished",
+        }
+    }
+}
+
 /// One raffle: opened from its manifest, changed only by recording events.
 ///
 /// Stored as its manifest and its event log (`{"manifest": …, "events": […]}`),
@@ -802,6 +817,55 @@ pub(crate) mod tests {
 
     fn request(item: &str) -> DrawRequest {
         DrawRequest { item: item.into() }
+    }
+
+    #[test]
+    fn an_events_kind_is_its_type_tag() {
+        let item = ItemId::from("item-0");
+        let events = [
+            Event::Announced {
+                k: 1,
+                item: item.clone(),
+                round: 1,
+                round_time: 0,
+            },
+            Event::Drawn {
+                k: 1,
+                item: item.clone(),
+                round: 1,
+                signature: String::new(),
+                randomness: String::new(),
+                pass: 1,
+                pool_size: 1,
+                index: 0,
+                entrant: "e".into(),
+            },
+            Event::Stalled {
+                k: 1,
+                item: item.clone(),
+                round: 1,
+                reason: String::new(),
+            },
+            Event::Abandoned {
+                k: 1,
+                item: item.clone(),
+                round: 1,
+                reason: String::new(),
+            },
+            Event::Resolved {
+                k: 1,
+                resolution: Resolution::Claimed,
+            },
+            Event::Voided { item },
+            Event::Finished,
+        ];
+        for event in &events {
+            assert_eq!(
+                serde_json::to_value(event).unwrap()["type"],
+                event.kind(),
+                "{event:?}"
+            );
+        }
     }
 
     #[test]

@@ -52,6 +52,16 @@ pub enum Outcome {
 }
 
 impl Outcome {
+    /// The outcome's name, as serialized (`"not_here"`, …).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Drawn => "drawn",
+            Self::Claimed => "claimed",
+            Self::NotHere => "not_here",
+            Self::Declined => "declined",
+        }
+    }
+
     /// Whether the winner gave the item up (not here, or declined): it is
     /// drawn again, and they are out of pass 2. The one definition of a
     /// forfeit.
@@ -66,6 +76,27 @@ impl From<Resolution> for Outcome {
             Resolution::Claimed => Self::Claimed,
             Resolution::NotHere => Self::NotHere,
             Resolution::Declined => Self::Declined,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_are_the_serialized_ones() {
+        for outcome in [
+            Outcome::Drawn,
+            Outcome::Claimed,
+            Outcome::NotHere,
+            Outcome::Declined,
+        ] {
+            assert_eq!(
+                serde_json::to_value(outcome).unwrap(),
+                outcome.as_str(),
+                "{outcome:?}"
+            );
         }
     }
 }

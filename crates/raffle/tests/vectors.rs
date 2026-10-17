@@ -13,9 +13,11 @@
 //! round, and "not here"/"declined" are never resolved while a draw is pending
 //! (a log doing that fails verification).
 
+use std::collections::BTreeSet;
+
 use rafi_raffle::{
-    BeaconFetch, BeaconSource, Decision, DrawRequest, Manifest, ManifestItem, Raffle, Resolution,
-    algorithm,
+    BeaconFetch, BeaconSource, Decision, DrawRequest, EntrantId, Event, Manifest, ManifestItem,
+    Outcome, Raffle, Resolution, algorithm,
     drand::{Beacon, VerifiedBeacon, Verifier, chains},
     verify_public,
 };
@@ -206,4 +208,27 @@ fn vectors_match() {
         &events,
     );
     assert!(report.ok(), "{report:#?}");
+}
+
+/// After every event of the scenario, the entrants of claimed draws are the
+/// winners: the store keeps winners as claimed draws (docs/events-plan.md).
+#[test]
+fn claimed_draws_are_the_winners() {
+    let generated = generate();
+    let manifest: Manifest = serde_json::from_str(&generated.scenario.manifest).unwrap();
+    let events: Vec<Event> = serde_json::from_value(generated.scenario.events).unwrap();
+    let mut claims = 0;
+    for n in 0..=events.len() {
+        let s = Raffle::restore(&manifest, &events[..n]).unwrap();
+        let claimed: BTreeSet<EntrantId> = s
+            .draws()
+            .into_iter()
+            .filter(|d| d.outcome == Outcome::Claimed)
+            .map(|d| d.entrant)
+            .collect();
+        let winners: BTreeSet<EntrantId> = s.winners().into_iter().cloned().collect();
+        assert_eq!(claimed, winners, "after {n} events");
+        claims = winners.len();
+    }
+    assert_eq!(claims, 3, "the scenario ends with three claims");
 }

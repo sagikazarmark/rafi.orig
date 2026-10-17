@@ -1,12 +1,16 @@
 //! Property tests for the raffle's state machine.
 
-use std::{collections::HashSet, num::NonZeroU32, sync::OnceLock};
+use std::{
+    collections::{BTreeSet, HashSet},
+    num::NonZeroU32,
+    sync::OnceLock,
+};
 
 use drand::{Scheme, TestChain};
 use proptest::prelude::*;
 use rafi_raffle::{
     BeaconFetch, BeaconSource, Command, Decision, DrawRequest, EntrantId, Error, Event, ItemState,
-    Manifest, ManifestHash, ManifestItem, Raffle, Resolution,
+    Manifest, ManifestHash, ManifestItem, Outcome, Raffle, Resolution,
     drand::{ChainHash, ChainInfo, VerifiedBeacon, Verifier},
     verify,
 };
@@ -110,6 +114,17 @@ fn draw_inputs(
     )
 }
 
+/// The entrants of the draws resolved as claimed, and `winners()`.
+fn claimed_and_winners(s: &Raffle) -> (BTreeSet<EntrantId>, BTreeSet<EntrantId>) {
+    let claimed = s
+        .draws()
+        .into_iter()
+        .filter(|d| d.outcome == Outcome::Claimed)
+        .map(|d| d.entrant)
+        .collect();
+    (claimed, s.winners().into_iter().cloned().collect())
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
@@ -198,6 +213,15 @@ proptest! {
                     prop_assert!(seen.insert(d.entrant.clone()), "entrant drawn twice in pass 1");
                 }
             }
+
+            // What the store keeps per draw (docs/events-plan.md): each draw
+            // has its own `k`, and a claimed draw is a winner. A claim is
+            // final, so the draws' resolutions and the items agree.
+            let draws = s.draws();
+            let ks: HashSet<_> = draws.iter().map(|d| d.k).collect();
+            prop_assert_eq!(ks.len(), draws.len(), "a k drawn twice");
+            let (claimed, winners) = claimed_and_winners(&s);
+            prop_assert_eq!(claimed, winners);
         }
         let report = verify(&manifest.canonical_json(), &manifest.hash().to_string(), s.events(), resolve);
         prop_assert!(report.ok(), "{report:#?}");
