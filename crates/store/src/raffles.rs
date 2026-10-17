@@ -186,7 +186,7 @@ pub async fn list_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleSummaryR
 }
 
 /// Creates a draft raffle. A taken slug or join code is
-/// an [`Error::Unique`](crate::Error::Unique).
+/// an [`Error::Unique`].
 pub async fn insert(db: &Db, r: &NewRaffle<'_>) -> Result<()> {
     insert_query(db, r).run().await.map(|_| ())
 }
@@ -229,7 +229,7 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
 
 /// Creates a draft raffle with `settings` and `prizes` (IDs and fields) in
 /// one batch: all of it or nothing. A taken slug or join code is an
-/// [`Error::Unique`](crate::Error::Unique).
+/// [`Error::Unique`].
 pub async fn insert_with(
     db: &Db,
     r: &NewRaffle<'_>,
