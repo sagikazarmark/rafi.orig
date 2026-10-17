@@ -1288,21 +1288,21 @@ pub(super) async fn saves_only_newer_states(db: &Db) -> Outcome {
     check(unchanged().await? == before, "nothing written")?;
     holds(db, &claimed, "after stale saves").await?;
 
-    // A stale save that gets past the read, as if a newer save landed between
-    // its read and its write: the write's guard leaves the row alone.
-    db.query("UPDATE raffles SET opened_at = NULL WHERE id = 'r1'")
-        .run()
-        .await
-        .map_err(fail)?;
-    let before = unchanged().await?;
-    check(
-        !save_raffle(db, &drawn).await.map_err(fail)?,
-        "a stale save past the read",
-    )?;
-    check(
-        unchanged().await? == before,
-        "nothing written past the read",
-    )?;
+    // Stale saves that get past the read, as if the newer one landed between
+    // their read and their write. The drawn state re-sends its draw, which
+    // would turn the claim back into a draw: the write's guard leaves the
+    // events, the draws and the row alone.
+    for (state, what) in [(&drawn, "drawn"), (&opened, "opened")] {
+        check(
+            !crate::write_raffle(db, state, 0).await.map_err(fail)?,
+            &format!("a stale write ({what})"),
+        )?;
+        check(
+            unchanged().await? == before,
+            &format!("nothing written past the read ({what})"),
+        )?;
+    }
+    holds(db, &claimed, "after stale writes").await?;
 
     // Another entrant list, newer, and a raffle that isn't there.
     let mut other = Raffle::open(&manifest("r1", ["c".repeat(32)])).map_err(fail)?;

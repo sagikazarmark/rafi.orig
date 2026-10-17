@@ -334,4 +334,8 @@ Abandon already use `Confirm` (`apps/web/src/ui/admin/mod.rs:105`).
 - Watching `raffle_events` for live updates: `raffles.version` already orders every change screens show.
 - Sending only the last event per save (one round trip instead of two); worth it only if save latency ever matters.
 - Undoing a resolution or a withdrawal.
+- Checking an event's identity, not only its position, when saving. The guard compares `MAX(seq)` with the state's
+  length; a state whose earlier events differ from the stored ones (two engines owning one raffle, Restate's state
+  lost) would be appended or partly applied. Restate's attempts always carry a prefix of the newer state, so this
+  needs a broken engine contract; checking it would turn that silent divergence into a raffle that can't be saved.
 - Changing what any rule does, or the `Event` and `Manifest` formats.

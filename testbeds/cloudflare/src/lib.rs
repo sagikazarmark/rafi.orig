@@ -92,8 +92,7 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
         .await
         .map_err(err)?;
     let state = Raffle::open(&doc).map_err(err)?;
-    rafi_store::save_raffle(db, &state).await.map_err(err)?;
-    Ok(())
+    save(db, &state).await
 }
 
 /// The app's half of a Restate freeze: the manifest (on the mock drand
@@ -215,8 +214,16 @@ async fn record(db: &Db, raffle: &str, event: Event) -> Result<()> {
     let mut events = drawn(db, raffle).await?.events().to_vec();
     events.push(event);
     let state = Raffle::restore(&manifest(raffle, BeaconSource::QUICKNET), &events).map_err(err)?;
-    rafi_store::save_raffle(db, &state).await.map_err(err)?;
-    Ok(())
+    save(db, &state).await
+}
+
+/// Writes `state` as the engine would; one that isn't written is an error.
+async fn save(db: &Db, state: &Raffle) -> Result<()> {
+    if rafi_store::save_raffle(db, state).await.map_err(err)? {
+        Ok(())
+    } else {
+        Err(err("the raffle was not saved"))
+    }
 }
 
 /// A completed draw of the next prize for `who`.

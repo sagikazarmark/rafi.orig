@@ -8,7 +8,6 @@
 use std::sync::LazyLock;
 
 use rafi_lifecycle::{Command, RaffleState};
-
 use rafi_raffle::Outcome;
 
 use crate::{Db, PurgeAfter, Result, entrants::ERASED, raffles::states};

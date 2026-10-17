@@ -162,7 +162,17 @@ pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
     {
         return Ok(false);
     }
+    write_raffle(db, state, stored_events).await
+}
 
+/// [`save_raffle`]'s write, once its read found `stored_events` events
+/// stored: one [`Db::batch`] that appends the rest of `state`'s events,
+/// upserts the draws they touch and updates the row, all guarded on the
+/// stored log being exactly `state`'s once the events are in. Returns whether
+/// the row was updated.
+pub(crate) async fn write_raffle(db: &Db, state: &Raffle, stored_events: usize) -> Result<bool> {
+    let id = state.id().as_str();
+    let events = state.events();
     let new = events.get(stored_events..).unwrap_or_default();
     let now = now();
     // The stored log is exactly this state's: evaluated after the inserts, so
@@ -220,7 +230,7 @@ pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
         ))
         .bind(id)
         .bind(events.len())
-        .bind(manifest_hash)
+        .bind(state.manifest_hash().to_string())
         .bind(rafi_lifecycle::raffle::lifecycle(state).as_str())
         .bind(state.is_finished())
         .bind(now),
