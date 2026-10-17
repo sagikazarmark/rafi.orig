@@ -32,6 +32,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         raffle,
         prizes,
         entrants,
+        drawn,
     } = full;
     let now = ids::now();
 
@@ -52,13 +53,12 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         .map(|e| e.display_name.clone())
         .collect();
 
-    let drawn = raffle.drawn()?;
     let prize_meta: HashMap<&str, (&str, &str)> = prizes
         .iter()
         .map(|i| (i.id.as_str(), (i.name.as_str(), i.sponsor.as_str())))
         .collect();
 
-    let items: Vec<ItemView> = match &drawn {
+    let items: Vec<ItemView> = match drawn {
         Some(s) => s
             .items()
             .iter()
@@ -117,7 +117,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
     let mut draws = Vec::new();
     let mut current = None;
     let mut last_failure = None;
-    if let Some(s) = &drawn {
+    if let Some(s) = drawn {
         let item_name = |id: &ItemId| s.item(id).map(|i| i.name.clone()).unwrap_or_default();
         draws = s
             .draws()

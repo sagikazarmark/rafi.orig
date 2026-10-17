@@ -9,12 +9,9 @@ use std::sync::LazyLock;
 
 use rafi_lifecycle::{Command, RaffleState};
 
-use crate::{
-    Db, PurgeAfter, Result,
-    dialect::{self, Dialect},
-    entrants::ERASED,
-    raffles::states,
-};
+use rafi_raffle::Outcome;
+
+use crate::{Db, PurgeAfter, Result, entrants::ERASED, raffles::states};
 
 /// The states a raffle can be purged from ([`Command::Purge`]): finished, or
 /// purged with erasures left to do.
@@ -49,37 +46,32 @@ pub async fn date_purges(db: &Db, purge: PurgeAfter) -> Result<bool> {
 /// yet erased; non-winners once the
 /// raffle's non-winner date passed; winners (they claimed a prize) once the
 /// winner date passed, or the non-winner date if their prize was delivered.
-/// Built once per dialect.
-fn due(dialect: Dialect) -> &'static str {
-    static SQLITE: LazyLock<String> = LazyLock::new(|| due_sql(Dialect::Sqlite));
-    static POSTGRES: LazyLock<String> = LazyLock::new(|| due_sql(Dialect::Postgres));
-    match dialect {
-        Dialect::Sqlite => &SQLITE,
-        Dialect::Postgres => &POSTGRES,
-    }
-}
-
-fn due_sql(dialect: Dialect) -> String {
-    let winners = dialect::entrants_in(dialect, "r.winners");
-    format!(
-        "entrants.purged = 0 AND EXISTS (
-            SELECT 1 FROM raffles r
-            WHERE r.id = entrants.raffle_id
-              AND r.state IN ({purgeable}) AND r.finished_at IS NOT NULL AND r.purged_at IS NULL
-              AND CASE WHEN entrants.id IN ({winners})
-                  THEN r.purge_winners_at <= ?1
-                       OR (entrants.delivered_at IS NOT NULL AND r.purge_nonwinners_at <= ?1)
-                  ELSE r.purge_nonwinners_at <= ?1
-              END)",
-        purgeable = purgeable(),
-    )
+/// A winner is the entrant of a claimed draw. Built once.
+fn due() -> &'static str {
+    static DUE: LazyLock<String> = LazyLock::new(|| {
+        format!(
+            "entrants.purged = 0 AND EXISTS (
+                SELECT 1 FROM raffles r
+                WHERE r.id = entrants.raffle_id
+                  AND r.state IN ({purgeable}) AND r.finished_at IS NOT NULL AND r.purged_at IS NULL
+                  AND CASE WHEN entrants.id IN (
+                          SELECT entrant_id FROM draws WHERE raffle_id = r.id AND outcome = '{claimed}')
+                      THEN r.purge_winners_at <= ?1
+                           OR (entrants.delivered_at IS NOT NULL AND r.purge_nonwinners_at <= ?1)
+                      ELSE r.purge_nonwinners_at <= ?1
+                  END)",
+            purgeable = purgeable(),
+            claimed = Outcome::Claimed.as_str(),
+        )
+    });
+    &DUE
 }
 
 /// Erases every entrant that is due at `now`, logs the erasures, and marks
 /// raffles whose winners are due as purged: one batch, all or nothing.
 /// Returns how many entrants were erased.
 pub async fn erase_due(db: &Db, now: i64) -> Result<u64> {
-    let due = due(db.dialect());
+    let due = due();
     let (count,): (i64,) = db
         .query(format!("SELECT COUNT(*) FROM entrants WHERE {due}"))
         .bind(now)

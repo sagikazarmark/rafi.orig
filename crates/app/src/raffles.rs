@@ -101,7 +101,8 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
 
 pub async fn delete(app: &App, owner: &str, id: &str) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
-    if !lifecycle::raffle::deletable(raffle.state, raffle.drawn()?.as_ref()) {
+    let drawn = raffles::drawn(&app.db, &raffle).await?;
+    if !lifecycle::raffle::deletable(raffle.state, drawn.as_ref()) {
         return Err(Refusal::DrawPending.into());
     }
     raffles::delete(&app.db, id).await?;

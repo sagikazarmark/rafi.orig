@@ -16,7 +16,7 @@ use rafi_engine_restate::RestateClient;
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::{Decision, DrawRequest};
 use rafi_raffle::{ItemStatus, Resolution};
-use rafi_store::{Db, RaffleRow, RaffleWriter, raffles};
+use rafi_store::{Db, RaffleWriter, raffles, view::Full};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
 
@@ -34,9 +34,11 @@ const SERVER: ServerSpec = ServerSpec {
     env: &[],
 };
 
-async fn wait_for<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> RaffleRow {
+/// Waits until the raffle, as the admin and the projector read it, is as `f`
+/// wants.
+async fn wait_for<F: Fn(&Full) -> bool>(app: &AppState, id: &str, f: F) -> Full {
     for _ in 0..300 {
-        let r = raffles::get(&app.db, id).await.unwrap().unwrap();
+        let r = Full::read(&app.db, id).await.unwrap().unwrap();
         if f(&r) {
             return r;
         }
@@ -123,8 +125,8 @@ async fn app_and_rafi_restate_share_the_database() {
     service::start_draw(&app, OWNER, &id)
         .await
         .expect("freeze via rafi-restate");
-    let r = wait_for(&app, &id, |r| r.log.is_some()).await;
-    let item = r.drawn().unwrap().unwrap().items()[0].id.clone();
+    let r = wait_for(&app, &id, |r| r.raffle.opened()).await;
+    let item = r.drawn.as_ref().unwrap().items()[0].id.clone();
 
     service::command(
         &app,
@@ -136,8 +138,8 @@ async fn app_and_rafi_restate_share_the_database() {
     .await
     .unwrap();
     wait_for(&app, &id, |r| {
-        r.drawn()
-            .unwrap()
+        r.drawn
+            .as_ref()
             .is_some_and(|s| s.item(&item).unwrap().status() == ItemStatus::Drawn)
     })
     .await;
@@ -168,7 +170,7 @@ async fn app_and_rafi_restate_share_the_database() {
     service::command(&app, OWNER, &id, Decision::Finish, "cmd-3")
         .await
         .unwrap();
-    wait_for(&app, &id, |r| r.state == RaffleState::Finished).await;
+    wait_for(&app, &id, |r| r.raffle.state == RaffleState::Finished).await;
     let r = raffles::get(&app.db, &id).await.unwrap().unwrap();
     assert!(r.finished_at.is_some(), "the finish is timed");
 

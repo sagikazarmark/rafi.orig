@@ -79,7 +79,8 @@ async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
 async fn drawn(app: &App, id: &str) -> String {
     for _ in 0..200 {
         let raffle = raffles::get(&app.db, id).await.unwrap().unwrap();
-        if let Some(winner) = raffle.drawn().unwrap().and_then(|d| {
+        let drawn = raffles::drawn(&app.db, &raffle).await.unwrap();
+        if let Some(winner) = drawn.and_then(|d| {
             d.items()
                 .iter()
                 .find(|i| i.status() == ItemStatus::Drawn)

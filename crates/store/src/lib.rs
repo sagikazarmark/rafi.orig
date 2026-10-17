@@ -58,7 +58,8 @@ pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
 use rafi_engine::BoxFuture;
-use rafi_raffle::Raffle;
+use rafi_raffle::{Event, Raffle};
+use std::collections::BTreeSet;
 pub use value::{Row, Value};
 
 /// The current time in unix seconds. `std::time` aborts on
@@ -107,7 +108,9 @@ impl PurgeAfter {
     }
 }
 
-/// Stores a raffle as its engine drew it: the raffle's log, after every change.
+/// Stores a raffle as its engine drew it, after every change: the events it
+/// recorded since the last write (`raffle_events`), the draws they touched
+/// (`draws`), and the row (`raffles`: opened, the lifecycle, the finish).
 ///
 /// Idempotent and safe to retry: a state is only written when it is newer than
 /// the stored one, and for the entrant list the raffle was frozen with. The
@@ -116,66 +119,116 @@ impl PurgeAfter {
 /// when personal data is erased is the app's to date
 /// ([`retention::date_purges`]).
 ///
+/// It reads before it writes, to know which events are new; the write is one
+/// [`Db::batch`]. A stale save that passes the read (a newer one landed in
+/// between) carries the same events at the same positions, so its events
+/// are already stored, and the batch's guard (the stored log is exactly this
+/// state's) leaves the draws and the row alone.
+///
 /// Returns whether the state was written.
 pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
-    let stored = StoredRaffle::of(state)?;
-    let lifecycle = rafi_lifecycle::raffle::lifecycle(state).as_str();
-    let written = db
-        .query(format!(
+    #[derive(serde::Deserialize)]
+    struct Stored {
+        manifest_hash: Option<String>,
+        opened_at: Option<i64>,
+        /// How many events are stored: the highest `seq`, or 0.
+        events: i64,
+    }
+
+    let id = state.id().as_str();
+    let manifest_hash = state.manifest_hash().to_string();
+    let Some(stored) = db
+        .query(
+            "SELECT manifest_hash, opened_at,
+                    (SELECT COALESCE(MAX(seq), 0) FROM raffle_events WHERE raffle_id = ?1) AS events
+             FROM raffles WHERE id = ?1",
+        )
+        .bind(id)
+        .optional::<Stored>()
+        .await?
+    else {
+        return Ok(false);
+    };
+    let events = state.events();
+    let stored_events = usize::try_from(stored.events).unwrap_or(0);
+    if stored.manifest_hash.as_deref() != Some(manifest_hash.as_str())
+        || (stored.opened_at.is_some() && stored_events >= events.len())
+    {
+        return Ok(false);
+    }
+
+    let new = events.get(stored_events..).unwrap_or_default();
+    let now = now();
+    // The stored log is exactly this state's: evaluated after the inserts, so
+    // a stale save touches no draw and leaves the row alone.
+    let guard = "(SELECT COALESCE(MAX(seq), 0) FROM raffle_events WHERE raffle_id = ?1) = ?2";
+    let mut writes = Vec::new();
+    for (chunk, rows) in new.chunks(EVENTS_PER_INSERT).enumerate() {
+        let mut insert = db.query(format!(
+            "INSERT INTO raffle_events (raffle_id, seq, type, body, recorded_at) VALUES {}
+             ON CONFLICT DO NOTHING",
+            vec!["(?, ?, ?, ?, ?)"; rows.len()].join(", ")
+        ));
+        for (i, event) in rows.iter().enumerate() {
+            let seq = stored_events + chunk * EVENTS_PER_INSERT + i + 1;
+            insert = insert
+                .bind(id)
+                .bind(seq)
+                .bind(event.kind())
+                .bind(encode(event)?)
+                .bind(now);
+        }
+        writes.push(insert);
+    }
+    let touched: BTreeSet<u64> = new
+        .iter()
+        .filter_map(|event| match event {
+            Event::Drawn { k, .. } | Event::Resolved { k, .. } => Some(*k),
+            _ => None,
+        })
+        .collect();
+    for draw in state.draws().iter().filter(|d| touched.contains(&d.k)) {
+        writes.push(
+            db.query(format!(
+                "INSERT INTO draws (raffle_id, k, item_id, entrant_id, outcome)
+                 SELECT ?1, ?3, ?4, ?5, ?6 WHERE {guard}
+                 ON CONFLICT (raffle_id, k) DO UPDATE SET outcome = excluded.outcome"
+            ))
+            .bind(id)
+            .bind(events.len())
+            .bind(draw.k)
+            .bind(draw.item.as_str())
+            .bind(draw.entrant.as_str())
+            .bind(draw.outcome.as_str()),
+        );
+    }
+    writes.push(
+        db.query(format!(
             "UPDATE raffles SET
-                log = ?1,
-                drawn_entrants = ?7,
-                winners = ?8,
-                log_version = ?2,
-                state = CASE WHEN state IN ({following}) THEN ?3 ELSE state END,
-                finished_at = CASE WHEN ?4 = 1 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
-                updated_at = ?5
-             WHERE id = ?6 AND manifest_hash = ?9 AND log_version < ?2",
+                state = CASE WHEN state IN ({following}) THEN ?4 ELSE state END,
+                finished_at = CASE WHEN ?5 = 1 AND finished_at IS NULL THEN ?6 ELSE finished_at END,
+                opened_at = COALESCE(opened_at, ?6),
+                updated_at = ?6
+             WHERE id = ?1 AND manifest_hash = ?3 AND {guard}",
             following = raffles::states(rafi_lifecycle::RaffleState::follows_raffle),
         ))
-        .bind(stored.json)
-        .bind(state.version())
-        .bind(lifecycle)
+        .bind(id)
+        .bind(events.len())
+        .bind(manifest_hash)
+        .bind(rafi_lifecycle::raffle::lifecycle(state).as_str())
         .bind(state.is_finished())
-        .bind(now())
-        .bind(state.id().as_str())
-        .bind(stored.drawn_entrants)
-        .bind(stored.winners)
-        .bind(state.manifest_hash().to_string())
-        .run()
-        .await?;
-    Ok(written > 0)
+        .bind(now),
+    );
+    let changed = db.batch(writes).await?;
+    Ok(changed.last().is_some_and(|&n| n > 0))
 }
 
-/// A raffle as the `raffles` row stores it: its log (the manifest and the
-/// event log), and the entrants the database itself needs from it, as JSON
-/// arrays of IDs.
-pub(crate) struct StoredRaffle {
-    pub json: String,
-    /// Every entrant drawn: only their names may leave the database.
-    pub drawn_entrants: String,
-    /// The entrants holding a claimed item: their data is kept longer.
-    pub winners: String,
-}
-
-impl StoredRaffle {
-    pub fn of(state: &Raffle) -> Result<Self> {
-        Ok(Self {
-            json: encode(state)?,
-            drawn_entrants: encode(&state.drawn_entrants())?,
-            winners: encode(&state.winners())?,
-        })
-    }
-}
+/// Events per `INSERT`: five parameters each, and D1 binds at most 100 per
+/// statement.
+const EVENTS_PER_INSERT: usize = 20;
 
 fn encode(value: &impl serde::Serialize) -> Result<String> {
     serde_json::to_string(value).map_err(|e| Error::Backend(e.to_string()))
-}
-
-/// Reads a stored raffle log. One that doesn't load (another shape, or a log
-/// that isn't its own) is an error, never "not opened yet".
-pub(crate) fn parse_raffle(json: &str) -> Result<Raffle> {
-    serde_json::from_str(json).map_err(|e| Error::Decode(format!("the stored raffle: {e}")))
 }
 
 /// The raffle engine's [`Store`](rafi_engine::Store) over this database: [`save_raffle`].

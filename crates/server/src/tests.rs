@@ -15,7 +15,7 @@ use rafi_lifecycle::RaffleState;
 use rafi_live_client::Follow;
 use rafi_live_server::{LiveUpdates, Recording};
 use rafi_raffle::{ItemStatus, RaffleId, Resolution};
-use rafi_store::{RaffleRow, entrants, prizes, raffles};
+use rafi_store::{RaffleRow, entrants, prizes, raffles, view::Full};
 use tower::ServiceExt;
 
 use rafi_raffle::{Decision, DrawRequest};
@@ -200,9 +200,15 @@ async fn setup_open(app: &AppState, prizes: &[(&str, u32)]) -> RaffleRow {
     raffles::get(&app.db, &id).await.unwrap().unwrap()
 }
 
-async fn wait_for<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> RaffleRow {
+/// The raffle as the admin and the projector read it, the raffle as drawn
+/// included.
+async fn full(app: &AppState, id: &str) -> Full {
+    Full::read(&app.db, id).await.unwrap().unwrap()
+}
+
+async fn wait_for<F: Fn(&Full) -> bool>(app: &AppState, id: &str, f: F) -> Full {
     for _ in 0..200 {
-        let r = raffles::get(&app.db, id).await.unwrap().unwrap();
+        let r = full(app, id).await;
         if f(&r) {
             return r;
         }
@@ -212,9 +218,9 @@ async fn wait_for<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> 
 }
 
 /// [`wait_for`] for slow conditions (stalls take a round period plus the timeout).
-async fn wait_long<F: Fn(&RaffleRow) -> bool>(app: &AppState, id: &str, f: F) -> RaffleRow {
+async fn wait_long<F: Fn(&Full) -> bool>(app: &AppState, id: &str, f: F) -> Full {
     for _ in 0..1000 {
-        let r = raffles::get(&app.db, id).await.unwrap().unwrap();
+        let r = full(app, id).await;
         if f(&r) {
             return r;
         }
@@ -308,8 +314,8 @@ async fn full_raffle_flow() {
 
     // Freeze; joining is closed afterwards.
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
-    assert_eq!(r.state, RaffleState::Frozen);
+    let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    assert_eq!(r.raffle.state, RaffleState::Frozen);
     let (status, cookie, _) = join(&router, &code, "Late", "late@example.com").await;
     assert_ne!(status, StatusCode::SEE_OTHER);
     assert!(cookie.is_none());
@@ -334,7 +340,7 @@ async fn full_raffle_flow() {
     );
 
     // Draw every item; the first winner is not here and the item is redrawn.
-    let state = r.drawn().unwrap().unwrap();
+    let state = r.drawn.as_ref().unwrap();
     let items: Vec<_> = state.items().iter().map(|u| u.id.clone()).collect();
     let mut winners = Vec::new();
     for (i, item) in items.iter().enumerate() {
@@ -348,15 +354,15 @@ async fn full_raffle_flow() {
         .await
         .unwrap();
         let r = wait_for(&app, &raffle.id, |r| {
-            r.drawn()
-                .unwrap()
+            r.drawn
+                .as_ref()
                 .is_some_and(|s| s.item(item).unwrap().status() == ItemStatus::Drawn)
         })
         .await;
         if i == 0 {
             let first = r
-                .drawn()
-                .unwrap()
+                .drawn
+                .as_ref()
                 .unwrap()
                 .item(item)
                 .unwrap()
@@ -385,14 +391,14 @@ async fn full_raffle_flow() {
             .await
             .unwrap();
             let r = wait_for(&app, &raffle.id, |r| {
-                r.drawn()
-                    .unwrap()
+                r.drawn
+                    .as_ref()
                     .is_some_and(|s| s.item(item).unwrap().status() == ItemStatus::Drawn)
             })
             .await;
             assert_ne!(
-                r.drawn()
-                    .unwrap()
+                r.drawn
+                    .as_ref()
                     .unwrap()
                     .item(item)
                     .unwrap()
@@ -402,10 +408,10 @@ async fn full_raffle_flow() {
                 first
             );
         }
-        let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
+        let r = full(&app, &raffle.id).await;
         winners.push(
-            r.drawn()
-                .unwrap()
+            r.drawn
+                .as_ref()
                 .unwrap()
                 .item(item)
                 .unwrap()
@@ -559,14 +565,8 @@ async fn public_view_has_no_personal_data() {
     )
     .await;
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
-    let state = raffles::get(&app.db, &raffle.id)
-        .await
-        .unwrap()
-        .unwrap()
-        .drawn()
-        .unwrap()
-        .unwrap();
+    wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    let state = full(&app, &raffle.id).await.drawn.unwrap();
     service::command(
         &app,
         OWNER,
@@ -579,8 +579,8 @@ async fn public_view_has_no_personal_data() {
     .await
     .unwrap();
     wait_for(&app, &raffle.id, |r| {
-        r.drawn()
-            .unwrap()
+        r.drawn
+            .as_ref()
             .is_some_and(|s| s.items()[0].status() == ItemStatus::Drawn)
     })
     .await;
@@ -685,8 +685,8 @@ async fn participant_view_has_no_personal_data() {
     }
 
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
-    let item = r.drawn().unwrap().unwrap().items()[0].id.clone();
+    let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    let item = r.drawn.as_ref().unwrap().items()[0].id.clone();
     service::command(
         &app,
         OWNER,
@@ -697,14 +697,14 @@ async fn participant_view_has_no_personal_data() {
     .await
     .unwrap();
     let r = wait_for(&app, &raffle.id, |r| {
-        r.drawn()
-            .unwrap()
+        r.drawn
+            .as_ref()
             .is_some_and(|s| s.item(&item).unwrap().status() == ItemStatus::Drawn)
     })
     .await;
     let winner_id = r
-        .drawn()
-        .unwrap()
+        .drawn
+        .as_ref()
         .unwrap()
         .item(&item)
         .unwrap()
@@ -1104,7 +1104,9 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
         .unwrap();
 
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
+    let Full {
+        raffle: r, drawn, ..
+    } = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let doc: rafi_raffle::Manifest =
         serde_json::from_str(r.manifest.as_deref().expect("a manifest")).unwrap();
     assert_eq!(doc.entrants.len(), 3);
@@ -1115,7 +1117,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
     );
     assert!(r.frozen_at.is_some());
     assert_eq!(
-        r.drawn().unwrap().unwrap().manifest_hash().to_string(),
+        drawn.unwrap().manifest_hash().to_string(),
         r.manifest_hash.unwrap()
     );
 
@@ -1167,10 +1169,10 @@ async fn stalled_draw_keeps_its_round() {
             .unwrap();
     }
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
+    let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let items: Vec<_> = r
-        .drawn()
-        .unwrap()
+        .drawn
+        .as_ref()
         .unwrap()
         .items()
         .iter()
@@ -1189,9 +1191,9 @@ async fn stalled_draw_keeps_its_round() {
         let (app, raffle_id) = (app.clone(), raffle.id.clone());
         async move { draw_cmd(&app, &raffle_id, &item, &id).await }
     };
-    let stalls = |r: &RaffleRow| {
-        r.drawn()
-            .unwrap()
+    let stalls = |r: &Full| {
+        r.drawn
+            .as_ref()
             .map(|s| {
                 s.events()
                     .iter()
@@ -1204,8 +1206,8 @@ async fn stalled_draw_keeps_its_round() {
     draw(items[0].as_str(), "d1").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 1).await;
     let pending = r
-        .drawn()
-        .unwrap()
+        .drawn
+        .as_ref()
         .unwrap()
         .pending()
         .cloned()
@@ -1215,7 +1217,7 @@ async fn stalled_draw_keeps_its_round() {
     assert!(draw(items[1].as_str(), "d2").await.is_err());
     draw(items[0].as_str(), "d3").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 2).await;
-    let s = r.drawn().unwrap().unwrap();
+    let s = r.drawn.as_ref().unwrap();
     assert_eq!(s.pending(), Some(&pending), "same draw, same round");
     let announces = s
         .events()
@@ -1239,7 +1241,7 @@ async fn stalled_draw_keeps_its_round() {
     // A new draw of the item announces the same draw number on a current round.
     draw(items[0].as_str(), "d4").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| stalls(r) >= 3).await;
-    let next = r.drawn().unwrap().unwrap().pending().cloned().unwrap();
+    let next = r.drawn.as_ref().unwrap().pending().cloned().unwrap();
     assert_eq!(next.k, pending.k, "the abandoned draw's number is reused");
     assert!(
         next.round >= pending.round,
@@ -1275,10 +1277,10 @@ async fn only_handing_over_passes_a_waiting_draw() {
             .unwrap();
     }
     service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
-    let r = wait_for(&app, &raffle.id, |r| r.log.is_some()).await;
+    let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let items: Vec<_> = r
-        .drawn()
-        .unwrap()
+        .drawn
+        .as_ref()
         .unwrap()
         .items()
         .iter()
@@ -1303,33 +1305,28 @@ async fn only_handing_over_passes_a_waiting_draw() {
 
     draw(items[0].as_str(), "d1").await.unwrap();
     wait_long(&app, &raffle.id, |r| {
-        r.drawn()
-            .unwrap()
+        r.drawn
+            .as_ref()
             .is_some_and(|s| s.item(&items[0]).unwrap().status() == ItemStatus::Drawn)
     })
     .await;
     draw(items[1].as_str(), "d2").await.unwrap();
     wait_for(&app, &raffle.id, |r| {
-        r.drawn()
-            .unwrap()
+        r.drawn
+            .as_ref()
             .is_some_and(|s| s.pending().as_ref().is_some_and(|p| p.item == items[1]))
     })
     .await;
     assert!(resolve(Resolution::NotHere, "nh").await.is_err());
     resolve(Resolution::Claimed, "cl").await.unwrap();
     let r = wait_long(&app, &raffle.id, |r| {
-        r.drawn()
-            .unwrap()
+        r.drawn
+            .as_ref()
             .is_some_and(|s| s.item(&items[0]).unwrap().status() == ItemStatus::Claimed)
     })
     .await;
     assert_eq!(
-        r.drawn()
-            .unwrap()
-            .unwrap()
-            .item(&items[1])
-            .unwrap()
-            .status(),
+        r.drawn.as_ref().unwrap().item(&items[1]).unwrap().status(),
         ItemStatus::Drawn,
         "applied after the draw settled"
     );

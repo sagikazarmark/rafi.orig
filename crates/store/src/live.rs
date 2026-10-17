@@ -9,7 +9,7 @@
 //! snapshot: a write can't land between them and leave a view labelled newer
 //! than what it holds.
 
-use crate::{Db, Result, dialect};
+use crate::{Db, Result, raffles};
 use rafi_lifecycle::RaffleState;
 use rafi_lifecycle::live::Snapshot;
 use serde::Deserialize;
@@ -19,7 +19,8 @@ struct RaffleRow {
     state: RaffleState,
     version: i64,
     live_ended_at: Option<i64>,
-    log: Option<String>,
+    manifest: Option<String>,
+    opened_at: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -33,24 +34,23 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
     let mut sets = db
         .batch_rows(vec![
             db.query(
-                "SELECT state, version, live_ended_at, log FROM raffles WHERE id = ?1",
+                "SELECT state, version, live_ended_at, manifest, opened_at FROM raffles WHERE id = ?1",
             )
             .bind(raffle_id),
             // Only the entrants that were drawn, and only the names shown.
-            db.query(format!(
+            db.query(
                 "SELECT e.id, CASE WHEN e.hidden = 1 THEN NULL ELSE e.display_name END AS display_name
                  FROM entrants e
-                 WHERE e.raffle_id = ?1 AND e.id IN ({})",
-                dialect::entrants_in(
-                    db.dialect(),
-                    "(SELECT drawn_entrants FROM raffles WHERE id = ?1)",
-                )
-            ))
+                 WHERE e.raffle_id = ?1
+                   AND e.id IN (SELECT entrant_id FROM draws WHERE raffle_id = ?1)",
+            )
             .bind(raffle_id),
             db.query("SELECT COALESCE(SUM(qty), 0) FROM prizes WHERE raffle_id = ?1")
                 .bind(raffle_id),
+            raffles::events_query(db, raffle_id),
         ])
         .await?;
+    let event_rows = sets.pop().unwrap_or_default();
     let qty_rows = sets.pop().unwrap_or_default();
     let name_rows = sets.pop().unwrap_or_default();
     let Some(raffle) = sets.pop().and_then(|rows| rows.into_iter().next()) else {
@@ -71,7 +71,7 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
         state: raffle.state,
         version: raffle.version.max(0) as u64,
         live_ended_at: raffle.live_ended_at,
-        drawn: raffle.log.as_deref().map(crate::parse_raffle).transpose()?,
+        drawn: raffles::rebuild(raffle.opened_at, raffle.manifest.as_deref(), event_rows)?,
         names,
         prize_qty,
     }))
@@ -140,9 +140,10 @@ mod tests {
             ],
         );
         db.query(
-            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, manifest_hash, created_at, updated_at)
-             VALUES ('r1', 'o', 's', 'j', 't', 'open', ?, 0, 0)",
+            "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, manifest, manifest_hash, created_at, updated_at)
+             VALUES ('r1', 'o', 's', 'j', 't', 'open', ?, ?, 0, 0)",
         )
+        .bind(manifest.canonical_json())
         .bind(manifest.hash().to_string())
         .run()
         .await
@@ -172,15 +173,14 @@ mod tests {
         }
     }
 
+    /// Stores the raffle as its engine would, in `lifecycle`.
     async fn store(db: &Db, log: &Log, lifecycle: &str) {
-        let stored = crate::StoredRaffle::of(&log.raffle()).unwrap();
-        db.query("UPDATE raffles SET state = ?, log = ?, drawn_entrants = ? WHERE id = 'r1'")
+        db.query("UPDATE raffles SET state = ? WHERE id = 'r1'")
             .bind(lifecycle)
-            .bind(stored.json)
-            .bind(stored.drawn_entrants)
             .run()
             .await
             .unwrap();
+        assert!(crate::save_raffle(db, &log.raffle()).await.unwrap());
     }
 
     #[tokio::test]
@@ -218,11 +218,16 @@ mod tests {
     #[tokio::test]
     async fn a_log_that_does_not_load_is_an_error() {
         let db = Db::connect("sqlite::memory:").await.unwrap();
-        raffle(&db).await;
-        db.query(r#"UPDATE raffles SET log = '{"items": []}' WHERE id = 'r1'"#)
-            .run()
-            .await
-            .unwrap();
+        let log = raffle(&db).await;
+        store(&db, &log, "drawing").await;
+        assert!(snapshot(&db, "r1").await.unwrap().unwrap().drawn.is_some());
+        db.query(
+            r#"INSERT INTO raffle_events (raffle_id, seq, type, body, recorded_at)
+               VALUES ('r1', 1, 'drawn', '{"items": []}', 0)"#,
+        )
+        .run()
+        .await
+        .unwrap();
         assert!(snapshot(&db, "r1").await.is_err());
     }
 

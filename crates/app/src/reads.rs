@@ -19,23 +19,18 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     if full.raffle.owner_id != owner {
         return Err(Error::NotFound);
     }
-    let drawn = full.raffle.drawn()?;
     let view = view::of(app, &full)?;
-    let entrants = admin_entrants(&full, drawn.as_ref());
+    let entrants = admin_entrants(&full, full.drawn.as_ref());
     let raffle = &full.raffle;
     let personal_data_left = full.entrants.iter().any(|e| !e.purged);
     let actions = AdminActions {
-        start: start::next(
-            raffle.state,
-            raffle.manifest.is_some(),
-            raffle.log.is_some(),
-        )
-        .ok()
-        .map(|step| match step {
-            Start::Freeze { .. } => StartStep::Freeze,
-            Start::WriteManifest { .. } | Start::Resend => StartStep::Retry,
-            Start::Started => StartStep::Started,
-        }),
+        start: start::next(raffle.state, raffle.manifest.is_some(), raffle.opened())
+            .ok()
+            .map(|step| match step {
+                Start::Freeze { .. } => StartStep::Freeze,
+                Start::WriteManifest { .. } | Start::Resend => StartStep::Retry,
+                Start::Started => StartStep::Started,
+            }),
         draw: raffle.state.frozen_or_later(),
         export: raffle.state.frozen_or_later(),
         purge: raffle.state.apply(lifecycle::Command::Purge).is_some()
@@ -104,7 +99,6 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
     if full.raffle.owner_id != owner {
         return Err(Error::NotFound);
     }
-    let drawn = full.raffle.drawn()?;
     fn esc(s: &str) -> String {
         // Quote, and neutralize spreadsheet formula injection.
         let s = if s.starts_with(['=', '+', '-', '@']) {
@@ -117,17 +111,11 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
     let mut out = String::from(
         "entrant_id,display_name,email,source,claim_code,outcome,prize,delivered,marketing_consent\n",
     );
-    for e in admin_entrants(&full, drawn.as_ref())
+    for e in admin_entrants(&full, full.drawn.as_ref())
         .iter()
         .filter(|e| e.outcome.is_some())
     {
-        let outcome = match e.outcome {
-            Some(Outcome::Claimed) => "claimed",
-            Some(Outcome::Drawn) => "drawn",
-            Some(Outcome::NotHere) => "not_here",
-            Some(Outcome::Declined) => "declined",
-            None => "",
-        };
+        let outcome = e.outcome.map_or("", Outcome::as_str);
         out.push_str(
             &[
                 esc(&e.id),
@@ -172,8 +160,8 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
     Ok(VerifyData {
         title: raffle.title.clone(),
         state: raffle.state,
-        events: raffle
-            .drawn()?
+        events: raffles::drawn(&app.db, &raffle)
+            .await?
             .map(|s| s.events().to_vec())
             .unwrap_or_default(),
         manifest,

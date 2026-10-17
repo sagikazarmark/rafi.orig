@@ -27,13 +27,13 @@ fn entrant(raffle: &str, name: &str) -> String {
 }
 
 async fn drawn(db: &Db, raffle: &str) -> Result<Raffle> {
-    rafi_store::raffles::get(db, raffle)
+    let row = rafi_store::raffles::get(db, raffle)
         .await
         .map_err(err)?
-        .map(|r| r.drawn())
-        .transpose()
+        .ok_or_else(|| err("no such raffle"))?;
+    rafi_store::raffles::drawn(db, &row)
+        .await
         .map_err(err)?
-        .flatten()
         .ok_or_else(|| err("the raffle is not opened"))
 }
 
@@ -83,15 +83,16 @@ fn manifest(raffle: &str, beacon: BeaconSource) -> Manifest {
 }
 
 async fn freeze(db: &Db, raffle: &str) -> Result<()> {
-    let state = Raffle::open(&manifest(raffle, BeaconSource::QUICKNET)).map_err(err)?;
-    db.query("UPDATE raffles SET state = 'frozen', manifest_hash = ?, log = ?, log_version = ? WHERE id = ?")
-        .bind(state.manifest_hash().to_string())
-        .bind(serde_json::to_string(&state).map_err(err)?)
-        .bind(state.version())
+    let doc = manifest(raffle, BeaconSource::QUICKNET);
+    db.query("UPDATE raffles SET state = 'frozen', manifest = ?, manifest_hash = ? WHERE id = ?")
+        .bind(doc.canonical_json())
+        .bind(doc.hash().to_string())
         .bind(raffle)
         .run()
         .await
         .map_err(err)?;
+    let state = Raffle::open(&doc).map_err(err)?;
+    rafi_store::save_raffle(db, &state).await.map_err(err)?;
     Ok(())
 }
 

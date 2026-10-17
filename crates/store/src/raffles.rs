@@ -7,10 +7,10 @@
 //! Each step is guarded by the state it expects, so retrying is safe.
 
 use rafi_lifecycle::RaffleState;
-use rafi_raffle::Raffle;
+use rafi_raffle::{Event, Manifest, Raffle};
 use serde::Deserialize;
 
-use crate::{Db, Query, Result, now, prizes::PrizeFields};
+use crate::{Db, Error, Query, Result, Row, now, prizes::PrizeFields};
 
 /// The states `rule` holds for, as an SQL list of their names: SQL that
 /// guards on a state asks the raffle's rules ([`RaffleState`]) which.
@@ -43,10 +43,9 @@ pub struct RaffleRow {
     pub manifest: Option<String>,
     pub manifest_hash: Option<String>,
     pub frozen_at: Option<i64>,
-    /// The raffle as its engine drew it ([`crate::save_raffle`]): the
-    /// manifest and the event log.
-    pub log: Option<String>,
-    pub log_version: i64,
+    /// When the engine first wrote the raffle ([`crate::save_raffle`]): it is
+    /// opened, and [`drawn`] reads it. Opening records no event.
+    pub opened_at: Option<i64>,
     pub finished_at: Option<i64>,
     pub purge_nonwinners_at: Option<i64>,
     pub purge_winners_at: Option<i64>,
@@ -61,10 +60,60 @@ pub struct RaffleRow {
 }
 
 impl RaffleRow {
-    /// The raffle as drawn, once the engine has opened it.
-    pub fn drawn(&self) -> Result<Option<Raffle>> {
-        self.log.as_deref().map(crate::parse_raffle).transpose()
+    /// Whether the engine has opened the raffle.
+    pub fn opened(&self) -> bool {
+        self.opened_at.is_some()
     }
+}
+
+/// The raffle as drawn, once the engine has opened it: rebuilt from the row's
+/// manifest and its events. The manifest never changes once set and the
+/// events only grow, so they make a valid raffle read apart from the row.
+pub async fn drawn(db: &Db, row: &RaffleRow) -> Result<Option<Raffle>> {
+    if !row.opened() {
+        return Ok(None);
+    }
+    let events = events_query(db, &row.id).rows().await?;
+    rebuild(row.opened_at, row.manifest.as_deref(), events)
+}
+
+/// Reads raffle `raffle_id`'s events, oldest first: rows for [`rebuild`].
+pub(crate) fn events_query<'a>(db: &'a Db, raffle_id: &str) -> Query<'a> {
+    db.query("SELECT seq, body FROM raffle_events WHERE raffle_id = ? ORDER BY seq")
+        .bind(raffle_id)
+}
+
+/// Rebuilds a raffle from its row (when it was opened, its manifest) and its
+/// events ([`events_query`]): `None` until it is opened. A raffle that doesn't
+/// load (opened without a manifest, events before it opened, an event that
+/// doesn't parse, a log that doesn't replay) is an error, never "not opened".
+pub(crate) fn rebuild(
+    opened_at: Option<i64>,
+    manifest: Option<&str>,
+    events: Vec<Row>,
+) -> Result<Option<Raffle>> {
+    let fail = |what: String| Error::Decode(format!("the stored raffle: {what}"));
+    if opened_at.is_none() {
+        return if events.is_empty() {
+            Ok(None)
+        } else {
+            Err(fail("events, but it was never opened".into()))
+        };
+    }
+    let manifest: Manifest = serde_json::from_str(
+        manifest.ok_or_else(|| fail("opened, but it has no manifest".into()))?,
+    )
+    .map_err(|e| fail(format!("its manifest: {e}")))?;
+    let events = events
+        .into_iter()
+        .map(|row| {
+            let (seq, body): (i64, String) = row.decode()?;
+            serde_json::from_str::<Event>(&body).map_err(|e| fail(format!("event {seq}: {e}")))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Raffle::restore(&manifest, &events)
+        .map(Some)
+        .map_err(|e| fail(e.to_string()))
 }
 
 /// A raffle in its owner's list.

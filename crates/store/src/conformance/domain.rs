@@ -17,18 +17,27 @@ const PURGE: PurgeAfter = PurgeAfter {
 /// A frozen raffle `id` with two entrants and one prize, and its draw state.
 async fn frozen(db: &Db, id: &str) -> Result<Raffle, String> {
     let state = Raffle::open(&manifest(id, ["a".repeat(32), "b".repeat(32)])).map_err(fail)?;
+    frozen_with(db, state.manifest()).await?;
+    Ok(state)
+}
+
+/// A frozen raffle with `manifest`, as the app stores it: the manifest and
+/// its hash.
+async fn frozen_with(db: &Db, manifest: &Manifest) -> Outcome {
+    let id = manifest.raffle.as_str();
     db.query(
-        "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, manifest_hash, created_at, updated_at)
-         VALUES (?, 'o', ?, ?, 't', 'frozen', ?, 0, 0)",
+        "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, manifest, manifest_hash, created_at, updated_at)
+         VALUES (?, 'o', ?, ?, 't', 'frozen', ?, ?, 0, 0)",
     )
     .bind(id)
     .bind(format!("slug-{id}"))
     .bind(format!("code-{id}"))
-    .bind(state.manifest_hash().to_string())
+    .bind(manifest.canonical_json())
+    .bind(manifest.hash().to_string())
     .run()
     .await
     .map_err(fail)?;
-    Ok(state)
+    Ok(())
 }
 
 /// Applies `p` to an entrant that must exist.
@@ -518,8 +527,8 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
 }
 
 pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
-    // A finished raffle: w claimed a prize, d claimed one that was delivered,
-    // n won nothing.
+    // A finished raffle: w claimed two prizes, d claimed one that was
+    // delivered, n was drawn but declined, and won nothing.
     raffle_in(db, "r1", RaffleState::Open).await?;
     for id in ["w", "d", "n"] {
         join(db, "r1", id, &format!("{id}@x"), 10).await?;
@@ -538,40 +547,52 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         "r1",
         BeaconSource::QUICKNET,
         vec!["w".into(), "d".into(), "n".into()],
-        ["u1", "u2"]
+        ["u1", "u2", "u3"]
             .map(|u| ManifestItem {
                 id: u.into(),
                 name: "Book".into(),
             })
             .into(),
     );
-    // "w" and "d" won and claimed, as their engine logged it.
+    // As their engine logged it.
     let mut events = Vec::new();
-    for (k, (item, winner)) in [(1, ("u1", "w")), (2, ("u2", "d"))] {
+    for (k, item, winner, pass, resolution) in [
+        (1, "u1", "w", 1, Resolution::Claimed),
+        (2, "u2", "d", 1, Resolution::Claimed),
+        (3, "u3", "n", 1, Resolution::Declined),
+        (4, "u3", "w", 2, Resolution::Claimed),
+    ] {
         events.push(Event::Drawn {
             k,
             item: item.into(),
             round: k,
             signature: String::new(),
             randomness: String::new(),
-            pass: 1,
+            pass,
             pool_size: 3,
             index: 0,
             entrant: winner.into(),
         });
-        events.push(Event::Resolved {
-            k,
-            resolution: Resolution::Claimed,
-        });
+        events.push(Event::Resolved { k, resolution });
     }
+    events.push(Event::Finished);
     let state = Raffle::restore(&manifest, &events).map_err(fail)?;
-    let stored = crate::StoredRaffle::of(&state).map_err(fail)?;
     db.query(
-        "UPDATE raffles SET state = 'finished', log = ?, winners = ?, finished_at = 100,
-         purge_nonwinners_at = 130, purge_winners_at = 190 WHERE id = 'r1'",
+        "UPDATE raffles SET state = 'drawing', manifest = ?, manifest_hash = ? WHERE id = 'r1'",
     )
-    .bind(stored.json)
-    .bind(stored.winners)
+    .bind(manifest.canonical_json())
+    .bind(manifest.hash().to_string())
+    .run()
+    .await
+    .map_err(fail)?;
+    check(
+        save_raffle(db, &state).await.map_err(fail)?,
+        "the engine's write",
+    )?;
+    db.query(
+        "UPDATE raffles SET finished_at = 100, purge_nonwinners_at = 130, purge_winners_at = 190
+         WHERE id = 'r1' AND state = 'finished'",
+    )
     .run()
     .await
     .map_err(fail)?;
@@ -833,6 +854,50 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         snap.version == raffle(db, "r1").await?.version as u64,
         "the raffle's version",
     )?;
+
+    // Bence isn't here; the prize goes to Anna. Everyone drawn is named,
+    // forfeits too.
+    let mut state = state;
+    state
+        .decide(&Decision::Resolve {
+            item: "u1".into(),
+            resolution: Resolution::NotHere,
+        })
+        .map_err(fail)?;
+    let state = Raffle::restore(
+        state.manifest(),
+        &[
+            state.events(),
+            &[Event::Drawn {
+                k: 2,
+                item: "u1".into(),
+                round: 2,
+                signature: String::new(),
+                randomness: String::new(),
+                pass: 1,
+                pool_size: 1,
+                index: 0,
+                entrant: anna.clone().into(),
+            }],
+        ]
+        .concat(),
+    )
+    .map_err(fail)?;
+    check(
+        save_raffle(db, &state).await.map_err(fail)?,
+        "writing the forfeit and the redraw",
+    )?;
+    let snap = live::snapshot(db, "r1")
+        .await
+        .map_err(fail)?
+        .ok_or("the raffle is gone")?;
+    check(
+        snap.names.len() == 2
+            && snap.names.get(&bence) == Some(&None)
+            && snap.names.get(&anna) == Some(&Some("Anna".to_owned())),
+        &format!("both drawn entrants: {:?}", snap.names),
+    )?;
+    check(snap.drawn.as_ref() == Some(&state), "the raffle as drawn")?;
     check(
         live::snapshot(db, "nope").await.map_err(fail)?.is_none(),
         "no such raffle",
@@ -978,5 +1043,343 @@ pub(super) async fn patches_an_entrant_at_once(db: &Db) -> Outcome {
             .await
             .map_err(fail)?,
         "an erased entrant isn't patched",
+    )
+}
+
+// ---------------------------------------------------------------------------
+// The raffle's log: its events and its draws (docs/events-plan.md)
+// ---------------------------------------------------------------------------
+
+/// The test vectors' evening (`testdata/draw-vectors.json`): every kind of
+/// event, an abandon and forfeits included. Built in, so D1 runs it too.
+fn evening() -> Result<(Manifest, Vec<Event>), String> {
+    #[derive(serde::Deserialize)]
+    struct Vectors {
+        scenario: Scenario,
+    }
+    #[derive(serde::Deserialize)]
+    struct Scenario {
+        manifest: String,
+        events: Vec<Event>,
+    }
+    let vectors: Vectors =
+        serde_json::from_str(include_str!("../../../../testdata/draw-vectors.json"))
+            .map_err(fail)?;
+    let manifest = serde_json::from_str(&vectors.scenario.manifest).map_err(fail)?;
+    Ok((manifest, vectors.scenario.events))
+}
+
+/// An event row: `(seq, type, body)`.
+type EventRow = (i64, String, String);
+/// A draw row: `(k, item_id, entrant_id, outcome)`.
+type DrawRow = (i64, String, String, String);
+
+/// What the store holds of raffle `id`'s log: its events and its draws.
+async fn stored_log(db: &Db, id: &str) -> Result<(Vec<EventRow>, Vec<DrawRow>), String> {
+    let events = db
+        .query("SELECT seq, type, body FROM raffle_events WHERE raffle_id = ? ORDER BY seq")
+        .bind(id)
+        .all()
+        .await
+        .map_err(fail)?;
+    let draws = db
+        .query("SELECT k, item_id, entrant_id, outcome FROM draws WHERE raffle_id = ? ORDER BY k")
+        .bind(id)
+        .all()
+        .await
+        .map_err(fail)?;
+    Ok((events, draws))
+}
+
+/// Checks that the store holds exactly `state`: every reader reads it back,
+/// and its events and draws are rows, as the raffle says.
+async fn holds(db: &Db, state: &Raffle, when: &str) -> Outcome {
+    let id = state.id().as_str();
+    let row = raffle(db, id).await?;
+    check(
+        raffles::drawn(db, &row).await.map_err(fail)?.as_ref() == Some(state),
+        &format!("{when}: the raffle read back"),
+    )?;
+    let full = Full::read(db, id)
+        .await
+        .map_err(fail)?
+        .ok_or("the raffle is gone")?;
+    check(
+        full.drawn.as_ref() == Some(state),
+        &format!("{when}: the full view's raffle"),
+    )?;
+    let snap = live::snapshot(db, id)
+        .await
+        .map_err(fail)?
+        .ok_or("the raffle is gone")?;
+    check(
+        snap.drawn.as_ref() == Some(state),
+        &format!("{when}: the snapshot's raffle"),
+    )?;
+
+    let (events, draws) = stored_log(db, id).await?;
+    let expected: Vec<EventRow> = state
+        .events()
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let body = serde_json::to_string(e).map_err(fail)?;
+            Ok((i as i64 + 1, e.kind().to_owned(), body))
+        })
+        .collect::<Result<_, String>>()?;
+    check(
+        events == expected,
+        &format!("{when}: the events, in order: {events:?}"),
+    )?;
+    let expected: Vec<DrawRow> = state
+        .draws()
+        .iter()
+        .map(|d| {
+            (
+                d.k as i64,
+                d.item.as_str().to_owned(),
+                d.entrant.as_str().to_owned(),
+                d.outcome.as_str().to_owned(),
+            )
+        })
+        .collect();
+    check(
+        draws == expected,
+        &format!("{when}: the draws: {draws:?}, not {expected:?}"),
+    )
+}
+
+pub(super) async fn logs_a_whole_evening(db: &Db) -> Outcome {
+    let (manifest, events) = evening()?;
+    let id = manifest.raffle.as_str();
+    frozen_with(db, &manifest).await?;
+    for n in 0..=events.len() {
+        let state = Raffle::restore(&manifest, &events[..n]).map_err(fail)?;
+        check(
+            save_raffle(db, &state).await.map_err(fail)?,
+            &format!("saving after {n} events"),
+        )?;
+        holds(db, &state, &format!("after {n} events")).await?;
+    }
+    check(
+        raffle(db, id).await?.state == RaffleState::Finished,
+        "the evening is finished",
+    )?;
+
+    // Deleting the raffle takes its log with it.
+    raffles::delete(db, id).await.map_err(fail)?;
+    let (events_left, draws_left) = stored_log(db, id).await?;
+    check(
+        events_left.is_empty() && draws_left.is_empty(),
+        "a deleted raffle's events and draws are gone",
+    )?;
+
+    // The same evening in one save.
+    frozen_with(db, &manifest).await?;
+    let state = Raffle::restore(&manifest, &events).map_err(fail)?;
+    check(
+        save_raffle(db, &state).await.map_err(fail)?,
+        "saving it at once",
+    )?;
+    holds(db, &state, "saved at once").await?;
+
+    // A draw that stalls on and on, saved at once: more events than one
+    // statement takes, many of them alike.
+    let opened = frozen(db, "r1").await?;
+    let mut events = vec![Event::Announced {
+        k: 1,
+        item: "u1".into(),
+        round: 1,
+        round_time: 0,
+    }];
+    events.extend((0..44).map(|_| Event::Stalled {
+        k: 1,
+        item: "u1".into(),
+        round: 1,
+        reason: "drand unavailable".into(),
+    }));
+    let state = Raffle::restore(opened.manifest(), &events).map_err(fail)?;
+    check(
+        save_raffle(db, &state).await.map_err(fail)?,
+        "saving a long stall",
+    )?;
+    holds(db, &state, "a long stall").await
+}
+
+pub(super) async fn an_opened_raffle_may_have_no_events(db: &Db) -> Outcome {
+    let state = frozen(db, "r1").await?;
+    let row = raffle(db, "r1").await?;
+    check(
+        !row.opened() && raffles::drawn(db, &row).await.map_err(fail)?.is_none(),
+        "not opened before the engine writes it",
+    )?;
+    check(save_raffle(db, &state).await.map_err(fail)?, "opening it")?;
+    check(raffle(db, "r1").await?.opened(), "opened")?;
+    holds(db, &state, "opened").await?;
+
+    // Opened, without its manifest: an error, never "not opened".
+    db.query("UPDATE raffles SET manifest = NULL WHERE id = 'r1'")
+        .run()
+        .await
+        .map_err(fail)?;
+    check(
+        raffles::drawn(db, &raffle(db, "r1").await?).await.is_err(),
+        "the raffle can't be read",
+    )?;
+    check(
+        Full::read(db, "r1").await.is_err(),
+        "the full view can't be read",
+    )?;
+    check(
+        live::snapshot(db, "r1").await.is_err(),
+        "the snapshot can't be read",
+    )
+}
+
+/// Raffle `r1`'s states: opened, then Anna drawn, then Anna claimed.
+fn three_states(opened: &Raffle) -> Result<[Raffle; 3], String> {
+    let drawn = Event::Drawn {
+        k: 1,
+        item: "u1".into(),
+        round: 1,
+        signature: String::new(),
+        randomness: String::new(),
+        pass: 1,
+        pool_size: 2,
+        index: 0,
+        entrant: "a".repeat(32).into(),
+    };
+    let claimed = Event::Resolved {
+        k: 1,
+        resolution: Resolution::Claimed,
+    };
+    let restore = |events: &[Event]| Raffle::restore(opened.manifest(), events).map_err(fail);
+    Ok([
+        opened.clone(),
+        restore(std::slice::from_ref(&drawn))?,
+        restore(&[drawn, claimed])?,
+    ])
+}
+
+pub(super) async fn saves_only_newer_states(db: &Db) -> Outcome {
+    let [opened, drawn, claimed] = three_states(&frozen(db, "r1").await?)?;
+    for (state, what) in [
+        (&opened, "opened"),
+        (&drawn, "drawn"),
+        (&claimed, "claimed"),
+    ] {
+        check(save_raffle(db, state).await.map_err(fail)?, what)?;
+    }
+    let unchanged = || async {
+        let r = raffle(db, "r1").await?;
+        Ok::<_, String>((r.version, r.opened_at, stored_log(db, "r1").await?))
+    };
+    let before = unchanged().await?;
+    check(
+        !save_raffle(db, &claimed).await.map_err(fail)?,
+        "a repeated save",
+    )?;
+    for (state, what) in [(&drawn, "drawn"), (&opened, "opened")] {
+        check(
+            !save_raffle(db, state).await.map_err(fail)?,
+            &format!("a stale save ({what})"),
+        )?;
+    }
+    check(unchanged().await? == before, "nothing written")?;
+    holds(db, &claimed, "after stale saves").await?;
+
+    // A stale save that gets past the read, as if a newer save landed between
+    // its read and its write: the write's guard leaves the row alone.
+    db.query("UPDATE raffles SET opened_at = NULL WHERE id = 'r1'")
+        .run()
+        .await
+        .map_err(fail)?;
+    let before = unchanged().await?;
+    check(
+        !save_raffle(db, &drawn).await.map_err(fail)?,
+        "a stale save past the read",
+    )?;
+    check(
+        unchanged().await? == before,
+        "nothing written past the read",
+    )?;
+
+    // Another entrant list, newer, and a raffle that isn't there.
+    let mut other = Raffle::open(&manifest("r1", ["c".repeat(32)])).map_err(fail)?;
+    for decision in [Decision::Void { item: "u1".into() }, Decision::Finish] {
+        other.decide(&decision).map_err(fail)?;
+    }
+    check(
+        !save_raffle(db, &other).await.map_err(fail)?,
+        "another entrant list",
+    )?;
+    let ghost = Raffle::open(&manifest("r9", ["a".repeat(32)])).map_err(fail)?;
+    check(
+        !save_raffle(db, &ghost).await.map_err(fail)?,
+        "a raffle that isn't there",
+    )?;
+    check(unchanged().await? == before, "nothing written for either")
+}
+
+pub(super) async fn raffle_events_are_append_only(db: &Db) -> Outcome {
+    let [_, _, claimed] = three_states(&frozen(db, "r1").await?)?;
+    check(save_raffle(db, &claimed).await.map_err(fail)?, "two events")?;
+    let refused = |result: crate::Result<u64>, why: &str, what: &str| match result {
+        Err(e) if e.to_string().contains(why) => Ok(()),
+        other => Err(format!("{what}: {other:?}")),
+    };
+    refused(
+        db.query("UPDATE raffle_events SET body = body WHERE raffle_id = 'r1'")
+            .run()
+            .await,
+        "append-only",
+        "updating an event",
+    )?;
+    refused(
+        db.query("DELETE FROM raffle_events WHERE raffle_id = 'r1' AND seq = 2")
+            .run()
+            .await,
+        "append-only",
+        "deleting an event",
+    )?;
+    let insert = |seqs: &[i64]| {
+        let mut q = db.query(format!(
+            "INSERT INTO raffle_events (raffle_id, seq, type, body, recorded_at) VALUES {}
+             ON CONFLICT DO NOTHING",
+            vec!["('r1', ?, 'finished', '{\"type\":\"finished\"}', 0)"; seqs.len()].join(", ")
+        ));
+        for seq in seqs {
+            q = q.bind(*seq);
+        }
+        q.run()
+    };
+    refused(insert(&[4]).await, "contiguous", "an event after a gap")?;
+    refused(
+        insert(&[3, 5]).await,
+        "contiguous",
+        "a statement with a gap",
+    )?;
+    insert(&[2]).await.map_err(fail)?;
+    check(
+        stored_log(db, "r1").await?.0.len() == 2,
+        "a gap inserts nothing, a stored event is ignored",
+    )?;
+    check(
+        db.query(
+            "INSERT INTO raffle_events (raffle_id, seq, type, body, recorded_at)
+             VALUES ('r9', 1, 'finished', '{}', 0)",
+        )
+        .run()
+        .await
+        .is_err(),
+        "an event of a raffle that isn't there",
+    )?;
+    holds(db, &claimed, "after refused writes").await?;
+
+    raffles::delete(db, "r1").await.map_err(fail)?;
+    let (events, draws) = stored_log(db, "r1").await?;
+    check(
+        events.is_empty() && draws.is_empty(),
+        "deleting the raffle deletes its events and draws",
     )
 }

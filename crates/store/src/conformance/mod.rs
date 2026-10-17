@@ -17,7 +17,9 @@
 //! - **`domain.*`, the domain functions:** the freeze's steps, joins (the
 //!   cap, one entry per email, racing joins), fake entrants across
 //!   statements, erasure and its log, retention, ALTCHA replays, the full
-//!   view, the participant snapshot and [`save_raffle`](crate::save_raffle).
+//!   view, the participant snapshot, and the raffle's log:
+//!   [`save_raffle`](crate::save_raffle), its events (append-only) and its
+//!   draws, read back by every reader.
 //!
 //! Scenarios use only the public API ([`Db`], [`Query`](crate::Query) and the
 //! domain modules), never a backend's internals, and each runs on a fresh,
@@ -211,6 +213,10 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "domain.participant_snapshot" => domain::phones_see_only_drawn_names,
     "domain.frozen_list" => domain::the_list_and_prizes_are_fixed_once_frozen,
     "domain.entrant_patch" => domain::patches_an_entrant_at_once,
+    "domain.raffle_log" => domain::logs_a_whole_evening,
+    "domain.raffle_opened" => domain::an_opened_raffle_may_have_no_events,
+    "domain.raffle_saves" => domain::saves_only_newer_states,
+    "domain.raffle_events_append_only" => domain::raffle_events_are_append_only,
 };
 
 /// Runs every scenario through `harness`, one after the other.
