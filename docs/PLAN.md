@@ -1,9 +1,10 @@
 # Rafi: meetup raffle plan
 
-Status: the current state, 2026-10-15 (revision 14). How it got here is in the
+Status: the current state, 2026-10-17 (revision 16). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
-[raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md).
+[raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md),
+[events-plan.md](events-plan.md).
 
 ## 1. Summary
 
@@ -104,7 +105,8 @@ open(manifest)                                   (the same manifest again: no-op
 ```
 
 A raffle is stored as its manifest and its event log (`Announced`, `Drawn`, `Stalled`, `Abandoned`, `Resolved`,
-`Voided`, `Finished`); everything else is rebuilt from them. Whether a command would go through now is the
+`Voided`, `Finished`); everything else is rebuilt from them. In the database the log is a table, one row per event,
+which only grows; the completed draws are a table SQL reads (§8.4). Whether a command would go through now is the
 raffle's own rule, `Raffle::admit`, which the app checks against the projection.
 
 A phone's screen is a pure function (`rafi_live_client::screen`) of the participant view and its own entrant ID.
@@ -254,7 +256,7 @@ phones ────────────────▶ app ◀── databas
 |---|---|
 | Raffles, prizes, entrants (personal data), consents, claim codes, token hashes, audit | the database. Personal data never leaves the app. |
 | The manifest and its hash | the database, written before the raffle opens. |
-| The raffle's log (manifest + event log, `raffles.log`) | the database, written by the engine after every change: the projection, and the record. The newest version wins. |
+| The raffle's log | the database, written by the engine after every change (`save_raffle`): the projection, and the record. Its events are `raffle_events`, append-only and in order (triggers refuse an update, a delete while the raffle exists, and a gap); its completed draws, with where each winner stands, are `draws`, as `Raffle::draws()` says; `raffles.opened_at` says the engine opened it. The manifest is `raffles.manifest`, once. The newest version wins. |
 | The live raffle | the engine (Restate object state), from opening to finish. |
 | Erasures | the database (`erasures`: entrant ID and time only); a restore must re-apply them. |
 | The participant view | `RaffleRoom` (Workers), built from one snapshot (`rafi_live_server::raffle::view`); destroyed when live updates end. |
@@ -440,6 +442,11 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   `RAFI_ALTCHA_MAX`; patched for Workers' clocks until upstream releases), and records each challenge's nonce. Phones
   solve with `dioxus-altcha`, a reusable crate in this workspace: Web Workers on WebCrypto, from
   `/participant/altcha-worker.js`, which `fallback.js` uses too. `rafi-altcha` is gone.
+- **16** (2026-10-17). The raffle's log becomes a table ([events-plan.md](events-plan.md)): `raffles.log`,
+  `log_version`, `drawn_entrants` and `winners` give way to `raffle_events` (append-only, enforced by triggers) and
+  `draws`, and `raffles.opened_at` (`0010_raffle_events.sql`; raffles opened before it are deleted). `save_raffle`
+  keeps its contract and appends only the new events. No SQL differs between dialects any more. The admin asks before
+  "Not here", "Declined" and "Withdraw".
 
 ## Appendix: key sources
 

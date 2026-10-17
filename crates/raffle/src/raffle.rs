@@ -168,8 +168,9 @@ impl Event {
 
 /// One raffle: opened from its manifest, changed only by recording events.
 ///
-/// Stored as its manifest and its event log (`{"manifest": …, "events": […]}`),
-/// both published formats; everything else is rebuilt from them.
+/// Serialized as its manifest and its event log (`{"manifest": …, "events": […]}`),
+/// both published formats; everything else is rebuilt from them. Restate
+/// stores it so; the database keeps the same two, the events one row each.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(into = "StoredRaffle", try_from = "StoredRaffle")]
 pub struct Raffle {
@@ -182,7 +183,7 @@ pub struct Raffle {
     finished: bool,
 }
 
-/// A raffle as stored.
+/// A raffle as serialized (and so as Restate stores it).
 #[derive(Serialize, Deserialize)]
 struct StoredRaffle {
     manifest: Manifest,

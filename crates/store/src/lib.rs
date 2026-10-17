@@ -21,10 +21,16 @@
 //!   it as the engine's [`Store`](rafi_engine::Store). It carries no app policy, so the
 //!   engine's hosts need none of the app's settings.
 //!
+//! A raffle is stored as its manifest (`raffles.manifest`, the string that is
+//! hashed and published) and its events (`raffle_events`, one row per event,
+//! append-only), and is rebuilt from them ([`raffles::drawn`]). Its completed
+//! draws are rows too (`draws`), for what SQL needs from them: which entrants
+//! were drawn, and which won.
+//!
 //! The SQL is written for SQLite (and D1) and Postgres alike: `?`/`?N`
 //! placeholders, no `rowid`, booleans stored as 0/1 and compared explicitly.
-//! What can't be shared lives in one place, `dialect`, chosen at runtime by
-//! [`Db::dialect`].
+//! None of it differs between them; a statement that had to would choose its
+//! text by [`Db::dialect`].
 //!
 //! D1 has no interactive transactions: a write that spans several statements
 //! goes through [`Db::batch`], which runs them as one transaction on every
