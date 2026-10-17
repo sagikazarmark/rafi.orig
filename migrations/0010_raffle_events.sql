@@ -17,8 +17,8 @@ CREATE TABLE raffle_events (
     PRIMARY KEY (raffle_id, seq)
 );
 
--- Events are never updated. (Renaming events, as 0005 and 0006 did, drops and
--- recreates this trigger around the rewrite.)
+-- Events are never updated. A future rename of events (as 0005 and 0006 did
+-- for raffles.drawing) must drop and recreate this trigger around the rewrite.
 CREATE TRIGGER raffle_events_no_update BEFORE UPDATE ON raffle_events
 BEGIN
     SELECT RAISE(ABORT, 'raffle events are append-only');
