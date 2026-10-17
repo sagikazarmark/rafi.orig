@@ -26,6 +26,12 @@ pub(super) fn DrawConsole(
     let drawable = v.state.drawable();
     let mut ask_finish = use_signal(|| false);
     let mut ask_abandon = use_signal(|| false);
+    let mut ask_irreversible = use_signal(|| false);
+    let mut irreversible = use_signal(|| None::<Irreversible>);
+    let mut confirm_first = move |step: Irreversible| {
+        irreversible.set(Some(step));
+        ask_irreversible.set(true);
+    };
     let toast = use_toast();
 
     let id = admin.id.clone();
@@ -168,6 +174,8 @@ pub(super) fn DrawConsole(
                         {
                             let winner = u.entrant.as_ref().and_then(|id| by_id.get(id.as_str()));
                             let uid = u.item.clone();
+                            let winner_name = winner.map_or_else(|| "The winner".to_owned(), |w| w.display_name.clone());
+                            let prize = u.prize_name.clone();
                             let row = match u.status {
                                 ItemStatus::Drawn => "border-success/50 bg-success/10",
                                 ItemStatus::Claimed => "border-base-300 bg-base-200/60",
@@ -207,12 +215,12 @@ pub(super) fn DrawConsole(
                                                 button { class: "btn btn-primary hover-wiggle", disabled: busy, onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone()) },
                                                     Dice5 { class: "size-5" } "Draw"
                                                 }
-                                                button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let void = void.clone(); let uid = uid.clone(); move |_| void(uid.clone()) }, "Withdraw" }
+                                                button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let item = uid.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Withdraw { item: item.clone(), prize: prize.clone() }) }, "Withdraw" }
                                             },
                                             ItemStatus::Drawn if drawable => rsx! {
                                                 button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Check { class: "size-5" } "Handed over" }
-                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::NotHere) }, "Not here" }
-                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Declined) }, "Declined" }
+                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::NotHere { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Not here" }
+                                                button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
                                             },
                                             _ => rsx! {},
                                         }
@@ -255,7 +263,76 @@ pub(super) fn DrawConsole(
                     on_confirm: { let abandon = abandon.clone(); let u = cur.item.clone(); move |_| { spawn(abandon(u.clone())); } },
                 }
             }
+            if let Some(step) = irreversible() {
+                Confirm {
+                    open: ask_irreversible,
+                    title: step.title(),
+                    body: step.body(),
+                    action: step.action(),
+                    danger: true,
+                    on_confirm: {
+                        let resolve = resolve.clone();
+                        let void = void.clone();
+                        move |_| {
+                            match step.clone() {
+                                Irreversible::NotHere { item, .. } => { spawn(resolve(item, Resolution::NotHere)); }
+                                Irreversible::Declined { item, .. } => { spawn(resolve(item, Resolution::Declined)); }
+                                Irreversible::Withdraw { item, .. } => { spawn(void(item)); }
+                            }
+                        }
+                    },
+                }
+            }
         }
+    }
+}
+
+/// A step on a prize that can't be undone, held while the organizer confirms it.
+#[derive(Clone, PartialEq)]
+enum Irreversible {
+    /// The winner isn't here to collect the prize: out of the raffle, the prize is drawn again.
+    NotHere {
+        item: ItemId,
+        winner: String,
+        prize: String,
+    },
+    /// The winner declined the prize: out of the raffle, the prize is drawn again.
+    Declined {
+        item: ItemId,
+        winner: String,
+        prize: String,
+    },
+    /// The prize is withdrawn and never drawn.
+    Withdraw { item: ItemId, prize: String },
+}
+
+impl Irreversible {
+    fn title(&self) -> String {
+        match self {
+            Self::NotHere { winner, .. } => format!("{winner} isn't here?"),
+            Self::Declined { winner, .. } => format!("{winner} declined?"),
+            Self::Withdraw { prize, .. } => format!("Withdraw the {prize}?"),
+        }
+    }
+
+    fn body(&self) -> String {
+        match self {
+            Self::NotHere { winner, prize, .. } | Self::Declined { winner, prize, .. } => {
+                format!(
+                    "{winner} is out of the raffle, and the {prize} goes back to be drawn again."
+                )
+            }
+            Self::Withdraw { .. } => "It won't be drawn.".to_owned(),
+        }
+    }
+
+    fn action(&self) -> String {
+        match self {
+            Self::NotHere { .. } => "Not here",
+            Self::Declined { .. } => "Declined",
+            Self::Withdraw { .. } => "Withdraw",
+        }
+        .to_owned()
     }
 }
 
