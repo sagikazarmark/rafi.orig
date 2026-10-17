@@ -124,6 +124,11 @@ CREATE TABLE draws (
     PRIMARY KEY (raffle_id, k)
 );
 
+-- Raffles opened before this migration can't be carried over (their draws are
+-- worked out in Rust, not SQL): they are deleted, with their prizes and
+-- entrants. There are no real raffles yet.
+DELETE FROM raffles WHERE log IS NOT NULL;
+
 ALTER TABLE raffles ADD COLUMN opened_at INTEGER;
 ALTER TABLE raffles DROP COLUMN log;
 ALTER TABLE raffles DROP COLUMN log_version;
@@ -131,8 +136,8 @@ ALTER TABLE raffles DROP COLUMN drawn_entrants;
 ALTER TABLE raffles DROP COLUMN winners;
 ```
 
-Postgres: `BIGINT` for the integers; plpgsql trigger functions, as in `migrations/postgres/0002_workers.sql`. Update
-and delete share one function:
+Postgres: `BIGINT` for the integers, the same `DELETE` before the columns change; plpgsql trigger functions, as in
+`migrations/postgres/0002_workers.sql`. Update and delete share one function:
 
 ```sql
 CREATE FUNCTION raffle_events_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -204,8 +209,8 @@ deleted in between fails the batch on its foreign keys; the engine's retry then 
 
 Opening (no events): step 1 finds `stored = 0` and no `opened_at`; the batch is only the row's update.
 
-`StoredRaffle` (`lib.rs:153`), `encode`'s use for the arrays, `parse_raffle` and `dialect::entrants_in` go. If
-`entrants_in` was the dialect module's last function, `dialect` keeps only what remains.
+`StoredRaffle` (`lib.rs:153`), `encode`'s use for the arrays, `parse_raffle` and `dialect::entrants_in` go.
+`entrants_in` is the dialect module's only function: `dialect` keeps the `Dialect` enum.
 
 ## Reading
 
@@ -218,7 +223,9 @@ Opening (no events): step 1 finds `stored = 0` and no `opened_at`; the batch is 
   write can't land in between: `view::Full::read` gains the raffle (`Full.drawn: Option<Raffle>`), and
   `live::snapshot` reads `manifest`, `opened_at` and the events with the row.
 - **`RaffleRow`** loses `log` and `log_version`, gains `opened_at`. `RaffleRow::drawn()` becomes
-  `raffles::drawn(db, &RaffleRow) -> Result<Option<Raffle>>`: `None` until opened.
+  `raffles::drawn(db, &RaffleRow) -> Result<Option<Raffle>>`: `None` until opened. An opened raffle without a
+  manifest is an `Error::Decode`, never `None`: a stored raffle that doesn't load is an error (as `parse_raffle` says
+  today). `Full.drawn` and `live::snapshot` follow the same rule.
 - **`start::next(state, manifest.is_some(), opened)`** takes `opened_at.is_some()` (`crates/app/src/draw.rs:53`,
   `crates/app/src/reads.rs:31`).
 - **The participant snapshot's names**: `e.id IN (SELECT entrant_id FROM draws WHERE raffle_id = ?1)`.
@@ -232,8 +239,14 @@ Every step keeps green: the workspace tests, the engine conformance suite on bot
 storage conformance suite on SQLite and Postgres (`crates/store/tests/conformance.rs`, `RAFI_TEST_POSTGRES_URL`) and
 D1 (`testbeds/store-d1`), the independent verifier (`tools/verify.py --vectors testdata/draw-vectors.json`, which
 doesn't change) and the Workers clippy (wasm32). Run the Restate tests with
-`RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)`. The end state also passes `scripts/workers-check.sh`. One commit
-per step.
+`RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)`, and the Postgres suites against a throwaway server:
+
+```shell
+docker run -d --name rafi-pg -e POSTGRES_PASSWORD=rafi -p 5432:5432 postgres:18
+export RAFI_TEST_POSTGRES_URL=postgres://postgres:rafi@localhost:5432/postgres
+```
+
+The end state also passes `scripts/workers-check.sh`. One commit per step.
 
 ### Step 1 — The domain says what the store needs
 
@@ -246,16 +259,33 @@ per step.
 
 One commit: the row's columns change, so the store and its callers move together.
 
-- Migration `0010_raffle_events.sql` (both dialects), as above. No backfill.
+- Migration `0010_raffle_events.sql` (both dialects), as above. No backfill: raffles opened before it are deleted.
 - `save_raffle` as above; `RaffleWriter` unchanged.
 - Reading as above: `raffles::drawn`, `Full.drawn`, `live::snapshot`, retention, `RaffleRow`.
-- Callers: `crates/app/src/{draw,reads,view,raffles,entrants}.rs`, the server tests (`r.drawn()`, `r.log.is_some()`
-  in `crates/server/src/tests*.rs`), `crates/app/tests/use_cases.rs`.
-- Test setup SQL that writes `log`, `drawn_entrants` or `winners` directly: `crates/store/src/live.rs` (tests),
-  `crates/store/src/conformance/domain.rs`, `testbeds/cloudflare/src/lib.rs`, and `testbeds/store-d1`.
+- `dialect::entrants_in` goes; `dialect.rs` keeps only `Dialect`. Retention's `due` no longer differs by dialect: one
+  `LazyLock`, not one per dialect.
+- Callers: `crates/app/src/{draw,reads,view,raffles,entrants}.rs`, `crates/app/tests/use_cases.rs`, and the
+  `drawn()` helper in `testbeds/cloudflare/src/lib.rs`.
+- The server tests (`crates/server/src/tests.rs`, `tests_restate.rs`): `wait_for` and `wait_long` poll
+  `view::Full::read` and hand the predicate a `&Full`, since reading the raffle is now async. `r.drawn().unwrap()`
+  becomes `f.drawn`, `r.log.is_some()` becomes `f.raffle.opened_at.is_some()`. The tests read what the admin and
+  the projector read; no test-only API.
+- Test fixtures write the raffle as the app and the engine do:
+  - wherever a fixture sets `manifest_hash`, it also sets `manifest` (`manifest.canonical_json()`): `frozen()` in
+    `crates/store/src/conformance/domain.rs`, the setup in `crates/store/src/live.rs` (tests), `freeze()` in
+    `testbeds/cloudflare/src/lib.rs` (`prepare()` already does);
+  - fixtures that stand in for the engine (`store()` in the `live.rs` tests, the retention scenario, the Cloudflare
+    testbed's `freeze()`) call `save_raffle` instead of writing columns;
+  - `live.rs`'s "a log that does not load" test stores an event whose body doesn't parse (inserted directly, with
+    `opened_at` set).
+- `testbeds/store-d1` has no setup SQL to change: its `fresh()` deletes `raffles`, whose foreign keys take
+  `raffle_events` and `draws` with it. Don't add `raffle_events` to its list before `raffles`: the delete trigger
+  refuses it.
 - Storage conformance scenarios (`crates/store/src/conformance/domain.rs`):
-  - a raffle read back equals the raffle saved, after each change of a full evening (the vectors' scenario);
-  - an opened raffle with no events reads as opened;
+  - a raffle read back equals the raffle saved, after each change of a full evening: the vectors' scenario,
+    `include_str!` of `testdata/draw-vectors.json` (it builds for wasm32, so D1 runs it too), saved one prefix of its
+    events at a time, on a row holding its manifest and hash;
+  - an opened raffle with no events reads as opened; an opened raffle without a manifest is an error;
   - a repeated save writes nothing; a stale save (older state, after a newer one) inserts nothing, leaves the draws
     and the row alone, and returns `false`; a save for another manifest is refused;
   - an event can't be updated or deleted; an event after a gap is refused; deleting the raffle deletes its events;
@@ -277,15 +307,22 @@ One commit: the row's columns change, so the store and its callers move together
 The admin draw console resolves and withdraws in one click (`apps/web/src/ui/admin/draw.rs:210-215`); Finish and
 Abandon already use `Confirm` (`apps/web/src/ui/admin/mod.rs:105`).
 
-- **"Not here", "Declined" and "Withdraw" ask first**, naming the person and the prize: "Anna isn't here? She's out of
-  the raffle, and the Book goes back to be drawn again." / "Withdraw the Mug? It won't be drawn."
+- **"Not here", "Declined" and "Withdraw" ask first**, naming the person and the prize. Names only, never a pronoun
+  (a display name says nothing about it):
+  - "Anna isn't here? Anna is out of the raffle, and the Book goes back to be drawn again."
+  - "Anna declined? Anna is out of the raffle, and the Book goes back to be drawn again."
+  - "Withdraw the Mug? It won't be drawn."
+- **One dialog for all three**: a click stores a `Pending` (resolve this item this way, or withdraw this item) in a
+  signal and opens one `Confirm` (`open: Signal<bool>`, unchanged), whose title, body and action come from it;
+  confirming sends that command.
 - **"Handed over" stays one click.** It is the common path, once per prize, live; a mistaken claim takes nothing from
   anyone (the prize stays with the person drawn, who can still collect it).
 
 ## Consequences
 
-- **Development databases with opened raffles are reset.** Migration 0010 drops the old columns without a backfill;
-  a raffle opened before it has no events and no `opened_at`. There are no real raffles.
+- **Development databases lose their opened raffles.** Migration 0010 deletes every raffle opened before it (with its
+  prizes and entrants) rather than leave it looking opened in `state` but not in `opened_at`. A raffle Restate still
+  holds then finds no row: its saves return `false`, which the engine already handles. There are no real raffles.
 - **Restate is unaffected**: its state stays `Json<Raffle>` (`{manifest, events}`), and no object changes shape.
 - **Published formats are unchanged**: the manifest string, its hash, and each event in `verify.json`.
 - **Future renames of events** (like migrations 0005 and 0006) rewrite `body` and `type`, and must drop and recreate
