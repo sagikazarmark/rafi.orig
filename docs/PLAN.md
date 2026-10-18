@@ -3,8 +3,7 @@
 Status: the current state, 2026-10-18 (revision 17). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
-[raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md),
-[events-plan.md](events-plan.md).
+[raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md).
 
 ## 1. Summary
 
@@ -442,7 +441,7 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   `RAFI_ALTCHA_MAX`; patched for Workers' clocks until upstream releases), and records each challenge's nonce. Phones
   solve with `dioxus-altcha`, a reusable crate in this workspace: Web Workers on WebCrypto, from
   `/participant/altcha-worker.js`, which `fallback.js` uses too. `rafi-altcha` is gone.
-- **16** (2026-10-17). The raffle's log becomes a table ([events-plan.md](events-plan.md)): `raffles.log`,
+- **16** (2026-10-17). The raffle's log becomes a table: `raffles.log`,
   `log_version`, `drawn_entrants` and `winners` give way to `raffle_events` (append-only, enforced by triggers) and
   `draws`, and `raffles.opened_at` (`0010_raffle_events.sql`; raffles opened before it are deleted). `save_raffle`
   keeps its contract and appends only the new events. No SQL differs between dialects any more. The admin asks before

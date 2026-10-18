@@ -214,9 +214,9 @@ proptest! {
                 }
             }
 
-            // What the store keeps per draw (docs/events-plan.md): each draw
-            // has its own `k`, and a claimed draw is a winner. A claim is
-            // final, so the draws' resolutions and the items agree.
+            // What the store keeps per draw: each draw has its own `k`, and
+            // a claimed draw is a winner. A claim is final, so the draws'
+            // resolutions and the items agree.
             let draws = s.draws();
             let ks: HashSet<_> = draws.iter().map(|d| d.k).collect();
             prop_assert_eq!(ks.len(), draws.len(), "a k drawn twice");

@@ -1047,7 +1047,7 @@ pub(super) async fn patches_an_entrant_at_once(db: &Db) -> Outcome {
 }
 
 // ---------------------------------------------------------------------------
-// The raffle's log: its events and its draws (docs/events-plan.md)
+// The raffle's log: its events and its draws
 // ---------------------------------------------------------------------------
 
 /// The test vectors' evening (`testdata/draw-vectors.json`): every kind of

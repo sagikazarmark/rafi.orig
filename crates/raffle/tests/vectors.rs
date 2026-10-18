@@ -211,7 +211,7 @@ fn vectors_match() {
 }
 
 /// After every event of the scenario, the entrants of claimed draws are the
-/// winners: the store keeps winners as claimed draws (docs/events-plan.md).
+/// winners: the store keeps winners as claimed draws.
 #[test]
 fn claimed_draws_are_the_winners() {
     let generated = generate();

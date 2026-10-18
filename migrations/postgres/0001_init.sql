@@ -111,8 +111,8 @@ FOR EACH ROW EXECUTE FUNCTION raffles_version_bump();
 CREATE TRIGGER entrants_version AFTER INSERT OR UPDATE OR DELETE ON entrants
 FOR EACH ROW EXECUTE FUNCTION raffles_version_bump();
 
--- The raffle's event log (docs/events-plan.md): append-only, one row per
--- event, in the order the raffle recorded them.
+-- The raffle's event log: append-only, one row per event, in the order the
+-- raffle recorded them.
 CREATE TABLE raffle_events (
     raffle_id TEXT NOT NULL REFERENCES raffles (id) ON DELETE CASCADE,
     -- The event's position in the log, from 1: the domain's, never the database's.
@@ -162,7 +162,9 @@ CREATE TABLE draws (
     k BIGINT NOT NULL,
     item_id TEXT NOT NULL,
     entrant_id TEXT NOT NULL,
-    outcome TEXT NOT NULL CHECK (outcome IN ('drawn', 'claimed', 'not_here', 'declined')),
+    -- rafi_raffle::Outcome::as_str(): the code writes only those, so the
+    -- schema doesn't list them.
+    outcome TEXT NOT NULL,
     PRIMARY KEY (raffle_id, k)
 );
 
