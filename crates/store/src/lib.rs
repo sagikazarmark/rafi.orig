@@ -1,10 +1,11 @@
 //! Rafi's database, shared by the app, the raffle engine and the live channel.
 //!
-//! The schema lives in `migrations/` at the workspace root. Natively the
-//! database is SQLite or, for self-hosting, PostgreSQL (through sqlx, chosen
-//! by the URL's scheme), and [`Db::connect`] applies the migrations
-//! (`migrations/` and `migrations/postgres/`); on Cloudflare Workers it is
-//! D1, and `wrangler d1 migrations apply` applies the SQLite files.
+//! The schema lives in `migrations/` at the workspace root, one directory per
+//! dialect. Natively the database is SQLite or, for self-hosting, PostgreSQL
+//! (through sqlx, chosen by the URL's scheme), and [`Db::connect`] applies the
+//! migrations (`migrations/sqlite/` and `migrations/postgres/`); on Cloudflare
+//! Workers it is D1, and `wrangler d1 migrations apply` applies the SQLite
+//! files.
 //!
 //! Postgres is the `postgres` feature, on by default; it adds nothing on
 //! Workers.

@@ -1,6 +1,6 @@
 # Events plan — the raffle's log becomes a table
 
-Repo: /Users/mark/Projects/ventures/rafi. Crates in `crates/`, migrations in `migrations/` (SQLite and D1) and
+Repo: /Users/mark/Projects/ventures/rafi. Crates in `crates/`, migrations in `migrations/sqlite/` (SQLite and D1) and
 `migrations/postgres/`. Follows [drawing-review.md](drawing-review.md) (decision 4: a raffle is stored as its manifest
 and its events) and [raffle-plan.md](raffle-plan.md), whose "Out of scope" listed storing only the events. Breaking
 changes are fine: there are no real raffles yet (see "Consequences").

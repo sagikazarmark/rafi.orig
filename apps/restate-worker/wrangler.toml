@@ -21,7 +21,7 @@ command = "worker-build --release"
 binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000" # the app's D1 ID
-migrations_dir = "../../migrations"
+migrations_dir = "../../migrations/sqlite"
 
 # The app's live channels (the RaffleRoom class lives in the `rafi` Worker).
 [[durable_objects.bindings]]
@@ -46,7 +46,7 @@ command = "worker-build --release --features dev"
 binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000"
-migrations_dir = "../../migrations"
+migrations_dir = "../../migrations/sqlite"
 
 [[env.dev.durable_objects.bindings]]
 name = "RAFFLE_ROOM"
@@ -69,7 +69,7 @@ command = "worker-build --release --features dev"
 binding = "DB"
 database_name = "rafi-cloudflare-check"
 database_id = "00000000-0000-0000-0000-000000000001"
-migrations_dir = "../../migrations"
+migrations_dir = "../../migrations/sqlite"
 
 [[env.check.durable_objects.bindings]]
 name = "RAFFLE_ROOM"

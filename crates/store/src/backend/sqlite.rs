@@ -103,7 +103,7 @@ fn to_row(row: &SqliteRow) -> Result<Row> {
 
 impl Sqlite {
     pub(crate) async fn migrate(&self) -> Result<()> {
-        sqlx::migrate!("../../migrations")
+        sqlx::migrate!("../../migrations/sqlite")
             .run(&self.pool)
             .await
             .map_err(|e| Error::Backend(e.to_string()))

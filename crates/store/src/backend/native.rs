@@ -84,7 +84,7 @@ impl Db {
         }
     }
 
-    /// Brings the schema up to date: `migrations/` for SQLite (on D1,
+    /// Brings the schema up to date: `migrations/sqlite/` for SQLite (on D1,
     /// `wrangler d1 migrations apply` runs the same files instead), and
     /// `migrations/postgres/` for Postgres.
     pub async fn migrate(&self) -> Result<()> {

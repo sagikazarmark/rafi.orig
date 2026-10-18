@@ -14,7 +14,7 @@ directory = "./site"
 binding = "DB"
 database_name = "rafi-cloudflare-check"
 database_id = "00000000-0000-0000-0000-000000000001"
-migrations_dir = "../../migrations"
+migrations_dir = "../../migrations/sqlite"
 
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"

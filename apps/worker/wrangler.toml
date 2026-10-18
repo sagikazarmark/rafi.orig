@@ -32,7 +32,7 @@ run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy/*", "/partyline/*", 
 binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000" # `wrangler d1 create rafi --jurisdiction eu`
-migrations_dir = "../../migrations"
+migrations_dir = "../../migrations/sqlite"
 
 # One live channel per raffle; IDs come from the EU jurisdiction (RAFI_DO_JURISDICTION).
 [[durable_objects.bindings]]
@@ -85,7 +85,7 @@ command = "worker-build --release --features dev"
 binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000"
-migrations_dir = "../../migrations"
+migrations_dir = "../../migrations/sqlite"
 
 [[env.dev.durable_objects.bindings]]
 name = "RAFFLE_ROOM"

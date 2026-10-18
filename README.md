@@ -90,7 +90,8 @@ apps/restate-worker           rafi-restate-worker: the same services as a Cloudf
 apps/web                      rafi-web: the Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx`
 apps/participant              rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
 
-migrations                    SQLite (and D1) schema; migrations/postgres: the same for Postgres
+migrations/sqlite             SQLite (and D1) schema
+migrations/postgres           the same for Postgres
 testbeds/store-d1             rafi-store-d1-check: a Worker running rafi-store's conformance suite on D1
 testbeds/cloudflare           rafi-cloudflare-check: a Worker hosting RaffleRoom for the live channel's checks
                               (testbeds are never deployed; scripts/workers-check.sh runs them under wrangler dev)
