@@ -82,7 +82,7 @@ pub(super) async fn decode_types(db: &Db) -> Outcome {
         display_name: String,
         claim_code: String,
         hidden: bool,
-        purged: bool,
+        erased: bool,
         email_raw: Option<String>,
         email_norm: Option<String>,
         delivered_at: Option<i64>,
@@ -110,7 +110,7 @@ pub(super) async fn decode_types(db: &Db) -> Outcome {
         .map_err(fail)?;
     check(e.id == "e" && e.display_name == name, "text round-trips")?;
     check(e.claim_code == "007", "numeric-looking text stays text")?;
-    check(e.hidden && !e.purged, "0/1 flags as bool")?;
+    check(e.hidden && !e.erased, "0/1 flags as bool")?;
     check(
         e.email_raw.as_deref() == Some("") && e.email_norm.is_none(),
         "an empty string is not NULL",
@@ -150,8 +150,8 @@ pub(super) async fn decode_types(db: &Db) -> Outcome {
     // Expressions: comparisons, literals, arithmetic on parameters.
     let flags: (bool, bool, i64, i64) = db
         .query(
-            "SELECT hidden = 1 AS h, purged = 1 AS p, 1 AS one, COUNT(*) AS n
-             FROM entrants WHERE raffle_id = ? GROUP BY hidden, purged",
+            "SELECT hidden = 1 AS h, erased = 1 AS p, 1 AS one, COUNT(*) AS n
+             FROM entrants WHERE raffle_id = ? GROUP BY hidden, erased",
         )
         .bind("r1")
         .one()

@@ -48,7 +48,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
     let recent_names = entrants
         .iter()
         .rev()
-        .filter(|e| !e.hidden && !e.purged && e.created_at <= now - NAME_DELAY_SECS)
+        .filter(|e| !e.hidden && !e.erased && e.created_at <= now - NAME_DELAY_SECS)
         .take(20)
         .map(|e| e.display_name.clone())
         .collect();
@@ -176,7 +176,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         join_code: raffle.join_code.clone(),
         entrant_count: entrants
             .iter()
-            .filter(|e| !e.purged || state != RaffleState::Purged)
+            .filter(|e| !e.erased || state != RaffleState::Purged)
             .count(),
         recent_names,
         prizes: prize_views,

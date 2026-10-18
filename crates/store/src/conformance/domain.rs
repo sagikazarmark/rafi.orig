@@ -541,7 +541,7 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
     )?;
     let a = entrant(db, "r1", "a").await?;
     check(
-        a.purged
+        a.erased
             && a.display_name == "#a"
             && a.email_raw.is_none()
             && a.email_norm.is_none()
@@ -549,7 +549,7 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
         "their personal data is gone",
     )?;
     check(
-        !entrant(db, "r1", "b").await?.purged,
+        !entrant(db, "r1", "b").await?.erased,
         "nobody else was erased",
     )?;
     check(
@@ -672,11 +672,11 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         erase(130).await.map_err(fail)? == 2,
         "the non-winner and the delivered winner",
     )?;
-    let purged = |e: EntrantRow| e.purged;
+    let erased = |e: EntrantRow| e.erased;
     check(
-        purged(entrant(db, "r1", "n").await?)
-            && purged(entrant(db, "r1", "d").await?)
-            && !purged(entrant(db, "r1", "w").await?),
+        erased(entrant(db, "r1", "n").await?)
+            && erased(entrant(db, "r1", "d").await?)
+            && !erased(entrant(db, "r1", "w").await?),
         "only those two",
     )?;
     check(
@@ -695,7 +695,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         "a purged raffle is done",
     )?;
     check(
-        !purged(entrant(db, "r2", "x").await?),
+        !erased(entrant(db, "r2", "x").await?),
         "the unfinished raffle is untouched",
     )?;
     let log: Vec<(String, i64)> = db

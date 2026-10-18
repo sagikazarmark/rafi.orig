@@ -49,7 +49,7 @@ pub async fn date_purges(db: &Db, purge: PurgeAfter) -> Result<bool> {
 fn due() -> &'static str {
     static DUE: LazyLock<String> = LazyLock::new(|| {
         format!(
-            "entrants.purged = 0 AND EXISTS (
+            "entrants.erased = 0 AND EXISTS (
                 SELECT 1 FROM raffles r
                 WHERE r.id = entrants.raffle_id
                   AND r.state IN ({purgeable}) AND r.finished_at IS NOT NULL AND r.purged_at IS NULL

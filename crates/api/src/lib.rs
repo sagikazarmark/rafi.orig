@@ -149,7 +149,8 @@ pub struct AdminEntrant {
     /// Whether their prize can be marked delivered (or not): they claimed it.
     #[serde(default)]
     pub deliverable: bool,
-    pub purged: bool,
+    /// Their personal data was erased; the anonymous entry stays.
+    pub erased: bool,
     /// Outcome and prize, once drawn.
     pub outcome: Option<Outcome>,
     pub prize: Option<String>,

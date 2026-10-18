@@ -22,7 +22,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     let view = view::of(app, &full)?;
     let entrants = admin_entrants(&full, full.drawn.as_ref());
     let raffle = &full.raffle;
-    let personal_data_left = full.entrants.iter().any(|e| !e.purged);
+    let personal_data_left = full.entrants.iter().any(|e| !e.erased);
     let actions = AdminActions {
         start: start::next(raffle.state, raffle.manifest.is_some(), raffle.opened())
             .ok()
@@ -88,7 +88,7 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>) -> Vec<AdminEntrant> {
                 created_at: e.created_at,
                 delivered: e.delivered_at.is_some(),
                 deliverable: lifecycle::raffle::deliverable(drawn, &e.id),
-                purged: e.purged,
+                erased: e.erased,
             }
         })
         .collect()

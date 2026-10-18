@@ -21,7 +21,8 @@ pub struct EntrantRow {
     pub consent_rules_at: Option<i64>,
     pub consent_marketing: bool,
     pub delivered_at: Option<i64>,
-    pub purged: bool,
+    /// Their personal data was erased ([`ERASED`]): the row stays, anonymous.
+    pub erased: bool,
     pub created_at: i64,
 }
 
@@ -31,7 +32,7 @@ pub(crate) const ORDER: &str = "ORDER BY created_at, id";
 /// The `SET` clause that erases an entrant's personal data. The anonymous
 /// ID, the claim code's row and the draw log stay.
 pub(crate) const ERASED: &str = "display_name = '#' || substr(id, 1, 6), email_raw = NULL, \
-     email_norm = NULL, token_hash = NULL, consent_marketing = 0, purged = 1";
+     email_norm = NULL, token_hash = NULL, consent_marketing = 0, erased = 1";
 
 /// Rows per `INSERT` in [`insert_fakes`]: 4 shared parameters plus 3 per row
 /// stays within D1's 100 bound parameters per statement.
@@ -67,7 +68,7 @@ pub async fn by_token(db: &Db, raffle_id: &str, token_hash: &str) -> Result<Opti
 /// How many entrants haven't been erased.
 pub async fn count_active(db: &Db, raffle_id: &str) -> Result<i64> {
     let (n,): (i64,) = db
-        .query("SELECT COUNT(*) FROM entrants WHERE raffle_id = ? AND purged = 0")
+        .query("SELECT COUNT(*) FROM entrants WHERE raffle_id = ? AND erased = 0")
         .bind(raffle_id)
         .one()
         .await?;
@@ -77,7 +78,7 @@ pub async fn count_active(db: &Db, raffle_id: &str) -> Result<i64> {
 /// The IDs of the entrants that haven't been erased: the list a freeze commits.
 pub async fn active_ids(db: &Db, raffle_id: &str) -> Result<Vec<String>> {
     let ids: Vec<(String,)> = db
-        .query("SELECT id FROM entrants WHERE raffle_id = ? AND purged = 0")
+        .query("SELECT id FROM entrants WHERE raffle_id = ? AND erased = 0")
         .bind(raffle_id)
         .all()
         .await?;
@@ -281,7 +282,7 @@ pub async fn patch(db: &Db, raffle_id: &str, id: &str, patch: &Patch<'_>) -> Res
                  display_name = COALESCE(?1, display_name),
                  hidden = COALESCE(?2, hidden),
                  delivered_at = CASE WHEN ?3 = 1 THEN ?4 ELSE delivered_at END
-             WHERE raffle_id = ?5 AND id = ?6 AND purged = 0",
+             WHERE raffle_id = ?5 AND id = ?6 AND erased = 0",
         )
         .bind(patch.display_name)
         .bind(patch.hidden)
@@ -320,14 +321,14 @@ pub async fn erase(db: &Db, raffle_id: &str, entrant_id: Option<&str>) -> Result
             db.query(
                 "INSERT INTO erasures (raffle_id, entrant_id, at)
                  SELECT raffle_id, id, ?3 FROM entrants
-                 WHERE raffle_id = ?1 AND purged = 0 AND (?2 IS NULL OR id = ?2)",
+                 WHERE raffle_id = ?1 AND erased = 0 AND (?2 IS NULL OR id = ?2)",
             )
             .bind(raffle_id)
             .bind(entrant_id)
             .bind(now()),
             db.query(format!(
                 "UPDATE entrants SET {ERASED}
-                 WHERE raffle_id = ?1 AND purged = 0 AND (?2 IS NULL OR id = ?2)"
+                 WHERE raffle_id = ?1 AND erased = 0 AND (?2 IS NULL OR id = ?2)"
             ))
             .bind(raffle_id)
             .bind(entrant_id),

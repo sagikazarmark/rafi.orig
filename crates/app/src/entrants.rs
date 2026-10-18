@@ -285,7 +285,7 @@ pub async fn patch_entrant(
     let entrant = entrants::get(&app.db, raffle_id, entrant_id)
         .await?
         .ok_or(Error::NotFound)?;
-    if entrant.purged {
+    if entrant.erased {
         return Err(Refusal::Erased.into());
     }
     let name = match &patch.display_name {

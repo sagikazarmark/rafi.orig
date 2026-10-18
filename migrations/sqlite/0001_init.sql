@@ -66,7 +66,7 @@ CREATE TABLE entrants (
     consent_rules_at INTEGER,
     consent_marketing INTEGER NOT NULL DEFAULT 0,
     delivered_at INTEGER,
-    purged INTEGER NOT NULL DEFAULT 0,
+    erased INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     UNIQUE (raffle_id, email_norm)
 );

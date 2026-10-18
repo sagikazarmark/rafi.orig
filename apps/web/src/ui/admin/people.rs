@@ -132,7 +132,7 @@ fn EntrantRow(
         (Some(Outcome::Drawn), Some(p)) => (format!("🎉 drawn for {p}"), "badge-primary"),
         (Some(Outcome::NotHere), _) => ("not here".to_owned(), "badge-ghost"),
         (Some(Outcome::Declined), _) => ("declined".to_owned(), "badge-ghost"),
-        _ if e.purged => ("erased".to_owned(), "badge-neutral"),
+        _ if e.erased => ("erased".to_owned(), "badge-neutral"),
         _ => (String::new(), ""),
     };
     let won = e.deliverable;
@@ -173,7 +173,7 @@ fn EntrantRow(
             td { span { class: "claim-code text-sm", "{e.claim_code}" } }
             td { if !status.is_empty() { span { class: "badge badge-soft {status_class} whitespace-nowrap", "{status}" } } }
             td {
-                if !e.purged {
+                if !e.erased {
                     div { class: "flex justify-end gap-1",
                         button {
                             class: "btn btn-ghost btn-xs btn-square tooltip",

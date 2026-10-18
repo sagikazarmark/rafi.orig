@@ -516,7 +516,7 @@ async fn full_raffle_flow() {
     assert!(
         entrants
             .iter()
-            .all(|e| e.purged && e.email_raw.is_none() && e.token_hash.is_none())
+            .all(|e| e.erased && e.email_raw.is_none() && e.token_hash.is_none())
     );
     assert_eq!(
         raffles::get(&app.db, &raffle.id)
@@ -1743,14 +1743,14 @@ async fn retention_ends_channels_and_logs_erasures() {
     assert!(
         entrants
             .iter()
-            .all(|e| e.purged && e.display_name.starts_with('#'))
+            .all(|e| e.erased && e.display_name.starts_with('#'))
     );
     assert!(
         entrants::list(&app.db, &recent.id)
             .await
             .unwrap()
             .iter()
-            .all(|e| !e.purged)
+            .all(|e| !e.erased)
     );
     // Not yet purged: the winners' date hasn't passed.
     assert_eq!(

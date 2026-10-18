@@ -69,7 +69,7 @@ CREATE TABLE entrants (
     consent_rules_at BIGINT,
     consent_marketing BIGINT NOT NULL DEFAULT 0,
     delivered_at BIGINT,
-    purged BIGINT NOT NULL DEFAULT 0,
+    erased BIGINT NOT NULL DEFAULT 0,
     created_at BIGINT NOT NULL,
     UNIQUE (raffle_id, email_norm)
 );
