@@ -302,7 +302,7 @@ pub fn RaffleAdmin(id: String) -> Element {
                             "people" => rsx! { People { admin: admin.clone(), error, on_change: move |_| reload() } },
                             _ => rsx! {
                                 Panel { title: "Settings", icon: rsx! { SlidersVertical { class: "size-5" } },
-                                    SettingsForm { raffle_id: admin.id.clone(), settings: admin.settings.clone(), on_saved: move |_| reload() }
+                                    SettingsForm { raffle_id: admin.id.clone(), settings: admin.settings.clone(), rules_editable: admin.actions.edit_rules, on_saved: move |_| reload() }
                                 }
                             },
                         }

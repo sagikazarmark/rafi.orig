@@ -188,6 +188,10 @@ pub struct AdminActions {
     /// Whether "erase personal data now" applies: finished, with personal
     /// data left (a purge that stopped partway included).
     pub purge: bool,
+    /// Whether the additional rules can still change: not once an entrant
+    /// has accepted them.
+    #[serde(default)]
+    pub edit_rules: bool,
 }
 
 /// Where starting a raffle's draw stands.

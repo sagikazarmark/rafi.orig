@@ -89,6 +89,9 @@ Draft ──publish──▶ Ready ──open──▶ Open ◀──open── 
   the engine's beacon source before anything is frozen.
 - Joins, entrant and prize changes are guarded in SQL on the raffle's state: joins only while Open, the rest until
   the freeze. After it, items can only be **voided**. Only a winner who claimed can be marked delivered.
+- **The additional rules are fixed once anyone accepted them**: someone joined, or the organizer added someone (fakes
+  don't count, so a rehearsal leaves them editable). The settings write checks it in the same statement
+  (`settings::rules_editable`). The other settings stay editable.
 
 ### Raffle (`rafi-raffle`, owned by the engine)
 

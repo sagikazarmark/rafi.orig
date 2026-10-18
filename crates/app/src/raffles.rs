@@ -78,7 +78,10 @@ pub async fn update_settings(app: &App, owner: &str, id: &str, s: RaffleSettings
     if raffle.test_mode != s.test_mode && !raffle.state.test_mode_editable() {
         return Err(Refusal::TestModeLocked.into());
     }
-    raffles::update_settings(&app.db, id, &stored(normalized, s.test_mode)).await?;
+    raffles::update_settings(&app.db, id, &stored(normalized, s.test_mode))
+        .await?
+        .then_some(())
+        .ok_or(Refusal::RulesFixed)?;
     // Nothing phones see: the participant view has no settings.
     Ok(())
 }

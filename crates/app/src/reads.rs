@@ -35,6 +35,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         export: raffle.state.frozen_or_later(),
         purge: raffle.state.apply(lifecycle::Command::Purge).is_some()
             && (raffle.state == RaffleState::Finished || personal_data_left),
+        edit_rules: lifecycle::settings::rules_editable(full.entrants.iter().map(|e| e.source)),
     };
     Ok(RaffleAdmin {
         id: raffle.id.clone(),

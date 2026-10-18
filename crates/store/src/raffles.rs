@@ -6,7 +6,7 @@
 //! [`set_manifest`] stores the raffle's manifest (or [`unfreeze`] reverts when nobody is left).
 //! Each step is guarded by the state it expects, so retrying is safe.
 
-use rafi_lifecycle::RaffleState;
+use rafi_lifecycle::{RaffleState, entrant::Source};
 use rafi_raffle::{Event, Manifest, Raffle};
 use serde::Deserialize;
 
@@ -204,15 +204,26 @@ fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>) -> Query<'a> {
     .bind(now)
 }
 
-pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<()> {
-    settings_query(db, id, s).run().await.map(|_| ())
+pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<bool> {
+    settings_query(db, id, s).run().await.map(|n| n > 0)
 }
 
+/// Writes the settings, unless they change the rules after someone accepted
+/// them ([`rafi_lifecycle::settings::rules_editable`]): the check and the
+/// write are one statement, so no join slips in between.
 fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
-    db.query(
-        "UPDATE raffles SET title = ?, description = ?, organizer_name = ?, contact_email = ?, rules = ?,
-         event_date = ?, test_mode = ?, updated_at = ? WHERE id = ?",
-    )
+    let accepted = Source::ALL
+        .into_iter()
+        .filter(|s| s.accepted_rules())
+        .map(|s| format!("'{}'", s.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    db.query(format!(
+        "UPDATE raffles SET title = ?1, description = ?2, organizer_name = ?3, contact_email = ?4, rules = ?5,
+         event_date = ?6, test_mode = ?7, updated_at = ?8
+         WHERE id = ?9 AND (rules = ?5 OR NOT EXISTS (
+             SELECT 1 FROM entrants WHERE raffle_id = ?9 AND source IN ({accepted})))"
+    ))
     .bind(s.title)
     .bind(s.description)
     .bind(s.organizer_name)

@@ -87,6 +87,8 @@ pub enum Refusal {
     Title,
     Texts,
     TestModeLocked,
+    /// The additional rules can't change: someone accepted them.
+    RulesFixed,
     PrizeName,
     PrizeQty,
     PrizesFrozen,
@@ -170,6 +172,9 @@ impl fmt::Display for Refusal {
             ),
             Self::Texts => f.write_str("Description or rules are too long."),
             Self::TestModeLocked => f.write_str("Test mode cannot change after the draw started."),
+            Self::RulesFixed => f.write_str(
+                "The additional rules cannot change: entrants have already accepted them.",
+            ),
             Self::PrizeName => write!(
                 f,
                 "The prize name must be 1–{} characters.",

@@ -20,12 +20,23 @@ pub enum Source {
 }
 
 impl Source {
+    /// Every source.
+    pub const ALL: [Self; 3] = [Self::SelfService, Self::Manual, Self::Fake];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::SelfService => "self",
             Self::Manual => "manual",
             Self::Fake => "fake",
         }
+    }
+
+    /// Whether an entrant from this source accepted the raffle's rules:
+    /// everyone but fakes (the organizer vouches for people added by hand).
+    /// Once anyone has, the rules are fixed
+    /// ([`rules_editable`](crate::settings::rules_editable)).
+    pub fn accepted_rules(self) -> bool {
+        !matches!(self, Self::Fake)
     }
 }
 

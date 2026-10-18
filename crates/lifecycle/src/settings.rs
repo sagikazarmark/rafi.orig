@@ -1,5 +1,7 @@
 //! What a raffle's settings and prizes may hold.
 
+use crate::entrant::Source;
+
 /// The longest raffle title or prize name, in characters.
 pub const MAX_TITLE_CHARS: usize = 120;
 /// The longest description, in characters.
@@ -61,6 +63,13 @@ pub fn texts_fit(description: &str, rules: &str) -> bool {
 /// Whether a prize can have `qty` copies.
 pub fn prize_qty(qty: u32) -> bool {
     (1..=MAX_PRIZE_QTY).contains(&qty)
+}
+
+/// Whether a raffle's additional rules can still change, given its entrants'
+/// sources: not once anyone has accepted them ([`Source::accepted_rules`]).
+/// Fakes don't count, so a rehearsal leaves them editable.
+pub fn rules_editable(entrants: impl IntoIterator<Item = Source>) -> bool {
+    !entrants.into_iter().any(Source::accepted_rules)
 }
 
 /// The title of a raffle copied from one titled `title`: still a valid title.
@@ -132,5 +141,13 @@ mod tests {
         assert!(prize_qty(1));
         assert!(prize_qty(MAX_PRIZE_QTY));
         assert!(!prize_qty(MAX_PRIZE_QTY + 1));
+    }
+
+    #[test]
+    fn rules_are_fixed_once_accepted() {
+        assert!(rules_editable([]));
+        assert!(rules_editable([Source::Fake, Source::Fake]));
+        assert!(!rules_editable([Source::Fake, Source::SelfService]));
+        assert!(!rules_editable([Source::Manual]));
     }
 }

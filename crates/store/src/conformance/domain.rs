@@ -381,6 +381,62 @@ pub(super) async fn racing_joins_respect_the_cap(db: &Db) -> Outcome {
     )
 }
 
+/// Settings with `rules`, the rest fixed.
+fn settings_with(rules: &str) -> raffles::Settings<'_> {
+    raffles::Settings {
+        title: "t",
+        description: "",
+        organizer_name: "",
+        contact_email: "",
+        rules,
+        event_date: "",
+        test_mode: false,
+    }
+}
+
+/// The rules change only until someone accepted them (fakes don't); the
+/// other settings always do.
+pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    let save = async |s: &raffles::Settings<'_>| raffles::update_settings(db, "r1", s).await;
+    check(
+        save(&settings_with("one")).await.map_err(fail)?,
+        "no entrants",
+    )?;
+    let fake = entrants::Fake {
+        id: "f1".into(),
+        display_name: "Fake".into(),
+        claim_code: "F001".into(),
+    };
+    entrants::insert_fakes(db, "r1", "v1", 0, &[fake])
+        .await
+        .map_err(fail)?;
+    check(
+        save(&settings_with("two")).await.map_err(fail)?,
+        "only fakes",
+    )?;
+    check(
+        entrants::insert_manual(db, &manual("r1", "m1", None))
+            .await
+            .map_err(fail)?,
+        "adding someone",
+    )?;
+    check(
+        !save(&settings_with("three")).await.map_err(fail)?,
+        "accepted: the rules are fixed",
+    )?;
+    let renamed = raffles::Settings {
+        title: "renamed",
+        ..settings_with("two")
+    };
+    check(save(&renamed).await.map_err(fail)?, "the same rules")?;
+    let r = raffle(db, "r1").await?;
+    check(
+        r.rules == "two" && r.title == "renamed",
+        &format!("stored {:?}, {:?}", r.rules, r.title),
+    )
+}
+
 pub(super) async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
     let fake = |i: usize| entrants::Fake {

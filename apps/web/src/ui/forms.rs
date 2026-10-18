@@ -407,6 +407,9 @@ impl From<Settings> for RaffleSettings {
 pub fn SettingsForm(
     raffle_id: String,
     settings: RaffleSettings,
+    /// Whether the additional rules can still change: not once an entrant
+    /// accepted them.
+    rules_editable: bool,
     on_saved: EventHandler<()>,
 ) -> Element {
     let initial = Settings::from(&settings);
@@ -500,8 +503,13 @@ pub fn SettingsForm(
                 TextareaField {
                     context: form.textarea(f.rules()),
                     label: "Additional rules",
-                    description: "One paragraph per line, appended to the standard rules. Put any age limit here.",
+                    description: if rules_editable {
+                        "One paragraph per line, appended to the standard rules. Put any age limit here."
+                    } else {
+                        "Locked: entrants have accepted these rules."
+                    },
                     placeholder: "e.g. Entrants must be 18 or older.",
+                    readonly: !rules_editable,
                     rows: "3",
                     class: "w-full",
                 }

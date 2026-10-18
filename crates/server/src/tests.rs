@@ -1127,6 +1127,51 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
     assert_eq!(again.manifest, r.manifest);
 }
 
+/// The additional rules are fixed once someone accepted them: fakes don't
+/// count, a person added by hand does, and the rest of the settings still
+/// save.
+#[tokio::test]
+async fn rules_are_fixed_once_accepted() {
+    let app = app().await;
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    let save = |rules: &str, test_mode: bool| {
+        let mut settings = service::settings_of(&raffle);
+        settings.rules = rules.into();
+        settings.test_mode = test_mode;
+        service::update_settings(&app, OWNER, &raffle.id, settings)
+    };
+    save("Rehearsal rules.", true).await.unwrap();
+    service::add_fakes(&app, OWNER, &raffle.id, 3)
+        .await
+        .unwrap();
+    save("Fakes don't accept anything.", true).await.unwrap();
+    let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
+    assert!(admin.actions.edit_rules);
+
+    service::add_manual(&app, OWNER, &raffle.id, "No Phone", None)
+        .await
+        .unwrap();
+    let refused = save("Changed after someone accepted.", true).await;
+    assert!(
+        matches!(
+            refused,
+            Err(service::Error::Refused(service::Refusal::RulesFixed))
+        ),
+        "{refused:?}"
+    );
+    let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
+    assert!(!admin.actions.edit_rules);
+    assert_eq!(admin.settings.rules, "Fakes don't accept anything.");
+    // The same rules, other settings changed: saved.
+    let mut settings = admin.settings;
+    settings.title = "Renamed".into();
+    service::update_settings(&app, OWNER, &raffle.id, settings)
+        .await
+        .unwrap();
+    let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
+    assert_eq!(r.title, "Renamed");
+}
+
 #[tokio::test]
 async fn fake_entrants_are_added_in_one_batch() {
     let app = app().await;
