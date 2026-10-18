@@ -5,8 +5,8 @@ use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle,
 
 use super::{Outcome, check, fail};
 use crate::{
-    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, entrants, live, prizes, raffles, retention,
-    save_raffle, view::Full,
+    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, defaults, entrants, live, prizes, raffles,
+    retention, save_raffle, view::Full,
 };
 
 const PURGE: PurgeAfter = PurgeAfter {
@@ -434,6 +434,34 @@ pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
     check(
         r.rules == "two" && r.title == "renamed",
         &format!("stored {:?}, {:?}", r.rules, r.title),
+    )
+}
+
+/// An owner's defaults: none until saved, then replaced as a whole; other
+/// owners have their own.
+pub(super) async fn saves_owner_defaults(db: &Db) -> Outcome {
+    check(
+        defaults::get(db, "o").await.map_err(fail)?.is_none(),
+        "none yet",
+    )?;
+    let first = defaults::Defaults {
+        organizer_name: "Org".into(),
+        contact_email: "a@b.c".into(),
+        rules: "One.".into(),
+    };
+    defaults::save(db, "o", &first).await.map_err(fail)?;
+    let second = defaults::Defaults {
+        rules: "Two.".into(),
+        ..first.clone()
+    };
+    defaults::save(db, "o", &second).await.map_err(fail)?;
+    check(
+        defaults::get(db, "o").await.map_err(fail)? == Some(second),
+        "the second save replaces the first",
+    )?;
+    check(
+        defaults::get(db, "p").await.map_err(fail)?.is_none(),
+        "another owner's",
     )
 }
 

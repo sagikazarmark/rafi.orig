@@ -29,7 +29,10 @@ macro_rules! admin_functions {
             fn whoami() -> $crate::Me;
             /// The organizer's raffles.
             fn list_raffles() -> Vec<$crate::RaffleSummary>;
-            /// A new draft raffle; returns its ID.
+            /// What the organizer's new raffles start with (empty until saved).
+            fn get_defaults() -> $crate::RaffleDefaults;
+            fn save_defaults(defaults: $crate::RaffleDefaults) -> ();
+            /// A new draft raffle, with the organizer's defaults; returns its ID.
             fn create_raffle(title: String) -> String;
             /// Everything the admin page shows of raffle `id`.
             fn get_raffle(id: String) -> $crate::RaffleAdmin;

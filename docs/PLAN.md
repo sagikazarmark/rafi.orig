@@ -53,6 +53,7 @@ English only for now.
 | On the projector | The display name as typed (≤ 24 characters), after 5 s; one tap hides or renames it. |
 | Item order | Picked live: nobody can know an outcome in advance. |
 | Eligibility, age | In the rules. The standard rules don't set an age: an age limit depends on the jurisdiction, so the organizer puts any in the additional rules. |
+| Organizer defaults | An owner saves their organizer, contact email and additional rules as defaults (`owner_defaults`). Each new raffle gets a copy, so changing the defaults changes no raffle; "Use my defaults" fills them into an existing one. |
 | Retention | Non-winners' personal data is erased 30 days after the event; winners' after 90, or 30 once their prize is delivered. The anonymous raffle (manifest and log) is kept (§10). |
 | Bot protection | A self-hosted ALTCHA v2 proof-of-work (the `altcha` crate on the server, `dioxus-altcha` on the phone), one entry per email, rate limits per raffle and per email (never per IP), an entrant cap. No Turnstile. |
 | Winner emails | Not in v1. |

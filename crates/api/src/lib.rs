@@ -113,6 +113,16 @@ pub struct RaffleSettings {
     pub test_mode: bool,
 }
 
+/// What the organizer's new raffles start with. Each raffle gets a copy, so
+/// changing them changes no existing raffle.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RaffleDefaults {
+    pub organizer_name: String,
+    pub contact_email: String,
+    /// Extra rules text appended to the standard rules.
+    pub rules: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Prize {
     pub id: String,

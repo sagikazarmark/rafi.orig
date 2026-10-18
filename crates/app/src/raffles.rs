@@ -1,9 +1,9 @@
 //! Raffles: creating, configuring, copying, deleting and moving them
 //! through the lifecycle.
 
-use rafi_api::{LifecycleCommand, RaffleSettings, RaffleSummary};
+use rafi_api::{LifecycleCommand, RaffleDefaults, RaffleSettings, RaffleSummary};
 use rafi_lifecycle::{self as lifecycle, settings};
-use rafi_store::{RaffleRow, audit, prizes, raffles};
+use rafi_store::{RaffleRow, audit, defaults, prizes, raffles};
 
 use crate::{App, Refusal, Result, ids, owned};
 
@@ -23,12 +23,24 @@ pub async fn list(app: &App, owner: &str) -> Result<Vec<RaffleSummary>> {
         .collect())
 }
 
-/// A new draft raffle titled `title`; returns its ID.
+/// A new draft raffle titled `title`, with a copy of the owner's defaults;
+/// returns its ID.
 pub async fn create(app: &App, owner: &str, title: &str) -> Result<String> {
     let title = settings::title(title).ok_or(Refusal::Title)?;
+    let defaults = defaults::get(&app.db, owner).await?.unwrap_or_default();
+    // As stored: normalized when they were saved.
+    let settings = raffles::Settings {
+        title,
+        description: "",
+        organizer_name: &defaults.organizer_name,
+        contact_email: &defaults.contact_email,
+        rules: &defaults.rules,
+        event_date: "",
+        test_mode: false,
+    };
     let id = ids::id();
     for _ in 0..8 {
-        let res = raffles::insert(
+        let res = raffles::insert_with(
             &app.db,
             &raffles::NewRaffle {
                 id: &id,
@@ -37,6 +49,8 @@ pub async fn create(app: &App, owner: &str, title: &str) -> Result<String> {
                 join_code: &ids::code(4),
                 title,
             },
+            &settings,
+            &[],
         )
         .await;
         match res {
@@ -49,6 +63,38 @@ pub async fn create(app: &App, owner: &str, title: &str) -> Result<String> {
         }
     }
     Err(Refusal::JoinCodes.into())
+}
+
+/// What `owner`'s new raffles start with: empty until they save some.
+pub async fn get_defaults(app: &App, owner: &str) -> Result<RaffleDefaults> {
+    let d = defaults::get(&app.db, owner).await?.unwrap_or_default();
+    Ok(RaffleDefaults {
+        organizer_name: d.organizer_name,
+        contact_email: d.contact_email,
+        rules: d.rules,
+    })
+}
+
+/// Saves what `owner`'s new raffles start with. Existing raffles keep theirs.
+pub async fn save_defaults(app: &App, owner: &str, d: RaffleDefaults) -> Result<()> {
+    let d = settings::Defaults {
+        organizer_name: &d.organizer_name,
+        contact_email: &d.contact_email,
+        rules: &d.rules,
+    }
+    .normalize()
+    .map_err(Refusal::from)?;
+    defaults::save(
+        &app.db,
+        owner,
+        &defaults::Defaults {
+            organizer_name: d.organizer_name.to_owned(),
+            contact_email: d.contact_email.to_owned(),
+            rules: d.rules.to_owned(),
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 pub fn settings_of(r: &RaffleRow) -> RaffleSettings {

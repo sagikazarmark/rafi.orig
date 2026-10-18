@@ -13,7 +13,8 @@ use axum::{
 use dioxus_clerk::server::ClerkAuth;
 
 use rafi_api::{
-    EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleSettings, RaffleSummary,
+    EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleDefaults, RaffleSettings,
+    RaffleSummary,
     admin::{self, Admin, ApiError, ItemId, Resolution},
 };
 use rafi_raffle::{Decision, DrawRequest};
@@ -83,6 +84,14 @@ impl Admin for AppState {
 
     async fn list_raffles(&self, owner: &str) -> service::Result<Vec<RaffleSummary>> {
         service::list(self, owner).await
+    }
+
+    async fn get_defaults(&self, owner: &str) -> service::Result<RaffleDefaults> {
+        service::get_defaults(self, owner).await
+    }
+
+    async fn save_defaults(&self, owner: &str, defaults: RaffleDefaults) -> service::Result<()> {
+        service::save_defaults(self, owner, defaults).await
     }
 
     async fn create_raffle(&self, owner: &str, title: String) -> service::Result<String> {

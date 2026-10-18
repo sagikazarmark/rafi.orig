@@ -207,6 +207,7 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
         => domain::racing_joins_respect_the_cap,
     "domain.fakes_across_statements" => domain::adds_fakes_in_chunks,
     "domain.rules_fixed" => domain::rules_are_fixed_once_accepted,
+    "domain.owner_defaults" => domain::saves_owner_defaults,
     "domain.erasure_log" => domain::erases_and_logs_erasures,
     "domain.retention" => domain::retention_erases_what_is_due,
     "domain.altcha_replay" => domain::altcha_refuses_replays,

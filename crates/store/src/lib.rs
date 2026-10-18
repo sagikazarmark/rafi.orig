@@ -13,7 +13,8 @@
 //! All of rafi's SQL lives here, as domain functions over a [`Db`]:
 //!
 //! - [`raffles`], [`prizes`], [`entrants`]: the organizer's and participants'
-//!   reads and writes, the freeze's steps included;
+//!   reads and writes, the freeze's steps included; [`defaults`]: what an
+//!   owner's new raffles start with;
 //! - [`audit`], [`altcha`] (redeemed proof-of-work challenges), [`retention`]
 //!   (erasure, ending live channels, `meta`);
 //! - [`view::Full`]: what the projector and the admin see, and
@@ -45,6 +46,7 @@
 pub mod altcha;
 pub mod audit;
 mod backend;
+pub mod defaults;
 mod dialect;
 pub mod entrants;
 mod error;

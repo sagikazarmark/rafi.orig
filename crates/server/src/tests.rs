@@ -1172,6 +1172,47 @@ async fn rules_are_fixed_once_accepted() {
     assert_eq!(r.title, "Renamed");
 }
 
+/// A new raffle starts with a copy of its owner's defaults: changing them
+/// later leaves it as it is.
+#[tokio::test]
+async fn new_raffles_start_with_the_owners_defaults() {
+    let app = app().await;
+    let defaults = rafi_api::RaffleDefaults {
+        organizer_name: " Cloud Native Budapest ".into(),
+        contact_email: "hello@example.com".into(),
+        rules: "Entrants must be 18 or older.".into(),
+    };
+    service::save_defaults(&app, OWNER, defaults).await.unwrap();
+    let saved = service::get_defaults(&app, OWNER).await.unwrap();
+    assert_eq!(saved.organizer_name, "Cloud Native Budapest", "trimmed");
+
+    let id = service::create(&app, OWNER, "Meetup").await.unwrap();
+    let r = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    assert_eq!(
+        (
+            r.organizer_name.as_str(),
+            r.contact_email.as_str(),
+            r.rules.as_str()
+        ),
+        (
+            "Cloud Native Budapest",
+            "hello@example.com",
+            "Entrants must be 18 or older."
+        )
+    );
+
+    service::save_defaults(&app, OWNER, Default::default())
+        .await
+        .unwrap();
+    let r = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    assert_eq!(r.rules, "Entrants must be 18 or older.", "a copy");
+    let other = service::create(&app, "someone-else", "Theirs")
+        .await
+        .unwrap();
+    let r = raffles::get(&app.db, &other).await.unwrap().unwrap();
+    assert!(r.organizer_name.is_empty() && r.rules.is_empty());
+}
+
 #[tokio::test]
 async fn fake_entrants_are_added_in_one_batch() {
     let app = app().await;

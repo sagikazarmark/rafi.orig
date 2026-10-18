@@ -42,7 +42,10 @@ pub use entrants::{
 };
 pub use error::{Error, Refusal, Result};
 pub use prizes::{delete_prize, upsert_prize};
-pub use raffles::{create, delete, duplicate, lifecycle, list, settings_of, update_settings};
+pub use raffles::{
+    create, delete, duplicate, get_defaults, lifecycle, list, save_defaults, settings_of,
+    update_settings,
+};
 #[cfg(not(target_arch = "wasm32"))]
 pub use ratelimit::Limiter;
 pub use ratelimit::{Limit, RateLimit};

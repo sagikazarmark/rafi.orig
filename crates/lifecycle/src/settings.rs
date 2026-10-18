@@ -48,6 +48,30 @@ impl<'a> Settings<'a> {
     }
 }
 
+/// What an owner's new raffles start with: the settings that are usually the
+/// same for every raffle they run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Defaults<'a> {
+    pub organizer_name: &'a str,
+    pub contact_email: &'a str,
+    pub rules: &'a str,
+}
+
+impl<'a> Defaults<'a> {
+    /// The defaults as they are stored: texts trimmed, the rules checked as a
+    /// raffle's are.
+    pub fn normalize(self) -> Result<Self, SettingsError> {
+        if !texts_fit("", self.rules) {
+            return Err(SettingsError::TooLong);
+        }
+        Ok(Self {
+            organizer_name: self.organizer_name.trim(),
+            contact_email: self.contact_email.trim(),
+            rules: self.rules.trim(),
+        })
+    }
+}
+
 /// `input` trimmed, if it is a valid title (or prize name): 1 to
 /// [`MAX_TITLE_CHARS`] characters.
 pub fn title(input: &str) -> Option<&str> {
@@ -149,5 +173,25 @@ mod tests {
         assert!(rules_editable([Source::Fake, Source::Fake]));
         assert!(!rules_editable([Source::Fake, Source::SelfService]));
         assert!(!rules_editable([Source::Manual]));
+    }
+
+    #[test]
+    fn defaults_normalize() {
+        let d = Defaults {
+            organizer_name: " Org ",
+            contact_email: " a@b.c ",
+            rules: " Rules. ",
+        };
+        assert_eq!(
+            d.normalize(),
+            Ok(Defaults {
+                organizer_name: "Org",
+                contact_email: "a@b.c",
+                rules: "Rules.",
+            })
+        );
+        let long = "x".repeat(MAX_RULES_CHARS + 1);
+        let d = Defaults { rules: &long, ..d };
+        assert_eq!(d.normalize(), Err(SettingsError::TooLong));
     }
 }

@@ -4,7 +4,9 @@
 
 use dioform::prelude::*;
 use dioxus::prelude::*;
-use dioxus_icons::lucide::{Check, Gift, Plus, Smartphone, Sparkles, TriangleAlert, Undo2};
+use dioxus_icons::lucide::{
+    BookmarkCheck, BookmarkPlus, Check, Gift, Plus, Smartphone, Sparkles, TriangleAlert, Undo2,
+};
 use rafi_lifecycle::{
     entrant::{self, MAX_NAME_CHARS},
     settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
@@ -20,7 +22,7 @@ use crate::{
         toast::{ToastOptions, use_toast},
     },
 };
-use rafi_api::{PrizeInput, RaffleSettings};
+use rafi_api::{PrizeInput, RaffleDefaults, RaffleSettings};
 
 pub fn err_text(e: ApiError) -> String {
     e.message
@@ -453,6 +455,52 @@ pub fn SettingsForm(
     let form_err = messages(form.visible_form_validation_errors());
     let rebase = form.clone();
     let reset = form.clone();
+    let as_defaults = form.clone();
+    let from_defaults = form.clone();
+    let mut saving_defaults = use_signal(|| false);
+    // Fills the organizer, contact and rules (unless they're fixed) from the
+    // owner's defaults, to save with the rest.
+    let fill_defaults = move |_| {
+        let form = from_defaults.clone();
+        spawn(async move {
+            match api::get_defaults().await {
+                Ok(d) if d == RaffleDefaults::default() => {
+                    toast.info("No defaults saved yet.".to_owned(), ToastOptions::new());
+                }
+                Ok(d) => {
+                    let f = Settings::fields();
+                    form.text(f.organizer_name()).set_value(d.organizer_name);
+                    form.text(f.contact_email()).set_value(d.contact_email);
+                    if rules_editable {
+                        form.textarea(f.rules()).set_value(d.rules);
+                    }
+                }
+                Err(e) => toast.error(err_text(e), ToastOptions::new()),
+            }
+        });
+    };
+    // The organizer, contact and rules as the form has them (saved or not):
+    // what the owner's next raffles start with.
+    let save_defaults = move |_| {
+        let s = as_defaults.snapshot();
+        spawn(async move {
+            saving_defaults.set(true);
+            let res = api::save_defaults(RaffleDefaults {
+                organizer_name: s.organizer_name,
+                contact_email: s.contact_email,
+                rules: s.rules,
+            })
+            .await;
+            saving_defaults.set(false);
+            match res {
+                Ok(()) => toast.success(
+                    "📌 New raffles will start with this organizer, contact and rules".to_owned(),
+                    ToastOptions::new(),
+                ),
+                Err(e) => toast.error(err_text(e), ToastOptions::new()),
+            };
+        });
+    };
 
     rsx! {
         form {
@@ -529,6 +577,16 @@ pub fn SettingsForm(
                 }
                 if dirty {
                     Button { class: "btn-ghost", r#type: "button", onclick: move |_| reset.reset(), Undo2 { class: "size-4" } "Discard changes" }
+                }
+                Button { class: "btn-ghost", r#type: "button", disabled: saving_defaults(), onclick: save_defaults,
+                    title: "New raffles will start with this organizer, contact email and additional rules.",
+                    BookmarkPlus { class: "size-4" }
+                    "Save as my defaults"
+                }
+                Button { class: "btn-ghost", r#type: "button", onclick: fill_defaults,
+                    title: "Fill in the organizer, contact email and additional rules from your defaults.",
+                    BookmarkCheck { class: "size-4" }
+                    "Use my defaults"
                 }
                 FormErrors { errors: form_err }
             }

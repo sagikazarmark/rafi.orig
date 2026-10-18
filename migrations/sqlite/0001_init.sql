@@ -196,3 +196,14 @@ CREATE TABLE meta (
     key TEXT PRIMARY KEY NOT NULL,
     value TEXT NOT NULL
 );
+
+-- What an owner's new raffles start with: who organizes them (the data
+-- controller) and their additional rules. Copied into each raffle as it is
+-- created, so a later change leaves existing raffles as they are.
+CREATE TABLE owner_defaults (
+    owner_id TEXT PRIMARY KEY NOT NULL,
+    organizer_name TEXT NOT NULL DEFAULT '',
+    contact_email TEXT NOT NULL DEFAULT '',
+    rules TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL
+);
