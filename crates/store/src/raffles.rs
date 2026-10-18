@@ -53,7 +53,7 @@ pub struct RaffleRow {
     pub created_at: i64,
     pub updated_at: i64,
     /// Bumped by every write that can change what screens or phones show
-    /// (triggers, migration 0002). Live views carry it as `v`.
+    /// (triggers in the schema). Live views carry it as `v`.
     pub version: i64,
     /// When live updates ended: the raffle's live channel is gone.
     pub live_ended_at: Option<i64>,
