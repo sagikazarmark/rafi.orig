@@ -39,6 +39,7 @@ dependencies = [
 name = "altcha-demo"
 version = "0.0.0"
 dependencies = [
+ "altcha-server",
  "dioxus",
  "dioxus-altcha",
  "getrandom 0.2.17",
@@ -46,6 +47,18 @@ dependencies = [
  "serde",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "altcha-server"
+version = "0.1.0"
+dependencies = [
+ "altcha",
+ "base64 0.23.1",
+ "getrandom 0.2.17",
+ "serde_json",
+ "thiserror 2.0.21",
+ "web-time",
 ]
 
 [[package]]
@@ -707,12 +720,12 @@ name = "dioxus-altcha"
 version = "0.1.0"
 dependencies = [
  "altcha",
- "base64 0.22.1",
+ "base64 0.23.1",
  "dioxus",
  "futures-channel",
  "futures-util",
  "getrandom 0.2.17",
- "gloo-timers",
+ "gloo-timers 0.4.0",
  "js-sys",
  "serde",
  "serde_json",
@@ -1268,7 +1281,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "generational-box",
- "gloo-timers",
+ "gloo-timers 0.3.0",
  "js-sys",
  "lazy-js-bundle",
  "rustc-hash 2.1.3",
@@ -1570,6 +1583,18 @@ name = "gloo-timers"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "gloo-timers"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "482ce8a491a501da4cd806bd190275363d674f2845005c6ddbd5d3e1dd54495d"
 dependencies = [
  "futures-channel",
  "futures-core",

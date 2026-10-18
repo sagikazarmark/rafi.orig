@@ -12,7 +12,7 @@ publish = false
 [features]
 default = []
 web = ["dioxus/web", "dep:js-sys", "dep:web-sys", "dep:wasm-bindgen-futures"]
-server = ["dioxus/server", "dep:getrandom"]
+server = ["dioxus/server", "dep:getrandom", "dep:altcha-server"]
 
 [dependencies]
 dioxus = { version = "0.7", features = ["fullstack", "router"] }
@@ -24,7 +24,9 @@ js-sys = { version = "0.3", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 web-sys = { version = "0.3", features = ["Location", "Window"], optional = true }
 
-# The server's side: its HMAC key when ALTCHA_DEMO_KEY is unset.
+# The server's side: issuing and redeeming, and its HMAC key when
+# ALTCHA_DEMO_KEY is unset.
+altcha-server = { path = "../../../altcha-server", optional = true }
 getrandom = { version = "0.2", optional = true }
 
 # The bench (/bench) solves and verifies with altcha's Rust in the browser,

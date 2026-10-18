@@ -1,6 +1,6 @@
 # Rafi: meetup raffle plan
 
-Status: the current state, 2026-10-18 (revision 17). How it got here is in the
+Status: the current state, 2026-10-18 (revision 18). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
 [raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md).
@@ -55,7 +55,7 @@ English only for now.
 | Eligibility, age | In the rules. The standard rules don't set an age: an age limit depends on the jurisdiction, so the organizer puts any in the additional rules. |
 | Organizer defaults | An owner saves their organizer, contact email and additional rules as defaults (`owner_defaults`). Each new raffle gets a copy, so changing the defaults changes no raffle; "Use my defaults" fills them into an existing one. |
 | Retention | Non-winners' personal data is erased 30 days after the event; winners' after 90, or 30 once their prize is delivered. The anonymous raffle (manifest and log) is kept (§10). |
-| Bot protection | A self-hosted ALTCHA v2 proof-of-work (the `altcha` crate on the server, `dioxus-altcha` on the phone), one entry per email, rate limits per raffle and per email (never per IP), an entrant cap. No Turnstile. |
+| Bot protection | A self-hosted ALTCHA v2 proof-of-work (`altcha-server` on the official `altcha` crate on the server, `dioxus-altcha` on the phone), one entry per email, rate limits per raffle and per email (never per IP), an entrant cap. No Turnstile. |
 | Winner emails | Not in v1. |
 
 ## 4. The event, end to end
@@ -199,6 +199,7 @@ rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter,
 rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), Follow, PageConfig
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 dioxus-altcha        ALTCHA v2 solved in the browser (Web Workers on WebCrypto) and a Dioxus hook; no rafi dependencies
+altcha-server        its server side: signed challenges, each redeemed once over a `ReplayStore`; no rafi dependencies
 rafi-api             the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
 rafi-app             every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP
@@ -313,7 +314,8 @@ lifecycle's sense, unrelated to `Follow`.
 
 - **One entry per normalized email per raffle** (`UNIQUE(raffle_id, email_norm)`). No fingerprinting.
 - **Proof-of-work** on the join form (ALTCHA v2, PBKDF2/SHA-256): the challenge is HMAC-signed, the solution
-  verified with `altcha::verify_solution`, and each challenge redeemed once by its nonce (a table, so it holds on Workers).
+  verified with `altcha::verify_solution`, and each challenge redeemed once by its nonce (`altcha-server`'s `Verifier`, over
+  the `altcha_used` table as its `ReplayStore`, so it holds on Workers). The join redeems it after the rate limits.
 - **Rate limits** per raffle (600/min) and per raffle and email (5/min), never per IP: a venue shares one. On Workers
   they're bindings (soft, per location); the hard limit is the entrant cap in the database (`RAFI_MAX_ENTRANTS`,
   2000). Edge protection by IP is the platform's (Cloudflare, or Caddy).
@@ -454,6 +456,11 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   in `migrations/sqlite` (SQLite and D1) and `migrations/postgres`. Raffles no longer have a minimum age
   (`raffles.min_age`): it only filled in one sentence of the standard rules, and the right age depends on the
   jurisdiction. The organizer puts any age limit in the additional rules.
+- **18** (2026-10-18). The additional rules are fixed once an entrant accepted them (fakes don't count). An
+  entrant's erasure flag is `erased`; purging stays the raffle's retention step. Owners save defaults (organizer,
+  contact email, additional rules) that new raffles copy. The proof-of-work's server side is a reusable crate,
+  `altcha-server` (`Verifier`, a `ReplayStore` trait, an axum challenge handler); rafi's store is the `altcha_used`
+  table, and the demo uses its `MemoryStore`. `draws.outcome` has no CHECK: the code writes only `Outcome`'s values.
 
 ## Appendix: key sources
 

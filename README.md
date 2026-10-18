@@ -75,7 +75,9 @@ crates/live-server            rafi-live-server: the servers' side (the Notifier 
                               engine's Observer; LiveUpdates; the view built from a raffle as drawn, the live channel's
                               publish rule)
 crates/dioxus-altcha          dioxus-altcha: ALTCHA v2 proof-of-work solved in the browser (Web Workers on WebCrypto), with a
-                              Dioxus hook; no rafi dependencies (docs/dioxus-altcha-plan.md). The server side is the `altcha` crate
+                              Dioxus hook; no rafi dependencies (docs/dioxus-altcha-plan.md)
+crates/altcha-server          altcha-server: its server side: signed challenges, each redeemed once over a ReplayStore
+                              (rafi's is the `altcha_used` table), an axum challenge handler; no rafi dependencies
 crates/cloudflare             rafi-cloudflare: the Cloudflare glue both Workers share (RaffleRoom Durable Object, notifier, config)
 crates/api                    rafi-api: the contract between the app's server and browser: views, and the admin API declared
                               once (`admin_functions!`: the server's `Admin` trait and `dispatch`, the browser's client)

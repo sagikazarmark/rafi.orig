@@ -77,8 +77,8 @@ async fn verify_json(Extension(app): Extension<AppState>, Path(slug): Path<Strin
 }
 
 async fn challenge(Extension(app): Extension<AppState>) -> Response {
-    match service::altcha::challenge(&app) {
-        Ok(challenge) => ([(header::CACHE_CONTROL, "no-store")], Json(challenge)).into_response(),
+    match altcha_server::axum::challenge_response(&app.policy.proof_of_work) {
+        Ok(response) => response,
         Err(e) => {
             tracing::error!(error = %e, "issuing a proof-of-work challenge");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

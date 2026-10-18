@@ -11,6 +11,7 @@ rust-version = "1.92"
 [workspace.dependencies]
 dioxus-altcha = { path = "crates/dioxus-altcha", default-features = false }
 altcha = "1"
+altcha-server = { path = "crates/altcha-server" }
 rafi-lifecycle = { path = "crates/lifecycle" }
 rafi-raffle = { path = "crates/raffle" }
 rafi-api = { path = "crates/api" }

@@ -22,21 +22,19 @@ fn Join() -> Element {
 }
 ```
 
-On the server:
+On the server, [`altcha-server`](../altcha-server) issues signed challenges and redeems each solution once, over
+a replay store you provide (a database table; `MemoryStore` for one process):
 
 ```rust
-let challenge = altcha::create_challenge(altcha::CreateChallengeOptions {
-    cost: 5_000,                         // PBKDF2 iterations per attempt
-    expires_at: Some(now + 20 * 60),
-    hmac_signature_secret: Some(key.into()),
-    ..Default::default()
-})?;
-// ... and for the posted `altcha` field:
-let payload = dioxus_altcha::decode_payload(&form.altcha)?;
-let ok = altcha::verify_solution(altcha::VerifySolutionOptions::new(&payload.challenge, &payload.solution, key))?
-    .verified;
-// Then record payload.challenge.parameters.nonce until it expires, and refuse it if it's already there.
+let verifier = altcha_server::Verifier::new(key, 5_000)?; // PBKDF2 iterations per attempt
+// GET /api/altcha (or `altcha_server::axum::challenge`, with the `axum` feature):
+let challenge = verifier.challenge()?;
+// ... and for the posted `altcha` field, after your cheaper checks:
+let payload = verifier.redeem(&store, &form.altcha).await?;
 ```
+
+Or by hand with `altcha`: `create_challenge`, then `decode_payload` and `verify_solution`, then record
+`payload.challenge.parameters.nonce` until it expires, and refuse it if it's already there.
 
 - **Algorithms:** `PBKDF2/SHA-256|384|512`, and iterated `SHA-*`, which is slow above `cost` 1. Not `SCRYPT` or `ARGON2ID`.
 - **Workers:** up to 4. Chromium runs every worker's PBKDF2 on one thread, so on Android more workers don't help;
