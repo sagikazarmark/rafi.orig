@@ -38,9 +38,9 @@ pub struct PrizeLine<'a> {
 pub struct Rules<'a> {
     pub raffle: Raffle<'a>,
     pub organizer: Organizer<'a>,
-    pub min_age: i64,
     pub prizes: Vec<PrizeLine<'a>>,
-    /// The organizer's own additional rules, one paragraph per line.
+    /// The organizer's own additional rules, one paragraph per line: where an
+    /// age limit goes, if the raffle has one.
     pub additional: &'a str,
 }
 
@@ -90,12 +90,11 @@ pub fn rules(r: &Rules<'_>) -> String {
         r.organizer.name.to_owned()
     };
     let contact = r.organizer.contact();
-    let min_age = r.min_age;
     let mut sections = vec![
         ("Organizer".to_owned(), vec![format!("{organizer}{contact}")]),
         ("Prizes".to_owned(), if prizes.is_empty() { vec!["To be announced.".into()] } else { prizes }),
         ("Who can take part".to_owned(), vec![
-            format!("Anyone attending the event in person who is at least {min_age} years old. Organizers and volunteers cannot win. Sponsor employees cannot win their own sponsor's prizes."),
+            "Anyone attending the event in person. Organizers and volunteers cannot win. Sponsor employees cannot win their own sponsor's prizes.".into(),
             "Entry is free. No purchase or donation is necessary. One entry per person.".into(),
         ]),
         ("How the draw works".to_owned(), vec![

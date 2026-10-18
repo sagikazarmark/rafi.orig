@@ -36,7 +36,6 @@ pub struct RaffleRow {
     pub contact_email: String,
     pub rules: String,
     pub event_date: String,
-    pub min_age: i64,
     /// Decoding fails on a state rafi doesn't know: never guessed.
     pub state: RaffleState,
     pub test_mode: bool,
@@ -148,7 +147,6 @@ pub struct Settings<'a> {
     pub contact_email: &'a str,
     pub rules: &'a str,
     pub event_date: &'a str,
-    pub min_age: u32,
     pub test_mode: bool,
 }
 
@@ -213,7 +211,7 @@ pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<()> 
 fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     db.query(
         "UPDATE raffles SET title = ?, description = ?, organizer_name = ?, contact_email = ?, rules = ?,
-         event_date = ?, min_age = ?, test_mode = ?, updated_at = ? WHERE id = ?",
+         event_date = ?, test_mode = ?, updated_at = ? WHERE id = ?",
     )
     .bind(s.title)
     .bind(s.description)
@@ -221,7 +219,6 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     .bind(s.contact_email)
     .bind(s.rules)
     .bind(s.event_date)
-    .bind(s.min_age)
     .bind(s.test_mode)
     .bind(now())
     .bind(id)

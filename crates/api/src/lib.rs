@@ -110,7 +110,6 @@ pub struct RaffleSettings {
     /// Extra rules text appended to the standard rules.
     pub rules: String,
     pub event_date: String,
-    pub min_age: u32,
     pub test_mode: bool,
 }
 

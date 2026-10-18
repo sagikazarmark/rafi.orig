@@ -295,7 +295,6 @@ async fn rules(Extension(app): Extension<AppState>, Path(slug): Path<String>) ->
     let rules = pages::Rules {
         raffle: raffle_of(&r),
         organizer: organizer_of(&r),
-        min_age: r.min_age,
         prizes: prizes
             .iter()
             .map(|i| pages::PrizeLine {

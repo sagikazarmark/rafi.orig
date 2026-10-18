@@ -14,7 +14,6 @@ CREATE TABLE raffles (
     contact_email TEXT NOT NULL DEFAULT '',
     rules TEXT NOT NULL DEFAULT '',
     event_date TEXT NOT NULL DEFAULT '',
-    min_age BIGINT NOT NULL DEFAULT 16,
     state TEXT NOT NULL DEFAULT 'draft',
     test_mode BIGINT NOT NULL DEFAULT 0,
     -- The raffle's manifest: the frozen entrant list (canonical JSON, exactly

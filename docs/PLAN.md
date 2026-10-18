@@ -1,6 +1,6 @@
 # Rafi: meetup raffle plan
 
-Status: the current state, 2026-10-17 (revision 16). How it got here is in the
+Status: the current state, 2026-10-18 (revision 17). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
 [raffle-plan.md](raffle-plan.md), [drand-crate.md](drand-crate.md), [workers-plan.md](workers-plan.md),
@@ -53,7 +53,7 @@ English only for now.
 | Registration | Opens at the start of the meetup; closes at "Start the draw", which freezes the list. |
 | On the projector | The display name as typed (≤ 24 characters), after 5 s; one tap hides or renames it. |
 | Item order | Picked live: nobody can know an outcome in advance. |
-| Eligibility, age | In the rules. Minimum age 16 by default. |
+| Eligibility, age | In the rules. The standard rules don't set an age: an age limit depends on the jurisdiction, so the organizer puts any in the additional rules. |
 | Retention | Non-winners' personal data is erased 30 days after the event; winners' after 90, or 30 once their prize is delivered. The anonymous raffle (manifest and log) is kept (§10). |
 | Bot protection | A self-hosted ALTCHA v2 proof-of-work (the `altcha` crate on the server, `dioxus-altcha` on the phone), one entry per email, rate limits per raffle and per email (never per IP), an entrant cap. No Turnstile. |
 | Winner emails | Not in v1. |
@@ -447,6 +447,10 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   `draws`, and `raffles.opened_at` (`0010_raffle_events.sql`; raffles opened before it are deleted). `save_raffle`
   keeps its contract and appends only the new events. No SQL differs between dialects any more. The admin asks before
   "Not here", "Declined" and "Withdraw".
+- **17** (2026-10-18). Nothing is deployed, so the migrations are squashed into one `0001_init.sql` per dialect,
+  in `migrations/sqlite` (SQLite and D1) and `migrations/postgres`. Raffles no longer have a minimum age
+  (`raffles.min_age`): it only filled in one sentence of the standard rules, and the right age depends on the
+  jurisdiction. The organizer puts any age limit in the additional rules.
 
 ## Appendix: key sources
 

@@ -371,7 +371,6 @@ struct Settings {
     event_date: String,
     organizer_name: String,
     contact_email: String,
-    min_age: u32,
     rules: String,
     test_mode: bool,
 }
@@ -384,7 +383,6 @@ impl From<&RaffleSettings> for Settings {
             event_date: s.event_date.clone(),
             organizer_name: s.organizer_name.clone(),
             contact_email: s.contact_email.clone(),
-            min_age: s.min_age,
             rules: s.rules.clone(),
             test_mode: s.test_mode,
         }
@@ -400,7 +398,6 @@ impl From<Settings> for RaffleSettings {
             contact_email: s.contact_email,
             rules: s.rules,
             event_date: s.event_date,
-            min_age: s.min_age,
             test_mode: s.test_mode,
         }
     }
@@ -427,13 +424,6 @@ pub fn SettingsForm(
                 required("The raffle needs a title."),
             );
             core.register_sync_field_validator(f.contact_email(), "email", optional_email());
-            core.register_sync_field_validator(f.min_age(), "range", |v: &u32, _| {
-                if *v <= 99 {
-                    Vec::new()
-                } else {
-                    vec!["0 to 99.".to_owned()]
-                }
-            });
         });
         handle
     });
@@ -454,7 +444,6 @@ pub fn SettingsForm(
     }
 
     let f = Settings::fields();
-    let min_age = use_number(&form, f.min_age());
     let submit = form.managed_submit();
     let dirty = form.is_dirty();
     let busy = form.is_submitting();
@@ -493,8 +482,6 @@ pub fn SettingsForm(
                     class: "w-full",
                 }
             }
-            InputField { context: form.text(f.event_date()), label: "Event date", r#type: "date", class: "w-full" }
-            InputField { context: min_age, label: "Minimum age", r#type: "number", min: "0", max: "99", inputmode: "numeric", class: "w-full" }
             InputField {
                 context: form.text(f.organizer_name()),
                 label: "Organizer (data controller)",
@@ -508,11 +495,13 @@ pub fn SettingsForm(
                 r#type: "email",
                 class: "w-full",
             }
+            InputField { context: form.text(f.event_date()), label: "Event date", r#type: "date", class: "w-full" }
             div { class: "md:col-span-2",
                 TextareaField {
                     context: form.textarea(f.rules()),
                     label: "Additional rules",
-                    description: "One paragraph per line, appended to the standard rules.",
+                    description: "One paragraph per line, appended to the standard rules. Put any age limit here.",
+                    placeholder: "e.g. Entrants must be 18 or older.",
                     rows: "3",
                     class: "w-full",
                 }

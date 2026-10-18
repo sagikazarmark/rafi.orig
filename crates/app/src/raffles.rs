@@ -59,7 +59,6 @@ pub fn settings_of(r: &RaffleRow) -> RaffleSettings {
         contact_email: r.contact_email.clone(),
         rules: r.rules.clone(),
         event_date: r.event_date.clone(),
-        min_age: r.min_age.max(0) as u32,
         test_mode: r.test_mode,
     }
 }
@@ -73,7 +72,6 @@ pub async fn update_settings(app: &App, owner: &str, id: &str, s: RaffleSettings
         contact_email: &s.contact_email,
         rules: &s.rules,
         event_date: &s.event_date,
-        min_age: s.min_age,
     }
     .normalize()
     .map_err(Refusal::from)?;
@@ -94,7 +92,6 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
         contact_email: s.contact_email,
         rules: s.rules,
         event_date: s.event_date,
-        min_age: s.min_age,
         test_mode,
     }
 }
@@ -136,7 +133,6 @@ pub async fn duplicate(app: &App, owner: &str, id: &str) -> Result<String> {
         })
         .collect();
     // The original's settings, as stored: normalized when they were written.
-    let min_age = u32::try_from(raffle.min_age).unwrap_or(0);
     let settings = raffles::Settings {
         title: &title,
         description: &raffle.description,
@@ -144,7 +140,6 @@ pub async fn duplicate(app: &App, owner: &str, id: &str) -> Result<String> {
         contact_email: &raffle.contact_email,
         rules: &raffle.rules,
         event_date: &raffle.event_date,
-        min_age: min_age.min(settings::MAX_MIN_AGE),
         test_mode: raffle.test_mode,
     };
     let new_id = ids::id();

@@ -8,8 +8,6 @@ pub const MAX_DESCRIPTION_CHARS: usize = 2000;
 pub const MAX_RULES_CHARS: usize = 5000;
 /// The most copies of one prize: each is an item of the raffle.
 pub const MAX_PRIZE_QTY: u32 = 500;
-/// The highest minimum age a raffle can ask for.
-pub const MAX_MIN_AGE: u32 = 99;
 
 /// A raffle's settings, as the organizer gave them or as stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,7 +18,6 @@ pub struct Settings<'a> {
     pub contact_email: &'a str,
     pub rules: &'a str,
     pub event_date: &'a str,
-    pub min_age: u32,
 }
 
 /// Why settings are refused.
@@ -33,8 +30,7 @@ pub enum SettingsError {
 }
 
 impl<'a> Settings<'a> {
-    /// The settings as they are stored: texts trimmed, the title checked and
-    /// the minimum age capped at [`MAX_MIN_AGE`].
+    /// The settings as they are stored: texts trimmed and the title checked.
     pub fn normalize(self) -> Result<Self, SettingsError> {
         if !texts_fit(self.description, self.rules) {
             return Err(SettingsError::TooLong);
@@ -46,7 +42,6 @@ impl<'a> Settings<'a> {
             contact_email: self.contact_email.trim(),
             rules: self.rules.trim(),
             event_date: self.event_date.trim(),
-            min_age: self.min_age.min(MAX_MIN_AGE),
         })
     }
 }
@@ -104,7 +99,6 @@ mod tests {
             contact_email: "",
             rules: "",
             event_date: "",
-            min_age: 150,
         }
     }
 
@@ -114,7 +108,6 @@ mod tests {
         assert_eq!(s.title, "Meetup");
         assert_eq!(s.description, "About");
         assert_eq!(s.organizer_name, "Org");
-        assert_eq!(s.min_age, MAX_MIN_AGE);
         assert_eq!(s.normalize(), Ok(s), "normalizing is idempotent");
         assert_eq!(settings(" ").normalize(), Err(SettingsError::Title));
         let long = "x".repeat(MAX_RULES_CHARS + 1);
