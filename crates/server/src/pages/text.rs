@@ -144,8 +144,8 @@ pub fn privacy(raffle: Raffle<'_>, organizer: Organizer<'_>) -> String {
             "We set one strictly necessary cookie that remembers your entry on this device. No analytics or tracking.".into(),
         ]),
         ("Processors".to_owned(), vec![
-            "Hetzner Online GmbH (Germany) hosts the application and database. Backups are stored with an EU object storage provider.".into(),
-            "Restate GmbH (Germany) runs the raffle engine; it only receives anonymous IDs, never names or emails.".into(),
+            "The hosting provider of this service stores the application and its database.".into(),
+            "The raffle engine (Restate) only receives anonymous IDs, never names or emails.".into(),
             "Clerk, Inc. (USA, EU–US Data Privacy Framework) authenticates the organizers only; participant data is never sent to Clerk.".into(),
             "The randomness comes from the public drand network; no personal data is sent to it.".into(),
         ]),
@@ -153,7 +153,7 @@ pub fn privacy(raffle: Raffle<'_>, organizer: Organizer<'_>) -> String {
             "Personal data is kept until the organizer erases it after the event, or on request. Anonymous IDs and the draw log are kept so the draw stays verifiable.".into(),
         ]),
         ("Your rights".to_owned(), vec![
-            "You can request access, correction, erasure, restriction, or object to processing, and withdraw consent, by contacting the controller. You can also lodge a complaint with the Hungarian National Authority for Data Protection and Freedom of Information (NAIH, naih.hu).".into(),
+            "You can request access, correction, erasure, restriction, or object to processing, and withdraw consent, by contacting the controller. You can also lodge a complaint with your local data protection supervisory authority.".into(),
         ]),
     ];
     let title = format!("Privacy notice — {}", raffle.title);
