@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Ctrl-C or SIGTERM (`docker stop`).
+/// Ctrl-C or SIGTERM.
 async fn shutdown() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;

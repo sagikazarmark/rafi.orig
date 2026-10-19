@@ -83,7 +83,7 @@ crates/server                 rafi-server: the axum server (participant pages, p
 
 apps/rafi                     rafi: the native binary serving rafi-server and the web app's files; self-hosting
 apps/worker                   rafi-worker: the app on Cloudflare Workers (rafi-server's routes, the housekeeping Cron, RaffleRoom)
-apps/restate                  rafi-restate: the native binary serving the Restate services (config, logging, Dockerfile); self-hosting
+apps/restate                  rafi-restate: the native binary serving the Restate services (config, logging); self-hosting
 apps/restate-worker           rafi-restate-worker: the same services as a Cloudflare Worker, on D1, nudging the live channel
 apps/web                      rafi-web: the Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx`
 apps/participant              rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
@@ -95,8 +95,6 @@ testbeds/cloudflare           rafi-cloudflare-check: a Worker hosting RaffleRoom
                               (testbeds are never deployed; scripts/workers-check.sh runs them under wrangler dev)
 tools                         verify.py: independent verifier (Python standard library only)
 testdata                      shared test vectors
-compose.yaml                  a local Restate server for development
-deploy                        self-hosting: docker compose (Caddy, the app, rafi-restate, optionally Restate)
 ```
 
 ## Development
@@ -155,7 +153,7 @@ To test with phones on your network, set `RAFI_PUBLIC_URL` to your machine's LAN
 Joining needs HTTPS there: phones solve the proof-of-work with WebCrypto, which browsers only offer on HTTPS and localhost.
 Use a tunnel (e.g. `cloudflared tunnel --url http://localhost:8787`) or a certificate for the LAN address (mkcert).
 
-The server alone serves everything once the web app is bundled (this is what the container image runs):
+The server alone serves everything once the web app is bundled:
 
 ```sh
 (cd apps/web && dx bundle --platform web --release)   # -> target/dx/rafi-web/release/web/public
@@ -168,14 +166,14 @@ It listens on `IP`:`PORT` (default `127.0.0.1:8080`), serves the participant scr
 (default `target/dx/rafi-web/release/web/public`), both relative to the working directory, falling back to the web
 app's `index.html` for its own routes.
 
-With Restate: Restate runs in Docker ([`compose.yaml`](compose.yaml)), the app and `rafi-restate` on your
-machine, both on the same database file:
+With Restate: a local `restate-server` (the pinned one from `./scripts/restate-server.sh`), and the app and
+`rafi-restate` on the same database file:
 
 ```sh
 export RAFI_DATABASE_URL="sqlite://$PWD/rafi.db"
 
-docker compose up -d       # Restate: ingress on :8080, admin API and UI on :9070
-                           # (RESTATE_INGRESS_PORT / RESTATE_ADMIN_PORT to move them)
+# Restate, in its own terminal: ingress on :8080, admin API and UI on :9070, data in ./restate-data
+$(./scripts/restate-server.sh)
 
 # the server (it creates the database) and the web app
 RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http://localhost:8080 \
@@ -188,7 +186,7 @@ RAFI_RESTATE_DATABASE__URL="$RAFI_DATABASE_URL" cargo run -p rafi-restate
 
 # once, and again whenever the services' handlers change (Raffle, EngineInfo)
 curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
-  -d '{"uri": "http://host.docker.internal:9080", "force": true}'
+  -d '{"uri": "http://localhost:9080", "force": true}'
 ```
 
 With Clerk, export `CLERK_PUBLISHABLE_KEY` (when building the web app) and `CLERK_SECRET_KEY` (for the server),
@@ -247,9 +245,9 @@ The app:
 
 | Variable | Default | |
 |---|---|---|
-| `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address (the image sets `0.0.0.0`) |
-| `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app (the image sets `/usr/local/app/public`) |
-| `RAFI_PARTICIPANT_DIR` | `apps/participant/dist` | The participant page's WebAssembly and fallback, from `./scripts/participant.sh` (the image sets `/usr/local/app/participant`) |
+| `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address |
+| `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app |
+| `RAFI_PARTICIPANT_DIR` | `apps/participant/dist` | The participant page's WebAssembly and fallback, from `./scripts/participant.sh` |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL (QR codes, links) |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate`: SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`, the database must exist). The app applies the migrations on start |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |
@@ -271,38 +269,16 @@ see [`apps/restate`](apps/restate/README.md).
 
 ## Self-hosting
 
-The native server, with Docker (production is planned on Cloudflare Workers, below). On a VM with Docker and a
-domain pointing at it:
-
-```sh
-git clone https://github.com/sagikazarmark/rafi.orig rafi && cd rafi/deploy
-cp .env.example .env && $EDITOR .env   # domain, Clerk keys, proof-of-work key, Restate Cloud
-docker compose pull && docker compose up -d
-restate deployments register https://$RAFI_DOMAIN:9080   # once, and when the handlers change (Raffle, EngineInfo)
-```
-
-[`deploy/compose.yaml`](deploy/compose.yaml) runs Caddy (automatic HTTPS), the app and `rafi-restate` from the GHCR
-images (`docker compose up -d --build` builds them from the checkout instead). The app and `rafi-restate` share the
-SQLite database on a volume. Restate Cloud reaches `rafi-restate` at `https://$RAFI_DOMAIN:9080`, where Caddy
-terminates TLS; `rafi-restate` only accepts requests signed with the environment's key (`RESTATE_IDENTITY_KEYS`, the
-environment's signing public key). The app calls the Restate Cloud ingress with an API key that has ingress access
-(`RESTATE_API_KEY`). Open ports: 22, 80, 443 (TCP and UDP) and 9080.
-
-Without Restate Cloud, `docker compose --profile self-hosted up -d` also runs a Restate server on the VM and registers
-`rafi-restate` with it (see the comments in `compose.yaml`).
+The native server: `rafi` and `rafi-restate` on one machine, sharing the database, with a Restate server (or Restate
+Cloud) in front of `rafi-restate`. Packaged deployment options (container images, compose) are removed for now and
+will come back later; production is planned on Cloudflare Workers, below.
 
 PostgreSQL instead of SQLite: point both at the same, existing database, the app with
 `RAFI_DATABASE_URL=postgres://user:password@host/rafi` and `rafi-restate` with the same URL in `database.url`
 (`RAFI_RESTATE_DATABASE__URL`). The app applies the migrations (`migrations/postgres`) on start, as it does for
 SQLite; until it has, `rafi-restate`'s writes fail and Restate retries them. Transactions run serializable, as on
 SQLite. Connections use TLS when the server offers it; add `?sslmode=verify-full` to require it, against the Mozilla
-root certificates or `sslrootcert=<file>`. `deploy/compose.yaml` keeps SQLite; its comments show the Postgres
-variant.
-
-To update: build and push new images (CI does it on `main`; by hand, `docker buildx build --platform linux/amd64
---build-arg CLERK_PUBLISHABLE_KEY -t ghcr.io/sagikazarmark/rafi:latest --push .` and the same for
-`apps/restate/Dockerfile`), then `docker compose pull && docker compose up -d` on the VM. Avoid it
-during a live raffle (`/api/status` shows `live_raffles`).
+root certificates or `sslrootcert=<file>`.
 
 ## Cloudflare Workers
 

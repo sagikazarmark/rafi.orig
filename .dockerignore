@@ -1,7 +1,0 @@
-target
-node_modules
-**/node_modules
-.devenv
-.direnv
-*.db*
-deploy/.env

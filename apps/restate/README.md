@@ -7,17 +7,10 @@ same file (the same machine, or a shared volume). The app owns the schema and cr
 
 ## Install
 
-Pre-built container images are available from GitHub Container Registry:
-
-```bash
-docker pull ghcr.io/sagikazarmark/rafi-restate:latest
-```
-
 Build from source (from the repository root):
 
 ```bash
 cargo build --release -p rafi-restate     # target/release/rafi-restate
-docker build -f apps/restate/Dockerfile .
 ```
 
 ## Quick Start
@@ -28,8 +21,6 @@ Run it on the app's database and register it with Restate:
 RAFI_RESTATE_DATABASE__URL=sqlite://$PWD/rafi.db rafi-restate
 restate deployments register http://localhost:9080
 ```
-
-With Restate in Docker (the repository's `compose.yaml`), register `http://host.docker.internal:9080` instead.
 
 ## Configuration
 

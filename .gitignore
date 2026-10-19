@@ -25,5 +25,5 @@ apps/web/assets/tailwind.css
 # npm (daisyUI, for apps/web/tailwind.css)
 node_modules/
 
-# Deployment secrets
-deploy/.env
+# A local restate-server's data
+restate-data/
