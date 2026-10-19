@@ -57,7 +57,8 @@ impl Default for DrandConfig {
 impl DrandConfig {
     /// The settings from flat variables, for hosts without a configuration
     /// file (Workers' vars): `RAFI_DRAND_RELAYS` (comma-separated),
-    /// `RAFI_DRAND_MOCK` (`1`), `RAFI_DRAND_LEAD_SECS` and
+    /// `RAFI_DRAND_MOCK` (`1`, `true`, `yes` or `on`, as the app reads its own
+    /// flags), `RAFI_DRAND_LEAD_SECS` and
     /// `RAFI_DRAND_TIMEOUT_SECS`. Anything missing or unparsable is the
     /// default.
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
@@ -77,7 +78,8 @@ impl DrandConfig {
                 })
                 .filter(|relays| !relays.is_empty())
                 .unwrap_or(defaults.relays),
-            mock: get("RAFI_DRAND_MOCK").is_some_and(|v| v.trim() == "1"),
+            mock: get("RAFI_DRAND_MOCK")
+                .is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes" | "on")),
             lead_secs: number("RAFI_DRAND_LEAD_SECS", defaults.lead_secs),
             timeout_secs: number("RAFI_DRAND_TIMEOUT_SECS", defaults.timeout_secs),
         }
@@ -237,6 +239,12 @@ mod tests {
             "unparsable is the default"
         );
         assert_eq!(DrandConfig::from_lookup(|_| None), DrandConfig::default());
+        for (value, mock) in [("true", true), ("on", true), ("0", false), ("no", false)] {
+            let cfg = DrandConfig::from_lookup(|name| {
+                (name == "RAFI_DRAND_MOCK").then(|| value.to_owned())
+            });
+            assert_eq!(cfg.mock, mock, "RAFI_DRAND_MOCK={value}");
+        }
     }
 
     #[test]
