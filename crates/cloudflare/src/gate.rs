@@ -18,7 +18,7 @@ use {
 pub const BINDING: &str = "RAFFLE_ROOM";
 
 /// The header carrying the raffle ID on requests to the object.
-pub(crate) const RAFFLE_HEADER: &str = "x-rafi-lifecycle";
+pub(crate) const RAFFLE_HEADER: &str = "x-rafi-raffle";
 
 /// The rate-limiting binding for socket connects, keyed by raffle (never by
 /// IP: a venue shares one address). Optional.
@@ -30,7 +30,7 @@ pub const CONNECT_LIMITER: &str = "CONNECT_LIMITER";
 pub const JURISDICTION_VAR: &str = "RAFI_DO_JURISDICTION";
 
 /// The base URL of requests to the object. The host is never resolved.
-const INTERNAL: &str = "https://rafi-channel.internal";
+const INTERNAL: &str = "https://rafi-raffle-room.internal";
 
 fn jurisdiction(env: &Env) -> String {
     env.var(JURISDICTION_VAR)

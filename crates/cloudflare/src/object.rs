@@ -8,7 +8,7 @@
 //! published view; destroying it deletes all of that.
 //!
 //! Requests come from this Worker only (see [`crate::gate`]): the raffle ID
-//! travels in the `x-rafi-lifecycle` header.
+//! travels in the `x-rafi-raffle` header.
 
 use std::{cell::Cell, time::Duration};
 
@@ -40,7 +40,7 @@ const MAX_SOCKETS: usize = 2_000;
 /// last one. Under the 2 MB a Durable Object's SQLite row may hold.
 const MAX_VIEW_BYTES: usize = 1024 * 1024;
 
-const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS rafi_channel (
+const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS raffle_room (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     raffle_id TEXT NOT NULL,
     seen_v INTEGER NOT NULL DEFAULT 0,
@@ -69,7 +69,7 @@ impl RaffleRoom {
         let mut rows = self
             .sql()
             .exec(
-                "SELECT raffle_id, seen_v, last FROM rafi_channel WHERE id = 1",
+                "SELECT raffle_id, seen_v, last FROM raffle_room WHERE id = 1",
                 None,
             )
             .ok()?
@@ -95,9 +95,9 @@ impl RaffleRoom {
         self.sql().exec(SCHEMA, None)?;
         let last = last.and_then(|v| serde_json::to_string(v).ok());
         self.sql().exec(
-            "INSERT INTO rafi_channel (id, raffle_id, seen_v, last) VALUES (1, ?, ?, ?)
+            "INSERT INTO raffle_room (id, raffle_id, seen_v, last) VALUES (1, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET raffle_id = excluded.raffle_id, seen_v = excluded.seen_v,
-                 last = COALESCE(excluded.last, rafi_channel.last)",
+                 last = COALESCE(excluded.last, raffle_room.last)",
             vec![
                 raffle_id.into(),
                 SqlStorageValue::Integer(seen as i64),
