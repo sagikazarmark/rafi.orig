@@ -15,5 +15,3 @@ pub(crate) use d1::D1 as Backend;
 pub(crate) use native::Native as Backend;
 #[cfg(all(feature = "postgres", not(target_arch = "wasm32")))]
 pub use postgres::fresh_schema;
-#[cfg(not(target_arch = "wasm32"))]
-pub use sqlite::options;

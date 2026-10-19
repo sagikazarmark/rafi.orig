@@ -22,7 +22,7 @@ mod pages;
 pub mod participant;
 pub mod public;
 
-pub use rafi_app::{self as service, codes, ids, view};
+pub use rafi_app::{self as service, ids, view};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;

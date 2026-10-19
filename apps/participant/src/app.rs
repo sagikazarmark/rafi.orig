@@ -143,8 +143,7 @@ fn App() -> Element {
     let current = view();
 
     // The server says how to follow the raffle. Partyline subscribes (below);
-    // polling (and SSE, which has no client yet) polls, twice as often while a
-    // draw is pending.
+    // polling polls, twice as often while a draw is pending.
     let poll_ms = cfg.follow.poll_every_ms();
     use_future({
         let refetch = refetch.clone();

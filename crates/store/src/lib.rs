@@ -58,8 +58,6 @@ pub mod raffles;
 mod value;
 pub mod view;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use backend::options;
 pub use dialect::Dialect;
 pub use entrants::EntrantRow;
 pub use error::{Error, Result};

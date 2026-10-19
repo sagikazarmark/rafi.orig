@@ -10,9 +10,9 @@
 
 use std::time::{Duration, SystemTime};
 
-pub use ::drand::client::{Error as FetchError, Fetch};
+pub use ::drand::client::Error as FetchError;
 use ::drand::{
-    ChainHash, ChainInfo, Schedule, UnixTime, VerifiedBeacon, Verifier, chains,
+    ChainHash, ChainInfo, Schedule, UnixTime, VerifiedBeacon, chains,
     client::{Client, Strategy},
     http::Relay,
 };
@@ -170,10 +170,6 @@ impl DrandClient {
         &self.cfg
     }
 
-    pub fn is_mock(&self) -> bool {
-        self.cfg.mock
-    }
-
     pub fn chain(&self) -> &ChainInfo {
         self.client.chain()
     }
@@ -184,11 +180,6 @@ impl DrandClient {
 
     pub fn schedule(&self) -> Schedule {
         self.client.chain().schedule()
-    }
-
-    /// Verifies a persisted beacon again (e.g. after a durable step returned it).
-    pub fn verifier(&self) -> &Verifier {
-        self.client.verifier()
     }
 
     /// The underlying `drand` client (e.g. for `restate_drand::Drand`).
@@ -208,11 +199,6 @@ impl DrandClient {
             .and_then(|t| u64::try_from(t.as_secs()).ok())
             .unwrap_or_default();
         (round, due)
-    }
-
-    /// One attempt across the relays, no sleeping (for a durable retried step).
-    pub async fn fetch(&self, round: u64) -> Result<Fetch, FetchError> {
-        self.client.fetch(round).await
     }
 
     /// Waits until `round` is due, then fetches it for up to `timeout_secs`
@@ -303,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn quicknet_target_round_matches_the_old_rule() {
+    fn quicknet_target_round_is_lead_seconds_ahead() {
         let client = DrandClient::new(DrandConfig::default()).unwrap();
         let g = 1_692_803_367u64;
         for now in g..g + 30 {
@@ -357,9 +343,7 @@ mod tests {
             rafi_raffle::drand::resolve_chain(&client.chain_hash()),
             Some(client.chain().clone())
         );
-        let Fetch::Ready(b) = client.fetch(7).await.unwrap() else {
-            panic!("past rounds are ready")
-        };
+        let b = client.wait_for(7).await.expect("past rounds are ready");
         assert_eq!(b.chain_hash(), client.chain_hash());
         assert_eq!(
             mock_chain().chain().hash(),

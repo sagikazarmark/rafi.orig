@@ -51,7 +51,7 @@ pub(super) fn connect_lazy(url: &str) -> Result<Sqlite> {
 }
 
 /// Connection options for an SQLite database URL.
-pub fn options(url: &str) -> Result<SqliteConnectOptions> {
+pub(crate) fn options(url: &str) -> Result<SqliteConnectOptions> {
     let opts = SqliteConnectOptions::from_str(url)?
         .foreign_keys(true)
         .busy_timeout(Duration::from_secs(5));

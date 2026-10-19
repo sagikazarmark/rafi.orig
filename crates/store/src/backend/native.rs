@@ -1,8 +1,6 @@
 //! The native backends, chosen by the database URL's scheme: SQLite (the
 //! default) or, with the `postgres` feature, PostgreSQL.
 
-use sqlx::SqlitePool;
-
 #[cfg(feature = "postgres")]
 use super::postgres::{self, Postgres};
 use super::sqlite::{self, Sqlite};
@@ -21,7 +19,7 @@ pub(crate) enum Native {
 }
 
 /// Whether `url` names a Postgres database (`postgres://`, `postgresql://`).
-/// Anything else is SQLite, as before Postgres was supported.
+/// Anything else is SQLite.
 fn is_postgres(url: &str) -> bool {
     let scheme = url.split_once(':').map_or("", |(s, _)| s);
     scheme.eq_ignore_ascii_case("postgres") || scheme.eq_ignore_ascii_case("postgresql")
@@ -75,13 +73,6 @@ impl Db {
             Native::Sqlite(sqlite::connect_lazy(url)?)
         };
         Ok(Self { backend })
-    }
-
-    /// Wraps an existing SQLite pool (it must already be migrated).
-    pub fn from_pool(pool: SqlitePool) -> Self {
-        Self {
-            backend: Native::Sqlite(Sqlite { pool }),
-        }
     }
 
     /// Brings the schema up to date: `migrations/sqlite/` for SQLite (on D1,

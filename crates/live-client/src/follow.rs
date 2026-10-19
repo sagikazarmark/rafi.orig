@@ -20,10 +20,6 @@ pub enum Follow {
     },
     /// No push: fetch the view every `every_ms` milliseconds.
     Poll { every_ms: u32 },
-    /// Server-sent events at `url` (for example a Mercure hub). Reserved: no
-    /// client implements it yet, so clients poll instead (see
-    /// [`Follow::poll_every_ms`]).
-    Sse { url: String },
 }
 
 impl Follow {
@@ -35,14 +31,10 @@ impl Follow {
     }
 
     /// How often a client polls the view, or `None` when it subscribes instead.
-    ///
-    /// SSE has no client yet: until it does, clients poll at
-    /// [`DEFAULT_POLL_MS`].
     pub fn poll_every_ms(&self) -> Option<u32> {
         match self {
             Self::Partyline { .. } => None,
             Self::Poll { every_ms } => Some((*every_ms).max(250)),
-            Self::Sse { .. } => Some(DEFAULT_POLL_MS),
         }
     }
 }
@@ -59,11 +51,9 @@ mod tests {
             r#"{"kind":"partyline"}"#
         );
         assert_eq!(json(&Follow::poll()), r#"{"kind":"poll","every_ms":2500}"#);
-        let sse: Follow = serde_json::from_str(r#"{"kind":"sse","url":"/hub"}"#).unwrap();
-        assert_eq!(
-            sse.poll_every_ms(),
-            Some(DEFAULT_POLL_MS),
-            "SSE polls for now"
+        assert!(
+            serde_json::from_str::<Follow>(r#"{"kind":"sse","url":"/hub"}"#).is_err(),
+            "unknown kinds are rejected"
         );
         let party: Follow =
             serde_json::from_str(r#"{"kind":"partyline","base_url":"https://x"}"#).unwrap();

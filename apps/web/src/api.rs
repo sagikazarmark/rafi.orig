@@ -14,7 +14,7 @@ macro_rules! client_side {
         $(
             $(#[$meta])*
             // The client covers the whole admin API; the UI needn't call every
-            // function (`whoami` has no caller since the retention warning went).
+            // function (it never calls `whoami`).
             #[allow(dead_code)]
             pub async fn $name($($arg: $ty),*) -> Result<$ret, ApiError> {
                 #[derive(serde::Serialize)]

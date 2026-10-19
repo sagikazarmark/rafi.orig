@@ -15,7 +15,7 @@
 //! All decisions are `rafi_raffle`'s ([`Raffle::open_or_check`],
 //! [`Raffle::announce`], [`Raffle::settle`], [`Raffle::decide`]); the
 //! committed round comes from [`DrandClient::target_round`]. This engine only
-//! does the I/O, with an injectable clock.
+//! does the I/O.
 //!
 //! It is never a production engine (nothing survives a restart, and two
 //! engines owning one raffle could announce one draw on two rounds): only
@@ -36,9 +36,6 @@ use rafi_raffle::{
 
 use crate::{Engine, EngineError, EngineInfo, NOT_OPEN, Observer, Store};
 use tokio::sync::{mpsc, watch};
-
-/// Unix seconds now.
-pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
 /// How a job ended: refusals keep their kind and message.
 type Outcome = Result<(), (ErrorKind, String)>;
@@ -65,7 +62,6 @@ struct Io {
     drand: DrandClient,
     store: Arc<dyn Store>,
     observer: Arc<dyn Observer>,
-    clock: Clock,
 }
 
 enum Work {
@@ -79,59 +75,20 @@ struct Job {
     done: watch::Sender<Option<Outcome>>,
 }
 
-/// Configures a [`LocalEngine`].
-pub struct Builder {
-    io: Io,
-    deadline: Option<Duration>,
-}
-
-impl Builder {
-    /// Reads the time (Unix seconds) from `clock` when committing a round.
-    pub fn clock(mut self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
-        self.io.clock = Arc::new(clock);
-        self
-    }
-
-    /// Gives up waiting for a synchronous call after `deadline`: it returns
-    /// [`EngineError::Pending`] and still applies (once).
-    pub fn deadline(mut self, deadline: Duration) -> Self {
-        self.deadline = Some(deadline);
-        self
-    }
-
-    pub fn build(self) -> LocalEngine {
-        LocalEngine {
+impl LocalEngine {
+    /// Draws with `drand`, writes every state to `store` and tells clients
+    /// through `observer`. No deadline.
+    pub fn new(drand: DrandClient, store: impl Store, observer: impl Observer) -> Self {
+        Self {
             shared: Arc::new(Shared {
-                io: Arc::new(self.io),
+                io: Arc::new(Io {
+                    drand,
+                    store: Arc::new(store),
+                    observer: Arc::new(observer),
+                }),
                 queues: Mutex::default(),
                 seen: Mutex::default(),
             }),
-            deadline: self.deadline,
-        }
-    }
-}
-
-impl LocalEngine {
-    /// Draws with `drand`, writes every state to `store` and tells clients
-    /// through `observer`. System clock; no deadline.
-    pub fn new(drand: DrandClient, store: impl Store, observer: impl Observer) -> Self {
-        Self::builder(drand, store, observer).build()
-    }
-
-    /// [`LocalEngine::new`], configured further.
-    pub fn builder(drand: DrandClient, store: impl Store, observer: impl Observer) -> Builder {
-        Builder {
-            io: Io {
-                drand,
-                store: Arc::new(store),
-                observer: Arc::new(observer),
-                clock: Arc::new(|| {
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or_default()
-                }),
-            },
             deadline: None,
         }
     }
@@ -272,7 +229,11 @@ impl Io {
             }
             Work::Draw(request) => {
                 let s = state.as_mut().ok_or_else(not_open)?;
-                let (round, round_time) = self.drand.target_round((self.clock)());
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or_default();
+                let (round, round_time) = self.drand.target_round(now);
                 // A pending draw for this item (e.g. stalled) is re-entered on its round.
                 let pending = s
                     .announce(&request, &beacon, round, round_time)

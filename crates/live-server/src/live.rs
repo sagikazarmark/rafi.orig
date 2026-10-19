@@ -66,18 +66,17 @@ mod tests {
     #[tokio::test]
     async fn the_notifier_and_how_to_follow() {
         let recording = Arc::new(Recording::default());
-        let live = LiveUpdates::new(recording.clone(), |_, id| Follow::Sse {
-            url: format!("/hub?topic={id}"),
+        let live = LiveUpdates::new(recording.clone(), |_, id| Follow::Poll {
+            every_ms: id.len() as u32,
         });
         live.notify("a").await;
         live.end("b").await.unwrap();
         assert_eq!(recording.notified(), [RaffleId::new("a")]);
         assert_eq!(recording.ended(), [RaffleId::new("b")]);
         assert_eq!(
-            live.follow("a"),
-            Follow::Sse {
-                url: "/hub?topic=a".into()
-            }
+            live.follow("abc"),
+            Follow::Poll { every_ms: 3 },
+            "the follow function gets the raffle ID"
         );
         assert_eq!(LiveUpdates::polling().follow("a"), Follow::poll());
     }

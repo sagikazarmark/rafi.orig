@@ -12,8 +12,7 @@
 //!   participant channel: an event ahead of the full view is kept as [`LiveView::ahead`],
 //!   so the projector shows the reveal right away, and the full view is
 //!   fetched at once in the background;
-//! - `poll`: only the full view, polled every `every_ms`;
-//! - `sse`: no client yet, so it polls like `poll`.
+//! - `poll`: only the full view, polled every `every_ms`.
 
 use std::rc::Rc;
 
@@ -52,7 +51,7 @@ impl LiveView {
             Follow::Partyline { base_url } if v.state.is_live() => {
                 Some((v.raffle_id.clone(), base_url.clone()))
             }
-            // Polling (and SSE, which has no client yet): the full view's poll does it all.
+            // Polling: the full view's poll does it all.
             _ => None,
         });
         rsx! {
