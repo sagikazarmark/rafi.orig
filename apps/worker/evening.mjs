@@ -90,8 +90,8 @@ check(await until(() => js(`!!document.getElementById("submit") && !document.get
 const altchaValue = `document.getElementById("altcha")?.value ?? ""`;
 const before = await js(altchaValue);
 await js("window.__notReloaded = true");
-await send("Page.navigate", { url: `${base}/api/status` });
-await until(async () => (await js("location.pathname")) === "/api/status");
+await send("Page.navigate", { url: `${base}/healthz` });
+await until(async () => (await js("location.pathname")) === "/healthz");
 const history = (await send("Page.getNavigationHistory")).result;
 await send("Page.navigateToHistoryEntry", { entryId: history.entries[history.currentIndex - 1].id });
 await until(async () => (await js("location.pathname")) === `/j/${code}`);

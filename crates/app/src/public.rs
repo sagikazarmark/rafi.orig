@@ -52,9 +52,3 @@ pub async fn participant(app: &App, raffle_id: &str) -> Result<Option<Participan
 pub async fn prizes(app: &App, raffle_id: &str) -> Result<Vec<PrizeRow>> {
     Ok(prizes::list(&app.db, raffle_id).await?)
 }
-
-/// How many raffles are live right now. The deploy pipeline refuses to
-/// restart the server while there are any.
-pub async fn live_count(app: &App) -> Result<i64> {
-    Ok(raffles::live_count(&app.db).await?)
-}

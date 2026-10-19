@@ -17,7 +17,6 @@ pub fn routes() -> Router {
         .route("/api/r/{slug}/participant", get(participant))
         .route("/api/r/{slug}/verify.json", get(verify_json))
         .route("/api/altcha", get(challenge))
-        .route("/api/status", get(status))
         .route("/healthz", get(|| async { "ok" }))
 }
 
@@ -83,18 +82,5 @@ async fn challenge(Extension(app): Extension<AppState>) -> Response {
             tracing::error!(error = %e, "issuing a proof-of-work challenge");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
-    }
-}
-
-/// Number of raffles that are live right now. The deploy pipeline refuses to
-/// restart the server while this is non-zero.
-async fn status(Extension(app): Extension<AppState>) -> Response {
-    match service::public::live_count(&app).await {
-        Ok(n) => (
-            [(header::CACHE_CONTROL, "no-store")],
-            Json(serde_json::json!({ "live_raffles": n })),
-        )
-            .into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }

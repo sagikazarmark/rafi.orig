@@ -1,13 +1,12 @@
 //! The participant pages' HTTP side: the participant page (`/j/{code}`,
-//! and joining by posting its form), the device's own entry, the rules
-//! and privacy pages, and the proof-of-work solver the page runs. Which
-//! raffle, which entrant and what the join did is decided here;
-//! [`pages`](crate::pages) renders them.
+//! and joining by posting its form), the rules and privacy pages, and the
+//! proof-of-work solver the page runs. Which raffle, which entrant and what
+//! the join did is decided here; [`pages`](crate::pages) renders them.
 
 use std::sync::LazyLock;
 
 use axum::{
-    Extension, Form, Json, Router,
+    Extension, Form, Router,
     extract::Path,
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
@@ -28,7 +27,6 @@ const COOKIE_MAX_AGE: i64 = 3 * 86_400;
 pub fn routes() -> Router {
     Router::new()
         .route("/j/{code}", get(page).post(submit))
-        .route("/api/j/{code}/me", get(me))
         .route("/rules/{slug}", get(rules))
         .route("/privacy/{slug}", get(privacy))
         .route("/participant/altcha-worker.js", get(altcha_worker))
@@ -270,24 +268,6 @@ fn join_status(e: service::JoinError) -> StatusCode {
         E::Failed => StatusCode::SERVICE_UNAVAILABLE,
         _ => StatusCode::UNPROCESSABLE_ENTITY,
     }
-}
-
-/// The current participant's own entry (cookie-authenticated, never cached).
-async fn me(
-    Extension(app): Extension<AppState>,
-    Path(code): Path<String>,
-    headers: HeaderMap,
-) -> Response {
-    let Some(raffle) = load(&app, &code).await else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let body = match current_entrant(&app, &raffle, &headers).await {
-        Some(e) => {
-            serde_json::json!({ "entrant_id": e.id, "display_name": e.display_name, "claim_code": e.claim_code })
-        }
-        None => serde_json::Value::Null,
-    };
-    ([(header::CACHE_CONTROL, "no-store")], Json(body)).into_response()
 }
 
 async fn rules(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {

@@ -343,16 +343,3 @@ pub async fn end_live(db: &Db, id: &str) -> Result<()> {
     .await
     .map(|_| ())
 }
-
-/// How many real (not test mode) raffles are under way
-/// ([`RaffleState::in_progress`]).
-pub async fn live_count(db: &Db) -> Result<i64> {
-    let (n,): (i64,) = db
-        .query(format!(
-            "SELECT COUNT(*) FROM raffles WHERE state IN ({}) AND test_mode = 0",
-            states(RaffleState::in_progress)
-        ))
-        .one()
-        .await?;
-    Ok(n)
-}

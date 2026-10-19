@@ -175,12 +175,6 @@ impl RaffleState {
         matches!(self, Self::Frozen | Self::Drawing)
     }
 
-    /// Whether the raffle is under way: registration is open or the draw is
-    /// (about to be) running.
-    pub fn in_progress(self) -> bool {
-        matches!(self, Self::Open | Self::Frozen | Self::Drawing)
-    }
-
     /// Whether screens follow the raffle live: public, and not over yet (its
     /// view changes on its own).
     pub fn is_live(self) -> bool {
