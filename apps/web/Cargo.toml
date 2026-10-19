@@ -15,7 +15,6 @@ dioxus-field = { version = "0.8.0", default-features = false }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components", rev = "bf007c15d0cf4d04d3181cc46cf12325aa773955", version = "0.0.1", default-features = false, features = ["router"] }
 dioform = { version = "0.9", features = ["dioxus-field"] }
 futures-util = "0.3"
-getrandom = { version = "0.3", features = ["wasm_js"] }
 gloo-net = { version = "0.7", default-features = false, features = ["http", "json"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 js-sys = "0.3"
@@ -29,4 +28,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { version = "1", features = ["v4", "js"] }
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["Window", "Document", "EventTarget", "Node", "VisibilityState", "Element", "HtmlElement", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Location", "Navigator", "Crypto"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "EventTarget", "VisibilityState"] }

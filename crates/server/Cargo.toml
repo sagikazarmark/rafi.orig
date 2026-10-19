@@ -46,7 +46,6 @@ dioxus-clerk = { version = "0.6", features = ["server", "testing"] }
 http-body-util = "0.1"
 altcha = { workspace = true }
 rafi-engine = { workspace = true, features = ["local", "mock-drand"] }
-rafi-live-client = { workspace = true }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
 restate-e2e-harness = "0.3"
 restate-sdk = { workspace = true }

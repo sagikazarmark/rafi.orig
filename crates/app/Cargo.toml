@@ -26,6 +26,5 @@ tracing = "0.1"
 
 [dev-dependencies]
 altcha = { workspace = true }
-rafi-lifecycle = { workspace = true }
 rafi-engine = { workspace = true, features = ["local", "mock-drand"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

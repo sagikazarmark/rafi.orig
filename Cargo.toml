@@ -36,12 +36,6 @@ restate-sdk = { version = "0.12", default-features = false }
 inherits = "dev"
 opt-level = 1
 
-[profile.server-dev]
-inherits = "dev"
-
-[profile.android-dev]
-inherits = "dev"
-
 [profile.release]
 opt-level = "z"
 lto = true

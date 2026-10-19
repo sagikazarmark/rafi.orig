@@ -15,7 +15,6 @@ doc = false
 [dependencies]
 rafi-engine = { workspace = true, features = ["drand"] }
 rafi-engine-restate = { workspace = true }
-rafi-raffle = { workspace = true }
 rafi-store = { workspace = true }
 
 anyhow = "1"
