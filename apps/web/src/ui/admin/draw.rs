@@ -249,7 +249,7 @@ pub(super) fn DrawConsole(
             Confirm {
                 open: ask_finish,
                 title: if items_left == 0 { "Finish the raffle?".to_owned() } else { format!("Finish with {items_left} prize(s) left?") },
-                body: "The thank-you screen goes up and nothing more can be drawn. Personal data is erased automatically after the retention period.",
+                body: "The thank-you screen goes up and nothing more can be drawn. Erase personal data from the raffle's menu once prizes are handed out.",
                 action: "🎉 Finish",
                 on_confirm: move |_| { spawn(finish()); },
             }

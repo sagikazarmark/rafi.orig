@@ -121,21 +121,14 @@ pub fn rules(r: &Rules<'_>) -> String {
     text_page(&title, format!("/j/{}", r.raffle.join_code), sections)
 }
 
-/// The privacy notice, as HTML: personal data of non-winners is erased
-/// `nonwinners_days` after the event, winners' at the latest `winners_days`.
-pub fn privacy(
-    raffle: Raffle<'_>,
-    organizer: Organizer<'_>,
-    nonwinners_days: i64,
-    winners_days: i64,
-) -> String {
+/// The privacy notice, as HTML.
+pub fn privacy(raffle: Raffle<'_>, organizer: Organizer<'_>) -> String {
     let controller = if organizer.name.is_empty() {
         "The raffle organizer".to_owned()
     } else {
         organizer.name.to_owned()
     };
     let contact = organizer.contact();
-    let (days_nw, days_w) = (nonwinners_days, winners_days);
     let sections = vec![
         ("Controller".to_owned(), vec![format!("{controller}{contact}")]),
         ("What we collect and why".to_owned(), vec![
@@ -157,7 +150,7 @@ pub fn privacy(
             "The randomness comes from the public drand network; no personal data is sent to it.".into(),
         ]),
         ("How long we keep it".to_owned(), vec![
-            format!("Personal data of entrants who did not win is erased {days_nw} days after the event. Winners' data is erased once the prize is delivered, at the latest {days_w} days after the event. Anonymous IDs and the draw log are kept so the draw stays verifiable."),
+            "Personal data is kept until the organizer erases it after the event, or on request. Anonymous IDs and the draw log are kept so the draw stays verifiable.".into(),
         ]),
         ("Your rights".to_owned(), vec![
             "You can request access, correction, erasure, restriction, or object to processing, and withdraw consent, by contacting the controller. You can also lodge a complaint with the Hungarian National Authority for Data Protection and Freedom of Information (NAIH, naih.hu).".into(),

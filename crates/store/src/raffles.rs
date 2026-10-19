@@ -46,8 +46,6 @@ pub struct RaffleRow {
     /// opened, and [`drawn`] reads it. Opening records no event.
     pub opened_at: Option<i64>,
     pub finished_at: Option<i64>,
-    pub purge_nonwinners_at: Option<i64>,
-    pub purge_winners_at: Option<i64>,
     pub purged_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,

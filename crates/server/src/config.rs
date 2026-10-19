@@ -34,13 +34,6 @@ pub struct Config {
     /// The most entrants a raffle takes (`RAFI_MAX_ENTRANTS`): the hard limit
     /// behind the soft rate limits.
     pub max_entrants: i64,
-    /// Erase personal data in the hourly retention run (`RAFI_RETENTION`).
-    /// Off for now: personal data is only erased by hand from the admin. The
-    /// run itself always happens (expired proof-of-work challenges, ending
-    /// live channels).
-    pub retention_enabled: bool,
-    pub retention_nonwinners_days: i64,
-    pub retention_winners_days: i64,
 }
 
 impl Config {
@@ -92,13 +85,6 @@ impl Config {
             max_entrants: var("RAFI_MAX_ENTRANTS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2000),
-            retention_enabled: flag("RAFI_RETENTION"),
-            retention_nonwinners_days: var("RAFI_RETENTION_DAYS")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(30),
-            retention_winners_days: var("RAFI_RETENTION_WINNERS_DAYS")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(90),
         }
     }
 
@@ -127,9 +113,6 @@ impl Config {
             altcha_cost: 1,
             cookie_secure: false,
             max_entrants: 2000,
-            retention_enabled: false,
-            retention_nonwinners_days: 30,
-            retention_winners_days: 90,
         }
     }
 }

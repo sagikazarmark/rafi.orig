@@ -61,7 +61,7 @@ name = "CONNECT_LIMITER"
 namespace_id = "1003"
 simple = { limit = 600, period = 60 }
 
-# Retention, expired proof-of-work challenges, ending stale live channels.
+# Housekeeping: expired proof-of-work challenges, ending stale live channels.
 [triggers]
 crons = ["0 * * * *"]
 

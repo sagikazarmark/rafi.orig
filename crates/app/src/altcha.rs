@@ -3,7 +3,7 @@
 //!
 //! Each challenge is accepted once: a redeemed challenge's nonce is kept in
 //! the database ([`rafi_store::altcha`]) until it expires, so it holds across
-//! servers and on Workers. The retention run forgets expired ones.
+//! servers and on Workers. The housekeeping run forgets expired ones.
 
 pub use altcha_server::{MAX_PAYLOAD_LEN, decode, encode};
 

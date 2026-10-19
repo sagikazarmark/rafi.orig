@@ -82,7 +82,7 @@ crates/server                 rafi-server: the axum server (participant pages, p
                               natively, rafi-worker on Workers
 
 apps/rafi                     rafi: the native binary serving rafi-server and the web app's files; self-hosting
-apps/worker                   rafi-worker: the app on Cloudflare Workers (rafi-server's routes, the Cron, RaffleRoom)
+apps/worker                   rafi-worker: the app on Cloudflare Workers (rafi-server's routes, the housekeeping Cron, RaffleRoom)
 apps/restate                  rafi-restate: the native binary serving the Restate services (config, logging, Dockerfile); self-hosting
 apps/restate-worker           rafi-restate-worker: the same services as a Cloudflare Worker, on D1, nudging the live channel
 apps/web                      rafi-web: the Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx`
@@ -261,8 +261,10 @@ The app:
 | `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges (ALTCHA v2); not empty |
 | `RAFI_ALTCHA_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve (at least 1; provisional, see docs/dioxus-altcha-plan.md M4) |
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes |
-| `RAFI_RETENTION` | off | Erase personal data after the event in the hourly retention run (otherwise erase by hand in the admin). The run always ends live updates a day after a raffle finishes and forgets expired proof-of-work challenges |
-| `RAFI_RETENTION_DAYS` / `RAFI_RETENTION_WINNERS_DAYS` | `30` / `90` | Erase personal data after the event. The first erasing run that sees a raffle finished dates its erasure with these; a date once set is kept. The raffle engine needs neither |
+
+Personal data is erased by hand in the admin ("Erase personal data now"); automatic erasure (retention) is removed for
+now, see [docs/retention.md](docs/retention.md). An hourly housekeeping run (a task natively, the Cron on Workers) ends
+live updates a day after a raffle finishes and forgets expired proof-of-work challenges.
 
 `rafi-restate` (draw settings, database, identity keys):
 see [`apps/restate`](apps/restate/README.md).

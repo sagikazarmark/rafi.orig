@@ -66,8 +66,8 @@ pub fn lifecycle(raffle: &Raffle) -> RaffleState {
 }
 
 /// Whether `entrant`'s prize can be marked delivered (or not): they won an
-/// item and claimed it. Delivery dates when a winner's data may go
-/// (retention), so only a winner's counts.
+/// item and claimed it. Only a winner's prize is delivered, so only a
+/// winner's counts.
 pub fn deliverable(raffle: Option<&Raffle>, entrant: &str) -> bool {
     raffle.is_some_and(|d| {
         d.entrant_outcomes()

@@ -18,13 +18,13 @@ pub mod codes;
 mod draw;
 mod entrants;
 mod error;
+pub mod housekeeping;
 pub mod ids;
 mod prizes;
 pub mod public;
 mod raffles;
 mod ratelimit;
 mod reads;
-pub mod retention;
 pub mod view;
 
 use std::sync::Arc;
@@ -50,7 +50,6 @@ pub use raffles::{
 pub use ratelimit::Limiter;
 pub use ratelimit::{Limit, RateLimit};
 pub use reads::{admin, export_csv, verify_data};
-pub use retention::Retention;
 
 /// What the use cases run against.
 #[derive(Clone)]
@@ -77,8 +76,6 @@ pub struct Policy {
     pub max_entrants: i64,
     /// The join form's proof-of-work.
     pub proof_of_work: ProofOfWork,
-    /// When personal data is erased.
-    pub retention: Retention,
 }
 
 impl App {

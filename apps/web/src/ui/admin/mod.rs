@@ -158,21 +158,13 @@ fn Panel(
 #[component]
 pub fn AdminHome() -> Element {
     let mut raffles = use_resource(api::list_raffles);
-    let me = use_resource(api::whoami);
     let nav = navigator();
-    let retention_stale = matches!(&*me.read(), Some(Ok(me)) if me.retention_stale);
 
     rsx! {
         main { class: "mx-auto max-w-6xl space-y-8 px-4 py-8",
             div { class: "space-y-2",
                 h1 { class: "text-4xl font-extrabold", "Your raffles " span { class: "inline-block animate-float", "🎟️" } }
                 p { class: "text-base-content/70", "Set one up before the meetup, open registration when people arrive, and draw at the end." }
-            }
-            if retention_stale {
-                div { role: "alert", class: "alert alert-warning alert-soft",
-                    TriangleAlert { class: "size-5" }
-                    span { "Automatic erasure of personal data hasn't run in the last two hours. Check the scheduled job (the Cron Trigger on Workers)." }
-                }
             }
             div { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
                 div { class: "card-body",

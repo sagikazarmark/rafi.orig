@@ -317,14 +317,7 @@ async fn privacy(Extension(app): Extension<AppState>, Path(slug): Path<String>) 
     let Some(r) = load_slug(&app, &slug).await else {
         return not_found();
     };
-    let retention = app.policy.retention;
-    Html(pages::privacy(
-        raffle_of(&r),
-        organizer_of(&r),
-        retention.nonwinners_days,
-        retention.winners_days,
-    ))
-    .into_response()
+    Html(pages::privacy(raffle_of(&r), organizer_of(&r))).into_response()
 }
 
 /// [`altcha_worker`]'s entity tag: a hash of the script, so it changes when

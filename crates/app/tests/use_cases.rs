@@ -4,7 +4,7 @@
 use std::{sync::Arc, time::Duration};
 
 use rafi_api::{EntrantPatch, LifecycleCommand, PrizeInput, StartStep};
-use rafi_app::{self as app, App, Error, Limiter, Policy, ProofOfWork, Refusal, Retention};
+use rafi_app::{self as app, App, Error, Limiter, Policy, ProofOfWork, Refusal};
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
 use rafi_live_server::{LiveUpdates, Polling};
@@ -34,11 +34,6 @@ async fn app() -> App {
             public_url: "http://localhost".into(),
             max_entrants: 100,
             proof_of_work: ProofOfWork::new("test-key", 1).unwrap(),
-            retention: Retention {
-                enabled: true,
-                nonwinners_days: 30,
-                winners_days: 90,
-            },
         },
     }
 }

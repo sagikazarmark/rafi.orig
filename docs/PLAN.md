@@ -54,7 +54,7 @@ English only for now.
 | Item order | Picked live: nobody can know an outcome in advance. |
 | Eligibility, age | In the rules. The standard rules don't set an age: an age limit depends on the jurisdiction, so the organizer puts any in the additional rules. |
 | Organizer defaults | An owner saves their organizer, contact email and additional rules as defaults (`owner_defaults`). Each new raffle gets a copy, so changing the defaults changes no raffle; "Use my defaults" fills them into an existing one. |
-| Retention | Non-winners' personal data is erased 30 days after the event; winners' after 90, or 30 once their prize is delivered. The anonymous raffle (manifest and log) is kept (§10). |
+| Retention | **None automatic, for now:** the organizer erases personal data by hand after the event. The anonymous raffle (manifest and log) is kept (§10). Automatic erasure was removed; [retention.md](retention.md) describes it for re-adding. |
 | Bot protection | A self-hosted ALTCHA v2 proof-of-work (`altcha-server` on the official `altcha` crate on the server, `dioxus-altcha` on the phone), one entry per email, rate limits per raffle and per email (never per IP), an entrant cap. No Turnstile. |
 | Winner emails | Not in v1. |
 
@@ -68,7 +68,7 @@ English only for now.
 | Start | **Start the draw:** closes registration, freezes the list, writes the manifest, opens the raffle. Pressing it again picks up where an attempt stopped. | "N entrants, M prizes". | "Draw starting!" |
 | Each item | Pick the item, **Draw**. The admin shows the winner's **claim code**. Then **Handed over**, or **Not here** / **Declined** (drawn again). While a draw waits for its round only **Handed over** goes through. | **"Locking in drand round R…"**, a countdown, the **winner's name**. | Winner: **YOU WON** with the claim code, a chime, vibration on Android. Everyone else: "Not this time", with the prizes left. |
 | End | **Finish**; **Export** the winners CSV; **End live updates.** | **Thanks for playing!**, winners, a link to the verification page. | Thanks screen; winners still see their prize. |
-| After | Mark prizes delivered. Erasure runs on schedule, or by hand. | | `/v/{slug}` verifies every draw. |
+| After | Mark prizes delivered. **Erase personal data.** | | `/v/{slug}` verifies every draw. |
 
 ## 5. Lifecycle
 
@@ -79,7 +79,7 @@ Draft ──publish──▶ Ready ──open──▶ Open ◀──open── 
                      ▲               │ close ───────▶ │
                      └──unpublish────┘                │
         Open | Closed ──freeze──▶ Frozen   (the manifest is written; the engine opens the raffle)
-        Frozen ──first draw──▶ Drawing ──the raffle finishes──▶ Finished ──purge / retention──▶ Purged
+        Frozen ──first draw──▶ Drawing ──the raffle finishes──▶ Finished ──purge──▶ Purged
 ```
 
 - Organizer commands go through `RaffleState::apply`; the app and the store keep no rules of their own. From the
@@ -200,8 +200,8 @@ rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantCha
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
 rafi-api             the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
 rafi-app             every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
-                     join), the public reads, the retention run; typed errors; RateLimit; no HTTP
-rafi-server          the HTTP side (routes, auth, the retention schedule, the public pages); a library both app hosts serve
+                     join), the public reads, the housekeeping run; typed errors; RateLimit; no HTTP
+rafi-server          the HTTP side (routes, auth, the housekeeping schedule, the public pages); a library both app hosts serve
 rafi-cloudflare      the Cloudflare glue both Workers share: RaffleRoom (`room`), its notifier, the Workers bindings
 
 apps/
@@ -220,7 +220,7 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
   is `rafi-store`'s `altcha_used` table). Both are developed in altcha-rs.
 - A manifest and an engine run a whole raffle: the engine knows nothing of the app (no lifecycle, no settings). A
   host passes the engine its live notifier as the `Observer` (on Workers; the native host passes none, since its
-  clients poll), and the app's retention run dates erasure.
+  clients poll), and the engine carries no app policy.
 - `rafi-engine` depends on no live or Cloudflare crate, and nothing below the app pulls in Dioxus (`rafi-live-client`'s `card`
   is off). The phone builds only `rafi-live-client` and `dioxus-altcha` (the `altcha` crate's types; its key
   derivation isn't linked): no `rafi-raffle`, drand, BLS or HMAC.
@@ -231,7 +231,7 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 
 | | Native (self-hosting) | Cloudflare Workers (planned production) |
 |---|---|---|
-| App | `rafi-server` (binary `rafi`); an hourly retention task; in-memory rate limits | `rafi-worker`, the same routes; the Cron runs retention; rate-limiting bindings; hosts `RaffleRoom` |
+| App | `rafi-server` (binary `rafi`); an hourly housekeeping task; in-memory rate limits | `rafi-worker`, the same routes; the Cron runs housekeeping; rate-limiting bindings; hosts `RaffleRoom` |
 | Database | SQLite or Postgres (`RAFI_DATABASE_URL`) | D1, EU jurisdiction |
 | Raffle engine | `rafi-restate` (`apps/restate`) on the same database | `rafi-restate-worker`, called by Restate Cloud over HTTPS (request-response, signed) |
 | Live updates | none pushed: clients poll | `RaffleRoom`, a Durable Object per raffle (partyline) |
@@ -346,10 +346,10 @@ lifecycle's sense, unrelated to `Follow`.
 - **Cookies:** the entry cookie is strictly necessary: no banner, no analytics.
 - **Minimisation:** a display name and an email (optional for entrants the organizer adds). Emails never appear on
   the projector, in either view, or in Restate.
-- **Retention:** the hourly run dates a finished raffle's erasure (`RAFI_RETENTION_DAYS` /
-  `RAFI_RETENTION_WINNERS_DAYS`, 30 / 90) the first time it sees it, then erases what is due: names, emails, tokens
-  and claim codes go; entrant IDs and the raffle's log stay. Natively erasure is opt-in (`RAFI_RETENTION`); on Workers it
-  is on unless switched off. The admin warns when the run is stale; the organizer can erase by hand.
+- **Retention:** none automatic, for now. The organizer erases a finished raffle's personal data by hand: names,
+  emails and tokens go; entrant IDs and the raffle's log stay. The notice says data is kept until the organizer
+  erases it, or on request. Automatic, scheduled erasure was removed (revision 20); [retention.md](retention.md)
+  describes how it worked and how to bring it back.
 - **Restate** gets anonymous IDs and the manifest only, keeps journals and idempotency keys for 1 h, and forgets a
   raffle at finish. It has no public DPA: ask, and list it in the notice.
 - **On Workers:** D1 created with `--jurisdiction eu`, Durable Objects from an EU-jurisdiction namespace (fixed at
@@ -467,6 +467,11 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   `/participant/altcha-worker.js`, from `dioxus_altcha::WORKER_JS` (ETag, `no-cache`), so it always matches the
   version built in; `scripts/participant.sh` no longer copies it, and the app Worker runs first for that path. The
   `altcha` patch stays in rafi's workspace, where it also covers `altcha-server`'s `altcha`.
+- **20** (2026-10-20). Automatic erasure (retention) is removed for now; [retention.md](retention.md) records how it
+  worked and everything removed. `RAFI_RETENTION*`, `Policy.retention`, `Me.retention_stale` and its admin warning,
+  `raffles.purge_nonwinners_at` / `purge_winners_at` and the `meta` table are gone. The hourly run is now
+  `housekeeping`: it still forgets expired proof-of-work challenges and ends live channels a day after the finish.
+  Manual erasure (purge, erasing an entrant after the freeze, the `erasures` log) is unchanged.
 
 ## Appendix: key sources
 

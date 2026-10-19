@@ -25,7 +25,7 @@ pub const PATH: &str = "/api/admin/";
 macro_rules! admin_functions {
     ($callback:ident) => {
         $callback! {
-            /// Who is signed in, and whether erasure looks stopped.
+            /// Who is signed in.
             fn whoami() -> $crate::Me;
             /// The organizer's raffles.
             fn list_raffles() -> Vec<$crate::RaffleSummary>;

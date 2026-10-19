@@ -5,13 +5,8 @@ use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle,
 
 use super::{Outcome, check, fail};
 use crate::{
-    Db, EntrantRow, PurgeAfter, RaffleRow, altcha, defaults, entrants, live, prizes, raffles,
-    retention, save_raffle, view::Full,
-};
-
-const PURGE: PurgeAfter = PurgeAfter {
-    nonwinners_secs: 30,
-    winners_secs: 90,
+    Db, EntrantRow, RaffleRow, altcha, defaults, entrants, housekeeping, live, prizes, raffles,
+    save_raffle, view::Full,
 };
 
 /// A frozen raffle `id` with two entrants and one prize, and its draw state.
@@ -87,34 +82,13 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
         save_raffle(db, &state).await.map_err(fail)?,
         "finished write",
     )?;
-    let dates = || async {
-        db.query("SELECT state, finished_at, purge_nonwinners_at, purge_winners_at FROM raffles WHERE id = 'r1'")
-            .one::<(String, i64, Option<i64>, Option<i64>)>()
-            .await
-            .map_err(fail)
-    };
-    let (lifecycle, finished_at, nonwinners, winners) = dates().await?;
+    let (lifecycle, finished_at): (String, Option<i64>) = db
+        .query("SELECT state, finished_at FROM raffles WHERE id = 'r1'")
+        .one()
+        .await
+        .map_err(fail)?;
     check(lifecycle == "finished", "finished state")?;
-    check(
-        nonwinners.is_none() && winners.is_none(),
-        "the engine's write dates no erasure: that's the app's policy",
-    )?;
-    check(
-        retention::date_purges(db, PURGE).await.map_err(fail)?,
-        "the retention run dates it",
-    )?;
-    let (_, _, nonwinners, winners) = dates().await?;
-    check(
-        nonwinners == Some(finished_at + 30),
-        "non-winner purge date",
-    )?;
-    check(winners == Some(finished_at + 90), "winner purge date")?;
-    check(
-        !retention::date_purges(db, PurgeAfter::days(1, 1))
-            .await
-            .map_err(fail)?,
-        "dated once: new settings don't move it",
-    )?;
+    check(finished_at.is_some(), "the finish is timed")?;
 
     // Newer, but opened from another entrant list.
     let mut other = Raffle::open(&manifest("r1", ["c".repeat(32)])).map_err(fail)?;
@@ -610,168 +584,43 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
     )
 }
 
-pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
-    // A finished raffle: w claimed two prizes, d claimed one that was
-    // delivered, n was drawn but declined, and won nothing.
-    raffle_in(db, "r1", RaffleState::Open).await?;
-    for id in ["w", "d", "n"] {
-        join(db, "r1", id, &format!("{id}@x"), 10).await?;
-    }
-    patch(
-        db,
-        "r1",
-        "d",
-        entrants::Patch {
-            delivered_at: Some(Some(1)),
-            ..Default::default()
-        },
-    )
-    .await?;
-    let manifest = Manifest::new(
-        "r1",
-        BeaconSource::QUICKNET,
-        vec!["w".into(), "d".into(), "n".into()],
-        ["u1", "u2", "u3"]
-            .map(|u| ManifestItem {
-                id: u.into(),
-                name: "Book".into(),
-            })
-            .into(),
-    );
-    // As their engine logged it.
-    let mut events = Vec::new();
-    for (k, item, winner, pass, resolution) in [
-        (1, "u1", "w", 1, Resolution::Claimed),
-        (2, "u2", "d", 1, Resolution::Claimed),
-        (3, "u3", "n", 1, Resolution::Declined),
-        (4, "u3", "w", 2, Resolution::Claimed),
-    ] {
-        events.push(Event::Drawn {
-            k,
-            item: item.into(),
-            round: k,
-            signature: String::new(),
-            randomness: String::new(),
-            pass,
-            pool_size: 3,
-            index: 0,
-            entrant: winner.into(),
-        });
-        events.push(Event::Resolved { k, resolution });
-    }
-    events.push(Event::Finished);
-    let state = Raffle::restore(&manifest, &events).map_err(fail)?;
-    db.query(
-        "UPDATE raffles SET state = 'drawing', manifest = ?, manifest_hash = ? WHERE id = 'r1'",
-    )
-    .bind(manifest.canonical_json())
-    .bind(manifest.hash().to_string())
-    .run()
-    .await
-    .map_err(fail)?;
-    check(
-        save_raffle(db, &state).await.map_err(fail)?,
-        "the engine's write",
-    )?;
-    db.query(
-        "UPDATE raffles SET finished_at = 100, purge_nonwinners_at = 130, purge_winners_at = 190
-         WHERE id = 'r1' AND state = 'finished'",
-    )
-    .run()
-    .await
-    .map_err(fail)?;
-    // A raffle that hasn't finished is never due.
-    raffle_in(db, "r2", RaffleState::Draft).await?;
-    entrants::insert_manual(db, &manual("r2", "x", None))
-        .await
-        .map_err(fail)?;
-    force_state(db, "r2", RaffleState::Drawing).await?;
-    db.query("UPDATE raffles SET purge_nonwinners_at = 0, purge_winners_at = 0 WHERE id = 'r2'")
+pub(super) async fn live_channels_end_once(db: &Db) -> Outcome {
+    // A raffle that finished at 100, and one that hasn't finished.
+    raffle_in(db, "r1", RaffleState::Draft).await?;
+    db.query("UPDATE raffles SET state = 'finished', finished_at = 100 WHERE id = 'r1'")
         .run()
         .await
         .map_err(fail)?;
-
-    let erase = |now| retention::erase_due(db, now);
-    check(
-        erase(129).await.map_err(fail)? == 0,
-        "nothing before the non-winners' date",
-    )?;
-    check(
-        erase(130).await.map_err(fail)? == 2,
-        "the non-winner and the delivered winner",
-    )?;
-    let erased = |e: EntrantRow| e.erased;
-    check(
-        erased(entrant(db, "r1", "n").await?)
-            && erased(entrant(db, "r1", "d").await?)
-            && !erased(entrant(db, "r1", "w").await?),
-        "only those two",
-    )?;
-    check(
-        raffle(db, "r1").await?.state == RaffleState::Finished,
-        "the raffle isn't purged before the winners' date",
-    )?;
-    check(erase(189).await.map_err(fail)? == 0, "nobody else yet")?;
-    check(erase(190).await.map_err(fail)? == 1, "the winner")?;
-    let r = raffle(db, "r1").await?;
-    check(
-        r.state == RaffleState::Purged && r.purged_at == Some(190),
-        "the raffle is purged",
-    )?;
-    check(
-        erase(10_000).await.map_err(fail)? == 0,
-        "a purged raffle is done",
-    )?;
-    check(
-        !erased(entrant(db, "r2", "x").await?),
-        "the unfinished raffle is untouched",
-    )?;
-    let log: Vec<(String, i64)> = db
-        .query("SELECT entrant_id, at FROM erasures ORDER BY entrant_id")
-        .all()
-        .await
-        .map_err(fail)?;
-    check(
-        log == [
-            ("d".to_owned(), 130),
-            ("n".to_owned(), 130),
-            ("w".to_owned(), 190),
-        ],
-        &format!("the erasure log: {log:?}"),
-    )?;
+    raffle_in(db, "r2", RaffleState::Open).await?;
 
     // Live channels end a while after the raffle finished, once.
     check(
-        retention::live_channels_due(db, 99)
+        housekeeping::live_channels_due(db, 99)
             .await
             .map_err(fail)?
             .is_empty(),
         "no channel to end yet",
     )?;
     check(
-        retention::live_channels_due(db, 100).await.map_err(fail)? == ["r1"],
-        "the finished raffle's channel",
+        housekeeping::live_channels_due(db, 100)
+            .await
+            .map_err(fail)?
+            == ["r1"],
+        "the finished raffle's channel, not the unfinished one's",
     )?;
-    retention::live_ended(db, "r1", 200).await.map_err(fail)?;
-    retention::live_ended(db, "r1", 300).await.map_err(fail)?;
+    housekeeping::live_ended(db, "r1", 200)
+        .await
+        .map_err(fail)?;
+    housekeeping::live_ended(db, "r1", 300)
+        .await
+        .map_err(fail)?;
     check(
-        retention::live_channels_due(db, 1000)
+        housekeeping::live_channels_due(db, 1000)
             .await
             .map_err(fail)?
             .is_empty()
             && raffle(db, "r1").await?.live_ended_at == Some(200),
         "ended once",
-    )?;
-
-    check(
-        retention::last_ok(db).await.map_err(fail)?.is_none(),
-        "no run yet",
-    )?;
-    retention::record_ok(db, 5).await.map_err(fail)?;
-    retention::record_ok(db, 7).await.map_err(fail)?;
-    check(
-        retention::last_ok(db).await.map_err(fail)? == Some(7),
-        "the last run",
     )
 }
 

@@ -78,7 +78,6 @@ impl Admin for AppState {
         Ok(Me {
             owner_id: owner.to_owned(),
             dev_auth: self.cfg.dev_auth,
-            retention_stale: service::retention::stale(self).await?,
         })
     }
 

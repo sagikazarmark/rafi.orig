@@ -6,7 +6,7 @@
 //!   native server ([`rafi_server::routes`]) behind Clerk. Workers Assets serves the
 //!   web app and the participant scripts before the Worker is called
 //!   (`run_worker_first` in `wrangler.toml` lists the Worker's paths).
-//! - `scheduled`: the Cron Trigger runs [`rafi_app::retention::run`].
+//! - `scheduled`: the Cron Trigger runs [`rafi_app::housekeeping::run`].
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
@@ -58,11 +58,7 @@ fn cached(env: &Env) -> anyhow::Result<App> {
 
 /// The app over the Worker's bindings. Fails closed on missing secrets.
 fn app(env: &Env) -> anyhow::Result<App> {
-    let cfg = Config::from_lookup(|name| match name {
-        // Erasure is on unless switched off explicitly (docs/workers-plan.md §2.10).
-        "RAFI_RETENTION" => lookup(env, name).or_else(|| Some("1".into())),
-        _ => lookup(env, name),
-    });
+    let cfg = Config::from_lookup(|name| lookup(env, name));
     let dev = cfg!(feature = "dev");
     if cfg.dev_auth && !dev {
         anyhow::bail!("RAFI_DEV_AUTH is set, but this build has no `dev` feature");
@@ -134,16 +130,15 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     let app = match cached(&env) {
         Ok((app, _)) => app,
         Err(e) => {
-            worker::console_error!("rafi: retention not run: {e:#}");
+            worker::console_error!("rafi: housekeeping not run: {e:#}");
             return;
         }
     };
-    match server::service::retention::run(&app).await {
+    match server::service::housekeeping::run(&app).await {
         Ok(report) => worker::console_log!(
-            "rafi: retention: {} erased, {} live channels ended",
-            report.erased,
+            "rafi: housekeeping: {} live channels ended",
             report.channels_ended
         ),
-        Err(e) => worker::console_error!("rafi: retention failed: {e:#}"),
+        Err(e) => worker::console_error!("rafi: housekeeping failed: {e:#}"),
     }
 }

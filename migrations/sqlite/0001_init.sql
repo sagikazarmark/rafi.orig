@@ -24,8 +24,6 @@ CREATE TABLE raffles (
     finished_at INTEGER,
     -- Set when the organizer ends live updates; the live channel is gone after it.
     live_ended_at INTEGER,
-    purge_nonwinners_at INTEGER,
-    purge_winners_at INTEGER,
     purged_at INTEGER,
     -- The raffle's version: bumped by every write that can change what screens
     -- or phones show (the triggers below). Live views carry it, so clients and
@@ -190,12 +188,6 @@ CREATE TABLE altcha_used (
 );
 
 CREATE INDEX altcha_used_expiry ON altcha_used (expires_at);
-
--- Small operational facts, such as when retention last ran.
-CREATE TABLE meta (
-    key TEXT PRIMARY KEY NOT NULL,
-    value TEXT NOT NULL
-);
 
 -- What an owner's new raffles start with: who organizes them (the data
 -- controller) and their additional rules. Copied into each raffle as it is

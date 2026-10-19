@@ -15,8 +15,8 @@
 //! - [`raffles`], [`prizes`], [`entrants`]: the organizer's and participants'
 //!   reads and writes, the freeze's steps included; [`defaults`]: what an
 //!   owner's new raffles start with;
-//! - [`audit`], [`altcha`] (redeemed proof-of-work challenges), [`retention`]
-//!   (erasure, ending live channels, `meta`);
+//! - [`audit`], [`altcha`] (redeemed proof-of-work challenges),
+//!   [`housekeeping`] (ending live channels);
 //! - [`view::Full`]: what the projector and the admin see, and
 //!   [`live::snapshot`]: what phones see, each read in one snapshot;
 //! - [`save_raffle`], the raffle engine's only write; [`RaffleWriter`] offers
@@ -50,11 +50,11 @@ pub mod defaults;
 mod dialect;
 pub mod entrants;
 mod error;
+pub mod housekeeping;
 pub mod live;
 pub mod prizes;
 mod query;
 pub mod raffles;
-pub mod retention;
 mod value;
 pub mod view;
 
@@ -100,23 +100,6 @@ pub fn now_ms() -> u64 {
     }
 }
 
-/// When personal data of a finished raffle is erased, counted from when it
-/// finished: the app's retention settings ([`retention::date_purges`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PurgeAfter {
-    pub nonwinners_secs: i64,
-    pub winners_secs: i64,
-}
-
-impl PurgeAfter {
-    pub fn days(nonwinners: i64, winners: i64) -> Self {
-        Self {
-            nonwinners_secs: nonwinners * 86_400,
-            winners_secs: winners * 86_400,
-        }
-    }
-}
-
 /// Stores a raffle as its engine drew it, after every change: the events it
 /// recorded since the last write (`raffle_events`), the draws they touched
 /// (`draws`), and the row (`raffles`: opened, the lifecycle, the finish).
@@ -125,8 +108,7 @@ impl PurgeAfter {
 /// the stored one, and for the entrant list the raffle was frozen with. The
 /// lifecycle follows the raffle ([`rafi_lifecycle::raffle::lifecycle`]) to
 /// `drawing` and `finished`, and its finish is timed. Nothing here is policy:
-/// when personal data is erased is the app's to date
-/// ([`retention::date_purges`]).
+/// erasing personal data is the app's.
 ///
 /// It reads before it writes, to know which events are new; the write is one
 /// [`Db::batch`]. A stale save that passes the read (a newer one landed in

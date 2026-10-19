@@ -16,11 +16,11 @@
 pub mod admin;
 pub mod auth;
 pub mod config;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod housekeeping;
 mod pages;
 pub mod participant;
 pub mod public;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod retention;
 
 pub use rafi_app::{self as service, codes, ids, view};
 
@@ -102,11 +102,6 @@ impl AppState {
                 public_url: cfg.public_url.clone(),
                 max_entrants: cfg.max_entrants,
                 proof_of_work: service::ProofOfWork::new(cfg.altcha_key.clone(), cfg.altcha_cost)?,
-                retention: service::Retention {
-                    enabled: cfg.retention_enabled,
-                    nonwinners_days: cfg.retention_nonwinners_days,
-                    winners_days: cfg.retention_winners_days,
-                },
             },
         };
         Ok(Self(Arc::new(Inner { core, cfg })))
@@ -129,13 +124,10 @@ pub fn routes(app: AppState) -> Router {
         .layer(Extension(app))
 }
 
-/// Starts the native background work: the hourly retention run.
+/// Starts the native background work: the hourly housekeeping run.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn spawn_background(app: &AppState) {
-    if !app.cfg.retention_enabled {
-        tracing::info!("automatic erasure of personal data is off (RAFI_RETENTION)");
-    }
-    retention::spawn(app.clone());
+    housekeeping::spawn(app.clone());
 }
 
 /// Where the static files are.

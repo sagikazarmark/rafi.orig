@@ -245,9 +245,7 @@ async fn unreachable_drand_app() -> AppState {
 
 #[tokio::test]
 async fn full_raffle_flow() {
-    let mut cfg = Config::for_tests();
-    cfg.retention_enabled = true;
-    let app = app_with(cfg).await;
+    let app = app_with(Config::for_tests()).await;
     let router = routes(app.clone());
     let raffle = setup_open(
         &app,
@@ -458,10 +456,6 @@ async fn full_raffle_flow() {
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state, RaffleState::Finished);
     assert!(r.finished_at.is_some());
-    assert!(
-        r.purge_nonwinners_at.is_none(),
-        "erasure is the retention run's to date"
-    );
 
     // The audit log names each command by its verb, with what it was about.
     let audit: Vec<(String, String)> = app
@@ -503,16 +497,10 @@ async fn full_raffle_flow() {
     let csv = service::export_csv(&app, OWNER, &raffle.id).await.unwrap();
     assert_eq!(csv.lines().count(), 1 + items.len() + 1);
 
-    // Retention: once due, personal data is erased but the draw stays verifiable.
-    app.db
-        .query("UPDATE raffles SET purge_nonwinners_at = 0, purge_winners_at = 0 WHERE id = ?")
-        .bind(&raffle.id)
-        .run()
-        .await
-        .unwrap();
-    let report = service::retention::run(&app).await.unwrap();
-    assert_eq!(report.erased, 6);
+    // Purging: personal data is erased but the draw stays verifiable.
+    service::purge(&app, OWNER, &raffle.id).await.unwrap();
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
+    assert_eq!(entrants.len(), 6);
     assert!(
         entrants
             .iter()
@@ -526,20 +514,23 @@ async fn full_raffle_flow() {
             .state,
         RaffleState::Purged
     );
-    // Each erasure is logged once, by ID; a second run has nothing to do.
-    let logged: Vec<(String, String)> = app
-        .db
-        .query("SELECT raffle_id, entrant_id FROM erasures ORDER BY entrant_id")
-        .all()
-        .await
-        .unwrap();
+    // Each erasure is logged once, by ID; purging again has nothing to do.
+    let erasures = || async {
+        app.db
+            .query("SELECT raffle_id, entrant_id FROM erasures ORDER BY entrant_id")
+            .all::<(String, String)>()
+            .await
+            .unwrap()
+    };
+    let logged = erasures().await;
     let mut ids: Vec<(String, String)> = entrants
         .iter()
         .map(|e| (raffle.id.clone(), e.id.clone()))
         .collect();
     ids.sort();
     assert_eq!(logged, ids);
-    assert_eq!(service::retention::run(&app).await.unwrap().erased, 0);
+    service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    assert_eq!(erasures().await, ids);
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(
         rafi_raffle::verify(
@@ -1526,7 +1517,7 @@ async fn joins_stop_at_the_entrant_cap() {
 }
 
 /// A proof-of-work is redeemed once: the second use fails the `altcha_used`
-/// primary key. Expired rows leave with the retention run.
+/// primary key. Expired rows leave with the housekeeping run.
 #[tokio::test]
 async fn proof_of_work_replays_are_refused() {
     let app = app().await;
@@ -1581,7 +1572,7 @@ async fn proof_of_work_replays_are_refused() {
         .run()
         .await
         .unwrap();
-    service::retention::run(&app).await.unwrap();
+    service::housekeeping::run(&app).await.unwrap();
     let (left,): (i64,) = app
         .db
         .query("SELECT COUNT(*) FROM altcha_used")
@@ -1776,11 +1767,10 @@ async fn writes_nudge_and_destroy_the_channel() {
     );
 }
 
-/// The retention run ends the live channel of raffles finished over a day
-/// ago, whether or not erasure is on, logs every erasure without personal
-/// data, and records that it ran.
+/// The housekeeping run ends the live channel of raffles finished over a day
+/// ago, once.
 #[tokio::test]
-async fn retention_ends_channels_and_logs_erasures() {
+async fn housekeeping_ends_stale_live_channels() {
     let (live, live_updates) = recording();
     let app = app_with_live(Config::for_tests(), live_updates).await;
     let old = finished_raffle(&app).await;
@@ -1788,15 +1778,13 @@ async fn retention_ends_channels_and_logs_erasures() {
     let now = super::ids::now();
     app.db
         .query("UPDATE raffles SET finished_at = ? WHERE id = ?")
-        .bind(now - service::retention::CHANNEL_GRACE_SECS - 60)
+        .bind(now - service::housekeeping::CHANNEL_GRACE_SECS - 60)
         .bind(&old.id)
         .run()
         .await
         .unwrap();
 
-    // Erasure is off: only the channel goes.
-    let report = service::retention::run(&app).await.unwrap();
-    assert_eq!(report.erased, 0);
+    let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!(report.channels_ended, 1);
     assert_eq!(live.ended(), [RaffleId::new(&old.id)]);
     let r = raffles::get(&app.db, &old.id).await.unwrap().unwrap();
@@ -1809,72 +1797,51 @@ async fn retention_ends_channels_and_logs_erasures() {
             .live_ended_at
             .is_none()
     );
-    let (ok_at,): (String,) = app
-        .db
-        .query("SELECT value FROM meta WHERE key = 'last_retention_ok_at'")
-        .one()
-        .await
-        .unwrap();
-    assert!(ok_at.parse::<i64>().unwrap() >= now);
+    assert!(
+        entrants::list(&app.db, &old.id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|e| !e.erased),
+        "housekeeping erases nobody"
+    );
     assert_eq!(
-        service::retention::run(&app).await.unwrap().channels_ended,
+        service::housekeeping::run(&app)
+            .await
+            .unwrap()
+            .channels_ended,
         0,
         "once"
     );
+}
 
-    // Erasure on: the old raffle's non-winners are due.
-    let mut cfg = Config::for_tests();
-    cfg.retention_enabled = true;
-    let app = AppState::from_parts(
-        cfg,
-        app.db.clone(),
-        app.engine.clone(),
-        app.live_updates.clone(),
-        Arc::new(Limiter::default()),
-    )
-    .unwrap();
-    app.db
-        .query("UPDATE raffles SET purge_nonwinners_at = 0 WHERE id = ?")
-        .bind(&old.id)
-        .run()
-        .await
-        .unwrap();
-    let report = service::retention::run(&app).await.unwrap();
-    assert_eq!(report.erased, 3);
-    let entrants = entrants::list(&app.db, &old.id).await.unwrap();
+/// Purging logs every erasure without personal data.
+#[tokio::test]
+async fn erasures_are_logged_without_personal_data() {
+    let app = app().await;
+    let raffle = finished_raffle(&app).await;
+    service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert!(
         entrants
             .iter()
             .all(|e| e.erased && e.display_name.starts_with('#'))
     );
-    assert!(
-        entrants::list(&app.db, &recent.id)
-            .await
-            .unwrap()
-            .iter()
-            .all(|e| !e.erased)
-    );
-    // Not yet purged: the winners' date hasn't passed.
-    assert_eq!(
-        raffles::get(&app.db, &old.id).await.unwrap().unwrap().state,
-        RaffleState::Finished
-    );
     let log: Vec<serde_json::Value> = app.db.query("SELECT * FROM erasures").all().await.unwrap();
-    assert_eq!(log.len(), 3);
+    assert_eq!(log.len(), entrants.len());
     for row in &log {
-        let keys: Vec<&str> = row
+        let mut keys: Vec<&str> = row
             .as_object()
             .unwrap()
             .keys()
             .map(String::as_str)
             .collect();
-        let mut keys = keys;
         keys.sort();
         assert_eq!(
             keys,
             ["at", "entrant_id", "id", "raffle_id"],
             "no personal data"
         );
-        assert_eq!(row["raffle_id"], old.id.as_str());
+        assert_eq!(row["raffle_id"], raffle.id.as_str());
     }
 }

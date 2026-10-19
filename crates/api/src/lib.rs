@@ -248,8 +248,4 @@ pub struct VerifyData {
 pub struct Me {
     pub owner_id: String,
     pub dev_auth: bool,
-    /// Automatic erasure of personal data is on, but its run hasn't
-    /// succeeded lately: erasure may have stopped.
-    #[serde(default)]
-    pub retention_stale: bool,
 }
