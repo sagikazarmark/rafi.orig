@@ -1,9 +1,5 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
 inputs:
-  dagger:
-    url: github:dagger/nix
-    overlays:
-    - default
   extras:
     url: github:sagikazarmark/devenv-extras
     overlays:
