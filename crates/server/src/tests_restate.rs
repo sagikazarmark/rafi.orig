@@ -29,7 +29,7 @@ use rafi_api::{LifecycleCommand, PrizeInput};
 
 const OWNER: &str = "user_restate";
 const SERVER: ServerSpec = ServerSpec {
-    name: "rafi-app",
+    name: "rafi-restate",
     features: &[],
     env: &[],
 };

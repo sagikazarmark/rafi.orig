@@ -206,27 +206,31 @@ async fn full(app: &AppState, id: &str) -> Full {
     Full::read(&app.db, id).await.unwrap().unwrap()
 }
 
-async fn wait_for<F: Fn(&Full) -> bool>(app: &AppState, id: &str, f: F) -> Full {
-    for _ in 0..200 {
+/// Waits up to `within` until the raffle is as `f` wants.
+async fn wait_within<F: Fn(&Full) -> bool>(
+    app: &AppState,
+    id: &str,
+    within: Duration,
+    f: F,
+) -> Full {
+    let step = Duration::from_millis(20);
+    for _ in 0..within.as_millis() / step.as_millis() {
         let r = full(app, id).await;
         if f(&r) {
             return r;
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(step).await;
     }
-    panic!("condition not met in time");
+    panic!("condition not met in {within:?}");
+}
+
+async fn wait_for<F: Fn(&Full) -> bool>(app: &AppState, id: &str, f: F) -> Full {
+    wait_within(app, id, Duration::from_secs(4), f).await
 }
 
 /// [`wait_for`] for slow conditions (stalls take a round period plus the timeout).
 async fn wait_long<F: Fn(&Full) -> bool>(app: &AppState, id: &str, f: F) -> Full {
-    for _ in 0..1000 {
-        let r = full(app, id).await;
-        if f(&r) {
-            return r;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("condition not met in time");
+    wait_within(app, id, Duration::from_secs(20), f).await
 }
 
 /// An app whose drand relay is unreachable: every draw stalls on its round
@@ -245,7 +249,7 @@ async fn unreachable_drand_app() -> AppState {
 
 #[tokio::test]
 async fn full_raffle_flow() {
-    let app = app_with(Config::for_tests()).await;
+    let app = app().await;
     let router = routes(app.clone());
     let raffle = setup_open(
         &app,
@@ -514,23 +518,6 @@ async fn full_raffle_flow() {
             .state,
         RaffleState::Purged
     );
-    // Each erasure is logged once, by ID; purging again has nothing to do.
-    let erasures = || async {
-        app.db
-            .query("SELECT raffle_id, entrant_id FROM erasures ORDER BY entrant_id")
-            .all::<(String, String)>()
-            .await
-            .unwrap()
-    };
-    let logged = erasures().await;
-    let mut ids: Vec<(String, String)> = entrants
-        .iter()
-        .map(|e| (raffle.id.clone(), e.id.clone()))
-        .collect();
-    ids.sort();
-    assert_eq!(logged, ids);
-    service::purge(&app, OWNER, &raffle.id).await.unwrap();
-    assert_eq!(erasures().await, ids);
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(
         rafi_raffle::verify(
@@ -830,7 +817,7 @@ async fn join_requires_proof_of_work_and_consent() {
     let (status, _, _) = send(
         &router,
         post(form(&[
-            ("name", "fasz"),
+            ("name", "Porn King"),
             ("email", "x@example.com"),
             ("rules", "on"),
             ("altcha", &altcha),
@@ -1750,14 +1737,6 @@ async fn writes_nudge_and_destroy_the_channel() {
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state, RaffleState::Purged);
     assert!(r.live_ended_at.is_some(), "a purge ends live updates");
-    let (logged,): (i64,) = app
-        .db
-        .query("SELECT COUNT(*) FROM erasures WHERE raffle_id = ?")
-        .bind(&raffle.id)
-        .one()
-        .await
-        .unwrap();
-    assert_eq!(logged, 2, "the purge logs its erasures");
 
     let other = service::create(&app, OWNER, "Other").await.unwrap();
     service::delete(&app, OWNER, &other).await.unwrap();
@@ -1815,7 +1794,7 @@ async fn housekeeping_ends_stale_live_channels() {
     );
 }
 
-/// Purging logs every erasure without personal data.
+/// Purging logs every erasure once, by ID, without personal data.
 #[tokio::test]
 async fn erasures_are_logged_without_personal_data() {
     let app = app().await;
@@ -1844,4 +1823,16 @@ async fn erasures_are_logged_without_personal_data() {
         );
         assert_eq!(row["raffle_id"], raffle.id.as_str());
     }
+    let mut logged: Vec<&str> = log
+        .iter()
+        .filter_map(|r| r["entrant_id"].as_str())
+        .collect();
+    logged.sort_unstable();
+    let mut ids: Vec<&str> = entrants.iter().map(|e| e.id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(logged, ids, "every entrant, once");
+
+    service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    let again: Vec<serde_json::Value> = app.db.query("SELECT * FROM erasures").all().await.unwrap();
+    assert_eq!(again.len(), log.len(), "purging again has nothing to do");
 }
