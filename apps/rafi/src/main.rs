@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
         },
     );
 
-    // `IP` and `PORT`, as the Dioxus CLI and the container image set them.
+    // `IP` and `PORT`, as the Dioxus CLI sets them.
     let ip = std::env::var("IP").unwrap_or_else(|_| "127.0.0.1".into());
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".into());
     let addr = format!("{ip}:{port}");

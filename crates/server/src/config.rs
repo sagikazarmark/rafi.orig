@@ -117,8 +117,8 @@ impl Config {
     }
 }
 
-/// `RAFI_ALTCHA_COST` when unset. Provisional: to be set from measurements
-/// on old phones (docs/dioxus-altcha-plan.md, M4).
+/// `RAFI_ALTCHA_COST` when unset. Provisional: it should be tuned against
+/// solve times on slow phones.
 pub const DEFAULT_ALTCHA_COST: u32 = 1000;
 
 /// The alias for the mock chain in `RAFI_DRAND_CHAIN`.
