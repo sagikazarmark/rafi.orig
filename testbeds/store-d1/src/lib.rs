@@ -18,7 +18,9 @@ use rafi_store::{
 };
 use worker::{Context, Env, Request, Response, Result, event};
 
-/// Local D1 has one database, so each scenario starts by emptying it.
+/// Local D1 has one database, so each scenario starts by emptying it. Every
+/// request runs the whole suite on it again (`workers-check.sh`'s readiness
+/// probe is one), so nothing may outlive a scenario.
 struct D1(Db);
 
 impl Harness for D1 {
@@ -31,18 +33,26 @@ impl Harness for D1 {
         Capabilities::NONE
     }
 
+    /// Empties every table the migrations made, read from the schema, so a
+    /// new table can't be forgotten. Raffles go first: their events may only
+    /// be deleted once the raffle is gone.
     async fn fresh(&self) -> std::result::Result<Db, String> {
-        for table in [
-            "audit",
-            "entrants",
-            "prizes",
-            "raffles",
-            "altcha_used",
-            "erasures",
-            "meta",
-        ] {
+        let tables: Vec<(String,)> = self
+            .0
+            .query(
+                "SELECT name FROM sqlite_master
+                 WHERE type = 'table'
+                   AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+                   AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\'
+                   AND name <> 'd1_migrations'
+                 ORDER BY name <> 'raffles', name",
+            )
+            .all()
+            .await
+            .map_err(|e| format!("listing the tables: {e}"))?;
+        for (table,) in tables {
             self.0
-                .query(format!("DELETE FROM {table}"))
+                .query(format!("DELETE FROM \"{table}\""))
                 .run()
                 .await
                 .map_err(|e| format!("emptying {table}: {e}"))?;
