@@ -268,6 +268,13 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     if let Some(id) = path.strip_prefix("/partyline/raffle/") {
         return rafi_cloudflare::connect(&env, id, req).await;
     }
+    // The participant page's proof-of-work solver, as rafi-server serves it.
+    if path == "/participant/altcha-worker.js" {
+        let mut resp = Response::ok(dioxus_altcha::WORKER_JS)?;
+        resp.headers_mut()
+            .set("content-type", "text/javascript; charset=utf-8")?;
+        return Ok(resp);
+    }
     let Some(raffle) = param("r") else {
         return Response::error("missing ?r=<raffle id>", 400);
     };

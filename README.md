@@ -74,10 +74,6 @@ crates/live-client            rafi-live-client: what a phone sees and runs (part
 crates/live-server            rafi-live-server: the servers' side (the Notifier a deployment pushes through, also the raffle
                               engine's Observer; LiveUpdates; the view built from a raffle as drawn, the live channel's
                               publish rule)
-crates/dioxus-altcha          dioxus-altcha: ALTCHA v2 proof-of-work solved in the browser (Web Workers on WebCrypto), with a
-                              Dioxus hook; no rafi dependencies (docs/dioxus-altcha-plan.md)
-crates/altcha-server          altcha-server: its server side: signed challenges, each redeemed once over a ReplayStore
-                              (rafi's is the `altcha_used` table), an axum challenge handler; no rafi dependencies
 crates/cloudflare             rafi-cloudflare: the Cloudflare glue both Workers share (RaffleRoom Durable Object, notifier, config)
 crates/api                    rafi-api: the contract between the app's server and browser: views, and the admin API declared
                               once (`admin_functions!`: the server's `Admin` trait and `dispatch`, the browser's client)
@@ -122,6 +118,11 @@ registry (fields, select, switch, buttons, alert dialogs, dropdown menu, tabs, t
 `apps/web/src/components/` with `dx components add <name> --path <registry checkout>`. Treat that directory as
 vendored: update it by re-installing (`--force`), not by editing.
 
+The proof-of-work is ALTCHA v2, with [dioxus-altcha](https://crates.io/crates/dioxus-altcha) solving it in the browser
+and [altcha-server](https://crates.io/crates/altcha-server) issuing and redeeming challenges (rafi's replay store is the
+`altcha_used` table); both are developed in [altcha-rs](https://github.com/sagikazarmark/altcha-rs). The server serves
+the solver at `/participant/altcha-worker.js` from `dioxus_altcha::WORKER_JS`, so it always matches the version built in.
+
 The app is two crates: the **web app** (`apps/web`, `rafi-web`: admin, projector and verification page; a Dioxus
 single-page app built by `dx`) and the **server** (`crates/server`, `rafi-server`: participant pages, the public and
 admin JSON APIs, and the web app's files; plain `cargo`, binary `rafi`). The web app calls the server's JSON routes
@@ -129,7 +130,7 @@ admin JSON APIs, and the web app's files; plain `cargo`, binary `rafi`). The web
 
 The participant page's WebAssembly and its fallback are built into `apps/participant/dist`, which the server serves at
 `/participant/` (`RAFI_PARTICIPANT_DIR`). Without it the participant page still renders, but phones can't join or follow the
-draw. Build it once, and again when `apps/participant`, `crates/live-client` or `crates/dioxus-altcha` change (it needs `wasm-bindgen-cli` at the
+draw. Build it once, and again when `apps/participant` or `crates/live-client` change (it needs `wasm-bindgen-cli` at the
 version in `Cargo.lock`, and `wasm-opt` from binaryen):
 
 ```sh

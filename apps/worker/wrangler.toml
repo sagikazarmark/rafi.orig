@@ -22,11 +22,12 @@ command = "worker-build --release"
 
 # The web app (admin, projector, verification page) and the participant scripts.
 # Paths the Worker answers go to it first; anything else is a file, or the web
-# app's index.html (single-page routing).
+# app's index.html (single-page routing). The Worker serves the participant
+# page's proof-of-work solver (dioxus-altcha's, as built in).
 [assets]
 directory = "./worker-assets"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy/*", "/partyline/*", "/healthz"]
+run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy/*", "/partyline/*", "/healthz", "/participant/altcha-worker.js"]
 
 [[d1_databases]]
 binding = "DB"

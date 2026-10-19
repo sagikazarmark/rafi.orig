@@ -127,8 +127,8 @@ fn theme_toggle() {
 
 // ---- Proof of work (join form) ----
 
-/// dioxus-altcha's solver, served next to this module (scripts/participant.sh)
-/// for fallback.js too: one file, cached, instead of a copy in the wasm.
+/// dioxus-altcha's solver, served by rafi-server (the version it was built
+/// with) for fallback.js too: one file, cached, instead of a copy in the wasm.
 const ALTCHA_WORKER: &str = "/participant/altcha-worker.js";
 
 fn now_ms() -> f64 {

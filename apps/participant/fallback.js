@@ -154,8 +154,9 @@
   }
 
   // ---- Proof of work (join form) ----
-  // The WebAssembly's solver, dioxus-altcha's worker.js, served next to this
-  // file: workers splitting the counters, or this page if they can't start.
+  // The WebAssembly's solver, dioxus-altcha's worker.js, served by rafi-server
+  // next to this file: workers splitting the counters, or this page if they
+  // can't start.
   var SOLVER = "/participant/altcha-worker.js";
   var powDeadline = null, powRun = 0;
   function loadSolver() {

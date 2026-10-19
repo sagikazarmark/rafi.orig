@@ -17,6 +17,7 @@ anyhow = "1"
 altcha-server = { workspace = true, features = ["axum"] }
 axum = { version = "0.8", default-features = false, features = ["form", "json", "query", "matched-path", "original-uri"] }
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
+dioxus-altcha = { workspace = true }
 dioxus-clerk = { version = "0.6", features = ["server"] }
 dioxus-icons = "=0.1.0"
 hex = { workspace = true }
@@ -31,6 +32,7 @@ rafi-raffle = { workspace = true }
 rafi-store = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tracing = "0.1"
 
 # The native server's runtime.

@@ -2,6 +2,8 @@
 
 Status: implemented, 2026-10-15, except the M4 measurements. Reviewed in four passes before that: fit with the code, protocol and security, browser mechanics, and the Dioxus API. The findings are folded in below.
 
+**Moved out (2026-10-20).** `dioxus-altcha` and `altcha-server` now live in [altcha-rs](https://github.com/sagikazarmark/altcha-rs) and are released on crates.io (0.1). Rafi uses them from there. The paths below (`crates/dioxus-altcha`, `examples/altcha-demo`) and the CI steps are as they were in this repository. The demo (its `demo/`, with `/bench` for M4) and `wasm_solve` in Chrome and Firefox now run there. `scripts/participant.sh` no longer copies `worker.js` (§4.2 below): rafi-server serves `/participant/altcha-worker.js` from `WORKER_JS`.
+
 **Where it stands (2026-10-15).** M1, M2, M3 and M5 are done on the `dioxus-altcha` branch.
 
 Verified:

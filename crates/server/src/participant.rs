@@ -1,7 +1,10 @@
 //! The participant pages' HTTP side: the participant page (`/j/{code}`,
-//! and joining by posting its form), the device's own entry, and the rules
-//! and privacy pages. Which raffle, which entrant and what the join did is
-//! decided here; [`pages`](crate::pages) renders them.
+//! and joining by posting its form), the device's own entry, the rules
+//! and privacy pages, and the proof-of-work solver the page runs. Which
+//! raffle, which entrant and what the join did is decided here;
+//! [`pages`](crate::pages) renders them.
+
+use std::sync::LazyLock;
 
 use axum::{
     Extension, Form, Json, Router,
@@ -12,6 +15,7 @@ use axum::{
 };
 use rafi_store::{EntrantRow, RaffleRow};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use super::{
     AppState,
@@ -27,6 +31,7 @@ pub fn routes() -> Router {
         .route("/api/j/{code}/me", get(me))
         .route("/rules/{slug}", get(rules))
         .route("/privacy/{slug}", get(privacy))
+        .route("/participant/altcha-worker.js", get(altcha_worker))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -320,4 +325,40 @@ async fn privacy(Extension(app): Extension<AppState>, Path(slug): Path<String>) 
         retention.winners_days,
     ))
     .into_response()
+}
+
+/// [`altcha_worker`]'s entity tag: a hash of the script, so it changes when
+/// `dioxus-altcha` does.
+static ALTCHA_WORKER_ETAG: LazyLock<String> = LazyLock::new(|| {
+    let hash = Sha256::digest(dioxus_altcha::WORKER_JS.as_bytes());
+    format!("\"{}\"", hex::encode(&hash[..8]))
+});
+
+/// dioxus-altcha's solver ([`dioxus_altcha::WORKER_JS`]), always the one this
+/// server was built with. The participant page's WebAssembly and
+/// `fallback.js` start their workers from it, or load it into the page when
+/// workers fail. Its URL isn't versioned, so caches revalidate it each time.
+async fn altcha_worker(headers: HeaderMap) -> Response {
+    let etag = ALTCHA_WORKER_ETAG.as_str();
+    let cache = [(header::ETAG, etag), (header::CACHE_CONTROL, "no-cache")];
+    if not_modified(&headers, etag) {
+        return (StatusCode::NOT_MODIFIED, cache).into_response();
+    }
+    (
+        cache,
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        dioxus_altcha::WORKER_JS,
+    )
+        .into_response()
+}
+
+/// Whether `If-None-Match` names `etag` (a weak comparison) or is `*`.
+fn not_modified(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
+        .any(|tag| tag == "*" || tag.strip_prefix("W/").unwrap_or(tag) == etag)
 }

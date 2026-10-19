@@ -198,8 +198,6 @@ rafi-engine-restate  the `Raffle` object and `EngineInfo` service (`services()`)
 rafi-store           all SQL (SQLite, Postgres, D1); save_raffle / RaffleWriter, the engine's Store; reading the phones' Snapshot
 rafi-live-client     what a phone sees and runs: ParticipantView, ParticipantChannel, screen(), Card (`card`), Follow, PageConfig
 rafi-live-server     the servers' side: Notifier (an Observer that can end live updates; Polling), LiveUpdates, the view of a raffle as drawn, the publish rule
-dioxus-altcha        ALTCHA v2 solved in the browser (Web Workers on WebCrypto) and a Dioxus hook; no rafi dependencies
-altcha-server        its server side: signed challenges, each redeemed once over a `ReplayStore`; no rafi dependencies
 rafi-api             the contract between the app's server and browser: the views, the admin API (`admin_functions!`, `Admin`, `dispatch`)
 rafi-app             every use case, over App { db, chain, engine, live_updates, limiter, policy }: joining (limits, proof-of-work,
                      join), the public reads, the retention run; typed errors; RateLimit; no HTTP
@@ -217,6 +215,9 @@ rafi-participant     the participant page's WASM and its JavaScript fallback
 
 - The rules live in `rafi-raffle` and `rafi-lifecycle`; the store, the engines and the app ask them. The store's SQL
   state lists are generated from them.
+- The proof-of-work comes from crates.io: `dioxus-altcha` (ALTCHA v2 solved in the browser, on Web Workers and
+  WebCrypto, and a Dioxus hook) and `altcha-server` (signed challenges, each redeemed once over a `ReplayStore`; rafi's
+  is `rafi-store`'s `altcha_used` table). Both are developed in altcha-rs.
 - A manifest and an engine run a whole raffle: the engine knows nothing of the app (no lifecycle, no settings). A
   host passes the engine its live notifier as the `Observer` (on Workers; the native host passes none, since its
   clients poll), and the app's retention run dates erasure.
@@ -461,6 +462,11 @@ shown only to the winner, sponsor-sharing consent, a Meetup.com RSVP cross-check
   contact email, additional rules) that new raffles copy. The proof-of-work's server side is a reusable crate,
   `altcha-server` (`Verifier`, a `ReplayStore` trait, an axum challenge handler); rafi's store is the `altcha_used`
   table, and the demo uses its `MemoryStore`. `draws.outcome` has no CHECK: the code writes only `Outcome`'s values.
+- **19** (2026-10-20). `dioxus-altcha` and `altcha-server` moved out to their own repository (altcha-rs) and are
+  used from crates.io (0.1). Their tests, browser tests and the demo run there. rafi-server serves the solver,
+  `/participant/altcha-worker.js`, from `dioxus_altcha::WORKER_JS` (ETag, `no-cache`), so it always matches the
+  version built in; `scripts/participant.sh` no longer copies it, and the app Worker runs first for that path. The
+  `altcha` patch stays in rafi's workspace, where it also covers `altcha-server`'s `altcha`.
 
 ## Appendix: key sources
 

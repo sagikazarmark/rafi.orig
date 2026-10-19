@@ -144,7 +144,8 @@ pub struct Dirs {
     /// The web app (admin, projector, verification page): `dx bundle`'s output.
     pub public: PathBuf,
     /// The participant page's WebAssembly and fallback: `./scripts/participant.sh`'s
-    /// output, served at `/participant/`.
+    /// output, served at `/participant/`. The proof-of-work solver there,
+    /// `altcha-worker.js`, is a route in [`routes`].
     pub participant: PathBuf,
 }
 

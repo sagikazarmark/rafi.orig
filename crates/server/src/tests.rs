@@ -969,6 +969,67 @@ async fn admin_requires_clerk_session() {
 }
 
 #[tokio::test]
+async fn altcha_worker_is_dioxus_altchas() {
+    let app = app().await;
+    let public = std::env::temp_dir().join(format!("rafi-public-{}", uuid::Uuid::new_v4()));
+    let participant = public.join("participant-dist");
+    std::fs::create_dir_all(&participant).unwrap();
+    // A participant directory built before the route: its copy is ignored.
+    std::fs::write(participant.join("altcha-worker.js"), "// stale").unwrap();
+    let router = super::build_router(
+        app,
+        None,
+        &super::Dirs {
+            public: public.clone(),
+            participant,
+        },
+    );
+    let get = || {
+        Request::get("/participant/altcha-worker.js")
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    let (status, headers, body) = send(&router, get()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, dioxus_altcha::WORKER_JS);
+    assert_eq!(
+        headers[header::CONTENT_TYPE],
+        "text/javascript; charset=utf-8"
+    );
+    assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+    let etag = headers[header::ETAG].to_str().unwrap().to_owned();
+
+    // Revalidating: unchanged, so no body.
+    for if_none_match in [
+        etag.clone(),
+        format!("W/{etag}"),
+        format!("\"x\", {etag}"),
+        "*".into(),
+    ] {
+        let mut req = get();
+        req.headers_mut()
+            .insert(header::IF_NONE_MATCH, if_none_match.parse().unwrap());
+        let (status, headers, body) = send(&router, req).await;
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::NOT_MODIFIED, ""),
+            "{if_none_match}"
+        );
+        assert_eq!(headers[header::ETAG], etag.as_str());
+    }
+    let mut req = get();
+    req.headers_mut()
+        .insert(header::IF_NONE_MATCH, "\"other\"".parse().unwrap());
+    let (status, _, body) = send(&router, req).await;
+    assert_eq!(
+        (status, body.as_str()),
+        (StatusCode::OK, dioxus_altcha::WORKER_JS)
+    );
+    std::fs::remove_dir_all(&public).ok();
+}
+
+#[tokio::test]
 async fn admin_api_needs_a_session_unless_dev_auth() {
     // No session and no dev auth: every admin function is refused.
     let router = routes(app().await);
