@@ -1,12 +1,14 @@
 # Rafi reorganization plan — draw engine as a seam (v3)
 
+> **Historical document.** A working note from Rafi's development, kept for the reasoning behind its decisions. Names, paths and details are of their time and may not match the current code, which is the source of truth.
+
 > **Reading this now (2026-10-10).** The current state is the appended revisions: 7 (the engine crate), 8 (no app
 > policy in the engine) and 9 (`rafi-engine` free of `rafi-platform`; the contract tidied and stated), at the end.
 > "Current state" and steps A–H describe the code of their time (`rafi-core`, now `rafi-lifecycle` and
 > `rafi-raffle`; the `restate-rafi` library and `restate-rafi-client`, now `rafi-engine-restate`; `DrawEngine`, now
 > `RaffleEngine` in `rafi-engine`). [PLAN.md](PLAN.md) has the current layout.
 
-Repo: /Users/mark/Projects/ventures/rafi (branch `cloudflare`). Crates in `crates/`.
+Crates in `crates/`.
 v2 incorporated the round-1 reviews; v3 incorporates rounds 2–3. FINAL: signed off by the
 architect, engineer, domain-expert and test/platform reviewers. See "Changes from v2" at the end.
 

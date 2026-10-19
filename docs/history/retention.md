@@ -1,5 +1,7 @@
 # Retention: how it works (snapshot for re-adding it later)
 
+> **Historical document.** A working note from Rafi's development, kept for the reasoning behind its decisions. Names, paths and details are of their time and may not match the current code, which is the source of truth.
+
 **Status: removed (2026-10-20).** §1–§9 describe the feature as it was. §10 is the checklist for re-adding it, and
 §11 lists everything removed and what each part did.
 

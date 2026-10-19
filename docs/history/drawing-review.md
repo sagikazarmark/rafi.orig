@@ -1,11 +1,13 @@
 # Drawing review — domain language and architecture of `rafi-drawing`
 
+> **Historical document.** A working note from Rafi's development, kept for the reasoning behind its decisions. Names, paths and details are of their time and may not match the current code, which is the source of truth.
+
 > **Historical record.** Names are of their time: the drawing is now the raffle ([raffle-plan.md](raffle-plan.md):
 > `rafi-drawing` is `rafi-raffle`, `Drawing` is `Raffle`), `rafi-core` became `rafi-raffle` (`746f3a0`) and is now
 > `rafi-lifecycle`, the engine crates are `rafi-engine` and `rafi-engine-restate`. [PLAN.md](PLAN.md) describes the
 > current state.
 
-Repo: /Users/mark/Projects/ventures/rafi (branch `cloudflare`). Reviewed 2026-10-09, after
+Reviewed 2026-10-09, after
 [drawing-plan.md](drawing-plan.md) moved the drawing into its own crate. Three passes: the domain
 language, the crate's internal structure, and its boundaries with the rest of the workspace.
 

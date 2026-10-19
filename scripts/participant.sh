@@ -42,7 +42,7 @@ wasm=$(gzip -9c "$OUT/rafi_participant_bg.wasm" | wc -c | tr -d ' ')
 js=$(gzip -9c "$OUT/rafi_participant.js" | wc -c | tr -d ' ')
 total=$((wasm + js))
 echo "rafi-participant: wasm ${wasm} B + js ${js} B = ${total} B gzip -9"
-# The budget (docs/workers-plan.md §2.5): 280 KB compressed.
+# The budget: 280 KB compressed, so the page stays usable on slow venue networks.
 if [ "$total" -gt 286720 ]; then
   echo "over the 280 KB budget" >&2
   exit 1

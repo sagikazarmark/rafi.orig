@@ -6,9 +6,9 @@
 //!   has live updates gets them ended ([`Notifier::end`](rafi_live_server::Notifier::end);
 //!   on Workers, its channel object is destroyed).
 //!
-//! Personal data is erased by hand only ([`purge`](crate::purge)). Automatic
-//! erasure (retention) used to run here and was removed for now; see
-//! `docs/retention.md`.
+//! Personal data is erased by hand only ([`purge`](crate::purge)); there is
+//! no automatic erasure (`docs/history/retention.md` records an earlier
+//! design that had one).
 
 use rafi_store::housekeeping as store;
 

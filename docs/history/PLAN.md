@@ -1,5 +1,7 @@
 # Rafi: meetup raffle plan
 
+> **Historical document.** A working note from Rafi's development, kept for the reasoning behind its decisions. Names, paths and details are of their time and may not match the current code, which is the source of truth.
+
 Status: the current state, 2026-10-18 (revision 18). How it got here is in the
 [revision history](#revision-history) and in the detailed plans, which are records of their time:
 [engine-plan.md](engine-plan.md), [drawing-plan.md](drawing-plan.md), [drawing-review.md](drawing-review.md),
@@ -159,7 +161,7 @@ can check they're in), every draw (`k`, item, R, signature, randomness, pass, po
 abandoned draws, and re-runs them in the browser (`rafi_raffle::verify_public`, WASM): the log is replayed through
 the raffle's own transitions and every BLS signature is checked.
 
-[`tools/verify.py`](../tools/verify.py) (Python standard library only) re-runs the algorithm independently; with
+[`tools/verify.py`](../../tools/verify.py) (Python standard library only) re-runs the algorithm independently; with
 `--fetch` it compares each signature with the public relays' (it doesn't check BLS). CI checks the Rust code and
 `verify.py` against the same vectors (`testdata/draw-vectors.json`, from real quicknet beacons).
 

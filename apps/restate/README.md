@@ -2,8 +2,8 @@
 
 **Standalone endpoint serving the Rafi raffle engine's Restate services ([`rafi-engine-restate`](../../crates/engine-restate)) for [Restate](https://restate.dev/).**
 
-It writes the draw state into the Rafi app's SQLite database, so it runs next to the app with access to the
-same file (the same machine, or a shared volume). The app owns the schema and creates the file.
+It writes the draw state into the Rafi app's database (SQLite or Postgres), so it needs access to the same
+database as the app (for SQLite: the same file, on the same machine or a shared volume). The app owns the schema.
 
 ## Install
 
@@ -19,7 +19,9 @@ Run it on the app's database and register it with Restate:
 
 ```bash
 RAFI_RESTATE_DATABASE__URL=sqlite://$PWD/rafi.db rafi-restate
-restate deployments register http://localhost:9080
+# Restate's admin API (here a local restate-server's, on :9070):
+curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
+  -d '{"uri": "http://localhost:9080"}'
 ```
 
 ## Configuration

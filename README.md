@@ -13,7 +13,8 @@ and anyone can re-run every draw afterwards.
 - **Organizer admin** (`/admin`): raffles, prizes, people without a smartphone, draw console (Draw / Handed over / Not here / Declined), CSV export.
 - **Verification** (`/v/<slug>`): re-runs every draw in the browser; [`tools/verify.py`](tools/verify.py) does the same independently.
 
-See [`docs/PLAN.md`](docs/PLAN.md) for the design and the reasoning behind it.
+The design notes written along the way, with the reasoning behind its decisions, are in
+[`docs/history/`](docs/history) (historical: the code is the source of truth).
 
 ## How the draw works
 
@@ -45,11 +46,12 @@ Production is planned on Cloudflare Workers, where the engine is **`rafi-restate
 ([`apps/restate`](apps/restate)), a separate native service. Rafi relies on Restate
 for draws: there is no in-process fallback in production (`rafi-engine`'s `local` feature is for tests and
 development only). Restate only ever sees anonymous IDs. The app decides which drand chain raffles commit to
-(`RAFI_DRAND_CHAIN`); the engine only checks it. See [`docs/engine-plan.md`](docs/engine-plan.md).
+(`RAFI_DRAND_CHAIN`); the engine only checks it. The engine contract is documented on `rafi_engine::Engine`
+([`crates/engine/src/engine.rs`](crates/engine/src/engine.rs)).
 
 The server keeps no state between requests. Natively, phones poll their participant view (`/api/r/<slug>/participant`), and
 the projector and the admin poll the full view (`/api/r/<slug>/view`) every few seconds; both carry the raffle's
-`version` from the database. On Cloudflare Workers ([`docs/workers-plan.md`](docs/workers-plan.md)) a live channel
+`version` from the database. On Cloudflare Workers (below) a live channel
 per raffle pushes the participant view instead.
 
 ```
@@ -112,7 +114,7 @@ daisyUI comes from npm (`apps/web/package.json`; devenv runs `npm install` on en
 `tailwindcss -i tailwind.css -o assets/tailwind.css` in `apps/web`.
 Organizer forms use [dioform](https://crates.io/crates/dioform) (typed fields, validation, managed async submit)
 rendered with components from the [dioxus-daisyui-components](https://github.com/sagikazarmark/dioxus-daisyui-components)
-registry (fields, select, switch, buttons, alert dialogs, dropdown menu, tabs, toasts), installed into
+registry (fields: input and textarea; switch, buttons, alert dialogs, dropdown menu, tabs, toasts), installed into
 `apps/web/src/components/` with `dx components add <name> --path <registry checkout>`. Treat that directory as
 vendored: update it by re-installing (`--force`), not by editing.
 
@@ -121,9 +123,10 @@ and [altcha-server](https://crates.io/crates/altcha-server) issuing and redeemin
 `altcha_used` table); both are developed in [altcha-rs](https://github.com/sagikazarmark/altcha-rs). The server serves
 the solver at `/participant/altcha-worker.js` from `dioxus_altcha::WORKER_JS`, so it always matches the version built in.
 
-The app is two crates: the **web app** (`apps/web`, `rafi-web`: admin, projector and verification page; a Dioxus
-single-page app built by `dx`) and the **server** (`crates/server`, `rafi-server`: participant pages, the public and
-admin JSON APIs, and the web app's files; plain `cargo`, binary `rafi`). The web app calls the server's JSON routes
+The app has a **web app** (`apps/web`, `rafi-web`: admin, projector and verification page; a Dioxus single-page app
+built by `dx`) and a **server library** (`crates/server`, `rafi-server`: participant pages, the public and admin JSON
+APIs). It is served natively by the **`rafi`** binary (`apps/rafi`, plain `cargo`, which also serves the web app's
+files) and on Cloudflare Workers by `apps/worker`. The web app calls the server's JSON routes
 (`POST /api/admin/<function>`) on the same origin; both sides of that API come from one declaration in `rafi-api`.
 
 The participant page's WebAssembly and its fallback are built into `apps/participant/dist`, which the server serves at
@@ -249,6 +252,7 @@ The app:
 | `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app |
 | `RAFI_PARTICIPANT_DIR` | `apps/participant/dist` | The participant page's WebAssembly and fallback, from `./scripts/participant.sh` |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL (QR codes, links) |
+| `RAFI_COOKIE_SECURE` | on when `RAFI_PUBLIC_URL` is `https://` | Mark the participant cookie `Secure` (`1`/`true` or `0`/`false`); set it when TLS ends at a proxy in front of a plain `http://` URL |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate`: SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`, the database must exist). The app applies the migrations on start |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |
 | `CLERK_SECRET_KEY` | | Clerk backend key (`CLERK_PUBLISHABLE_KEY` at build time) |
@@ -257,12 +261,13 @@ The app:
 | `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to (a chain hash). Release builds accept only public drand chains; `mock` (a public test chain, *not* verifiable) needs `--features mock-drand`. The raffle engine must draw from the same chain: the app refuses to start a draw otherwise |
 | `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
 | `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges (ALTCHA v2); not empty |
-| `RAFI_ALTCHA_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve (at least 1; provisional, see docs/dioxus-altcha-plan.md M4) |
+| `RAFI_ALTCHA_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve (at least 1; provisional) |
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes |
+| `RUST_LOG` | `info` | Log level ([`tracing-subscriber` filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html)) |
 
-Personal data is erased by hand in the admin ("Erase personal data now"); automatic erasure (retention) is removed for
-now, see [docs/retention.md](docs/retention.md). An hourly housekeeping run (a task natively, the Cron on Workers) ends
-live updates a day after a raffle finishes and forgets expired proof-of-work challenges.
+Personal data is erased by hand in the admin ("Erase personal data now"); there is no automatic erasure. An hourly
+housekeeping run (a task natively, the Cron on Workers) ends live updates a day after a raffle finishes and forgets
+expired proof-of-work challenges.
 
 `rafi-restate` (draw settings, database, identity keys):
 see [`apps/restate`](apps/restate/README.md).
@@ -270,8 +275,7 @@ see [`apps/restate`](apps/restate/README.md).
 ## Self-hosting
 
 The native server: `rafi` and `rafi-restate` on one machine, sharing the database, with a Restate server (or Restate
-Cloud) in front of `rafi-restate`. Packaged deployment options (container images, compose) are removed for now and
-will come back later; production is planned on Cloudflare Workers, below.
+Cloud) in front of `rafi-restate`. There are no packaged deployment options (container images) yet.
 
 PostgreSQL instead of SQLite: point both at the same, existing database, the app with
 `RAFI_DATABASE_URL=postgres://user:password@host/rafi` and `rafi-restate` with the same URL in `database.url`
@@ -282,12 +286,23 @@ root certificates or `sslrootcert=<file>`.
 
 ## Cloudflare Workers
 
-The plan and its decisions: [`docs/workers-plan.md`](docs/workers-plan.md). Cloudflare is one deployment, not an
-assumption of the code: the app and the raffle engine are written against small interfaces (the engine's `Store` and
-`Observer`, the live `Notifier`, the app's `RateLimit`), and `crates/cloudflare` (`rafi-cloudflare`) implements the
-shared ones over Workers bindings. Two Workers wire it up: the app (`apps/worker`, which also hosts the
-per-raffle `RaffleRoom` Durable Object and counts joins on its rate-limiting bindings) and the raffle engine
-(`apps/restate-worker`), with the D1 database they share.
+Cloudflare is one deployment, not an assumption of the code: the app and the raffle engine are written against small
+interfaces (the engine's `Store` and `Observer`, the live `Notifier`, the app's `RateLimit`), and `crates/cloudflare`
+(`rafi-cloudflare`) implements the shared ones over Workers bindings. Two Workers wire it up: the app (`apps/worker`,
+which also hosts the per-raffle `RaffleRoom` Durable Object and counts joins on its rate-limiting bindings) and the
+raffle engine (`apps/restate-worker`), with the D1 database they share.
+
+The app Worker reads the app's variables above (as vars and secrets; the listen address and directories don't apply).
+In addition, on Workers:
+
+| Variable | Worker | Default | |
+|---|---|---|---|
+| `RAFI_DO_JURISDICTION` | both | `eu` | The Durable Objects' jurisdiction; empty for none (local development: workerd has none) |
+| `RESTATE_IDENTITY_KEYS` | restate-worker | required | Restate's request signing keys (`publickeyv1_…`, comma separated); without them every request is refused (except in a `dev` build) |
+| `RAFI_DRAND_RELAYS` | restate-worker | api.drand.sh, api2, api3 (v2), drand.cloudflare.com (v1) | Relays to ask in order, comma separated (`v1:`/`v2:` prefixes, a bare URL is v1) |
+| `RAFI_DRAND_LEAD_SECS` | restate-worker | `6` | Seconds until the committed round (≥ 3) |
+| `RAFI_DRAND_TIMEOUT_SECS` | restate-worker | `60` | Stop fetching after this; the draw stays pending (stalled) on its round |
+| `RAFI_DRAND_MOCK` | restate-worker | off | Public test chain (`1`/`true`; development only, *not* verifiable). Must match the app's `RAFI_DRAND_CHAIN` |
 
 Local development, everything under `wrangler dev` (the tools are in `devenv.nix`; wasm-bindgen-cli must match
 `Cargo.lock`):
@@ -297,8 +312,10 @@ Local development, everything under `wrangler dev` (the tools are in `devenv.nix
 (cd apps/worker && wrangler d1 migrations apply rafi --local --env dev)
 (cd apps/worker && wrangler dev --env dev)                # http://127.0.0.1:8787, dev auth, mock drand
 (cd apps/restate-worker && wrangler dev --env dev --port 8791)
-# a local restate-server with its ingress on :18080, then:
-restate deployments register http://127.0.0.1:8791 --use-http1.1
+# Restate with its ingress on :18080 (the dev app Worker's RESTATE_INGRESS_URL), then register the engine:
+RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 $(./scripts/restate-server.sh)
+curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
+  -d '{"uri": "http://127.0.0.1:8791", "use_http_11": true}'
 ```
 
 `./scripts/workers-check.sh` runs every Workers check locally: rafi-store's conformance suite on D1, the live channel over WebSockets

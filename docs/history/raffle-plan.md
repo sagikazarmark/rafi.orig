@@ -1,6 +1,8 @@
 # Raffle plan — the drawing becomes the raffle
 
-Repo: /Users/mark/Projects/ventures/rafi (branch `raffle`). Crates in `crates/`.
+> **Historical document.** A working note from Rafi's development, kept for the reasoning behind its decisions. Names, paths and details are of their time and may not match the current code, which is the source of truth.
+
+Crates in `crates/`.
 Follows [drawing-plan.md](drawing-plan.md) and [drawing-review.md](drawing-review.md), and renames what they named.
 Breaking changes are fine (see "Consequences"). Done (2026-10-10); see "What the implementation does differently" at
 the end.

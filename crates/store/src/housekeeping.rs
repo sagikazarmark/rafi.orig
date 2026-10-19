@@ -1,7 +1,4 @@
 //! The housekeeping run's reads and writes: finding live channels to end.
-//!
-//! (Automatic erasure, which also lived here, was removed for now; see
-//! `docs/retention.md`.)
 
 use crate::{Db, Result};
 

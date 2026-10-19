@@ -15,8 +15,8 @@ drand = ["dep:drand", "dep:reqwest"]
 ## chain with a public seed; development and tests only).
 mock-drand = ["drand", "drand/test-chain", "rafi-raffle/mock-chain"]
 ## `local`: an in-process engine (`LocalEngine`), for tests and development.
-## Never a production engine: enable it from `[dev-dependencies]` only
-## (docs/engine-plan.md). Native only.
+## Never a production engine: enable it from `[dev-dependencies]` only.
+## Native only.
 local = ["dep:tokio", "dep:tracing", "drand"]
 ## `conformance`: the scenarios every raffle engine must pass. This crate's
 ## tests run it on `LocalEngine`; `rafi-engine-restate`'s on the `Raffle`

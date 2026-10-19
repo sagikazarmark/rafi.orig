@@ -1,4 +1,4 @@
-# Rafi on Cloudflare Workers (docs/workers-plan.md). The top level is
+# Rafi on Cloudflare Workers. The top level is
 # production; `[env.dev]` is local development (`wrangler dev --env dev`).
 #
 # Before the first deploy:
@@ -65,7 +65,7 @@ simple = { limit = 600, period = 60 }
 [triggers]
 crons = ["0 * * * *"]
 
-# No invocation logs: they would record client IPs and cookies (§2.10).
+# No invocation logs: they would record client IPs and cookies.
 [observability]
 enabled = false
 

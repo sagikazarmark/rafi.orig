@@ -1,5 +1,7 @@
 # Rafi on Cloudflare Workers (plan)
 
+> **Historical document.** A working note from Rafi's development, kept for the reasoning behind its decisions. Names, paths and details are of their time and may not match the current code, which is the source of truth.
+
 Status: accepted, 2026-10-08. Reviewed in four passes: fit with the code, distributed design, security/privacy/operations, and structure and client. The findings are folded in below.
 
 **Where it stands (2026-10-10).** M1–M7 are done locally on the `cloudflare` branch and checked by `scripts/workers-check.sh` (CI's `workers` job); see §11. M8, the cutover, waits on accounts: Cloudflare staging and production (D1 created with `--jurisdiction eu`, the secrets, custom domains), the Restate Cloud deployment, Clerk with real keys, BLS CPU time measured on a deployed Worker (M0(e)), and the phone test plan (§6). Crate names below are of their time where they differ; [PLAN.md](PLAN.md) has the current layout.
