@@ -128,6 +128,8 @@ pub enum Refusal {
     EmailTaken,
     Fakes(FakesRefusal),
     Erased,
+    /// From the freeze until the raffle finishes, nobody leaves the list.
+    NotRemovable,
     NotDeliverable,
     NotPurgeable,
     NotOver,
@@ -206,6 +208,9 @@ impl fmt::Display for Refusal {
             ),
             Self::Start(start::Refusal::NoEntrants) => f.write_str("Nobody has entered yet."),
             Self::Start(start::Refusal::NoPrizes) => f.write_str("Add at least one prize first."),
+            Self::Start(start::Refusal::FakeEntrants) => f.write_str(
+                "Fake entrants are on the list, but test mode is off. Switch test mode on and off again to remove them.",
+            ),
             Self::NotDrawing => f.write_str("The draw has not started (or is already over)."),
             Self::NotOpened => f.write_str(
                 "The raffle engine has not confirmed the frozen list yet; press “Start the draw” again.",
@@ -222,6 +227,9 @@ impl fmt::Display for Refusal {
             }
             Self::Fakes(FakesRefusal::Frozen) => f.write_str("The entrant list is frozen."),
             Self::Erased => f.write_str("This entrant's data has been erased."),
+            Self::NotRemovable => f.write_str(
+                "Entrants stay on the list until the raffle has finished; then their personal data can be erased. You can hide or rename them now.",
+            ),
             Self::NotDeliverable => {
                 f.write_str("Only a winner who claimed their prize can get it delivered.")
             }

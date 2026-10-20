@@ -117,7 +117,7 @@ Expose neither `rafi-restate` (`:9080`) nor Restate's admin API (`:9070`) public
 
 - `GET /healthz` answers `ok`.
 - Create a raffle with **Test mode** on, add fake entrants, freeze, and draw one item. The verification page should
-  show **✅ All 1 draws check out**.
+  show **✅ All 1 draws check out**, under a **🧪 TEST MODE** note.
 - Erase it, or delete it.
 
 ## Backups

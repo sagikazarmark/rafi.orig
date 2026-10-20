@@ -15,7 +15,8 @@ pub struct EntrantRow {
     pub email_norm: Option<String>,
     pub source: Source,
     pub hidden: bool,
-    pub claim_code: String,
+    /// `None` once their personal data is erased.
+    pub claim_code: Option<String>,
     pub token_hash: Option<String>,
     pub consent_version: Option<String>,
     pub consent_rules_at: Option<i64>,
@@ -29,12 +30,13 @@ pub struct EntrantRow {
 /// The order entrants are listed in: by when they entered.
 pub(crate) const ORDER: &str = "ORDER BY created_at, id";
 
-/// The `SET` clause that erases an entrant's personal data. The anonymous
-/// ID, the claim code's row and the draw log stay.
+/// The `SET` clause that erases an entrant's personal data: their name, email,
+/// cookie token, claim code and marketing consent. The anonymous ID and the
+/// draw log stay.
 pub(crate) const ERASED: &str = "display_name = '#' || substr(id, 1, 6), email_raw = NULL, \
-     email_norm = NULL, token_hash = NULL, consent_marketing = 0, erased = 1";
+     email_norm = NULL, token_hash = NULL, claim_code = NULL, consent_marketing = 0, erased = 1";
 
-/// Rows per `INSERT` in [`insert_fakes`]: 4 shared parameters plus 3 per row
+/// Rows per `INSERT` in [`insert_fakes`]: 2 shared parameters plus 3 per row
 /// stays within D1's 100 bound parameters per statement.
 const FAKES_PER_INSERT: usize = 32;
 
@@ -85,14 +87,37 @@ pub async fn active_ids(db: &Db, raffle_id: &str) -> Result<Vec<String>> {
     Ok(ids.into_iter().map(|(id,)| id).collect())
 }
 
+/// How many fake entrants the raffle has.
+pub async fn count_fakes(db: &Db, raffle_id: &str) -> Result<i64> {
+    let (n,): (i64,) = db
+        .query(format!(
+            "SELECT COUNT(*) FROM entrants WHERE raffle_id = ? AND source = '{}'",
+            Source::Fake.as_str()
+        ))
+        .bind(raffle_id)
+        .one()
+        .await?;
+    Ok(n)
+}
+
 /// Every claim code in use in the raffle.
 pub async fn claim_codes(db: &Db, raffle_id: &str) -> Result<Vec<String>> {
     let codes: Vec<(String,)> = db
-        .query("SELECT claim_code FROM entrants WHERE raffle_id = ?")
+        .query("SELECT claim_code FROM entrants WHERE raffle_id = ? AND claim_code IS NOT NULL")
         .bind(raffle_id)
         .all()
         .await?;
     Ok(codes.into_iter().map(|(c,)| c).collect())
+}
+
+/// Every display name in the raffle, erased entrants' placeholders included.
+pub async fn display_names(db: &Db, raffle_id: &str) -> Result<Vec<String>> {
+    let names: Vec<(String,)> = db
+        .query("SELECT display_name FROM entrants WHERE raffle_id = ?")
+        .bind(raffle_id)
+        .all()
+        .await?;
+    Ok(names.into_iter().map(|(n,)| n).collect())
 }
 
 /// Whether someone with this normalized email has entered.
@@ -213,26 +238,26 @@ pub struct Fake {
 }
 
 /// Adds fake entrants, all or nothing: multi-row `INSERT`s in one batch,
-/// only while the entrant list can change. They entered at `created_at`.
-/// Returns `false` if the list can't change (nothing is added).
+/// only while the entrant list can change and the raffle is in test mode.
+/// They entered at `created_at`, and accepted nothing (no consent is
+/// recorded). Returns `false` if the list can't change or the raffle isn't
+/// in test mode (nothing is added).
 pub async fn insert_fakes(
     db: &Db,
     raffle_id: &str,
-    consent_version: &str,
     created_at: i64,
     fakes: &[Fake],
 ) -> Result<bool> {
-    let now = now();
-    // ?1–?4 are the same for every row; each row binds its ID, name and claim
-    // code after them.
+    // ?1 and ?2 are the same for every row; each row binds its ID, name and
+    // claim code after them.
     let inserts = fakes
         .chunks(FAKES_PER_INSERT)
         .map(|chunk| {
             let values: Vec<String> = (0..chunk.len())
                 .map(|r| {
-                    let p = 5 + 3 * r;
+                    let p = 3 + 3 * r;
                     format!(
-                        "(?{p}, ?1, ?{}, '{}', ?{}, ?2, ?3, ?4)",
+                        "(?{p}, ?1, ?{}, '{}', ?{}, ?2)",
                         p + 1,
                         Source::Fake.as_str(),
                         p + 2
@@ -241,16 +266,13 @@ pub async fn insert_fakes(
                 .collect();
             let insert = db
                 .query(format!(
-                    "INSERT INTO entrants (id, raffle_id, display_name, source, claim_code, consent_version,
-                                           consent_rules_at, created_at)
+                    "INSERT INTO entrants (id, raffle_id, display_name, source, claim_code, created_at)
                      SELECT * FROM (VALUES {}) AS fakes
-                     WHERE {}",
+                     WHERE {} AND EXISTS (SELECT 1 FROM raffles WHERE id = ?1 AND test_mode = 1)",
                     values.join(", "),
                     editable(1)
                 ))
                 .bind(raffle_id)
-                .bind(consent_version)
-                .bind(now)
                 .bind(created_at);
             chunk.iter().fold(insert, |q, f| {
                 q.bind(&f.id).bind(&f.display_name).bind(&f.claim_code)
@@ -259,6 +281,20 @@ pub async fn insert_fakes(
         .collect();
     let inserted = db.batch(inserts).await?;
     Ok(fakes.is_empty() || inserted.iter().any(|&n| n > 0))
+}
+
+/// Removes a raffle's fake entrants if it isn't in test mode, while its
+/// entrant list can change: what switching test mode off does
+/// ([`raffles::update_settings`](crate::raffles::update_settings) runs it in
+/// the same batch).
+pub(crate) fn delete_stray_fakes<'a>(db: &'a Db, raffle_id: &str) -> crate::Query<'a> {
+    db.query(format!(
+        "DELETE FROM entrants WHERE raffle_id = ?1 AND source = '{}'
+         AND {} AND EXISTS (SELECT 1 FROM raffles WHERE id = ?1 AND test_mode = 0)",
+        Source::Fake.as_str(),
+        editable(1)
+    ))
+    .bind(raffle_id)
 }
 
 /// Changes to an entrant the organizer makes, applied together.
@@ -313,22 +349,27 @@ pub async fn delete(db: &Db, raffle_id: &str, id: &str) -> Result<bool> {
 
 /// Erases the personal data of one entrant, or of every entrant of the raffle
 /// (`None`), and logs each erasure in `erasures` (IDs and time only), so a
-/// restored backup can re-apply it. One batch: both or neither. Returns
-/// whether anyone was erased.
+/// restored backup can re-apply it. Only once the raffle is over
+/// ([`RaffleState::personal_data_erasable`]): until then the entry is part of
+/// the raffle. One batch: both or neither. Returns whether anyone was erased.
 pub async fn erase(db: &Db, raffle_id: &str, entrant_id: Option<&str>) -> Result<bool> {
+    let erasable = format!(
+        "EXISTS (SELECT 1 FROM raffles WHERE id = ?1 AND state IN ({}))",
+        crate::raffles::states(RaffleState::personal_data_erasable)
+    );
     let changed = db
         .batch(vec![
-            db.query(
+            db.query(format!(
                 "INSERT INTO erasures (raffle_id, entrant_id, at)
                  SELECT raffle_id, id, ?3 FROM entrants
-                 WHERE raffle_id = ?1 AND erased = 0 AND (?2 IS NULL OR id = ?2)",
-            )
+                 WHERE raffle_id = ?1 AND erased = 0 AND (?2 IS NULL OR id = ?2) AND {erasable}",
+            ))
             .bind(raffle_id)
             .bind(entrant_id)
             .bind(now()),
             db.query(format!(
                 "UPDATE entrants SET {ERASED}
-                 WHERE raffle_id = ?1 AND erased = 0 AND (?2 IS NULL OR id = ?2)"
+                 WHERE raffle_id = ?1 AND erased = 0 AND (?2 IS NULL OR id = ?2) AND {erasable}"
             ))
             .bind(raffle_id)
             .bind(entrant_id),

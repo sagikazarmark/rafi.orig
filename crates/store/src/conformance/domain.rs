@@ -178,6 +178,16 @@ async fn entrant(db: &Db, raffle_id: &str, id: &str) -> Result<EntrantRow, Strin
         .ok_or_else(|| format!("entrant {id} is gone"))
 }
 
+/// Puts raffle `id` in test mode as is: fixtures that add fake entrants.
+async fn test_mode_on(db: &Db, id: &str) -> Outcome {
+    db.query("UPDATE raffles SET test_mode = 1 WHERE id = ?")
+        .bind(id)
+        .run()
+        .await
+        .map_err(fail)?;
+    Ok(())
+}
+
 pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Draft).await?;
     check(
@@ -202,12 +212,12 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
         check(join(db, "r1", id, &format!("{id}@x"), 10).await?, "joining")?;
     }
     check(
-        entrants::erase(db, "r1", Some("c")).await.map_err(fail)?,
-        "erasing one",
+        !entrants::erase(db, "r1", Some("c")).await.map_err(fail)?,
+        "nobody is erased while the raffle runs",
     )?;
     check(
-        entrants::count_active(db, "r1").await.map_err(fail)? == 2,
-        "erased entrants don't count",
+        entrants::count_active(db, "r1").await.map_err(fail)? == 3,
+        "everyone counts",
     )?;
 
     check(
@@ -229,7 +239,7 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     let mut ids = entrants::active_ids(db, "r1").await.map_err(fail)?;
     ids.sort();
     check(
-        ids == ["a", "b"],
+        ids == ["a", "b", "c"],
         &format!("the entrants for the manifest: {ids:?}"),
     )?;
 
@@ -355,7 +365,7 @@ pub(super) async fn racing_joins_respect_the_cap(db: &Db) -> Outcome {
     )
 }
 
-/// Settings with `rules`, the rest fixed.
+/// Settings with `rules`, in test mode, the rest fixed.
 fn settings_with(rules: &str) -> raffles::Settings<'_> {
     raffles::Settings {
         title: "t",
@@ -364,7 +374,7 @@ fn settings_with(rules: &str) -> raffles::Settings<'_> {
         contact_email: "",
         rules,
         event_date: "",
-        test_mode: false,
+        test_mode: true,
     }
 }
 
@@ -372,7 +382,11 @@ fn settings_with(rules: &str) -> raffles::Settings<'_> {
 /// other settings always do.
 pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
-    let save = async |s: &raffles::Settings<'_>| raffles::update_settings(db, "r1", s).await;
+    let save = async |s: &raffles::Settings<'_>| {
+        raffles::update_settings(db, "r1", s)
+            .await
+            .map(|w| w.written)
+    };
     check(
         save(&settings_with("one")).await.map_err(fail)?,
         "no entrants",
@@ -382,7 +396,7 @@ pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
         display_name: "Fake".into(),
         claim_code: "F001".into(),
     };
-    entrants::insert_fakes(db, "r1", "v1", 0, &[fake])
+    entrants::insert_fakes(db, "r1", 0, &[fake])
         .await
         .map_err(fail)?;
     check(
@@ -408,6 +422,98 @@ pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
     check(
         r.rules == "two" && r.title == "renamed",
         &format!("stored {:?}, {:?}", r.rules, r.title),
+    )
+}
+
+/// Fakes only go into a raffle in test mode; switching it off removes them in
+/// the same write, and test mode stays as it is once the list is frozen.
+pub(super) async fn fakes_go_with_test_mode(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    let fake = |id: &str| entrants::Fake {
+        id: id.into(),
+        display_name: "Fake".into(),
+        claim_code: id.to_uppercase(),
+    };
+    check(
+        !entrants::insert_fakes(db, "r1", 0, &[fake("f0")])
+            .await
+            .map_err(fail)?,
+        "no fakes outside test mode",
+    )?;
+    let save = async |test_mode: bool| {
+        raffles::update_settings(
+            db,
+            "r1",
+            &raffles::Settings {
+                test_mode,
+                ..settings_with("")
+            },
+        )
+        .await
+        .map_err(fail)
+    };
+    let on = save(true).await?;
+    check(
+        on.written && !on.fakes_removed,
+        &format!("test mode on: {on:?}"),
+    )?;
+    check(
+        entrants::insert_fakes(db, "r1", 0, &[fake("f1"), fake("f2")])
+            .await
+            .map_err(fail)?,
+        "fakes in test mode",
+    )?;
+    entrants::insert_manual(db, &manual("r1", "m1", None))
+        .await
+        .map_err(fail)?;
+    check(
+        entrants::count_fakes(db, "r1").await.map_err(fail)? == 2,
+        "two fakes",
+    )?;
+    let fakes = entrants::list(db, "r1").await.map_err(fail)?;
+    check(
+        fakes
+            .iter()
+            .filter(|e| e.source == rafi_lifecycle::entrant::Source::Fake)
+            .all(|e| e.consent_version.is_none() && e.consent_rules_at.is_none()),
+        "fakes consented to nothing",
+    )?;
+
+    let off = save(false).await?;
+    check(
+        off.written && off.fakes_removed,
+        &format!("test mode off: {off:?}"),
+    )?;
+    let ids: Vec<String> = entrants::list(db, "r1")
+        .await
+        .map_err(fail)?
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    check(
+        ids == ["m1"],
+        &format!("the fakes went, the person stayed: {ids:?}"),
+    )?;
+
+    // Frozen: test mode no longer changes, so nothing is removed.
+    save(true).await?;
+    entrants::insert_fakes(db, "r1", 0, &[fake("f3")])
+        .await
+        .map_err(fail)?;
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    let off = save(false).await?;
+    check(
+        !off.written && !off.fakes_removed,
+        &format!("test mode off once frozen: {off:?}"),
+    )?;
+    check(raffle(db, "r1").await?.test_mode, "still in test mode")?;
+    check(
+        save(true).await?.written,
+        "the other settings save once frozen",
+    )?;
+    check(
+        entrants::count_fakes(db, "r1").await.map_err(fail)? == 1,
+        "the frozen fake stays",
     )
 }
 
@@ -441,6 +547,7 @@ pub(super) async fn saves_owner_defaults(db: &Db) -> Outcome {
 
 pub(super) async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
+    test_mode_on(db, "r1").await?;
     let fake = |i: usize| entrants::Fake {
         id: format!("f{i:03}"),
         display_name: format!("Fake {i}"),
@@ -448,7 +555,7 @@ pub(super) async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
     };
     // More rows than fit in one statement's parameters on D1.
     let fakes: Vec<_> = (0..70).map(fake).collect();
-    entrants::insert_fakes(db, "r1", "v1", 5, &fakes)
+    entrants::insert_fakes(db, "r1", 5, &fakes)
         .await
         .map_err(fail)?;
     let list = entrants::list(db, "r1").await.map_err(fail)?;
@@ -469,9 +576,7 @@ pub(super) async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
     let mut again: Vec<_> = (100..140).map(fake).collect();
     again.push(fake(0));
     check(
-        entrants::insert_fakes(db, "r1", "v1", 6, &again)
-            .await
-            .is_err(),
+        entrants::insert_fakes(db, "r1", 6, &again).await.is_err(),
         "a duplicate ID fails",
     )?;
     check(
@@ -487,9 +592,15 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
         !entrants::erase(db, "r1", None).await.map_err(fail)?,
         "nobody to erase yet",
     )?;
-    for id in ["a", "b", "c"] {
+    for id in ["a", "b", "c", "d"] {
         join(db, "r1", id, &format!("{id}@x"), 10).await?;
     }
+    // Before the freeze, removing deletes.
+    entrants::delete(db, "r1", "d").await.map_err(fail)?;
+    check(
+        entrants::list(db, "r1").await.map_err(fail)?.len() == 3,
+        "removed",
+    )?;
     patch(
         db,
         "r1",
@@ -533,6 +644,18 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
         "not delivered after all",
     )?;
 
+    // Until the raffle is over, nobody is erased.
+    for state in [RaffleState::Open, RaffleState::Frozen, RaffleState::Drawing] {
+        force_state(db, "r1", state).await?;
+        check(
+            !entrants::erase(db, "r1", Some("a")).await.map_err(fail)?
+                && !entrants::erase(db, "r1", None).await.map_err(fail)?,
+            &format!("nobody is erased while {}", state.as_str()),
+        )?;
+    }
+    check(!entrant(db, "r1", "a").await?.erased, "still there")?;
+    force_state(db, "r1", RaffleState::Finished).await?;
+
     check(
         entrants::erase(db, "r1", Some("a")).await.map_err(fail)?,
         "erasing one",
@@ -547,12 +670,17 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
             && a.display_name == "#a"
             && a.email_raw.is_none()
             && a.email_norm.is_none()
-            && a.token_hash.is_none(),
+            && a.token_hash.is_none()
+            && a.claim_code.is_none(),
         "their personal data is gone",
     )?;
     check(
         !entrant(db, "r1", "b").await?.erased,
         "nobody else was erased",
+    )?;
+    check(
+        entrants::claim_codes(db, "r1").await.map_err(fail)?.len() == 2,
+        "the erased claim code is no longer in use",
     )?;
     check(
         entrants::erase(db, "r1", None).await.map_err(fail)?,
@@ -574,13 +702,6 @@ pub(super) async fn erases_and_logs_erasures(db: &Db) -> Outcome {
             ("r1".to_owned(), "c".to_owned()),
         ],
         &format!("each erasure is logged once: {log:?}"),
-    )?;
-
-    // Before the freeze, removing deletes.
-    entrants::delete(db, "r1", "a").await.map_err(fail)?;
-    check(
-        entrants::list(db, "r1").await.map_err(fail)?.len() == 2,
-        "removed",
     )
 }
 
@@ -678,10 +799,10 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
         "updating a missing prize",
     )?;
     join(db, "r1", "z", "z@x", 10).await?;
+    test_mode_on(db, "r1").await?;
     entrants::insert_fakes(
         db,
         "r1",
-        "v1",
         5,
         &[entrants::Fake {
             id: "y".into(),
@@ -831,6 +952,18 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         &format!("both drawn entrants: {:?}", snap.names),
     )?;
     check(snap.drawn.as_ref() == Some(&state), "the raffle as drawn")?;
+
+    // Once erased, a drawn entrant has no name to show.
+    force_state(db, "r1", RaffleState::Finished).await?;
+    entrants::erase(db, "r1", Some(&anna)).await.map_err(fail)?;
+    let snap = live::snapshot(db, "r1")
+        .await
+        .map_err(fail)?
+        .ok_or("the raffle is gone")?;
+    check(
+        snap.names.len() == 1 && snap.names.get(&bence) == Some(&None),
+        &format!("the erased entrant's name isn't read: {:?}", snap.names),
+    )?;
     check(
         live::snapshot(db, "nope").await.map_err(fail)?.is_none(),
         "no such raffle",
@@ -839,6 +972,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
 
 pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Draft).await?;
+    test_mode_on(db, "r1").await?;
     let prize = |name, qty| prizes::PrizeFields {
         name,
         sponsor: "",
@@ -858,7 +992,7 @@ pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcom
         "added by hand while closed",
     )?;
     check(
-        entrants::insert_fakes(db, "r1", "v1", 0, &[fake("f1"), fake("f2")])
+        entrants::insert_fakes(db, "r1", 0, &[fake("f1"), fake("f2")])
             .await
             .map_err(fail)?,
         "fakes while closed",
@@ -882,7 +1016,7 @@ pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcom
         "nobody is added by hand once frozen",
     )?;
     check(
-        !entrants::insert_fakes(db, "r1", "v1", 0, &[fake("f3")])
+        !entrants::insert_fakes(db, "r1", 0, &[fake("f3")])
             .await
             .map_err(fail)?,
         "no fakes once frozen",
@@ -970,6 +1104,7 @@ pub(super) async fn patches_an_entrant_at_once(db: &Db) -> Outcome {
             .map_err(fail)?,
         "no such entrant",
     )?;
+    force_state(db, "r1", RaffleState::Finished).await?;
     entrants::erase(db, "r1", Some("m1")).await.map_err(fail)?;
     check(
         !entrants::patch(db, "r1", "m1", &patch)

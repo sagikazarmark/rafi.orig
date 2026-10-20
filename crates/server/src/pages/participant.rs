@@ -58,6 +58,8 @@ pub struct Page<'a> {
     /// The join form's name and email, to fill in again after a refusal.
     pub name: &'a str,
     pub email: &'a str,
+    /// Generated names the join form's 🎲 button suggests.
+    pub name_ideas: &'a [String],
     /// The server's clock (unix ms); the phone measures its offset from it.
     pub now_ms: u64,
 }
@@ -137,6 +139,7 @@ pub fn page(page: Page<'_>) -> String {
         notice,
         name,
         email,
+        name_ideas,
         now_ms,
     } = page;
     let phase = view.state;
@@ -149,6 +152,12 @@ pub fn page(page: Page<'_>) -> String {
         _ => None,
     };
     let me = entrant.map(|e| e.id.to_owned());
+    // The verification page finds this entrant in the frozen list. After the
+    // `#`, their ID stays out of requests and server logs.
+    let verify_href = match &me {
+        Some(id) => format!("/v/{}#me={id}", raffle.slug),
+        None => format!("/v/{}", raffle.slug),
+    };
     let claim_code = entrant.map(|e| e.claim_code.to_owned());
     let joining = entrant.is_none() && phase == Phase::Open && notice != Notice::AlreadyIn;
 
@@ -173,6 +182,7 @@ pub fn page(page: Page<'_>) -> String {
                 div { class: "space-y-1 px-7 pt-6",
                     p { class: "text-xs font-bold uppercase tracking-[0.2em] opacity-80", "🎟️ You're in!" }
                     h2 { class: "break-words text-3xl font-extrabold", "{e.display_name}" }
+                    p { class: "text-sm opacity-80", "Your name on the screen." }
                 }
                 div { class: "mx-7 my-4 border-t-2 border-dashed border-primary-content/40" }
                 div { class: "flex flex-col items-center gap-1 px-7 pb-6 text-center",
@@ -195,9 +205,14 @@ pub fn page(page: Page<'_>) -> String {
                             div { class: "alert alert-error alert-soft my-2", role: "alert", "{err}" }
                         }
                         fieldset { class: "fieldset",
-                            legend { class: "fieldset-legend text-sm", "Name shown on the screen" }
-                            input { class: "input input-lg w-full", id: "name", name: "name", required: true, maxlength: "{rafi_lifecycle::entrant::MAX_NAME_CHARS}", autocomplete: "nickname", value: "{name}" }
-                            p { class: "label", "A first name or nickname is enough." }
+                            legend { class: "fieldset-legend text-sm", "Name shown on the screen (optional)" }
+                            div { class: "join w-full",
+                                input { class: "input input-lg join-item w-full", id: "name", name: "name", maxlength: "{rafi_lifecycle::entrant::MAX_NAME_CHARS}", autocomplete: "nickname", value: "{name}" }
+                                // Enabled by the WebAssembly (or the fallback):
+                                // fills in the next of `name_ideas`.
+                                button { class: "btn btn-lg join-item", r#type: "button", id: "name-dice", disabled: true, title: "Suggest a name", aria_label: "Suggest a name", "🎲" }
+                            }
+                            p { class: "label whitespace-normal", "A first name or nickname is enough. Leave it blank and we'll pick one for you, like Brave Otter." }
                         }
                         fieldset { class: "fieldset",
                             legend { class: "fieldset-legend text-sm", "Email" }
@@ -261,7 +276,7 @@ pub fn page(page: Page<'_>) -> String {
             footer { class: "mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 text-sm text-base-content/60",
                 a { class: "link link-hover", href: "{rules_href}", "Rules" }
                 a { class: "link link-hover", href: "{privacy_href}", "Privacy notice" }
-                a { class: "link link-hover", href: "/v/{raffle.slug}", "Check the draw yourself" }
+                a { class: "link link-hover", href: "{verify_href}", "Check the draw yourself" }
             }
         }
     });
@@ -280,6 +295,11 @@ pub fn page(page: Page<'_>) -> String {
         altcha_url: PageConfig::ALTCHA_URL.into(),
         screen_on: "Screen will stay on".to_owned(),
         keep_screen_on: "Keep my screen on".to_owned(),
+        name_ideas: if joining {
+            name_ideas.to_vec()
+        } else {
+            Vec::new()
+        },
     };
     let tail = format!(
         "<script type=\"application/json\" id=\"rafi-config\">{}</script><script>{LOADER}</script>",

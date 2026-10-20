@@ -36,8 +36,10 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
     } = full;
     let now = ids::now();
 
+    // Erased entrants have no name left: screens show the start of their ID.
     let known: HashMap<&str, Option<&str>> = entrants
         .iter()
+        .filter(|e| !e.erased)
         .map(|e| {
             let name = (!e.hidden).then_some(e.display_name.as_str());
             (e.id.as_str(), name)

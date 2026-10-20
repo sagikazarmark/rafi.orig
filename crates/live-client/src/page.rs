@@ -37,6 +37,10 @@ pub struct PageConfig {
     pub screen_on: String,
     #[serde(default)]
     pub keep_screen_on: String,
+    /// Generated names the join form's 🎲 button fills in, one after the
+    /// other.
+    #[serde(default)]
+    pub name_ideas: Vec<String>,
 }
 
 impl PageConfig {
@@ -71,6 +75,7 @@ mod tests {
             altcha_url: altcha_url(),
             screen_on: "on".into(),
             keep_screen_on: "keep".into(),
+            name_ideas: vec!["Brave Otter".into(), "Calm Koala".into()],
         }
     }
 

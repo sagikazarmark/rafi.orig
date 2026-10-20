@@ -55,6 +55,9 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
             let entrants = entrants::count_active(&app.db, id).await?;
             start::ready(usize::try_from(entrants).unwrap_or(0), items.len())
                 .map_err(Refusal::Start)?;
+            let fakes = entrants::count_fakes(&app.db, id).await?;
+            start::genuine(raffle.test_mode, usize::try_from(fakes).unwrap_or(0))
+                .map_err(Refusal::Start)?;
             // Close registration first so no join can slip in while we read the list.
             if !raffles::freeze(&app.db, id, from).await? {
                 return Err(Refusal::Changed.into());

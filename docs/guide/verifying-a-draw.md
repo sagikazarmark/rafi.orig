@@ -23,15 +23,19 @@ screen and the admin. The page downloads the raffle's published data and re-runs
   consistently, but anyone could have produced their randomness. A real event should never show this.
 - **❌ Verification failed.** Something doesn't match. The page lists the problems.
 
+A raffle drawn in test mode also says **🧪 TEST MODE: a rehearsal**: its entrants may be made up.
+
 It also shows:
 
+- **You're in**, when you open it from your phone's "Check the draw yourself": your entry is in the frozen list.
+  (The link carries your entrant ID after `#me=`, which stays in your browser.)
 - **Entrants**, **Prizes** and the **Manifest hash**
 - every draw: the prize, its **drand round** (linked to the beacon on `api.drand.sh`), the pool size and the winner
 - any **abandoned** draws: a warning naming the round and the pool. See below.
+- the **entrants**: everyone in the frozen list, by display name (hidden names masked) and the start of their ID,
+  with **Find your name**. Once the organizer erases personal data, only the IDs remain.
 - the event log and the raw manifest
-- a link to download the published data (`verify.json`). Besides the manifest and the log, it maps every entrant ID
-  to a display name (hidden names masked), until the organizer erases personal data. Use it to check that you were
-  in.
+- a link to download the published data (`verify.json`): the manifest, the log and the display names
 
 ## With `tools/verify.py`
 

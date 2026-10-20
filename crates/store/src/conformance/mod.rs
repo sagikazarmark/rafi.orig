@@ -16,7 +16,8 @@
 //!   100 bound parameters, and the version triggers;
 //! - **`domain.*`, the domain functions:** the freeze's steps, joins (the
 //!   cap, one entry per email, racing joins), fake entrants across
-//!   statements, erasure and its log, ending live channels, ALTCHA replays, the full
+//!   statements and with test mode, erasure (only once the raffle is over)
+//!   and its log, ending live channels, ALTCHA replays, the full
 //!   view, the participant snapshot, and the raffle's log:
 //!   [`save_raffle`](crate::save_raffle), its events (append-only) and its
 //!   draws, read back by every reader.
@@ -207,6 +208,7 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
         => domain::racing_joins_respect_the_cap,
     "domain.fakes_across_statements" => domain::adds_fakes_in_chunks,
     "domain.rules_fixed" => domain::rules_are_fixed_once_accepted,
+    "domain.test_mode_fakes" => domain::fakes_go_with_test_mode,
     "domain.owner_defaults" => domain::saves_owner_defaults,
     "domain.erasure_log" => domain::erases_and_logs_erasures,
     "domain.live_channels" => domain::live_channels_end_once,

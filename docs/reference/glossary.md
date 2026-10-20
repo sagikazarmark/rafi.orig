@@ -11,12 +11,13 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Prize** | What is given away: a name, a quantity, and optionally a sponsor. |
 | **Item** | One copy of a prize. Each item is drawn on its own, in any order the organizer picks live. |
 | **Entrant** | Someone in the raffle. They joined on their phone, were added by the organizer ("added by you"), or are a **fake** entrant in test mode. |
-| **Display name** | The name an entrant shows on the projector ("Name shown on the screen"). The organizer can hide or rename it. |
+| **Display name** | The name an entrant shows on the projector ("Name shown on the screen"). Optional when joining: left blank, it is a **generated name**. The organizer can hide or rename it. |
+| **Generated name** | An adjective and an animal, like "Brave Otter": for entrants who leave their name blank (or press 🎲), and for fake entrants |
 | **Entrant ID** | A random 128-bit ID in lowercase hex. It is public: the manifest lists entrants by it. |
-| **Claim code** | A private code shown on the entrant's phone and in the admin. A winner shows it to collect their prize. |
+| **Claim code** | A private code shown on the entrant's phone and in the admin. A winner shows it to collect their prize. Erasure clears it. |
 | **Join code** | The short code in the join URL `/j/<CODE>`, which is also on the projector |
 | **Slug** | The raffle's public name in `/s/<slug>`, `/v/<slug>`, `/rules/<slug>` and `/privacy/<slug>` |
-| **Test mode** | Rehearsal: the organizer can add fake entrants, and a TEST badge shows on every screen |
+| **Test mode** | Rehearsal: the organizer can add fake entrants, and a TEST badge shows on every screen, the verification page included. Switching it off removes the fakes; it is fixed once the list is frozen. |
 
 ## The lifecycle
 
@@ -30,6 +31,7 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Drawing** | At least one draw has started |
 | **Finished** | "Finish the raffle": nothing more can be drawn |
 | **Data erased** (`Purged`) | "Erase personal data now": names, emails and claim codes are gone. The anonymous raffle (manifest and log) stays. |
+| **Erase** (one entrant) | Once the raffle is finished, clears one entrant's personal data, on request. Until then nobody leaves the list. |
 | **End live updates** | Phones and the projector stop following the raffle live. This happens automatically a day after the finish. |
 
 ## The draw

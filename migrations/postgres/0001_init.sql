@@ -59,8 +59,9 @@ CREATE TABLE entrants (
     email_norm TEXT,
     source TEXT NOT NULL DEFAULT 'self',
     hidden BIGINT NOT NULL DEFAULT 0,
-    -- Private code shown only to the entrant and the organizer.
-    claim_code TEXT NOT NULL,
+    -- Private code shown only to the entrant and the organizer; NULL once
+    -- their personal data is erased.
+    claim_code TEXT,
     -- SHA-256 of the secret entrant token stored in the attendee's cookie.
     token_hash TEXT,
     consent_version TEXT,

@@ -9,9 +9,9 @@ each raffle shows its entrants is rendered from the raffle's settings at `/priva
 
 | Data | Who sees it |
 |---|---|
-| **Display name** | The projector (after a 5 s delay, unless the organizer hides it), the verification page (until erasure), the admin. The organizer can hide or rename it in one tap. Hidden names show as ★ ★ ★. |
+| **Display name** | The projector (after a 5 s delay, unless the organizer hides it), the verification page's list of entrants (until erasure), the admin. It is optional: an entrant who leaves it blank gets a generated one ("Brave Otter"), so nobody has to put their real name on a screen. The organizer can hide or rename it in one tap. Hidden names show as ★ ★ ★. |
 | **Email** | The admin only. It is never on the projector, in either public view, on the verification page, or in the raffle engine. |
-| **Claim code** | The entrant's own phone and the admin |
+| **Claim code** | The entrant's own phone and the admin, until erasure |
 | **Entrant ID** | Public. It is random, and is what the manifest and the event log contain. |
 | **Marketing consent** | The admin and the CSV export. It is a separate, optional, unticked box, and the consent version is stored with the entry. |
 
@@ -25,16 +25,23 @@ Once the list is frozen, `/v/<slug>` and `/api/r/<slug>/verify.json` publish:
 
 - the manifest: entrant IDs, item names, the algorithm, the drand chain
 - the event log: every draw, its round, signature, pool size and winner ID
-- a map from entrant ID to display name, so people can check that they're in. It is **emptied by erasure**.
+- a map from entrant ID to display name, so people can check that they're in: the verification page lists every
+  entrant with **Find your name**, and tells an entrant who opens it from their phone that they're in. An erased
+  entrant drops out of it (their ID stays in the manifest), so erasing everyone **empties it**.
+- whether the raffle was a rehearsal in **test mode**, whose entrants may be fakes. Switching test mode off removes
+  every fake entrant, and a raffle out of test mode never freezes with fakes in it.
 
 ## Erasure
 
-There is no automatic erasure. The organizer erases personal data by hand once prizes are handed over:
+There is no automatic erasure. The organizer erases personal data by hand once the raffle is finished:
 
 - **"Erase personal data now"** (the raffle's menu, once it is finished) erases every entrant's name, email and claim
   code, and ends live updates. The raffle's state becomes "Data erased".
-- **Erasing one entrant** (People tab) works on its own, for example on request. Before the freeze, removing an
-  entrant deletes them outright.
+- **Erasing one entrant** (People tab, once it is finished) works on its own, for example on request.
+- **Before the freeze**, removing an entrant deletes them outright.
+- **From the freeze until the finish**, nobody leaves the list: sharing their entry with the event is part of the
+  rules entrants accept. The organizer can hide or rename a name meanwhile, and a request to erase is carried out
+  once the raffle is finished.
 
 Entrant IDs and the event log stay, so the draw remains verifiable. Erasures are recorded (entrant ID and time
 only), so they can be re-applied after a database restore.

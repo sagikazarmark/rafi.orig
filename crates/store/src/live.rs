@@ -37,11 +37,12 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
                 "SELECT state, version, live_ended_at, manifest, opened_at FROM raffles WHERE id = ?1",
             )
             .bind(raffle_id),
-            // Only the entrants that were drawn, and only the names shown.
+            // Only the entrants that were drawn, and only the names shown: an
+            // erased entrant has none (phones show the start of their ID).
             db.query(
                 "SELECT e.id, CASE WHEN e.hidden = 1 THEN NULL ELSE e.display_name END AS display_name
                  FROM entrants e
-                 WHERE e.raffle_id = ?1
+                 WHERE e.raffle_id = ?1 AND e.erased = 0
                    AND e.id IN (SELECT entrant_id FROM draws WHERE raffle_id = ?1)",
             )
             .bind(raffle_id),

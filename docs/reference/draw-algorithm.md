@@ -133,6 +133,7 @@ These rules hold, and the replay enforces them:
 {
   "title": "…",
   "state": "drawing",
+  "test_mode": false,
   "manifest": "<the canonical manifest string, exactly as hashed>",
   "manifest_hash": "<hex>",
   "events": [ … ],
@@ -140,7 +141,9 @@ These rules hold, and the replay enforces them:
 }
 ```
 
-`names` lets people check that they are in the list. It is emptied when the organizer erases personal data.
+`names` lets people check that they are in the list: hidden names show as `★ ★ ★`. An entrant whose personal data
+is erased is no longer in it (their ID stays in the manifest), so once the organizer erases everyone's, it is
+empty. `test_mode` is `true` for a rehearsal, whose entrants may be fakes.
 
 ## Verification
 

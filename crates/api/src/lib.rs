@@ -152,7 +152,8 @@ pub struct AdminEntrant {
     pub email: Option<String>,
     pub source: rafi_lifecycle::entrant::Source,
     pub hidden: bool,
-    pub claim_code: String,
+    /// `None` once their personal data is erased.
+    pub claim_code: Option<String>,
     pub marketing: bool,
     pub created_at: i64,
     pub delivered: bool,
@@ -235,11 +236,16 @@ pub enum LifecycleCommand {
 pub struct VerifyData {
     pub title: String,
     pub state: RaffleState,
+    /// A rehearsal: drawn in test mode, possibly with fake entrants.
+    #[serde(default)]
+    pub test_mode: bool,
     /// The raffle's canonical manifest, exactly as hashed.
     pub manifest: String,
     pub manifest_hash: String,
     pub events: Vec<Event>,
-    /// Entrant ID → display name (until personal data is purged).
+    /// Entrant ID → display name, hidden names masked. Erased entrants
+    /// aren't listed (they are in the manifest, by ID): once personal data
+    /// is erased, this is empty.
     pub names: Vec<(String, String)>,
 }
 

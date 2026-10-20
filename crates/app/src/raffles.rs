@@ -3,7 +3,7 @@
 
 use rafi_api::{LifecycleCommand, RaffleDefaults, RaffleSettings, RaffleSummary};
 use rafi_lifecycle::{self as lifecycle, settings};
-use rafi_store::{RaffleRow, audit, defaults, prizes, raffles};
+use rafi_store::{RaffleRow, audit, defaults, entrants, prizes, raffles};
 
 use crate::{App, Refusal, Result, ids, owned};
 
@@ -109,6 +109,8 @@ pub fn settings_of(r: &RaffleRow) -> RaffleSettings {
     }
 }
 
+/// Saves a raffle's settings. Switching test mode off removes the raffle's
+/// fake entrants in the same write.
 pub async fn update_settings(app: &App, owner: &str, id: &str, s: RaffleSettings) -> Result<()> {
     let raffle = owned(app, owner, id).await?;
     let normalized = settings::Settings {
@@ -124,11 +126,31 @@ pub async fn update_settings(app: &App, owner: &str, id: &str, s: RaffleSettings
     if raffle.test_mode != s.test_mode && !raffle.state.test_mode_editable() {
         return Err(Refusal::TestModeLocked.into());
     }
-    raffles::update_settings(&app.db, id, &stored(normalized, s.test_mode))
-        .await?
-        .then_some(())
-        .ok_or(Refusal::RulesFixed)?;
-    // Nothing phones see: the participant view has no settings.
+    // For the audit log: how many fakes switching test mode off removes.
+    let fakes = if raffle.test_mode && !s.test_mode {
+        entrants::count_fakes(&app.db, id).await?
+    } else {
+        0
+    };
+    let write = raffles::update_settings(&app.db, id, &stored(normalized, s.test_mode)).await?;
+    if !write.written {
+        // Test mode changed after a freeze since the read above, or the rules
+        // after someone accepted them.
+        let frozen = raffles::get(&app.db, id)
+            .await?
+            .is_some_and(|r| r.test_mode != s.test_mode && !r.state.test_mode_editable());
+        return Err(if frozen {
+            Refusal::TestModeLocked
+        } else {
+            Refusal::RulesFixed
+        }
+        .into());
+    }
+    if write.fakes_removed {
+        audit::record(&app.db, id, owner, "remove_fakes", &fakes.to_string()).await?;
+    }
+    // Nothing phones see: the participant view has no settings, and names
+    // only of drawn entrants (fakes are never drawn outside test mode).
     Ok(())
 }
 

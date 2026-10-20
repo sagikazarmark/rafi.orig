@@ -204,8 +204,10 @@ pub(super) fn DrawConsole(
                                                 if let Some(email) = &w.email { p { class: "text-xs text-base-content/60", "{email}" } }
                                                 if w.source == Source::Manual { p { class: "text-xs text-base-content/60", "added by you" } }
                                             }
-                                            span { class: "ticket bg-accent px-5 py-2 text-accent-content",
-                                                span { class: "claim-code text-lg", "{w.claim_code}" }
+                                            if let Some(code) = &w.claim_code {
+                                                span { class: "ticket bg-accent px-5 py-2 text-accent-content",
+                                                    span { class: "claim-code text-lg", "{code}" }
+                                                }
                                             }
                                         }
                                     }

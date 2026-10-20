@@ -69,11 +69,12 @@ stateDiagram-v2
 3. **Prizes:** add each prize with a quantity and, optionally, a sponsor. Each copy is drawn on its own, in any
    order you like during the draw.
 4. **Rehearse.** Turn on **Test mode** in settings. A TEST badge shows on every screen, and the People tab offers
-   **Add 25 fake entrants**. Run through the draw on the projector.
+   **Add 25 fake entrants**, with generated names like "Brave Otter". Run through the draw on the projector.
 
-> Rehearse on a copy: **Duplicate** (the raffle's ⋯ menu) copies prizes and settings but not entrants. Switching
-> test mode off does **not** remove fake entrants that are already in, so don't rehearse on the raffle you'll run
-> live, or remove the fakes before opening registration.
+> Rehearse on a copy: **Duplicate** (the raffle's ⋯ menu) copies prizes and settings but not entrants, and a raffle
+> drawn in test mode stays a rehearsal: its verification page says **TEST MODE** for good. To rehearse on the raffle
+> you'll run live, switch test mode off before the freeze: that removes every fake entrant. A raffle that isn't in
+> test mode never freezes with fakes in it.
 
 ## When doors open
 
@@ -81,7 +82,8 @@ stateDiagram-v2
    keeps the screen awake). It shows the title, the prizes and "Registration opens soon".
 2. **Open registration.** The projector now shows a QR code, the short join URL and code, a live entrant count and
    recent names, plus "No smartphone? Come to the organizer!".
-3. Attendees scan and join with a display name and email (see [For participants](for-participants.md)).
+3. Attendees scan and join with their email and a display name, which is optional: whoever leaves it blank gets a
+   generated one, like "Brave Otter" (see [For participants](for-participants.md)).
 4. While people join, use the **People** tab to:
    - **add someone without a smartphone** by name (email optional)
    - **hide** or **rename** a display name on screen with one tap (a troll, a typo). New names reach the projector
@@ -99,6 +101,9 @@ Press **Freeze list & start the draw** when everyone is in. It asks first, becau
 - The entrant list is frozen into the **manifest** and published as a hash and a list of anonymous IDs. The
   **Verification page** link appears.
 - Prizes are locked. From now on an item can only be **withdrawn**.
+- Nobody leaves the list until the raffle is finished: the People tab can still **hide** or **rename** a name, and
+  a drawn winner who doesn't want their prize is **Declined**. Asked to erase someone's data during the event? Hide
+  their name now, and erase their personal data once the raffle is finished.
 - The raffle is handed to the raffle engine.
 
 If handing over fails (for example, the engine is briefly unreachable), the admin offers **Retry handing the list
@@ -130,6 +135,7 @@ and phones show **Thanks for playing!** with the winners and a link to the verif
 ## After the event
 
 - **Mark delivered** (People tab) for prizes you send out later. Only a winner who claimed can be marked delivered.
+- **Erase one entrant's personal data** (People tab) when someone asks.
 - **Erase personal data now** (⋯ menu) once you no longer need names and emails. Names, emails and claim codes go,
   and the anonymous draw log stays verifiable. This can't be undone. There is no automatic erasure, so do it
   yourself. See [Privacy and abuse](../explanation/privacy-and-abuse.md).

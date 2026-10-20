@@ -2,8 +2,8 @@
 // (no WebAssembly, iOS Lockdown Mode; not ready in time; a panic). It does the
 // same job without the live channel: polls the participant view, renders the
 // card the way rafi-live-client's Card does, solves the proof-of-work, and keeps the
-// theme toggle and the wake/sound button working. The page's config is the
-// JSON in #rafi-config (see apps/participant/src/config.rs).
+// theme toggle, the name suggestions and the wake/sound button working. The
+// page's config is the JSON in #rafi-config (see apps/participant/src/config.rs).
 // Class names here are scanned by Tailwind (see tailwind.css).
 (function () {
   "use strict";
@@ -291,6 +291,18 @@
   if (wakeBtn) wakeBtn.addEventListener("click", keepAwake);
   var form = document.getElementById("join");
   if (form) form.addEventListener("submit", unlockAudio);
+  // ---- Name suggestions: the 🎲 button fills in the next generated name ----
+  var dice = document.getElementById("name-dice");
+  var nameInput = document.getElementById("name");
+  var ideas = cfg.name_ideas || [];
+  if (dice && nameInput && ideas.length) {
+    var nextIdea = 0;
+    dice.addEventListener("click", function () {
+      nameInput.value = ideas[nextIdea];
+      nextIdea = (nextIdea + 1) % ideas.length;
+    });
+    dice.disabled = false;
+  }
   // A solution past its deadline (a phone left on the form) is solved again
   // before the form posts.
   if (form && cfg.needs_altcha) form.addEventListener("submit", function (e) {

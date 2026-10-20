@@ -566,7 +566,7 @@ pub fn SettingsForm(
                 SwitchField {
                     context: form.field(f.test_mode()),
                     label: "🧪 Test mode",
-                    description: "Rehearse with fake entrants; a TEST badge shows on every screen.",
+                    description: "Rehearse with fake entrants; a TEST badge shows on every screen. Switching it off removes the fake entrants. It can't change once the list is frozen.",
                     color: SwitchColor::Warning,
                 }
             }

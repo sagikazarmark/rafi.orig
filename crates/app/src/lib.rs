@@ -38,7 +38,7 @@ pub use altcha::ProofOfWork;
 pub use draw::{command, start_draw};
 pub use entrants::{
     CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_fakes, add_manual, end_live, join,
-    patch_entrant, purge, remove_entrant,
+    name_ideas, patch_entrant, purge, remove_entrant,
 };
 pub use error::{Error, Refusal, Result};
 pub use prizes::{delete_prize, upsert_prize};

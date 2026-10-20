@@ -1,6 +1,7 @@
 //! The people tab: entrants, adding and editing them.
 
 use dioxus_icons::lucide::{Check, Eye, EyeOff, Pencil, Trash, Users};
+use rafi_lifecycle::entrant::Removal;
 
 use super::*;
 
@@ -15,6 +16,7 @@ pub(super) fn People(
     on_change: EventHandler<()>,
 ) -> Element {
     let editable = admin.view.state.entrants_editable();
+    let removal = admin.view.state.removal();
     let mut filter = use_signal(String::new);
     let id = admin.id.clone();
     let fakes = move |_| {
@@ -34,7 +36,9 @@ pub(super) fn People(
             q.is_empty()
                 || e.display_name.to_lowercase().contains(&q)
                 || e.email.as_deref().unwrap_or("").to_lowercase().contains(&q)
-                || e.claim_code.to_lowercase() == q
+                || e.claim_code
+                    .as_deref()
+                    .is_some_and(|c| c.to_lowercase() == q)
         })
         .cloned()
         .collect();
@@ -70,7 +74,7 @@ pub(super) fn People(
                         thead { tr { th { "Name" } th { "Email" } th { "Claim code" } th { "Status" } th {} } }
                         tbody {
                             for e in shown.iter() {
-                                EntrantRow { key: "{e.id}", raffle_id: admin.id.clone(), entrant: e.clone(), editable, error, on_change }
+                                EntrantRow { key: "{e.id}", raffle_id: admin.id.clone(), entrant: e.clone(), removal, error, on_change }
                             }
                         }
                     }
@@ -92,7 +96,8 @@ fn initials(name: &str) -> String {
 fn EntrantRow(
     raffle_id: String,
     entrant: AdminEntrant,
-    editable: bool,
+    /// How the entrant can be removed now, if at all.
+    removal: Option<Removal>,
     error: Signal<Option<String>>,
     on_change: EventHandler<()>,
 ) -> Element {
@@ -170,7 +175,7 @@ fn EntrantRow(
                 }
             }
             td { class: "text-sm text-base-content/70", "{e.email.clone().unwrap_or_default()}" }
-            td { span { class: "claim-code text-sm", "{e.claim_code}" } }
+            td { span { class: "claim-code text-sm", "{e.claim_code.clone().unwrap_or_default()}" } }
             td { if !status.is_empty() { span { class: "badge badge-soft {status_class} whitespace-nowrap", "{status}" } } }
             td {
                 if !e.erased {
@@ -189,24 +194,30 @@ fn EntrantRow(
                                 if e.delivered { "✓ delivered" } else { "Mark delivered" }
                             }
                         }
-                        button {
-                            class: "btn btn-ghost btn-xs btn-square tooltip text-error",
-                            "data-tip": if editable { "Remove" } else { "Erase personal data" },
-                            onclick: move |_| confirm.set(true),
-                            Trash { class: "size-4" }
+                        if let Some(removal) = removal {
+                            button {
+                                class: "btn btn-ghost btn-xs btn-square tooltip text-error",
+                                "data-tip": match removal { Removal::Delete => "Remove", Removal::Erase => "Erase personal data" },
+                                onclick: move |_| confirm.set(true),
+                                Trash { class: "size-4" }
+                            }
                         }
                     }
-                    Confirm {
-                        open: confirm,
-                        title: if editable { format!("Remove {}?", e.display_name) } else { format!("Erase {}'s personal data?", e.display_name) },
-                        body: if editable {
-                            "They are taken off the entrant list. They can join again while registration is open.".to_owned()
-                        } else {
-                            "The list is frozen, so the anonymous entry stays (the draw must remain verifiable), but the name, email and claim code are erased for good.".to_owned()
-                        },
-                        action: if editable { "Remove" } else { "Erase" },
-                        danger: true,
-                        on_confirm: { let remove = remove.clone(); move |_| { spawn(remove()); } },
+                    if let Some(removal) = removal {
+                        Confirm {
+                            open: confirm,
+                            title: match removal {
+                                Removal::Delete => format!("Remove {}?", e.display_name),
+                                Removal::Erase => format!("Erase {}'s personal data?", e.display_name),
+                            },
+                            body: match removal {
+                                Removal::Delete => "They are taken off the entrant list. They can join again while registration is open.".to_owned(),
+                                Removal::Erase => "The anonymous entry stays (the draw must remain verifiable), but the name, email and claim code are erased for good.".to_owned(),
+                            },
+                            action: match removal { Removal::Delete => "Remove", Removal::Erase => "Erase" },
+                            danger: true,
+                            on_confirm: { let remove = remove.clone(); move |_| { spawn(remove()); } },
+                        }
                     }
                 }
             }

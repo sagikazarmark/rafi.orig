@@ -3,15 +3,27 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use dioxus_icons::lucide::{Check, Dice5, Download, Flag, Lock, ShieldCheck, TriangleAlert, X};
+use dioxus_icons::lucide::{
+    Check, Dice5, Download, Flag, Lock, Search, ShieldCheck, TriangleAlert, Users, X,
+};
 use rafi_raffle::{EntrantId, Event, ItemId};
 
 use super::{Brand, ThemeToggle};
 use crate::api;
 
+/// The entrant ID after `#me=` in the page's URL: the participant page links
+/// here with it, so an entrant can see that they are in the frozen list.
+fn me_from_url() -> Option<String> {
+    let hash = web_sys::window()?.location().hash().ok()?;
+    let id = hash.strip_prefix("#me=")?.trim().to_lowercase();
+    (!id.is_empty() && id.chars().all(|c| c.is_ascii_hexdigit())).then_some(id)
+}
+
 #[component]
 pub fn Verify(slug: String) -> Element {
     let json_href = format!("/api/r/{slug}/verify.json");
+    let me = use_hook(me_from_url);
+    let mut query = use_signal(String::new);
     let data = use_resource(move || {
         let slug = slug.clone();
         async move { api::get_verify(slug).await }
@@ -58,11 +70,84 @@ pub fn Verify(slug: String) -> Element {
             let ok = report.ok();
             let manifest = d.manifest.clone();
             let entrants = doc.as_ref().map(|d| d.entrants.len()).unwrap_or_default();
+            // Everyone in the frozen list, by name (erased entrants have
+            // none left), then by ID.
+            let mut listed: Vec<(String, Option<String>)> = doc
+                .as_ref()
+                .map(|d| {
+                    d.entrants
+                        .iter()
+                        .map(|id| {
+                            let name = names.get(id.as_str()).map(|n| (*n).to_owned());
+                            (id.to_string(), name)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            listed.sort_by_cached_key(|(id, name)| {
+                (
+                    name.is_none(),
+                    name.as_deref().map(str::to_lowercase),
+                    id.clone(),
+                )
+            });
+            let mine = me
+                .as_ref()
+                .map(|me| (me.clone(), listed.iter().find(|(id, _)| id == me).cloned()));
+            let q = query().trim().to_lowercase();
+            let shown: Vec<&(String, Option<String>)> = listed
+                .iter()
+                .filter(|(id, name)| {
+                    q.is_empty()
+                        || id.starts_with(&q)
+                        || name
+                            .as_deref()
+                            .is_some_and(|n| n.to_lowercase().contains(&q))
+                })
+                .take(200)
+                .collect();
+            let more = listed.len() > shown.len() && q.is_empty();
             let prizes = doc.as_ref().map(|d| d.items.len()).unwrap_or_default();
             rsx! {
                 div { class: "space-y-2",
                     p { class: "badge badge-soft badge-primary gap-1 font-semibold", ShieldCheck { class: "size-3.5" } "Independent verification" }
                     h1 { class: "text-4xl font-extrabold", "{d.title}" }
+                }
+                if d.test_mode {
+                    div { role: "note", class: "alert alert-warning shadow-sm",
+                        span { class: "text-3xl", "🧪" }
+                        div {
+                            p { class: "font-display text-xl font-extrabold", "TEST MODE: a rehearsal." }
+                            p { class: "text-sm opacity-90", "The organizer ran this raffle to try it out. Its entrants may be made up, and its prizes aren't real." }
+                        }
+                    }
+                }
+                match &mine {
+                    Some((_, Some((id, name)))) => rsx! {
+                        div { role: "status", class: "alert alert-success alert-soft",
+                            span { class: "text-2xl", "🎟️" }
+                            div {
+                                p { class: "font-semibold", "You're in." }
+                                p { class: "text-sm",
+                                    "Your entry, "
+                                    if let Some(name) = name { strong { "{name} " } }
+                                    span { class: "font-mono", "{short(id)}…" }
+                                    ", is in the frozen entrant list that every draw below was made from."
+                                }
+                            }
+                        }
+                    },
+                    Some((id, None)) => rsx! {
+                        div { role: "alert", class: "alert alert-warning alert-soft",
+                            TriangleAlert { class: "size-5" }
+                            p { class: "text-sm",
+                                "The entry "
+                                span { class: "font-mono", "{short(id)}…" }
+                                " from your link is not in this raffle's frozen entrant list. If you think it should be, ask the organizer."
+                            }
+                        }
+                    },
+                    None => rsx! {},
                 }
                 if ok {
                     div { role: "status", class: "alert alert-success shadow-sm animate-pop",
@@ -157,6 +242,37 @@ pub fn Verify(slug: String) -> Element {
                             ul { class: "list-inside list-disc text-error",
                                 for e in report.errors.iter() { li { "{e}" } }
                             }
+                        }
+                    }
+                }
+                section { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
+                    div { class: "card-body gap-3",
+                        h2 { class: "card-title", Users { class: "size-5 text-primary" } "Entrants" }
+                        p { class: "text-sm text-base-content/70",
+                            "Everyone in the frozen list, which the manifest hash commits to. Find your name to check you were in."
+                        }
+                        label { class: "input w-full",
+                            Search { class: "size-4 opacity-50" }
+                            input { class: "grow", r#type: "search", placeholder: "Find your name", aria_label: "Find your name", value: "{query}", oninput: move |e| query.set(e.value()) }
+                        }
+                        if shown.is_empty() {
+                            p { class: "text-sm text-base-content/60", "Nobody by that name." }
+                        } else {
+                            ul { class: "flex flex-wrap gap-2",
+                                for (id, name) in shown.iter() {
+                                    li { key: "{id}",
+                                        class: if me.as_deref() == Some(id.as_str()) { "badge badge-lg badge-success gap-2" } else { "badge badge-lg badge-ghost gap-2" },
+                                        if let Some(name) = name { span { class: "font-semibold", "{name}" } }
+                                        span { class: "font-mono text-xs opacity-60", "{short(id)}" }
+                                    }
+                                }
+                            }
+                        }
+                        if more {
+                            p { class: "text-xs text-base-content/60", "Showing {shown.len()} of {listed.len()}: search to find the rest." }
+                        }
+                        p { class: "text-xs text-base-content/60",
+                            "Hidden names show as ★ ★ ★. Once the organizer erases personal data, only the IDs remain."
                         }
                     }
                 }

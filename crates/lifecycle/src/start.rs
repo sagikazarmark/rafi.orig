@@ -39,6 +39,8 @@ pub enum Refusal {
     NoEntrants,
     /// Nothing to draw for.
     NoPrizes,
+    /// Fake entrants are on the list of a raffle that isn't in test mode.
+    FakeEntrants,
 }
 
 /// The next step for a raffle in `state`, with or without a stored manifest
@@ -65,6 +67,17 @@ pub fn ready(entrants: usize, items: usize) -> Result<(), Refusal> {
     }
     if entrants == 0 {
         return Err(Refusal::NoEntrants);
+    }
+    Ok(())
+}
+
+/// Whether a raffle in test mode or not (`test_mode`), with `fakes` fake
+/// entrants, may freeze: fakes only ever go into a rehearsal's manifest.
+/// (Switching test mode off removes them; this holds the line if any are
+/// left all the same.)
+pub fn genuine(test_mode: bool, fakes: usize) -> Result<(), Refusal> {
+    if !test_mode && fakes > 0 {
+        return Err(Refusal::FakeEntrants);
     }
     Ok(())
 }
@@ -135,5 +148,12 @@ mod tests {
         assert_eq!(ready(0, 0), Err(Refusal::NoPrizes));
         assert_eq!(ready(0, 1), Err(Refusal::NoEntrants));
         assert_eq!(ready(1, 1), Ok(()));
+    }
+
+    #[test]
+    fn fakes_freeze_only_in_test_mode() {
+        assert_eq!(genuine(true, 3), Ok(()));
+        assert_eq!(genuine(false, 0), Ok(()));
+        assert_eq!(genuine(false, 1), Err(Refusal::FakeEntrants));
     }
 }

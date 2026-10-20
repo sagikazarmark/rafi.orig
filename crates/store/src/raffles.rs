@@ -202,13 +202,37 @@ fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>) -> Query<'a> {
     .bind(now)
 }
 
-pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<bool> {
-    settings_query(db, id, s).run().await.map(|n| n > 0)
+/// What [`update_settings`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SettingsWrite {
+    /// The settings were written: `false` if they changed the rules after
+    /// someone accepted them, or test mode once the list is frozen.
+    pub written: bool,
+    /// Whether fake entrants went with test mode. (Change counts are only
+    /// zero or not on every backend: D1's include the triggers' writes.)
+    pub fakes_removed: bool,
+}
+
+/// Writes the settings and, in the same batch, removes the fake entrants of a
+/// raffle that is now out of test mode: there are never fakes outside a
+/// rehearsal.
+pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<SettingsWrite> {
+    let counts = db
+        .batch(vec![
+            settings_query(db, id, s),
+            crate::entrants::delete_stray_fakes(db, id),
+        ])
+        .await?;
+    Ok(SettingsWrite {
+        written: counts.first().is_some_and(|&n| n > 0),
+        fakes_removed: counts.get(1).is_some_and(|&n| n > 0),
+    })
 }
 
 /// Writes the settings, unless they change the rules after someone accepted
-/// them ([`rafi_lifecycle::settings::rules_editable`]): the check and the
-/// write are one statement, so no join slips in between.
+/// them ([`rafi_lifecycle::settings::rules_editable`]) or test mode once the
+/// entrant list is frozen ([`RaffleState::test_mode_editable`]): the checks
+/// and the write are one statement, so no join or freeze slips in between.
 fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     let accepted = Source::ALL
         .into_iter()
@@ -220,7 +244,9 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
         "UPDATE raffles SET title = ?1, description = ?2, organizer_name = ?3, contact_email = ?4, rules = ?5,
          event_date = ?6, test_mode = ?7, updated_at = ?8
          WHERE id = ?9 AND (rules = ?5 OR NOT EXISTS (
-             SELECT 1 FROM entrants WHERE raffle_id = ?9 AND source IN ({accepted})))"
+             SELECT 1 FROM entrants WHERE raffle_id = ?9 AND source IN ({accepted})))
+           AND (test_mode = ?7 OR state IN ({test_mode_editable}))",
+        test_mode_editable = states(RaffleState::test_mode_editable),
     ))
     .bind(s.title)
     .bind(s.description)

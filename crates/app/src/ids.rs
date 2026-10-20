@@ -19,6 +19,25 @@ pub fn code(len: usize) -> String {
     crate::codes::from_bytes(&random_bytes::<16>(), len)
 }
 
+/// A random generated display name, like "Brave Otter"
+/// ([`rafi_lifecycle::entrant::generated_name`]).
+pub fn generated_name() -> String {
+    rafi_lifecycle::entrant::generated_name(u64::from_le_bytes(random_bytes::<8>()))
+}
+
+/// A random generated display name that isn't in `taken`, if one turns up in a
+/// few tries; otherwise one that is (entrants are told apart by their ID).
+pub fn generated_name_besides(taken: &std::collections::HashSet<String>) -> String {
+    let mut name = generated_name();
+    for _ in 0..20 {
+        if !taken.contains(&name) {
+            break;
+        }
+        name = generated_name();
+    }
+    name
+}
+
 /// A URL slug derived from a title plus a random suffix.
 pub fn slug(title: &str) -> String {
     let mut base: String = title

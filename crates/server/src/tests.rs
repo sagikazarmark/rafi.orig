@@ -298,7 +298,7 @@ async fn full_raffle_flow() {
         .find(|e| e.display_name == "Person 0")
         .unwrap();
     assert!(
-        page.contains(&me.claim_code),
+        page.contains(me.claim_code.as_deref().unwrap()),
         "claim code is shown to the entrant"
     );
 
@@ -528,6 +528,8 @@ async fn full_raffle_flow() {
         )
         .ok()
     );
+    assert!(data.names.is_empty(), "no names are left: {:?}", data.names);
+    assert!(entrants.iter().all(|e| e.claim_code.is_none()));
 }
 
 #[tokio::test]
@@ -573,7 +575,8 @@ async fn public_view_has_no_personal_data() {
     assert_eq!(status, StatusCode::OK);
     let claim = entrants::list(&app.db, &raffle.id).await.unwrap()[0]
         .claim_code
-        .clone();
+        .clone()
+        .unwrap();
     assert!(body.contains("Visible"));
     assert!(!body.contains("secret-address"), "email leaked: {body}");
     assert!(!body.contains(&format!("\"{claim}\"")), "claim code leaked");
@@ -710,7 +713,7 @@ async fn participant_view_has_no_personal_data() {
     assert!(!text.contains("@example.com"), "an email: {text}");
     for e in &entrants {
         assert!(
-            !text.contains(&format!("\"{}\"", e.claim_code)),
+            !text.contains(&format!("\"{}\"", e.claim_code.as_deref().unwrap())),
             "a claim code: {text}"
         );
     }
@@ -1835,4 +1838,258 @@ async fn erasures_are_logged_without_personal_data() {
     service::purge(&app, OWNER, &raffle.id).await.unwrap();
     let again: Vec<serde_json::Value> = app.db.query("SELECT * FROM erasures").all().await.unwrap();
     assert_eq!(again.len(), log.len(), "purging again has nothing to do");
+}
+
+/// Leaving the name blank gets a generated one, which the page then shows;
+/// the form offers generated names to pick from.
+#[tokio::test]
+async fn a_blank_name_gets_a_generated_one() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let (_, _, page) = send(
+        &router,
+        Request::get(format!("/j/{}", raffle.join_code))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(page.contains("id=\"name-dice\""), "the 🎲 button");
+    let name_input = page
+        .split("id=\"name\"")
+        .nth(1)
+        .and_then(|rest| rest.split('>').next())
+        .unwrap();
+    assert!(!name_input.contains("required"), "optional: {name_input}");
+    let config: rafi_live_client::PageConfig = serde_json::from_str(
+        page.split("id=\"rafi-config\">")
+            .nth(1)
+            .and_then(|rest| rest.split("</script>").next())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(!config.name_ideas.is_empty());
+    for idea in &config.name_ideas {
+        assert_eq!(
+            rafi_lifecycle::entrant::display_name(idea).as_ref(),
+            Ok(idea)
+        );
+    }
+
+    let (status, cookie, _) = join(&router, &raffle.join_code, "   ", "blank@example.com").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let entrant = entrants::list(&app.db, &raffle.id).await.unwrap().remove(0);
+    let generated: std::collections::HashSet<String> = (0
+        ..rafi_lifecycle::entrant::GENERATED_NAMES)
+        .map(rafi_lifecycle::entrant::generated_name)
+        .collect();
+    assert!(
+        generated.contains(&entrant.display_name),
+        "{}",
+        entrant.display_name
+    );
+    let (_, _, page) = send(
+        &router,
+        Request::get(format!("/j/{}", raffle.join_code))
+            .header(header::COOKIE, cookie.unwrap())
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(page.contains(&entrant.display_name), "shown on the ticket");
+    assert!(
+        page.contains(&format!("/v/{}#me={}", raffle.slug, entrant.id)),
+        "the verification link finds them"
+    );
+
+    // A name that is too long is still refused.
+    let (status, _, page) = join(
+        &router,
+        &raffle.join_code,
+        &"x".repeat(rafi_lifecycle::entrant::MAX_NAME_CHARS + 1),
+        "long@example.com",
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(page.contains("leave it blank"), "{page}");
+}
+
+/// From the freeze until the raffle finishes, nobody leaves the list; once it
+/// has, one entrant's personal data can be erased, and the published names
+/// drop them.
+#[tokio::test]
+async fn entrants_are_erased_only_once_the_raffle_is_over() {
+    let app = app().await;
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let mut ids = Vec::new();
+    for name in ["Anna", "Bence", "Csilla"] {
+        ids.push(
+            service::add_manual(&app, OWNER, &raffle.id, name, None)
+                .await
+                .unwrap(),
+        );
+    }
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    let refused = service::remove_entrant(&app, OWNER, &raffle.id, &ids[0]).await;
+    assert!(
+        matches!(
+            refused,
+            Err(service::Error::Refused(service::Refusal::NotRemovable))
+        ),
+        "{refused:?}"
+    );
+    // Hiding still works.
+    service::patch_entrant(
+        &app,
+        OWNER,
+        &raffle.id,
+        &ids[1],
+        rafi_api::EntrantPatch {
+            hidden: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        entrants::list(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|e| !e.erased)
+    );
+
+    service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
+        .await
+        .unwrap();
+    service::remove_entrant(&app, OWNER, &raffle.id, &ids[0])
+        .await
+        .unwrap();
+    let anna = entrants::get(&app.db, &raffle.id, &ids[0])
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(anna.erased && anna.claim_code.is_none());
+
+    let data = service::verify_data(&app, &raffle.slug).await.unwrap();
+    let names: std::collections::HashMap<&str, &str> = data
+        .names
+        .iter()
+        .map(|(id, n)| (id.as_str(), n.as_str()))
+        .collect();
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert!(!names.contains_key(ids[0].as_str()), "erased: no name");
+    assert_eq!(names[ids[1].as_str()], rafi_live_client::HIDDEN_NAME);
+    assert_eq!(names[ids[2].as_str()], "Csilla");
+    let manifest: rafi_raffle::Manifest = serde_json::from_str(&data.manifest).unwrap();
+    assert_eq!(
+        manifest.entrants.len(),
+        3,
+        "the erased ID stays in the list"
+    );
+    assert!(!data.test_mode);
+}
+
+/// Switching test mode off removes the fake entrants; a raffle out of test
+/// mode doesn't freeze with fakes; fakes get generated names; the
+/// verification data says a rehearsal is one.
+#[tokio::test]
+async fn fakes_stay_in_test_mode() {
+    let app = app().await;
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    let set_test_mode = |on: bool| {
+        let mut settings = service::settings_of(&raffle);
+        settings.test_mode = on;
+        service::update_settings(&app, OWNER, &raffle.id, settings)
+    };
+    set_test_mode(true).await.unwrap();
+    service::add_fakes(&app, OWNER, &raffle.id, 5)
+        .await
+        .unwrap();
+    service::add_manual(&app, OWNER, &raffle.id, "Real Person", None)
+        .await
+        .unwrap();
+    let listed = entrants::list(&app.db, &raffle.id).await.unwrap();
+    let fakes: Vec<_> = listed
+        .iter()
+        .filter(|e| e.source == rafi_lifecycle::entrant::Source::Fake)
+        .collect();
+    assert_eq!(fakes.len(), 5);
+    let generated: std::collections::HashSet<String> = (0
+        ..rafi_lifecycle::entrant::GENERATED_NAMES)
+        .map(rafi_lifecycle::entrant::generated_name)
+        .collect();
+    assert!(
+        fakes
+            .iter()
+            .all(|e| generated.contains(&e.display_name) && e.consent_version.is_none()),
+        "{fakes:?}"
+    );
+
+    set_test_mode(false).await.unwrap();
+    let left = entrants::list(&app.db, &raffle.id).await.unwrap();
+    assert_eq!(left.len(), 1, "the fakes went with test mode");
+    assert_eq!(left[0].display_name, "Real Person");
+    let audit: Vec<(String, String)> = app
+        .db
+        .query("SELECT action, detail FROM audit WHERE raffle_id = ? ORDER BY id")
+        .bind(&raffle.id)
+        .all()
+        .await
+        .unwrap();
+    assert_eq!(
+        audit.last(),
+        Some(&("remove_fakes".into(), "5".into())),
+        "{audit:?}"
+    );
+    assert!(
+        service::add_fakes(&app, OWNER, &raffle.id, 1)
+            .await
+            .is_err(),
+        "no fakes outside test mode"
+    );
+
+    // Fakes left behind all the same (say, by a restored backup): no freeze.
+    app.db
+        .query(
+            "INSERT INTO entrants (id, raffle_id, display_name, source, claim_code, created_at)
+             VALUES ('ffffffffffffffffffffffffffffffff', ?, 'Stray', 'fake', 'S1', 0)",
+        )
+        .bind(&raffle.id)
+        .run()
+        .await
+        .unwrap();
+    let refused = service::start_draw(&app, OWNER, &raffle.id).await;
+    assert!(
+        matches!(
+            refused,
+            Err(service::Error::Refused(service::Refusal::Start(
+                rafi_lifecycle::start::Refusal::FakeEntrants
+            )))
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        raffles::get(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        RaffleState::Open
+    );
+
+    // A rehearsal freezes with its fakes, and says so.
+    set_test_mode(true).await.unwrap();
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    let data = service::verify_data(&app, &raffle.slug).await.unwrap();
+    assert!(data.test_mode);
+    assert!(
+        matches!(
+            set_test_mode(false).await,
+            Err(service::Error::Refused(service::Refusal::TestModeLocked))
+        ),
+        "test mode is fixed once frozen"
+    );
 }

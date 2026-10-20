@@ -76,6 +76,139 @@ pub fn display_name(input: &str) -> Result<String, NameError> {
     Ok(name)
 }
 
+/// The first word of a generated name ([`generated_name`]): friendly, so
+/// none reads as an insult on the projector.
+const ADJECTIVES: &[&str] = &[
+    "Agile", "Amber", "Astute", "Bold", "Brave", "Breezy", "Bright", "Brisk", "Bubbly", "Calm",
+    "Candid", "Cheerful", "Chipper", "Clever", "Cosmic", "Cozy", "Crafty", "Curious", "Dapper",
+    "Daring", "Dazzling", "Eager", "Earnest", "Electric", "Fearless", "Fluffy", "Friendly",
+    "Frosty", "Gentle", "Giddy", "Gleaming", "Golden", "Graceful", "Grand", "Happy", "Hardy",
+    "Hearty", "Humble", "Jazzy", "Jolly", "Jovial", "Keen", "Kind", "Lively", "Lucky", "Lunar",
+    "Magic", "Mellow", "Merry", "Mighty", "Misty", "Modest", "Nifty", "Nimble", "Noble", "Peppy",
+    "Perky", "Placid", "Plucky", "Polite", "Proud", "Quick", "Quiet", "Quirky", "Radiant", "Rapid",
+    "Rosy", "Royal", "Rustic", "Shiny", "Silent", "Silver", "Sleek", "Smart", "Snappy", "Snug",
+    "Solar", "Sparkly", "Speedy", "Spry", "Steady", "Stellar", "Sunny", "Swift", "Tidy", "Trusty",
+    "Upbeat", "Valiant", "Velvet", "Vivid", "Warm", "Wise", "Witty", "Zany", "Zesty", "Zippy",
+];
+
+/// The second word of a generated name ([`generated_name`]).
+const ANIMALS: &[&str] = &[
+    "Aardvark",
+    "Alpaca",
+    "Antelope",
+    "Armadillo",
+    "Badger",
+    "Beaver",
+    "Bison",
+    "Bobcat",
+    "Buffalo",
+    "Camel",
+    "Capybara",
+    "Caribou",
+    "Cheetah",
+    "Chinchilla",
+    "Cougar",
+    "Coyote",
+    "Crane",
+    "Dingo",
+    "Dolphin",
+    "Dormouse",
+    "Eagle",
+    "Echidna",
+    "Elephant",
+    "Falcon",
+    "Ferret",
+    "Finch",
+    "Flamingo",
+    "Fox",
+    "Gazelle",
+    "Gecko",
+    "Gerbil",
+    "Giraffe",
+    "Gopher",
+    "Hamster",
+    "Hedgehog",
+    "Heron",
+    "Hippo",
+    "Ibex",
+    "Iguana",
+    "Impala",
+    "Jaguar",
+    "Kangaroo",
+    "Kingfisher",
+    "Kiwi",
+    "Koala",
+    "Lemur",
+    "Leopard",
+    "Llama",
+    "Lobster",
+    "Lynx",
+    "Macaw",
+    "Magpie",
+    "Manatee",
+    "Marmot",
+    "Meerkat",
+    "Mongoose",
+    "Moose",
+    "Narwhal",
+    "Newt",
+    "Ocelot",
+    "Octopus",
+    "Okapi",
+    "Orca",
+    "Osprey",
+    "Otter",
+    "Owl",
+    "Panda",
+    "Pangolin",
+    "Panther",
+    "Parrot",
+    "Pelican",
+    "Penguin",
+    "Platypus",
+    "Puffin",
+    "Puma",
+    "Quail",
+    "Quokka",
+    "Rabbit",
+    "Raccoon",
+    "Raven",
+    "Reindeer",
+    "Robin",
+    "Salamander",
+    "Seahorse",
+    "Seal",
+    "Sparrow",
+    "Squirrel",
+    "Starling",
+    "Stork",
+    "Swan",
+    "Tapir",
+    "Tiger",
+    "Toucan",
+    "Turtle",
+    "Walrus",
+    "Wombat",
+    "Yak",
+    "Zebra",
+];
+
+/// How many different names [`generated_name`] makes.
+pub const GENERATED_NAMES: u64 = (ADJECTIVES.len() * ANIMALS.len()) as u64;
+
+/// Generated name number `n` (modulo [`GENERATED_NAMES`]): an adjective and
+/// an animal, like "Brave Otter". For entrants who leave their name blank,
+/// the join form's suggestions, and fake entrants. Every one is a valid
+/// [`display_name`].
+pub fn generated_name(n: u64) -> String {
+    let n = (n % GENERATED_NAMES) as usize;
+    format!(
+        "{} {}",
+        ADJECTIVES[n / ANIMALS.len()],
+        ANIMALS[n % ANIMALS.len()]
+    )
+}
+
 /// An entrant's email address: as given, and the key that identifies the
 /// entrant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,5 +396,18 @@ mod tests {
         );
         assert_eq!(display_name("a\u{7}b"), Err(NameError::Invalid));
         assert_eq!(display_name("Kurva Anna"), Err(NameError::Blocked));
+    }
+
+    #[test]
+    fn generated_names_are_display_names() {
+        let names: std::collections::HashSet<String> =
+            (0..GENERATED_NAMES).map(generated_name).collect();
+        assert_eq!(names.len() as u64, GENERATED_NAMES, "no two alike");
+        const { assert!(GENERATED_NAMES >= 9_000, "plenty for a full raffle") };
+        for name in &names {
+            assert_eq!(display_name(name).as_ref(), Ok(name), "{name}");
+        }
+        assert_eq!(generated_name(GENERATED_NAMES), generated_name(0));
+        assert_eq!(generated_name(0), "Agile Aardvark");
     }
 }

@@ -12,7 +12,7 @@ use rafi_store::{RaffleRow, audit, entrants, raffles};
 use crate::{App, Error, Limit, Refusal, Result, altcha, ids, owned, view::NAME_DELAY_SECS};
 
 /// Version of the consent text shown on the join form.
-pub const CONSENT_VERSION: &str = "2026-10-01";
+pub const CONSENT_VERSION: &str = "2026-10-20";
 
 async fn unique_claim_code(app: &App, raffle_id: &str) -> Result<String> {
     let taken: HashSet<String> = entrants::claim_codes(&app.db, raffle_id)
@@ -26,6 +26,34 @@ async fn unique_claim_code(app: &App, raffle_id: &str) -> Result<String> {
         }
     }
     Ok(ids::code(6))
+}
+
+/// The names already in the raffle: generated ones avoid them.
+async fn taken_names(app: &App, raffle_id: &str) -> Result<HashSet<String>> {
+    Ok(entrants::display_names(&app.db, raffle_id)
+        .await?
+        .into_iter()
+        .collect())
+}
+
+/// A generated name nobody in the raffle has yet, for someone who left theirs
+/// blank.
+async fn generated_name(app: &App, raffle_id: &str) -> Result<String> {
+    Ok(ids::generated_name_besides(
+        &taken_names(app, raffle_id).await?,
+    ))
+}
+
+/// Generated names to suggest on the join form: `n` different ones.
+pub fn name_ideas(n: usize) -> Vec<String> {
+    let mut ideas: Vec<String> = Vec::with_capacity(n);
+    while ideas.len() < n {
+        let name = ids::generated_name();
+        if !ideas.contains(&name) {
+            ideas.push(name);
+        }
+    }
+    ideas
 }
 
 /// A join that went through.
@@ -65,6 +93,8 @@ pub enum JoinError {
 /// What the join form posts.
 #[derive(Debug, Clone, Copy)]
 pub struct JoinRequest<'a> {
+    /// The name to show on the screen; blank for a generated one
+    /// ([`ids::generated_name`]).
     pub name: &'a str,
     pub email: &'a str,
     /// The raffle rules and the privacy notice were accepted.
@@ -125,12 +155,22 @@ async fn enter(
     if let Err(JoinRefusal::Closed) = entrant::may_join(raffle.state, true) {
         return Err(JoinError::Closed);
     }
-    let name = entrant::display_name(name).map_err(JoinError::Name)?;
+    let name = if name.trim().is_empty() {
+        None
+    } else {
+        Some(entrant::display_name(name).map_err(JoinError::Name)?)
+    };
     let email = Email::parse(email).ok_or(JoinError::Email)?;
     entrant::may_join(raffle.state, rules).map_err(|r| match r {
         JoinRefusal::Closed => JoinError::Closed,
         JoinRefusal::Rules => JoinError::Rules,
     })?;
+    let name = match name {
+        Some(name) => name,
+        None => generated_name(app, &raffle.id)
+            .await
+            .map_err(|_| JoinError::Failed)?,
+    };
     let id = ids::id();
     let token = ids::token();
     let claim = unique_claim_code(app, &raffle.id)
@@ -233,40 +273,35 @@ pub async fn add_manual(
     Ok(id)
 }
 
-/// Adds up to `n` fake entrants for rehearsals (test mode only).
+/// Adds up to `n` fake entrants for rehearsals (test mode only), with
+/// generated names.
 pub async fn add_fakes(app: &App, owner: &str, raffle_id: &str, n: u32) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
     let n = entrant::fakes(raffle.test_mode, raffle.state, n).map_err(Refusal::Fakes)?;
-    const FIRST: &[&str] = &[
-        "Anna", "Bence", "Csilla", "Dávid", "Eszter", "Ferenc", "Gábor", "Hanna", "István",
-        "Judit", "Kata", "Levente", "Márton", "Nóra", "Orsi", "Péter", "Réka", "Sára", "Tamás",
-        "Zsófi", "Alex", "Sam", "Robin", "Kim", "Max",
-    ];
+    let mut taken = taken_names(app, raffle_id).await?;
     let fakes: Vec<entrants::Fake> = (0..n)
         .map(|_| {
-            let b = ids::random_bytes::<2>();
+            let display_name = ids::generated_name_besides(&taken);
+            taken.insert(display_name.clone());
             entrants::Fake {
                 id: ids::id(),
-                display_name: format!(
-                    "{} {}.",
-                    FIRST[b[0] as usize % FIRST.len()],
-                    (b'A' + b[1] % 26) as char
-                ),
+                display_name,
                 claim_code: ids::code(4),
             }
         })
         .collect();
     // Their names show on the screen right away.
-    let added = entrants::insert_fakes(
-        &app.db,
-        raffle_id,
-        CONSENT_VERSION,
-        ids::now() - NAME_DELAY_SECS,
-        &fakes,
-    )
-    .await?;
+    let added =
+        entrants::insert_fakes(&app.db, raffle_id, ids::now() - NAME_DELAY_SECS, &fakes).await?;
     if !added {
-        return Err(Refusal::Fakes(entrant::FakesRefusal::Frozen).into());
+        // Frozen, or out of test mode, since the read above.
+        let now = raffles::get(&app.db, raffle_id)
+            .await?
+            .ok_or(Error::NotFound)?;
+        let refusal = entrant::fakes(now.test_mode, now.state, n)
+            .err()
+            .unwrap_or(entrant::FakesRefusal::Frozen);
+        return Err(Refusal::Fakes(refusal).into());
     }
     audit::record(&app.db, raffle_id, owner, "add_fakes", &n.to_string()).await?;
     Ok(())
@@ -323,8 +358,9 @@ pub async fn patch_entrant(
     Ok(())
 }
 
-/// Removes an entrant before the freeze; afterwards, erases their personal data
-/// (the anonymous ID must stay in the published list).
+/// Removes an entrant before the freeze; once the raffle is over, erases their
+/// personal data (the anonymous ID must stay in the published list). In
+/// between, nobody is removed ([`RaffleState::removal`](lifecycle::RaffleState::removal)).
 pub async fn remove_entrant(
     app: &App,
     owner: &str,
@@ -333,23 +369,27 @@ pub async fn remove_entrant(
 ) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
     let removal = match raffle.state.removal() {
-        Removal::Delete if entrants::delete(&app.db, raffle_id, entrant_id).await? => {
+        Some(Removal::Delete) if entrants::delete(&app.db, raffle_id, entrant_id).await? => {
             Some(Removal::Delete)
         }
-        // Nothing deleted: frozen since the read above (then erase), or no
+        // Nothing deleted: frozen since the read above (then refused), or no
         // such entrant (nothing to do).
-        Removal::Delete => match raffles::get(&app.db, raffle_id).await? {
-            Some(r) if r.state.removal() == Removal::Erase => Some(Removal::Erase),
+        Some(Removal::Delete) => match raffles::get(&app.db, raffle_id).await? {
+            Some(r) if r.state.removal().is_none() => {
+                return Err(Refusal::NotRemovable.into());
+            }
             _ => None,
         },
-        Removal::Erase => Some(Removal::Erase),
+        Some(Removal::Erase) => entrants::erase(&app.db, raffle_id, Some(entrant_id))
+            .await?
+            .then_some(Removal::Erase),
+        None => return Err(Refusal::NotRemovable.into()),
     };
     match removal {
         Some(Removal::Delete) => {
             audit::record(&app.db, raffle_id, owner, "remove_entrant", entrant_id).await?;
         }
         Some(Removal::Erase) => {
-            entrants::erase(&app.db, raffle_id, Some(entrant_id)).await?;
             audit::record(&app.db, raffle_id, owner, "erase_entrant", entrant_id).await?;
         }
         None => return Ok(()),

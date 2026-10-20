@@ -135,10 +135,11 @@ pub fn privacy(raffle: Raffle<'_>, organizer: Organizer<'_>) -> String {
             "Your display name and email address, to run the prize draw you entered under the raffle rules (GDPR Art. 6(1)(b)): to tell entries apart, to identify winners and to deliver prizes.".into(),
             "Duplicate and abuse checks (one entry per email address, rate limiting, a proof-of-work check that runs in your browser) are based on our legitimate interest in a fair draw (Art. 6(1)(f)).".into(),
             "If you tick the optional box, we also use your email to tell you about future meetups, based on your consent (Art. 6(1)(a)). You can withdraw it at any time by writing to the contact above.".into(),
-            "Providing your name and email is required to enter. Your email is never shown on the screen or shared with sponsors.".into(),
+            "Your email address is required to enter; a display name is optional. Your email is never shown on the screen or shared with sponsors.".into(),
         ]),
         ("What is public".to_owned(), vec![
-            "Your display name may appear on the event screen and on the verification page. The published entrant list contains only random anonymous IDs.".into(),
+            "Your display name appears on the event screen and on the verification page, which lists every entrant's display name so everyone can check they were in. It doesn't have to be your real name: leave it blank and we pick one for you. The organizer can also hide it.".into(),
+            "The draw itself uses only random anonymous IDs. Your email address is never published.".into(),
         ]),
         ("Cookies".to_owned(), vec![
             "We set one strictly necessary cookie that remembers your entry on this device. No analytics or tracking.".into(),
@@ -150,7 +151,7 @@ pub fn privacy(raffle: Raffle<'_>, organizer: Organizer<'_>) -> String {
             "The randomness comes from the public drand network; no personal data is sent to it.".into(),
         ]),
         ("How long we keep it".to_owned(), vec![
-            "Personal data is kept until the organizer erases it after the event, or on request. Anonymous IDs and the draw log are kept so the draw stays verifiable.".into(),
+            "Your entry is part of the draw until the raffle has finished. After that, the organizer erases personal data, or erases yours on request. Anonymous IDs and the draw log are kept so the draw stays verifiable.".into(),
         ]),
         ("Your rights".to_owned(), vec![
             "You can request access, correction, erasure, restriction, or object to processing, and withdraw consent, by contacting the controller. You can also lodge a complaint with your local data protection supervisory authority.".into(),

@@ -5,12 +5,14 @@ You're at an event with a Rafi raffle. Here's what to expect.
 ## Joining
 
 1. **Scan the QR code** on the screen, or type the short address shown under it. There's no app and no account.
-2. Enter a **name to show on the screen** (a first name or nickname is enough) and your **email**. The email is
-   only used to tell entries apart and to deliver prizes. It is never shown.
+2. Enter your **email** and, if you like, a **name to show on the screen**: a first name or nickname is enough.
+   Leave it blank and you get a generated name like "Brave Otter", or press 🎲 to pick one. The email is only used
+   to tell entries apart and to deliver prizes. It is never shown.
 3. Accept the rules and the privacy notice. The box for emails about future meetups is optional and unticked.
 4. Press **Join**. Your phone does a few seconds of work in the background first (a check against bots).
 
-You'll see **You're in!** and your **claim code**. If you win, you show this code to the organizer.
+You'll see **You're in!** with your name on the screen and your **claim code**. If you win, you show this code to
+the organizer.
 
 ## Waiting
 
@@ -39,12 +41,13 @@ Each person can win at most one prize, unless there are more prizes than people.
 ## Check it yourself
 
 The participant page links to **Check the draw yourself**. The verification page re-runs every draw in your
-browser from the published list and the public randomness, and shows whether everything checks out. Its published
-data (`verify.json`) also lists every display name, so you can confirm you were in. See
-[Verifying a draw](verifying-a-draw.md).
+browser from the published list and the public randomness, and shows whether everything checks out. Opened from
+your phone, it also tells you that **you're in**: your entry is in the frozen list every draw was made from. Its
+list of entrants lets anyone find their name. See [Verifying a draw](verifying-a-draw.md).
 
 ## Your data
 
-Your display name may appear on the screen and on the verification page. Your email never does. The organizer
-erases names and emails after the event, and you can ask them to do it sooner. The **Privacy notice** link on the
-page has the details.
+Your display name appears on the screen and in the verification page's list of entrants. It doesn't have to be
+your real name. Your email never appears. Your entry stays in the raffle until it is finished: then the organizer
+erases names and emails, and you can ask them to erase yours. The **Privacy notice** link on the page has the
+details.

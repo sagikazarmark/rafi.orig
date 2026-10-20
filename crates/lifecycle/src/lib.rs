@@ -140,15 +140,26 @@ impl RaffleState {
         self.entrants_editable()
     }
 
-    /// How an entrant is removed: deleted while the list can change; after
-    /// the freeze their ID is in the published list, so only their personal
-    /// data is erased.
-    pub fn removal(self) -> entrant::Removal {
+    /// How an entrant is removed, if they can be: deleted while the list can
+    /// change; once the raffle is over, their ID stays in the published list
+    /// and only their personal data is erased. In between (from the freeze
+    /// until the raffle finishes) nobody is removed: sharing their entry is
+    /// part of the rules they accepted. The organizer can still hide or
+    /// rename them.
+    pub fn removal(self) -> Option<entrant::Removal> {
         if self.entrants_editable() {
-            entrant::Removal::Delete
+            Some(entrant::Removal::Delete)
+        } else if self.personal_data_erasable() {
+            Some(entrant::Removal::Erase)
         } else {
-            entrant::Removal::Erase
+            None
         }
+    }
+
+    /// Whether entrants' personal data can be erased: once the raffle is
+    /// over, one entrant at a time or everyone at once.
+    pub fn personal_data_erasable(self) -> bool {
+        self.is_over()
     }
 
     /// Whether the entrant list is frozen: from the freeze on, the raffle
@@ -221,6 +232,19 @@ mod tests {
         assert_eq!(S::Draft.apply(A::Freeze), None);
         assert!(!S::Frozen.prizes_editable());
         assert!(!S::Frozen.entrants_editable());
+    }
+
+    #[test]
+    fn removing_an_entrant() {
+        use crate::entrant::Removal;
+        for s in S::ALL {
+            let want = match s {
+                S::Draft | S::Ready | S::Open | S::Closed => Some(Removal::Delete),
+                S::Frozen | S::Drawing => None,
+                S::Finished | S::Purged => Some(Removal::Erase),
+            };
+            assert_eq!(s.removal(), want, "{s:?}");
+        }
     }
 
     #[test]

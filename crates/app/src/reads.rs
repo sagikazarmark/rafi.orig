@@ -123,7 +123,7 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
                 esc(&e.display_name),
                 esc(e.email.as_deref().unwrap_or("")),
                 esc(e.source.as_str()),
-                esc(&e.claim_code),
+                esc(e.claim_code.as_deref().unwrap_or("")),
                 esc(outcome),
                 esc(e.prize.as_deref().unwrap_or("")),
                 esc(if e.delivered { "yes" } else { "no" }),
@@ -147,9 +147,11 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
     else {
         return Err(Error::NotFound);
     };
+    // Erased entrants have no name left: the page shows the start of their ID.
     let names = entrants::list(&app.db, &raffle.id)
         .await?
         .into_iter()
+        .filter(|e| !e.erased)
         .map(|e| {
             let name = rafi_live_client::public_name(
                 &e.id,
@@ -161,6 +163,7 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
     Ok(VerifyData {
         title: raffle.title.clone(),
         state: raffle.state,
+        test_mode: raffle.test_mode,
         events: raffles::drawn(&app.db, &raffle)
             .await?
             .map(|s| s.events().to_vec())

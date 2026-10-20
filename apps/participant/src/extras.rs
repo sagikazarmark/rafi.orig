@@ -1,5 +1,5 @@
-//! The browser-API parts of the page: theme toggle, proof-of-work, wake lock,
-//! chime and vibration.
+//! The browser-API parts of the page: theme toggle, the join form's name
+//! suggestions, proof-of-work, wake lock, chime and vibration.
 //!
 //! They attach to the server-rendered page by element ID, outside Dioxus. The
 //! inline theme script in `<head>` stays JavaScript: it must run before the
@@ -66,9 +66,32 @@ pub fn init(cfg: &PageConfig) {
     if let Some(form) = by_id::<Element>("join") {
         listen(&form, "submit", unlock_audio);
     }
+    name_dice(cfg.name_ideas.clone());
     if cfg.needs_altcha {
         proof_of_work(cfg.altcha_url.clone());
     }
+}
+
+// ---- Name suggestions (join form) ----
+
+/// The 🎲 button next to the name: fills in the next generated name.
+fn name_dice(ideas: Vec<String>) {
+    let (Some(dice), Some(name)) = (
+        by_id::<HtmlButtonElement>("name-dice"),
+        by_id::<HtmlInputElement>("name"),
+    ) else {
+        return;
+    };
+    if ideas.is_empty() {
+        return;
+    }
+    let next = Cell::new(0);
+    listen(&dice, "click", move || {
+        let i = next.get();
+        next.set((i + 1) % ideas.len());
+        name.set_value(&ideas[i]);
+    });
+    dice.set_disabled(false);
 }
 
 // ---- Theme: system -> light -> dark ----

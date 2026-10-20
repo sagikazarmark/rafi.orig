@@ -24,6 +24,9 @@ use super::{
 
 const COOKIE_MAX_AGE: i64 = 3 * 86_400;
 
+/// How many generated names the join form's 🎲 button cycles through.
+const NAME_IDEAS: usize = 12;
+
 pub fn routes() -> Router {
     Router::new()
         .route("/j/{code}", get(page).post(submit))
@@ -129,11 +132,12 @@ fn render_page(
         entrant: entrant.map(|e| Entrant {
             id: &e.id,
             display_name: &e.display_name,
-            claim_code: &e.claim_code,
+            claim_code: e.claim_code.as_deref().unwrap_or_default(),
         }),
         notice,
         name: &form.name,
         email: &form.email,
+        name_ideas: &service::name_ideas(NAME_IDEAS),
         now_ms: service::ids::now_ms(),
     })
 }
@@ -251,7 +255,9 @@ fn join_error(e: service::JoinError) -> &'static str {
     use service::JoinError as E;
     match e {
         E::Closed => "Registration is closed.",
-        E::Name(NameError::Invalid) => "Please enter a name (1–24 characters).",
+        E::Name(NameError::Invalid) => {
+            "Please choose a name of at most 24 characters, or leave it blank for a generated one."
+        }
         E::Name(NameError::Blocked) => "Please choose a different name.",
         E::Email => "Please enter a valid email address.",
         E::Rules => "You need to accept the rules to take part.",
