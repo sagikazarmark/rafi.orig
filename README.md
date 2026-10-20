@@ -2,329 +2,130 @@
 
 **Live, verifiable raffles for meetups.**
 
-Participants scan a QR code and join on their phone with a display name and
-email: no app, no account. The organizer draws each prize live. Every draw
-commits to a future [drand](https://drand.love) randomness round before it
-exists, so nobody (the organizer included) can predict or steer the result,
-and anyone can re-run every draw afterwards.
+Attendees scan a QR code and join on their phone with a display name and email. There's no app to install and no
+account to create. The organizer draws each prize live on the projector. Every draw commits to public
+[drand](https://drand.love) randomness *before that randomness exists*, so nobody, the organizer included, can
+predict or steer a result. Anyone can re-run every draw afterwards.
 
-- **Projector screen** (`/s/<slug>`): intro, prizes, QR code, live entrant count, countdown, winner reveal.
-- **Participant page** (`/j/<CODE>`): server-rendered, works on bad venue wifi; a small WebAssembly (with a JavaScript fallback) keeps it live. It shows "you won" with a private claim code.
-- **Organizer admin** (`/admin`): raffles, prizes, people without a smartphone, draw console (Draw / Handed over / Not here / Declined), CSV export.
-- **Verification** (`/v/<slug>`): re-runs every draw in the browser; [`tools/verify.py`](tools/verify.py) does the same independently.
+## Why
 
-The design notes written along the way, with the reasoning behind its decisions, are in
-[`docs/history/`](docs/history) (historical: the code is the source of truth).
+Raffles at meetups are usually run with a hat, a spreadsheet or a random-name website, and each has the same
+problems:
 
-## How the draw works
+- **You have to trust whoever runs it.** When a sponsor's friend wins, people wonder.
+- **Entry is friction.** Paper slips get lost, apps need installing, accounts need creating.
+- **Venues are hard.** The wifi is bad, phones go to sleep, and some people have no smartphone.
+- **Winners aren't always there.** No-shows are the most common live failure, and redrawing by hand looks
+  arbitrary.
 
-1. **Start the draw** closes registration, freezes the entrant list (random IDs only) and opens the
-   raffle from its **manifest**: the entrants, one item per prize copy, the algorithm and the beacon
-   source (`{"drand": "<chain hash>"}`). It publishes the manifest and `manifest_hash = SHA256(manifest)`.
-2. For each item the organizer presses **Draw**. The raffle engine commits to drand
-   quicknet round `R` (about 6 s in the future), announces it on screen, waits durably until it is published,
-   fetches the beacon from the public relays and verifies its BLS signature against the quicknet key
-   ([`drand`](https://crates.io/crates/drand)); `randomness = SHA256(signature)`. A beacon that can't be had
-   leaves the draw pending on round `R`: retrying fetches the same round, so nobody can force a redraw.
-   The only way out is an explicit abandon, and the verification page shows whom the round would have picked.
-3. `seed = SHA256("rafi-draw-v1" ‖ randomness ‖ manifest_hash ‖ k)`. The winner is `pool[uniform(|pool|)]`, using
-   SHA-256 counter-mode rejection sampling, so there is no modulo bias.
-4. One win per person. "Not here" or "Declined" removes that person and the prize is drawn again with a new round
-   (not while another draw is pending, since that could change its pool).
+Rafi makes the draw **verifiable by anyone** and keeps everything else as light as possible: a web page, a name, an
+email, a claim code.
 
-The raffle (its state machine, the draw algorithm and the engine's rules) lives in [`crates/raffle`](crates/raffle)
-(pure Rust, no IO): a manifest and an engine run a whole raffle, and nothing of the app is needed to draw or verify
-it. What the app adds around it (the lifecycle, starting the draw, entrants, settings) is in
-[`crates/lifecycle`](crates/lifecycle). The app's use cases ([`crates/app`](crates/app)) talk to **the
-raffle engine** through one interface (`Engine`, in [`crates/engine`](crates/engine); its contract is
-documented there) and can't tell one engine from another. The engine is the **Restate virtual object** `Raffle`
-(keyed by the raffle's ID; [`crates/engine-restate`](crates/engine-restate)): the app calls it through the Restate
-ingress, with the client the Restate SDK generates from the object, and it writes the raffle's log after every
-change straight into the app's database.
-Production is planned on Cloudflare Workers, where the engine is **`rafi-restate-worker`**
-([`apps/restate-worker`](apps/restate-worker)); for self-hosting it is **`rafi-restate`**
-([`apps/restate`](apps/restate)), a separate native service. Rafi relies on Restate
-for draws: there is no in-process fallback in production (`rafi-engine`'s `local` feature is for tests and
-development only). Restate only ever sees anonymous IDs. The app decides which drand chain raffles commit to
-(`RAFI_DRAND_CHAIN`); the engine only checks it. The engine contract is documented on `rafi_engine::Engine`
-([`crates/engine/src/engine.rs`](crates/engine/src/engine.rs)).
+## How an evening goes
 
-The server keeps no state between requests. Natively, phones poll their participant view (`/api/r/<slug>/participant`), and
-the projector and the admin poll the full view (`/api/r/<slug>/view`) every few seconds; both carry the raffle's
-`version` from the database. On Cloudflare Workers (below) a live channel
-per raffle pushes the participant view instead.
-
-```
-app ──ingress──▶ Restate ──▶ engine host (Raffle) ──▶ database ◀── app ◀── phones, projector (poll)
+```mermaid
+flowchart LR
+    A["Set up<br/>prizes, rules"] --> B["Doors open<br/>QR code on the projector,<br/>attendees join"]
+    B --> C["Start the draw<br/>the entrant list is<br/>frozen and published"]
+    C --> D["Draw each prize<br/>countdown to a drand round,<br/>winner on screen"]
+    D --> E["Finish<br/>thanks screen,<br/>anyone can verify"]
 ```
 
-## Layout
+There are four screens:
 
-```
-crates/raffle                 rafi-raffle: the raffle: draw algorithm, state machine and its admission rule, manifest, verifier
-                              (pure, tested, vectors); `mock-chain`: the mock drand chain (development and tests)
-crates/lifecycle              rafi-lifecycle: the raffle's lifecycle in the app (pure): its states, starting the draw, who may
-                              join, entrants' names and emails, settings, prizes as the raffle's items, what phones see
-crates/store                  rafi-store: all SQL, over SQLite, Postgres and D1; the raffle engine's write, reading the snapshot phones are shown
-crates/engine                 rafi-engine: the raffle engine's contract (Engine, Store, Observer); behind features,
-                              the drand client engines draw with (settings, the round to commit to), an in-process engine
-                              (tests, development) and the engine conformance suite
-crates/engine-restate         rafi-engine-restate: the `Raffle` virtual object and the `EngineInfo` service, and the app's
-                              Engine over the ingress (the SDK's generated clients)
-crates/live-client            rafi-live-client: what a phone sees and runs (participant view and channel, how clients follow,
-                              page config); `card`: the Dioxus card
-crates/live-server            rafi-live-server: the servers' side (the Notifier a deployment pushes through, also the raffle
-                              engine's Observer; LiveUpdates; the view built from a raffle as drawn, the live channel's
-                              publish rule)
-crates/cloudflare             rafi-cloudflare: the Cloudflare glue both Workers share (RaffleRoom Durable Object, notifier, config)
-crates/api                    rafi-api: the contract between the app's server and browser: views, and the admin API declared
-                              once (`admin_functions!`: the server's `Admin` trait and `dispatch`, the browser's client)
-crates/app                    rafi-app: every use case (raffles, prizes, entrants, the draw, the admin's reads), without HTTP
-crates/server                 rafi-server: the axum server (participant pages, public JSON, the admin API); `rafi` serves it
-                              natively, rafi-worker on Workers
+| Screen | Path | |
+|---|---|---|
+| **Projector** | `/s/<slug>` | Intro, prizes, QR code, live entrant count, countdown, winner reveal. Never shows emails or admin controls. |
+| **Participant page** | `/j/<CODE>` | Server-rendered, so it works on bad venue wifi. It shows "YOU WON!" with a private claim code. |
+| **Organizer admin** | `/admin` | Raffles, prizes, people without a smartphone, the draw console (Draw / Handed over / Not here / Declined), CSV export |
+| **Verification** | `/v/<slug>` | Re-runs every draw in the browser. [`tools/verify.py`](tools/verify.py) does the same independently. |
 
-apps/rafi                     rafi: the native binary serving rafi-server and the web app's files; self-hosting
-apps/worker                   rafi-worker: the app on Cloudflare Workers (rafi-server's routes, the housekeeping Cron, RaffleRoom)
-apps/restate                  rafi-restate: the native binary serving the Restate services (config, logging); self-hosting
-apps/restate-worker           rafi-restate-worker: the same services as a Cloudflare Worker, on D1, nudging the live channel
-apps/web                      rafi-web: the Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx`
-apps/participant              rafi-participant: the participant page's WebAssembly, and its JavaScript fallback
+## Why you can trust the draw
 
-migrations/sqlite             SQLite (and D1) schema
-migrations/postgres           the same for Postgres
-testbeds/store-d1             rafi-store-d1-check: a Worker running rafi-store's conformance suite on D1
-testbeds/cloudflare           rafi-cloudflare-check: a Worker hosting RaffleRoom for the live channel's checks
-                              (testbeds are never deployed; scripts/workers-check.sh runs them under wrangler dev)
-tools                         verify.py: independent verifier (Python standard library only)
-testdata                      shared test vectors
+1. **The list is fixed first.** Starting the draw freezes the entrants (as anonymous IDs) and the prizes into a
+   *manifest*, and publishes its hash.
+2. **Each draw commits to the future.** Pressing Draw picks a drand round about 6 seconds ahead and shows it on the
+   projector. Nobody, Rafi included, can know that round's value until the drand network publishes it.
+3. **The winner is a public formula** of the manifest hash, the round's randomness and the draw number. drand's
+   randomness is a threshold BLS signature by independent organizations, which anyone can verify. So anyone can
+   recompute every winner.
+
+The commitment is final: if drand can't be reached, a draw waits on its round rather than picking a new one. Every
+redraw ("Not here", "Declined") and every abandoned draw is in the public log.
+[Why the draw is verifiable](docs/explanation/verifiability.md) has the details and the limits.
+
+## Components
+
+```mermaid
+flowchart LR
+    browsers["Projector, phones,<br/>admin, verification page"] --> app["App<br/>rafi / rafi-worker"]
+    app --> db[(Database)]
+    app -->|ingress| restate["Restate"]
+    restate --> engine["Raffle engine<br/>rafi-restate / rafi-restate-worker"]
+    engine -->|fetch and verify beacons| drand["drand"]
+    engine -->|write each raffle| db
 ```
 
-## Development
+| Component | What it does | Native | Cloudflare Workers |
+|---|---|---|---|
+| **App** | The HTTP server and the web app: pages, APIs, every use case. Keeps no state between requests. | `rafi` | `rafi-worker` |
+| **Raffle engine** | Owns each raffle from freeze to finish and runs its draws, as a [Restate](https://restate.dev) virtual object. Sees only anonymous IDs. | `rafi-restate` | `rafi-restate-worker` |
+| **Database** | The record, shared by the app and the engine | SQLite or Postgres | D1 |
+| **Web app** | Admin, projector, verification page (Dioxus) | `rafi-web` | same |
+| **Participant script** | Keeps the participant page live (WebAssembly, with a JavaScript fallback) | `rafi-participant` | same |
 
-Requirements: Rust stable with `wasm32-unknown-unknown`, and `dx` **0.7.10** (it must match the dioxus version):
+At the core is [`crates/raffle`](crates/raffle): the raffle's rules, the draw algorithm and the verifier, in pure
+Rust with no I/O. A manifest and an engine are enough to run a raffle, and nothing of the app is needed to verify
+one. [Architecture](docs/explanation/architecture.md) explains the rest.
+
+## Status
+
+- **Self-hosting** (native `rafi` and `rafi-restate`) works today. There are no packaged images yet: you build from
+  source.
+- **Cloudflare Workers** is the planned production deployment. It is verified locally under `wrangler dev`, but not
+  deployed yet.
+- The UI is in English only.
+
+## Documentation
+
+**Using Rafi**
+- [Running a raffle](docs/guide/running-a-raffle.md): an evening, from setup to erasure
+- [The draw](docs/guide/the-draw.md): the draw process, step by step
+- [For participants](docs/guide/for-participants.md)
+- [Verifying a draw](docs/guide/verifying-a-draw.md)
+
+**Understanding Rafi**
+- [Why the draw is verifiable](docs/explanation/verifiability.md): drand, commit-reveal, the threat model
+- [Architecture](docs/explanation/architecture.md)
+- [Privacy and abuse](docs/explanation/privacy-and-abuse.md)
+
+**Operating Rafi**
+- [Overview](docs/operations/overview.md): what you deploy, and the topologies
+- [Self-hosting](docs/operations/self-hosting.md) · [Cloudflare Workers](docs/operations/cloudflare.md)
+- [Upgrades](docs/operations/upgrades.md) · [Troubleshooting](docs/operations/troubleshooting.md)
+
+**Reference**
+- [Draw algorithm](docs/reference/draw-algorithm.md) (`rafi-draw-v1`)
+- [Configuration](docs/reference/configuration.md) · [Routes](docs/reference/routes.md)
+- [Glossary](docs/reference/glossary.md) · [Crates and apps](docs/reference/crates.md)
+
+**Developing Rafi**
+- [Getting started](docs/development/getting-started.md) · [Testing](docs/development/testing.md) ·
+  [The web app](docs/development/web-app.md)
+- [Design history](docs/history): the notes written during development, with the reasoning behind decisions.
+  These are historical: the code is the source of truth.
+
+## Quick start
+
+To run it locally without draws (no Restate, no Clerk):
 
 ```sh
 cargo install dioxus-cli@0.7.10 --locked
-```
-
-The UI uses **Tailwind CSS v4 + daisyUI 5**, with custom light (`rafi`) and dark (`rafi-dark`) themes defined in
-[`apps/web/tailwind.css`](apps/web/tailwind.css). `dx` compiles it automatically with its own standalone Tailwind CLI;
-daisyUI comes from npm (`apps/web/package.json`; devenv runs `npm install` on entering the shell). A plain
-`cargo build`/`clippy` of the web app needs the compiled stylesheet too: on a fresh checkout, run `dx build` once, or
-`tailwindcss -i tailwind.css -o assets/tailwind.css` in `apps/web`.
-Organizer forms use [dioform](https://crates.io/crates/dioform) (typed fields, validation, managed async submit)
-rendered with components from the [dioxus-daisyui-components](https://github.com/sagikazarmark/dioxus-daisyui-components)
-registry (fields: input and textarea; switch, buttons, alert dialogs, dropdown menu, tabs, toasts), installed into
-`apps/web/src/components/` with `dx components add <name> --path <registry checkout>`. Treat that directory as
-vendored: update it by re-installing (`--force`), not by editing.
-
-The proof-of-work is ALTCHA v2, with [dioxus-altcha](https://crates.io/crates/dioxus-altcha) solving it in the browser
-and [altcha-server](https://crates.io/crates/altcha-server) issuing and redeeming challenges (rafi's replay store is the
-`altcha_used` table); both are developed in [altcha-rs](https://github.com/sagikazarmark/altcha-rs). The server serves
-the solver at `/participant/altcha-worker.js` from `dioxus_altcha::WORKER_JS`, so it always matches the version built in.
-
-The app has a **web app** (`apps/web`, `rafi-web`: admin, projector and verification page; a Dioxus single-page app
-built by `dx`) and a **server library** (`crates/server`, `rafi-server`: participant pages, the public and admin JSON
-APIs). It is served natively by the **`rafi`** binary (`apps/rafi`, plain `cargo`, which also serves the web app's
-files) and on Cloudflare Workers by `apps/worker`. The web app calls the server's JSON routes
-(`POST /api/admin/<function>`) on the same origin; both sides of that API come from one declaration in `rafi-api`.
-
-The participant page's WebAssembly and its fallback are built into `apps/participant/dist`, which the server serves at
-`/participant/` (`RAFI_PARTICIPANT_DIR`). Without it the participant page still renders, but phones can't join or follow the
-draw. Build it once, and again when `apps/participant` or `crates/live-client` change (it needs `wasm-bindgen-cli` at the
-version in `Cargo.lock`, and `wasm-opt` from binaryen):
-
-```sh
-cargo install wasm-bindgen-cli --version 0.2.129 --locked
-./scripts/participant.sh
-```
-
-Draws need Restate (see below). For the admin and the pages alone, run without Clerk, in two terminals:
-
-```sh
-# the server; dx proxies /api/, /j/, /rules/, /privacy/ and /participant/ to it (apps/web/Dioxus.toml)
 RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi
-
-# the web app, with hot reload
-cd apps/web && dx serve --port 8787
+(cd apps/web && dx serve --port 8787)       # open http://localhost:8787/admin
 ```
 
-Then open <http://localhost:8787/admin>. To work offline, add `RAFI_DRAND_CHAIN=mock` and `--features mock-drand`
-to the server, and the mock chain to the raffle engine: draws then use a test chain with a public key (the `drand`
-crate's `TestChain`) and are *not* verifiable.
-To test with phones on your network, set `RAFI_PUBLIC_URL` to your machine's LAN address and run `dx serve --addr 0.0.0.0`.
-Joining needs HTTPS there: phones solve the proof-of-work with WebCrypto, which browsers only offer on HTTPS and localhost.
-Use a tunnel (e.g. `cloudflared tunnel --url http://localhost:8787`) or a certificate for the LAN address (mkcert).
-
-The server alone serves everything once the web app is bundled:
-
-```sh
-(cd apps/web && dx bundle --platform web --release)   # -> target/dx/rafi-web/release/web/public
-./scripts/participant.sh                                 # -> apps/participant/dist
-RAFI_DEV_AUTH=1 cargo run --release -p rafi       # http://localhost:8080
-```
-
-It listens on `IP`:`PORT` (default `127.0.0.1:8080`), serves the participant scripts at `/participant/` from
-`RAFI_PARTICIPANT_DIR` (default `apps/participant/dist`), and the web app from `RAFI_PUBLIC_DIR`
-(default `target/dx/rafi-web/release/web/public`), both relative to the working directory, falling back to the web
-app's `index.html` for its own routes.
-
-With Restate: a local `restate-server` (the pinned one from `./scripts/restate-server.sh`), and the app and
-`rafi-restate` on the same database file:
-
-```sh
-export RAFI_DATABASE_URL="sqlite://$PWD/rafi.db"
-
-# Restate, in its own terminal: ingress on :8080, admin API and UI on :9070, data in ./restate-data
-$(./scripts/restate-server.sh)
-
-# the server (it creates the database) and the web app
-RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http://localhost:8080 \
-  PORT=8788 cargo run -p rafi
-(cd apps/web && dx serve --port 8787)
-
-# the raffle engine, in another terminal (offline: add --features mock-drand and RAFI_RESTATE_DRAND__MOCK=true,
-# matching the app's RAFI_DRAND_CHAIN=mock; the app refuses to start a draw on an engine on another chain)
-RAFI_RESTATE_DATABASE__URL="$RAFI_DATABASE_URL" cargo run -p rafi-restate
-
-# once, and again whenever the services' handlers change (Raffle, EngineInfo)
-curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
-  -d '{"uri": "http://localhost:9080", "force": true}'
-```
-
-With Clerk, export `CLERK_PUBLISHABLE_KEY` (when building the web app) and `CLERK_SECRET_KEY` (for the server),
-and leave `RAFI_DEV_AUTH` unset.
-
-### Tests
-
-```sh
-export RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)   # a pinned restate-server for the end-to-end tests
-cargo test --workspace --exclude rafi-server --exclude rafi-web -- --include-ignored  # the rules, the app's use cases, drand, store, the engine conformance suite (local runner and the Raffle object on restate-server)
-cargo test -p rafi-server -- --include-ignored             # app (with the in-process raffle engine), and app + rafi-restate + restate-server
-python3 tools/verify.py --vectors testdata/draw-vectors.json
-```
-
-Without `RESTATE_SERVER_BIN` the end-to-end tests skip (and fail on CI).
-
-**The storage conformance suite** (`rafi_store::conformance`) is the contract every database backend must pass:
-named scenarios for the query layer (`query.*`: decoding, `NULL` parameters, batch atomicity and snapshots, unique
-violations, change counts, ordering, D1's parameter limit, the version triggers) and the domain functions
-(`domain.*`). `cargo test -p rafi-store` lists each one per backend, as `<backend>::<scenario>`
-(`sqlite::domain.join_cap`), and reports a backend that isn't available, or a capability a scenario needs that the
-backend lacks, as ignored with the reason. The tiers:
-
-| Backend | Runs |
-|---|---|
-| SQLite (in memory) | always |
-| embedded Postgres | by default: a local PostgreSQL 18 from prebuilt binaries ([Oliphaunt](https://oliphaunt.dev)), one server per run (started on first use, about 3 s) with a fresh schema per scenario; no install needed. The first build downloads about 13 MB. `RAFI_TEST_EMBEDDED_POSTGRES=off` skips it |
-| Postgres | when `RAFI_TEST_POSTGRES_URL` names a throwaway database (a fresh schema per scenario); CI sets it |
-| D1 | under `wrangler dev`, through `testbeds/store-d1` (`./scripts/workers-check.sh`, below) |
-
-A new backend implements `rafi_store::conformance::Harness` (a name, its capabilities, and a fresh, migrated
-database per scenario) and passes the suite; see the module's documentation.
-
-**The engine conformance suite** (`rafi_engine::conformance`) is the contract every raffle engine must pass,
-through the `Engine` interface alone: the fairness rules (the round is committed before its beacon is asked for;
-a withheld or forged beacon stalls the draw on its round and a retry fetches the same round; abandons are
-logged; nothing changes a pending draw's pool; every log passes the verifier) and the contract
-(idempotency, one command at a time per raffle, asynchronous draws, refusals with their kind, a raffle forgotten
-once finished). It deploys once per drand profile (instant, with a lead, a withheld relay, a forging relay, a flaky
-store) and runs on the local runner (`cargo test -p rafi-engine`) and on the `Raffle` object through the app's
-client (`cargo test -p rafi-engine-restate -- --include-ignored`, one `restate-server` per profile).
-
-With `RAFI_TEST_POSTGRES_URL` set, the app's tests (the end-to-end one included) also run against Postgres, each on
-a fresh schema, which they leave behind. Locally, for example:
-
-```sh
-D=$(mktemp -d); initdb -D $D/pg -U rafi --auth=trust >/dev/null
-pg_ctl -D $D/pg -o "-p 54329 -k ''" -l $D/pg.log start && createdb -h 127.0.0.1 -p 54329 -U rafi rafi_test
-export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
-# afterwards: pg_ctl -D $D/pg stop && rm -rf $D
-```
-
-## Configuration
-
-The app:
-
-| Variable | Default | |
-|---|---|---|
-| `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address |
-| `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app |
-| `RAFI_PARTICIPANT_DIR` | `apps/participant/dist` | The participant page's WebAssembly and fallback, from `./scripts/participant.sh` |
-| `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL (QR codes, links) |
-| `RAFI_COOKIE_SECURE` | on when `RAFI_PUBLIC_URL` is `https://` | Mark the participant cookie `Secure` (`1`/`true` or `0`/`false`); set it when TLS ends at a proxy in front of a plain `http://` URL |
-| `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate`: SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`, the database must exist). The app applies the migrations on start |
-| `RAFI_DEV_AUTH` | off | **Development only:** no login, every admin is `dev` |
-| `CLERK_SECRET_KEY` | | Clerk backend key (`CLERK_PUBLISHABLE_KEY` at build time) |
-| `RESTATE_INGRESS_URL`, `RESTATE_API_KEY` | | The raffle engine's Restate ingress (Restate Cloud: an API key with ingress access). Without it, draws can't start |
-| `RESTATE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits: a command queued behind a draw waiting for its beacon may take the engine's drand lead plus fetch timeout; past this it is accepted and applies later. Keep it above `lead_secs + timeout_secs` of `rafi-restate` |
-| `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to (a chain hash). Release builds accept only public drand chains; `mock` (a public test chain, *not* verifiable) needs `--features mock-drand`. The raffle engine must draw from the same chain: the app refuses to start a draw otherwise |
-| `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
-| `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges (ALTCHA v2); not empty |
-| `RAFI_ALTCHA_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve (at least 1; provisional) |
-| `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes |
-| `RUST_LOG` | `info` | Log level ([`tracing-subscriber` filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html)) |
-
-Personal data is erased by hand in the admin ("Erase personal data now"); there is no automatic erasure. An hourly
-housekeeping run (a task natively, the Cron on Workers) ends live updates a day after a raffle finishes and forgets
-expired proof-of-work challenges.
-
-`rafi-restate` (draw settings, database, identity keys):
-see [`apps/restate`](apps/restate/README.md).
-
-## Self-hosting
-
-The native server: `rafi` and `rafi-restate` on one machine, sharing the database, with a Restate server (or Restate
-Cloud) in front of `rafi-restate`. There are no packaged deployment options (container images) yet.
-
-PostgreSQL instead of SQLite: point both at the same, existing database, the app with
-`RAFI_DATABASE_URL=postgres://user:password@host/rafi` and `rafi-restate` with the same URL in `database.url`
-(`RAFI_RESTATE_DATABASE__URL`). The app applies the migrations (`migrations/postgres`) on start, as it does for
-SQLite; until it has, `rafi-restate`'s writes fail and Restate retries them. Transactions run serializable, as on
-SQLite. Connections use TLS when the server offers it; add `?sslmode=verify-full` to require it, against the Mozilla
-root certificates or `sslrootcert=<file>`.
-
-## Cloudflare Workers
-
-Cloudflare is one deployment, not an assumption of the code: the app and the raffle engine are written against small
-interfaces (the engine's `Store` and `Observer`, the live `Notifier`, the app's `RateLimit`), and `crates/cloudflare`
-(`rafi-cloudflare`) implements the shared ones over Workers bindings. Two Workers wire it up: the app (`apps/worker`,
-which also hosts the per-raffle `RaffleRoom` Durable Object and counts joins on its rate-limiting bindings) and the
-raffle engine (`apps/restate-worker`), with the D1 database they share.
-
-The app Worker reads the app's variables above (as vars and secrets; the listen address and directories don't apply).
-In addition, on Workers:
-
-| Variable | Worker | Default | |
-|---|---|---|---|
-| `RAFI_DO_JURISDICTION` | both | `eu` | The Durable Objects' jurisdiction; empty for none (local development: workerd has none) |
-| `RESTATE_IDENTITY_KEYS` | restate-worker | required | Restate's request signing keys (`publickeyv1_…`, comma separated); without them every request is refused (except in a `dev` build) |
-| `RAFI_DRAND_RELAYS` | restate-worker | api.drand.sh, api2, api3 (v2), drand.cloudflare.com (v1) | Relays to ask in order, comma separated (`v1:`/`v2:` prefixes, a bare URL is v1) |
-| `RAFI_DRAND_LEAD_SECS` | restate-worker | `6` | Seconds until the committed round (≥ 3) |
-| `RAFI_DRAND_TIMEOUT_SECS` | restate-worker | `60` | Stop fetching after this; the draw stays pending (stalled) on its round |
-| `RAFI_DRAND_MOCK` | restate-worker | off | Public test chain (`1`/`true`; development only, *not* verifiable). Must match the app's `RAFI_DRAND_CHAIN` |
-
-Local development, everything under `wrangler dev` (the tools are in `devenv.nix`; wasm-bindgen-cli must match
-`Cargo.lock`):
-
-```sh
-./scripts/app-assets.sh                                   # web app bundle + participant scripts -> apps/worker/worker-assets
-(cd apps/worker && wrangler d1 migrations apply rafi --local --env dev)
-(cd apps/worker && wrangler dev --env dev)                # http://127.0.0.1:8787, dev auth, mock drand
-(cd apps/restate-worker && wrangler dev --env dev --port 8791)
-# Restate with its ingress on :18080 (the dev app Worker's RESTATE_INGRESS_URL), then register the engine:
-RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 $(./scripts/restate-server.sh)
-curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
-  -d '{"uri": "http://127.0.0.1:8791", "use_http_11": true}'
-```
-
-`./scripts/workers-check.sh` runs every Workers check locally: rafi-store's conformance suite on D1, the live channel over WebSockets
-(`testbeds/cloudflare`), the participant page in headless Chromium, a draw through Restate, and a whole evening on the app Worker. CI's `workers`
-job runs it.
-
-Deploying (needs a Cloudflare account and Restate Cloud): see the comments at the top of `apps/worker/wrangler.toml` and
-`apps/restate-worker/wrangler.toml` (D1 created with `--jurisdiction eu`, the secrets, registering the raffle engine
-with Restate Cloud per release). Don't deploy while a raffle is live: a deploy restarts the Durable Objects.
+For draws, phones and everything else, see [Getting started](docs/development/getting-started.md).
 
 ## License
 
