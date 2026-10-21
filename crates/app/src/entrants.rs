@@ -12,7 +12,7 @@ use rafi_store::{RaffleRow, audit, entrants, raffles};
 use crate::{App, Error, Limit, Refusal, Result, altcha, ids, owned, view::NAME_DELAY_SECS};
 
 /// Version of the consent text shown on the join form.
-pub const CONSENT_VERSION: &str = "2026-10-20";
+pub const CONSENT_VERSION: &str = "2026-10-21";
 
 async fn unique_claim_code(app: &App, raffle_id: &str) -> Result<String> {
     let taken: HashSet<String> = entrants::claim_codes(&app.db, raffle_id)
@@ -99,8 +99,6 @@ pub struct JoinRequest<'a> {
     pub email: &'a str,
     /// The raffle rules and the privacy notice were accepted.
     pub rules: bool,
-    /// Consent to emails about future meetups.
-    pub marketing: bool,
     /// The solved proof-of-work, as the form posts it (base64 JSON).
     pub proof: &'a str,
 }
@@ -145,11 +143,7 @@ async fn enter(
     req: &JoinRequest<'_>,
 ) -> std::result::Result<JoinOutcome, JoinError> {
     let JoinRequest {
-        name,
-        email,
-        rules,
-        marketing,
-        ..
+        name, email, rules, ..
     } = *req;
     // Closed first: nothing else matters then.
     if let Err(JoinRefusal::Closed) = entrant::may_join(raffle.state, true) {
@@ -189,7 +183,6 @@ async fn enter(
             claim_code: &claim,
             token_hash: &ids::token_hash(&token),
             consent_version: CONSENT_VERSION,
-            consent_marketing: marketing,
         },
         app.policy.max_entrants,
     )

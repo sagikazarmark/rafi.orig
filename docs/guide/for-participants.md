@@ -8,7 +8,7 @@ You're at an event with a Rafi raffle. Here's what to expect.
 2. Enter your **email** and, if you like, a **name to show on the screen**: a first name or nickname is enough.
    Leave it blank and you get a generated name like "Brave Otter", or press 🎲 to pick one. The email is only used
    to tell entries apart and to deliver prizes. It is never shown.
-3. Accept the rules and the privacy notice. The box for emails about future meetups is optional and unticked.
+3. Accept the rules and the privacy notice.
 4. Press **Join**. Your phone does a few seconds of work in the background first (a check against bots).
 
 You'll see **You're in!** with your name on the screen and your **claim code**. If you win, you show this code to

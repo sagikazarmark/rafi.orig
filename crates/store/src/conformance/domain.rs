@@ -142,7 +142,6 @@ fn joiner<'a>(raffle_id: &'a str, id: &'a str, email: &'a str) -> entrants::Join
         claim_code: "K2P9",
         token_hash: id,
         consent_version: "v1",
-        consent_marketing: false,
     }
 }
 

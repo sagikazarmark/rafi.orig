@@ -228,10 +228,6 @@ pub fn page(page: Page<'_>) -> String {
                                 a { class: "link link-primary", href: "{privacy_href}", target: "_blank", "Privacy notice" }
                             }
                         }
-                        label { class: "mt-2 flex items-start gap-3",
-                            input { class: "checkbox mt-0.5", r#type: "checkbox", name: "marketing", value: "on" }
-                            span { class: "text-sm text-base-content/80", "Email me about future meetups (optional)." }
-                        }
                         input { r#type: "hidden", name: "altcha", id: "altcha" }
                         // Enabled by the WebAssembly (or the fallback) once the
                         // proof-of-work is solved; it then shows `data-label`.

@@ -229,7 +229,6 @@ async fn joining_follows_the_raffle_rules() {
                 name,
                 email,
                 rules,
-                marketing: false,
                 proof: &proof,
             };
             app::join(&app, &raffle, &req).await
@@ -275,7 +274,6 @@ async fn a_join_needs_a_fresh_proof_of_work() {
         name,
         email,
         rules: true,
-        marketing: false,
         proof,
     };
     assert_eq!(
@@ -305,7 +303,6 @@ async fn joins_are_rate_limited_per_email() {
             name: "Anna",
             email: "anna@x.org",
             rules: true,
-            marketing: false,
             proof: &proof,
         };
         app::join(&app, &raffle, &req).await.unwrap();
@@ -315,7 +312,6 @@ async fn joins_are_rate_limited_per_email() {
         name: "Anna",
         email: "ANNA@x.org",
         rules: true,
-        marketing: false,
         proof: &proof,
     };
     assert_eq!(

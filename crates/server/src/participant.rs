@@ -44,8 +44,6 @@ pub struct JoinForm {
     #[serde(default)]
     rules: Option<String>,
     #[serde(default)]
-    marketing: Option<String>,
-    #[serde(default)]
     altcha: String,
 }
 
@@ -239,7 +237,6 @@ async fn try_join(
         name: &form.name,
         email: &form.email,
         rules: form.rules.is_some(),
-        marketing: form.marketing.is_some(),
         proof: &form.altcha,
     };
     match service::join(app, raffle, &req).await {

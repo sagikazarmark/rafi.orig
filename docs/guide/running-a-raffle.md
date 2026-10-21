@@ -127,8 +127,7 @@ Open the **Draw** tab. For each prize, in any order:
 Press **Finish the raffle** when the prizes are handed out (or when you want to stop with some left). The projector
 and phones show **Thanks for playing!** with the winners and a link to the verification page. Then:
 
-- **Export winners (CSV)** from the ⋯ menu: entrant ID, name, email, source, claim code, outcome, prize, delivered,
-  marketing consent.
+- **Export winners (CSV)** from the ⋯ menu: entrant ID, name, email, source, claim code, outcome, prize, delivered.
 - **End live updates** when the room empties. Phones and the projector stop following live, and the results stay on
   the pages. This also happens automatically a day after the finish.
 

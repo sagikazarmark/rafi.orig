@@ -84,7 +84,6 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>) -> Vec<AdminEntrant> {
                 source: e.source,
                 hidden: e.hidden,
                 claim_code: e.claim_code.clone(),
-                marketing: e.consent_marketing,
                 created_at: e.created_at,
                 delivered: e.delivered_at.is_some(),
                 deliverable: lifecycle::raffle::deliverable(drawn, &e.id),
@@ -109,9 +108,8 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
         };
         format!("\"{}\"", s.replace('"', "\"\""))
     }
-    let mut out = String::from(
-        "entrant_id,display_name,email,source,claim_code,outcome,prize,delivered,marketing_consent\n",
-    );
+    let mut out =
+        String::from("entrant_id,display_name,email,source,claim_code,outcome,prize,delivered\n");
     for e in admin_entrants(&full, full.drawn.as_ref())
         .iter()
         .filter(|e| e.outcome.is_some())
@@ -127,7 +125,6 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
                 esc(outcome),
                 esc(e.prize.as_deref().unwrap_or("")),
                 esc(if e.delivered { "yes" } else { "no" }),
-                esc(if e.marketing { "yes" } else { "no" }),
             ]
             .join(","),
         );

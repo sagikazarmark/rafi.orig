@@ -20,7 +20,6 @@ pub struct EntrantRow {
     pub token_hash: Option<String>,
     pub consent_version: Option<String>,
     pub consent_rules_at: Option<i64>,
-    pub consent_marketing: bool,
     pub delivered_at: Option<i64>,
     /// Their personal data was erased ([`ERASED`]): the row stays, anonymous.
     pub erased: bool,
@@ -31,10 +30,9 @@ pub struct EntrantRow {
 pub(crate) const ORDER: &str = "ORDER BY created_at, id";
 
 /// The `SET` clause that erases an entrant's personal data: their name, email,
-/// cookie token, claim code and marketing consent. The anonymous ID and the
-/// draw log stay.
+/// cookie token and claim code. The anonymous ID and the draw log stay.
 pub(crate) const ERASED: &str = "display_name = '#' || substr(id, 1, 6), email_raw = NULL, \
-     email_norm = NULL, token_hash = NULL, claim_code = NULL, consent_marketing = 0, erased = 1";
+     email_norm = NULL, token_hash = NULL, claim_code = NULL, erased = 1";
 
 /// Rows per `INSERT` in [`insert_fakes`]: 2 shared parameters plus 3 per row
 /// stays within D1's 100 bound parameters per statement.
@@ -142,7 +140,6 @@ pub struct Join<'a> {
     pub claim_code: &'a str,
     pub token_hash: &'a str,
     pub consent_version: &'a str,
-    pub consent_marketing: bool,
 }
 
 /// Enters someone, only while registration is open and the raffle has fewer
@@ -155,10 +152,10 @@ pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64) -> Result<bool> {
     let inserted = db
         .query(format!(
             "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, token_hash,
-                                   consent_version, consent_rules_at, consent_marketing, created_at)
-             SELECT ?1, ?2, ?3, ?4, ?5, '{source}', ?6, ?7, ?8, ?9, ?10, ?11
+                                   consent_version, consent_rules_at, created_at)
+             SELECT ?1, ?2, ?3, ?4, ?5, '{source}', ?6, ?7, ?8, ?9, ?10
              WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ?2 AND state IN ({joinable}))
-               AND (SELECT COUNT(*) FROM entrants WHERE raffle_id = ?2) < ?12",
+               AND (SELECT COUNT(*) FROM entrants WHERE raffle_id = ?2) < ?11",
             source = Source::SelfService.as_str(),
             joinable = crate::raffles::states(RaffleState::joinable),
         ))
@@ -171,7 +168,6 @@ pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64) -> Result<bool> {
         .bind(j.token_hash)
         .bind(j.consent_version)
         .bind(now)
-        .bind(j.consent_marketing)
         .bind(now)
         .bind(max_entrants)
         .run()

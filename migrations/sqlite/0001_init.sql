@@ -63,7 +63,6 @@ CREATE TABLE entrants (
     token_hash TEXT,
     consent_version TEXT,
     consent_rules_at INTEGER,
-    consent_marketing INTEGER NOT NULL DEFAULT 0,
     delivered_at INTEGER,
     erased INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,

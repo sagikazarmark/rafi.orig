@@ -13,7 +13,6 @@ each raffle shows its entrants is rendered from the raffle's settings at `/priva
 | **Email** | The admin only. It is never on the projector, in either public view, on the verification page, or in the raffle engine. |
 | **Claim code** | The entrant's own phone and the admin, until erasure |
 | **Entrant ID** | Public. It is random, and is what the manifest and the event log contain. |
-| **Marketing consent** | The admin and the CSV export. It is a separate, optional, unticked box, and the consent version is stored with the entry. |
 
 The **raffle engine** (Restate) receives only the manifest: anonymous entrant IDs and item names. It keeps its
 journal for a short retention window and forgets a raffle when it finishes. **drand** receives no personal data at

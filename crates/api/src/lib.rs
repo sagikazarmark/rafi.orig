@@ -154,7 +154,6 @@ pub struct AdminEntrant {
     pub hidden: bool,
     /// `None` once their personal data is erased.
     pub claim_code: Option<String>,
-    pub marketing: bool,
     pub created_at: i64,
     pub delivered: bool,
     /// Whether their prize can be marked delivered (or not): they claimed it.

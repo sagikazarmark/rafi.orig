@@ -134,7 +134,6 @@ pub fn privacy(raffle: Raffle<'_>, organizer: Organizer<'_>) -> String {
         ("What we collect and why".to_owned(), vec![
             "Your display name and email address, to run the prize draw you entered under the raffle rules (GDPR Art. 6(1)(b)): to tell entries apart, to identify winners and to deliver prizes.".into(),
             "Duplicate and abuse checks (one entry per email address, rate limiting, a proof-of-work check that runs in your browser) are based on our legitimate interest in a fair draw (Art. 6(1)(f)).".into(),
-            "If you tick the optional box, we also use your email to tell you about future meetups, based on your consent (Art. 6(1)(a)). You can withdraw it at any time by writing to the contact above.".into(),
             "Your email address is required to enter; a display name is optional. Your email is never shown on the screen or shared with sponsors.".into(),
         ]),
         ("What is public".to_owned(), vec![
@@ -154,7 +153,7 @@ pub fn privacy(raffle: Raffle<'_>, organizer: Organizer<'_>) -> String {
             "Your entry is part of the draw until the raffle has finished. After that, the organizer erases personal data, or erases yours on request. Anonymous IDs and the draw log are kept so the draw stays verifiable.".into(),
         ]),
         ("Your rights".to_owned(), vec![
-            "You can request access, correction, erasure, restriction, or object to processing, and withdraw consent, by contacting the controller. You can also lodge a complaint with your local data protection supervisory authority.".into(),
+            "You can request access, correction, erasure, restriction, or object to processing, by contacting the controller. You can also lodge a complaint with your local data protection supervisory authority.".into(),
         ]),
     ];
     let title = format!("Privacy notice — {}", raffle.title);
