@@ -30,7 +30,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 
 # drand
-drand = { workspace = true, features = ["client", "rustls", "bls12-381"], optional = true }
+drand = { workspace = true, features = ["reqwest", "rustls", "bls12-381"], optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"], optional = true }
 
 # local, conformance

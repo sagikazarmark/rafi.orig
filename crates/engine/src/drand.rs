@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime};
 pub use ::drand::client::Error as FetchError;
 use ::drand::{
     ChainHash, ChainInfo, Schedule, UnixTime, VerifiedBeacon, chains,
-    client::{Client, Strategy},
+    client::{Client, ReqwestTransport, Strategy},
     http::Relay,
 };
 use anyhow::{Context, bail, ensure};
@@ -162,7 +162,7 @@ impl DrandClient {
         } else {
             builder
                 .relays(cfg.parsed_relays()?)
-                .http_client(reqwest::Client::new())
+                .http_transport(ReqwestTransport::new(reqwest::Client::new()))
                 .build()?
         };
         Ok(Self { cfg, client })
