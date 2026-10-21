@@ -3064,8 +3064,8 @@ async fn an_organizer_can_remove_their_data() {
     assert!(!notice.contains("hello@example.com"));
 }
 
-/// After a restore, the erasure log and the purges are re-applied, and
-/// whatever is due is erased again.
+/// After a restore, the erasure log, the purges and the organizers who left
+/// are re-applied, and whatever is due is erased again.
 #[tokio::test]
 async fn erasures_are_reapplied_after_a_restore() {
     let app = app().await;
@@ -3080,8 +3080,11 @@ async fn erasures_are_reapplied_after_a_restore() {
         .await
         .unwrap();
     service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    let left = finished_raffle(&app).await;
+    service::remove_owner_data(&app, OWNER).await.unwrap();
 
-    // "Restore": the personal data is back, the raffle finished again.
+    // "Restore": the personal data is back, the first raffle finished again,
+    // the organizer named again on the second.
     app.db
         .query("UPDATE entrants SET erased = 0, display_name = 'Back', email_raw = 'back@x.org', claim_code = 'K9' WHERE raffle_id = ?")
         .bind(&raffle.id)
@@ -3094,9 +3097,17 @@ async fn erasures_are_reapplied_after_a_restore() {
         .run()
         .await
         .unwrap();
+    app.db
+        .query(
+            "UPDATE raffles SET organizer_name = 'Back', contact_email = 'back@x.org' WHERE id = ?",
+        )
+        .bind(&left.id)
+        .run()
+        .await
+        .unwrap();
 
     let done = service::reapply_erasures(&app).await.unwrap();
-    assert_eq!((done.entrants, done.raffles), (3, 1));
+    assert_eq!((done.entrants, done.raffles, done.organizers), (3, 1, 1));
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert!(
         entrants
@@ -3111,8 +3122,14 @@ async fn erasures_are_reapplied_after_a_restore() {
             .state,
         RaffleState::Purged
     );
+    let left = raffles::get(&app.db, &left.id).await.unwrap().unwrap();
+    assert!(left.organizer_name.is_empty() && left.contact_email.is_empty());
     let again = service::reapply_erasures(&app).await.unwrap();
-    assert_eq!((again.entrants, again.raffles), (0, 0), "idempotent");
+    assert_eq!(
+        (again.entrants, again.raffles, again.organizers),
+        (0, 0, 0),
+        "idempotent"
+    );
 }
 
 /// `whoami` warns when housekeeping hasn't succeeded for two hours.
@@ -3168,6 +3185,15 @@ async fn a_new_terms_version_is_accepted_again() {
         ),
         "{refused:?}"
     );
+    let first = service::list(&bumped, OWNER).await.unwrap()[0].id.clone();
+    let refused = service::duplicate(&bumped, OWNER, &first, &service::EventDate::today()).await;
+    assert!(
+        matches!(
+            refused,
+            Err(service::Error::Refused(service::Refusal::TermsNotAccepted))
+        ),
+        "duplicating is creating: {refused:?}"
+    );
     let stale = service::accept_terms(&bumped, OWNER, OWNER, "test-1").await;
     assert!(
         matches!(
@@ -3187,4 +3213,29 @@ async fn a_new_terms_version_is_accepted_again() {
         2,
         "both raffles kept running"
     );
+}
+
+/// A raffle dated in the past, before anyone joined, is warned about: it
+/// expires on its erasure date, or within the hour once that has passed.
+#[tokio::test]
+async fn a_past_event_date_is_warned_about() {
+    let app = app().await;
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    let soon = date_event(&app, &raffle.id, 2, 7).await;
+    let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
+    assert!(admin.retention.past_event && !admin.retention.past_erase_date);
+    assert!(admin.retention.expires_unfrozen, "{:?}", admin.retention);
+    assert!(!admin.retention.unfinished_past_event);
+    assert!(soon.erase_at > service::ids::now());
+
+    date_event(&app, &raffle.id, 10, 7).await;
+    let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
+    assert!(admin.retention.past_erase_date && admin.retention.expires_unfrozen);
+    // The date can still move: nobody has joined.
+    assert!(admin.actions.edit_rules);
+    let report = service::housekeeping::run(&app).await.unwrap();
+    assert_eq!(report.expired, 1);
+    let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
+    assert_eq!(admin.view.state, RaffleState::Purged);
+    assert!(!admin.retention.expires_unfrozen, "nothing left to expire");
 }

@@ -311,31 +311,31 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
         .collect::<Vec<_>>()
         .join(", ");
     db.query(format!(
-        "UPDATE raffles SET title = ?1, description = ?2, organizer_name = ?3, contact_email = ?4, rules = ?5,
-         event_date = ?6, test_mode = ?7, updated_at = ?8, privacy_email = ?10, privacy_text = ?11,
-         privacy_url = ?12, event_ends_at = ?13, retention_days = ?14, erase_at = ?15
-         WHERE id = ?9
-           AND ((rules = ?5 AND event_date = ?6 AND privacy_text = ?11 AND privacy_url = ?12
-                 AND event_ends_at = ?13 AND retention_days = ?14)
-                OR NOT EXISTS (SELECT 1 FROM entrants WHERE raffle_id = ?9 AND source IN ({accepted})))
-           AND (test_mode = ?7 OR state IN ({test_mode_editable}))",
+        "UPDATE raffles SET title = ?1, description = ?2, organizer_name = ?3, contact_email = ?4,
+         privacy_email = ?5, privacy_text = ?6, privacy_url = ?7, rules = ?8, event_date = ?9,
+         event_ends_at = ?10, retention_days = ?11, erase_at = ?12, test_mode = ?13, updated_at = ?14
+         WHERE id = ?15
+           AND ((rules = ?8 AND event_date = ?9 AND privacy_text = ?6 AND privacy_url = ?7
+                 AND event_ends_at = ?10 AND retention_days = ?11)
+                OR NOT EXISTS (SELECT 1 FROM entrants WHERE raffle_id = ?15 AND source IN ({accepted})))
+           AND (test_mode = ?13 OR state IN ({test_mode_editable}))",
         test_mode_editable = states(RaffleState::test_mode_editable),
     ))
     .bind(s.title)
     .bind(s.description)
     .bind(s.organizer_name)
     .bind(s.contact_email)
-    .bind(s.rules)
-    .bind(s.event_date)
-    .bind(s.test_mode)
-    .bind(now())
-    .bind(id)
     .bind(s.privacy_email)
     .bind(s.privacy_text)
     .bind(s.privacy_url)
+    .bind(s.rules)
+    .bind(s.event_date)
     .bind(s.event_ends_at)
     .bind(s.retention_days)
     .bind(s.erase_at)
+    .bind(s.test_mode)
+    .bind(now())
+    .bind(id)
 }
 
 /// Creates a draft raffle with `settings` and `prizes` (IDs and fields) in
@@ -424,7 +424,7 @@ pub async fn set_manifest(db: &Db, id: &str, manifest: &str, manifest_hash: &str
 /// updates.
 pub async fn mark_purged(db: &Db, id: &str) -> Result<()> {
     db.query(format!(
-        "UPDATE raffles SET state = '{}', purged_at = ?1, updated_at = ?1,
+        "UPDATE raffles SET state = '{}', purged_at = COALESCE(purged_at, ?1), updated_at = ?1,
          live_ended_at = COALESCE(live_ended_at, ?1) WHERE id = ?2",
         RaffleState::Purged.as_str()
     ))
@@ -443,6 +443,8 @@ pub struct Left {
     /// The raffles that were over: their entrants erased, the organizer
     /// removed, purged.
     pub purged: Vec<String>,
+    /// Nothing happened: one of the owner's raffles was being drawn.
+    pub refused: bool,
 }
 
 /// The owner's data goes: every raffle of theirs that was never frozen
@@ -450,41 +452,44 @@ pub struct Left {
 /// ([`RaffleState::is_over`]) loses its entrants' personal data (logged in
 /// `erasures`, audited as a purge) and the organizer's name and contacts,
 /// and is purged with its live updates ended; their defaults go. One batch,
-/// every write guarded by the state it expects, so a raffle that was frozen
-/// meanwhile is left alone: the caller refuses when any is being drawn, and
-/// may check [`Left`] against what it saw. The anonymous raffles stay
-/// verifiable. Returns the raffles touched, as read before the batch.
+/// all or nothing: every statement is also guarded on none of the owner's
+/// raffles being drawn ([`RaffleState::drawable`]) at that moment, so a
+/// raffle frozen since the caller looked leaves everything as it was
+/// ([`Left::refused`]). The anonymous raffles stay verifiable. What was
+/// touched is read back after the batch.
 pub async fn owner_leaves(db: &Db, owner: &str, now: i64) -> Result<Left> {
-    let rows = rows_by_owner(db, owner).await?;
+    let before = rows_by_owner(db, owner).await?;
     let (expiring, over) = (states(RaffleState::expires), states(RaffleState::is_over));
+    let none_drawing = format!(
+        "NOT EXISTS (SELECT 1 FROM raffles WHERE owner_id = ?1 AND state IN ({}))",
+        states(RaffleState::drawable)
+    );
     let over_raffle = format!(
         "EXISTS (SELECT 1 FROM raffles WHERE id = entrants.raffle_id AND owner_id = ?1 AND state IN ({over}))"
     );
     db.batch(vec![
         db.query(format!(
             "INSERT INTO audit (raffle_id, at, actor, action, detail)
-             SELECT id, ?2, ?1, 'delete', 'owner left' FROM raffles WHERE owner_id = ?1 AND state IN ({expiring})"
+             SELECT id, ?2, ?1, 'delete', 'owner left' FROM raffles
+             WHERE owner_id = ?1 AND state IN ({expiring}) AND {none_drawing}"
         ))
         .bind(owner)
         .bind(now),
         db.query(format!(
-            "DELETE FROM raffles WHERE owner_id = ?1 AND state IN ({expiring})"
-        ))
-        .bind(owner),
-        db.query(format!(
             "INSERT INTO audit (raffle_id, at, actor, action, detail)
-             SELECT id, ?2, ?1, 'purge', 'owner left' FROM raffles WHERE owner_id = ?1 AND state IN ({over})"
+             SELECT id, ?2, ?1, 'purge', 'owner left' FROM raffles
+             WHERE owner_id = ?1 AND state IN ({over}) AND {none_drawing}"
         ))
         .bind(owner)
         .bind(now),
         db.query(format!(
             "INSERT INTO erasures (raffle_id, entrant_id, at)
-             SELECT raffle_id, id, ?2 FROM entrants WHERE erased = 0 AND {over_raffle}"
+             SELECT raffle_id, id, ?2 FROM entrants WHERE erased = 0 AND {over_raffle} AND {none_drawing}"
         ))
         .bind(owner)
         .bind(now),
         db.query(format!(
-            "UPDATE entrants SET {} WHERE erased = 0 AND {over_raffle}",
+            "UPDATE entrants SET {} WHERE erased = 0 AND {over_raffle} AND {none_drawing}",
             crate::entrants::ERASED
         ))
         .bind(owner),
@@ -493,23 +498,60 @@ pub async fn owner_leaves(db: &Db, owner: &str, now: i64) -> Result<Left> {
                     privacy_text = '', privacy_url = '', state = '{purged}',
                     purged_at = COALESCE(purged_at, ?2), organizer_left_at = ?2,
                     live_ended_at = COALESCE(live_ended_at, ?2), updated_at = ?2
-             WHERE owner_id = ?1 AND state IN ({over})",
+             WHERE owner_id = ?1 AND state IN ({over}) AND {none_drawing}",
             purged = RaffleState::Purged.as_str(),
         ))
         .bind(owner)
         .bind(now),
-        db.query("DELETE FROM owner_defaults WHERE owner_id = ?1").bind(owner),
+        db.query(format!(
+            "DELETE FROM raffles WHERE owner_id = ?1 AND state IN ({expiring}) AND {none_drawing}"
+        ))
+        .bind(owner),
+        db.query(format!(
+            "DELETE FROM owner_defaults WHERE owner_id = ?1 AND {none_drawing}"
+        ))
+        .bind(owner),
     ])
     .await?;
-    let mut left = Left::default();
-    for r in rows {
-        if r.state.expires() {
-            left.deleted.push(r.id);
-        } else if r.state.is_over() {
-            left.purged.push(r.id);
-        }
+    let after = rows_by_owner(db, owner).await?;
+    if after.iter().any(|r| r.state.drawable()) {
+        return Ok(Left {
+            refused: true,
+            ..Left::default()
+        });
     }
-    Ok(left)
+    Ok(Left {
+        deleted: before
+            .iter()
+            .filter(|b| !after.iter().any(|a| a.id == b.id))
+            .map(|r| r.id.clone())
+            .collect(),
+        purged: after
+            .iter()
+            .filter(|r| r.organizer_left_at == Some(now))
+            .map(|r| r.id.clone())
+            .collect(),
+        refused: false,
+    })
+}
+
+/// Blanks the organizer again on every raffle whose owner left but whose
+/// name and contacts are back (a restored backup): the restore tool's
+/// write. Returns how many.
+pub async fn reapply_organizer_left(db: &Db) -> Result<u64> {
+    let named = "organizer_left_at IS NOT NULL AND (organizer_name <> '' OR contact_email <> ''
+        OR privacy_email <> '' OR privacy_text <> '' OR privacy_url <> '')";
+    let (count,): (i64,) = db
+        .query(format!("SELECT COUNT(*) FROM raffles WHERE {named}"))
+        .one()
+        .await?;
+    db.query(format!(
+        "UPDATE raffles SET organizer_name = '', contact_email = '', privacy_email = '',
+                privacy_text = '', privacy_url = '' WHERE {named}"
+    ))
+    .run()
+    .await?;
+    Ok(count.max(0) as u64)
 }
 
 /// Records that live updates ended, unless they already had.

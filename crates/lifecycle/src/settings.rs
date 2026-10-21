@@ -180,6 +180,32 @@ pub fn erase_date(event: Date, retention_days: i64) -> Date {
     event.plus_days(retention_days)
 }
 
+/// A raffle's erasure dates as calendar days, as entrants and organizers
+/// read them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ErasureDates {
+    /// The event day.
+    pub event: Date,
+    /// The day non-winners are erased.
+    pub erase: Date,
+    /// The day winners whose prize wasn't delivered are erased at the latest.
+    pub winners_erase: Date,
+}
+
+impl ErasureDates {
+    /// The dates of a raffle on `event_date` with `retention_days`, under a
+    /// policy with `winner_hold_days`; `None` if the date doesn't parse
+    /// (a stored one always does).
+    pub fn of(event_date: &str, retention_days: i64, winner_hold_days: i64) -> Option<Self> {
+        let event = Date::parse(event_date)?;
+        Some(Self {
+            event,
+            erase: erase_date(event, retention_days),
+            winners_erase: erase_date(event, retention_days + winner_hold_days),
+        })
+    }
+}
+
 /// The settings that are fixed once a real entrant has accepted the rules:
 /// what the join form and the notices showed them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -438,6 +464,12 @@ mod tests {
         let event = Date::parse("2026-10-28").unwrap();
         assert_eq!(s.erase_at(), event.ends_utc() + 7 * DAY_SECS);
         assert_eq!(erase_date(event, 7).iso(), "2026-11-04");
+        let dates = ErasureDates::of("2026-10-28", 7, 90).unwrap();
+        assert_eq!(
+            (dates.erase.iso(), dates.winners_erase.iso()),
+            ("2026-11-04".to_owned(), "2027-02-02".to_owned())
+        );
+        assert!(ErasureDates::of("soon", 7, 90).is_none());
         // The organizer's browser says the day ends earlier (east of UTC).
         let cet = Settings {
             event_ends_at: Some(event.ends_utc() - 3600),

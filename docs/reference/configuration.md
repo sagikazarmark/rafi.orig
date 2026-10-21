@@ -46,7 +46,7 @@ The app refuses to start (natively) or every request (on Workers) when the reten
 or when the operator, the versions or the documents are missing without dev auth.
 
 `rafi reapply-erasures` (native only) is the command for after a database restore: it takes the same environment,
-re-applies the erasure log and the purges, runs housekeeping once, and exits.
+re-applies the erasure log, the purges and the organizers who left, runs housekeeping once, and exits.
 
 ### Workers only
 

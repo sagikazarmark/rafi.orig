@@ -3,7 +3,7 @@
 
 use dioxus::prelude::*;
 use dioxus_icons::lucide::ArrowLeft;
-use rafi_lifecycle::dates::Date;
+pub use rafi_lifecycle::settings::ErasureDates;
 
 use super::participant::{Raffle, document};
 
@@ -45,26 +45,13 @@ pub struct Operator<'a> {
     pub privacy_version: &'a str,
 }
 
-/// When the raffle's personal data is erased, as entrants read it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ErasureDates {
-    /// The event day.
-    pub event: Date,
-    /// The day non-winners are erased.
-    pub erase: Date,
-    /// The day winners whose prize wasn't delivered are erased at the latest.
-    pub winners_erase: Date,
-}
-
-impl ErasureDates {
-    /// The one sentence the join form says about erasure.
-    pub fn sentence(&self) -> String {
-        format!(
-            "Your name and email are erased on {}; a winner's once their prize is delivered, at the latest on {}.",
-            self.erase.long(),
-            self.winners_erase.long()
-        )
-    }
+/// The one sentence the join form says about erasure.
+pub fn erasure_sentence(dates: &ErasureDates) -> String {
+    format!(
+        "Your name and email are erased on {}; a winner's once their prize is delivered, at the latest on {}.",
+        dates.erase.long(),
+        dates.winners_erase.long()
+    )
 }
 
 /// The age line entrants confirm by entering.
@@ -351,13 +338,9 @@ mod tests {
 
     #[test]
     fn the_retention_sentence_names_the_dates() {
-        let r = ErasureDates {
-            event: Date::parse("2026-10-28").unwrap(),
-            erase: Date::parse("2026-11-04").unwrap(),
-            winners_erase: Date::parse("2027-02-02").unwrap(),
-        };
+        let dates = ErasureDates::of("2026-10-28", 7, 90).unwrap();
         assert_eq!(
-            r.sentence(),
+            erasure_sentence(&dates),
             "Your name and email are erased on 4 November 2026; a winner's once their prize is delivered, at the latest on 2 February 2027."
         );
     }

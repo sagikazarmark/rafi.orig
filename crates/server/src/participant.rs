@@ -13,7 +13,7 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
-use rafi_lifecycle::{dates::Date, settings};
+use rafi_lifecycle::{dates::Date, settings::ErasureDates};
 use rafi_store::{EntrantRow, RaffleRow};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -131,17 +131,19 @@ fn operator_of(app: &AppState) -> pages::Operator<'_> {
     }
 }
 
-/// When `raffle`'s personal data is erased, as the pages say it.
-fn retention_of(app: &AppState, raffle: &RaffleRow) -> pages::ErasureDates {
-    // A stored date always parses; the start of time if not, which the page
-    // would make obvious.
-    let event = Date::parse(&raffle.event_date).unwrap_or(Date::from_days(0));
+/// When `raffle`'s personal data is erased, as the pages say it. A stored
+/// date always parses; the start of time if not, which the page would make
+/// obvious.
+fn retention_of(app: &AppState, raffle: &RaffleRow) -> ErasureDates {
     let hold = app.policy.retention.winner_hold_days;
-    pages::ErasureDates {
-        event,
-        erase: settings::erase_date(event, raffle.retention_days),
-        winners_erase: settings::erase_date(event, raffle.retention_days + hold),
-    }
+    ErasureDates::of(&raffle.event_date, raffle.retention_days, hold).unwrap_or_else(|| {
+        let event = Date::from_days(0);
+        ErasureDates {
+            event,
+            erase: event,
+            winners_erase: event,
+        }
+    })
 }
 
 /// The participant page of `raffle` for this request.

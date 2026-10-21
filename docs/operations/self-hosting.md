@@ -145,6 +145,24 @@ Expose neither `rafi-restate` (`:9080`) nor Restate's admin API (`:9070`) public
   show **✅ All 1 draws check out**, under a **🧪 TEST MODE** note.
 - Erase it, or delete it.
 
+## Reviewing held winner data
+
+Winners' names and emails are held past the erasure date until the organizer marks the prize delivered, at most
+for the winner hold. Nothing in the software keeps them longer, but an organizer who never marks anything delivered
+keeps every winner for the whole hold. Look at what is held now and then, and ask organizers to mark prizes
+delivered (or do it for them, with their agreement, in the People tab):
+
+```sql
+SELECT r.id, r.title, r.owner_id, r.erase_at, COUNT(*) AS held
+FROM entrants e JOIN raffles r ON r.id = e.raffle_id
+WHERE e.erased = 0 AND e.delivered_at IS NULL
+  AND e.id IN (SELECT entrant_id FROM draws WHERE raffle_id = r.id AND outcome = 'claimed')
+GROUP BY r.id, r.title, r.owner_id, r.erase_at
+ORDER BY r.erase_at;
+```
+
+Note each review and what you did about it: that record is part of showing the hold is justified.
+
 ## Backups
 
 Back up the database (the SQLite file, or Postgres as usual). Restate's own state only matters while a raffle is
@@ -155,8 +173,9 @@ A backup holds personal data that may have been erased since. After a restore:
 1. If you can, carry the live database's `erasures` table over to the restored one (it holds entrant IDs and
    times only): `sqlite3 live.db ".dump erasures"` or `pg_dump -t erasures`, then import it.
 2. Run `rafi reapply-erasures` with the app's environment. It erases again every entrant the log names, purges
-   again every raffle that was purged, and runs housekeeping once, so whatever came due in the meantime is erased
-   too (the erasure dates are in the raffles themselves, so the clock needs no log). Then start the app.
+   again every raffle that was purged, blanks again every organizer who removed their data, and runs housekeeping
+   once, so whatever came due in the meantime is erased too (the erasure dates are in the raffles themselves, so
+   the clock needs no log). Then start the app.
 
 Erasures the organizer made before the date, and that aren't in the log you restored, are the only ones the
 clock won't redo: that is what step 1 is for.

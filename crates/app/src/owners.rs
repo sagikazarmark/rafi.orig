@@ -19,6 +19,10 @@ pub async fn remove_owner_data(app: &App, owner: &str) -> Result<()> {
         return Err(Refusal::EventLive.into());
     }
     let left = raffles::owner_leaves(&app.db, owner, ids::now()).await?;
+    if left.refused {
+        // Frozen since the read above: nothing happened.
+        return Err(Refusal::EventLive.into());
+    }
     // Best effort: the channels find nothing to show either way.
     for id in left.deleted.iter().chain(&left.purged) {
         if let Err(e) = app.live_updates.end(id).await {
@@ -35,14 +39,22 @@ pub struct Reapplied {
     pub entrants: u64,
     /// Raffles purged again.
     pub raffles: u64,
+    /// Raffles whose organizer left and was named again: blanked again.
+    pub organizers: u64,
 }
 
 /// After a database restore: erases again every entrant the erasure log
-/// names, purges again every raffle that was purged, and runs housekeeping
-/// once, so whatever was due is erased again too. Idempotent.
+/// names, purges again every raffle that was purged, blanks again every
+/// organizer who left, and runs housekeeping once, so whatever was due is
+/// erased again too. Idempotent.
 pub async fn reapply_erasures(app: &App) -> Result<Reapplied> {
     let entrants = entrants::reapply_erasures(&app.db).await?;
     let raffles = retention::reapply_purges(&app.db).await?;
+    let organizers = raffles::reapply_organizer_left(&app.db).await?;
     crate::housekeeping::run(app).await?;
-    Ok(Reapplied { entrants, raffles })
+    Ok(Reapplied {
+        entrants,
+        raffles,
+        organizers,
+    })
 }

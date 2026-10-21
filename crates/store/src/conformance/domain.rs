@@ -1851,9 +1851,24 @@ pub(super) async fn delivers_all_and_removes_the_organizer(db: &Db) -> Outcome {
     .await
     .map_err(fail)?;
 
+    // Nothing while a raffle is being drawn: all or nothing.
+    let left = raffles::owner_leaves(db, "o", 69).await.map_err(fail)?;
+    check(
+        left.refused && left.deleted.is_empty() && left.purged.is_empty(),
+        &format!("refused while r3 is drawing: {left:?}"),
+    )?;
+    check(
+        raffle(db, "r1").await?.organizer_name == "Org"
+            && raffles::get(db, "r2").await.map_err(fail)?.is_some()
+            && !entrant(db, "r1", "n").await?.erased
+            && defaults::get(db, "o").await.map_err(fail)?.is_some(),
+        "nothing happened",
+    )?;
+    force_state(db, "r3", RaffleState::Finished).await?;
+
     let left = raffles::owner_leaves(db, "o", 70).await.map_err(fail)?;
     check(
-        left.deleted == ["r2"] && left.purged == ["r1"],
+        left.deleted == ["r2"] && left.purged == ["r1", "r3"] && !left.refused,
         &format!("what went: {left:?}"),
     )?;
     check(
@@ -1897,16 +1912,32 @@ pub(super) async fn delivers_all_and_removes_the_organizer(db: &Db) -> Outcome {
         logged.len() == 3,
         &format!("three erasures logged: {logged:?}"),
     )?;
-    let r3 = raffle(db, "r3").await?;
     check(
-        r3.state == RaffleState::Drawing
-            && !entrant(db, "r3", "y").await?.erased
-            && raffle(db, "r4").await?.state == RaffleState::Draft,
-        "a drawing raffle and another owner's are left alone",
+        raffle(db, "r3").await?.state == RaffleState::Purged
+            && entrant(db, "r3", "y").await?.erased
+            && raffle(db, "r4").await?.state == RaffleState::Draft
+            && raffle(db, "r4").await?.organizer_left_at.is_none(),
+        "r3 went with r1; another owner's raffle is left alone",
     )?;
     check(
         defaults::get(db, "o").await.map_err(fail)?.is_none(),
         "the defaults are gone",
+    )?;
+
+    // A restore names the organizer again; the tool blanks them again.
+    db.query("UPDATE raffles SET organizer_name = 'Org', contact_email = 'a@b.c' WHERE id = 'r1'")
+        .run()
+        .await
+        .map_err(fail)?;
+    check(
+        raffles::reapply_organizer_left(db).await.map_err(fail)? == 1
+            && raffle(db, "r1").await?.organizer_name.is_empty()
+            && raffle(db, "r1").await?.contact_email.is_empty(),
+        "the organizer is blanked again",
+    )?;
+    check(
+        raffles::reapply_organizer_left(db).await.map_err(fail)? == 0,
+        "idempotent",
     )
 }
 

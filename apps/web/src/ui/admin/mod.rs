@@ -473,6 +473,10 @@ fn RetentionCard(admin: AdminData) -> Element {
             div { class: "space-y-1",
                 if admin.view.state == RaffleState::Purged {
                     p { "Personal data erased. The anonymous draw stays verifiable." }
+                } else if r.expires_unfrozen && r.past_erase_date {
+                    p { class: "text-warning", "⚠ The erasure date ({erase}) has passed and the list was never frozen. The raffle expires within the hour: its entrants are deleted. Move the event date if the event hasn't happened yet." }
+                } else if r.expires_unfrozen {
+                    p { class: "text-warning", "⚠ The event day has passed and the list was never frozen. The raffle expires on {erase}: its entrants are deleted." }
                 } else if r.past_erase_date {
                     p { "Non-winners' data was erased on {erase}." }
                 } else {
@@ -483,9 +487,6 @@ fn RetentionCard(admin: AdminData) -> Element {
                 }
                 if r.unfinished_past_event {
                     p { class: "text-warning", "⚠ Not finished, and the event day has passed. Entrants' data is erased on the date regardless; finish the raffle so its data can be erased for good." }
-                }
-                if r.expires_unfrozen {
-                    p { class: "text-warning", "⚠ The event day has passed and the list was never frozen. The raffle expires on {erase}: its entrants are deleted." }
                 }
             }
         }

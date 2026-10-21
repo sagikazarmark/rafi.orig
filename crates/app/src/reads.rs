@@ -6,8 +6,7 @@ use std::collections::HashMap;
 use rafi_api::{AdminActions, AdminEntrant, Prize, RaffleAdmin, Retention, StartStep, VerifyData};
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
-    dates::Date,
-    settings,
+    settings::{self, ErasureDates},
     start::{self, Start},
 };
 use rafi_raffle::{ItemId, Outcome, Raffle};
@@ -81,13 +80,11 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
 /// When `raffle`'s personal data is erased, as of `now`.
 fn retention_of(app: &App, raffle: &RaffleRow, now: i64) -> Retention {
     let hold = app.policy.retention.winner_hold_days;
-    let (erase_date, winners_erase_date) = match Date::parse(&raffle.event_date) {
-        Some(event) => (
-            settings::erase_date(event, raffle.retention_days).long(),
-            settings::erase_date(event, raffle.retention_days + hold).long(),
-        ),
-        None => (String::new(), String::new()),
-    };
+    let (erase_date, winners_erase_date) =
+        match ErasureDates::of(&raffle.event_date, raffle.retention_days, hold) {
+            Some(dates) => (dates.erase.long(), dates.winners_erase.long()),
+            None => (String::new(), String::new()),
+        };
     let past_event = raffle.event_ends_at <= now;
     Retention {
         erase_at: raffle.erase_at,
@@ -98,7 +95,7 @@ fn retention_of(app: &App, raffle: &RaffleRow, now: i64) -> Retention {
         past_event,
         past_erase_date: raffle.past_erase_date(now),
         unfinished_past_event: past_event && raffle.state.drawable(),
-        expires_unfrozen: past_event && raffle.state.expires() && !raffle.past_erase_date(now),
+        expires_unfrozen: past_event && raffle.state.expires(),
         default_days: app.policy.retention.days,
         max_days: app.policy.retention.max_days,
         winner_hold_days: hold,

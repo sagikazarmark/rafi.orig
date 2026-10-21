@@ -75,9 +75,10 @@ template does).
   installation's own, which lists its subprocessors (hosting, the raffle engine, organizer sign-in, drand).
   Organizers accept the operator's terms, with the data processing agreement, before their first raffle; the
   acceptance and its version are recorded, and a new version is accepted again.
-- **Leaving:** "Remove my data" in the admin deletes the organizer's drafts, erases their other raffles' personal
-  data and takes their name and contacts off them, and deletes their defaults. The anonymous draws stay verifiable;
-  the acceptance record stays. The account itself is deleted in Clerk.
+- **Leaving:** "Remove my data" in the admin deletes the organizer's raffles that were never frozen, erases their
+  other raffles' personal data and takes their name and contacts off them, and deletes their defaults, all in one
+  write that does nothing while a raffle of theirs is being drawn. The anonymous draws stay verifiable; the
+  acceptance record stays. The account itself is deleted in Clerk.
 
 ## Coming back without an account
 

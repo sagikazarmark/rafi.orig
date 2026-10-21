@@ -245,7 +245,8 @@ pub struct Retention {
     /// data is erased on the date regardless, and it should be finished.
     pub unfinished_past_event: bool,
     /// The event day has ended and the list was never frozen: the raffle
-    /// expires on the erasure date, its entrants deleted.
+    /// expires on the erasure date (within the hour, once it has passed),
+    /// its entrants deleted.
     pub expires_unfrozen: bool,
     /// The installation's default period, the longest one a raffle may
     /// choose, and the winner hold, in days.

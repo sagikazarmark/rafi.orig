@@ -94,11 +94,12 @@ async fn reapply_erasures(cfg: server::config::Config) -> anyhow::Result<()> {
     tracing::info!(
         entrants = done.entrants,
         raffles = done.raffles,
+        organizers = done.organizers,
         "erasures re-applied; housekeeping ran"
     );
     println!(
-        "re-erased {} entrant(s), re-purged {} raffle(s); housekeeping ran",
-        done.entrants, done.raffles
+        "re-erased {} entrant(s), re-purged {} raffle(s), re-removed {} organizer(s); housekeeping ran",
+        done.entrants, done.raffles, done.organizers
     );
     Ok(())
 }

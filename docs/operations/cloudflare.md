@@ -91,11 +91,22 @@ Open `/healthz`, `/terms` and `/privacy`, then run a test-mode raffle end to end
 - Durable Objects come from an EU-jurisdiction namespace (`RAFI_DO_JURISDICTION=eu`, fixed at creation).
 - Invocation logs are off, because they would record client IPs and cookies.
 - D1 Time Travel keeps erased data for up to 30 more days. Say so in your privacy notice (the template does). After
-  restoring with Time Travel, re-apply the erasures: natively that is `rafi reapply-erasures`
-  ([Self-hosting](self-hosting.md#backups)); on Workers there is no CLI yet, but the hourly housekeeping erases
-  again whatever is past its date, since the dates are in the raffles themselves. Erasures organizers made before
-  the date would need the `erasures` table carried over and the `UPDATE` in `rafi_store::entrants::reapply_erasures`
-  run by hand against D1.
+  restoring with Time Travel, re-apply the erasures. The hourly housekeeping erases again whatever is past its date
+  on its own (the dates are in the raffles themselves). What it can't know is what organizers erased before the
+  date, or who removed their data: for those, carry the live `erasures` table and the `organizer_left_at` values
+  over if you can, and run the restore tool's statements against D1 (the same SQL `rafi reapply-erasures` runs
+  natively, see [Self-hosting](self-hosting.md#backups)):
+
+  ```sh
+  wrangler d1 execute rafi --remote --command "
+    UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL,
+      token_hash = NULL, claim_code = NULL, erased = 1
+    WHERE erased = 0 AND EXISTS (SELECT 1 FROM erasures
+      WHERE erasures.raffle_id = entrants.raffle_id AND erasures.entrant_id = entrants.id);
+    UPDATE raffles SET state = 'purged' WHERE purged_at IS NOT NULL AND state <> 'purged';
+    UPDATE raffles SET organizer_name = '', contact_email = '', privacy_email = '', privacy_text = '',
+      privacy_url = '' WHERE organizer_left_at IS NOT NULL;"
+  ```
 
 ## Limits
 

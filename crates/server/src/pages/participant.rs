@@ -14,7 +14,10 @@ use serde::Serialize;
 
 use dioxus_icons::lucide::{Monitor, Moon, Sun, Ticket};
 
-use super::{style::STYLESHEET_URL, text::ErasureDates};
+use super::{
+    style::STYLESHEET_URL,
+    text::{ErasureDates, erasure_sentence},
+};
 
 /// The raffle, as the public pages show it.
 #[derive(Debug, Clone, Copy)]
@@ -148,7 +151,7 @@ pub fn page(page: Page<'_>) -> String {
         retention,
         min_age,
     } = page;
-    let erasure = retention.sentence();
+    let erasure = erasure_sentence(&retention);
     let age = super::text::age_line(min_age);
     let phase = view.state;
     let strings = CardStrings::default();
