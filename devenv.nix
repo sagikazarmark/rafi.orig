@@ -52,9 +52,6 @@ let
 
   features = lib.optionalString cfg.mockDrand " --features mock-drand";
 
-  # The Worker's local state (D1, Durable Objects), kept across restarts.
-  wranglerState = "${state}/wrangler/state";
-
   # The Workers' static files (apps/worker/worker-assets) are rebuilt when their
   # sources change, when something else rebuilt them (scripts/workers-check.sh),
   # or for the other auth: the stamp records the build.
@@ -229,36 +226,30 @@ in
     })
 
     (lib.mkIf (cfg.stack == "workers") {
-      wrangler.dev = {
-        app = {
-          directory = "apps/worker";
-          port = 8787;
-          extraArgs = [
-            "--env"
-            "dev"
-            "--persist-to"
-            wranglerState
-            "--var"
-            "RAFI_PUBLIC_URL:http://127.0.0.1:${toString (port "wrangler-app")}"
-            "--var"
-            "RESTATE_INGRESS_URL:${restateIngressUrl}"
-          ]
-          # The secret key from .env, and the dev environment's RAFI_DEV_AUTH off.
-          ++ lib.optionals cfg.clerk [
-            "--env-file"
-            "${root}/.env"
-            "--var"
-            "RAFI_DEV_AUTH:0"
-          ];
-        };
+      # The Worker under `wrangler dev --env dev`, its local data (D1, Durable
+      # Objects) kept across restarts, the D1 migrations applied before it starts.
+      wrangler.dev.app = {
+        directory = "apps/worker";
+        environment = "dev";
+        d1.migrate = [ "DB" ];
+        # Ready once the app answers, not when wrangler listens.
+        ready.path = "/healthz";
+        vars = {
+          RAFI_PUBLIC_URL = config.wrangler.dev.app.url;
+          RESTATE_INGRESS_URL = restateIngressUrl;
+        }
+        # The dev environment's RAFI_DEV_AUTH off: Clerk signs in.
+        // lib.optionalAttrs cfg.clerk { RAFI_DEV_AUTH = "0"; };
+        # The secret key from .env.
+        extraArgs = lib.optionals cfg.clerk [
+          "--env-file"
+          "${root}/.env"
+        ];
       };
-
-      processes."wrangler-app".ready.exec =
-        "curl -fsS -o /dev/null http://127.0.0.1:${toString (port "wrangler-app")}/healthz";
 
       # The raffle engine is the same Worker, under /restate.
       services.restate.deployments.engine = {
-        uri = "http://127.0.0.1:${toString (port "wrangler-app")}/restate";
+        uri = "${config.wrangler.dev.app.url}/restate";
         http1 = true;
         after = [ "devenv:processes:wrangler-app" ];
       };
@@ -279,13 +270,6 @@ in
                 -newer ${appAssetsStamp} ! -path apps/web/assets/tailwind.css -print -quit)" ]
           '';
           cwd = root;
-          before = [ "devenv:processes:wrangler-app" ];
-        };
-
-        # The database.
-        "rafi:d1-migrations" = {
-          exec = "wrangler d1 migrations apply rafi --local --env dev --persist-to ${wranglerState}";
-          cwd = "${root}/apps/worker";
           before = [ "devenv:processes:wrangler-app" ];
         };
       };

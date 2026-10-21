@@ -70,10 +70,12 @@ local Workers state. Pass the same `--profile` flags to `devenv down` and `deven
   crate's `TestChain`). Its draws are **not** verifiable. The app refuses to start a draw on an engine that uses
   another chain. (The `workers` stack always uses it.)
 - **`workers`** runs the Worker (`wrangler-app`, <http://127.0.0.1:8787>; the raffle engine is in it, under
-  `/restate`, registered with Restate over HTTP/1.1) with `wrangler dev --env dev`: dev auth and the mock chain.
-  Before starting it, it applies the D1 migrations, and builds the static files (`./scripts/app-assets.sh`) when
+  `/restate`, registered with Restate over HTTP/1.1 once the Worker answers `/healthz`) with
+  `wrangler dev --env dev`: dev auth and the mock chain. Before starting it, it applies the D1 migrations
+  (devenv-extras' `wrangler.dev.app.d1.migrate`), and builds the static files (`./scripts/app-assets.sh`) when
   their sources changed, when something else built them, or for the other auth. The first build takes a few
-  minutes. The Worker's local state (D1, Durable Objects) is kept across restarts.
+  minutes. The Worker's local data (D1, Durable Objects) lives in the profile's `state/wrangler/state/app` and is
+  kept across restarts.
 - **`clerk`** signs the organizer in with Clerk. It needs `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, from
   [Clerk's dashboard](https://dashboard.clerk.com) (API keys; a development instance accepts `localhost`), in `.env`
   at the project root, which the shell loads. The web app is built with the publishable key, and the server (or the
