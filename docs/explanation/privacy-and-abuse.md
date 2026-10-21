@@ -36,13 +36,15 @@ Once the list is frozen, `/v/<slug>` and `/api/r/<slug>/verify.json` publish:
 
 ## Erasure
 
-Every raffle has an **event date**, fixed once a real entrant has joined, and a **retention period** fixed with it.
-Together they give the raffle one **erasure date**, which the join form and the privacy notice show entrants as a
-calendar day, and which no later action of the organizer moves. The hourly housekeeping run then keeps three clocks:
+Every raffle has an **event date** (at most a year ahead, so the bounded period counts from a bounded day), fixed
+once a real entrant has joined, and a **retention period** fixed with it. Together they give the raffle one
+**erasure date**, which the database computes from the two, which the join form and the privacy notice show
+entrants as a calendar day ("at the end of 4 November 2026"), and which no later action of the organizer moves.
+Registration can't open once that date has passed. The hourly housekeeping run then keeps three clocks:
 
 | Clock | When | What |
 |---|---|---|
-| **Non-winners** | the erasure date: the end of the event day plus the period (7 days unless the organizer chose fewer, up to the installation's maximum, 30) | Everyone who didn't win, and winners whose prize was marked delivered, lose their name, email, claim code and token. In any state: a raffle nobody finished is erased all the same. |
+| **Non-winners** | the erasure date: the end of the event day plus the period (7 days unless the organizer chose otherwise, 0 to the installation's maximum, 30) | Everyone who didn't win, and winners whose prize was marked delivered, lose their name, email, claim code and token. In any state: a raffle nobody finished is erased all the same. |
 | **Winners** | the erasure date plus the **winner hold** (90 days) | Winners (the entrants of claimed draws) are kept so a prize can still reach them, until the organizer marks it delivered ("Mark delivered", or "All prizes delivered" from the menu), which puts them on the first clock. At the hold, everyone left is erased, a finished raffle becomes "Data erased", and a raffle still being drawn is asked to finish. |
 | **Expiry** | the erasure date | A raffle that was never frozen has no draw to keep verifiable: its entrants are deleted outright and it becomes "Data erased". |
 
@@ -72,10 +74,13 @@ template does).
 - **The organizer** is the controller of their entrants' data. Registration can't open until the raffle names them
   and a way to reach them (a contact email, or a separate privacy contact that can change at any time). They may add
   their own privacy text or link to their own notice; it is shown after Rafi's generated notice, never instead of it.
+  In a Clerk organization the owner is the organization and every member runs its raffles; **admins** accept the
+  terms and remove the organization's data, **managers** (the custom `org:manager` role, or the
+  `org:raffles:manage` permission) also create, configure and delete raffles, **members** do everything else.
 - **The operator** of the installation is the organizer's processor, named in every notice with a link to the
   installation's own, which lists its subprocessors (hosting, the raffle engine, organizer sign-in, drand).
   Organizers accept the operator's terms, with the data processing agreement, before their first raffle; the
-  acceptance and its version are recorded, and a new version is accepted again.
+  acceptance, its version and a digest of the text are recorded, and a new version is accepted again.
 - **Leaving:** "Remove my data" in the admin deletes the organizer's raffles that were never frozen, erases their
   other raffles' personal data and takes their name and contacts off them, and deletes their defaults, all in one
   write that does nothing while a raffle of theirs is being drawn. The anonymous draws stay verifiable; the

@@ -398,3 +398,18 @@ Workers CI job starts it under `wrangler dev`; a cron smoke test there is welcom
 - **Order of work.** Schema and the erasure duties first (restoring from `9448be9` where it still fits), then the
   event date and the lock, the join form and notices, the organizer fields and the open-gate, terms and acceptance,
   the restore tool, offboarding, docs. The marketing removal is a small first commit on its own.
+
+## Follow-ups, after the review of the implementation
+
+Recorded here so they aren't lost; none blocks the hosted launch.
+
+- **Audit actor.** `audit.actor` is the owner key (a Clerk organization for co-hosts), so two members of one
+  organization are indistinguishable in the log. The fix is threading the signed-in user through every use case;
+  deferred until the log is read by anyone but the operator.
+- **Account deletion.** Deleting a Clerk account or organization doesn't remove the organizer's data here; the
+  admin's "Remove my data" does, and the terms say to do that first. A Clerk webhook (`user.deleted`,
+  `organization.deleted`) calling the same use case would close the gap.
+- **Access tiers** come from Clerk's claims (admin, the custom `org:manager` role or `org:raffles:manage`
+  permission, member). Clerk's free plan has only admins and members, which the tiers degrade to.
+- **Restore on Workers** has no command: housekeeping re-erases what is past its date on its own, and the SQL for
+  the rest is in the Cloudflare operations doc.

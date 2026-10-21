@@ -42,6 +42,8 @@ async fn app() -> App {
                 winner_hold_days: 90,
             },
             terms_version: "test".into(),
+            terms_digest: "digest".into(),
+            min_age: 16,
         },
     }
 }

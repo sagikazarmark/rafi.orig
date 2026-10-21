@@ -10,9 +10,12 @@ use super::*;
 #[component]
 pub(super) fn Header(
     admin: AdminData,
+    /// The signed-in user's tier: duplicating and deleting need a manager.
+    access: Access,
     error: Signal<Option<String>>,
     on_change: EventHandler<()>,
 ) -> Element {
+    let manages = access.allows(Access::Manager);
     let v = admin.view.clone();
     let mut ask_delete = use_signal(|| false);
     let mut ask_purge = use_signal(|| false);
@@ -66,8 +69,9 @@ pub(super) fn Header(
                 Ok(new_id) => {
                     toast.success(
                         "Duplicated".to_owned(),
-                        ToastOptions::new()
-                            .description("Prizes and settings were copied; entrants were not."),
+                        ToastOptions::new().description(
+                            "Prizes and settings were copied; entrants were not. The copy is dated today: set its event date.",
+                        ),
                     );
                     nav.push(Route::RaffleAdmin { id: new_id });
                 }
@@ -120,7 +124,7 @@ pub(super) fn Header(
                     toast.success(
                         format!("📦 {n} prize(s) marked delivered"),
                         ToastOptions::new()
-                            .description("Those winners' data is now erased with everyone else's."),
+                            .description("Those winners' data is erased on the erasure date with everyone else's."),
                     );
                     on_change.call(());
                 }
@@ -166,8 +170,10 @@ pub(super) fn Header(
         "delete" => ask_delete.set(true),
         _ => {}
     });
-    let mut menu: Vec<(&'static str, &'static str, Element)> =
-        vec![("duplicate", "Duplicate", rsx! { Copy { class: "size-4" } })];
+    let mut menu: Vec<(&'static str, &'static str, Element)> = Vec::new();
+    if manages {
+        menu.push(("duplicate", "Duplicate", rsx! { Copy { class: "size-4" } }));
+    }
     if can_export {
         menu.push((
             "export",
@@ -189,11 +195,13 @@ pub(super) fn Header(
             rsx! { Trash { class: "size-4" } },
         ));
     }
-    menu.push((
-        "delete",
-        "Delete raffle",
-        rsx! { Trash { class: "size-4" } },
-    ));
+    if manages {
+        menu.push((
+            "delete",
+            "Delete raffle",
+            rsx! { Trash { class: "size-4" } },
+        ));
+    }
 
     rsx! {
         section { class: "card overflow-hidden bg-base-100 shadow-sm ring-1 ring-base-300",

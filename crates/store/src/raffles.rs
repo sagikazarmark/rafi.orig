@@ -47,9 +47,9 @@ pub struct RaffleRow {
     pub event_ends_at: i64,
     /// Days after the event date before non-winners are erased.
     pub retention_days: i64,
-    /// When non-winners are erased: `event_ends_at` plus the period. Written
-    /// by the settings write only, and fixed once an entrant has accepted the
-    /// rules.
+    /// When non-winners are erased: `event_ends_at` plus the period, computed
+    /// by the database from the two, and fixed with them once an entrant has
+    /// accepted the rules.
     pub erase_at: i64,
     /// Decoding fails on a state rafi doesn't know: never guessed.
     pub state: RaffleState,
@@ -183,12 +183,9 @@ pub struct Settings<'a> {
     pub event_date: &'a str,
     /// The instant the event day ends where the organizer is.
     pub event_ends_at: i64,
-    /// Days after the event date before non-winners are erased.
+    /// Days after the event date before non-winners are erased. The erasure
+    /// date, `erase_at`, is the database's: these two, added.
     pub retention_days: i64,
-    /// When non-winners are erased: the app computes it from the two above
-    /// ([`rafi_lifecycle::settings::erase_at`]); the store writes it with
-    /// them and nowhere else.
-    pub erase_at: i64,
     pub test_mode: bool,
 }
 
@@ -244,8 +241,8 @@ fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>, s: &Settings<'_>) -> Query<'a
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, description, organizer_name, contact_email,
                               privacy_email, privacy_text, privacy_url, rules, event_date, event_ends_at,
-                              retention_days, erase_at, test_mode, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                              retention_days, test_mode, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id)
     .bind(r.owner_id)
@@ -262,7 +259,6 @@ fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>, s: &Settings<'_>) -> Query<'a
     .bind(s.event_date)
     .bind(s.event_ends_at)
     .bind(s.retention_days)
-    .bind(s.erase_at)
     .bind(s.test_mode)
     .bind(now)
     .bind(now)
@@ -313,12 +309,12 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     db.query(format!(
         "UPDATE raffles SET title = ?1, description = ?2, organizer_name = ?3, contact_email = ?4,
          privacy_email = ?5, privacy_text = ?6, privacy_url = ?7, rules = ?8, event_date = ?9,
-         event_ends_at = ?10, retention_days = ?11, erase_at = ?12, test_mode = ?13, updated_at = ?14
-         WHERE id = ?15
+         event_ends_at = ?10, retention_days = ?11, test_mode = ?12, updated_at = ?13
+         WHERE id = ?14
            AND ((rules = ?8 AND event_date = ?9 AND privacy_text = ?6 AND privacy_url = ?7
                  AND event_ends_at = ?10 AND retention_days = ?11)
-                OR NOT EXISTS (SELECT 1 FROM entrants WHERE raffle_id = ?15 AND source IN ({accepted})))
-           AND (test_mode = ?13 OR state IN ({test_mode_editable}))",
+                OR NOT EXISTS (SELECT 1 FROM entrants WHERE raffle_id = ?14 AND source IN ({accepted})))
+           AND (test_mode = ?12 OR state IN ({test_mode_editable}))",
         test_mode_editable = states(RaffleState::test_mode_editable),
     ))
     .bind(s.title)
@@ -332,7 +328,6 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     .bind(s.event_date)
     .bind(s.event_ends_at)
     .bind(s.retention_days)
-    .bind(s.erase_at)
     .bind(s.test_mode)
     .bind(now())
     .bind(id)

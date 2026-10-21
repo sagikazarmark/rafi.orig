@@ -22,8 +22,8 @@ async fn frozen_with(db: &Db, manifest: &Manifest) -> Outcome {
     let id = manifest.raffle.as_str();
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, manifest, manifest_hash, event_date,
-                              event_ends_at, retention_days, erase_at, created_at, updated_at)
-         VALUES (?, 'o', ?, ?, 't', 'frozen', ?, ?, '2100-01-01', 4102444800, 7, 4102444800, 0, 0)",
+                              event_ends_at, retention_days, created_at, updated_at)
+         VALUES (?, 'o', ?, ?, 't', 'frozen', ?, ?, '2100-01-01', 4102444800, 7, 0, 0)",
     )
     .bind(id)
     .bind(format!("slug-{id}"))
@@ -390,7 +390,6 @@ fn settings_with(rules: &str) -> raffles::Settings<'_> {
         event_date: "2100-01-01",
         event_ends_at: FAR,
         retention_days: 7,
-        erase_at: FAR,
         test_mode: true,
     }
 }
@@ -437,7 +436,6 @@ pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
             raffles::Settings {
                 event_date: "2100-01-02",
                 event_ends_at: FAR + 86_400,
-                erase_at: FAR + 86_400,
                 ..settings_with("two")
             },
         ),
@@ -445,7 +443,6 @@ pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
             "the period",
             raffles::Settings {
                 retention_days: 3,
-                erase_at: FAR - 4 * 86_400,
                 ..settings_with("two")
             },
         ),
@@ -1532,15 +1529,20 @@ pub(super) async fn raffle_events_are_append_only(db: &Db) -> Outcome {
     )
 }
 
-/// Dates raffle `id`'s erasure at `erase_at`, past the lifecycle's rules.
+/// Dates raffle `id`'s erasure at `erase_at`, past the lifecycle's rules:
+/// the end of the event day is moved so that, with the period, the database
+/// computes that date.
 async fn erase_at(db: &Db, id: &str, erase_at: i64) -> Outcome {
-    db.query("UPDATE raffles SET erase_at = ? WHERE id = ?")
+    db.query("UPDATE raffles SET event_ends_at = ? - retention_days * 86400 WHERE id = ?")
         .bind(erase_at)
         .bind(id)
         .run()
         .await
         .map_err(fail)?;
-    Ok(())
+    check(
+        raffle(db, id).await?.erase_at == erase_at,
+        "the database computes the erasure date",
+    )
 }
 
 /// A claimed draw of item `k` for `entrant` in raffle `id`.
@@ -1612,10 +1614,24 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     claimed(db, "dr", 1, "y").await?;
     force_state(db, "dr", RaffleState::Drawing).await?;
     erase_at(db, "dr", 100).await?;
-    // Open, never frozen: z.
+    // Open, never frozen: z. And a draft, a published and a closed one, all
+    // never frozen, which expire too.
     raffle_in(db, "op", RaffleState::Open).await?;
     check(join(db, "op", "z", "z@x", 10).await?, "joining op")?;
     erase_at(db, "op", 100).await?;
+    for (id, state) in [
+        ("draft", RaffleState::Draft),
+        ("ready", RaffleState::Ready),
+        ("closed", RaffleState::Closed),
+    ] {
+        raffle_in(db, id, RaffleState::Open).await?;
+        check(
+            join(db, id, &format!("z-{id}"), &format!("{id}@x"), 10).await?,
+            "joining",
+        )?;
+        force_state(db, id, state).await?;
+        erase_at(db, id, 100).await?;
+    }
     // Finished, due later: q.
     raffle_in(db, "later", RaffleState::Open).await?;
     check(join(db, "later", "q", "q@x", 10).await?, "joining later")?;
@@ -1635,15 +1651,21 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         "nothing is due at 99",
     )?;
 
-    // The date: op expires; n, d and x are erased; w and y are held.
+    // The date: every never-frozen raffle expires; n, d and x are erased; w
+    // and y are held.
+    let mut expired = retention::expire_due(db, 100).await.map_err(fail)?;
+    expired.sort();
     check(
-        retention::expire_due(db, 100).await.map_err(fail)? == ["op"],
-        "op expires",
+        expired == ["closed", "draft", "op", "ready"],
+        &format!("every never-frozen raffle expires: {expired:?}"),
     )?;
-    check(
-        entrants::list(db, "op").await.map_err(fail)?.is_empty(),
-        "op's entrants are deleted",
-    )?;
+    for id in ["op", "draft", "ready", "closed"] {
+        check(
+            entrants::list(db, id).await.map_err(fail)?.is_empty()
+                && raffle(db, id).await?.state == RaffleState::Purged,
+            &format!("{id}'s entrants are deleted and it is purged"),
+        )?;
+    }
     let op = raffle(db, "op").await?;
     check(
         op.state == RaffleState::Purged
@@ -2021,10 +2043,10 @@ pub(super) async fn records_legal_acceptances(db: &Db) -> Outcome {
             .map_err(fail)?,
         "nothing accepted yet",
     )?;
-    legal::record(db, "o", "u1", legal::TERMS, "v1")
+    legal::record(db, "o", "u1", legal::TERMS, "v1", "d1")
         .await
         .map_err(fail)?;
-    legal::record(db, "o", "u2", legal::TERMS, "v1")
+    legal::record(db, "o", "u2", legal::TERMS, "v1", "d2")
         .await
         .map_err(fail)?;
     check(
@@ -2044,7 +2066,7 @@ pub(super) async fn records_legal_acceptances(db: &Db) -> Outcome {
     )?;
     let list = legal::list(db, "o").await.map_err(fail)?;
     check(
-        list.len() == 1 && list[0].user_id == "u1",
-        &format!("the first acceptance stays: {list:?}"),
+        list.len() == 1 && list[0].user_id == "u1" && list[0].digest == "d1",
+        &format!("the first acceptance stays, with its digest: {list:?}"),
     )
 }

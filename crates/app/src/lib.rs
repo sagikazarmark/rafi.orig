@@ -85,8 +85,21 @@ pub struct Policy {
     /// organizer may choose, and the winner hold.
     pub retention: RetentionPolicy,
     /// The version of the operator's terms (with the processing agreement)
-    /// organizers must have accepted to create raffles.
+    /// organizers must have accepted to create raffles, and the SHA-256 (hex)
+    /// of their text, recorded with each acceptance.
     pub terms_version: String,
+    pub terms_digest: String,
+    /// The youngest an entrant may be: part of what the join form says, so
+    /// part of the consent version it records.
+    pub min_age: u32,
+}
+
+impl Policy {
+    /// The version of what the join form shows an entrant: its text
+    /// ([`CONSENT_VERSION`]) and the age it asks them to confirm.
+    pub fn consent_version(&self) -> String {
+        format!("{CONSENT_VERSION}/age{}", self.min_age)
+    }
 }
 
 impl App {

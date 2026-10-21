@@ -38,8 +38,8 @@ use crate::{
     },
 };
 use rafi_api::{
-    AdminEntrant, EntrantPatch, LifecycleCommand, Prize, RaffleAdmin as AdminData, RaffleView,
-    StartStep, TermsDocument,
+    Access, AdminEntrant, EntrantPatch, LifecycleCommand, Prize, RaffleAdmin as AdminData,
+    RaffleView, StartStep, TermsDocument,
 };
 
 use self::{draw::DrawConsole, header::Header, people::People, prizes::Prizes};
@@ -163,10 +163,10 @@ pub fn AdminHome() -> Element {
     let mut raffles = use_resource(api::list_raffles);
     let mut me = use_resource(api::whoami);
     let nav = navigator();
-    let (terms_accepted, retention_stale) = match &*me.read() {
-        Some(Ok(me)) => (me.terms_accepted, me.retention_stale),
-        // Until we know, assume the best: the server refuses creation anyway.
-        _ => (true, false),
+    let (terms_accepted, retention_stale, access, shared) = match &*me.read() {
+        Some(Ok(me)) => (me.terms_accepted, me.retention_stale, me.access, me.shared),
+        // Until we know, assume the best: the server refuses anyway.
+        _ => (true, false, Access::Admin, false),
     };
 
     rsx! {
@@ -181,14 +181,21 @@ pub fn AdminHome() -> Element {
                     span { "Automatic erasure of personal data hasn't run in the last two hours. Entrants were promised erasure dates; check the scheduled job (the Cron Trigger on Workers)." }
                 }
             }
-            if terms_accepted {
+            if terms_accepted && access.allows(Access::Manager) {
                 div { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
                     div { class: "card-body",
                         CreateRaffleForm { on_created: move |id| { nav.push(Route::RaffleAdmin { id }); } }
                     }
                 }
+            } else if terms_accepted {
+                p { class: "text-sm text-base-content/60", "You run your organization's raffles; an organization admin or manager creates them." }
+            } else if access.allows(Access::Admin) {
+                TermsPanel { shared, on_accepted: move |_| { me.restart(); raffles.restart(); } }
             } else {
-                TermsPanel { on_accepted: move |_| { me.restart(); raffles.restart(); } }
+                div { role: "alert", class: "alert alert-info alert-soft",
+                    ScrollText { class: "size-5" }
+                    span { "Before the first raffle, an organization admin must read and accept the terms (with the data processing agreement) for the organization." }
+                }
             }
             match &*raffles.read() {
                 None => rsx! { div { class: "grid place-items-center py-16", span { class: "loading loading-dots loading-lg text-primary" } } },
@@ -229,15 +236,17 @@ pub fn AdminHome() -> Element {
                     }
                 },
             }
-            YourData { on_removed: move |_| { raffles.restart(); } }
+            if access.allows(Access::Admin) {
+                YourData { shared, on_removed: move |_| { raffles.restart(); } }
+            }
         }
     }
 }
 
 /// The operator's terms, with the data processing agreement, to read and
-/// accept before the first raffle.
+/// accept before the first raffle; for an organization, by one of its admins.
 #[component]
-fn TermsPanel(on_accepted: EventHandler<()>) -> Element {
+fn TermsPanel(shared: bool, on_accepted: EventHandler<()>) -> Element {
     let terms = use_resource(api::get_terms);
     let toast = use_toast();
     let mut busy = use_signal(|| false);
@@ -250,7 +259,11 @@ fn TermsPanel(on_accepted: EventHandler<()>) -> Element {
                     let version = version.clone();
                     rsx! {
                         p { class: "text-base-content/70",
-                            "Your entrants' names and emails are processed by this service on your behalf. Read the terms, which include the data processing agreement, and accept them to continue. Version {version}; also at "
+                            if shared {
+                                "Your organization's entrants' names and emails are processed by this service on its behalf. As an admin, read the terms, which include the data processing agreement, and accept them for the organization to continue. Version {version}; also at "
+                            } else {
+                                "Your entrants' names and emails are processed by this service on your behalf. Read the terms, which include the data processing agreement, and accept them to continue. Version {version}; also at "
+                            }
                             a { class: "link", href: "/terms", target: "_blank", "/terms" }
                             "."
                         }
@@ -281,25 +294,39 @@ fn TermsPanel(on_accepted: EventHandler<()>) -> Element {
     }
 }
 
-/// Removing the organizer's own data from the service.
+/// Removing the organizer's data from the service: a person's own, or an
+/// organization's (every co-host's raffles), by one of its admins.
 #[component]
-fn YourData(on_removed: EventHandler<()>) -> Element {
+fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
     let mut ask = use_signal(|| false);
     let toast = use_toast();
+    let (whose, title) = if shared {
+        ("your organization's", "Your organization's data")
+    } else {
+        ("your", "Your data")
+    };
     rsx! {
         details { class: "collapse collapse-arrow bg-base-100 ring-1 ring-base-300",
-            summary { class: "collapse-title text-sm font-semibold", "Your data" }
+            summary { class: "collapse-title text-sm font-semibold", "{title}" }
             div { class: "collapse-content space-y-3 text-sm text-base-content/70",
-                p { "This service keeps your organizer name and contacts on your raffles, your defaults, the audit log of what you did, and the record of the terms you accepted. Your entrants' data is erased on the dates their raffles show; you can always erase earlier from a raffle's menu." }
-                p { "Leaving? Remove your data here: raffles that were never frozen are deleted, finished ones lose their entrants' data and your name, and your defaults go. The anonymous draws stay verifiable, and the acceptance record stays. Then delete your account in your account settings." }
-                Button { class: "btn-outline btn-error btn-sm", onclick: move |_| ask.set(true), UserX { class: "size-4" } "Remove my data" }
+                p { "This service keeps the organizer name and contacts on {whose} raffles, {whose} defaults, the audit log of what was done, and the record of the terms accepted. Entrants' data is erased on the dates their raffles show; it can always be erased earlier from a raffle's menu." }
+                if shared {
+                    p { "Leaving? Remove the organization's data here, for every co-host: raffles that were never frozen are deleted, finished ones lose their entrants' data and the organizer's name, and the defaults go. The anonymous draws stay verifiable, and the acceptance record stays. Then delete the organization in your account settings." }
+                } else {
+                    p { "Leaving? Remove your data here: raffles that were never frozen are deleted, finished ones lose their entrants' data and your name, and your defaults go. The anonymous draws stay verifiable, and the acceptance record stays. Then delete your account in your account settings." }
+                }
+                Button { class: "btn-outline btn-error btn-sm", onclick: move |_| ask.set(true), UserX { class: "size-4" } if shared { "Remove the organization's data" } else { "Remove my data" } }
             }
         }
         Confirm {
             open: ask,
-            title: "Remove your data from this service?",
-            body: "Raffles of yours that were never frozen are deleted. Every other raffle loses its entrants' personal data and your name and contacts, for good. Your defaults are deleted. This cannot be undone.",
-            action: "Remove my data",
+            title: if shared { "Remove your organization's data from this service?" } else { "Remove your data from this service?" },
+            body: if shared {
+                "Every raffle of the organization, for every co-host: those never frozen are deleted; every other one loses its entrants' personal data and the organizer's name and contacts, for good. The defaults are deleted. This cannot be undone."
+            } else {
+                "Raffles of yours that were never frozen are deleted. Every other raffle loses its entrants' personal data and your name and contacts, for good. Your defaults are deleted. This cannot be undone."
+            },
+            action: if shared { "Remove the organization's data" } else { "Remove my data" },
             danger: true,
             on_confirm: move |_| {
                 spawn(async move {
@@ -327,6 +354,11 @@ pub fn RaffleAdmin(id: String) -> Element {
         let id = id_for_load.clone();
         async move { api::get_raffle(id).await }
     });
+    let me = use_resource(api::whoami);
+    let access = match &*me.read() {
+        Some(Ok(me)) => me.access,
+        _ => Access::Admin,
+    };
     let error = use_signal(|| None::<String>);
     let mut tab = use_signal(|| None::<String>);
 
@@ -375,7 +407,7 @@ pub fn RaffleAdmin(id: String) -> Element {
             if state.is_public() {
                 LiveRefresh { key: "{admin.view.slug}", slug: admin.view.slug.clone(), version: admin.view.v, on_change: move |_| data.restart() }
             }
-            Header { admin: admin.clone(), error, on_change: move |_| reload() }
+            Header { admin: admin.clone(), access, error, on_change: move |_| reload() }
             ErrorToasts { error }
             Stats { admin: admin.clone() }
             RetentionCard { admin: admin.clone() }
@@ -397,7 +429,7 @@ pub fn RaffleAdmin(id: String) -> Element {
                             "people" => rsx! { People { admin: admin.clone(), error, on_change: move |_| reload() } },
                             _ => rsx! {
                                 Panel { title: "Settings", icon: rsx! { SlidersVertical { class: "size-5" } },
-                                    SettingsForm { raffle_id: admin.id.clone(), settings: admin.settings.clone(), rules_editable: admin.actions.edit_rules, retention: admin.retention.clone(), on_saved: move |_| reload() }
+                                    SettingsForm { raffle_id: admin.id.clone(), settings: admin.settings.clone(), rules_editable: admin.actions.edit_rules, retention: admin.retention.clone(), can_edit: access.allows(Access::Manager), on_saved: move |_| reload() }
                                 }
                             },
                         }
@@ -471,19 +503,21 @@ fn RetentionCard(admin: AdminData) -> Element {
         div { class: "flex flex-wrap items-start gap-3 rounded-box bg-base-100 p-4 text-sm shadow-sm ring-1 ring-base-300",
             CalendarClock { class: "size-5 shrink-0 text-primary" }
             div { class: "space-y-1",
-                if admin.view.state == RaffleState::Purged {
+                if admin.view.state == RaffleState::Purged && admin.view.manifest_hash.is_none() {
+                    p { "Expired: the list was never frozen, so nothing is kept. Duplicate the raffle to run it again." }
+                } else if admin.view.state == RaffleState::Purged {
                     p { "Personal data erased. The anonymous draw stays verifiable." }
                 } else if r.expires_unfrozen && r.past_erase_date {
-                    p { class: "text-warning", "⚠ The erasure date ({erase}) has passed and the list was never frozen. The raffle expires within the hour: its entrants are deleted. Move the event date if the event hasn't happened yet." }
+                    p { class: "text-warning", "⚠ The erasure date (end of {erase}) has passed and the list was never frozen. The raffle expires within the hour: its entrants are deleted. If the event was postponed, move the event date (possible until someone joins) or duplicate the raffle." }
                 } else if r.expires_unfrozen {
-                    p { class: "text-warning", "⚠ The event day has passed and the list was never frozen. The raffle expires on {erase}: its entrants are deleted." }
+                    p { class: "text-warning", "⚠ The event day has passed and the list was never frozen. The raffle expires at the end of {erase}: its entrants are deleted. Postponed? Move the event date while nobody has joined, or duplicate the raffle." }
                 } else if r.past_erase_date {
-                    p { "Non-winners' data was erased on {erase}." }
+                    p { "Non-winners' data was erased at the end of {erase}." }
                 } else {
-                    p { "Entrants' names and emails are erased on " strong { "{erase}" } ", whatever else happens to this raffle. You can erase earlier from the menu once it has finished." }
+                    p { "Entrants' names and emails are erased at the end of " strong { "{erase}" } ", whatever else happens to this raffle. You can erase earlier from the menu once it has finished." }
                 }
                 if r.held_winners > 0 {
-                    p { "{r.held_winners} winner(s)' data is kept until you mark their prize delivered, at the latest until " strong { "{winners}" } "." }
+                    p { "{r.held_winners} winner(s)' data is kept until you mark their prize delivered, at the latest until the end of " strong { "{winners}" } ". Everything handed over? Use “All prizes delivered” in the menu." }
                 }
                 if r.unfinished_past_event {
                     p { class: "text-warning", "⚠ Not finished, and the event day has passed. Entrants' data is erased on the date regardless; finish the raffle so its data can be erased for good." }

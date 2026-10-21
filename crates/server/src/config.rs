@@ -61,6 +61,12 @@ impl Documents {
         }
     }
 
+    /// SHA-256 of the terms' text, in hex: what an acceptance records.
+    pub fn terms_digest(&self) -> String {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(self.terms.as_bytes()))
+    }
+
     /// `terms.md` and `privacy.md` from `dir`.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn from_dir(dir: &std::path::Path) -> anyhow::Result<Self> {
@@ -123,6 +129,9 @@ pub struct Config {
     pub privacy_version: String,
     /// Where `terms.md` and `privacy.md` are, natively (`RAFI_DOCS_DIR`).
     pub docs_dir: Option<String>,
+    /// Numeric variables that were set but didn't parse (`RAFI_RETENTION_DAYS=7d`):
+    /// [`validate`](Self::validate) refuses them rather than run on a default.
+    pub misparsed: Vec<String>,
 }
 
 impl Config {
@@ -144,8 +153,14 @@ impl Config {
         let flag = |name: &str| {
             var(name).is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
         };
-        let int =
-            |name: &str, default: i64| var(name).and_then(|v| v.parse().ok()).unwrap_or(default);
+        let misparsed = std::cell::RefCell::new(Vec::new());
+        let int = |name: &str, default: i64| match var(name) {
+            None => default,
+            Some(v) => v.trim().parse().unwrap_or_else(|_| {
+                misparsed.borrow_mut().push(format!("{name}={v:?}"));
+                default
+            }),
+        };
         let dev_auth = flag("RAFI_DEV_AUTH");
         let public_url = var("RAFI_PUBLIC_URL")
             .unwrap_or_else(|| "http://localhost:8080".into())
@@ -207,6 +222,7 @@ impl Config {
             terms_version: var("RAFI_TERMS_VERSION").unwrap_or_else(|| dev_version(dev_auth)),
             privacy_version: var("RAFI_PRIVACY_VERSION").unwrap_or_else(|| dev_version(dev_auth)),
             docs_dir: var("RAFI_DOCS_DIR"),
+            misparsed: misparsed.into_inner(),
         }
     }
 
@@ -214,6 +230,9 @@ impl Config {
     /// (no dev auth) has everything it must: an operator, document versions
     /// and real documents.
     pub fn validate(&self) -> anyhow::Result<()> {
+        if !self.misparsed.is_empty() {
+            bail!("not a number: {}", self.misparsed.join(", "));
+        }
         self.retention
             .validate()
             .map_err(|e| anyhow!("RAFI_RETENTION_*: {e}"))?;
@@ -282,6 +301,7 @@ impl Config {
             terms_version: "test-1".into(),
             privacy_version: "test-1".into(),
             docs_dir: None,
+            misparsed: Vec::new(),
         }
     }
 }
@@ -407,6 +427,13 @@ mod tests {
         let defaults = Config::from_lookup(|_| None);
         assert_eq!(defaults.retention.days, DEFAULT_RETENTION_DAYS);
         assert_eq!(defaults.min_age, DEFAULT_MIN_AGE);
+        let typo = Config::from_lookup(|name| match name {
+            "RAFI_RETENTION_DAYS" => Some("7d".into()),
+            "RAFI_DEV_AUTH" => Some("1".into()),
+            _ => None,
+        });
+        let err = typo.validate().unwrap_err().to_string();
+        assert!(err.contains("RAFI_RETENTION_DAYS=\"7d\""), "{err}");
     }
 
     #[test]

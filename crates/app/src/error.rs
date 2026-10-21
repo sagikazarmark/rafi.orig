@@ -87,10 +87,12 @@ pub enum Refusal {
     Title,
     Texts,
     EventDate,
+    EventDateTooFar,
     Retention {
         max_days: i64,
     },
     PrivacyUrl,
+    ContactEmail,
     TestModeLocked,
     /// The named fixed settings can't change: someone accepted the rules
     /// they were shown with.
@@ -104,6 +106,11 @@ pub enum Refusal {
     /// Registration can't open: the privacy notice can't name the organizer
     /// or a way to reach them. The fields still missing.
     OrganizerMissing(Vec<&'static str>),
+    /// Registration can't open: the erasure date has passed, so the raffle
+    /// expires within the hour. The date can move while nobody has joined.
+    ErasureDatePassed,
+    /// Prizes are marked delivered once the raffle is over.
+    NotFinishedForDelivery,
     /// The organizer hasn't accepted the current terms.
     TermsNotAccepted,
     /// The organizer accepted an older version of the terms than the current one.
@@ -111,6 +118,8 @@ pub enum Refusal {
     /// The organizer's data can't be removed while one of their raffles is
     /// frozen or drawing.
     EventLive,
+    /// The caller's tier in the organization doesn't allow it: who may.
+    Forbidden(rafi_api::Access),
     Lifecycle {
         command: lifecycle::Command,
         from: RaffleState,
@@ -159,8 +168,10 @@ impl Refusal {
             Self::Title
             | Self::Texts
             | Self::EventDate
+            | Self::EventDateTooFar
             | Self::Retention { .. }
             | Self::PrivacyUrl
+            | Self::ContactEmail
             | Self::PrizeName
             | Self::PrizeQty
             | Self::Name(_)
@@ -182,8 +193,10 @@ impl Refusal {
             SettingsError::Title => Self::Title,
             SettingsError::TooLong => Self::Texts,
             SettingsError::EventDate => Self::EventDate,
+            SettingsError::EventDateTooFar => Self::EventDateTooFar,
             SettingsError::Retention => Self::Retention { max_days },
             SettingsError::PrivacyUrl => Self::PrivacyUrl,
+            SettingsError::Email => Self::ContactEmail,
         }
     }
 }
@@ -196,8 +209,16 @@ impl fmt::Display for Refusal {
                 "The title must be 1–{} characters.",
                 settings::MAX_TITLE_CHARS
             ),
-            Self::Texts => f.write_str("Description, rules or privacy text are too long."),
+            Self::Texts => {
+                f.write_str("Description, rules, privacy text or organizer name are too long.")
+            }
             Self::EventDate => f.write_str("The event date must be a calendar day (YYYY-MM-DD)."),
+            Self::EventDateTooFar => write!(
+                f,
+                "The event date can be at most {} days ahead: entrants' data is kept until a set time after it.",
+                settings::MAX_EVENT_AHEAD_DAYS
+            ),
+            Self::ContactEmail => f.write_str("The contact or privacy email is not an email address."),
             Self::Retention { max_days } => write!(
                 f,
                 "The retention period must be between 0 and {max_days} days."
@@ -205,7 +226,7 @@ impl fmt::Display for Refusal {
             Self::PrivacyUrl => {
                 f.write_str("The privacy notice link must be an absolute https:// URL.")
             }
-            Self::TestModeLocked => f.write_str("Test mode cannot change after the draw started."),
+            Self::TestModeLocked => f.write_str("Test mode cannot change once the list is frozen."),
             Self::SettingsFixed(fields) if fields.is_empty() => f.write_str(
                 "These settings cannot change: entrants have already accepted them.",
             ),
@@ -234,6 +255,12 @@ impl fmt::Display for Refusal {
                 "Before registration can open, fill in {} in the settings: the privacy notice must name the data controller and how to reach them.",
                 fields.join(" and ")
             ),
+            Self::ErasureDatePassed => f.write_str(
+                "The erasure date has passed: this raffle expires within the hour. Move the event date (possible until someone joins) or duplicate the raffle.",
+            ),
+            Self::NotFinishedForDelivery => {
+                f.write_str("Prizes can be marked delivered once the raffle has finished.")
+            }
             Self::TermsNotAccepted => f.write_str(
                 "Please read and accept the terms (with the data processing agreement) before creating a raffle.",
             ),
@@ -243,6 +270,7 @@ impl fmt::Display for Refusal {
             Self::EventLive => f.write_str(
                 "Your data can't be removed while one of your raffles is being drawn. Finish it first.",
             ),
+            Self::Forbidden(needs) => write!(f, "Only {} can do this.", needs.who()),
             Self::Lifecycle { command, from } => {
                 write!(f, "Cannot {command:?} a raffle that is {}.", from.as_str())
             }
@@ -264,7 +292,7 @@ impl fmt::Display for Refusal {
             ),
             Self::NotDrawing => f.write_str("The draw has not started (or is already over)."),
             Self::NotOpened => f.write_str(
-                "The raffle engine has not confirmed the frozen list yet; press “Start the draw” again.",
+                "The raffle engine has not confirmed the frozen list yet; press “Retry handing the list to the raffle engine”.",
             ),
             Self::Raffle { command, error } => f.write_str(&raffle_refusal(command.as_ref(), error)),
             Self::Engine { message, .. } => f.write_str(message),
@@ -279,12 +307,14 @@ impl fmt::Display for Refusal {
             Self::Fakes(FakesRefusal::Frozen) => f.write_str("The entrant list is frozen."),
             Self::Erased => f.write_str("This entrant's data has been erased."),
             Self::NotRemovable => f.write_str(
-                "Entrants stay on the list until the raffle has finished; then their personal data can be erased. You can hide or rename them now.",
+                "Entrants stay on the list until the raffle has finished or its erasure date has passed; then their personal data can be erased. You can hide or rename them now.",
             ),
             Self::NotDeliverable => {
                 f.write_str("Only a winner who claimed their prize can get it delivered.")
             }
-            Self::NotPurgeable => f.write_str("Only finished raffles can be purged."),
+            Self::NotPurgeable => {
+                f.write_str("Personal data can be erased at once only once the raffle has finished.")
+            }
             Self::NotOver => {
                 f.write_str("Live updates can only end once the raffle has finished.")
             }

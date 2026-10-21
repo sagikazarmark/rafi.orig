@@ -107,6 +107,8 @@ impl AppState {
                 proof_of_work: service::ProofOfWork::new(cfg.altcha_key.clone(), cfg.altcha_cost)?,
                 retention: cfg.retention,
                 terms_version: cfg.terms_version.clone(),
+                terms_digest: cfg.documents.terms_digest(),
+                min_age: cfg.min_age,
             },
         };
         Ok(Self(Arc::new(Inner { core, cfg })))

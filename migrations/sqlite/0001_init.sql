@@ -1,4 +1,6 @@
 -- Rafi schema for SQLite and D1. Times are unix seconds unless noted.
+-- Nothing is deployed yet, so schema changes edit this file; once a database
+-- exists, they become numbered migrations after it.
 
 CREATE TABLE raffles (
     id TEXT PRIMARY KEY NOT NULL,
@@ -16,14 +18,16 @@ CREATE TABLE raffles (
     privacy_url TEXT NOT NULL DEFAULT '',
     rules TEXT NOT NULL DEFAULT '',
     -- The event date as a calendar day (YYYY-MM-DD, for display), the instant
-    -- that day ends, and the retention period: the erasure date follows,
-    -- event_ends_at + retention_days days. All three are written by the
+    -- that day ends, and the retention period. Both are written by the
     -- settings write only, and lock with the rules once a real entrant has
-    -- joined, so the date shown to entrants never moves afterwards.
+    -- joined, so the erasure date shown to entrants never moves afterwards.
+    -- The erasure date itself is the database's: event_ends_at plus the
+    -- period, recomputed whenever either changes, so nothing can write it
+    -- inconsistently.
     event_date TEXT NOT NULL,
     event_ends_at INTEGER NOT NULL,
     retention_days INTEGER NOT NULL,
-    erase_at INTEGER NOT NULL,
+    erase_at INTEGER NOT NULL GENERATED ALWAYS AS (event_ends_at + retention_days * 86400) STORED,
     state TEXT NOT NULL DEFAULT 'draft',
     test_mode INTEGER NOT NULL DEFAULT 0,
     -- The raffle's manifest: the frozen entrant list (canonical JSON, exactly
@@ -226,14 +230,16 @@ CREATE TABLE owner_defaults (
 );
 
 -- Which version of which legal document (the operator's terms, with the
--- processing agreement) an owner accepted, and which of its users did. Kept
--- when the owner's data is removed: it holds opaque IDs only, and is the
--- operator's evidence.
+-- processing agreement) an owner accepted, which of its users did, and the
+-- SHA-256 of the text as it was then (so an edit under the same version
+-- label is visible). Kept when the owner's data is removed: it holds opaque
+-- IDs only, and is the operator's evidence.
 CREATE TABLE legal_acceptances (
     owner_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     document TEXT NOT NULL,
     version TEXT NOT NULL,
+    digest TEXT NOT NULL,
     accepted_at INTEGER NOT NULL,
     PRIMARY KEY (owner_id, document, version)
 );

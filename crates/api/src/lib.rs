@@ -329,6 +329,13 @@ pub struct VerifyData {
 pub struct Me {
     pub owner_id: String,
     pub dev_auth: bool,
+    /// What the signed-in user may do for the owner.
+    #[serde(default = "Access::admin")]
+    pub access: Access,
+    /// The owner is an organization: its raffles, defaults, terms and data
+    /// are shared with every member.
+    #[serde(default)]
+    pub shared: bool,
     /// Whether the organizer accepted the current terms (with the processing
     /// agreement): until they have, no raffle can be created.
     #[serde(default)]
@@ -340,11 +347,70 @@ pub struct Me {
 }
 
 /// Who is calling the admin API: the owner key (a Clerk organization, or
-/// else the user) that raffles belong to, and the user acting for it.
+/// else the user) that raffles belong to, the user acting for it, and what
+/// they may do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Caller {
     pub owner: String,
     pub user: String,
+    pub access: Access,
+}
+
+/// What a caller may do for the owner. A personal account does everything.
+/// In a Clerk organization, the tier comes from the session's claims:
+/// `org:admin` is [`Admin`](Self::Admin); the custom role `org:manager`, or
+/// the custom permission `org:raffles:manage`, is [`Manager`](Self::Manager);
+/// every other member is a [`Member`](Self::Member). Each tier includes the
+/// ones below it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Access {
+    /// Runs raffles: registration, the draw, entrants, prizes, exports,
+    /// erasure.
+    Member,
+    /// Also creates, copies, deletes and configures raffles and the defaults.
+    Manager,
+    /// Also accepts the terms for the owner and removes the owner's data.
+    Admin,
+}
+
+impl Access {
+    /// Clerk's role for an organization's administrators.
+    pub const ADMIN_ROLE: &str = "org:admin";
+    /// The custom role (made in the Clerk dashboard) for managers.
+    pub const MANAGER_ROLE: &str = "org:manager";
+    /// The custom permission (made in the Clerk dashboard) that makes a
+    /// manager, whatever the role is called.
+    pub const MANAGE_PERMISSION: &str = "org:raffles:manage";
+
+    /// The tier an organization member with `role` and `permissions` has.
+    pub fn of_organization(role: Option<&str>, permissions: &[String]) -> Self {
+        match role {
+            Some(Self::ADMIN_ROLE) => Self::Admin,
+            Some(Self::MANAGER_ROLE) => Self::Manager,
+            _ if permissions.iter().any(|p| p == Self::MANAGE_PERMISSION) => Self::Manager,
+            _ => Self::Member,
+        }
+    }
+
+    /// Whether this tier may do what `needs`.
+    pub fn allows(self, needs: Self) -> bool {
+        self >= needs
+    }
+
+    /// For serde defaults: the tier an old server, which had none, implied.
+    fn admin() -> Self {
+        Self::Admin
+    }
+
+    /// Who may do what `needs`, for the organizer.
+    pub fn who(self) -> &'static str {
+        match self {
+            Self::Member => "any member of the organization",
+            Self::Manager => "an organization admin or manager",
+            Self::Admin => "an organization admin",
+        }
+    }
 }
 
 /// A legal document the organizer reads and accepts: the operator's terms,

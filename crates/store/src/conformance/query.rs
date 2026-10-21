@@ -14,8 +14,8 @@ const MAX_EXACT: i64 = (1 << 53) - 1;
 async fn raffle(db: &Db, id: &str) -> Outcome {
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, event_date, event_ends_at, retention_days,
-                              erase_at, created_at, updated_at)
-         VALUES (?1, 'o', ?2, ?3, 't', '2100-01-01', 4102444800, 7, 4102444800, 0, 0)",
+                              created_at, updated_at)
+         VALUES (?1, 'o', ?2, ?3, 't', '2100-01-01', 4102444800, 7, 0, 0)",
     )
     .bind(id)
     .bind(format!("slug-{id}"))
@@ -366,8 +366,8 @@ pub(super) async fn batch_atomicity(db: &Db) -> Outcome {
             db.query("INSERT INTO prizes (id, raffle_id, name) VALUES ('i1', 'r1', 'Book')"),
             db.query(
                 "INSERT INTO raffles (id, owner_id, slug, join_code, title, event_date, event_ends_at,
-                                      retention_days, erase_at, created_at, updated_at)
-                 VALUES ('r2', 'o', 'slug-r1', 'k', 't', '2100-01-01', 4102444800, 7, 4102444800, 0, 0)",
+                                      retention_days, created_at, updated_at)
+                 VALUES ('r2', 'o', 'slug-r1', 'k', 't', '2100-01-01', 4102444800, 7, 0, 0)",
             ),
         ])
         .await;
@@ -530,8 +530,8 @@ pub(super) async fn unique_violation(db: &Db) -> Outcome {
     let insert_raffle = |id: &'static str, slug: &'static str, code: &'static str| {
         db.query(
             "INSERT INTO raffles (id, owner_id, slug, join_code, title, event_date, event_ends_at, retention_days,
-                                  erase_at, created_at, updated_at)
-             VALUES (?, 'o', ?, ?, 't', '2100-01-01', 4102444800, 7, 4102444800, 0, 0)",
+                                  created_at, updated_at)
+             VALUES (?, 'o', ?, ?, 't', '2100-01-01', 4102444800, 7, 0, 0)",
         )
         .bind(id)
         .bind(slug)

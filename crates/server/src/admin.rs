@@ -13,7 +13,7 @@ use axum::{
 use dioxus_clerk::server::ClerkAuth;
 
 use rafi_api::{
-    Caller, EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleDefaults,
+    Access, Caller, EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleDefaults,
     RaffleSettings, RaffleSummary, TermsDocument,
     admin::{self, Admin, ApiError, ItemId, Resolution},
 };
@@ -53,6 +53,7 @@ fn app_error(name: &str, e: DispatchError) -> Response {
         DispatchError::Unknown | DispatchError::App(Error::NotFound) => StatusCode::NOT_FOUND,
         DispatchError::Arguments(_) => StatusCode::BAD_REQUEST,
         DispatchError::App(Error::Refused(r)) if r.invalid() => StatusCode::BAD_REQUEST,
+        DispatchError::App(Error::Refused(service::Refusal::Forbidden(_))) => StatusCode::FORBIDDEN,
         DispatchError::App(Error::Refused(_)) => StatusCode::CONFLICT,
         DispatchError::App(Error::Unavailable) => StatusCode::SERVICE_UNAVAILABLE,
         DispatchError::App(Error::Internal(e)) => {
@@ -71,6 +72,18 @@ fn error(status: StatusCode, message: &str) -> Response {
     (status, Json(ApiError::new(message))).into_response()
 }
 
+/// Refuses unless the caller's tier allows what `needs`. Running a raffle
+/// needs nothing beyond membership; what the gate guards is creating,
+/// configuring and deleting raffles ([`Access::Manager`]) and the owner's
+/// legal standing and data ([`Access::Admin`]).
+fn allow(c: &Caller, needs: Access) -> service::Result<()> {
+    if c.access.allows(needs) {
+        Ok(())
+    } else {
+        Err(service::Refusal::Forbidden(needs).into())
+    }
+}
+
 impl Admin for AppState {
     type Error = Error;
 
@@ -78,6 +91,8 @@ impl Admin for AppState {
         Ok(Me {
             owner_id: c.owner.clone(),
             dev_auth: self.cfg.dev_auth,
+            access: c.access,
+            shared: c.owner != c.user,
             terms_accepted: service::terms_accepted(self, &c.owner).await?,
             retention_stale: service::housekeeping::stale(self).await?,
         })
@@ -92,6 +107,7 @@ impl Admin for AppState {
     }
 
     async fn accept_terms(&self, c: &Caller, version: String) -> service::Result<()> {
+        allow(c, Access::Admin)?;
         service::accept_terms(self, &c.owner, &c.user, &version).await
     }
 
@@ -104,6 +120,7 @@ impl Admin for AppState {
     }
 
     async fn save_defaults(&self, c: &Caller, defaults: RaffleDefaults) -> service::Result<()> {
+        allow(c, Access::Manager)?;
         service::save_defaults(self, &c.owner, defaults).await
     }
 
@@ -114,6 +131,7 @@ impl Admin for AppState {
         event_date: String,
         event_ends_at: Option<i64>,
     ) -> service::Result<String> {
+        allow(c, Access::Manager)?;
         let event = service::EventDate {
             date: event_date,
             ends_at: event_ends_at,
@@ -131,10 +149,12 @@ impl Admin for AppState {
         id: String,
         settings: RaffleSettings,
     ) -> service::Result<()> {
+        allow(c, Access::Manager)?;
         service::update_settings(self, &c.owner, &id, settings).await
     }
 
     async fn delete_raffle(&self, c: &Caller, id: String) -> service::Result<()> {
+        allow(c, Access::Manager)?;
         service::delete(self, &c.owner, &id).await
     }
 
@@ -145,6 +165,7 @@ impl Admin for AppState {
         event_date: String,
         event_ends_at: Option<i64>,
     ) -> service::Result<String> {
+        allow(c, Access::Manager)?;
         let event = service::EventDate {
             date: event_date,
             ends_at: event_ends_at,
@@ -279,6 +300,7 @@ impl Admin for AppState {
     }
 
     async fn remove_my_data(&self, c: &Caller) -> service::Result<()> {
+        allow(c, Access::Admin)?;
         service::remove_owner_data(self, &c.owner).await
     }
 }

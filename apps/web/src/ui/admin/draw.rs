@@ -221,6 +221,7 @@ pub(super) fn DrawConsole(
                                             },
                                             ItemStatus::Drawn if drawable => rsx! {
                                                 button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Check { class: "size-5" } "Claimed" }
+                                                span { class: "text-xs text-base-content/60", title: "Claimed means present with a valid code. A prize sent later is marked delivered in the People tab.", "Delivered later? Mark it in People." }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::NotHere { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Not here" }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
                                             },

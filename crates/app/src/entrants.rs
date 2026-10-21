@@ -12,7 +12,8 @@ use rafi_store::{RaffleRow, audit, entrants, raffles};
 use crate::{App, Error, Limit, Refusal, Result, altcha, ids, owned, view::NAME_DELAY_SECS};
 
 /// Version of the consent text shown on the join form: the rules checkbox,
-/// the erasure dates and the age line under it.
+/// the erasure dates and the age line under it. What is stored with an entry
+/// also carries the age ([`Policy::consent_version`](crate::Policy::consent_version)).
 pub const CONSENT_VERSION: &str = "2026-10-21.2";
 
 async fn unique_claim_code(app: &App, raffle_id: &str) -> Result<String> {
@@ -183,7 +184,7 @@ async fn enter(
             email_norm: &email.key,
             claim_code: &claim,
             token_hash: &ids::token_hash(&token),
-            consent_version: CONSENT_VERSION,
+            consent_version: &app.policy.consent_version(),
         },
         app.policy.max_entrants,
     )
@@ -252,7 +253,7 @@ pub async fn add_manual(
             email_raw: email.as_ref().map(|e| e.raw.as_str()),
             email_norm: email.as_ref().map(|e| e.key.as_str()),
             claim_code: &claim,
-            consent_version: CONSENT_VERSION,
+            consent_version: &app.policy.consent_version(),
         },
     )
     .await;
@@ -415,7 +416,7 @@ pub async fn purge(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
 pub async fn deliver_all(app: &App, owner: &str, raffle_id: &str) -> Result<u64> {
     let raffle = owned(app, owner, raffle_id).await?;
     if !raffle.state.is_over() {
-        return Err(Refusal::NotOver.into());
+        return Err(Refusal::NotFinishedForDelivery.into());
     }
     let delivered = entrants::deliver_all(&app.db, raffle_id, ids::now()).await?;
     if delivered > 0 {

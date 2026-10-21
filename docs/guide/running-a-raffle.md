@@ -49,8 +49,14 @@ stateDiagram-v2
     Frozen --> Drawing: first Draw
     Drawing --> Finished: Finish the raffle
     Finished --> Purged: Erase personal data now,<br/>or the winner hold passes
-    Open --> Purged: expires (erasure date passes<br/>before the freeze)
+    Draft --> Purged: expires
+    Ready --> Purged: expires
+    Open --> Purged: expires
+    Closed --> Purged: expires
 ```
+
+A raffle that was never frozen **expires** when its erasure date passes, whatever its state: its entrants are
+deleted outright and it becomes Data erased.
 
 | State | Prizes and entrants editable | Phones can join | Draws |
 |---|---|---|---|
@@ -63,25 +69,35 @@ stateDiagram-v2
 ## Before the event
 
 0. **The first time:** read and accept the service's terms, which include the data processing agreement. Your
-   entrants' data is processed on your behalf; the terms say how. A changed version is accepted again.
-1. **Create a raffle** in `/admin`: give it a title and the **event date** (today, unless you set it up early).
-   Entrants' personal data is erased a set number of days after it, and the join form tells them the date, so the
-   date and the period lock once a real entrant has joined.
+   entrants' data is processed on your behalf; the terms say how. A changed version is accepted again. In a Clerk
+   organization, an **admin** does this for everyone; **managers** (a custom `org:manager` role, or the
+   `org:raffles:manage` permission, set up in Clerk) create, configure and delete raffles; every **member** runs
+   them: registration, the draw, people, prizes, exports, erasure.
+1. **Create a raffle** in `/admin`: give it a title and the **event date** (today, unless you set it up early; at
+   most a year ahead). Entrants' personal data is erased a set number of days after it, and the join form tells
+   them the date, so the date and the period lock once a real entrant has joined. Fake entrants don't lock
+   anything; someone you add by hand, or your own phone, does. Remove the real entrants (People tab, before the
+   freeze) to unlock.
 2. **Settings:** the description for the intro screen, the organizer (named as data controller in the rules and
    privacy notice) and a contact email, both needed before registration can open; optionally a separate privacy
    contact (a DPO), your own privacy text or a link to your own privacy notice, shown after the generated notice;
-   the **retention period** (how many days after the event non-winners are erased: the service's default unless you
-   choose fewer); and any **additional rules**, one paragraph per line. Put a higher age limit there (the service's
-   minimum is in the standard rules). Save them as **your defaults** so the next raffle starts with them.
+   the **retention period** (how many days after the event non-winners are erased: the service's default, 7,
+   unless you choose otherwise, at most 30); and any **additional rules**, one paragraph per line. Put a higher age
+   limit there (the service's minimum is in the standard rules, and the join form says the rules may ask for
+   more). Save them as **your defaults** so the next raffle starts with them.
 3. **Prizes:** add each prize with a quantity and, optionally, a sponsor. Each copy is drawn on its own, in any
    order you like during the draw.
 4. **Rehearse.** Turn on **Test mode** in settings. A TEST badge shows on every screen, and the People tab offers
    **Add 25 fake entrants**, with generated names like "Brave Otter". Run through the draw on the projector.
 
-> Rehearse on a copy: **Duplicate** (the raffle's ⋯ menu) copies prizes and settings but not entrants, and a raffle
-> drawn in test mode stays a rehearsal: its verification page says **TEST MODE** for good. To rehearse on the raffle
-> you'll run live, switch test mode off before the freeze: that removes every fake entrant. A raffle that isn't in
-> test mode never freezes with fakes in it.
+> Rehearse on a copy: **Duplicate** (the raffle's ⋯ menu) copies prizes and settings but not entrants, dates the
+> copy today (set its event date), and a raffle drawn in test mode stays a rehearsal: its verification page says
+> **TEST MODE** for good. To rehearse on the raffle you'll run live, switch test mode off before the freeze: that
+> removes every fake entrant. A raffle that isn't in test mode never freezes with fakes in it.
+>
+> **Postponed?** The event date is locked once a real entrant has joined, and the data is erased on the date they
+> were told. Before the freeze, remove the real entrants to unlock the date, or duplicate the raffle for the new
+> date and have people join again. After the freeze, the only option is a new raffle.
 
 ## When doors open
 
@@ -146,8 +162,9 @@ only make it sooner:
 
 - **Mark delivered** (People tab) for each prize that reached its winner, or **All prizes delivered** (⋯ menu) once
   nothing is still on its way. Winners' names and emails are kept until then so you can deliver, and at most for
-  the winner hold (90 days past the erasure date); everyone else's go on the erasure date (7 days after the event
-  unless you chose fewer).
+  the winner hold (90 days past the erasure date: a prize you can't deliver by then needs the winner's address
+  elsewhere, exported in time); everyone else's go at the end of the erasure date (7 days after the event unless
+  you chose otherwise). Once the date has passed, marking delivered erases that winner on the next hourly run.
 - **Erase one entrant's personal data** (People tab) when someone asks.
 - **Erase personal data now** (⋯ menu) once you no longer need names and emails. Names, emails and claim codes go,
   and the anonymous draw log stays verifiable. This can't be undone.
@@ -158,7 +175,8 @@ only make it sooner:
   you never froze simply expires: its entrants are deleted.
 
 See [Privacy and abuse](../explanation/privacy-and-abuse.md). Leaving Rafi? **Your data** at the bottom of the
-raffle list removes your defaults and your name from your raffles, and erases their personal data.
+raffle list removes your defaults and your name from your raffles, and erases their personal data. In an
+organization, an admin does this, for every co-host's raffles.
 
 ## Checklist
 

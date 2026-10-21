@@ -3,7 +3,7 @@
 
 use crate::{
     dates::{self, DAY_SECS, Date},
-    entrant::Source,
+    entrant::{Email, Source},
 };
 
 /// The longest raffle title or prize name, in characters.
@@ -18,6 +18,10 @@ pub const MAX_PRIVACY_TEXT_CHARS: usize = MAX_RULES_CHARS;
 pub const MAX_URL_CHARS: usize = 2000;
 /// The most copies of one prize: each is an item of the raffle.
 pub const MAX_PRIZE_QTY: u32 = 500;
+/// How far ahead an event date may be set, in days: the retention period is
+/// bounded by the installation, and so must be the day it counts from, or
+/// a date far in the future would keep entrants' data for years.
+pub const MAX_EVENT_AHEAD_DAYS: i64 = 366;
 
 /// The installation's retention settings, as the rules need them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,25 +108,37 @@ pub struct Settings<'a> {
 pub enum SettingsError {
     /// Not a [title].
     Title,
-    /// The description, the rules or the privacy text are too long ([`texts_fit`]).
+    /// The description, the rules, the privacy text or the organizer's name
+    /// are too long ([`texts_fit`]).
     TooLong,
     /// Not a calendar day (`YYYY-MM-DD`).
     EventDate,
+    /// The event date is more than [`MAX_EVENT_AHEAD_DAYS`] ahead.
+    EventDateTooFar,
     /// The retention period is negative or over the installation's maximum.
     Retention,
     /// Not an absolute `https` URL.
     PrivacyUrl,
+    /// A contact that isn't an email address.
+    Email,
 }
 
 impl<'a> Settings<'a> {
-    /// The settings as they are stored: texts trimmed, the title, the date,
-    /// the period (at most `max_retention_days`) and the URL checked, the end
-    /// of the event day resolved.
-    pub fn normalize(self, max_retention_days: i64) -> Result<Self, SettingsError> {
-        if !texts_fit(self.description, self.rules) || !privacy_text_fits(self.privacy_text) {
+    /// The settings as they are stored: texts trimmed, the title, the date
+    /// (not more than [`MAX_EVENT_AHEAD_DAYS`] after `today`), the period (at
+    /// most `max_retention_days`), the emails and the URL checked, the end of
+    /// the event day resolved.
+    pub fn normalize(self, max_retention_days: i64, today: Date) -> Result<Self, SettingsError> {
+        if !texts_fit(self.description, self.rules)
+            || !privacy_text_fits(self.privacy_text)
+            || self.organizer_name.trim().chars().count() > MAX_TITLE_CHARS
+        {
             return Err(SettingsError::TooLong);
         }
         let date = Date::parse(self.event_date).ok_or(SettingsError::EventDate)?;
+        if date.days() - today.days() > MAX_EVENT_AHEAD_DAYS {
+            return Err(SettingsError::EventDateTooFar);
+        }
         if !retention_days_ok(self.retention_days, max_retention_days) {
             return Err(SettingsError::Retention);
         }
@@ -131,8 +147,8 @@ impl<'a> Settings<'a> {
             title: title(self.title).ok_or(SettingsError::Title)?,
             description: self.description.trim(),
             organizer_name: self.organizer_name.trim(),
-            contact_email: self.contact_email.trim(),
-            privacy_email: self.privacy_email.trim(),
+            contact_email: email(self.contact_email).ok_or(SettingsError::Email)?,
+            privacy_email: email(self.privacy_email).ok_or(SettingsError::Email)?,
             privacy_text: self.privacy_text.trim(),
             privacy_url,
             rules: self.rules.trim(),
@@ -142,17 +158,15 @@ impl<'a> Settings<'a> {
         })
     }
 
-    /// The event's day. Panics on settings that weren't normalized.
-    pub fn event(&self) -> Date {
-        Date::parse(self.event_date).expect("normalized settings have a date")
-    }
-
     /// When non-winners are erased: the end of the event day plus the
-    /// retention period. Only meaningful once normalized.
+    /// retention period. The database computes the stored value from the
+    /// same two columns; this is the rule as a function, for anyone who
+    /// needs it before the row exists. Panics on settings that weren't
+    /// normalized.
     pub fn erase_at(&self) -> i64 {
         erase_at(
             self.event_ends_at
-                .unwrap_or_else(|| self.event().ends_utc()),
+                .expect("normalized settings resolve the end of the day"),
             self.retention_days,
         )
     }
@@ -259,7 +273,10 @@ impl<'a> Defaults<'a> {
     /// The defaults as they are stored: texts trimmed, the rules, the period
     /// and the URL checked as a raffle's are.
     pub fn normalize(self, max_retention_days: i64) -> Result<Self, SettingsError> {
-        if !texts_fit("", self.rules) || !privacy_text_fits(self.privacy_text) {
+        if !texts_fit("", self.rules)
+            || !privacy_text_fits(self.privacy_text)
+            || self.organizer_name.trim().chars().count() > MAX_TITLE_CHARS
+        {
             return Err(SettingsError::TooLong);
         }
         if let Some(days) = self.retention_days
@@ -269,8 +286,8 @@ impl<'a> Defaults<'a> {
         }
         Ok(Self {
             organizer_name: self.organizer_name.trim(),
-            contact_email: self.contact_email.trim(),
-            privacy_email: self.privacy_email.trim(),
+            contact_email: email(self.contact_email).ok_or(SettingsError::Email)?,
+            privacy_email: email(self.privacy_email).ok_or(SettingsError::Email)?,
             privacy_text: self.privacy_text.trim(),
             privacy_url: url(self.privacy_url).ok_or(SettingsError::PrivacyUrl)?,
             rules: self.rules.trim(),
@@ -299,6 +316,17 @@ fn privacy_text_fits(text: &str) -> bool {
 /// maximum.
 pub fn retention_days_ok(days: i64, max: i64) -> bool {
     (0..=max).contains(&days)
+}
+
+/// `input` trimmed, if it is blank or an email address (as entrants' are
+/// judged, [`Email::parse`]): the organizer's contacts. The browser and the
+/// server both ask this.
+pub fn email(input: &str) -> Option<&str> {
+    let email = input.trim();
+    if email.is_empty() {
+        return Some(email);
+    }
+    Email::parse(email).is_some().then_some(email)
 }
 
 /// `input` trimmed, if it is blank or an absolute `https` URL.
@@ -361,6 +389,11 @@ mod tests {
 
     const MAX: i64 = 30;
 
+    /// A day before the test settings' event date.
+    fn today() -> Date {
+        Date::parse("2026-10-27").unwrap()
+    }
+
     #[test]
     fn titles() {
         assert_eq!(title("  Meetup "), Some("Meetup"));
@@ -393,7 +426,7 @@ mod tests {
 
     #[test]
     fn settings_normalize() {
-        let s = settings(" Meetup ").normalize(MAX).unwrap();
+        let s = settings(" Meetup ").normalize(MAX, today()).unwrap();
         assert_eq!(s.title, "Meetup");
         assert_eq!(s.description, "About");
         assert_eq!(s.organizer_name, "Org");
@@ -404,19 +437,26 @@ mod tests {
             Some(Date::parse("2026-10-28").unwrap().ends_utc()),
             "the end of the day in UTC when the browser said nothing"
         );
-        assert_eq!(s.normalize(MAX), Ok(s), "normalizing is idempotent");
-        assert_eq!(settings(" ").normalize(MAX), Err(SettingsError::Title));
+        assert_eq!(
+            s.normalize(MAX, today()),
+            Ok(s),
+            "normalizing is idempotent"
+        );
+        assert_eq!(
+            settings(" ").normalize(MAX, today()),
+            Err(SettingsError::Title)
+        );
         let long = "x".repeat(MAX_RULES_CHARS + 1);
         let s = Settings {
             rules: &long,
             ..settings("Meetup")
         };
-        assert_eq!(s.normalize(MAX), Err(SettingsError::TooLong));
+        assert_eq!(s.normalize(MAX, today()), Err(SettingsError::TooLong));
         let s = Settings {
             privacy_text: &long,
             ..settings("Meetup")
         };
-        assert_eq!(s.normalize(MAX), Err(SettingsError::TooLong));
+        assert_eq!(s.normalize(MAX, today()), Err(SettingsError::TooLong));
     }
 
     #[test]
@@ -425,42 +465,95 @@ mod tests {
             event_date: "next Tuesday",
             ..settings("Meetup")
         };
-        assert_eq!(bad_date.normalize(MAX), Err(SettingsError::EventDate));
+        assert_eq!(
+            bad_date.normalize(MAX, today()),
+            Err(SettingsError::EventDate)
+        );
         let too_long = Settings {
             retention_days: MAX + 1,
             ..settings("Meetup")
         };
-        assert_eq!(too_long.normalize(MAX), Err(SettingsError::Retention));
+        assert_eq!(
+            too_long.normalize(MAX, today()),
+            Err(SettingsError::Retention)
+        );
         let negative = Settings {
             retention_days: -1,
             ..settings("Meetup")
         };
-        assert_eq!(negative.normalize(MAX), Err(SettingsError::Retention));
+        assert_eq!(
+            negative.normalize(MAX, today()),
+            Err(SettingsError::Retention)
+        );
         let zero = Settings {
             retention_days: 0,
             ..settings("Meetup")
         };
-        assert!(zero.normalize(MAX).is_ok(), "erased on the event day");
+        assert!(
+            zero.normalize(MAX, today()).is_ok(),
+            "erased on the event day"
+        );
         for bad in ["http://x.org", "x.org", "https://", "https://x.org/a b"] {
             let s = Settings {
                 privacy_url: bad,
                 ..settings("Meetup")
             };
-            assert_eq!(s.normalize(MAX), Err(SettingsError::PrivacyUrl), "{bad}");
+            assert_eq!(
+                s.normalize(MAX, today()),
+                Err(SettingsError::PrivacyUrl),
+                "{bad}"
+            );
         }
         let ok = Settings {
             privacy_url: " https://x.org/privacy ",
             ..settings("Meetup")
         };
         assert_eq!(
-            ok.normalize(MAX).unwrap().privacy_url,
+            ok.normalize(MAX, today()).unwrap().privacy_url,
             "https://x.org/privacy"
         );
+        // A year ahead at most: the period is bounded, so the day it counts
+        // from must be too. Past dates are fine.
+        let far = Settings {
+            event_date: "2027-10-29",
+            ..settings("Meetup")
+        };
+        assert_eq!(
+            far.normalize(MAX, today()),
+            Err(SettingsError::EventDateTooFar)
+        );
+        let edge = Settings {
+            event_date: "2027-10-28",
+            ..settings("Meetup")
+        };
+        assert!(edge.normalize(MAX, today()).is_ok(), "366 days ahead");
+        let past = Settings {
+            event_date: "2020-01-01",
+            ..settings("Meetup")
+        };
+        assert!(past.normalize(MAX, today()).is_ok());
+        for bad in ["nobody", "a@b", "a b@c.d"] {
+            let s = Settings {
+                contact_email: bad,
+                ..settings("Meetup")
+            };
+            assert_eq!(
+                s.normalize(MAX, today()),
+                Err(SettingsError::Email),
+                "{bad}"
+            );
+        }
+        let long_name = "x".repeat(MAX_TITLE_CHARS + 1);
+        let s = Settings {
+            organizer_name: &long_name,
+            ..settings("Meetup")
+        };
+        assert_eq!(s.normalize(MAX, today()), Err(SettingsError::TooLong));
     }
 
     #[test]
     fn the_erasure_date_follows_the_event() {
-        let s = settings("Meetup").normalize(MAX).unwrap();
+        let s = settings("Meetup").normalize(MAX, today()).unwrap();
         let event = Date::parse("2026-10-28").unwrap();
         assert_eq!(s.erase_at(), event.ends_utc() + 7 * DAY_SECS);
         assert_eq!(erase_date(event, 7).iso(), "2026-11-04");
@@ -475,14 +568,14 @@ mod tests {
             event_ends_at: Some(event.ends_utc() - 3600),
             ..settings("Meetup")
         }
-        .normalize(MAX)
+        .normalize(MAX, today())
         .unwrap();
         assert_eq!(cet.erase_at(), event.ends_utc() - 3600 + 7 * DAY_SECS);
     }
 
     #[test]
     fn fixed_fields_are_named() {
-        let a = settings("Meetup").normalize(MAX).unwrap();
+        let a = settings("Meetup").normalize(MAX, today()).unwrap();
         let b = Settings {
             rules: "Be nice.",
             retention_days: 3,
@@ -604,5 +697,10 @@ mod tests {
             ..d
         };
         assert!(unset.normalize(MAX).is_ok());
+        let bad_email = Defaults {
+            contact_email: "not an email",
+            ..d
+        };
+        assert_eq!(bad_email.normalize(MAX), Err(SettingsError::Email));
     }
 }

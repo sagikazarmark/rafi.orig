@@ -16,6 +16,8 @@ pub struct Acceptance {
     pub user_id: String,
     pub document: String,
     pub version: String,
+    /// SHA-256 of the document's text as it was accepted, in hex.
+    pub digest: String,
     pub accepted_at: i64,
 }
 
@@ -33,17 +35,25 @@ pub async fn accepted(db: &Db, owner: &str, document: &str, version: &str) -> Re
     Ok(found.is_some())
 }
 
-/// Records that `user`, for `owner`, accepted `version` of `document`. An
-/// acceptance already recorded stays as it was.
-pub async fn record(db: &Db, owner: &str, user: &str, document: &str, version: &str) -> Result<()> {
+/// Records that `user`, for `owner`, accepted `version` of `document`, whose
+/// text hashed to `digest`. An acceptance already recorded stays as it was.
+pub async fn record(
+    db: &Db,
+    owner: &str,
+    user: &str,
+    document: &str,
+    version: &str,
+    digest: &str,
+) -> Result<()> {
     db.query(
-        "INSERT INTO legal_acceptances (owner_id, user_id, document, version, accepted_at)
-         VALUES (?, ?, ?, ?, ?) ON CONFLICT (owner_id, document, version) DO NOTHING",
+        "INSERT INTO legal_acceptances (owner_id, user_id, document, version, digest, accepted_at)
+         VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (owner_id, document, version) DO NOTHING",
     )
     .bind(owner)
     .bind(user)
     .bind(document)
     .bind(version)
+    .bind(digest)
     .bind(now())
     .run()
     .await

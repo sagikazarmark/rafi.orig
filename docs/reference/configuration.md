@@ -24,7 +24,7 @@ same name.
 | `RAFI_COOKIE_SECURE` | on when `RAFI_PUBLIC_URL` is `https://` | Marks the participant cookie `Secure` (`1`/`true` or `0`/`false`). Set it when TLS ends at a proxy in front of a plain `http://` URL. |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate` (native only; Workers use D1). Either SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`; the database must exist). The app applies the migrations on start. |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, and every admin is `dev`. Workers refuse it unless built with the `dev` feature. |
-| `CLERK_SECRET_KEY` | | Clerk backend key. Required unless `RAFI_DEV_AUTH` is set. See also `CLERK_PUBLISHABLE_KEY` [at build time](#build-time). |
+| `CLERK_SECRET_KEY` | | Clerk backend key. Required unless `RAFI_DEV_AUTH` is set. See also `CLERK_PUBLISHABLE_KEY` [at build time](#build-time). In a Clerk organization, the session's role decides what a member may do: `org:admin` everything; the custom role `org:manager` or permission `org:raffles:manage` (made in the Clerk dashboard) creates, configures and deletes raffles; any member runs them. |
 | `RESTATE_INGRESS_URL` | | The raffle engine's Restate ingress. Without it, draws can't start (required on Workers). |
 | `RESTATE_API_KEY` | | Restate Cloud: an API key with ingress access |
 | `RESTATE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits. A command queued behind a draw that is waiting for its beacon may take the engine's drand lead plus its fetch timeout. Past this timeout the command is accepted and applies later. Keep it above the engine's `lead_secs + timeout_secs`. |
@@ -42,8 +42,9 @@ same name.
 | `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION` | required | The documents' versions, e.g. `2026-10`. Organizers must have accepted the current terms version to create a raffle; a new version is accepted again. Under `RAFI_DEV_AUTH`, `dev`. |
 | `RUST_LOG` | `info` | Log level, in [`tracing-subscriber` filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) (native only) |
 
-The app refuses to start (natively) or every request (on Workers) when the retention settings contradict each other,
-or when the operator, the versions or the documents are missing without dev auth.
+The app refuses to start (natively) or every request (on Workers) when a numeric variable doesn't parse, the
+retention settings contradict each other, or the operator, the versions or the documents are missing (or still the
+unreviewed templates) without dev auth.
 
 `rafi reapply-erasures` (native only) is the command for after a database restore: it takes the same environment,
 re-applies the erasure log, the purges and the organizers who left, runs housekeeping once, and exits.

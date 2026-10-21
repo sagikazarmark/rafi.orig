@@ -9,8 +9,9 @@ You're at an event with a Rafi raffle. Here's what to expect.
    Leave it blank and you get a generated name like "Brave Otter", or press 🎲 to pick one. The email is only used
    to tell entries apart and to deliver prizes. It is never shown.
 3. Accept the rules. Under the box, the page tells you the day your name and email are erased (a week after the
-   event, unless the organizer chose sooner; a winner's once their prize is delivered), that you must be 16 or
-   older, and links the privacy notice, which names the organizer as the controller of your data.
+   event unless the organizer chose otherwise, at most a month; a winner's once their prize is delivered), that
+   you must be 16 or older (or whatever the raffle's rules ask), and links the privacy notice, which names the
+   organizer as the controller of your data.
 4. Press **Join**. Your phone does a few seconds of work in the background first (a check against bots).
 
 You'll see **You're in!** with your name on the screen and your **claim code**. If you win, you show this code to
@@ -49,7 +50,8 @@ list of entrants lets anyone find their name. See [Verifying a draw](verifying-a
 
 ## Your data
 
-Your display name appears on the screen and in the verification page's list of entrants. It doesn't have to be
-your real name. Your email never appears. Your entry stays in the raffle until it is finished: then the organizer
-erases names and emails, and you can ask them to erase yours. The **Privacy notice** link on the page has the
-details.
+Your display name appears on the screen and in the verification page's list of entrants, until your data is
+erased. It doesn't have to be your real name. Your email never appears. Your entry stays in the raffle until it is
+finished; your name and email are erased on the day the join form told you, automatically (a winner's once their
+prize is delivered), and the organizer can erase yours earlier on request once the draw is over. The **Privacy
+notice** link on the page has the details.

@@ -47,7 +47,7 @@ impl EventDate {
 fn normalized<'a>(app: &App, settings: settings::Settings<'a>) -> Result<settings::Settings<'a>> {
     let max = app.policy.retention.max_days;
     Ok(settings
-        .normalize(max)
+        .normalize(max, Date::of_utc(ids::now()))
         .map_err(|e| Refusal::settings(e, max))?)
 }
 
@@ -254,7 +254,6 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
             .event_ends_at
             .expect("normalized settings resolve the end of the day"),
         retention_days: s.retention_days,
-        erase_at: s.erase_at(),
         test_mode,
     }
 }
@@ -362,6 +361,10 @@ pub async fn lifecycle(app: &App, owner: &str, id: &str, action: LifecycleComman
         let missing = missing_for_open(&raffle);
         if !missing.is_empty() {
             return Err(Refusal::OrganizerMissing(missing).into());
+        }
+        // Nobody joins a raffle that expires within the hour.
+        if raffle.past_erase_date(ids::now()) {
+            return Err(Refusal::ErasureDatePassed.into());
         }
     }
     if !raffles::transition(&app.db, id, from, to).await? {

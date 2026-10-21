@@ -41,8 +41,8 @@ verifiable; the acceptance record stays as our evidence. The account itself is d
 
 ## Logs, security and backups
 
-The service writes no personal data to its logs and sets one strictly necessary cookie (the entry, on the
-entrant's device; and the organizer's session). No analytics, no tracking. Backups and the hosting
+The service writes no personal data to its logs and sets only strictly necessary cookies: the entry, on the
+entrant's device, and the organizer's sign-in session. No analytics, no tracking. Backups and the hosting
 provider's point-in-time recovery may hold erased data for up to **[30]** more days; a restore re-applies
 every recorded erasure.
 

@@ -24,7 +24,8 @@ running during events but give no availability guarantee.
 - You name yourself (or your organization) truthfully as the organizer. The privacy notice entrants see names
   you as the data controller, with the contact you provide.
 - You honour the erasure dates the service shows your entrants, and the requests they make to you about their
-  data. You can always erase earlier; nothing extends a date.
+  data. You can always erase earlier; nothing extends a date. You mark prizes delivered as they reach their
+  winners, so their data stops being held; we may remind you, and may review what is held past the event.
 - Winners' details you export are your copies, outside the service: you keep, protect and erase them under
   your own rules.
 - You keep your sign-in credentials safe and tell us about any suspected misuse.
@@ -66,9 +67,11 @@ its version; you may object by stopping use of the service.
 display name, erase one entrant or everyone, and export winners. We help with what the admin can't do, within
 reason.
 
-**End of processing.** When you remove your data from the service, or an account is closed, remaining
-personal data of your raffles is erased; the anonymous draws stay verifiable. We keep the record of your
-acceptance of these terms.
+**End of processing.** When you remove your data from the service ("Remove my data" in the admin, by an
+organization admin for an organization), remaining personal data of your raffles is erased and your name and
+contacts are taken off them; the anonymous draws stay verifiable. Entrants' data is erased on the dates shown
+whether or not you do. Deleting your account with the sign-in provider does not by itself remove your data
+here: do that first. We keep the record of your acceptance of these terms.
 
 **Audit.** We make available the information needed to show compliance with this section, and allow audits
 you reasonably request, at your cost.

@@ -1299,7 +1299,7 @@ async fn rules_are_fixed_once_accepted() {
     // The event date, the period, the privacy text and link lock with them,
     // and the refusal names what changed.
     let mut settings = admin.settings.clone();
-    settings.event_date = "2031-01-01".into();
+    settings.event_date = "2026-12-31".into();
     settings.retention_days = 1;
     settings.privacy_url = "https://example.com/other".into();
     let refused = service::update_settings(&app, OWNER, &raffle.id, settings).await;
@@ -2441,12 +2441,18 @@ async fn the_join_page_and_the_notices_say_when_data_is_erased() {
         admin.retention.erase_at,
         Date::parse("2026-10-28").unwrap().ends_utc() + 7 * DAY
     );
-    assert_eq!(admin.retention.max_days, 30);
+    assert_eq!(admin.retention.max_days, app.policy.retention.max_days);
+    assert_eq!(
+        admin.retention.winner_hold_days,
+        app.policy.retention.winner_hold_days
+    );
 }
 
-/// The clocks: non-winners go on the erasure date, delivered winners with
-/// them, other winners after the hold; a finished raffle is then purged, a
-/// drawing one is erased where it stands, a never-frozen one expires.
+/// The clocks on frozen raffles: non-winners go on the erasure date,
+/// delivered winners with them, other winners after the hold; a finished
+/// raffle is then purged, a drawing one is erased where it stands and
+/// finished by the engine. (Never-frozen raffles are
+/// [`never_frozen_raffles_expire`].)
 #[tokio::test]
 async fn housekeeping_erases_on_the_dates() {
     let (recording, live) = recording();
@@ -2520,25 +2526,11 @@ async fn housekeeping_erases_on_the_dates() {
     let pen = r.drawn.as_ref().unwrap().items()[0].id.clone();
     let drawing_winner = draw_and_claim(&app, &drawing.id, &pen).await;
 
-    // An open raffle nobody froze, and a draft with no entrants.
-    let open = setup_open(&app, &[("Cap", 1)]).await;
-    let open = date_event(&app, &open.id, 10, 7).await;
-    service::add_manual(&app, OWNER, &open.id, "Gabi", Some("gabi@x.org".into()))
-        .await
-        .unwrap();
-    let draft = create(&app, OWNER, "Draft").await;
-    date_event(&app, &draft, 10, 7).await;
-    // And one whose date hasn't come.
-    let fresh = setup_open(&app, &[("Hat", 1)]).await;
-    service::add_manual(&app, OWNER, &fresh.id, "Hanna", None)
-        .await
-        .unwrap();
-
     let report = service::housekeeping::run_at(&app, now).await.unwrap();
     assert_eq!(
         (report.expired, report.erased, report.purged),
-        (2, 4, 0),
-        "the open raffle and the draft expired; 2 non-winners + the delivered winner, and the drawing raffle's non-winner, erased"
+        (0, 4, 0),
+        "2 non-winners + the delivered winner, and the drawing raffle's non-winner, erased"
     );
 
     // Finished: everyone but the held winner is erased, the raffle stays finished.
@@ -2585,46 +2577,9 @@ async fn housekeeping_erases_on_the_dates() {
         RaffleState::Drawing
     );
 
-    // Expired: no entrants, purged, audited.
-    for id in [&open.id, &draft] {
-        assert!(
-            entrants::list(&app.db, id).await.unwrap().is_empty(),
-            "deleted outright"
-        );
-        let r = raffles::get(&app.db, id).await.unwrap().unwrap();
-        assert_eq!(r.state, RaffleState::Purged);
-        assert!(r.purged_at.is_some() && r.live_ended_at.is_some());
-    }
-    assert_eq!(
-        audit_of(&app, &open.id).await.last().unwrap(),
-        &("expire".to_owned(), "1".to_owned())
-    );
-    assert_eq!(
-        audit_of(&app, &draft).await.last().unwrap(),
-        &("expire".to_owned(), "0".to_owned())
-    );
-    // Expiry doesn't log erasures (nothing to re-apply: the next run expires again).
-    let (expired_logged,): (i64,) = app
-        .db
-        .query("SELECT COUNT(*) FROM erasures WHERE raffle_id = ?")
-        .bind(&open.id)
-        .one()
-        .await
-        .unwrap();
-    assert_eq!(expired_logged, 0);
-
-    // Not due: untouched.
-    assert!(
-        entrants::list(&app.db, &fresh.id)
-            .await
-            .unwrap()
-            .iter()
-            .all(|e| !e.erased)
-    );
-
     // A second run changes nothing.
     let again = service::housekeeping::run_at(&app, now).await.unwrap();
-    assert_eq!((again.expired, again.erased, again.purged), (0, 0, 0));
+    assert_eq!((again.erased, again.purged), (0, 0));
     let (logged,): (i64,) = app
         .db
         .query("SELECT COUNT(*) FROM erasures WHERE raffle_id = ?")
@@ -2823,9 +2778,15 @@ async fn all_prizes_delivered() {
     assert!(
         matches!(
             refused,
-            Err(service::Error::Refused(service::Refusal::NotOver))
+            Err(service::Error::Refused(
+                service::Refusal::NotFinishedForDelivery
+            ))
         ),
         "not before the finish: {refused:?}"
+    );
+    assert_eq!(
+        refused.unwrap_err().to_string(),
+        "Prizes can be marked delivered once the raffle has finished."
     );
     service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
         .await
@@ -2885,7 +2846,7 @@ async fn registration_needs_an_organizer() {
         matches!(
             &refused,
             Err(service::Error::Refused(service::Refusal::OrganizerMissing(fields)))
-                if fields.len() == 2
+                if fields == &["the organizer's name", "a contact or privacy email"]
         ),
         "{refused:?}"
     );
@@ -2917,21 +2878,89 @@ async fn registration_needs_an_organizer() {
     );
 }
 
-/// Every export is audited: who, which raffle, how many rows.
+/// The export has the winners with their details, the delivered flag and
+/// formula-safe cells, and every export is audited: who, which raffle, how
+/// many rows.
 #[tokio::test]
-async fn exports_are_audited() {
+async fn exports_have_the_winners_and_are_audited() {
     let app = app().await;
-    let raffle = finished_raffle(&app).await;
+    let raffle = setup_open(&app, &[("Book", 1), ("Mug", 1)]).await;
+    // A name that a spreadsheet would run as a formula.
+    let formula = service::add_manual(
+        &app,
+        OWNER,
+        &raffle.id,
+        "=SUM(A1)",
+        Some("sum@x.org".into()),
+    )
+    .await
+    .unwrap();
+    service::add_manual(&app, OWNER, &raffle.id, "Bence", Some("bence@x.org".into()))
+        .await
+        .unwrap();
+    service::add_manual(&app, OWNER, &raffle.id, "Csilla", None)
+        .await
+        .unwrap();
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    let items: Vec<_> = r
+        .drawn
+        .as_ref()
+        .unwrap()
+        .items()
+        .iter()
+        .map(|u| u.id.clone())
+        .collect();
+    let w1 = draw_and_claim(&app, &raffle.id, &items[0]).await;
+    let w2 = draw_and_claim(&app, &raffle.id, &items[1]).await;
+    service::patch_entrant(
+        &app,
+        OWNER,
+        &raffle.id,
+        &w1,
+        rafi_api::EntrantPatch {
+            delivered: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
+        .await
+        .unwrap();
+
     let csv = service::export_csv(&app, OWNER, &raffle.id).await.unwrap();
-    assert!(
-        csv.starts_with(
-            "entrant_id,display_name,email,source,claim_code,outcome,prize,delivered\n"
-        )
+    let lines: Vec<&str> = csv.lines().collect();
+    assert_eq!(
+        lines[0],
+        "entrant_id,display_name,email,source,claim_code,outcome,prize,delivered"
     );
-    assert_eq!(csv.lines().count(), 1, "nobody was drawn");
+    assert_eq!(lines.len(), 3, "the two winners");
+    let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
+    for (winner, delivered) in [(&w1, "yes"), (&w2, "no")] {
+        let e = entrants.iter().find(|e| &e.id == winner).unwrap();
+        let line = lines
+            .iter()
+            .find(|l| l.starts_with(&format!("\"{winner}\"")))
+            .unwrap();
+        let email = e.email_raw.clone().unwrap_or_default();
+        let claim = e.claim_code.clone().unwrap();
+        let name = if e.id == formula {
+            "'=SUM(A1)"
+        } else {
+            &e.display_name
+        };
+        assert!(
+            line.contains(&format!(
+                "\"{name}\",\"{email}\",\"manual\",\"{claim}\",\"claimed\""
+            )),
+            "{line}"
+        );
+        assert!(line.ends_with(&format!("\"{delivered}\"")), "{line}");
+    }
     assert_eq!(
         audit_of(&app, &raffle.id).await.last().unwrap(),
-        &("export_csv".to_owned(), "0".to_owned())
+        &("export_csv".to_owned(), "2".to_owned())
     );
     assert!(
         service::export_csv(&app, "someone-else", &raffle.id)
@@ -3164,12 +3193,12 @@ async fn a_stopped_run_is_reported() {
     );
     service::housekeeping::run(&app).await.unwrap();
     assert!(!me(&router).await.retention_stale);
-    app.db
-        .query("UPDATE meta SET value = ? WHERE key = 'last_retention_ok_at'")
-        .bind((service::ids::now() - service::housekeeping::STALE_AFTER_SECS - 1).to_string())
-        .run()
-        .await
-        .unwrap();
+    rafi_store::housekeeping::record_ok(
+        &app.db,
+        service::ids::now() - service::housekeeping::STALE_AFTER_SECS - 1,
+    )
+    .await
+    .unwrap();
     assert!(me(&router).await.retention_stale);
 }
 
@@ -3255,4 +3284,451 @@ async fn a_past_event_date_is_warned_about() {
     let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
     assert_eq!(admin.view.state, RaffleState::Purged);
     assert!(!admin.retention.expires_unfrozen, "nothing left to expire");
+}
+
+/// In an organization, members run raffles, managers (the custom role or
+/// permission) also create and configure them, and admins also accept the
+/// terms and remove the organization's data. A personal account does
+/// everything.
+#[tokio::test]
+async fn organization_tiers_gate_the_admin_api() {
+    use dioxus_clerk::testing::TestClerk;
+    let app = app().await;
+    let clerk = TestClerk::new().unwrap();
+    let public = std::env::temp_dir().join(format!("rafi-public-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(public.join("participant-dist")).unwrap();
+    std::fs::write(public.join("index.html"), "<!doctype html>").unwrap();
+    let router = super::build_router(
+        app.clone(),
+        Some(clerk.layer().unwrap()),
+        &super::Dirs {
+            public: public.clone(),
+            participant: public.join("participant-dist"),
+        },
+    );
+    let call = async |cookie: &str, name: &str, args: &str| -> (StatusCode, String) {
+        let mut req = admin_call(name, args);
+        req.headers_mut()
+            .insert(header::COOKIE, cookie.parse().unwrap());
+        let (status, _, body) = send(&router, req).await;
+        (status, body)
+    };
+    let org = |user: &str, role: &str| {
+        clerk
+            .cookie_for(
+                &clerk
+                    .session(user)
+                    .with_organization("org_cnb")
+                    .with_organization_role(role),
+            )
+            .unwrap()
+    };
+    let member = org("user_member", "org:member");
+    let manager = org("user_manager", "org:manager");
+    let admin = org("user_admin", "org:admin");
+    let by_permission = clerk
+        .cookie_for(
+            &clerk
+                .session("user_perm")
+                .with_organization("org_cnb")
+                .with_organization_role("org:member")
+                .with_organization_permissions(["org:raffles:manage"]),
+        )
+        .unwrap();
+    let create = r#"{"title":"Org raffle","event_date":"2026-10-28","event_ends_at":null}"#;
+
+    // Who they are.
+    let (_, body) = call(&member, "whoami", "").await;
+    let me: rafi_api::Me = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        (me.owner_id.as_str(), me.access, me.shared),
+        ("org_cnb", rafi_api::Access::Member, true)
+    );
+    let (_, body) = call(&by_permission, "whoami", "").await;
+    let me: rafi_api::Me = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        me.access,
+        rafi_api::Access::Manager,
+        "the permission makes a manager"
+    );
+
+    // Only an admin accepts the terms, for the whole organization.
+    let (_, body) = call(&admin, "get_terms", "").await;
+    let terms: rafi_api::TermsDocument = serde_json::from_str(&body).unwrap();
+    let accept = format!(r#"{{"version":"{}"}}"#, terms.version);
+    let (status, body) = call(&manager, "accept_terms", &accept).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(
+        body.contains("Only an organization admin can do this."),
+        "{body}"
+    );
+    let (status, body) = call(&admin, "accept_terms", &accept).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let accepted: Vec<(String, String)> = app
+        .db
+        .query("SELECT owner_id, user_id FROM legal_acceptances")
+        .all()
+        .await
+        .unwrap();
+    assert_eq!(accepted, [("org_cnb".to_owned(), "user_admin".to_owned())]);
+
+    // Members run raffles; managers also create them.
+    let (status, body) = call(&member, "create_raffle", create).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("admin or manager"), "{body}");
+    let (status, body) = call(&manager, "create_raffle", create).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let id: String = serde_json::from_str(&body).unwrap();
+    let (status, body) = call(&member, "save_prize", &format!(r#"{{"id":"{id}","prize":{{"id":null,"name":"Book","sponsor":"","description":"","qty":1,"position":0}}}}"#)).await;
+    assert_eq!(status, StatusCode::OK, "a member sets up prizes: {body}");
+    let (status, body) = call(
+        &member,
+        "lifecycle",
+        &format!(r#"{{"id":"{id}","action":"publish"}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "a member runs the raffle: {body}");
+    let (status, body) = call(&member, "delete_raffle", &format!(r#"{{"id":"{id}"}}"#)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    let (status, body) = call(&member, "remove_my_data", "").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    let (status, body) = call(&manager, "remove_my_data", "").await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a manager isn't an admin: {body}"
+    );
+    assert!(
+        raffles::get(&app.db, &id).await.unwrap().is_some(),
+        "nothing happened"
+    );
+
+    // A personal account is its own admin.
+    let person = clerk.cookie("user_solo").unwrap();
+    let (_, body) = call(&person, "whoami", "").await;
+    let me: rafi_api::Me = serde_json::from_str(&body).unwrap();
+    assert_eq!((me.access, me.shared), (rafi_api::Access::Admin, false));
+    std::fs::remove_dir_all(&public).ok();
+}
+
+/// A frozen raffle nobody ever drew from: erased on the date where it stands,
+/// finished by the engine at the ceiling, purged on the run after.
+#[tokio::test]
+async fn a_frozen_raffle_is_erased_in_place_and_finished_at_the_ceiling() {
+    let (recording, live) = recording();
+    let app = app_with_live(Config::for_tests(), live).await;
+    let now = service::ids::now();
+    let hold = app.policy.retention.winner_hold_secs();
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    let raffle = date_event(&app, &raffle.id, 10, 7).await;
+    for name in ["Anna", "Bence"] {
+        service::add_manual(&app, OWNER, &raffle.id, name, Some(format!("{name}@x.org")))
+            .await
+            .unwrap();
+    }
+    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    assert_eq!(
+        raffles::get(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        RaffleState::Frozen
+    );
+
+    let report = service::housekeeping::run_at(&app, now).await.unwrap();
+    assert_eq!((report.erased, report.purged), (2, 0), "{report:?}");
+    let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
+    assert_eq!(r.state, RaffleState::Frozen, "erased where it stands");
+    assert!(
+        entrants::list(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|e| e.erased)
+    );
+    assert!(recording.notified().contains(&RaffleId::new(&raffle.id)));
+
+    let report = service::housekeeping::run_at(&app, raffle.erase_at + hold + 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        (report.erased, report.purged),
+        (0, 0),
+        "nothing left to erase; the engine is asked to finish"
+    );
+    wait_for(&app, &raffle.id, |r| {
+        r.raffle.state == RaffleState::Finished
+    })
+    .await;
+    let report = service::housekeeping::run_at(&app, raffle.erase_at + hold + 2)
+        .await
+        .unwrap();
+    assert_eq!(report.purged, 1);
+    assert_eq!(
+        raffles::get(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        RaffleState::Purged
+    );
+    assert!(recording.ended().contains(&RaffleId::new(&raffle.id)));
+    let data = service::verify_data(&app, &raffle.slug).await.unwrap();
+    assert!(
+        rafi_raffle::verify(
+            &data.manifest,
+            &data.manifest_hash,
+            &data.events,
+            rafi_raffle::drand::resolve_chain
+        )
+        .ok(),
+        "a raffle with no draws still verifies"
+    );
+}
+
+/// The notice without the optional fields: the contact email is the privacy
+/// contact, there is no section from the organizer; and a public raffle
+/// without an organizer names "the raffle organizer".
+#[tokio::test]
+async fn the_notice_without_the_optional_fields() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let (status, _, notice) = send(
+        &router,
+        Request::get(format!("/privacy/{}", raffle.slug))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        notice.contains("Privacy requests: hello@example.com"),
+        "{notice}"
+    );
+    assert!(!notice.contains("From the organizer"), "{notice}");
+    assert!(!notice.contains("has since left"));
+
+    // Published but nameless: it can't open, but its notice is public.
+    accept_terms(&app, OWNER).await;
+    let id = service::create(&app, OWNER, "Nameless", &service::EventDate::today())
+        .await
+        .unwrap();
+    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Publish)
+        .await
+        .unwrap();
+    let nameless = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    let (status, _, notice) = send(
+        &router,
+        Request::get(format!("/privacy/{}", nameless.slug))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        notice.contains("The raffle organizer is the data controller for this raffle."),
+        "{notice}"
+    );
+    assert!(!notice.contains("Privacy requests:"));
+}
+
+/// Over HTTP: a locked setting is a 409 that names the field; an event date
+/// over a year ahead is a 400; registration can't open once the erasure date
+/// has passed.
+#[tokio::test]
+async fn settings_refusals_over_http() {
+    let mut cfg = Config::for_tests();
+    cfg.dev_auth = true;
+    let app = app_with(cfg).await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    // `setup_open` works as OWNER; dev auth is `dev`, so hand it over.
+    app.db
+        .query("UPDATE raffles SET owner_id = 'dev' WHERE id = ?")
+        .bind(&raffle.id)
+        .run()
+        .await
+        .unwrap();
+    service::add_manual(&app, "dev", &raffle.id, "Anna", None)
+        .await
+        .unwrap();
+
+    let settings = |event_date: &str, retention_days: i64| {
+        let mut s = service::settings_of(&raffle);
+        s.event_date = event_date.into();
+        s.event_ends_at = None;
+        s.retention_days = retention_days;
+        format!(
+            r#"{{"id":"{}","settings":{}}}"#,
+            raffle.id,
+            serde_json::to_string(&s).unwrap()
+        )
+    };
+    let (status, _, body) = send(
+        &router,
+        admin_call("save_settings", &settings("2026-12-24", 7)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        err.message,
+        "The event date cannot change: entrants have already accepted the rules they were shown with."
+    );
+
+    let fresh = create(&app, "dev", "Far").await;
+    let far = raffles::get(&app.db, &fresh).await.unwrap().unwrap();
+    let mut s = service::settings_of(&far);
+    s.event_date = "2099-12-31".into();
+    s.event_ends_at = None;
+    let (status, _, body) = send(
+        &router,
+        admin_call(
+            "save_settings",
+            &format!(
+                r#"{{"id":"{fresh}","settings":{}}}"#,
+                serde_json::to_string(&s).unwrap()
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("at most 366 days ahead"), "{body}");
+
+    // Past its erasure date, a never-frozen raffle can't open.
+    let stale = create(&app, "dev", "Stale").await;
+    let mut s = service::settings_of(&raffles::get(&app.db, &stale).await.unwrap().unwrap());
+    s.event_date = rafi_lifecycle::dates::Date::of_utc(service::ids::now() - 10 * DAY).iso();
+    s.event_ends_at = None;
+    s.retention_days = 7;
+    service::update_settings(&app, "dev", &stale, s)
+        .await
+        .unwrap();
+    service::lifecycle(&app, "dev", &stale, LifecycleCommand::Publish)
+        .await
+        .unwrap();
+    let (status, _, body) = send(
+        &router,
+        admin_call(
+            "lifecycle",
+            &format!(r#"{{"id":"{stale}","action":"open"}}"#),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("expires within the hour"), "{body}");
+}
+
+/// Leaving with nothing but defaults: they go, nothing else is touched.
+#[tokio::test]
+async fn leaving_with_no_raffles() {
+    let app = app().await;
+    service::save_defaults(
+        &app,
+        OWNER,
+        rafi_api::RaffleDefaults {
+            organizer_name: "Org".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let other = setup_open(&app, &[("Book", 1)]).await;
+    app.db
+        .query("UPDATE raffles SET owner_id = 'someone-else' WHERE id = ?")
+        .bind(&other.id)
+        .run()
+        .await
+        .unwrap();
+    service::remove_owner_data(&app, OWNER).await.unwrap();
+    assert_eq!(
+        service::get_defaults(&app, OWNER).await.unwrap(),
+        Default::default()
+    );
+    assert_eq!(
+        raffles::get(&app.db, &other.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        RaffleState::Open,
+        "another owner's raffle is untouched"
+    );
+}
+
+/// A raffle nobody froze expires on its erasure date, whatever its state:
+/// its entrants are deleted outright, it is purged, audited with the count,
+/// and its channel ended. One whose date hasn't come is untouched. Expiry
+/// logs no erasures: the next run would expire a restored raffle again.
+#[tokio::test]
+async fn never_frozen_raffles_expire() {
+    let (recording, live) = recording();
+    let app = app_with_live(Config::for_tests(), live).await;
+    let now = service::ids::now();
+    let open = setup_open(&app, &[("Cap", 1)]).await;
+    let open = date_event(&app, &open.id, 10, 7).await;
+    service::add_manual(&app, OWNER, &open.id, "Gabi", Some("gabi@x.org".into()))
+        .await
+        .unwrap();
+    let draft = create(&app, OWNER, "Draft").await;
+    date_event(&app, &draft, 10, 7).await;
+    let fresh = setup_open(&app, &[("Hat", 1)]).await;
+    service::add_manual(&app, OWNER, &fresh.id, "Hanna", None)
+        .await
+        .unwrap();
+
+    let report = service::housekeeping::run_at(&app, now).await.unwrap();
+    assert_eq!((report.expired, report.erased), (2, 0), "{report:?}");
+    assert!(
+        recording.ended().contains(&RaffleId::new(&open.id)),
+        "an expired raffle's channel is destroyed"
+    );
+    for id in [&open.id, &draft] {
+        assert!(
+            entrants::list(&app.db, id).await.unwrap().is_empty(),
+            "deleted outright"
+        );
+        let r = raffles::get(&app.db, id).await.unwrap().unwrap();
+        assert_eq!(r.state, RaffleState::Purged);
+        assert!(r.purged_at.is_some() && r.live_ended_at.is_some());
+    }
+    assert_eq!(
+        audit_of(&app, &open.id).await.last().unwrap(),
+        &("expire".to_owned(), "1".to_owned())
+    );
+    assert_eq!(
+        audit_of(&app, &draft).await.last().unwrap(),
+        &("expire".to_owned(), "0".to_owned())
+    );
+    let (logged,): (i64,) = app
+        .db
+        .query("SELECT COUNT(*) FROM erasures WHERE raffle_id = ?")
+        .bind(&open.id)
+        .one()
+        .await
+        .unwrap();
+    assert_eq!(logged, 0, "expiry logs no erasures");
+    assert!(
+        entrants::list(&app.db, &fresh.id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|e| !e.erased),
+        "not due: untouched"
+    );
+    let again = service::housekeeping::run_at(&app, now).await.unwrap();
+    assert_eq!(again.expired, 0, "idempotent");
+
+    // The admin of an expired raffle says so, and verify.json has nothing:
+    // there was never a manifest.
+    let admin = service::admin(&app, OWNER, &open.id).await.unwrap();
+    assert_eq!(admin.view.state, RaffleState::Purged);
+    assert!(admin.view.manifest_hash.is_none());
+    assert!(matches!(
+        service::verify_data(&app, &open.slug).await,
+        Err(service::Error::NotFound)
+    ));
 }

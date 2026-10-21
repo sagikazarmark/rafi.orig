@@ -55,11 +55,12 @@ fn required<M: 'static>(
     }
 }
 
+/// Blank, or an email address by the same rule the server applies
+/// ([`settings::email`]).
 fn optional_email<M: 'static>()
 -> impl for<'a> Fn(&'a String, ValidatorContext<'a, M>) -> Vec<String> + 'static {
     |value: &String, _ctx: ValidatorContext<'_, M>| {
-        let v = value.trim();
-        if v.is_empty() || (v.contains('@') && v.contains('.')) {
+        if settings::email(value).is_some() {
             Vec::new()
         } else {
             vec!["That does not look like an email.".to_owned()]
@@ -467,10 +468,18 @@ pub fn SettingsForm(
     rules_editable: bool,
     /// The installation's periods, for the retention field.
     retention: Retention,
+    /// Whether the signed-in user may change settings at all: an
+    /// organization's members only run raffles. Everything is read-only
+    /// otherwise.
+    #[props(default = true)]
+    can_edit: bool,
     on_saved: EventHandler<()>,
 ) -> Element {
     let initial = Settings::from(&settings);
     let max_days = retention.max_days;
+    // Fixed settings stay editable only while nobody has joined, and only
+    // for someone who may edit at all.
+    let rules_editable = rules_editable && can_edit;
     let form = use_form_handle(move || {
         let handle = FormHandle::<Settings>::from_config(
             FormConfig::new(initial)
@@ -606,7 +615,7 @@ pub fn SettingsForm(
                 });
             },
             div { class: "md:col-span-2",
-                InputField { context: form.text(f.title()), label: "Title", required: true, maxlength: "{MAX_TITLE_CHARS}", class: "w-full" }
+                InputField { context: form.text(f.title()), label: "Title", required: true, maxlength: "{MAX_TITLE_CHARS}", disabled: !can_edit, class: "w-full" }
             }
             div { class: "md:col-span-2",
                 TextareaField {
@@ -614,13 +623,16 @@ pub fn SettingsForm(
                     label: "Description",
                     description: "Shown on the intro screen.",
                     rows: "2",
+                    disabled: !can_edit,
                     class: "w-full",
                 }
             }
             InputField {
                 context: form.text(f.organizer_name()),
                 label: "Organizer (data controller)",
-                description: "Named in the rules and the privacy notice.",
+                description: "Named in the rules and the privacy notice. Needed before registration can open.",
+                maxlength: "{MAX_TITLE_CHARS}",
+                disabled: !can_edit,
                 class: "w-full",
             }
             InputField {
@@ -628,6 +640,7 @@ pub fn SettingsForm(
                 label: "Contact email",
                 description: "Shown in the rules and the privacy notice. Needed before registration can open (or a privacy contact).",
                 r#type: "email",
+                disabled: !can_edit,
                 class: "w-full",
             }
             InputField {
@@ -635,6 +648,7 @@ pub fn SettingsForm(
                 label: "Privacy contact (optional)",
                 description: "Where privacy requests go, if not the contact email: a DPO, for instance. Can change at any time.",
                 r#type: "email",
+                disabled: !can_edit,
                 class: "w-full",
             }
             InputField {
@@ -649,7 +663,7 @@ pub fn SettingsForm(
             InputField {
                 context: form.text(f.event_date()),
                 label: "Event date",
-                description: if rules_editable { "The day of the draw. Entrants' data is erased a set number of days after it." } else { "Locked: entrants were told their erasure date." },
+                description: if rules_editable { "The day of the draw, at most a year ahead. Entrants' data is erased a set number of days after it." } else { "Locked: entrants were told their erasure date. Postponed? Remove the real entrants (People tab, before the freeze) to unlock it, or duplicate the raffle." },
                 r#type: "date",
                 required: true,
                 readonly: !rules_editable,
@@ -657,7 +671,7 @@ pub fn SettingsForm(
             }
             InputField {
                 context: form.text(f.retention_days()),
-                label: "Erase non-winners after (days)",
+                label: "Retention period (days after the event)",
                 description: if rules_editable {
                     format!("Days after the event date. Up to {max_days}; this service's default is {}. Winners are kept until their prize is marked delivered, at the latest {} days longer.", retention.default_days, retention.winner_hold_days)
                 } else {
@@ -674,9 +688,9 @@ pub fn SettingsForm(
                     context: form.textarea(f.rules()),
                     label: "Additional rules",
                     description: if rules_editable {
-                        "One paragraph per line, appended to the standard rules. Put a higher age limit here."
+                        "One paragraph per line, appended to the standard rules. Put a higher age limit here. Fake entrants don't lock anything; a real one does."
                     } else {
-                        "Locked: entrants have accepted these rules."
+                        "Locked: entrants have accepted these rules. Remove them (People tab, before the freeze) to unlock."
                     },
                     placeholder: "e.g. Entrants must be 18 or older.",
                     readonly: !rules_editable,
@@ -702,11 +716,15 @@ pub fn SettingsForm(
                 SwitchField {
                     context: form.field(f.test_mode()),
                     label: "🧪 Test mode",
+                    disabled: !can_edit,
                     description: "Rehearse with fake entrants; a TEST badge shows on every screen. Switching it off removes the fake entrants. It can't change once the list is frozen.",
                     color: SwitchColor::Warning,
                 }
             }
-            div { class: "mt-4 flex flex-wrap items-center gap-3 md:col-span-2",
+            if !can_edit {
+                p { class: "text-sm text-base-content/60 md:col-span-2", "Only an organization admin or manager can change the settings." }
+            }
+            div { class: "mt-4 flex flex-wrap items-center gap-3 md:col-span-2", hidden: !can_edit,
                 Button { color: ButtonColor::Primary, r#type: "submit", disabled: !dirty || busy,
                     if busy { span { class: "loading loading-spinner loading-sm" } } else { Check { class: "size-5" } }
                     "Save settings"

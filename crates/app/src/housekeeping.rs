@@ -63,13 +63,14 @@ pub async fn run_at(app: &App, now: i64) -> anyhow::Result<Report> {
     let expired = retention::expire_due(&app.db, now).await?;
     let erased = retention::erase_due(&app.db, now, hold).await?;
     // Screens of raffles whose names just went: best effort, a failed nudge
-    // is a stale screen until its next poll.
-    for id in expired.iter().chain(&erased.raffles) {
+    // is a stale screen until its next poll. Expired and purged raffles are
+    // over: their channels go too (on Workers, the object is destroyed).
+    for id in &erased.raffles {
         app.live_updates.notify(id).await;
     }
-    for id in &erased.purged {
+    for id in expired.iter().chain(&erased.purged) {
         if let Err(e) = app.live_updates.end(id).await {
-            tracing::warn!(raffle_id = id, error = %e, "ending the live channel of a purged raffle failed");
+            tracing::warn!(raffle_id = id, error = %e, "ending the live channel of an over raffle failed");
         }
     }
     finish_at_ceiling(app, now, hold).await;

@@ -21,11 +21,20 @@ pub(crate) async fn require_terms(app: &App, owner: &str) -> Result<()> {
 
 /// Records that `user`, for `owner`, accepts `version` of the terms: the
 /// current one, or the acceptance is refused (the organizer read an older
-/// text).
+/// text). The digest of the current text goes with it, as evidence of what
+/// was accepted should the text change under the same version label.
 pub async fn accept_terms(app: &App, owner: &str, user: &str, version: &str) -> Result<()> {
     if version != app.policy.terms_version {
         return Err(Refusal::TermsOutdated.into());
     }
-    legal::record(&app.db, owner, user, legal::TERMS, version).await?;
+    legal::record(
+        &app.db,
+        owner,
+        user,
+        legal::TERMS,
+        version,
+        &app.policy.terms_digest,
+    )
+    .await?;
     Ok(())
 }

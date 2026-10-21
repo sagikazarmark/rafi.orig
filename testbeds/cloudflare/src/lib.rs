@@ -41,8 +41,8 @@ async fn reset(db: &Db, raffle: &str) -> Result<()> {
     db.batch(vec![
         db.query(
             "INSERT INTO raffles (id, owner_id, slug, join_code, title, state, event_date, event_ends_at,
-                                  retention_days, erase_at, created_at, updated_at)
-             VALUES (?1, 'o', ?1, ?1, 't', 'open', '2100-01-01', 4102444800, 7, 4102444800, 0, 0)",
+                                  retention_days, created_at, updated_at)
+             VALUES (?1, 'o', ?1, ?1, 't', 'open', '2100-01-01', 4102444800, 7, 0, 0)",
         )
         .bind(raffle),
         db.query(

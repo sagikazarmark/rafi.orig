@@ -8,10 +8,13 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 |---|---|
 | **Raffle** | One event's prize draw, from setup to finish. It belongs to a Clerk organization, or else to a user. |
 | **Organizer** | Whoever runs the raffle in the admin. The rules and the privacy notice name them as the data controller. |
+| **Owner** | Whom a raffle belongs to in the admin: a Clerk organization (shared by its members) or a user. The audit log's actor. |
+| **Admin**, **Manager**, **Member** | An organization member's tier, from Clerk: admins accept the terms and remove the organization's data; managers (the custom `org:manager` role or `org:raffles:manage` permission) also create, configure and delete raffles; members run them |
+| **Leave**, "Remove my data" | The owner's data goes: never-frozen raffles deleted, the rest erased and purged with the organizer's name and contacts, the defaults deleted; the acceptance record stays |
 | **Operator** | Whoever runs the installation: the organizer's processor, named in every privacy notice, whose terms (with the data processing agreement) organizers accept |
 | **Event date** | The calendar day the raffle is drawn. Required; fixed once a real entrant has joined. |
 | **Retention period** | Days after the event date before non-winners are erased: the installation's default (7), the organizer's, or the raffle's, at most the installation's maximum (30). Fixed with the event date. |
-| **Erasure date** | The end of the event day plus the retention period. Shown to entrants; the day non-winners are erased. |
+| **Erasure date** | The end of the event day plus the retention period, computed by the database. Shown to entrants ("at the end of 4 November"); the day non-winners are erased. |
 | **Winner hold** | How long a winner's data is kept past the erasure date (90 days) unless their prize is marked delivered: the ceiling |
 | **Prize** | What is given away: a name, a quantity, and optionally a sponsor. |
 | **Item** | One copy of a prize. Each item is drawn on its own, in any order the organizer picks live. |

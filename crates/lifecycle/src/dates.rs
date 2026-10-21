@@ -179,6 +179,22 @@ mod tests {
         }
         assert!(Date::parse("2024-02-29").is_some(), "leap year");
         assert!(Date::parse("2025-02-29").is_none());
+        assert!(
+            Date::parse("2000-02-29").is_some(),
+            "a century divisible by 400 leaps"
+        );
+        assert!(
+            Date::parse("2100-02-29").is_none(),
+            "a century otherwise doesn't"
+        );
+        assert!(Date::parse("1900-02-29").is_none());
+        assert!(Date::parse("9999-12-31").is_some());
+        assert!(Date::parse("10000-01-01").is_none());
+        // Arithmetic past the last parseable day doesn't panic.
+        assert_eq!(
+            Date::parse("9999-12-31").unwrap().plus_days(97).year,
+            10_000
+        );
     }
 
     #[test]
@@ -204,5 +220,11 @@ mod tests {
         assert_eq!(ends_at(d, Some(utc + 8 * 3600)), utc + 8 * 3600, "PST");
         assert_eq!(ends_at(d, Some(utc + 15 * 3600)), utc, "no such timezone");
         assert_eq!(ends_at(d, Some(0)), utc, "nonsense");
+        // The edges: UTC+14 and UTC-12 exist; a second past them doesn't.
+        let slack = TIMEZONE_SLACK_SECS;
+        assert_eq!(ends_at(d, Some(utc - slack)), utc - slack, "UTC+14");
+        assert_eq!(ends_at(d, Some(utc + slack)), utc + slack, "UTC-14");
+        assert_eq!(ends_at(d, Some(utc - slack - 1)), utc);
+        assert_eq!(ends_at(d, Some(utc + slack + 1)), utc);
     }
 }
