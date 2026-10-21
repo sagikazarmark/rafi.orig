@@ -9,12 +9,15 @@ mod prizes;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use dioxus_icons::lucide::{ArrowLeft, Dice5, Gift, SlidersVertical, TriangleAlert, Trophy, Users};
+use dioxus_icons::lucide::{
+    ArrowLeft, CalendarClock, Dice5, Gift, ScrollText, SlidersVertical, TriangleAlert, Trophy,
+    UserX, Users,
+};
 use rafi_lifecycle::{RaffleState, entrant::Source};
 use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
 
 use super::{
-    Route, command_id, copy_to_clipboard,
+    Route, command_id, copy_to_clipboard, dates,
     forms::{AddEntrantForm, CreateRaffleForm, PrizeForm, SettingsForm, err_text},
     live::{use_clock, use_live_view},
 };
@@ -36,7 +39,7 @@ use crate::{
 };
 use rafi_api::{
     AdminEntrant, EntrantPatch, LifecycleCommand, Prize, RaffleAdmin as AdminData, RaffleView,
-    StartStep,
+    StartStep, TermsDocument,
 };
 
 use self::{draw::DrawConsole, header::Header, people::People, prizes::Prizes};
@@ -158,7 +161,13 @@ fn Panel(
 #[component]
 pub fn AdminHome() -> Element {
     let mut raffles = use_resource(api::list_raffles);
+    let mut me = use_resource(api::whoami);
     let nav = navigator();
+    let (terms_accepted, retention_stale) = match &*me.read() {
+        Some(Ok(me)) => (me.terms_accepted, me.retention_stale),
+        // Until we know, assume the best: the server refuses creation anyway.
+        _ => (true, false),
+    };
 
     rsx! {
         main { class: "mx-auto max-w-6xl space-y-8 px-4 py-8",
@@ -166,10 +175,20 @@ pub fn AdminHome() -> Element {
                 h1 { class: "text-4xl font-extrabold", "Your raffles " span { class: "inline-block animate-float", "🎟️" } }
                 p { class: "text-base-content/70", "Set one up before the meetup, open registration when people arrive, and draw at the end." }
             }
-            div { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
-                div { class: "card-body",
-                    CreateRaffleForm { on_created: move |id| { nav.push(Route::RaffleAdmin { id }); } }
+            if retention_stale {
+                div { role: "alert", class: "alert alert-warning alert-soft",
+                    TriangleAlert { class: "size-5" }
+                    span { "Automatic erasure of personal data hasn't run in the last two hours. Entrants were promised erasure dates; check the scheduled job (the Cron Trigger on Workers)." }
                 }
+            }
+            if terms_accepted {
+                div { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
+                    div { class: "card-body",
+                        CreateRaffleForm { on_created: move |id| { nav.push(Route::RaffleAdmin { id }); } }
+                    }
+                }
+            } else {
+                TermsPanel { on_accepted: move |_| { me.restart(); raffles.restart(); } }
             }
             match &*raffles.read() {
                 None => rsx! { div { class: "grid place-items-center py-16", span { class: "loading loading-dots loading-lg text-primary" } } },
@@ -210,6 +229,89 @@ pub fn AdminHome() -> Element {
                     }
                 },
             }
+            YourData { on_removed: move |_| { raffles.restart(); } }
+        }
+    }
+}
+
+/// The operator's terms, with the data processing agreement, to read and
+/// accept before the first raffle.
+#[component]
+fn TermsPanel(on_accepted: EventHandler<()>) -> Element {
+    let terms = use_resource(api::get_terms);
+    let toast = use_toast();
+    let mut busy = use_signal(|| false);
+    rsx! {
+        Panel { title: "Before your first raffle", icon: rsx! { ScrollText { class: "size-5" } },
+            match &*terms.read() {
+                None => rsx! { span { class: "loading loading-dots loading-md text-primary" } },
+                Some(Err(e)) => rsx! { div { role: "alert", class: "alert alert-error alert-soft", TriangleAlert { class: "size-5" } span { "{err_text(e.clone())}" } } },
+                Some(Ok(TermsDocument { version, html, .. })) => {
+                    let version = version.clone();
+                    rsx! {
+                        p { class: "text-base-content/70",
+                            "Your entrants' names and emails are processed by this service on your behalf. Read the terms, which include the data processing agreement, and accept them to continue. Version {version}; also at "
+                            a { class: "link", href: "/terms", target: "_blank", "/terms" }
+                            "."
+                        }
+                        article { class: "prose max-h-96 max-w-none overflow-y-auto rounded-box bg-base-200 p-4", dangerous_inner_html: "{html}" }
+                        div {
+                            Button { color: ButtonColor::Primary, disabled: busy(),
+                                onclick: move |_| {
+                                    let version = version.clone();
+                                    spawn(async move {
+                                        busy.set(true);
+                                        match api::accept_terms(version).await {
+                                            Ok(()) => {
+                                                toast.success("Terms accepted".to_owned(), ToastOptions::new());
+                                                on_accepted.call(());
+                                            }
+                                            Err(e) => toast.error(err_text(e), ToastOptions::new()),
+                                        }
+                                        busy.set(false);
+                                    });
+                                },
+                                "I accept the terms"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Removing the organizer's own data from the service.
+#[component]
+fn YourData(on_removed: EventHandler<()>) -> Element {
+    let mut ask = use_signal(|| false);
+    let toast = use_toast();
+    rsx! {
+        details { class: "collapse collapse-arrow bg-base-100 ring-1 ring-base-300",
+            summary { class: "collapse-title text-sm font-semibold", "Your data" }
+            div { class: "collapse-content space-y-3 text-sm text-base-content/70",
+                p { "This service keeps your organizer name and contacts on your raffles, your defaults, the audit log of what you did, and the record of the terms you accepted. Your entrants' data is erased on the dates their raffles show; you can always erase earlier from a raffle's menu." }
+                p { "Leaving? Remove your data here: raffles that were never frozen are deleted, finished ones lose their entrants' data and your name, and your defaults go. The anonymous draws stay verifiable, and the acceptance record stays. Then delete your account in your account settings." }
+                Button { class: "btn-outline btn-error btn-sm", onclick: move |_| ask.set(true), UserX { class: "size-4" } "Remove my data" }
+            }
+        }
+        Confirm {
+            open: ask,
+            title: "Remove your data from this service?",
+            body: "Raffles of yours that were never frozen are deleted. Every other raffle loses its entrants' personal data and your name and contacts, for good. Your defaults are deleted. This cannot be undone.",
+            action: "Remove my data",
+            danger: true,
+            on_confirm: move |_| {
+                spawn(async move {
+                    match api::remove_my_data().await {
+                        Ok(()) => {
+                            toast.success("Your data was removed".to_owned(), ToastOptions::new().description("Delete your account in your account settings to finish."));
+                            on_removed.call(());
+                        }
+                        Err(e) => toast.error(err_text(e), ToastOptions::new()),
+                    }
+                });
+            },
         }
     }
 }
@@ -276,6 +378,7 @@ pub fn RaffleAdmin(id: String) -> Element {
             Header { admin: admin.clone(), error, on_change: move |_| reload() }
             ErrorToasts { error }
             Stats { admin: admin.clone() }
+            RetentionCard { admin: admin.clone() }
             Tabs {
                 key: "{drawable}",
                 appearance: TabsAppearance::Box,
@@ -294,7 +397,7 @@ pub fn RaffleAdmin(id: String) -> Element {
                             "people" => rsx! { People { admin: admin.clone(), error, on_change: move |_| reload() } },
                             _ => rsx! {
                                 Panel { title: "Settings", icon: rsx! { SlidersVertical { class: "size-5" } },
-                                    SettingsForm { raffle_id: admin.id.clone(), settings: admin.settings.clone(), rules_editable: admin.actions.edit_rules, on_saved: move |_| reload() }
+                                    SettingsForm { raffle_id: admin.id.clone(), settings: admin.settings.clone(), rules_editable: admin.actions.edit_rules, retention: admin.retention.clone(), on_saved: move |_| reload() }
                                 }
                             },
                         }
@@ -353,6 +456,37 @@ fn Stats(admin: AdminData) -> Element {
                 div { class: "stat-title", "Winners" }
                 div { class: "stat-value", "{winners}" }
                 div { class: "stat-desc", "{v.draws.len()} draws so far" }
+            }
+        }
+    }
+}
+
+/// When the raffle's personal data is erased, and what is still held: the
+/// server's dates and warnings, the page derives none.
+#[component]
+fn RetentionCard(admin: AdminData) -> Element {
+    let r = &admin.retention;
+    let (erase, winners) = (&r.erase_date, &r.winners_erase_date);
+    rsx! {
+        div { class: "flex flex-wrap items-start gap-3 rounded-box bg-base-100 p-4 text-sm shadow-sm ring-1 ring-base-300",
+            CalendarClock { class: "size-5 shrink-0 text-primary" }
+            div { class: "space-y-1",
+                if admin.view.state == RaffleState::Purged {
+                    p { "Personal data erased. The anonymous draw stays verifiable." }
+                } else if r.past_erase_date {
+                    p { "Non-winners' data was erased on {erase}." }
+                } else {
+                    p { "Entrants' names and emails are erased on " strong { "{erase}" } ", whatever else happens to this raffle. You can erase earlier from the menu once it has finished." }
+                }
+                if r.held_winners > 0 {
+                    p { "{r.held_winners} winner(s)' data is kept until you mark their prize delivered, at the latest until " strong { "{winners}" } "." }
+                }
+                if r.unfinished_past_event {
+                    p { class: "text-warning", "⚠ Not finished, and the event day has passed. Entrants' data is erased on the date regardless; finish the raffle so its data can be erased for good." }
+                }
+                if r.expires_unfrozen {
+                    p { class: "text-warning", "⚠ The event day has passed and the list was never frozen. The raffle expires on {erase}: its entrants are deleted." }
+                }
             }
         }
     }

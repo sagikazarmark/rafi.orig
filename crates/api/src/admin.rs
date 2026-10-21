@@ -27,19 +27,27 @@ macro_rules! admin_functions {
         $callback! {
             /// Who is signed in.
             fn whoami() -> $crate::Me;
+            /// The operator's terms, with the processing agreement, and
+            /// whether the organizer accepted the current version.
+            fn get_terms() -> $crate::TermsDocument;
+            /// Accepts `version` of the terms, if it is the current one.
+            fn accept_terms(version: String) -> ();
             /// The organizer's raffles.
             fn list_raffles() -> Vec<$crate::RaffleSummary>;
             /// What the organizer's new raffles start with (empty until saved).
             fn get_defaults() -> $crate::RaffleDefaults;
             fn save_defaults(defaults: $crate::RaffleDefaults) -> ();
-            /// A new draft raffle, with the organizer's defaults; returns its ID.
-            fn create_raffle(title: String) -> String;
+            /// A new draft raffle on `event_date` (`YYYY-MM-DD`; `event_ends_at`
+            /// is when that day ends where the organizer is, or `None` for
+            /// UTC), with the organizer's defaults; returns its ID.
+            fn create_raffle(title: String, event_date: String, event_ends_at: Option<i64>) -> String;
             /// Everything the admin page shows of raffle `id`.
             fn get_raffle(id: String) -> $crate::RaffleAdmin;
             fn save_settings(id: String, settings: $crate::RaffleSettings) -> ();
             fn delete_raffle(id: String) -> ();
-            /// A copy of raffle `id` as a new draft; returns its ID.
-            fn duplicate_raffle(id: String) -> String;
+            /// A copy of raffle `id` as a new draft on `event_date` (as
+            /// `create_raffle`); returns its ID.
+            fn duplicate_raffle(id: String, event_date: String, event_ends_at: Option<i64>) -> String;
             /// Adds or edits a prize; returns its ID.
             fn save_prize(id: String, prize: $crate::PrizeInput) -> String;
             fn delete_prize(id: String, prize_id: String) -> ();
@@ -66,6 +74,13 @@ macro_rules! admin_functions {
             fn export_winners(id: String) -> String;
             /// Erases the raffle's personal data now.
             fn purge_raffle(id: String) -> ();
+            /// Marks every winner's prize delivered: their data goes on the
+            /// non-winner clock. Returns how many.
+            fn deliver_all(id: String) -> u64;
+            /// Removes the organizer's own data: their defaults, and their
+            /// name and contacts from their raffles, whose personal data is
+            /// erased. Draft raffles are deleted.
+            fn remove_my_data() -> ();
         }
     };
 }
@@ -115,7 +130,7 @@ macro_rules! server_side {
         fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty;
     )*) => {
         /// The server's side of the admin API: every function, for the
-        /// organizer `owner`.
+        /// signed-in `caller` (the owner key raffles belong to, and the user).
         pub trait Admin: Sync {
             type Error;
 
@@ -123,17 +138,17 @@ macro_rules! server_side {
                 $(#[$meta])*
                 fn $name(
                     &self,
-                    owner: &str,
+                    caller: &$crate::Caller,
                     $($arg: $ty),*
                 ) -> impl Future<Output = Result<$ret, Self::Error>> + Send;
             )*
         }
 
-        /// Runs the admin function `name` for `owner` with JSON-encoded `args`
+        /// Runs the admin function `name` for `caller` with JSON-encoded `args`
         /// (an empty body counts as `{}`) and returns its JSON-encoded result.
         pub async fn dispatch<A: Admin>(
             api: &A,
-            owner: &str,
+            caller: &$crate::Caller,
             name: &str,
             args: &[u8],
         ) -> Result<serde_json::Value, DispatchError<A::Error>> {
@@ -145,7 +160,7 @@ macro_rules! server_side {
                         struct Args { $($arg: $ty),* }
                         let Args { $($arg),* } = serde_json::from_slice(args)
                             .map_err(|e| DispatchError::Arguments(e.to_string()))?;
-                        let result = api.$name(owner, $($arg),*).await.map_err(DispatchError::App)?;
+                        let result = api.$name(caller, $($arg),*).await.map_err(DispatchError::App)?;
                         serde_json::to_value(result).map_err(DispatchError::Result)
                     }
                 )*

@@ -16,7 +16,9 @@ pub(super) fn People(
     on_change: EventHandler<()>,
 ) -> Element {
     let editable = admin.view.state.entrants_editable();
-    let removal = admin.view.state.removal();
+    // The server says whether entrants can be removed or erased now: it knows
+    // the erasure date.
+    let removal = admin.actions.removal;
     let mut filter = use_signal(String::new);
     let id = admin.id.clone();
     let fakes = move |_| {
@@ -74,7 +76,7 @@ pub(super) fn People(
                         thead { tr { th { "Name" } th { "Email" } th { "Claim code" } th { "Status" } th {} } }
                         tbody {
                             for e in shown.iter() {
-                                EntrantRow { key: "{e.id}", raffle_id: admin.id.clone(), entrant: e.clone(), removal, error, on_change }
+                                EntrantRow { key: "{e.id}", raffle_id: admin.id.clone(), entrant: e.clone(), removal, winners_erase_date: admin.retention.winners_erase_date.clone(), error, on_change }
                             }
                         }
                     }
@@ -98,6 +100,8 @@ fn EntrantRow(
     entrant: AdminEntrant,
     /// How the entrant can be removed now, if at all.
     removal: Option<Removal>,
+    /// The day held winners are erased at the latest, in words.
+    winners_erase_date: String,
     error: Signal<Option<String>>,
     on_change: EventHandler<()>,
 ) -> Element {
@@ -168,6 +172,7 @@ fn EntrantRow(
                                     if e.hidden { span { class: "badge badge-ghost badge-xs", "hidden on screen" } }
                                     if e.source == Source::Manual { span { class: "badge badge-secondary badge-soft badge-xs", "no phone" } }
                                     if e.source == Source::Fake { span { class: "badge badge-warning badge-soft badge-xs", "fake" } }
+                                    if e.held_until.is_some() { span { class: "badge badge-info badge-soft badge-xs", "data held until {winners_erase_date}" } }
                                 }
                             }
                         }
@@ -189,7 +194,8 @@ fn EntrantRow(
                         button { class: "btn btn-ghost btn-xs btn-square tooltip", "data-tip": "Rename", onclick: { let n = e.display_name.clone(); move |_| renaming.set(Some(n.clone())) }, Pencil { class: "size-4" } }
                         if won {
                             button {
-                                class: if e.delivered { "btn btn-success btn-xs" } else { "btn btn-ghost btn-xs" },
+                                class: if e.delivered { "btn btn-success btn-xs" } else { "btn btn-ghost btn-xs tooltip" },
+                                "data-tip": if e.held_until.is_some() { format!("Their name and email are kept until {}, or until you mark the prize delivered", winners_erase_date) } else { String::new() },
                                 onclick: { let patch = patch.clone(); let d = !e.delivered; move |_| patch(EntrantPatch { delivered: Some(d), ..Default::default() }) },
                                 if e.delivered { "✓ delivered" } else { "Mark delivered" }
                             }

@@ -311,7 +311,8 @@ pub fn fakes(test_mode: bool, state: RaffleState, requested: u32) -> Result<u32,
 }
 
 /// How an entrant is removed ([`RaffleState::removal`](crate::RaffleState::removal)).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Removal {
     /// Gone entirely: the entrant list isn't frozen yet.
     Delete,

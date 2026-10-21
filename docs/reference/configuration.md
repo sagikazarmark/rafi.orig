@@ -33,7 +33,20 @@ same name.
 | `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges. Required on Workers. Without it natively, challenges die with the process. Never rotate it during an event. |
 | `RAFI_ALTCHA_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve. At least 1. Provisional. |
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes. This is the hard limit behind the soft rate limits. |
+| `RAFI_RETENTION_DAYS` | `7` | Days after the event date before non-winners' personal data is erased, for organizers who choose nothing. At most `RAFI_RETENTION_DAYS_MAX`. |
+| `RAFI_RETENTION_DAYS_MAX` | `30` | The longest period an organizer or a raffle may choose. At most 365. |
+| `RAFI_RETENTION_WINNERS_DAYS` | `90` | How long a winner's data is held past the erasure date unless their prize is marked delivered: the hard ceiling, after which everyone is erased and a finished raffle is purged. |
+| `RAFI_MIN_AGE` | `16` | The youngest an entrant may be. Rendered in the rules and on the join form; entrants confirm it by entering. Organizers raise it in their additional rules. |
+| `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | required | Who runs this installation: named as the processor in every raffle's privacy notice. Under `RAFI_DEV_AUTH`, placeholders. |
+| `RAFI_DOCS_DIR` | required (native) | The directory with the installation's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown. On Workers they are bundled from `apps/worker/legal/`. Under `RAFI_DEV_AUTH`, placeholders marked as such. |
+| `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION` | required | The documents' versions, e.g. `2026-10`. Organizers must have accepted the current terms version to create a raffle; a new version is accepted again. Under `RAFI_DEV_AUTH`, `dev`. |
 | `RUST_LOG` | `info` | Log level, in [`tracing-subscriber` filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) (native only) |
+
+The app refuses to start (natively) or every request (on Workers) when the retention settings contradict each other,
+or when the operator, the versions or the documents are missing without dev auth.
+
+`rafi reapply-erasures` (native only) is the command for after a database restore: it takes the same environment,
+re-applies the erasure log and the purges, runs housekeeping once, and exits.
 
 ### Workers only
 
@@ -59,7 +72,7 @@ The bindings:
 | `JOIN_PER_RAFFLE_LIMITER` | 600 joins per minute per raffle (soft, per location) |
 | `JOIN_PER_EMAIL_LIMITER` | 5 joins per minute per raffle and email |
 | `CONNECT_LIMITER` | 600 live-channel connections per minute |
-| Cron `0 * * * *` | The hourly housekeeping run |
+| Cron `0 * * * *` | The hourly housekeeping run: erasing personal data on the dates, expired proof-of-work challenges, ending stale live channels |
 
 ## The raffle engine (`rafi-restate`)
 

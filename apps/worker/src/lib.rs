@@ -15,6 +15,10 @@
 //! - `scheduled`: the Cron Trigger runs [`rafi_app::housekeeping::run`].
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
+//! The installation's legal documents (its privacy notice, the terms with
+//! the processing agreement) are bundled from `legal/`: the operator edits
+//! them there and sets their versions in `wrangler.toml`.
+//!
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
 //! raffles' Durable Objects (the engine's observer, too) and configuration
 //! from the Worker's vars and secrets (see `wrangler.toml`). The join's rate
@@ -40,7 +44,10 @@ use restate_sdk::endpoint::Endpoint;
 use tower_service::Service;
 use worker::{Context, Env, HttpRequest, ScheduleContext, ScheduledEvent, event};
 
-use rafi_server::{self as server, AppState, config::Config};
+use rafi_server::{
+    self as server, AppState,
+    config::{Config, Documents},
+};
 
 mod engine;
 mod ratelimit;
@@ -75,7 +82,11 @@ fn cached(env: &Env) -> anyhow::Result<App> {
 
 /// The app over the Worker's bindings. Fails closed on missing secrets.
 fn app(env: &Env) -> anyhow::Result<App> {
-    let cfg = Config::from_lookup(|name| lookup(env, name));
+    let mut cfg = Config::from_lookup(|name| lookup(env, name));
+    cfg.documents = Documents::new(
+        include_str!("../legal/terms.md"),
+        include_str!("../legal/privacy.md"),
+    );
     let dev = cfg!(feature = "dev");
     if cfg.dev_auth && !dev {
         anyhow::bail!("RAFI_DEV_AUTH is set, but this build has no `dev` feature");
@@ -166,7 +177,10 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     };
     match server::service::housekeeping::run(&state).await {
         Ok(report) => worker::console_log!(
-            "rafi: housekeeping: {} live channels ended",
+            "rafi: housekeeping: {} raffles expired, {} entrants erased, {} raffles purged, {} live channels ended",
+            report.expired,
+            report.erased,
+            report.purged,
             report.channels_ended
         ),
         Err(e) => worker::console_error!("rafi: housekeeping failed: {e:#}"),

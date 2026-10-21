@@ -30,7 +30,7 @@ command = "worker-build --release"
 [assets]
 directory = "./worker-assets"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy/*", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js"]
+run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js"]
 
 [[d1_databases]]
 binding = "DB"
@@ -64,7 +64,8 @@ name = "CONNECT_LIMITER"
 namespace_id = "1003"
 simple = { limit = 600, period = 60 }
 
-# Housekeeping: expired proof-of-work challenges, ending stale live channels.
+# Housekeeping: erasing personal data as raffles age (see docs/explanation/privacy-and-abuse.md),
+# expired proof-of-work challenges, ending stale live channels.
 [triggers]
 crons = ["0 * * * *"]
 
@@ -78,6 +79,18 @@ enabled = false
 RAFI_PUBLIC_URL = "https://rafi.example" # the public origin, no trailing slash
 RESTATE_INGRESS_URL = "" # Restate Cloud ingress URL (EU)
 RAFI_DO_JURISDICTION = "eu"
+# Who runs this installation: named as the processor in every raffle's privacy
+# notice. The documents themselves are legal/terms.md and legal/privacy.md,
+# bundled into the Worker; bump a version whenever its text changes
+# (organizers accept the terms again).
+RAFI_OPERATOR_NAME = "" # required
+RAFI_OPERATOR_EMAIL = "" # required
+RAFI_TERMS_VERSION = "" # required, e.g. "2026-10"
+RAFI_PRIVACY_VERSION = "" # required
+# When personal data is erased: days after the event date for non-winners
+# (default 7, organizers may shorten; at most RAFI_RETENTION_DAYS_MAX, 30),
+# and how long winners are held past that unless their prize is marked
+# delivered (90). RAFI_MIN_AGE (16) is what entrants confirm by entering.
 
 # Local development: wrangler dev --env dev (see README). Bindings aren't
 # inherited by environments, so they're repeated.
@@ -116,7 +129,7 @@ simple = { limit = 600, period = 60 }
 RAFI_PUBLIC_URL = "http://127.0.0.1:8787"
 RESTATE_INGRESS_URL = "http://127.0.0.1:18080"
 RAFI_DO_JURISDICTION = "" # workerd doesn't implement jurisdictions
-RAFI_DEV_AUTH = "1"
+RAFI_DEV_AUTH = "1" # also stands in for the operator and the document versions
 RAFI_DRAND_MOCK = "1" # the mock chain, for the app and the engine alike
 RAFI_DRAND_LEAD_SECS = "3"
 RAFI_ALTCHA_KEY = "local-development-only"

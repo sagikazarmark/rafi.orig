@@ -1,9 +1,13 @@
 # Privacy and abuse
 
-What Rafi stores, what it publishes, and how it keeps a raffle free of spam and remote entries. The privacy notice
-each raffle shows its entrants is rendered from the raffle's settings at `/privacy/<slug>`.
+What Rafi stores, what it publishes, when it erases it, and how it keeps a raffle free of spam and remote entries.
+The privacy notice each raffle shows its entrants is rendered from the raffle's settings at `/privacy/<slug>`; the
+installation's own notice is at `/privacy`, and the terms organizers accept, with the data processing agreement, at
+`/terms`.
 
-> This page describes the software, not your legal obligations. As the organizer, you are the data controller.
+> This page describes the software, not your legal obligations. As the organizer, you are the data controller; the
+> operator of the installation is your processor. The plan behind this design is
+> [docs/plans/privacy-and-retention.md](../plans/privacy-and-retention.md).
 
 ## Data minimization
 
@@ -32,21 +36,48 @@ Once the list is frozen, `/v/<slug>` and `/api/r/<slug>/verify.json` publish:
 
 ## Erasure
 
-There is no automatic erasure. The organizer erases personal data by hand once the raffle is finished:
+Every raffle has an **event date**, fixed once a real entrant has joined, and a **retention period** fixed with it.
+Together they give the raffle one **erasure date**, which the join form and the privacy notice show entrants as a
+calendar day, and which no later action of the organizer moves. The hourly housekeeping run then keeps three clocks:
 
-- **"Erase personal data now"** (the raffle's menu, once it is finished) erases every entrant's name, email and claim
-  code, and ends live updates. The raffle's state becomes "Data erased".
-- **Erasing one entrant** (People tab, once it is finished) works on its own, for example on request.
+| Clock | When | What |
+|---|---|---|
+| **Non-winners** | the erasure date: the end of the event day plus the period (7 days unless the organizer chose fewer, up to the installation's maximum, 30) | Everyone who didn't win, and winners whose prize was marked delivered, lose their name, email, claim code and token. In any state: a raffle nobody finished is erased all the same. |
+| **Winners** | the erasure date plus the **winner hold** (90 days) | Winners (the entrants of claimed draws) are kept so a prize can still reach them, until the organizer marks it delivered ("Mark delivered", or "All prizes delivered" from the menu), which puts them on the first clock. At the hold, everyone left is erased, a finished raffle becomes "Data erased", and a raffle still being drawn is asked to finish. |
+| **Expiry** | the erasure date | A raffle that was never frozen has no draw to keep verifiable: its entrants are deleted outright and it becomes "Data erased". |
+
+The organizer can always erase earlier, never later:
+
+- **"Erase personal data now"** (the raffle's menu, once it is finished) erases everyone at once and ends live updates.
+- **Erasing one entrant** (People tab) works once the raffle is finished, or once its erasure date has passed: for
+  example on request.
 - **Before the freeze**, removing an entrant deletes them outright.
-- **From the freeze until the finish**, nobody leaves the list: sharing their entry with the event is part of the
-  rules entrants accept. The organizer can hide or rename a name meanwhile, and a request to erase is carried out
-  once the raffle is finished.
+- **From the freeze until the finish or the date**, nobody leaves the list: sharing their entry with the event is
+  part of the rules entrants accept. The organizer can hide or rename a name meanwhile.
 
-Entrant IDs and the event log stay, so the draw remains verifiable. Erasures are recorded (entrant ID and time
-only), so they can be re-applied after a database restore.
+Entrant IDs and the event log stay, so the draw remains verifiable. Every erasure is recorded (entrant ID and time
+only) and every automatic one audited per raffle, so they can be re-applied after a database restore
+(`rafi reapply-erasures`, see [Self-hosting](../operations/self-hosting.md#backups)). What remains of an erased
+entrant besides the ID: when they joined and accepted the rules, whether their prize was delivered, how they got in,
+and whether their name was hidden. A winner's exported details are the organizer's copy, outside Rafi.
 
-On Cloudflare D1, Time Travel keeps erased data for up to 30 more days. Mention this in your privacy notice if you
-deploy on Workers.
+If no housekeeping run has succeeded for two hours, every organizer's admin says so.
+
+On Cloudflare D1, Time Travel keeps erased data for up to 30 more days. The installation's notice should say so (the
+template does).
+
+## Who is responsible
+
+- **The organizer** is the controller of their entrants' data. Registration can't open until the raffle names them
+  and a way to reach them (a contact email, or a separate privacy contact that can change at any time). They may add
+  their own privacy text or link to their own notice; it is shown after Rafi's generated notice, never instead of it.
+- **The operator** of the installation is the organizer's processor, named in every notice with a link to the
+  installation's own, which lists its subprocessors (hosting, the raffle engine, organizer sign-in, drand).
+  Organizers accept the operator's terms, with the data processing agreement, before their first raffle; the
+  acceptance and its version are recorded, and a new version is accepted again.
+- **Leaving:** "Remove my data" in the admin deletes the organizer's drafts, erases their other raffles' personal
+  data and takes their name and contacts off them, and deletes their defaults. The anonymous draws stay verifiable;
+  the acceptance record stays. The account itself is deleted in Clerk.
 
 ## Coming back without an account
 
@@ -91,12 +122,14 @@ The standard rules (`/rules/<slug>`) say:
 
 - entry is free and needs no purchase or donation
 - there is one entry per person, and one prize per person (unless there are more prizes than people)
+- entrants must be at least the installation's minimum age (16), which they confirm by entering
 - winners must be present
 - prizes can't be exchanged for cash
 - how the draw works
 
-The organizer appends their own **additional rules**, which is where any age limit goes. Additional rules lock once
-a real entrant has accepted them.
+The organizer appends their own **additional rules**, which is where a higher age limit goes. The additional rules,
+the event date, the retention period and the organizer's privacy text and link lock once a real entrant has accepted
+them: they are what the entrant was shown.
 
 Free entry matters: in many jurisdictions, selling entries or tying them to donations turns a prize draw into a
 regulated lottery. Prize tax treatment also varies. Check both for where you run your event.

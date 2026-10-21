@@ -31,12 +31,26 @@ async function api(name, args = {}) {
 }
 const commandId = () => `cmd-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-// The organizer sets up a raffle with one prize and opens registration.
-const id = await api("create_raffle", { title: `Workers evening ${Date.now()}` });
+// The organizer accepts the terms (with the processing agreement), sets up
+// a raffle dated today with one prize, names themselves (registration won't
+// open otherwise) and opens registration.
+const terms = await api("get_terms");
+if (!terms.accepted) await api("accept_terms", { version: terms.version });
+const me = await api("whoami");
+check(me.terms_accepted === true, "the terms are accepted");
+const today = new Date().toISOString().slice(0, 10);
+async function newRaffle(title) {
+  const id = await api("create_raffle", { title, event_date: today, event_ends_at: null });
+  const { settings } = await api("get_raffle", { id });
+  await api("save_settings", { id, settings: { ...settings, organizer_name: "Workers Meetup", contact_email: "hello@example.com" } });
+  return id;
+}
+const id = await newRaffle(`Workers evening ${Date.now()}`);
 await api("save_prize", { id, prize: { id: null, name: "Rust in Action", sponsor: "Sponsor Kft.", description: "", qty: 1, position: 0 } });
 await api("lifecycle", { id, action: "publish" });
 await api("lifecycle", { id, action: "open" });
 let admin = await api("get_raffle", { id });
+check(admin.retention.erase_at > Date.now() / 1000, "the erasure date is ahead");
 const { slug, join_code: code } = admin.view;
 check(admin.view.state === "open", "registration is open");
 
@@ -181,7 +195,7 @@ check(closed === 4403, `a socket after the end is refused (${closed})`);
 // A phone without WebAssembly joins through fallback.js, which solves with
 // the same worker script (/participant/altcha-worker.js). Its own raffle, so
 // the draw above keeps one entrant.
-const other = await api("create_raffle", { title: `Workers evening, no wasm ${Date.now()}` });
+const other = await newRaffle(`Workers evening, no wasm ${Date.now()}`);
 await api("save_prize", { id: other, prize: { id: null, name: "Sticker", sponsor: "", description: "", qty: 1, position: 0 } });
 await api("lifecycle", { id: other, action: "publish" });
 await api("lifecycle", { id: other, action: "open" });

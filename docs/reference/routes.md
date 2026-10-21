@@ -11,10 +11,12 @@ Every URL a Rafi app serves. All of them are on one origin.
 | `/v/<slug>` | The verification page. It re-runs every draw in the browser. | Public, once the list is frozen |
 | `/j/<CODE>` | The participant page: the join form, then the entrant's own card. Server-rendered. `POST` joins. | Public (the entry lives in a cookie) |
 | `/rules/<slug>` | The raffle's rules | Public |
-| `/privacy/<slug>` | The privacy notice | Public |
+| `/privacy/<slug>` | The raffle's privacy notice: the organizer as controller, the erasure dates, the operator as processor, the organizer's own text | Public |
+| `/privacy` | The installation's own privacy notice (the operator's; from `privacy.md`) | Public |
+| `/terms` | The operator's terms, with the data processing agreement (from `terms.md`): what organizers accept in the admin | Public |
 
 The web app (`rafi-web`) serves `/admin`, `/s/…` and `/v/…` as a single-page app, and anything unknown falls back to
-its `index.html`. The server (`rafi-server`) renders `/j/…`, `/rules/…` and `/privacy/…`.
+its `index.html`. The server (`rafi-server`) renders `/j/…`, `/rules/…`, `/privacy/…`, `/privacy` and `/terms`.
 
 ## Public JSON
 
@@ -35,6 +37,9 @@ These never contain emails, tokens or claim codes.
 | `POST /api/admin/<function>` | One function of the admin API. Requires a Clerk session, and every call checks that the raffle belongs to the caller (the active organization, or else the user). |
 
 Both sides come from one declaration, `admin_functions!` in [`crates/api/src/admin.rs`](../../crates/api/src/admin.rs).
+Among them: `get_terms` and `accept_terms` (the terms gate: no raffle until the current version is accepted),
+`whoami` (who is signed in, whether they accepted the terms, whether housekeeping looks stopped), `deliver_all`
+("All prizes delivered"), `remove_my_data` (the organizer leaving), and `export_winners`, which is audited.
 
 ## Static files
 

@@ -34,8 +34,23 @@ pub struct RaffleRow {
     pub description: String,
     pub organizer_name: String,
     pub contact_email: String,
+    /// Where privacy requests go; blank means `contact_email`.
+    pub privacy_email: String,
+    /// The organizer's own privacy text and notice, shown after the
+    /// generated notice.
+    pub privacy_text: String,
+    pub privacy_url: String,
     pub rules: String,
+    /// The event's calendar day, `YYYY-MM-DD`.
     pub event_date: String,
+    /// The instant the event day ends where the organizer is.
+    pub event_ends_at: i64,
+    /// Days after the event date before non-winners are erased.
+    pub retention_days: i64,
+    /// When non-winners are erased: `event_ends_at` plus the period. Written
+    /// by the settings write only, and fixed once an entrant has accepted the
+    /// rules.
+    pub erase_at: i64,
     /// Decoding fails on a state rafi doesn't know: never guessed.
     pub state: RaffleState,
     pub test_mode: bool,
@@ -47,6 +62,8 @@ pub struct RaffleRow {
     pub opened_at: Option<i64>,
     pub finished_at: Option<i64>,
     pub purged_at: Option<i64>,
+    /// When the owner removed their data: the organizer is gone for good.
+    pub organizer_left_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
     /// Bumped by every write that can change what screens or phones show
@@ -60,6 +77,21 @@ impl RaffleRow {
     /// Whether the engine has opened the raffle.
     pub fn opened(&self) -> bool {
         self.opened_at.is_some()
+    }
+
+    /// Whether the erasure date has passed at `now`.
+    pub fn past_erase_date(&self, now: i64) -> bool {
+        self.erase_at <= now
+    }
+
+    /// The organizer's privacy contact: their privacy email, or else their
+    /// contact email.
+    pub fn privacy_contact(&self) -> &str {
+        if self.privacy_email.is_empty() {
+            &self.contact_email
+        } else {
+            &self.privacy_email
+        }
     }
 }
 
@@ -143,8 +175,20 @@ pub struct Settings<'a> {
     pub description: &'a str,
     pub organizer_name: &'a str,
     pub contact_email: &'a str,
+    pub privacy_email: &'a str,
+    pub privacy_text: &'a str,
+    pub privacy_url: &'a str,
     pub rules: &'a str,
+    /// The event's calendar day, `YYYY-MM-DD`.
     pub event_date: &'a str,
+    /// The instant the event day ends where the organizer is.
+    pub event_ends_at: i64,
+    /// Days after the event date before non-winners are erased.
+    pub retention_days: i64,
+    /// When non-winners are erased: the app computes it from the two above
+    /// ([`rafi_lifecycle::settings::erase_at`]); the store writes it with
+    /// them and nowhere else.
+    pub erase_at: i64,
     pub test_mode: bool,
 }
 
@@ -181,23 +225,45 @@ pub async fn list_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleSummaryR
     .await
 }
 
-/// Creates a draft raffle. A taken slug or join code is
-/// an [`Error::Unique`].
-pub async fn insert(db: &Db, r: &NewRaffle<'_>) -> Result<()> {
-    insert_query(db, r).run().await.map(|_| ())
+/// An owner's raffles, newest first, whole.
+pub async fn rows_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleRow>> {
+    db.query("SELECT * FROM raffles WHERE owner_id = ? ORDER BY created_at DESC")
+        .bind(owner_id)
+        .all()
+        .await
 }
 
-fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>) -> Query<'a> {
+/// Creates a draft raffle with `settings`. A taken slug or join code is an
+/// [`Error::Unique`].
+pub async fn insert(db: &Db, r: &NewRaffle<'_>, settings: &Settings<'_>) -> Result<()> {
+    insert_query(db, r, settings).run().await.map(|_| ())
+}
+
+fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>, s: &Settings<'_>) -> Query<'a> {
     let now = now();
     db.query(
-        "INSERT INTO raffles (id, owner_id, slug, join_code, title, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO raffles (id, owner_id, slug, join_code, title, description, organizer_name, contact_email,
+                              privacy_email, privacy_text, privacy_url, rules, event_date, event_ends_at,
+                              retention_days, erase_at, test_mode, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id)
     .bind(r.owner_id)
     .bind(r.slug)
     .bind(r.join_code)
     .bind(r.title)
+    .bind(s.description)
+    .bind(s.organizer_name)
+    .bind(s.contact_email)
+    .bind(s.privacy_email)
+    .bind(s.privacy_text)
+    .bind(s.privacy_url)
+    .bind(s.rules)
+    .bind(s.event_date)
+    .bind(s.event_ends_at)
+    .bind(s.retention_days)
+    .bind(s.erase_at)
+    .bind(s.test_mode)
     .bind(now)
     .bind(now)
 }
@@ -205,8 +271,10 @@ fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>) -> Query<'a> {
 /// What [`update_settings`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SettingsWrite {
-    /// The settings were written: `false` if they changed the rules after
-    /// someone accepted them, or test mode once the list is frozen.
+    /// The settings were written: `false` if they changed a fixed setting
+    /// (the rules, the event date, the retention period, the privacy text or
+    /// link) after someone accepted them, or test mode once the list is
+    /// frozen.
     pub written: bool,
     /// Whether fake entrants went with test mode. (Change counts are only
     /// zero or not on every backend: D1's include the triggers' writes.)
@@ -229,10 +297,12 @@ pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<Sett
     })
 }
 
-/// Writes the settings, unless they change the rules after someone accepted
-/// them ([`rafi_lifecycle::settings::rules_editable`]) or test mode once the
-/// entrant list is frozen ([`RaffleState::test_mode_editable`]): the checks
-/// and the write are one statement, so no join or freeze slips in between.
+/// Writes the settings, unless they change a fixed setting after someone
+/// accepted the rules ([`rafi_lifecycle::settings::rules_editable`]: the
+/// rules, the event date and with it the erasure date, the retention period,
+/// the privacy text and link) or test mode once the entrant list is frozen
+/// ([`RaffleState::test_mode_editable`]): the checks and the write are one
+/// statement, so no join or freeze slips in between.
 fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     let accepted = Source::ALL
         .into_iter()
@@ -242,9 +312,12 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
         .join(", ");
     db.query(format!(
         "UPDATE raffles SET title = ?1, description = ?2, organizer_name = ?3, contact_email = ?4, rules = ?5,
-         event_date = ?6, test_mode = ?7, updated_at = ?8
-         WHERE id = ?9 AND (rules = ?5 OR NOT EXISTS (
-             SELECT 1 FROM entrants WHERE raffle_id = ?9 AND source IN ({accepted})))
+         event_date = ?6, test_mode = ?7, updated_at = ?8, privacy_email = ?10, privacy_text = ?11,
+         privacy_url = ?12, event_ends_at = ?13, retention_days = ?14, erase_at = ?15
+         WHERE id = ?9
+           AND ((rules = ?5 AND event_date = ?6 AND privacy_text = ?11 AND privacy_url = ?12
+                 AND event_ends_at = ?13 AND retention_days = ?14)
+                OR NOT EXISTS (SELECT 1 FROM entrants WHERE raffle_id = ?9 AND source IN ({accepted})))
            AND (test_mode = ?7 OR state IN ({test_mode_editable}))",
         test_mode_editable = states(RaffleState::test_mode_editable),
     ))
@@ -257,6 +330,12 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     .bind(s.test_mode)
     .bind(now())
     .bind(id)
+    .bind(s.privacy_email)
+    .bind(s.privacy_text)
+    .bind(s.privacy_url)
+    .bind(s.event_ends_at)
+    .bind(s.retention_days)
+    .bind(s.erase_at)
 }
 
 /// Creates a draft raffle with `settings` and `prizes` (IDs and fields) in
@@ -268,7 +347,7 @@ pub async fn insert_with(
     settings: &Settings<'_>,
     prizes: &[(String, PrizeFields<'_>)],
 ) -> Result<()> {
-    let mut queries = vec![insert_query(db, r), settings_query(db, r.id, settings)];
+    let mut queries = vec![insert_query(db, r, settings)];
     queries.extend(
         prizes
             .iter()
@@ -344,15 +423,93 @@ pub async fn set_manifest(db: &Db, id: &str, manifest: &str, manifest_hash: &str
 /// Marks the raffle purged (its entrants already erased) and ends its live
 /// updates.
 pub async fn mark_purged(db: &Db, id: &str) -> Result<()> {
-    db.query(
-        "UPDATE raffles SET state = 'purged', purged_at = ?1, updated_at = ?1,
+    db.query(format!(
+        "UPDATE raffles SET state = '{}', purged_at = ?1, updated_at = ?1,
          live_ended_at = COALESCE(live_ended_at, ?1) WHERE id = ?2",
-    )
+        RaffleState::Purged.as_str()
+    ))
     .bind(now())
     .bind(id)
     .run()
     .await
     .map(|_| ())
+}
+
+/// What [`owner_leaves`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Left {
+    /// The raffles that were never frozen: deleted outright.
+    pub deleted: Vec<String>,
+    /// The raffles that were over: their entrants erased, the organizer
+    /// removed, purged.
+    pub purged: Vec<String>,
+}
+
+/// The owner's data goes: every raffle of theirs that was never frozen
+/// ([`RaffleState::expires`]) is deleted, every one that is over
+/// ([`RaffleState::is_over`]) loses its entrants' personal data (logged in
+/// `erasures`, audited as a purge) and the organizer's name and contacts,
+/// and is purged with its live updates ended; their defaults go. One batch,
+/// every write guarded by the state it expects, so a raffle that was frozen
+/// meanwhile is left alone: the caller refuses when any is being drawn, and
+/// may check [`Left`] against what it saw. The anonymous raffles stay
+/// verifiable. Returns the raffles touched, as read before the batch.
+pub async fn owner_leaves(db: &Db, owner: &str, now: i64) -> Result<Left> {
+    let rows = rows_by_owner(db, owner).await?;
+    let (expiring, over) = (states(RaffleState::expires), states(RaffleState::is_over));
+    let over_raffle = format!(
+        "EXISTS (SELECT 1 FROM raffles WHERE id = entrants.raffle_id AND owner_id = ?1 AND state IN ({over}))"
+    );
+    db.batch(vec![
+        db.query(format!(
+            "INSERT INTO audit (raffle_id, at, actor, action, detail)
+             SELECT id, ?2, ?1, 'delete', 'owner left' FROM raffles WHERE owner_id = ?1 AND state IN ({expiring})"
+        ))
+        .bind(owner)
+        .bind(now),
+        db.query(format!(
+            "DELETE FROM raffles WHERE owner_id = ?1 AND state IN ({expiring})"
+        ))
+        .bind(owner),
+        db.query(format!(
+            "INSERT INTO audit (raffle_id, at, actor, action, detail)
+             SELECT id, ?2, ?1, 'purge', 'owner left' FROM raffles WHERE owner_id = ?1 AND state IN ({over})"
+        ))
+        .bind(owner)
+        .bind(now),
+        db.query(format!(
+            "INSERT INTO erasures (raffle_id, entrant_id, at)
+             SELECT raffle_id, id, ?2 FROM entrants WHERE erased = 0 AND {over_raffle}"
+        ))
+        .bind(owner)
+        .bind(now),
+        db.query(format!(
+            "UPDATE entrants SET {} WHERE erased = 0 AND {over_raffle}",
+            crate::entrants::ERASED
+        ))
+        .bind(owner),
+        db.query(format!(
+            "UPDATE raffles SET organizer_name = '', contact_email = '', privacy_email = '',
+                    privacy_text = '', privacy_url = '', state = '{purged}',
+                    purged_at = COALESCE(purged_at, ?2), organizer_left_at = ?2,
+                    live_ended_at = COALESCE(live_ended_at, ?2), updated_at = ?2
+             WHERE owner_id = ?1 AND state IN ({over})",
+            purged = RaffleState::Purged.as_str(),
+        ))
+        .bind(owner)
+        .bind(now),
+        db.query("DELETE FROM owner_defaults WHERE owner_id = ?1").bind(owner),
+    ])
+    .await?;
+    let mut left = Left::default();
+    for r in rows {
+        if r.state.expires() {
+            left.deleted.push(r.id);
+        } else if r.state.is_over() {
+            left.purged.push(r.id);
+        }
+    }
+    Ok(left)
 }
 
 /// Records that live updates ended, unless they already had.

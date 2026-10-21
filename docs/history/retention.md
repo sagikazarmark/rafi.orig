@@ -2,8 +2,11 @@
 
 > **Historical document.** A working note from Rafi's development, kept for the reasoning behind its decisions. Names, paths and details are of their time and may not match the current code, which is the source of truth.
 
-**Status: removed (2026-10-20).** §1–§9 describe the feature as it was. §10 is the checklist for re-adding it, and
-§11 lists everything removed and what each part did.
+**Status: removed (2026-10-20), redesigned and re-added (2026-10-21).** §1–§9 describe the feature as it was.
+§10 was the checklist for re-adding it; the redesign that replaced it is
+[docs/plans/privacy-and-retention.md](../plans/privacy-and-retention.md): the clock anchors on a locked event date
+instead of the finish, winners are held past the erasure date rather than erased later than non-winners, never-frozen
+raffles expire, and erasure is always on. §11 lists everything removed and what each part did.
 
 All of this describes commit **`9448be9`**, the last commit before the feature was removed.
 To see any file as it was then: `git show 9448be9:<path>`. To restore one: `git checkout 9448be9 -- <path>`. Paths

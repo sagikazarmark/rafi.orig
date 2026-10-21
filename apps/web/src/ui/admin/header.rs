@@ -1,8 +1,8 @@
 //! The raffle's header: its state, the next lifecycle step and the menu.
 
 use dioxus_icons::lucide::{
-    Check, Copy, Download, Ellipsis, Flag, Lock, Monitor, Play, QrCode, ShieldCheck, Ticket, Trash,
-    Undo2, Zap,
+    Check, Copy, Download, Ellipsis, Flag, Lock, Monitor, PackageCheck, Play, QrCode, ShieldCheck,
+    Ticket, Trash, TriangleAlert, Undo2, Zap,
 };
 
 use super::*;
@@ -18,6 +18,7 @@ pub(super) fn Header(
     let mut ask_purge = use_signal(|| false);
     let mut ask_freeze = use_signal(|| false);
     let mut ask_end = use_signal(|| false);
+    let mut ask_deliver = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let nav = navigator();
     let toast = use_toast();
@@ -58,7 +59,10 @@ pub(super) fn Header(
     let duplicate = move || {
         let id = id.clone();
         async move {
-            match api::duplicate_raffle(id).await {
+            // The copy is on the organizer's today.
+            let today = dates::today_iso();
+            let ends_at = dates::end_of_day_local(&today);
+            match api::duplicate_raffle(id, today, ends_at).await {
                 Ok(new_id) => {
                     toast.success(
                         "Duplicated".to_owned(),
@@ -108,6 +112,23 @@ pub(super) fn Header(
         }
     };
     let id = admin.id.clone();
+    let deliver_all = move || {
+        let id = id.clone();
+        async move {
+            match api::deliver_all(id).await {
+                Ok(n) => {
+                    toast.success(
+                        format!("📦 {n} prize(s) marked delivered"),
+                        ToastOptions::new()
+                            .description("Those winners' data is now erased with everyone else's."),
+                    );
+                    on_change.call(());
+                }
+                Err(e) => error.set(Some(err_text(e))),
+            }
+        }
+    };
+    let id = admin.id.clone();
     let end_live = move || {
         let id = id.clone();
         async move {
@@ -128,6 +149,9 @@ pub(super) fn Header(
     let join_url = v.join_url.clone();
     let can_export = admin.actions.export;
     let can_purge = admin.actions.purge;
+    let can_deliver = admin.actions.deliver_all;
+    let missing = admin.missing_for_open.clone();
+    let can_open = missing.is_empty();
 
     let (dup, exp) = (duplicate.clone(), export.clone());
     let on_menu = use_callback(move |value: String| match value.as_str() {
@@ -137,6 +161,7 @@ pub(super) fn Header(
         "export" => {
             spawn(exp());
         }
+        "deliver" => ask_deliver.set(true),
         "purge" => ask_purge.set(true),
         "delete" => ask_delete.set(true),
         _ => {}
@@ -148,6 +173,13 @@ pub(super) fn Header(
             "export",
             "Export winners (CSV)",
             rsx! { Download { class: "size-4" } },
+        ));
+    }
+    if can_deliver {
+        menu.push((
+            "deliver",
+            "All prizes delivered",
+            rsx! { PackageCheck { class: "size-4" } },
         ));
     }
     if can_purge {
@@ -194,6 +226,12 @@ pub(super) fn Header(
                     }
                 }
                 Steps { state: v.state }
+                if !can_open && matches!(v.state, RaffleState::Draft | RaffleState::Ready) {
+                    div { role: "alert", class: "alert alert-warning alert-soft text-sm",
+                        TriangleAlert { class: "size-5" }
+                        span { "Before registration can open, fill in {missing.join(\" and \")} in the settings: the privacy notice must name the data controller and how to reach them." }
+                    }
+                }
                 if v.state.is_public() {
                     div { class: "flex flex-wrap items-center gap-2",
                         a { class: "btn btn-neutral btn-sm", href: "{screen_url}", target: "_blank", Monitor { class: "size-4" } "Projector screen" }
@@ -227,7 +265,7 @@ pub(super) fn Header(
                             }
                         },
                         RaffleState::Ready => rsx! {
-                            Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, Ticket { class: "size-5" } "Open registration" }
+                            Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy() || !can_open, title: if can_open { "" } else { "Fill in the organizer and a contact first" }, onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, Ticket { class: "size-5" } "Open registration" }
                             Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } }, Undo2 { class: "size-5" } "Unpublish" }
                         },
                         RaffleState::Open => rsx! {
@@ -269,6 +307,16 @@ pub(super) fn Header(
             body: "Phones and the projector stop following the raffle live. The results stay on the pages and the verification page.",
             action: "End live updates",
             on_confirm: move |_| { spawn(end_live()); },
+        }
+        Confirm {
+            open: ask_deliver,
+            title: "Mark every prize delivered?",
+            body: format!(
+                "{} winner(s) still have their name and email kept so you can deliver their prize. Once marked delivered, their data is erased with everyone else's. Only do this when no prize is still on its way.",
+                admin.retention.held_winners
+            ),
+            action: "All prizes delivered",
+            on_confirm: move |_| { spawn(deliver_all()); },
         }
         Confirm {
             open: ask_purge,

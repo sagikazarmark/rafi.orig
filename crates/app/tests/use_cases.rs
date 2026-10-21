@@ -4,7 +4,9 @@
 use std::{sync::Arc, time::Duration};
 
 use rafi_api::{EntrantPatch, LifecycleCommand, PrizeInput, StartStep};
-use rafi_app::{self as app, App, Error, Limiter, Policy, ProofOfWork, Refusal};
+use rafi_app::{
+    self as app, App, Error, EventDate, Limiter, Policy, ProofOfWork, Refusal, RetentionPolicy,
+};
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
 use rafi_live_server::{LiveUpdates, Polling};
@@ -34,14 +36,29 @@ async fn app() -> App {
             public_url: "http://localhost".into(),
             max_entrants: 100,
             proof_of_work: ProofOfWork::new("test-key", 1).unwrap(),
+            retention: RetentionPolicy {
+                days: 7,
+                max_days: 30,
+                winner_hold_days: 90,
+            },
+            terms_version: "test".into(),
         },
     }
 }
 
-/// An open raffle with one prize and `people` entered by hand; returns its
-/// ID and theirs.
+/// An open raffle with one prize and `people` entered by hand, named so the
+/// notice can open registration; returns its ID and theirs.
 async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
-    let id = app::create(app, OWNER, "Meetup").await.unwrap();
+    app::accept_terms(app, OWNER, OWNER, "test").await.unwrap();
+    let id = app::create(app, OWNER, "Meetup", &EventDate::today())
+        .await
+        .unwrap();
+    let mut settings = app::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
+    settings.organizer_name = "Meetup".into();
+    settings.contact_email = "hello@example.com".into();
+    app::update_settings(app, OWNER, &id, settings)
+        .await
+        .unwrap();
     app::upsert_prize(
         app,
         OWNER,

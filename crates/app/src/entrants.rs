@@ -11,8 +11,9 @@ use rafi_store::{RaffleRow, audit, entrants, raffles};
 
 use crate::{App, Error, Limit, Refusal, Result, altcha, ids, owned, view::NAME_DELAY_SECS};
 
-/// Version of the consent text shown on the join form.
-pub const CONSENT_VERSION: &str = "2026-10-21";
+/// Version of the consent text shown on the join form: the rules checkbox,
+/// the erasure dates and the age line under it.
+pub const CONSENT_VERSION: &str = "2026-10-21.2";
 
 async fn unique_claim_code(app: &App, raffle_id: &str) -> Result<String> {
     let taken: HashSet<String> = entrants::claim_codes(&app.db, raffle_id)
@@ -351,9 +352,10 @@ pub async fn patch_entrant(
     Ok(())
 }
 
-/// Removes an entrant before the freeze; once the raffle is over, erases their
-/// personal data (the anonymous ID must stay in the published list). In
-/// between, nobody is removed ([`RaffleState::removal`](lifecycle::RaffleState::removal)).
+/// Removes an entrant before the freeze; once the raffle is over, or its
+/// erasure date has passed, erases their personal data (the anonymous ID
+/// must stay in the published list). In between, nobody is removed
+/// ([`RaffleState::removal`](lifecycle::RaffleState::removal)).
 pub async fn remove_entrant(
     app: &App,
     owner: &str,
@@ -361,19 +363,20 @@ pub async fn remove_entrant(
     entrant_id: &str,
 ) -> Result<()> {
     let raffle = owned(app, owner, raffle_id).await?;
-    let removal = match raffle.state.removal() {
+    let now = ids::now();
+    let removal = match raffle.state.removal(raffle.past_erase_date(now)) {
         Some(Removal::Delete) if entrants::delete(&app.db, raffle_id, entrant_id).await? => {
             Some(Removal::Delete)
         }
         // Nothing deleted: frozen since the read above (then refused), or no
         // such entrant (nothing to do).
         Some(Removal::Delete) => match raffles::get(&app.db, raffle_id).await? {
-            Some(r) if r.state.removal().is_none() => {
+            Some(r) if r.state.removal(r.past_erase_date(now)).is_none() => {
                 return Err(Refusal::NotRemovable.into());
             }
             _ => None,
         },
-        Some(Removal::Erase) => entrants::erase(&app.db, raffle_id, Some(entrant_id))
+        Some(Removal::Erase) => entrants::erase(&app.db, raffle_id, Some(entrant_id), now)
             .await?
             .then_some(Removal::Erase),
         None => return Err(Refusal::NotRemovable.into()),
@@ -398,12 +401,34 @@ pub async fn purge(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
     if raffle.state.apply(lifecycle::Command::Purge).is_none() {
         return Err(Refusal::NotPurgeable.into());
     }
-    entrants::erase(&app.db, raffle_id, None).await?;
+    entrants::erase(&app.db, raffle_id, None, ids::now()).await?;
     raffles::mark_purged(&app.db, raffle_id).await?;
     audit::record(&app.db, raffle_id, owner, "purge", "").await?;
     // Destroying the channel publishes the final (erased) view first.
     app.live_updates.end(raffle_id).await?;
     Ok(())
+}
+
+/// Marks every winner's prize of a finished raffle delivered, so their
+/// personal data goes on the non-winner clock instead of being held.
+/// Returns how many were.
+pub async fn deliver_all(app: &App, owner: &str, raffle_id: &str) -> Result<u64> {
+    let raffle = owned(app, owner, raffle_id).await?;
+    if !raffle.state.is_over() {
+        return Err(Refusal::NotOver.into());
+    }
+    let delivered = entrants::deliver_all(&app.db, raffle_id, ids::now()).await?;
+    if delivered > 0 {
+        audit::record(
+            &app.db,
+            raffle_id,
+            owner,
+            "deliver_all",
+            &delivered.to_string(),
+        )
+        .await?;
+    }
+    Ok(delivered)
 }
 
 /// Ends live updates of a finished raffle: phones stop listening and the

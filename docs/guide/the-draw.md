@@ -8,7 +8,7 @@ makes the result trustworthy, see [Why the draw is verifiable](../explanation/ve
 1. **Freezing** fixes who is in and what can be won, and publishes it.
 2. **Each Draw** commits to a public drand randomness round a few seconds in the future, waits for it, and picks one
    winner from it with a public formula.
-3. **You decide** what happened to each winner: handed over, not here, or declined. A no-show's prize is drawn again.
+3. **You decide** what happened to each winner: claimed, not here, or declined. A no-show's prize is drawn again.
 4. **Anyone can re-run** every draw on the verification page.
 
 ## 1. Freezing the list
@@ -72,7 +72,7 @@ stateDiagram-v2
     state "Counting down to round R" as Pending
     state "Stalled on round R" as Stalled
     state "Drawn: waiting for the winner" as Drawn
-    state "Handed over" as Claimed
+    state "Claimed" as Claimed
     state "Withdrawn" as Voided
 
     [*] --> Available
@@ -81,14 +81,14 @@ stateDiagram-v2
     Pending --> Stalled: round R can't be fetched
     Stalled --> Pending: Retry round R
     Stalled --> Available: Abandon this draw (logged)
-    Drawn --> Claimed: Handed over
+    Drawn --> Claimed: Claimed
     Drawn --> Available: Not here / Declined (winner is out)
     Available --> Voided: Withdraw
 ```
 
 | Button | When | Effect |
 |---|---|---|
-| **Handed over** | The winner came up and showed the matching claim code | The item is theirs. Works even while another draw is counting down. |
+| **Claimed** | The winner came up and showed the matching claim code | The item is theirs. Works even while another draw is counting down. Delivery is separate: **Mark delivered** in the People tab, once the prize reached them. |
 | **Not here** | Nobody answers to the name | The winner is out of the raffle, and the item goes back to be drawn again with a new round |
 | **Declined** | The winner doesn't want it | Same as Not here |
 | **Withdraw** | An item that won't be given away (it broke, the sponsor didn't show) | The item is withdrawn. Only an item that is still to be drawn can be withdrawn. |

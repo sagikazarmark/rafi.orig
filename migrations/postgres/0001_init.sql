@@ -12,8 +12,21 @@ CREATE TABLE raffles (
     description TEXT NOT NULL DEFAULT '',
     organizer_name TEXT NOT NULL DEFAULT '',
     contact_email TEXT NOT NULL DEFAULT '',
+    -- The organizer's privacy contact (falls back to contact_email), and their
+    -- own privacy text or notice, shown after the generated notice.
+    privacy_email TEXT NOT NULL DEFAULT '',
+    privacy_text TEXT NOT NULL DEFAULT '',
+    privacy_url TEXT NOT NULL DEFAULT '',
     rules TEXT NOT NULL DEFAULT '',
-    event_date TEXT NOT NULL DEFAULT '',
+    -- The event date as a calendar day (YYYY-MM-DD, for display), the instant
+    -- that day ends, and the retention period: the erasure date follows,
+    -- event_ends_at + retention_days days. All three are written by the
+    -- settings write only, and lock with the rules once a real entrant has
+    -- joined, so the date shown to entrants never moves afterwards.
+    event_date TEXT NOT NULL,
+    event_ends_at BIGINT NOT NULL,
+    retention_days BIGINT NOT NULL,
+    erase_at BIGINT NOT NULL,
     state TEXT NOT NULL DEFAULT 'draft',
     test_mode BIGINT NOT NULL DEFAULT 0,
     -- The raffle's manifest: the frozen entrant list (canonical JSON, exactly
@@ -28,6 +41,9 @@ CREATE TABLE raffles (
     -- Set when the organizer ends live updates; the live channel is gone after it.
     live_ended_at BIGINT,
     purged_at BIGINT,
+    -- Set when the owner removed their data: the organizer's name and
+    -- contacts are gone for good, and the notice says so.
+    organizer_left_at BIGINT,
     -- The raffle's version: bumped by every write that can change what screens
     -- or phones show (the triggers below). Live views carry it, so clients and
     -- the live channel can order them without a process-wide counter.
@@ -37,6 +53,9 @@ CREATE TABLE raffles (
 );
 
 CREATE INDEX raffles_owner ON raffles (owner_id);
+
+-- Housekeeping finds what is due to be erased by this.
+CREATE INDEX raffles_erase_at ON raffles (erase_at) WHERE purged_at IS NULL;
 
 CREATE TABLE prizes (
     id TEXT PRIMARY KEY NOT NULL,
@@ -196,12 +215,38 @@ CREATE TABLE altcha_used (
 CREATE INDEX altcha_used_expiry ON altcha_used (expires_at);
 
 -- What an owner's new raffles start with: who organizes them (the data
--- controller) and their additional rules. Copied into each raffle as it is
--- created, so a later change leaves existing raffles as they are.
+-- controller), their privacy contact and text, their additional rules and
+-- their retention period (NULL: the installation's default). Copied into each
+-- raffle as it is created, so a later change leaves existing raffles as they
+-- are.
 CREATE TABLE owner_defaults (
     owner_id TEXT PRIMARY KEY NOT NULL,
     organizer_name TEXT NOT NULL DEFAULT '',
     contact_email TEXT NOT NULL DEFAULT '',
+    privacy_email TEXT NOT NULL DEFAULT '',
+    privacy_text TEXT NOT NULL DEFAULT '',
+    privacy_url TEXT NOT NULL DEFAULT '',
     rules TEXT NOT NULL DEFAULT '',
+    retention_days BIGINT,
     updated_at BIGINT NOT NULL
+);
+
+-- Which version of which legal document (the operator's terms, with the
+-- processing agreement) an owner accepted, and which of its users did. Kept
+-- when the owner's data is removed: it holds opaque IDs only, and is the
+-- operator's evidence.
+CREATE TABLE legal_acceptances (
+    owner_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    document TEXT NOT NULL,
+    version TEXT NOT NULL,
+    accepted_at BIGINT NOT NULL,
+    PRIMARY KEY (owner_id, document, version)
+);
+
+-- Small operational facts: when housekeeping last succeeded
+-- (`last_retention_ok_at`, unix seconds as text).
+CREATE TABLE meta (
+    key TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL
 );

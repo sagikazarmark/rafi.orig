@@ -14,7 +14,13 @@ pub fn spawn(app: AppState) {
             tick.tick().await;
             match housekeeping::run(&app).await {
                 Ok(r) if r == housekeeping::Report::default() => {}
-                Ok(r) => tracing::info!(channels_ended = r.channels_ended, "housekeeping run"),
+                Ok(r) => tracing::info!(
+                    expired = r.expired,
+                    erased = r.erased,
+                    purged = r.purged,
+                    channels_ended = r.channels_ended,
+                    "housekeeping run"
+                ),
                 Err(e) => tracing::error!(error = %e, "housekeeping run failed"),
             }
         }

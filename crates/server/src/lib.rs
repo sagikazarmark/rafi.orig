@@ -84,7 +84,9 @@ impl AppState {
     }
 
     /// The app over a database, a raffle engine and the platform's live
-    /// updates and rate limits.
+    /// updates and rate limits. The configuration is checked
+    /// ([`Config::validate`]): a production server with no operator or
+    /// documents doesn't start.
     pub fn from_parts(
         cfg: Config,
         db: Db,
@@ -92,6 +94,7 @@ impl AppState {
         live_updates: LiveUpdates,
         limiter: Arc<dyn RateLimit>,
     ) -> anyhow::Result<Self> {
+        cfg.validate()?;
         let core = service::App {
             chain: cfg.chain()?,
             db,
@@ -102,6 +105,8 @@ impl AppState {
                 public_url: cfg.public_url.clone(),
                 max_entrants: cfg.max_entrants,
                 proof_of_work: service::ProofOfWork::new(cfg.altcha_key.clone(), cfg.altcha_cost)?,
+                retention: cfg.retention,
+                terms_version: cfg.terms_version.clone(),
             },
         };
         Ok(Self(Arc::new(Inner { core, cfg })))

@@ -21,6 +21,7 @@ dioxus-altcha = { workspace = true }
 dioxus-clerk = { version = "0.6", features = ["server"] }
 dioxus-icons = "=0.1.0"
 hex = { workspace = true }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 rafi-app = { workspace = true }
 rafi-engine = { workspace = true }
 rafi-engine-restate = { workspace = true }

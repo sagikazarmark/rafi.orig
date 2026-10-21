@@ -80,7 +80,28 @@ curl -X POST http://localhost:9070/deployments -H 'content-type: application/jso
 
 On Restate Cloud, register the engine's public URL as a deployment in the Cloud console or CLI.
 
-## 5. Run the app
+## 5. Legal documents and the operator
+
+Every raffle's privacy notice names **you**, the operator of this installation, as the processor, and links the
+installation's own privacy notice. Organizers accept your terms, with the data processing agreement, before their
+first raffle. The software can't write these for you:
+
+1. Put `terms.md` and `privacy.md` in a directory (`RAFI_DOCS_DIR`). Start from
+   [`apps/worker/legal/`](../../apps/worker/legal/), which are engineering drafts marked as templates, fill in the
+   bracketed parts and have a lawyer review them.
+2. Give each a version (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`). Changing a document's text
+   means a new version; organizers accept the terms again before creating another raffle.
+3. Name yourself: `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`.
+
+Without these, the app refuses to start (except under `RAFI_DEV_AUTH`, with placeholders marked as such).
+
+The retention settings are yours too, within limits: `RAFI_RETENTION_DAYS` (7: days after the event date before
+non-winners are erased, for organizers who choose nothing), `RAFI_RETENTION_DAYS_MAX` (30: the most an organizer may
+choose) and `RAFI_RETENTION_WINNERS_DAYS` (90: how long winners are held past that unless their prize is marked
+delivered). `RAFI_MIN_AGE` (16) is what entrants confirm by entering. See [Privacy and
+abuse](../explanation/privacy-and-abuse.md).
+
+## 6. Run the app
 
 ```sh
 RAFI_PUBLIC_URL=https://raffle.example.org \
@@ -88,6 +109,8 @@ RAFI_DATABASE_URL=… \
 RESTATE_INGRESS_URL=http://localhost:8080 \
 CLERK_SECRET_KEY=sk_live_… \
 RAFI_ALTCHA_KEY=$(openssl rand -hex 32) \
+RAFI_DOCS_DIR=/etc/rafi RAFI_TERMS_VERSION=2026-10 RAFI_PRIVACY_VERSION=2026-10 \
+RAFI_OPERATOR_NAME="Example Meetups e.V." RAFI_OPERATOR_EMAIL=privacy@example.org \
 IP=127.0.0.1 PORT=8081 \
   ./target/release/rafi
 ```
@@ -100,10 +123,11 @@ IP=127.0.0.1 PORT=8081 \
 - At startup the app warns if dev auth is on, the chain is the mock one, the ingress URL is missing, or the web app
   or participant scripts aren't where it expects.
 
-The app runs the hourly housekeeping itself: it forgets expired proof-of-work challenges and ends live updates a day
-after a raffle finishes.
+The app runs the hourly housekeeping itself: it erases personal data on the dates entrants were shown, forgets
+expired proof-of-work challenges and ends live updates a day after a raffle finishes. If no run has succeeded for
+two hours, every organizer's admin shows a warning.
 
-## 6. Reverse proxy
+## 7. Reverse proxy
 
 Put a TLS-terminating proxy (Caddy, nginx, …) in front of `rafi` and pass every path through. `rafi` serves the
 APIs, the participant pages and the static files itself ([routes](../reference/routes.md)). If the proxy talks plain
@@ -114,9 +138,9 @@ Don't rate-limit by IP aggressively: a whole venue shares one address. Rafi limi
 
 Expose neither `rafi-restate` (`:9080`) nor Restate's admin API (`:9070`) publicly.
 
-## 7. Check
+## 8. Check
 
-- `GET /healthz` answers `ok`.
+- `GET /healthz` answers `ok`, `/terms` and `/privacy` show your documents with their versions.
 - Create a raffle with **Test mode** on, add fake entrants, freeze, and draw one item. The verification page should
   show **✅ All 1 draws check out**, under a **🧪 TEST MODE** note.
 - Erase it, or delete it.
@@ -126,5 +150,13 @@ Expose neither `rafi-restate` (`:9080`) nor Restate's admin API (`:9070`) public
 Back up the database (the SQLite file, or Postgres as usual). Restate's own state only matters while a raffle is
 being drawn: the engine forgets a raffle when it finishes, and the database is the record.
 
-Erasures are logged in the `erasures` table (entrant ID and time only). If you restore a backup taken before an
-erasure, erase those entrants again. There is no tool for this yet.
+A backup holds personal data that may have been erased since. After a restore:
+
+1. If you can, carry the live database's `erasures` table over to the restored one (it holds entrant IDs and
+   times only): `sqlite3 live.db ".dump erasures"` or `pg_dump -t erasures`, then import it.
+2. Run `rafi reapply-erasures` with the app's environment. It erases again every entrant the log names, purges
+   again every raffle that was purged, and runs housekeeping once, so whatever came due in the meantime is erased
+   too (the erasure dates are in the raffles themselves, so the clock needs no log). Then start the app.
+
+Erasures the organizer made before the date, and that aren't in the log you restored, are the only ones the
+clock won't redo: that is what step 1 is for.

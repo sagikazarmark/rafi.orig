@@ -20,6 +20,8 @@ mod entrants;
 mod error;
 pub mod housekeeping;
 pub mod ids;
+mod legal;
+mod owners;
 mod prizes;
 pub mod public;
 mod raffles;
@@ -37,15 +39,18 @@ use rafi_store::{Db, RaffleRow, raffles as store};
 pub use altcha::ProofOfWork;
 pub use draw::{command, start_draw};
 pub use entrants::{
-    CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_fakes, add_manual, end_live, join,
-    name_ideas, patch_entrant, purge, remove_entrant,
+    CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_fakes, add_manual, deliver_all,
+    end_live, join, name_ideas, patch_entrant, purge, remove_entrant,
 };
 pub use error::{Error, Refusal, Result};
+pub use legal::{accept_terms, terms_accepted};
+pub use owners::{reapply_erasures, remove_owner_data};
 pub use prizes::{delete_prize, upsert_prize};
 pub use raffles::{
-    create, delete, duplicate, get_defaults, lifecycle, list, save_defaults, settings_of,
-    update_settings,
+    EventDate, create, delete, duplicate, get_defaults, lifecycle, list, save_defaults,
+    settings_of, update_settings,
 };
+pub use rafi_lifecycle::settings::RetentionPolicy;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ratelimit::Limiter;
 pub use ratelimit::{Limit, RateLimit};
@@ -76,6 +81,12 @@ pub struct Policy {
     pub max_entrants: i64,
     /// The join form's proof-of-work.
     pub proof_of_work: ProofOfWork,
+    /// When personal data is erased: the default period, the longest one an
+    /// organizer may choose, and the winner hold.
+    pub retention: RetentionPolicy,
+    /// The version of the operator's terms (with the processing agreement)
+    /// organizers must have accepted to create raffles.
+    pub terms_version: String,
 }
 
 impl App {

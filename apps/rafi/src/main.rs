@@ -1,5 +1,9 @@
 //! The native server: `rafi`. Everything but the entry point is in
 //! `rafi-server`; on Workers, `rafi-worker` serves the same routes.
+//!
+//! `rafi reapply-erasures` is the step after a database restore: it erases
+//! again whatever the erasure log says was erased, purges again what was
+//! purged, runs housekeeping once, and exits.
 
 use anyhow::Context as _;
 use rafi_server as server;
@@ -11,7 +15,14 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
-    let cfg = server::config::Config::from_env();
+    let cfg = server::config::Config::from_env()?;
+    match std::env::args().nth(1).as_deref() {
+        None => {}
+        Some("reapply-erasures") => return reapply_erasures(cfg).await,
+        Some(other) => {
+            anyhow::bail!("unknown command {other:?}; the only one is `reapply-erasures`")
+        }
+    }
     if cfg.dev_auth {
         tracing::warn!("RAFI_DEV_AUTH is on: admin pages are NOT protected");
     }
@@ -72,6 +83,23 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown())
         .await?;
+    Ok(())
+}
+
+/// After a restore: re-applies the erasure log and the purges, then runs
+/// housekeeping, so what was due is erased again too.
+async fn reapply_erasures(cfg: server::config::Config) -> anyhow::Result<()> {
+    let app = server::AppState::new(cfg).await?;
+    let done = server::service::reapply_erasures(&app).await?;
+    tracing::info!(
+        entrants = done.entrants,
+        raffles = done.raffles,
+        "erasures re-applied; housekeeping ran"
+    );
+    println!(
+        "re-erased {} entrant(s), re-purged {} raffle(s); housekeeping ran",
+        done.entrants, done.raffles
+    );
     Ok(())
 }
 

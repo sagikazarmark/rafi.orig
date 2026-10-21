@@ -1,6 +1,7 @@
 //! A raffle's entrants, and erasing their personal data.
 
 use rafi_lifecycle::{RaffleState, entrant::Source};
+use rafi_raffle::Outcome;
 use serde::Deserialize;
 
 use crate::{Db, Result, now};
@@ -345,13 +346,16 @@ pub async fn delete(db: &Db, raffle_id: &str, id: &str) -> Result<bool> {
 
 /// Erases the personal data of one entrant, or of every entrant of the raffle
 /// (`None`), and logs each erasure in `erasures` (IDs and time only), so a
-/// restored backup can re-apply it. Only once the raffle is over
-/// ([`RaffleState::personal_data_erasable`]): until then the entry is part of
-/// the raffle. One batch: both or neither. Returns whether anyone was erased.
-pub async fn erase(db: &Db, raffle_id: &str, entrant_id: Option<&str>) -> Result<bool> {
+/// restored backup can re-apply it. Only when the lifecycle allows
+/// ([`RaffleState::personal_data_erasable`]: the raffle is over, or its
+/// erasure date has passed at `now`): until then the entry is part of the
+/// raffle. One batch: both or neither. Returns whether anyone was erased.
+pub async fn erase(db: &Db, raffle_id: &str, entrant_id: Option<&str>, now: i64) -> Result<bool> {
     let erasable = format!(
-        "EXISTS (SELECT 1 FROM raffles WHERE id = ?1 AND state IN ({}))",
-        crate::raffles::states(RaffleState::personal_data_erasable)
+        "EXISTS (SELECT 1 FROM raffles WHERE id = ?1
+                 AND (state IN ({before}) OR (state IN ({past}) AND erase_at <= ?3)))",
+        before = crate::raffles::states(|s| s.personal_data_erasable(false)),
+        past = crate::raffles::states(|s| s.personal_data_erasable(true)),
     );
     let changed = db
         .batch(vec![
@@ -362,14 +366,51 @@ pub async fn erase(db: &Db, raffle_id: &str, entrant_id: Option<&str>) -> Result
             ))
             .bind(raffle_id)
             .bind(entrant_id)
-            .bind(now()),
+            .bind(now),
             db.query(format!(
                 "UPDATE entrants SET {ERASED}
                  WHERE raffle_id = ?1 AND erased = 0 AND (?2 IS NULL OR id = ?2) AND {erasable}"
             ))
             .bind(raffle_id)
-            .bind(entrant_id),
+            .bind(entrant_id)
+            .bind(now),
         ])
         .await?;
     Ok(changed.get(1).is_some_and(|&n| n > 0))
+}
+
+/// Marks every claimed winner's prize delivered at `now`, if it wasn't:
+/// their data then goes on the non-winner clock. Returns how many.
+pub async fn deliver_all(db: &Db, raffle_id: &str, now: i64) -> Result<u64> {
+    let due = format!(
+        "raffle_id = ?1 AND erased = 0 AND delivered_at IS NULL
+         AND id IN (SELECT entrant_id FROM draws WHERE raffle_id = ?1 AND outcome = '{}')",
+        Outcome::Claimed.as_str()
+    );
+    let (count,): (i64,) = db
+        .query(format!("SELECT COUNT(*) FROM entrants WHERE {due}"))
+        .bind(raffle_id)
+        .one()
+        .await?;
+    db.query(format!("UPDATE entrants SET delivered_at = ?2 WHERE {due}"))
+        .bind(raffle_id)
+        .bind(now)
+        .run()
+        .await?;
+    Ok(count.max(0) as u64)
+}
+
+/// Re-applies every erasure the log names to an entrant whose personal data
+/// is back (a restored backup): the restore tool's write. Returns how many.
+pub async fn reapply_erasures(db: &Db) -> Result<u64> {
+    let logged = "erased = 0 AND EXISTS (
+        SELECT 1 FROM erasures WHERE erasures.raffle_id = entrants.raffle_id AND erasures.entrant_id = entrants.id)";
+    let (count,): (i64,) = db
+        .query(format!("SELECT COUNT(*) FROM entrants WHERE {logged}"))
+        .one()
+        .await?;
+    db.query(format!("UPDATE entrants SET {ERASED} WHERE {logged}"))
+        .run()
+        .await?;
+    Ok(count.max(0) as u64)
 }

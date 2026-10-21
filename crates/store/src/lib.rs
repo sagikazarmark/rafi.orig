@@ -14,9 +14,10 @@
 //!
 //! - [`raffles`], [`prizes`], [`entrants`]: the organizer's and participants'
 //!   reads and writes, the freeze's steps included; [`defaults`]: what an
-//!   owner's new raffles start with;
+//!   owner's new raffles start with; [`legal`]: which terms they accepted;
 //! - [`audit`], [`altcha`] (redeemed proof-of-work challenges),
-//!   [`housekeeping`] (ending live channels);
+//!   [`housekeeping`] (ending live channels, when the run last succeeded) and
+//!   [`retention`] (its erasure writes);
 //! - [`view::Full`]: what the projector and the admin see, and
 //!   [`live::snapshot`]: what phones see, each read in one snapshot;
 //! - [`save_raffle`], the raffle engine's only write; [`RaffleWriter`] offers
@@ -51,10 +52,12 @@ mod dialect;
 pub mod entrants;
 mod error;
 pub mod housekeeping;
+pub mod legal;
 pub mod live;
 pub mod prizes;
 mod query;
 pub mod raffles;
+pub mod retention;
 mod value;
 pub mod view;
 

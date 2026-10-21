@@ -1,6 +1,7 @@
 //! The Dioxus app: organizer admin, projector screen and verification page.
 
 mod admin;
+pub mod dates;
 mod forms;
 mod live;
 mod screen;
@@ -186,7 +187,7 @@ fn Home() -> Element {
             section { class: "mx-auto grid max-w-6xl gap-4 px-5 pb-24 md:grid-cols-3",
                 Feature { icon: rsx! { QrCode { class: "size-6" } }, title: "Scan & join", body: "No app, no account. A name and an email on any phone, even on shaky venue wifi." }
                 Feature { icon: rsx! { Dice5 { class: "size-6" } }, title: "Drawn in public", body: "Every prize commits to a future drand round first. The countdown is the suspense." }
-                Feature { icon: rsx! { ShieldCheck { class: "size-6" } }, title: "Check it yourself", body: "Anyone can re-run every draw in the browser afterwards. Personal data is erased in one click." }
+                Feature { icon: rsx! { ShieldCheck { class: "size-6" } }, title: "Check it yourself", body: "Anyone can re-run every draw in the browser afterwards. Personal data is erased on a date entrants see before they join." }
             }
         }
     }

@@ -39,7 +39,17 @@ Put the new database's ID into `database_id` in `apps/worker/wrangler.toml`. The
 wrangler d1 migrations apply rafi --remote
 ```
 
-### 2. The Worker
+### 2. The legal documents and the operator
+
+The Worker bundles the installation's documents from [`apps/worker/legal/`](../../apps/worker/legal/): `terms.md`
+(with the data processing agreement organizers accept) and `privacy.md` (the operator's own notice, naming the
+subprocessors: Cloudflare, Restate Cloud, Clerk, drand). They ship as engineering drafts marked as templates: fill in
+the bracketed parts, have a lawyer review them, and set `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`,
+`RAFI_OPERATOR_NAME` and `RAFI_OPERATOR_EMAIL` in `[vars]`. Without them the Worker refuses every request. A changed
+document is a new version, which organizers accept again. The retention settings (`RAFI_RETENTION_DAYS` and the
+others, see the [configuration](../reference/configuration.md)) have defaults; `RAFI_MIN_AGE` too.
+
+### 3. The Worker
 
 Set `RAFI_PUBLIC_URL` and `RESTATE_INGRESS_URL` in `[vars]` of `apps/worker/wrangler.toml`, then the secrets:
 
@@ -58,28 +68,34 @@ CLERK_PUBLISHABLE_KEY=pk_live_… ./scripts/app-assets.sh   # -> apps/worker/wor
 (cd apps/worker && wrangler deploy)
 ```
 
-The Worker refuses every request without `RAFI_ALTCHA_KEY`, `RESTATE_INGRESS_URL`, `CLERK_SECRET_KEY` or
-`RESTATE_IDENTITY_KEYS`. Release builds reject dev auth and the mock chain.
+The Worker refuses every request without `RAFI_ALTCHA_KEY`, `RESTATE_INGRESS_URL`, `CLERK_SECRET_KEY`,
+`RESTATE_IDENTITY_KEYS`, the operator and the document versions. Release builds reject dev auth and the mock chain.
 
 Attach a custom domain. `workers_dev` and preview URLs are off on purpose, because previews would share
 production's database and Durable Objects.
 
-### 3. The raffle engine
+### 4. The raffle engine
 
 In Restate Cloud, **register `https://<the Worker's hostname>/restate` as a new deployment**. Do this again for
 every release (see [Upgrades](upgrades.md)). Restate appends `/discover` and `/invoke/…` to that URL; the Worker
 verifies each request's signature before anything else happens to it.
 
-### 4. Check
+### 5. Check
 
-Open `/healthz`, then run a test-mode raffle end to end, as in [Self-hosting](self-hosting.md#7-check).
+Open `/healthz`, `/terms` and `/privacy`, then run a test-mode raffle end to end, as in
+[Self-hosting](self-hosting.md#8-check).
 
 ## Data residency
 
 - D1 is created with `--jurisdiction eu`.
 - Durable Objects come from an EU-jurisdiction namespace (`RAFI_DO_JURISDICTION=eu`, fixed at creation).
 - Invocation logs are off, because they would record client IPs and cookies.
-- D1 Time Travel keeps erased data for up to 30 more days. Say so in your privacy notice.
+- D1 Time Travel keeps erased data for up to 30 more days. Say so in your privacy notice (the template does). After
+  restoring with Time Travel, re-apply the erasures: natively that is `rafi reapply-erasures`
+  ([Self-hosting](self-hosting.md#backups)); on Workers there is no CLI yet, but the hourly housekeeping erases
+  again whatever is past its date, since the dates are in the raffles themselves. Erasures organizers made before
+  the date would need the `erasures` table carried over and the `UPDATE` in `rafi_store::entrants::reapply_erasures`
+  run by hand against D1.
 
 ## Limits
 

@@ -14,7 +14,7 @@ use serde::Serialize;
 
 use dioxus_icons::lucide::{Monitor, Moon, Sun, Ticket};
 
-use super::style::STYLESHEET_URL;
+use super::{style::STYLESHEET_URL, text::ErasureDates};
 
 /// The raffle, as the public pages show it.
 #[derive(Debug, Clone, Copy)]
@@ -62,6 +62,10 @@ pub struct Page<'a> {
     pub name_ideas: &'a [String],
     /// The server's clock (unix ms); the phone measures its offset from it.
     pub now_ms: u64,
+    /// When personal data is erased: the join form says so, in one sentence.
+    pub retention: ErasureDates,
+    /// The youngest an entrant may be: the join form says so too.
+    pub min_age: u32,
 }
 
 /// Runs before first paint: records when the page started parsing (the
@@ -141,7 +145,11 @@ pub fn page(page: Page<'_>) -> String {
         email,
         name_ideas,
         now_ms,
+        retention,
+        min_age,
     } = page;
+    let erasure = retention.sentence();
+    let age = super::text::age_line(min_age);
     let phase = view.state;
     let strings = CardStrings::default();
     let code = raffle.join_code;
@@ -222,11 +230,15 @@ pub fn page(page: Page<'_>) -> String {
                         label { class: "mt-3 flex items-start gap-3",
                             input { class: "checkbox checkbox-primary mt-0.5", r#type: "checkbox", name: "rules", value: "on", required: true }
                             span { class: "text-sm",
-                                "I accept the raffle rules and the privacy notice. "
-                                a { class: "link link-primary", href: "{rules_href}", target: "_blank", "Rules" }
-                                " · "
-                                a { class: "link link-primary", href: "{privacy_href}", target: "_blank", "Privacy notice" }
+                                "I accept the "
+                                a { class: "link link-primary", href: "{rules_href}", target: "_blank", "raffle rules" }
+                                "."
                             }
+                        }
+                        // The notice is read, not accepted: it isn't consent.
+                        p { class: "mt-2 text-xs text-base-content/70",
+                            "{erasure} {age} "
+                            a { class: "link link-primary", href: "{privacy_href}", target: "_blank", "Privacy notice" }
                         }
                         input { r#type: "hidden", name: "altcha", id: "altcha" }
                         // Enabled by the WebAssembly (or the fallback) once the

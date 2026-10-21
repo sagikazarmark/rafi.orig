@@ -1,5 +1,6 @@
 //! The participant pages' HTTP side: the participant page (`/j/{code}`,
-//! and joining by posting its form), the rules and privacy pages, and the
+//! and joining by posting its form), the rules and privacy pages, the
+//! installation's own documents (`/privacy`, `/terms`), and the
 //! proof-of-work solver the page runs. Which raffle, which entrant and what
 //! the join did is decided here; [`pages`](crate::pages) renders them.
 
@@ -12,6 +13,7 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
+use rafi_lifecycle::{dates::Date, settings};
 use rafi_store::{EntrantRow, RaffleRow};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -32,6 +34,8 @@ pub fn routes() -> Router {
         .route("/j/{code}", get(page).post(submit))
         .route("/rules/{slug}", get(rules))
         .route("/privacy/{slug}", get(privacy))
+        .route("/privacy", get(installation_privacy))
+        .route("/terms", get(installation_terms))
         .route("/participant/altcha-worker.js", get(altcha_worker))
 }
 
@@ -112,11 +116,37 @@ fn organizer_of(raffle: &RaffleRow) -> pages::Organizer<'_> {
     pages::Organizer {
         name: &raffle.organizer_name,
         contact_email: &raffle.contact_email,
+        privacy_contact: raffle.privacy_contact(),
+        privacy_text: &raffle.privacy_text,
+        privacy_url: &raffle.privacy_url,
+        left: raffle.organizer_left_at.is_some(),
+    }
+}
+
+fn operator_of(app: &AppState) -> pages::Operator<'_> {
+    pages::Operator {
+        name: &app.cfg.operator.name,
+        email: &app.cfg.operator.email,
+        privacy_version: &app.cfg.privacy_version,
+    }
+}
+
+/// When `raffle`'s personal data is erased, as the pages say it.
+fn retention_of(app: &AppState, raffle: &RaffleRow) -> pages::ErasureDates {
+    // A stored date always parses; the start of time if not, which the page
+    // would make obvious.
+    let event = Date::parse(&raffle.event_date).unwrap_or(Date::from_days(0));
+    let hold = app.policy.retention.winner_hold_days;
+    pages::ErasureDates {
+        event,
+        erase: settings::erase_date(event, raffle.retention_days),
+        winners_erase: settings::erase_date(event, raffle.retention_days + hold),
     }
 }
 
 /// The participant page of `raffle` for this request.
 fn render_page(
+    app: &AppState,
     raffle: &RaffleRow,
     live: &service::public::Participant,
     entrant: Option<&EntrantRow>,
@@ -137,6 +167,8 @@ fn render_page(
         email: &form.email,
         name_ideas: &service::name_ideas(NAME_IDEAS),
         now_ms: service::ids::now_ms(),
+        retention: retention_of(app, raffle),
+        min_age: app.cfg.min_age,
     })
 }
 
@@ -171,6 +203,7 @@ async fn page(
         return not_found();
     };
     let html = render_page(
+        &app,
         &raffle,
         &live,
         entrant.as_ref(),
@@ -222,7 +255,7 @@ async fn submit(
     } else {
         form
     };
-    let html = render_page(&raffle, &live, None, notice, &form);
+    let html = render_page(&app, &raffle, &live, None, notice, &form);
     (status, [(header::CACHE_CONTROL, "no-store")], Html(html)).into_response()
 }
 
@@ -292,6 +325,7 @@ async fn rules(Extension(app): Extension<AppState>, Path(slug): Path<String>) ->
             })
             .collect(),
         additional: &r.rules,
+        min_age: app.cfg.min_age,
     };
     Html(pages::rules(&rules)).into_response()
 }
@@ -300,7 +334,35 @@ async fn privacy(Extension(app): Extension<AppState>, Path(slug): Path<String>) 
     let Some(r) = load_slug(&app, &slug).await else {
         return not_found();
     };
-    Html(pages::privacy(raffle_of(&r), organizer_of(&r))).into_response()
+    let notice = pages::Privacy {
+        raffle: raffle_of(&r),
+        organizer: organizer_of(&r),
+        operator: operator_of(&app),
+        retention: retention_of(&app, &r),
+    };
+    Html(pages::privacy(&notice)).into_response()
+}
+
+/// The installation's own privacy notice: the operator's, naming its
+/// subprocessors.
+async fn installation_privacy(Extension(app): Extension<AppState>) -> Response {
+    Html(pages::legal(
+        "Privacy notice",
+        &app.cfg.privacy_version,
+        &app.cfg.documents.privacy,
+    ))
+    .into_response()
+}
+
+/// The operator's terms, with the data processing agreement: what organizers
+/// accept in the admin.
+async fn installation_terms(Extension(app): Extension<AppState>) -> Response {
+    Html(pages::legal(
+        "Terms",
+        &app.cfg.terms_version,
+        &app.cfg.documents.terms,
+    ))
+    .into_response()
 }
 
 /// [`altcha_worker`]'s entity tag: a hash of the script, so it changes when

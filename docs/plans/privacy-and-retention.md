@@ -1,8 +1,9 @@
 # Privacy and retention
 
-**Status: proposed (2026-10-21).** The privacy review's main spec: automatic erasure comes back, redesigned; the
+**Status: implemented (2026-10-21).** The privacy review's main spec: automatic erasure comes back, redesigned; the
 legal surfaces the hosted instance needs are added; the marketing opt-in is removed and gets its own plan
-([marketing-opt-in.md](marketing-opt-in.md)).
+([marketing-opt-in.md](marketing-opt-in.md)). What the software does is in
+[docs/explanation/privacy-and-abuse.md](../explanation/privacy-and-abuse.md); this document is the reasoning.
 
 [docs/history/retention.md](../history/retention.md) describes the automatic erasure Rafi had until 2026-10-20.
 Where this spec differs from it, this spec wins; where it is silent, that design and its §8 "decisions worth

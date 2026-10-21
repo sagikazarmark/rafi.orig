@@ -86,15 +86,31 @@ pub enum Refusal {
     // Settings and prizes.
     Title,
     Texts,
+    EventDate,
+    Retention {
+        max_days: i64,
+    },
+    PrivacyUrl,
     TestModeLocked,
-    /// The additional rules can't change: someone accepted them.
-    RulesFixed,
+    /// The named fixed settings can't change: someone accepted the rules
+    /// they were shown with.
+    SettingsFixed(Vec<&'static str>),
     PrizeName,
     PrizeQty,
     PrizesFrozen,
     // Raffles.
     DrawPending,
     JoinCodes,
+    /// Registration can't open: the privacy notice can't name the organizer
+    /// or a way to reach them. The fields still missing.
+    OrganizerMissing(Vec<&'static str>),
+    /// The organizer hasn't accepted the current terms.
+    TermsNotAccepted,
+    /// The organizer accepted an older version of the terms than the current one.
+    TermsOutdated,
+    /// The organizer's data can't be removed while one of their raffles is
+    /// frozen or drawing.
+    EventLive,
     Lifecycle {
         command: lifecycle::Command,
         from: RaffleState,
@@ -142,6 +158,9 @@ impl Refusal {
         match self {
             Self::Title
             | Self::Texts
+            | Self::EventDate
+            | Self::Retention { .. }
+            | Self::PrivacyUrl
             | Self::PrizeName
             | Self::PrizeQty
             | Self::Name(_)
@@ -155,11 +174,16 @@ impl Refusal {
 
 impl std::error::Error for Refusal {}
 
-impl From<SettingsError> for Refusal {
-    fn from(e: SettingsError) -> Self {
+impl Refusal {
+    /// Why settings were refused, with the installation's longest retention
+    /// period for the message.
+    pub(crate) fn settings(e: SettingsError, max_days: i64) -> Self {
         match e {
             SettingsError::Title => Self::Title,
             SettingsError::TooLong => Self::Texts,
+            SettingsError::EventDate => Self::EventDate,
+            SettingsError::Retention => Self::Retention { max_days },
+            SettingsError::PrivacyUrl => Self::PrivacyUrl,
         }
     }
 }
@@ -172,10 +196,23 @@ impl fmt::Display for Refusal {
                 "The title must be 1–{} characters.",
                 settings::MAX_TITLE_CHARS
             ),
-            Self::Texts => f.write_str("Description or rules are too long."),
+            Self::Texts => f.write_str("Description, rules or privacy text are too long."),
+            Self::EventDate => f.write_str("The event date must be a calendar day (YYYY-MM-DD)."),
+            Self::Retention { max_days } => write!(
+                f,
+                "The retention period must be between 0 and {max_days} days."
+            ),
+            Self::PrivacyUrl => {
+                f.write_str("The privacy notice link must be an absolute https:// URL.")
+            }
             Self::TestModeLocked => f.write_str("Test mode cannot change after the draw started."),
-            Self::RulesFixed => f.write_str(
-                "The additional rules cannot change: entrants have already accepted them.",
+            Self::SettingsFixed(fields) if fields.is_empty() => f.write_str(
+                "These settings cannot change: entrants have already accepted them.",
+            ),
+            Self::SettingsFixed(fields) => write!(
+                f,
+                "The {} cannot change: entrants have already accepted the rules they were shown with.",
+                fields.join(", ")
             ),
             Self::PrizeName => write!(
                 f,
@@ -192,6 +229,20 @@ impl fmt::Display for Refusal {
             }
             Self::DrawPending => f.write_str("A draw is in progress."),
             Self::JoinCodes => f.write_str("Could not allocate a unique join code; please try again."),
+            Self::OrganizerMissing(fields) => write!(
+                f,
+                "Before registration can open, fill in {} in the settings: the privacy notice must name the data controller and how to reach them.",
+                fields.join(" and ")
+            ),
+            Self::TermsNotAccepted => f.write_str(
+                "Please read and accept the terms (with the data processing agreement) before creating a raffle.",
+            ),
+            Self::TermsOutdated => f.write_str(
+                "The terms have changed since you read them. Please reload and read the current version.",
+            ),
+            Self::EventLive => f.write_str(
+                "Your data can't be removed while one of your raffles is being drawn. Finish it first.",
+            ),
             Self::Lifecycle { command, from } => {
                 write!(f, "Cannot {command:?} a raffle that is {}.", from.as_str())
             }

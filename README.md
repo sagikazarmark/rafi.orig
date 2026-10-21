@@ -37,7 +37,7 @@ There are four screens:
 |---|---|---|
 | **Projector** | `/s/<slug>` | Intro, prizes, QR code, live entrant count, countdown, winner reveal. Never shows emails or admin controls. |
 | **Participant page** | `/j/<CODE>` | Server-rendered, so it works on bad venue wifi. It shows "YOU WON!" with a private claim code. |
-| **Organizer admin** | `/admin` | Raffles, prizes, people without a smartphone, the draw console (Draw / Handed over / Not here / Declined), CSV export |
+| **Organizer admin** | `/admin` | Raffles, prizes, people without a smartphone, the draw console (Draw / Claimed / Not here / Declined), CSV export |
 | **Verification** | `/v/<slug>` | Re-runs every draw in the browser. [`tools/verify.py`](tools/verify.py) does the same independently. |
 
 ## Why you can trust the draw
@@ -97,7 +97,7 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 **Understanding Rafi**
 - [Why the draw is verifiable](docs/explanation/verifiability.md): drand, commit-reveal, the threat model
 - [Architecture](docs/explanation/architecture.md)
-- [Privacy and abuse](docs/explanation/privacy-and-abuse.md)
+- [Privacy and abuse](docs/explanation/privacy-and-abuse.md): what is stored, published and erased, and when
 
 **Operating Rafi**
 - [Overview](docs/operations/overview.md): what you deploy, and the topologies
@@ -112,6 +112,8 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 **Developing Rafi**
 - [Getting started](docs/development/getting-started.md) · [Testing](docs/development/testing.md) ·
   [The web app](docs/development/web-app.md)
+- [Plans](docs/plans): specs for work in progress or just done, with the reasoning
+  ([privacy and retention](docs/plans/privacy-and-retention.md), [marketing opt-in](docs/plans/marketing-opt-in.md))
 - [Design history](docs/history): the notes written during development, with the reasoning behind decisions.
   These are historical: the code is the source of truth.
 

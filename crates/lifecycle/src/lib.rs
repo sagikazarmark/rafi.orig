@@ -8,6 +8,7 @@
 //! Everything here is pure: the app and the store ask these rules, and keep
 //! none of their own.
 
+pub mod dates;
 pub mod entrant;
 pub mod live;
 pub mod raffle;
@@ -115,6 +116,19 @@ impl RaffleState {
         (self == Self::Frozen && to.apply(Command::Freeze) == Some(Self::Frozen)).then_some(to)
     }
 
+    /// Whether the raffle expires when its erasure date passes: it was never
+    /// frozen, so there is no manifest and nothing to keep verifiable. Its
+    /// entrants are deleted outright and it becomes [`Purged`](Self::Purged).
+    /// Not a command: no organizer asks for it; housekeeping does it.
+    pub fn expires(self) -> bool {
+        !self.frozen_or_later()
+    }
+
+    /// The state an expired raffle ends in.
+    pub fn expire(self) -> Option<Self> {
+        self.expires().then_some(Self::Purged)
+    }
+
     /// Whether the lifecycle follows the raffle ([`raffle::lifecycle`]):
     /// from the freeze until the raffle finishes. A stored raffle moves the
     /// lifecycle only in these states.
@@ -141,25 +155,27 @@ impl RaffleState {
     }
 
     /// How an entrant is removed, if they can be: deleted while the list can
-    /// change; once the raffle is over, their ID stays in the published list
-    /// and only their personal data is erased. In between (from the freeze
-    /// until the raffle finishes) nobody is removed: sharing their entry is
-    /// part of the rules they accepted. The organizer can still hide or
-    /// rename them.
-    pub fn removal(self) -> Option<entrant::Removal> {
+    /// change; once the raffle is over, or its erasure date has passed
+    /// (`past_erase_date`), their ID stays in the published list and only
+    /// their personal data is erased. In between (from the freeze until the
+    /// raffle finishes or the date passes) nobody is removed: sharing their
+    /// entry is part of the rules they accepted. The organizer can still hide
+    /// or rename them.
+    pub fn removal(self, past_erase_date: bool) -> Option<entrant::Removal> {
         if self.entrants_editable() {
             Some(entrant::Removal::Delete)
-        } else if self.personal_data_erasable() {
+        } else if self.personal_data_erasable(past_erase_date) {
             Some(entrant::Removal::Erase)
         } else {
             None
         }
     }
 
-    /// Whether entrants' personal data can be erased: once the raffle is
-    /// over, one entrant at a time or everyone at once.
-    pub fn personal_data_erasable(self) -> bool {
-        self.is_over()
+    /// Whether entrants' personal data can be erased, one entrant at a time:
+    /// once the raffle is over, or once its erasure date has passed
+    /// (`past_erase_date`) and the list is frozen.
+    pub fn personal_data_erasable(self, past_erase_date: bool) -> bool {
+        self.is_over() || (self.frozen_or_later() && past_erase_date)
     }
 
     /// Whether the entrant list is frozen: from the freeze on, the raffle
@@ -243,7 +259,23 @@ mod tests {
                 S::Frozen | S::Drawing => None,
                 S::Finished | S::Purged => Some(Removal::Erase),
             };
-            assert_eq!(s.removal(), want, "{s:?}");
+            assert_eq!(s.removal(false), want, "{s:?} before the erasure date");
+            let want_past = match s {
+                S::Draft | S::Ready | S::Open | S::Closed => Some(Removal::Delete),
+                S::Frozen | S::Drawing | S::Finished | S::Purged => Some(Removal::Erase),
+            };
+            assert_eq!(s.removal(true), want_past, "{s:?} past the erasure date");
+        }
+    }
+
+    #[test]
+    fn never_frozen_raffles_expire() {
+        for s in S::ALL {
+            let want = match s {
+                S::Draft | S::Ready | S::Open | S::Closed => Some(S::Purged),
+                S::Frozen | S::Drawing | S::Finished | S::Purged => None,
+            };
+            assert_eq!(s.expire(), want, "{s:?}");
         }
     }
 

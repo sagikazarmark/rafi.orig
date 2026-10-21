@@ -21,8 +21,9 @@ use crate::{
         textarea::TextareaField,
         toast::{ToastOptions, use_toast},
     },
+    ui::dates,
 };
-use rafi_api::{PrizeInput, RaffleDefaults, RaffleSettings};
+use rafi_api::{PrizeInput, RaffleDefaults, RaffleSettings, Retention};
 
 pub fn err_text(e: ApiError) -> String {
     e.message
@@ -66,6 +67,17 @@ fn optional_email<M: 'static>()
     }
 }
 
+fn optional_https_url<M: 'static>()
+-> impl for<'a> Fn(&'a String, ValidatorContext<'a, M>) -> Vec<String> + 'static {
+    |value: &String, _ctx: ValidatorContext<'_, M>| {
+        if settings::url(value).is_some() {
+            Vec::new()
+        } else {
+            vec!["An absolute https:// link.".to_owned()]
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // New raffle
 // ---------------------------------------------------------------------------
@@ -73,21 +85,31 @@ fn optional_email<M: 'static>()
 #[derive(Clone, Debug, Default, PartialEq, Form)]
 struct NewRaffle {
     title: String,
+    /// The event day, `YYYY-MM-DD`; today unless changed.
+    event_date: String,
 }
 
 #[component]
 pub fn CreateRaffleForm(on_created: EventHandler<String>) -> Element {
     let form = use_form_handle(|| {
         let handle = FormHandle::<NewRaffle>::from_config(
-            FormConfig::new(NewRaffle::default())
-                .id_namespace("new-raffle")
-                .validation_mode(ValidationMode::on_submit()),
+            FormConfig::new(NewRaffle {
+                title: String::new(),
+                event_date: dates::today_iso(),
+            })
+            .id_namespace("new-raffle")
+            .validation_mode(ValidationMode::on_submit()),
         );
         handle.write_advanced(|core| {
             core.register_sync_field_validator(
                 NewRaffle::fields().title(),
                 "required",
                 required("Give your raffle a name."),
+            );
+            core.register_sync_field_validator(
+                NewRaffle::fields().event_date(),
+                "required",
+                required("When is the event?"),
             );
         });
         handle
@@ -105,9 +127,14 @@ pub fn CreateRaffleForm(on_created: EventHandler<String>) -> Element {
             onsubmit: move |event| {
                 let reset = reset.clone();
                 let _ = submit.on_submit_async(event, move |s: SubmissionSnapshot<NewRaffle>| async move {
-                    match api::create_raffle(s.value().title.clone()).await {
+                    let NewRaffle { title, event_date } = s.value().clone();
+                    let ends_at = dates::end_of_day_local(&event_date);
+                    match api::create_raffle(title, event_date, ends_at).await {
                         Ok(id) => {
-                            reset.reinitialize(NewRaffle::default());
+                            reset.reinitialize(NewRaffle {
+                                title: String::new(),
+                                event_date: dates::today_iso(),
+                            });
                             on_created.call(id);
                             SubmitErrors::none()
                         }
@@ -127,6 +154,14 @@ pub fn CreateRaffleForm(on_created: EventHandler<String>) -> Element {
                     wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
                 }
                 FormErrors { errors: form_errors }
+            }
+            InputField {
+                context: form.text(fields.event_date()),
+                label: "Event date",
+                size: InputSize::Lg,
+                r#type: "date",
+                required: true,
+                title: "The day of the draw. Entrants' data is erased a set number of days after it.",
             }
             Button { color: ButtonColor::Primary, size: ButtonSize::Lg, class: "hover-wiggle sm:mb-6", r#type: "submit", disabled: busy,
                 if busy { span { class: "loading loading-spinner loading-sm" } } else { Plus { class: "size-5" } }
@@ -371,8 +406,13 @@ struct Settings {
     title: String,
     description: String,
     event_date: String,
+    /// Days after the event date, as typed.
+    retention_days: String,
     organizer_name: String,
     contact_email: String,
+    privacy_email: String,
+    privacy_url: String,
+    privacy_text: String,
     rules: String,
     test_mode: bool,
 }
@@ -383,8 +423,12 @@ impl From<&RaffleSettings> for Settings {
             title: s.title.clone(),
             description: s.description.clone(),
             event_date: s.event_date.clone(),
+            retention_days: s.retention_days.to_string(),
             organizer_name: s.organizer_name.clone(),
             contact_email: s.contact_email.clone(),
+            privacy_email: s.privacy_email.clone(),
+            privacy_url: s.privacy_url.clone(),
+            privacy_text: s.privacy_text.clone(),
             rules: s.rules.clone(),
             test_mode: s.test_mode,
         }
@@ -393,13 +437,21 @@ impl From<&RaffleSettings> for Settings {
 
 impl From<Settings> for RaffleSettings {
     fn from(s: Settings) -> Self {
+        // The end of the event day where the organizer is; the server keeps
+        // the stored instant when the day itself didn't change.
+        let event_ends_at = dates::end_of_day_local(&s.event_date);
         Self {
             title: s.title,
             description: s.description,
             organizer_name: s.organizer_name,
             contact_email: s.contact_email,
+            privacy_email: s.privacy_email,
+            privacy_text: s.privacy_text,
+            privacy_url: s.privacy_url,
             rules: s.rules,
             event_date: s.event_date,
+            event_ends_at,
+            retention_days: s.retention_days.trim().parse().unwrap_or(-1),
             test_mode: s.test_mode,
         }
     }
@@ -409,12 +461,16 @@ impl From<Settings> for RaffleSettings {
 pub fn SettingsForm(
     raffle_id: String,
     settings: RaffleSettings,
-    /// Whether the additional rules can still change: not once an entrant
-    /// accepted them.
+    /// Whether the fixed settings (the additional rules, the event date, the
+    /// retention period, the privacy text and link) can still change: not
+    /// once an entrant accepted them.
     rules_editable: bool,
+    /// The installation's periods, for the retention field.
+    retention: Retention,
     on_saved: EventHandler<()>,
 ) -> Element {
     let initial = Settings::from(&settings);
+    let max_days = retention.max_days;
     let form = use_form_handle(move || {
         let handle = FormHandle::<Settings>::from_config(
             FormConfig::new(initial)
@@ -428,7 +484,25 @@ pub fn SettingsForm(
                 "required",
                 required("The raffle needs a title."),
             );
+            core.register_sync_field_validator(
+                f.event_date(),
+                "required",
+                required("The raffle needs an event date."),
+            );
             core.register_sync_field_validator(f.contact_email(), "email", optional_email());
+            core.register_sync_field_validator(f.privacy_email(), "email", optional_email());
+            core.register_sync_field_validator(f.privacy_url(), "url", optional_https_url());
+            core.register_sync_field_validator(
+                f.retention_days(),
+                "range",
+                move |value: &String, _ctx: ValidatorContext<'_, _>| match value
+                    .trim()
+                    .parse::<i64>()
+                {
+                    Ok(d) if (0..=max_days).contains(&d) => Vec::new(),
+                    _ => vec![format!("Between 0 and {max_days} days.")],
+                },
+            );
         });
         handle
     });
@@ -471,8 +545,14 @@ pub fn SettingsForm(
                     let f = Settings::fields();
                     form.text(f.organizer_name()).set_value(d.organizer_name);
                     form.text(f.contact_email()).set_value(d.contact_email);
+                    form.text(f.privacy_email()).set_value(d.privacy_email);
                     if rules_editable {
                         form.textarea(f.rules()).set_value(d.rules);
+                        form.textarea(f.privacy_text()).set_value(d.privacy_text);
+                        form.text(f.privacy_url()).set_value(d.privacy_url);
+                        if let Some(days) = d.retention_days {
+                            form.text(f.retention_days()).set_value(days.to_string());
+                        }
                     }
                 }
                 Err(e) => toast.error(err_text(e), ToastOptions::new()),
@@ -488,13 +568,17 @@ pub fn SettingsForm(
             let res = api::save_defaults(RaffleDefaults {
                 organizer_name: s.organizer_name,
                 contact_email: s.contact_email,
+                privacy_email: s.privacy_email,
+                privacy_text: s.privacy_text,
+                privacy_url: s.privacy_url,
                 rules: s.rules,
+                retention_days: s.retention_days.trim().parse().ok(),
             })
             .await;
             saving_defaults.set(false);
             match res {
                 Ok(()) => toast.success(
-                    "📌 New raffles will start with this organizer, contact and rules".to_owned(),
+                    "📌 New raffles will start with this organizer, contacts, privacy text, rules and retention period".to_owned(),
                     ToastOptions::new(),
                 ),
                 Err(e) => toast.error(err_text(e), ToastOptions::new()),
@@ -542,21 +626,73 @@ pub fn SettingsForm(
             InputField {
                 context: form.text(f.contact_email()),
                 label: "Contact email",
-                description: "For privacy requests.",
+                description: "Shown in the rules and the privacy notice. Needed before registration can open (or a privacy contact).",
                 r#type: "email",
                 class: "w-full",
             }
-            InputField { context: form.text(f.event_date()), label: "Event date", r#type: "date", class: "w-full" }
+            InputField {
+                context: form.text(f.privacy_email()),
+                label: "Privacy contact (optional)",
+                description: "Where privacy requests go, if not the contact email: a DPO, for instance. Can change at any time.",
+                r#type: "email",
+                class: "w-full",
+            }
+            InputField {
+                context: form.text(f.privacy_url()),
+                label: "Your own privacy notice (optional)",
+                description: if rules_editable { "An https:// link, shown after the generated notice." } else { "Locked: entrants have seen it." },
+                r#type: "url",
+                placeholder: "https://",
+                readonly: !rules_editable,
+                class: "w-full",
+            }
+            InputField {
+                context: form.text(f.event_date()),
+                label: "Event date",
+                description: if rules_editable { "The day of the draw. Entrants' data is erased a set number of days after it." } else { "Locked: entrants were told their erasure date." },
+                r#type: "date",
+                required: true,
+                readonly: !rules_editable,
+                class: "w-full",
+            }
+            InputField {
+                context: form.text(f.retention_days()),
+                label: "Erase non-winners after (days)",
+                description: if rules_editable {
+                    format!("Days after the event date. Up to {max_days}; this service's default is {}. Winners are kept until their prize is marked delivered, at the latest {} days longer.", retention.default_days, retention.winner_hold_days)
+                } else {
+                    "Locked: entrants were told their erasure date.".to_owned()
+                },
+                r#type: "number",
+                min: "0",
+                max: "{max_days}",
+                readonly: !rules_editable,
+                class: "w-full",
+            }
             div { class: "md:col-span-2",
                 TextareaField {
                     context: form.textarea(f.rules()),
                     label: "Additional rules",
                     description: if rules_editable {
-                        "One paragraph per line, appended to the standard rules. Put any age limit here."
+                        "One paragraph per line, appended to the standard rules. Put a higher age limit here."
                     } else {
                         "Locked: entrants have accepted these rules."
                     },
                     placeholder: "e.g. Entrants must be 18 or older.",
+                    readonly: !rules_editable,
+                    rows: "3",
+                    class: "w-full",
+                }
+            }
+            div { class: "md:col-span-2",
+                TextareaField {
+                    context: form.textarea(f.privacy_text()),
+                    label: "Your own privacy text (optional)",
+                    description: if rules_editable {
+                        "One paragraph per line, shown after the generated privacy notice, never instead of it."
+                    } else {
+                        "Locked: entrants have seen it."
+                    },
                     readonly: !rules_editable,
                     rows: "3",
                     class: "w-full",

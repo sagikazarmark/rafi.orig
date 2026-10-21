@@ -220,7 +220,7 @@ pub(super) fn DrawConsole(
                                                 button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let item = uid.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Withdraw { item: item.clone(), prize: prize.clone() }) }, "Withdraw" }
                                             },
                                             ItemStatus::Drawn if drawable => rsx! {
-                                                button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Check { class: "size-5" } "Handed over" }
+                                                button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Check { class: "size-5" } "Claimed" }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::NotHere { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Not here" }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
                                             },
@@ -251,7 +251,7 @@ pub(super) fn DrawConsole(
             Confirm {
                 open: ask_finish,
                 title: if items_left == 0 { "Finish the raffle?".to_owned() } else { format!("Finish with {items_left} prize(s) left?") },
-                body: "The thank-you screen goes up and nothing more can be drawn. Erase personal data from the raffle's menu once prizes are handed out.",
+                body: "The thank-you screen goes up and nothing more can be drawn. Personal data is erased on the dates entrants were shown; mark prizes delivered as they reach their winners, or erase earlier from the raffle's menu.",
                 action: "🎉 Finish",
                 on_confirm: move |_| { spawn(finish()); },
             }
@@ -342,7 +342,7 @@ fn status_label(s: ItemStatus) -> &'static str {
     match s {
         ItemStatus::Available => "to be drawn",
         ItemStatus::Drawn => "drawn: waiting for the winner",
-        ItemStatus::Claimed => "handed over",
+        ItemStatus::Claimed => "claimed",
         ItemStatus::Voided => "withdrawn",
     }
 }
