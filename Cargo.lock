@@ -2042,17 +2042,19 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "drand"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf42fd633c8fd52ad9a1be2a7375bd0c932985974ddb54b8311ac5c9d363e683"
+checksum = "4a4135d94c872520fd9bd42bfe24f0905b63492cb5f4417f67b6e035250331a8"
 dependencies = [
  "ark-bls12-381",
  "ark-ec",
  "ark-ff",
  "ark-serialize",
+ "bytes",
  "futures-util",
  "gloo-timers 0.4.0",
  "hex",
+ "http",
  "reqwest 0.13.5",
  "send_wrapper",
  "serde",
@@ -5377,9 +5379,9 @@ dependencies = [
 
 [[package]]
 name = "restate-drand"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e337537f00983cab92c044087038518681257f1305fffb7751be68ade1031b1"
+checksum = "2ef4e8b1747b6be5a0e99534393641ab8ff27100ef75a6c2deffdc6736e47492"
 dependencies = [
  "anyhow",
  "drand",
