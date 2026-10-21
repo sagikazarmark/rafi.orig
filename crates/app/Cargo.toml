@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 anyhow = "1"
 altcha-server = { workspace = true }
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 hex = { workspace = true }
 rafi-raffle = { workspace = true }
 rafi-engine = { workspace = true }
