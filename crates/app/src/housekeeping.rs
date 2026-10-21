@@ -20,7 +20,8 @@
 //! The database side is [`rafi_store::retention`] and
 //! [`rafi_store::housekeeping`]: set-based writes, a few statements per run
 //! whatever the number of entrants. A successful run records when it
-//! happened; the admin warns when none has for two hours ([`stale`]).
+//! happened; the admin warns when none has for two hours since there was
+//! first anything to erase ([`stale`]).
 //!
 //! The organizer can always erase earlier ([`purge`](crate::purge),
 //! [`remove_entrant`](crate::remove_entrant)); nothing extends a date.
@@ -113,14 +114,24 @@ async fn finish_at_ceiling(app: &App, now: i64, hold: i64) {
 }
 
 /// Whether erasure may have stopped: no run has succeeded in the last
-/// [`STALE_AFTER_SECS`].
+/// [`STALE_AFTER_SECS`], counting from when there was first anything to
+/// erase. A fresh installation with no raffles, or with raffles younger
+/// than that, isn't stale: nothing has been promised and missed yet.
 pub async fn stale(app: &App) -> anyhow::Result<bool> {
     let last_ok = store::last_ok(&app.db).await?;
-    Ok(is_stale(last_ok, ids::now()))
+    let since = store::oldest_raffle_at(&app.db).await?;
+    Ok(is_stale(last_ok, since, ids::now()))
 }
 
-fn is_stale(last_ok: Option<i64>, now: i64) -> bool {
-    last_ok.is_none_or(|at| now - at > STALE_AFTER_SECS)
+/// Whether a run that last succeeded at `last_ok` (if ever) counts as
+/// stopped at `now`, given that the oldest raffle was created at `since`
+/// (if any).
+fn is_stale(last_ok: Option<i64>, since: Option<i64>, now: i64) -> bool {
+    match (last_ok, since) {
+        (Some(at), _) => now - at > STALE_AFTER_SECS,
+        (None, Some(since)) => now - since > STALE_AFTER_SECS,
+        (None, None) => false,
+    }
 }
 
 /// Destroys the live channel of every raffle that finished more than
@@ -159,8 +170,13 @@ mod tests {
 
     #[test]
     fn stale_after_two_hours_without_a_run() {
-        assert!(is_stale(None, 10_000));
-        assert!(!is_stale(Some(10_000 - STALE_AFTER_SECS), 10_000));
-        assert!(is_stale(Some(10_000 - STALE_AFTER_SECS - 1), 10_000));
+        let now = 100_000;
+        // A run succeeded: two hours from it, whatever the raffles.
+        assert!(!is_stale(Some(now - STALE_AFTER_SECS), None, now));
+        assert!(is_stale(Some(now - STALE_AFTER_SECS - 1), Some(0), now));
+        // Never ran: two hours from the first raffle.
+        assert!(!is_stale(None, None, now), "nothing to erase yet");
+        assert!(!is_stale(None, Some(now - STALE_AFTER_SECS), now));
+        assert!(is_stale(None, Some(now - STALE_AFTER_SECS - 1), now));
     }
 }

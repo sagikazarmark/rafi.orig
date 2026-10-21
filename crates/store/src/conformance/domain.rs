@@ -1776,6 +1776,78 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     )
 }
 
+/// Erasures that race (an organizer's purge against housekeeping, each on
+/// its own connection) log each entrant once: every erasure is one batch
+/// that reads `erased = 0` and sets it, and the backend's transactions must
+/// keep that exact (Postgres: serializable, retried on conflict). Relaxing
+/// the isolation level would double the log and the audit counts.
+pub(super) async fn racing_erasures_log_each_entrant_once(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    let ids: Vec<String> = (0..12).map(|n| format!("{n:032}")).collect();
+    for id in &ids {
+        check(join(db, "r1", id, &format!("{id}@x"), 20).await?, "joining")?;
+    }
+    force_state(db, "r1", RaffleState::Finished).await?;
+    erase_at(db, "r1", 100).await?;
+
+    // Four purges and four housekeeping runs, all at once.
+    let purges = (0..4).map(|_| {
+        Box::pin(async {
+            entrants::erase(db, "r1", None, 100)
+                .await
+                .map(|_| ())
+                .map_err(fail)
+        }) as std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>>
+    });
+    let runs = (0..4).map(|_| {
+        Box::pin(async {
+            retention::erase_due(db, 100, 900)
+                .await
+                .map(|_| ())
+                .map_err(fail)
+        }) as std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>>
+    });
+    for result in futures_util::future::join_all(purges.chain(runs)).await {
+        result?;
+    }
+
+    check(
+        entrants::list(db, "r1")
+            .await
+            .map_err(fail)?
+            .iter()
+            .all(|e| e.erased),
+        "everyone is erased",
+    )?;
+    let logged: Vec<(String,)> = db
+        .query("SELECT entrant_id FROM erasures WHERE raffle_id = 'r1' ORDER BY entrant_id")
+        .all()
+        .await
+        .map_err(fail)?;
+    let logged: Vec<String> = logged.into_iter().map(|(id,)| id).collect();
+    check(
+        logged == ids,
+        &format!(
+            "each entrant logged once: {} rows for {} entrants",
+            logged.len(),
+            ids.len()
+        ),
+    )?;
+    let audited: Vec<(String,)> = db
+        .query("SELECT detail FROM audit WHERE raffle_id = 'r1' AND action = 'auto_erase'")
+        .all()
+        .await
+        .map_err(fail)?;
+    let counted: i64 = audited
+        .iter()
+        .map(|(d,)| d.parse::<i64>().unwrap_or(0))
+        .sum();
+    check(
+        counted <= ids.len() as i64,
+        &format!("the audit counts don't exceed the entrants: {audited:?}"),
+    )
+}
+
 /// Marking every winner delivered, and the owner leaving: one batch that
 /// deletes what was never frozen, erases and purges what is over, leaves
 /// what is being drawn and other owners alone, and forgets the defaults.

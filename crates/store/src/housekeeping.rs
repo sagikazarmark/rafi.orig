@@ -30,6 +30,16 @@ pub async fn live_ended(db: &Db, raffle_id: &str, now: i64) -> Result<()> {
         .map(|_| ())
 }
 
+/// Since when there has been anything for housekeeping to do: when the
+/// oldest raffle was created (unix seconds), if any.
+pub async fn oldest_raffle_at(db: &Db) -> Result<Option<i64>> {
+    let (at,): (Option<i64>,) = db
+        .query("SELECT MIN(created_at) FROM raffles")
+        .one()
+        .await?;
+    Ok(at)
+}
+
 /// When the last run succeeded (unix seconds), if ever.
 pub async fn last_ok(db: &Db) -> Result<Option<i64>> {
     let row: Option<(String,)> = db

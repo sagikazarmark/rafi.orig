@@ -125,7 +125,7 @@ IP=127.0.0.1 PORT=8081 \
 
 The app runs the hourly housekeeping itself: it erases personal data on the dates entrants were shown, forgets
 expired proof-of-work challenges and ends live updates a day after a raffle finishes. If no run has succeeded for
-two hours, every organizer's admin shows a warning.
+two hours (counted from the first raffle), every organizer's admin shows a warning.
 
 ## 7. Reverse proxy
 

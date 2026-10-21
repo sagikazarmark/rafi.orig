@@ -3132,7 +3132,8 @@ async fn erasures_are_reapplied_after_a_restore() {
     );
 }
 
-/// `whoami` warns when housekeeping hasn't succeeded for two hours.
+/// `whoami` warns when housekeeping hasn't succeeded for two hours, counted
+/// from the first raffle: a fresh installation isn't stale.
 #[tokio::test]
 async fn a_stopped_run_is_reported() {
     let mut cfg = Config::for_tests();
@@ -3144,7 +3145,23 @@ async fn a_stopped_run_is_reported() {
         assert_eq!(status, StatusCode::OK, "{body}");
         serde_json::from_str(&body).unwrap()
     };
-    assert!(me(&router).await.retention_stale, "never ran");
+    assert!(!me(&router).await.retention_stale, "nothing to erase yet");
+    let id = create(&app, "dev", "First").await;
+    assert!(
+        !me(&router).await.retention_stale,
+        "a raffle younger than two hours"
+    );
+    app.db
+        .query("UPDATE raffles SET created_at = ? WHERE id = ?")
+        .bind(service::ids::now() - service::housekeeping::STALE_AFTER_SECS - 1)
+        .bind(&id)
+        .run()
+        .await
+        .unwrap();
+    assert!(
+        me(&router).await.retention_stale,
+        "two hours with something to erase and no run"
+    );
     service::housekeeping::run(&app).await.unwrap();
     assert!(!me(&router).await.retention_stale);
     app.db

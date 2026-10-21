@@ -61,7 +61,8 @@ only) and every automatic one audited per raffle, so they can be re-applied afte
 entrant besides the ID: when they joined and accepted the rules, whether their prize was delivered, how they got in,
 and whether their name was hidden. A winner's exported details are the organizer's copy, outside Rafi.
 
-If no housekeeping run has succeeded for two hours, every organizer's admin says so.
+If no housekeeping run has succeeded for two hours (counting from the first raffle: a fresh installation has
+nothing to erase yet), every organizer's admin says so.
 
 On Cloudflare D1, Time Travel keeps erased data for up to 30 more days. The installation's notice should say so (the
 template does).

@@ -215,6 +215,8 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "domain.owner_defaults" => domain::saves_owner_defaults,
     "domain.erasure_log" => domain::erases_and_logs_erasures,
     "domain.retention" => domain::retention_erases_what_is_due,
+    "domain.erase_race" needs Capabilities::CONCURRENT_SESSIONS
+        => domain::racing_erasures_log_each_entrant_once,
     "domain.deliver_all_and_leave" => domain::delivers_all_and_removes_the_organizer,
     "domain.legal_acceptances" => domain::records_legal_acceptances,
     "domain.live_channels" => domain::live_channels_end_once,

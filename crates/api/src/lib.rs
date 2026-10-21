@@ -334,7 +334,7 @@ pub struct Me {
     #[serde(default)]
     pub terms_accepted: bool,
     /// Whether automatic erasure looks stopped: no housekeeping run has
-    /// succeeded for two hours.
+    /// succeeded for two hours, counting from the first raffle.
     #[serde(default)]
     pub retention_stale: bool,
 }
