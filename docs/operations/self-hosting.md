@@ -51,7 +51,8 @@ Pick one, and point both processes at it.
 
 The app reaches the engine through Restate's **ingress**. Restate reaches `rafi-restate` on its endpoint (`:9080`).
 
-- **Self-hosted:** run `restate-server` (the tests pin 1.7.13; `./scripts/restate-server.sh` downloads it). By
+- **Self-hosted:** run `restate-server` (the tests use 1.8.0, the devenv shell's: see `devenv.lock`'s
+  `nix-restate`). By
   default its ingress is on `:8080`, its admin API on `:9070`, and its data in `./restate-data`. If it shares a
   machine with `rafi`, move one of them off `:8080`.
 - **Restate Cloud:** create an environment, an API key with ingress access for the app (`RESTATE_API_KEY`), and set

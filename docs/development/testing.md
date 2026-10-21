@@ -2,9 +2,9 @@
 
 ## Running the tests
 
-```sh
-export RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)   # a pinned restate-server for the end-to-end tests
+In the devenv shell (the end-to-end tests run its `restate-server`, `RESTATE_SERVER_BIN`):
 
+```sh
 # the rules, the app's use cases, drand, the store, the engine conformance suite
 # (local runner, and the Raffle object on restate-server)
 cargo test --workspace --exclude rafi-server --exclude rafi-web -- --include-ignored
@@ -16,7 +16,8 @@ cargo test -p rafi-server -- --include-ignored
 python3 tools/verify.py --vectors testdata/draw-vectors.json
 ```
 
-Without `RESTATE_SERVER_BIN`, the end-to-end tests skip locally (CI fails them instead).
+Without `RESTATE_SERVER_BIN` (outside the devenv shell, set it to a `restate-server` binary), the end-to-end tests
+skip locally (CI fails them instead).
 
 CI ([`.github/workflows/ci.yaml`](../../.github/workflows/ci.yaml)) also checks formatting, runs Clippy on native
 and `wasm32-unknown-unknown` targets, with and without the development features, and runs `cargo-deny`.

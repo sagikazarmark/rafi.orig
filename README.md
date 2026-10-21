@@ -117,15 +117,16 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 
 ## Quick start
 
-To run it locally without draws (no Restate, no Clerk):
+With [devenv](https://devenv.sh), everything (Restate, the raffle engine, the server and the web app, with dev auth
+and live reload):
 
 ```sh
-cargo install dioxus-cli@0.7.10 --locked
-RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi
-(cd apps/web && dx serve --port 8787)       # open http://localhost:8787/admin
+devenv up                                   # open http://localhost:8787/admin
 ```
 
-For draws, phones and everything else, see [Getting started](docs/development/getting-started.md).
+`devenv --profile mock up` works offline, and `devenv --profile workers up` runs it on Cloudflare Workers, under
+`wrangler dev`. Without devenv, and for phones and everything else, see
+[Getting started](docs/development/getting-started.md).
 
 ## License
 

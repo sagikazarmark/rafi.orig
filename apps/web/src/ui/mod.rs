@@ -35,9 +35,13 @@ const _: Asset = asset!(
     AssetOptions::builder().with_hash_suffix(false)
 );
 
-/// Clerk publishable key, baked in at build time. Without it the admin runs
-/// in development mode (the server must then run with `RAFI_DEV_AUTH=1`).
-pub const CLERK_PUBLISHABLE_KEY: Option<&str> = option_env!("CLERK_PUBLISHABLE_KEY");
+/// Clerk publishable key, baked in at build time. Without it (unset or empty)
+/// the admin runs in development mode (the server must then run with
+/// `RAFI_DEV_AUTH=1`).
+pub const CLERK_PUBLISHABLE_KEY: Option<&str> = match option_env!("CLERK_PUBLISHABLE_KEY") {
+    Some(key) if !key.is_empty() => Some(key),
+    _ => None,
+};
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]

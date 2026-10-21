@@ -27,3 +27,6 @@ node_modules/
 
 # A local restate-server's data
 restate-data/
+
+# Local Workers state shared by both Workers (getting-started.md, without devenv)
+.wrangler-state/

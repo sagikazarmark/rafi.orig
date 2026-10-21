@@ -48,5 +48,5 @@ let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(raffle).bind(info
 
 ```sh
 cargo test -p rafi-engine-restate
-RESTATE_SERVER_BIN=$(./scripts/restate-server.sh) cargo test -p rafi-engine-restate -- --ignored  # against a real server
+cargo test -p rafi-engine-restate -- --ignored  # against a real server: RESTATE_SERVER_BIN (set in the devenv shell)
 ```

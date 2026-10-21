@@ -69,5 +69,6 @@ This shows the main dependencies only.
 | [`testbeds/cloudflare`](../../testbeds/cloudflare) | `rafi-cloudflare-check`: a Worker hosting `RaffleRoom` for the live channel's checks. Testbeds are never deployed: `scripts/workers-check.sh` runs them under `wrangler dev`. |
 | [`tools/verify.py`](../../tools/verify.py) | The independent verifier (Python standard library only) |
 | [`testdata`](../../testdata) | Shared test vectors (real quicknet beacons) |
-| [`scripts`](../../scripts) | Build and check scripts: `participant.sh`, `app-assets.sh`, `restate-server.sh`, `workers-check.sh` |
+| [`scripts`](../../scripts) | Build and check scripts: `participant.sh`, `app-assets.sh`, `workers-check.sh` |
+| [`devenv.nix`](../../devenv.nix) | The development shell and `devenv up` (see [Getting started](../development/getting-started.md)) |
 | [`docs/history`](../history) | Design notes from development. Historical: the code is the source of truth. |

@@ -91,5 +91,6 @@ connections). They are soft, per Cloudflare location. The hard limit is `RAFI_MA
 
 ## Local development
 
-See [Getting started: Workers](../development/getting-started.md#cloudflare-workers-locally) and
-`./scripts/workers-check.sh` in [Testing](../development/testing.md#workers).
+`devenv --profile workers up` (see [Getting started](../development/getting-started.md#profiles), or
+[without devenv](../development/getting-started.md#cloudflare-workers)), and `./scripts/workers-check.sh` in
+[Testing](../development/testing.md#workers).

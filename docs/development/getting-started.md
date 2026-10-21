@@ -4,6 +4,11 @@ Building and running Rafi on your machine. To deploy it, see [Operations](../ope
 
 ## Requirements
 
+[devenv](https://devenv.sh) provides everything at the versions CI uses ([`devenv.nix`](../../devenv.nix)), and
+runs `npm install` in `apps/web` when you enter the shell. CI runs every step in it.
+
+Without devenv, you need:
+
 - Rust stable with the `wasm32-unknown-unknown` target
 - `dx` **0.7.10**, which must match the Dioxus version:
 
@@ -18,11 +23,58 @@ Building and running Rafi on your machine. To deploy it, see [Operations](../ope
   ```
 
 - Node, for daisyUI (`apps/web/package.json`)
+- For draws: `restate-server` 1.8 ([Restate's releases](https://github.com/restatedev/restate/releases))
+- For Workers: `wrangler` and `worker-build`
 
-[devenv](https://devenv.sh) provides all of this at the versions CI uses (`devenv.nix`), and runs `npm install` in
-`apps/web` when you enter the shell. CI runs every step in it.
+## With devenv
 
-## First build
+```sh
+devenv up
+```
+
+This runs everything natively, with dev auth (no Clerk) and live reload:
+
+| Process | What it is |
+|---|---|
+| `restate` | Restate: ingress on `:8080`, admin API and UI on <http://localhost:9070/ui> |
+| `engine` | The raffle engine (`rafi-restate`) on `:9080`, registered with Restate once it's up |
+| `rafi` | The server on `:8788`, behind `dx serve` (`apps/web/Dioxus.toml` proxies to it) |
+| `dioxus` | `dx serve`: the web app on `:8787`, with hot reload |
+| `participant` | Builds the participant page (`./scripts/participant.sh`), and again when it changes |
+
+Then open <http://localhost:8787/admin>. Draws use real drand, so they need internet.
+
+- `rafi` and `engine` restart when their Rust code changes. Restate only discovers the engine's handlers when it
+  registers it, on start: after changing them (`Raffle`, `EngineInfo`), register it again with
+  `restate deployments register --force http://127.0.0.1:9080`.
+- The database (`rafi.db`) and Restate's data are in `.devenv/state`.
+- Ports other than the server's are allocated: if one is taken, devenv takes the next free one.
+- `devenv up -d` runs in the background: `devenv processes logs rafi`, then `devenv down`.
+
+The stacks use dev auth: the web app is built with an empty `CLERK_PUBLISHABLE_KEY`, even when `.env` sets one.
+
+### Profiles
+
+```sh
+devenv --profile mock up      # offline: the mock drand chain
+devenv --profile workers up   # on Cloudflare Workers, under wrangler dev
+```
+
+Each profile has its own state (`.devenv/profiles/<name>/state`): its own database, Restate and local Workers
+state. Pass the same `--profile` to `devenv down` and `devenv processes`.
+
+- **`mock`** builds both sides with `mock-drand`, and draws from the mock chain, a public test chain (the `drand`
+  crate's `TestChain`). Its draws are **not** verifiable. The app refuses to start a draw on an engine that uses
+  another chain.
+- **`workers`** runs the app Worker (`wrangler-app`, <http://127.0.0.1:8787>) and the engine Worker
+  (`wrangler-engine`, `:8791`, registered with Restate over HTTP/1.1) with `wrangler dev --env dev`: dev auth and
+  the mock chain. Before starting them, it applies the D1 migrations, and builds the static files
+  (`./scripts/app-assets.sh`) when their sources changed. The first build takes a few minutes. Both Workers share
+  one local state (D1, Durable Objects).
+
+## Without devenv
+
+### First build
 
 A fresh checkout needs two generated things before everything compiles and runs:
 
@@ -37,7 +89,7 @@ A fresh checkout needs two generated things before everything compiles and runs:
 Rebuild the participant page whenever `apps/participant` or `crates/live-client` change. Without it, the
 participant page still renders, but phones can't join or follow the draw.
 
-## The admin and the pages, without draws
+### The admin and the pages, without draws
 
 Draws need Restate (below). For everything else, run without Clerk, in two terminals:
 
@@ -51,15 +103,15 @@ cd apps/web && dx serve --port 8787
 
 Then open <http://localhost:8787/admin>.
 
-## With draws (Restate)
+### With draws (Restate)
 
-Run a local `restate-server` (the pinned one), the app and `rafi-restate` on the same database file:
+Run `restate-server`, the app and `rafi-restate` on the same database file:
 
 ```sh
 export RAFI_DATABASE_URL="sqlite://$PWD/rafi.db"
 
 # Restate, in its own terminal: ingress on :8080, admin API and UI on :9070, data in ./restate-data
-$(./scripts/restate-server.sh)
+restate-server
 
 # the server (it creates the database) and the web app
 RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http://localhost:8080 \
@@ -74,19 +126,29 @@ curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
   -d '{"uri": "http://localhost:9080", "force": true}'
 ```
 
-### Offline: the mock drand chain
-
-To work without internet, both sides use the mock chain, a public test chain (the `drand` crate's `TestChain`).
-Its draws are **not** verifiable.
+For the mock drand chain (offline):
 
 ```sh
 RAFI_DRAND_CHAIN=mock … cargo run -p rafi --features mock-drand
 RAFI_RESTATE_DRAND__MOCK=true … cargo run -p rafi-restate --features mock-drand
 ```
 
-The app refuses to start a draw on an engine that uses another chain.
+### Cloudflare Workers
 
-### With Clerk
+`wasm-bindgen-cli` must match `Cargo.lock`. Both Workers need the same local state (`--persist-to`):
+
+```sh
+./scripts/app-assets.sh                                   # web app bundle + participant scripts -> apps/worker/worker-assets
+(cd apps/worker && wrangler d1 migrations apply rafi --local --env dev --persist-to ../../.wrangler-state)
+(cd apps/worker && wrangler dev --env dev --persist-to ../../.wrangler-state)   # http://127.0.0.1:8787, dev auth, mock drand
+(cd apps/restate-worker && wrangler dev --env dev --port 8791 --persist-to ../../.wrangler-state)
+# Restate with its ingress on :18080 (the dev app Worker's RESTATE_INGRESS_URL), then register the engine:
+RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 restate-server
+curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
+  -d '{"uri": "http://127.0.0.1:8791", "use_http_11": true}'
+```
+
+## With Clerk
 
 Export `CLERK_PUBLISHABLE_KEY` when building the web app and `CLERK_SECRET_KEY` for the server, and leave
 `RAFI_DEV_AUTH` unset.
@@ -110,21 +172,6 @@ back to the web app's `index.html` for its own routes.
 Set `RAFI_PUBLIC_URL` to your machine's LAN address and run `dx serve --addr 0.0.0.0`. Joining needs HTTPS: phones
 solve the proof-of-work with WebCrypto, which browsers only offer on HTTPS and `localhost`. Use a tunnel (for
 example `cloudflared tunnel --url http://localhost:8787`) or a certificate for the LAN address (mkcert).
-
-## Cloudflare Workers, locally
-
-Everything runs under `wrangler dev`. The tools are in `devenv.nix`, and `wasm-bindgen-cli` must match `Cargo.lock`.
-
-```sh
-./scripts/app-assets.sh                                   # web app bundle + participant scripts -> apps/worker/worker-assets
-(cd apps/worker && wrangler d1 migrations apply rafi --local --env dev)
-(cd apps/worker && wrangler dev --env dev)                # http://127.0.0.1:8787, dev auth, mock drand
-(cd apps/restate-worker && wrangler dev --env dev --port 8791)
-# Restate with its ingress on :18080 (the dev app Worker's RESTATE_INGRESS_URL), then register the engine:
-RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 $(./scripts/restate-server.sh)
-curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
-  -d '{"uri": "http://127.0.0.1:8791", "use_http_11": true}'
-```
 
 ## Next
 

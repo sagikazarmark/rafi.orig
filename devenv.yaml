@@ -1,9 +1,5 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
 inputs:
-  extras:
-    url: github:sagikazarmark/devenv-extras
-    overlays:
-    - default
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
   nixpkgs-multiverse:
@@ -13,5 +9,21 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
+  extras:
+    url: github:sagikazarmark/devenv-extras
+    overlays:
+      - default
+  nix-restate:
+    url: github:sagikazarmark/nix-restate
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+    overlays:
+      - default
+
 imports:
-- extras/modules
+  - extras/modules
+
+nixpkgs:
+  permitted_unfree_packages:
+    - restate-bin

@@ -7,7 +7,7 @@
 #   3. the participant page in headless Chromium (apps/participant/smoke.mjs), when
 #      CHROMIUM (or `chromium`) is available;
 #   4. a draw through Restate into the live channel (apps/restate-worker/e2e.mjs),
-#      when RESTATE_SERVER_BIN is set (./scripts/restate-server.sh prints it);
+#      when RESTATE_SERVER_BIN is set (the devenv shell sets it);
 #   5. a whole evening on the app Worker itself (apps/worker/evening.mjs): the
 #      admin API, a phone joining in Chromium, draws through Restate, the end.
 #      Needs RESTATE_SERVER_BIN, Chromium and dx (for the web app bundle).

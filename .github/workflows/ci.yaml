@@ -16,7 +16,7 @@ defaults:
   run:
     # Every step runs in the devenv shell, with the project's toolchain and
     # tools at the versions used locally (wasm-bindgen at Cargo.lock's, dx,
-    # worker-build, wasm-opt, wrangler, node, tailwindcss).
+    # worker-build, wasm-opt, wrangler, node, tailwindcss, restate-server).
     shell: devenv shell -- bash -e {0}
 
 jobs:
@@ -59,8 +59,7 @@ jobs:
         run: tailwindcss -i tailwind.css -o assets/tailwind.css --minify
       - name: Format
         run: cargo fmt --all --check
-      - name: Download restate-server (end-to-end tests)
-        run: echo "RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)" >> "$GITHUB_ENV"
+      # The end-to-end tests run the shell's restate-server (RESTATE_SERVER_BIN, from devenv.nix).
       - name: Libraries and the draw engine (incl. end-to-end against restate-server)
         run: cargo test --workspace --exclude rafi-server --exclude rafi-web --locked -- --include-ignored
       - name: Independent verifier agrees with the test vectors
@@ -104,8 +103,6 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cmd-format: devenv shell -- {0}
-      - name: Download restate-server
-        run: echo "RESTATE_SERVER_BIN=$(./scripts/restate-server.sh)" >> "$GITHUB_ENV"
       # Chrome and the browser drivers are the runner image's.
       - name: D1, the live channel, the participant page in Chrome, a draw through Restate, an evening on the app
         run: CHROMIUM=$(command -v google-chrome) ./scripts/workers-check.sh
