@@ -15,10 +15,10 @@ dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "
 altcha = { workspace = true }
 dioxus-altcha = { workspace = true }
 js-sys = "0.3"
-rafi-cloudflare = { workspace = true, features = ["room"] }
+rafi-cloudflare = { workspace = true }
 rafi-live-client = { workspace = true, features = ["card"] }
 rafi-live-server = { workspace = true }
-rafi-raffle = { workspace = true, features = ["mock-chain"] }
+rafi-raffle = { workspace = true }
 rafi-store = { workspace = true }
 serde_json = { workspace = true }
 worker = "0.8.7"

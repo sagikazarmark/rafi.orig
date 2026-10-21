@@ -69,11 +69,11 @@ local Workers state. Pass the same `--profile` flags to `devenv down` and `deven
 - **`mock`** builds both sides with `mock-drand`, and draws from the mock chain, a public test chain (the `drand`
   crate's `TestChain`). Its draws are **not** verifiable. The app refuses to start a draw on an engine that uses
   another chain. (The `workers` stack always uses it.)
-- **`workers`** runs the app Worker (`wrangler-app`, <http://127.0.0.1:8787>) and the engine Worker
-  (`wrangler-engine`, `:8791`, registered with Restate over HTTP/1.1) with `wrangler dev --env dev`: dev auth and
-  the mock chain. Before starting them, it applies the D1 migrations, and builds the static files
-  (`./scripts/app-assets.sh`) when their sources changed, when something else built them, or for the other auth.
-  The first build takes a few minutes. Both Workers share one local state (D1, Durable Objects).
+- **`workers`** runs the Worker (`wrangler-app`, <http://127.0.0.1:8787>; the raffle engine is in it, under
+  `/restate`, registered with Restate over HTTP/1.1) with `wrangler dev --env dev`: dev auth and the mock chain.
+  Before starting it, it applies the D1 migrations, and builds the static files (`./scripts/app-assets.sh`) when
+  their sources changed, when something else built them, or for the other auth. The first build takes a few
+  minutes. The Worker's local state (D1, Durable Objects) is kept across restarts.
 - **`clerk`** signs the organizer in with Clerk. It needs `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, from
   [Clerk's dashboard](https://dashboard.clerk.com) (API keys; a development instance accepts `localhost`), in `.env`
   at the project root, which the shell loads. The web app is built with the publishable key, and the server (or the
@@ -142,17 +142,18 @@ RAFI_RESTATE_DRAND__MOCK=true … cargo run -p rafi-restate --features mock-dran
 
 ### Cloudflare Workers
 
-`wasm-bindgen-cli` must match `Cargo.lock`. Both Workers need the same local state (`--persist-to`):
+`wasm-bindgen-cli` must match `Cargo.lock`. `--persist-to` keeps the Worker's local state (D1, Durable Objects)
+across restarts:
 
 ```sh
 ./scripts/app-assets.sh                                   # web app bundle + participant scripts -> apps/worker/worker-assets
 (cd apps/worker && wrangler d1 migrations apply rafi --local --env dev --persist-to ../../.wrangler-state)
 (cd apps/worker && wrangler dev --env dev --persist-to ../../.wrangler-state)   # http://127.0.0.1:8787, dev auth, mock drand
-(cd apps/restate-worker && wrangler dev --env dev --port 8791 --persist-to ../../.wrangler-state)
-# Restate with its ingress on :18080 (the dev app Worker's RESTATE_INGRESS_URL), then register the engine:
+# Restate with its ingress on :18080 (the dev Worker's RESTATE_INGRESS_URL), then register the engine, which is
+# the same Worker under /restate (wrangler dev speaks HTTP/1.1 only):
 RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 restate-server
 curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
-  -d '{"uri": "http://127.0.0.1:8791", "use_http_11": true}'
+  -d '{"uri": "http://127.0.0.1:8787/restate", "use_http_11": true}'
 ```
 
 ## With Clerk

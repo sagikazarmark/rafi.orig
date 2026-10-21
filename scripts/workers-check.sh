@@ -6,11 +6,11 @@
 #   2. the live channel driven over real WebSockets (testbeds/cloudflare/scenario.mjs);
 #   3. the participant page in headless Chromium (apps/participant/smoke.mjs), when
 #      CHROMIUM (or `chromium`) is available;
-#   4. a draw through Restate into the live channel (apps/restate-worker/e2e.mjs),
-#      when RESTATE_SERVER_BIN is set (the devenv shell sets it);
-#   5. a whole evening on the app Worker itself (apps/worker/evening.mjs): the
-#      admin API, a phone joining in Chromium, draws through Restate, the end.
-#      Needs RESTATE_SERVER_BIN, Chromium and dx (for the web app bundle).
+#   4. a whole evening on the Worker itself (apps/worker/evening.mjs): the admin
+#      API, a phone joining in Chromium, draws through Restate (a local
+#      restate-server calling the engine in the same Worker, under /restate),
+#      the live channel, the end. Needs RESTATE_SERVER_BIN (the devenv shell
+#      sets it), Chromium and dx (for the web app bundle).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node,
 # wasm-bindgen-cli at the lockfile's version and wasm-opt (for the participant page).
@@ -32,7 +32,7 @@ trap cleanup EXIT
 
 step() { printf '\n== %s\n' "$*"; }
 
-# Starts `wrangler dev` in a directory under ROOT on a port, sharing local state, and waits for it.
+# Starts `wrangler dev` in a directory under ROOT on a port, with this run's local state, and waits for it.
 serve() {
   local dir="$1" port="$2" probe="$3" name="${1##*/}"
   shift 3
@@ -57,7 +57,6 @@ step "build"
 for dir in testbeds/store-d1 testbeds/cloudflare; do
   (cd "$ROOT/$dir" && worker-build --release) >"$LOGS/build-${dir##*/}.log" 2>&1
 done
-(cd "$ROOT/apps/restate-worker" && worker-build --release --features dev) >"$LOGS/build-restate-worker.log" 2>&1
 migrate testbeds/store-d1 rafi-store-check
 migrate testbeds/cloudflare rafi-cloudflare-check
 
@@ -79,35 +78,26 @@ else
   step "the participant page: skipped (no Chromium)"
 fi
 
-if [ -n "${RESTATE_SERVER_BIN:-}" ]; then
-  step "a draw through Restate"
+if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev/null; then
+  step "an evening on the Worker"
+  "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
+  (cd "$ROOT/apps/worker" && worker-build --release --features dev) >"$LOGS/build-app.log" 2>&1
+  (cd "$ROOT/apps/worker" && $WRANGLER d1 migrations apply rafi --local --env dev --persist-to "$STATE/wrangler") >/dev/null
   (cd "$STATE" && RESTATE_BASE_DIR="$STATE/restate" RESTATE_NODE_NAME=workers-check \
     RESTATE_LISTEN_MODE=tcp RESTATE_ADMIN__LISTEN_MODE=tcp RESTATE_INGRESS__LISTEN_MODE=tcp \
     RESTATE_BIND_ADDRESS=127.0.0.1:15122 RESTATE_ADVERTISED_ADDRESS=http://127.0.0.1:15122 \
     RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 RESTATE_ADMIN__BIND_ADDRESS=127.0.0.1:19070 \
     exec "$RESTATE_SERVER_BIN") >"$LOGS/restate-server.log" 2>&1 &
   PIDS+=($!)
-  serve apps/restate-worker 8791 /discover --env check
-  for _ in $(seq 1 60); do curl -s -m 3 -o /dev/null http://127.0.0.1:19070/health && break; sleep 1; done
-  curl -s -m 30 -X POST http://127.0.0.1:19070/deployments -H 'content-type: application/json' \
-    -d '{"uri":"http://127.0.0.1:8791","use_http_11":true}' >/dev/null
-  INGRESS=http://127.0.0.1:18080 APP=http://127.0.0.1:8790 node "$ROOT/apps/restate-worker/e2e.mjs"
-else
-  step "a draw through Restate: skipped (RESTATE_SERVER_BIN not set)"
-fi
-
-if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev/null; then
-  step "an evening on the app Worker"
-  "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
-  (cd "$ROOT/apps/worker" && worker-build --release --features dev) >"$LOGS/build-app.log" 2>&1
-  (cd "$ROOT/apps/worker" && $WRANGLER d1 migrations apply rafi --local --env dev --persist-to "$STATE/wrangler") >/dev/null
   serve apps/worker 8787 /healthz --env dev
-  serve apps/restate-worker 8792 /discover --env dev
+  for _ in $(seq 1 60); do curl -s -m 3 -o /dev/null http://127.0.0.1:19070/health && break; sleep 1; done
+  # The engine is the same Worker, under /restate; wrangler dev speaks HTTP/1.1 only.
   curl -s -m 30 -X POST http://127.0.0.1:19070/deployments -H 'content-type: application/json' \
-    -d '{"uri":"http://127.0.0.1:8792","use_http_11":true,"force":true}' >/dev/null
-  CHROMIUM="$CHROMIUM" APP=http://127.0.0.1:8787 node "$ROOT/apps/worker/evening.mjs" "$STATE/chrome-app"
+    -d '{"uri":"http://127.0.0.1:8787/restate","use_http_11":true}' >/dev/null
+  CHROMIUM="$CHROMIUM" APP=http://127.0.0.1:8787 INGRESS=http://127.0.0.1:18080 \
+    node "$ROOT/apps/worker/evening.mjs" "$STATE/chrome-app"
 else
-  step "an evening on the app Worker: skipped (needs RESTATE_SERVER_BIN, Chromium and dx)"
+  step "an evening on the Worker: skipped (needs RESTATE_SERVER_BIN, Chromium and dx)"
 fi
 
 step "all Workers checks passed"

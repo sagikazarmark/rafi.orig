@@ -12,19 +12,20 @@ for the room:
   re-fetch, but the moment is lost.
 - Natively, restarting `rafi` interrupts requests, and a random `RAFI_ALTCHA_KEY` (if you didn't set one)
   invalidates the challenges phones are solving.
-- Restarting `rafi-restate` mid-draw makes Restate retry. The draw continues on its round, but may stall.
+- Restarting the engine (`rafi-restate` natively; on Workers it's the same deploy) mid-draw makes Restate retry.
+  The draw continues on its round, but may stall.
 
 ## Database migrations
 
 The app applies migrations on start: `migrations/sqlite` for SQLite, `migrations/postgres` for Postgres. On D1,
-apply them with wrangler before deploying the Workers:
+apply them with wrangler before deploying the Worker:
 
 ```sh
 (cd apps/worker && wrangler d1 migrations apply rafi --remote)
 ```
 
-Deploy the app before (or together with) the engine. Until the schema is current, the engine's writes fail and
-Restate retries them.
+Natively, deploy the app before (or together with) the engine. Until the schema is current, the engine's writes
+fail and Restate retries them.
 
 ## Re-registering the raffle engine
 
@@ -37,14 +38,15 @@ curl -X POST http://localhost:9070/deployments -H 'content-type: application/jso
   -d '{"uri": "http://<engine host>:9080", "force": true}'
 ```
 
-On Restate Cloud, register the engine's URL as a new deployment.
+On Restate Cloud, register the engine's URL as a new deployment. On Workers that URL is the Worker's, with
+`/restate`: `https://<the Worker's hostname>/restate`.
 
 ## Order of operations
 
 1. Check that no raffle is live.
 2. Apply migrations (D1), or let the new app apply them on start (native).
-3. Deploy the app.
-4. Deploy the engine and re-register it with Restate.
+3. Deploy the app (on Workers, that's the engine too).
+4. Natively, deploy the engine. Re-register it with Restate.
 5. Run a test-mode draw.
 
 ## Data

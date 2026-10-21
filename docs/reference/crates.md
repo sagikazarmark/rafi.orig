@@ -46,16 +46,15 @@ This shows the main dependencies only.
 | [`api`](../../crates/api) | `rafi-api` | **The contract between server and browser**: the views, and the admin API, declared once (`admin_functions!`). That declaration produces the server's `Admin` trait and `dispatch`, and the browser's client. |
 | [`app`](../../crates/app) | `rafi-app` | **Every use case**: raffles, prizes, entrants, joining (rate limits, proof-of-work), the draw, the admin's reads, housekeeping. No HTTP. |
 | [`server`](../../crates/server) | `rafi-server` | **The HTTP side**: an axum router (participant pages, public JSON, the admin API, auth). Both app hosts serve it. |
-| [`cloudflare`](../../crates/cloudflare) | `rafi-cloudflare` | **The Cloudflare glue both Workers share**: the `RaffleRoom` Durable Object, its notifier, configuration from vars and secrets |
+| [`cloudflare`](../../crates/cloudflare) | `rafi-cloudflare` | **The Cloudflare glue**: the `RaffleRoom` Durable Object, its notifier, configuration from vars and secrets |
 
 ## Deployables (`apps/`)
 
 | App | Package | |
 |---|---|---|
 | [`rafi`](../../apps/rafi) | `rafi` | The native app server: `rafi-server` plus the web app's files. For self-hosting. |
-| [`worker`](../../apps/worker) | `rafi-worker` | The app on Cloudflare Workers: `rafi-server`'s routes, the housekeeping Cron, `RaffleRoom` |
+| [`worker`](../../apps/worker) | `rafi-worker` | Rafi on Cloudflare Workers, in one Worker: `rafi-server`'s routes, the raffle engine's Restate endpoint under `/restate`, the housekeeping Cron, `RaffleRoom` |
 | [`restate`](../../apps/restate) | `rafi-restate` | The native raffle engine: an endpoint serving `rafi-engine-restate`'s services to Restate. See its [README](../../apps/restate/README.md). |
-| [`restate-worker`](../../apps/restate-worker) | `rafi-restate-worker` | The same services as a Cloudflare Worker, on D1. It nudges the live channel. |
 | [`web`](../../apps/web) | `rafi-web` | The Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx` |
 | [`participant`](../../apps/participant) | `rafi-participant` | The participant page's WebAssembly and its JavaScript fallback |
 

@@ -4,9 +4,8 @@ Every setting of every Rafi deployable. To see how the deployables fit together,
 [Operations: overview](../operations/overview.md).
 
 - [The app](#the-app-rafi-and-rafi-worker) (`rafi`, `rafi-worker`)
-- [The app on Workers](#workers-only)
+- [On Workers](#workers-only): the Worker's own variables, the engine's included (`rafi-worker`)
 - [The raffle engine, native](#the-raffle-engine-rafi-restate) (`rafi-restate`)
-- [The raffle engine on Workers](#the-raffle-engine-on-workers-rafi-restate-worker) (`rafi-restate-worker`)
 - [Build time](#build-time)
 
 Empty values count as unset everywhere. Flags take `1`/`true`/`yes`/`on`.
@@ -38,15 +37,24 @@ same name.
 
 ### Workers only
 
-| Variable | Worker | Default | |
-|---|---|---|---|
-| `RAFI_DO_JURISDICTION` | both | `eu` | The Durable Objects' jurisdiction. Empty means none, which is what local development needs because workerd has no jurisdictions. |
+The Worker hosts the app and the raffle engine (under `/restate`), so it takes the app's variables above and
+these. Vars and secrets live in [`apps/worker/wrangler.toml`](../../apps/worker/wrangler.toml) and
+`wrangler secret put`; the Worker reads nothing else.
 
-The app Worker's bindings, set in [`apps/worker/wrangler.toml`](../../apps/worker/wrangler.toml):
+| Variable | Default | |
+|---|---|---|
+| `RESTATE_IDENTITY_KEYS` | required | Restate's request signing keys (`publickeyv1_…`, comma separated). Without them the Worker refuses every request, except in a `dev` build. |
+| `RAFI_DO_JURISDICTION` | `eu` | The Durable Objects' jurisdiction. Empty means none, which is what local development needs because workerd has no jurisdictions. |
+| `RAFI_DRAND_RELAYS` | as `drand.relays` below | Relays the engine asks, in order, comma separated |
+| `RAFI_DRAND_LEAD_SECS` | `6` | As `drand.lead_secs` below |
+| `RAFI_DRAND_TIMEOUT_SECS` | `60` | As `drand.timeout_secs` below |
+| `RAFI_DRAND_MOCK` | off | The mock chain, for the app and the engine alike (development only; the app reads it as `RAFI_DRAND_CHAIN=mock`) |
+
+The bindings:
 
 | Binding | |
 |---|---|
-| `DB` | The D1 database, shared with `rafi-restate-worker` |
+| `DB` | The D1 database |
 | `RAFFLE_ROOM` | The per-raffle live channel (`RaffleRoom` Durable Object) |
 | `JOIN_PER_RAFFLE_LIMITER` | 600 joins per minute per raffle (soft, per location) |
 | `JOIN_PER_EMAIL_LIMITER` | 5 joins per minute per raffle and email |
@@ -85,23 +93,10 @@ lead_secs = 6
 inactivity_timeout = "5m"
 ```
 
-## The raffle engine on Workers (`rafi-restate-worker`)
-
-Vars and secrets. The engine's database is the `DB` binding (the app's D1).
-
-| Variable | Default | |
-|---|---|---|
-| `RESTATE_IDENTITY_KEYS` | required | Restate's request signing keys (`publickeyv1_…`, comma separated). Without them every request is refused, except in a `dev` build. |
-| `RAFI_DRAND_RELAYS` | as `drand.relays` above | Relays to ask, in order, comma separated |
-| `RAFI_DRAND_LEAD_SECS` | `6` | As `drand.lead_secs` |
-| `RAFI_DRAND_TIMEOUT_SECS` | `60` | As `drand.timeout_secs` |
-| `RAFI_DRAND_MOCK` | off | As `drand.mock` (development only). Must match the app's `RAFI_DRAND_CHAIN`. |
-| `RAFI_DO_JURISDICTION` | `eu` | As for the app Worker |
-
 ## Build time
 
 | Variable | | |
 |---|---|---|
 | `CLERK_PUBLISHABLE_KEY` | `rafi-web` | Clerk's frontend key, compiled into the web app |
 | Feature `mock-drand` | `rafi`, `rafi-server`, `rafi-restate` | Allows the mock chain. Never ship it. |
-| Feature `dev` | `rafi-worker`, `rafi-restate-worker` | Local development only. On the app Worker it allows `RAFI_DEV_AUTH` and the mock chain. On the engine Worker it allows the mock chain and requests without identity keys. `[env.dev]` in the wrangler files builds with it. |
+| Feature `dev` | `rafi-worker` | Local development only: allows `RAFI_DEV_AUTH`, the mock chain and Restate requests without identity keys. `[env.dev]` in `wrangler.toml` builds with it. |

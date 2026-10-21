@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assembles the app Worker's static files (apps/worker/worker-assets, served by
+# Assembles the Worker's static files (apps/worker/worker-assets, served by
 # Workers Assets): the web app bundle (dx) and the participant scripts.
 #
 #   ./scripts/app-assets.sh

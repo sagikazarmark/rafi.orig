@@ -1,5 +1,5 @@
-# Rafi on Cloudflare Workers. The top level is
-# production; `[env.dev]` is local development (`wrangler dev --env dev`).
+# Rafi on Cloudflare Workers: the app and the raffle engine in one Worker. The
+# top level is production; `[env.dev]` is local development (`wrangler dev --env dev`).
 #
 # Before the first deploy:
 #   wrangler d1 create rafi --jurisdiction eu      # then put its ID below
@@ -7,7 +7,9 @@
 #   wrangler secret put RAFI_ALTCHA_KEY            # random, 32+ bytes; never rotate during an event
 #   wrangler secret put CLERK_SECRET_KEY
 #   wrangler secret put RESTATE_API_KEY            # Restate Cloud ingress
+#   wrangler secret put RESTATE_IDENTITY_KEYS      # the Restate environment's public key(s)
 # and build the static files: ./scripts/app-assets.sh
+# After each deploy, register https://<this Worker's host>/restate with Restate.
 
 name = "rafi"
 main = "build/index.js"
@@ -21,13 +23,14 @@ preview_urls = false
 command = "worker-build --release"
 
 # The web app (admin, projector, verification page) and the participant scripts.
-# Paths the Worker answers go to it first; anything else is a file, or the web
-# app's index.html (single-page routing). The Worker serves the participant
-# page's proof-of-work solver (dioxus-altcha's, as built in).
+# Paths the Worker answers go to it first (Restate's requests under /restate/
+# included); anything else is a file, or the web app's index.html (single-page
+# routing). The Worker serves the participant page's proof-of-work solver
+# (dioxus-altcha's, as built in).
 [assets]
 directory = "./worker-assets"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy/*", "/partyline/*", "/healthz", "/participant/altcha-worker.js"]
+run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy/*", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js"]
 
 [[d1_databases]]
 binding = "DB"
@@ -69,6 +72,8 @@ crons = ["0 * * * *"]
 [observability]
 enabled = false
 
+# The engine's drand settings (RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS,
+# RAFI_DRAND_TIMEOUT_SECS) go here too when they differ from the defaults.
 [vars]
 RAFI_PUBLIC_URL = "https://rafi.example" # the public origin, no trailing slash
 RESTATE_INGRESS_URL = "" # Restate Cloud ingress URL (EU)
@@ -112,5 +117,6 @@ RAFI_PUBLIC_URL = "http://127.0.0.1:8787"
 RESTATE_INGRESS_URL = "http://127.0.0.1:18080"
 RAFI_DO_JURISDICTION = "" # workerd doesn't implement jurisdictions
 RAFI_DEV_AUTH = "1"
-RAFI_DRAND_CHAIN = "mock"
+RAFI_DRAND_MOCK = "1" # the mock chain, for the app and the engine alike
+RAFI_DRAND_LEAD_SECS = "3"
 RAFI_ALTCHA_KEY = "local-development-only"

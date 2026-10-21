@@ -4,15 +4,16 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi's app on Cloudflare Workers: rafi-server's routes, the housekeeping Cron and the RaffleRoom Durable Object (worker-build)"
+description = "Rafi on Cloudflare Workers: rafi-server's routes, the raffle engine's Restate endpoint, the housekeeping Cron and the RaffleRoom Durable Object (worker-build)"
 publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
-## Local development only: allows RAFI_DEV_AUTH and RAFI_DRAND_CHAIN=mock.
-dev = ["rafi-server/mock-drand"]
+## Local development only: allows RAFI_DEV_AUTH, the mock drand chain
+## (RAFI_DRAND_MOCK) and Restate requests without identity keys.
+dev = ["rafi-server/mock-drand", "rafi-engine/mock-drand"]
 
 [dependencies]
 
@@ -22,10 +23,14 @@ anyhow = "1"
 axum = { version = "0.8", default-features = false }
 dioxus-clerk = { version = "0.6", features = ["server", "worker"] }
 http = "1"
+http-body-util = "0.1"
 rafi-app = { workspace = true }
-rafi-cloudflare = { workspace = true, features = ["room"] }
-rafi-engine = { workspace = true }
+rafi-cloudflare = { workspace = true }
+rafi-engine = { workspace = true, features = ["drand"] }
+rafi-engine-restate = { workspace = true }
 rafi-live-server = { workspace = true }
 rafi-server = { workspace = true }
+rafi-store = { workspace = true }
+restate-sdk = { workspace = true, features = ["rust_crypto"] }
 tower-service = "0.3"
 worker = { version = "0.8.7", features = ["http", "axum"] }

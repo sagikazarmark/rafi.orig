@@ -30,7 +30,7 @@ flowchart LR
 
     subgraph engine [Raffle engine]
         restate[(Restate)]
-        raffle[Raffle virtual object<br/>rafi-restate or rafi-restate-worker]
+        raffle[Raffle virtual object<br/>rafi-restate, or rafi-worker under /restate]
     end
 
     db[(Database<br/>SQLite, Postgres or D1)]
@@ -54,7 +54,7 @@ The rules are pure code at the bottom. Everything above them does I/O and asks t
 
 ```mermaid
 flowchart TD
-    hosts["Hosts<br/>rafi · rafi-worker · rafi-restate · rafi-restate-worker"]
+    hosts["Hosts<br/>rafi · rafi-restate · rafi-worker"]
     http["HTTP<br/>rafi-server"]
     uc["Use cases<br/>rafi-app"]
     ports["Ports<br/>Engine · Store · Observer (rafi-engine)<br/>Notifier (rafi-live-server) · RateLimit (rafi-app)"]
@@ -175,14 +175,20 @@ flowchart LR
     end
     subgraph workers [Cloudflare Workers]
         p2[Phones] <-->|WebSocket| room[RaffleRoom]
-        s2[Projector, admin] -->|poll full view| a2[rafi-worker]
+        s2[Projector, admin] -->|poll full view| a2[rafi-worker<br/>app, and the engine under /restate]
+        rc[Restate Cloud] -->|signed requests| a2
         a2 -->|nudge| room
-        e2[rafi-restate-worker] -->|nudge| room
         room --> db2[(D1)]
         a2 --> db2
-        e2 --> db2
     end
 ```
+
+Natively the app and the engine are two processes, `rafi` and `rafi-restate`, each with its own configuration.
+On Workers they are one Worker: a Worker is a routing unit, not a process, and the two shared everything that
+costs anything (the D1 binding, the Durable Object namespace, the deploy). Restate reaches the engine at
+`/restate/*`, where the SDK verifies each request's signature before any routing, discovery included. The
+boundary that matters, the engine seeing anonymous IDs only and writing through a store API that exposes nothing
+else, is in the code, not in the process.
 
 ## The participant page
 

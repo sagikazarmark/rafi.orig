@@ -90,7 +90,8 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 - `rafi-store`'s conformance suite on D1 (`testbeds/store-d1`)
 - the live channel over WebSockets (`testbeds/cloudflare`)
 - the participant page in headless Chromium, the fallback included
-- a draw through Restate on the Workers endpoint
-- a whole evening on the app Worker
+- a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
+  through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), the live channel,
+  the end
 
 CI's `workers` job runs it. Testbeds are never deployed.

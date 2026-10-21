@@ -5000,21 +5000,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-restate-worker"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "http",
- "http-body-util",
- "rafi-cloudflare",
- "rafi-engine",
- "rafi-engine-restate",
- "rafi-store",
- "restate-sdk",
- "worker",
-]
-
-[[package]]
 name = "rafi-server"
 version = "0.1.0"
 dependencies = [
@@ -5116,11 +5101,15 @@ dependencies = [
  "axum",
  "dioxus-clerk",
  "http",
+ "http-body-util",
  "rafi-app",
  "rafi-cloudflare",
  "rafi-engine",
+ "rafi-engine-restate",
  "rafi-live-server",
  "rafi-server",
+ "rafi-store",
+ "restate-sdk",
  "tower-service",
  "worker",
 ]

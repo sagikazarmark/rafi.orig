@@ -4,6 +4,11 @@
 
 Status: accepted, 2026-10-08. Reviewed in four passes: fit with the code, distributed design, security/privacy/operations, and structure and client. The findings are folded in below.
 
+**One Worker (2026-10-21).** The two Workers below (`rafi` and `rafi-restate`) became one: the raffle engine's
+Restate endpoint is served by the app's Worker under `/restate`. The reasoning and what changed are in
+[one-worker-plan.md](one-worker-plan.md); the two-Worker layout, `script_name` bindings and the shared
+`--persist-to` below are as they were.
+
 **Where it stands (2026-10-10).** M1–M7 are done locally on the `cloudflare` branch and checked by `scripts/workers-check.sh` (CI's `workers` job); see §11. M8, the cutover, waits on accounts: Cloudflare staging and production (D1 created with `--jurisdiction eu`, the secrets, custom domains), the Restate Cloud deployment, Clerk with real keys, BLS CPU time measured on a deployed Worker (M0(e)), and the phone test plan (§6). Crate names below are of their time where they differ; [PLAN.md](PLAN.md) has the current layout.
 
 This plan builds on the prototypes on the `prototype/participant-view` branch (`docs/prototype-participant-view.md` there).

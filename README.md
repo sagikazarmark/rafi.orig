@@ -61,7 +61,7 @@ flowchart LR
     browsers["Projector, phones,<br/>admin, verification page"] --> app["App<br/>rafi / rafi-worker"]
     app --> db[(Database)]
     app -->|ingress| restate["Restate"]
-    restate --> engine["Raffle engine<br/>rafi-restate / rafi-restate-worker"]
+    restate --> engine["Raffle engine<br/>rafi-restate / rafi-worker under /restate"]
     engine -->|fetch and verify beacons| drand["drand"]
     engine -->|write each raffle| db
 ```
@@ -69,7 +69,7 @@ flowchart LR
 | Component | What it does | Native | Cloudflare Workers |
 |---|---|---|---|
 | **App** | The HTTP server and the web app: pages, APIs, every use case. Keeps no state between requests. | `rafi` | `rafi-worker` |
-| **Raffle engine** | Owns each raffle from freeze to finish and runs its draws, as a [Restate](https://restate.dev) virtual object. Sees only anonymous IDs. | `rafi-restate` | `rafi-restate-worker` |
+| **Raffle engine** | Owns each raffle from freeze to finish and runs its draws, as a [Restate](https://restate.dev) virtual object. Sees only anonymous IDs. | `rafi-restate` | `rafi-worker`, under `/restate` |
 | **Database** | The record, shared by the app and the engine | SQLite or Postgres | D1 |
 | **Web app** | Admin, projector, verification page (Dioxus) | `rafi-web` | same |
 | **Participant script** | Keeps the participant page live (WebAssembly, with a JavaScript fallback) | `rafi-participant` | same |

@@ -95,23 +95,6 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
     save(db, &state).await
 }
 
-/// The app's half of a Restate freeze: the manifest (on the mock drand
-/// chain the Restate Worker uses in development) and the frozen raffle row.
-/// Returns the manifest to hand to `Raffle/{id}/open`.
-async fn prepare(db: &Db, raffle: &str) -> Result<String> {
-    let chain = rafi_raffle::drand::mock_chain().chain().hash();
-    let doc = manifest(raffle, BeaconSource::Drand(chain));
-    let json = doc.canonical_json();
-    db.query("UPDATE raffles SET state = 'frozen', manifest = ?, manifest_hash = ? WHERE id = ?")
-        .bind(json.as_str())
-        .bind(doc.hash().to_string())
-        .bind(raffle)
-        .run()
-        .await
-        .map_err(err)?;
-    Ok(json)
-}
-
 /// A stand-in for the participant page: the server-rendered card, the embedded
 /// config, the inline loader with its fallback, and the WASM. `me` picks the
 /// entrant (`anna`, `bence`, or none for a visitor); `nowasm=1` removes
@@ -334,7 +317,6 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 .map_err(err)?;
         }
         "/freeze" => freeze(&db, raffle).await?,
-        "/prepare" => return Response::ok(prepare(&db, raffle).await?),
         "/draw/anna" => draw(&db, raffle, "anna").await?,
         "/draw/bence" => draw(&db, raffle, "bence").await?,
         "/finish" => finish(&db, raffle).await?,

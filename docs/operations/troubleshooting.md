@@ -14,7 +14,7 @@
 stays on the device it was made on.
 
 **Phones don't update.** Natively they poll, so allow a few seconds. They also re-fetch when brought back to the
-foreground. On Workers, check that `RAFFLE_ROOM` is bound and that the engine Worker can reach it (`script_name`).
+foreground. On Workers, check that `RAFFLE_ROOM` is bound, and `wrangler tail` for "nudging … failed".
 
 ## Starting the draw
 

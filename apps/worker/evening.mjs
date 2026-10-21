@@ -1,12 +1,17 @@
-// A whole evening against the app on Workers, locally: the admin API (dev
-// auth), a phone in headless Chromium joining through the real form, draws
-// through Restate, the live channel, and the end. Step 5 of scripts/workers-check.sh.
+// A whole evening against Rafi on Workers, locally: the admin API (dev auth),
+// a phone in headless Chromium joining through the real form, draws through
+// Restate (the engine in the same Worker, under /restate), the live channel,
+// and the end. Step 4 of scripts/workers-check.sh.
 //
 //   node apps/worker/evening.mjs "$(mktemp -d)"
+//
+// INGRESS (Restate's ingress, default http://127.0.0.1:18080) lets it read
+// the engine's own state back after the draw.
 
 import { spawn } from "node:child_process";
 
 const base = process.env.APP ?? "http://127.0.0.1:8787";
+const ingress = process.env.INGRESS ?? "http://127.0.0.1:18080";
 const port = 9335;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
@@ -154,6 +159,11 @@ check((await js(`!!document.querySelector("#live [role=alert]")`)) === true, "th
 // The full view for screens: version from the database, the draw in it.
 const view = await (await fetch(`${base}/api/r/${slug}/view`)).json();
 check(view.draws.length === 1 && view.follow?.kind === "partyline", "the full view has the draw and says to follow over partyline");
+const round = view.draws[0]?.round;
+check(Number.isInteger(round) && round > 0, `the draw committed to a drand round (${round})`);
+// The engine's own record of the raffle, in Restate.
+const state = await (await fetch(`${ingress}/Raffle/${id}/get`, { method: "POST" })).json();
+check(state?.events?.some((e) => e.type === "drawn"), "Restate's own state has the draw");
 const participant = await (await fetch(`${base}/api/r/${slug}/participant`)).json();
 check(participant.winners.length === 1 && !JSON.stringify(participant).includes("anna@example.com"),
   "the participant view has the winner and no email");

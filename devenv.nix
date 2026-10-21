@@ -52,7 +52,7 @@ let
 
   features = lib.optionalString cfg.mockDrand " --features mock-drand";
 
-  # Local state shared by both Workers (D1, Durable Objects).
+  # The Worker's local state (D1, Durable Objects), kept across restarts.
   wranglerState = "${state}/wrangler/state";
 
   # The Workers' static files (apps/worker/worker-assets) are rebuilt when their
@@ -251,28 +251,16 @@ in
             "RAFI_DEV_AUTH:0"
           ];
         };
-
-        engine = {
-          directory = "apps/restate-worker";
-          port = 8791;
-          extraArgs = [
-            "--env"
-            "dev"
-            "--persist-to"
-            wranglerState
-          ];
-        };
       };
 
       processes."wrangler-app".ready.exec =
         "curl -fsS -o /dev/null http://127.0.0.1:${toString (port "wrangler-app")}/healthz";
-      processes."wrangler-engine".ready.exec =
-        "curl -sS -o /dev/null http://127.0.0.1:${toString (port "wrangler-engine")}/discover";
 
+      # The raffle engine is the same Worker, under /restate.
       services.restate.deployments.engine = {
-        uri = "http://127.0.0.1:${toString (port "wrangler-engine")}";
+        uri = "http://127.0.0.1:${toString (port "wrangler-app")}/restate";
         http1 = true;
-        after = [ "devenv:processes:wrangler-engine" ];
+        after = [ "devenv:processes:wrangler-app" ];
       };
 
       tasks = {
@@ -294,14 +282,11 @@ in
           before = [ "devenv:processes:wrangler-app" ];
         };
 
-        # The database, shared by both Workers.
+        # The database.
         "rafi:d1-migrations" = {
           exec = "wrangler d1 migrations apply rafi --local --env dev --persist-to ${wranglerState}";
           cwd = "${root}/apps/worker";
-          before = [
-            "devenv:processes:wrangler-app"
-            "devenv:processes:wrangler-engine"
-          ];
+          before = [ "devenv:processes:wrangler-app" ];
         };
       };
     })

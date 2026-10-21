@@ -18,10 +18,10 @@
 //! engine's beacon source, which the app checks before opening a raffle.
 //!
 //! What the services do is independent of how they are configured or served;
-//! the `rafi-restate` crate (native) and `rafi-restate-worker`
-//! (Cloudflare Workers) serve them, both built by [`services`]. The app reaches them through
-//! [`RestateClient`], its [`Engine`](rafi_engine::Engine) over
-//! the ingress.
+//! the `rafi-restate` crate (native) and `rafi-worker` (Cloudflare Workers,
+//! under `/restate` of the app's Worker) serve them, both built by
+//! [`services`]. The app reaches them through [`RestateClient`], its
+//! [`Engine`](rafi_engine::Engine) over the ingress.
 
 mod client;
 mod info;

@@ -10,7 +10,7 @@ Every Rafi deployment has the same four parts:
 | Part | Native (self-hosting) | Cloudflare Workers |
 |---|---|---|
 | **App**: admin, projector, participant and verification pages, APIs | `rafi` (`apps/rafi`) | `rafi-worker` (`apps/worker`), which also hosts the live channels (`RaffleRoom`) |
-| **Raffle engine**: runs the draws | `rafi-restate` (`apps/restate`) | `rafi-restate-worker` (`apps/restate-worker`) |
+| **Raffle engine**: runs the draws | `rafi-restate` (`apps/restate`) | The same Worker, under `/restate` |
 | **Restate**: durable execution for the engine | A self-hosted `restate-server`, or Restate Cloud | Restate Cloud |
 | **Database**: shared by the app and the engine | SQLite (one file, one machine) or PostgreSQL | D1 |
 
@@ -42,18 +42,19 @@ Clients poll for updates. There is no push channel natively.
 
 ```mermaid
 flowchart LR
-    users[Browsers] -->|HTTPS| app[rafi-worker<br/>+ static assets]
+    users[Browsers] -->|HTTPS| app[rafi-worker<br/>+ static assets<br/>the engine under /restate]
     users <-->|WebSocket| room[RaffleRoom<br/>Durable Objects]
     app -->|ingress, API key| rc[Restate Cloud]
-    rc -->|signed requests| engine[rafi-restate-worker]
-    engine -->|HTTPS| drand[drand relays]
+    rc -->|signed requests to /restate| app
+    app -->|HTTPS| drand[drand relays]
     app --> d1[(D1)]
-    engine --> d1
     room --> d1
     app -->|nudge| room
-    engine -->|nudge| room
     app -->|HTTPS| clerk[Clerk]
 ```
+
+One Worker, two roles: the app's requests and Restate's share the isolate, the D1 binding and the Durable Object
+binding; only the path tells them apart.
 
 ## Choosing
 
