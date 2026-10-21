@@ -25,6 +25,8 @@ Without devenv, you need:
 - Node, for daisyUI (`apps/web/package.json`)
 - For draws: `restate-server` 1.8 ([Restate's releases](https://github.com/restatedev/restate/releases))
 - For Workers: `wrangler` and `worker-build`
+- For the browser checks (`./scripts/workers-check.sh`): a Chromium, found as `chromium` or `google-chrome` on the
+  path, or named in `CHROMIUM`. devenv installs one on Linux; on macOS, point `CHROMIUM` at your browser.
 
 ## With devenv
 
