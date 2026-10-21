@@ -51,26 +51,33 @@ Then open <http://localhost:8787/admin>. Draws use real drand, so they need inte
 - Ports other than the server's are allocated: if one is taken, devenv takes the next free one.
 - `devenv up -d` runs in the background: `devenv processes logs rafi`, then `devenv down`.
 
-The stacks use dev auth: the web app is built with an empty `CLERK_PUBLISHABLE_KEY`, even when `.env` sets one.
+The stacks use dev auth: the web app is built with an empty `CLERK_PUBLISHABLE_KEY`, even when `.env` sets one. The
+`clerk` profile uses Clerk instead.
 
 ### Profiles
 
 ```sh
-devenv --profile mock up      # offline: the mock drand chain
-devenv --profile workers up   # on Cloudflare Workers, under wrangler dev
+devenv --profile mock up                     # offline: the mock drand chain
+devenv --profile workers up                  # on Cloudflare Workers, under wrangler dev
+devenv --profile clerk up                    # Clerk instead of dev auth
+devenv --profile workers --profile clerk up  # profiles combine
 ```
 
-Each profile has its own state (`.devenv/profiles/<name>/state`): its own database, Restate and local Workers
-state. Pass the same `--profile` to `devenv down` and `devenv processes`.
+Each combination of profiles has its own state (`.devenv/profiles/<names>/state`): its own database, Restate and
+local Workers state. Pass the same `--profile` flags to `devenv down` and `devenv processes`.
 
 - **`mock`** builds both sides with `mock-drand`, and draws from the mock chain, a public test chain (the `drand`
   crate's `TestChain`). Its draws are **not** verifiable. The app refuses to start a draw on an engine that uses
-  another chain.
+  another chain. (The `workers` stack always uses it.)
 - **`workers`** runs the app Worker (`wrangler-app`, <http://127.0.0.1:8787>) and the engine Worker
   (`wrangler-engine`, `:8791`, registered with Restate over HTTP/1.1) with `wrangler dev --env dev`: dev auth and
   the mock chain. Before starting them, it applies the D1 migrations, and builds the static files
-  (`./scripts/app-assets.sh`) when their sources changed. The first build takes a few minutes. Both Workers share
-  one local state (D1, Durable Objects).
+  (`./scripts/app-assets.sh`) when their sources changed, when something else built them, or for the other auth.
+  The first build takes a few minutes. Both Workers share one local state (D1, Durable Objects).
+- **`clerk`** signs the organizer in with Clerk. It needs `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, from
+  [Clerk's dashboard](https://dashboard.clerk.com) (API keys; a development instance accepts `localhost`), in `.env`
+  at the project root, which the shell loads. The web app is built with the publishable key, and the server (or the
+  app Worker, which reads `.env` with `--env-file`) runs without `RAFI_DEV_AUTH`.
 
 ## Without devenv
 

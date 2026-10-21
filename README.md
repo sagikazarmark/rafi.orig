@@ -124,9 +124,9 @@ and live reload):
 devenv up                                   # open http://localhost:8787/admin
 ```
 
-`devenv --profile mock up` works offline, and `devenv --profile workers up` runs it on Cloudflare Workers, under
-`wrangler dev`. Without devenv, and for phones and everything else, see
-[Getting started](docs/development/getting-started.md).
+`devenv --profile mock up` works offline, `devenv --profile workers up` runs it on Cloudflare Workers, under
+`wrangler dev`, and `--profile clerk` signs in with Clerk (keys in `.env`). Without devenv, and for phones and
+everything else, see [Getting started](docs/development/getting-started.md).
 
 ## License
 

@@ -10,6 +10,7 @@
 #   devenv up                     # natively: Restate, the engine, the server and `dx serve`
 #   devenv --profile mock up      # the same, offline: the mock drand chain
 #   devenv --profile workers up   # on Cloudflare Workers, under `wrangler dev`
+#   devenv --profile clerk up     # with Clerk instead of dev auth (combines with the others)
 
 let
   cfg = config.rafi;
@@ -23,11 +24,15 @@ let
   # The app and the engine write the same SQLite file.
   databaseUrl = "sqlite://${state}/rafi.db";
 
-  # The stacks run with dev auth. The web app reads CLERK_PUBLISHABLE_KEY
-  # (perhaps from .env) at build time: empty, it uses dev auth too.
+  # Dev auth, or Clerk (the clerk profile) with the keys from .env. The web app
+  # reads CLERK_PUBLISHABLE_KEY at build time: empty, it uses dev auth.
   noClerk = {
     CLERK_PUBLISHABLE_KEY = "";
   };
+  requireClerkKeys = lib.optionalString cfg.clerk ''
+    : "''${CLERK_PUBLISHABLE_KEY:?the clerk profile needs CLERK_PUBLISHABLE_KEY (in .env)}"
+    : "''${CLERK_SECRET_KEY:?the clerk profile needs CLERK_SECRET_KEY (in .env)}"
+  '';
 
   # `cargo run`, restarted when the Rust code changes.
   rustWatch = app: {
@@ -49,6 +54,25 @@ let
 
   # Local state shared by both Workers (D1, Durable Objects).
   wranglerState = "${state}/wrangler/state";
+
+  # The Workers' static files (apps/worker/worker-assets) are rebuilt when their
+  # sources change, when something else rebuilt them (scripts/workers-check.sh),
+  # or for the other auth: the stamp records the build.
+  appAssets = "apps/worker/worker-assets";
+  appAssetsStamp = "target/app-assets.auth";
+  appAssetsAuth = if cfg.clerk then "clerk" else "dev";
+  appAssetsSources = [
+    "apps/web/src"
+    "apps/web/assets"
+    "apps/web/tailwind.css"
+    "apps/web/Cargo.toml"
+    "apps/web/Dioxus.toml"
+    "apps/participant/src"
+    "apps/participant/fallback.js"
+    "apps/participant/Cargo.toml"
+    "crates"
+    "Cargo.lock"
+  ];
 in
 {
   options.rafi = {
@@ -62,6 +86,8 @@ in
     };
 
     mockDrand = lib.mkEnableOption "the mock drand chain (offline; draws are not verifiable)";
+
+    clerk = lib.mkEnableOption "Clerk instead of dev auth, with CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY from .env";
   };
 
   config = lib.mkMerge [
@@ -127,6 +153,10 @@ in
         workers.module = {
           rafi.stack = "workers";
         };
+
+        clerk.module = {
+          rafi.clerk = true;
+        };
       };
     }
 
@@ -148,14 +178,19 @@ in
 
       # The server. `dx serve` proxies the server's paths to it on :8788 (apps/web/Dioxus.toml).
       processes.rafi = {
-        exec = "exec cargo run -p rafi${features}";
+        exec = ''
+          ${requireClerkKeys}
+          exec cargo run -p rafi${features}
+        '';
         cwd = root;
         env = {
-          RAFI_DEV_AUTH = "1";
           RAFI_PUBLIC_URL = "http://localhost:${toString (port "dioxus")}";
           RAFI_DATABASE_URL = databaseUrl;
           RESTATE_INGRESS_URL = restateIngressUrl;
           PORT = "8788";
+        }
+        // lib.optionalAttrs (!cfg.clerk) {
+          RAFI_DEV_AUTH = "1";
         }
         // lib.optionalAttrs cfg.mockDrand {
           RAFI_DRAND_CHAIN = "mock";
@@ -190,7 +225,7 @@ in
         directory = "apps/web";
         port = 8787;
       };
-      processes.dioxus.env = noClerk;
+      processes.dioxus.env = lib.mkIf (!cfg.clerk) noClerk;
     })
 
     (lib.mkIf (cfg.stack == "workers") {
@@ -207,6 +242,13 @@ in
             "RAFI_PUBLIC_URL:http://127.0.0.1:${toString (port "wrangler-app")}"
             "--var"
             "RESTATE_INGRESS_URL:${restateIngressUrl}"
+          ]
+          # The secret key from .env, and the dev environment's RAFI_DEV_AUTH off.
+          ++ lib.optionals cfg.clerk [
+            "--env-file"
+            "${root}/.env"
+            "--var"
+            "RAFI_DEV_AUTH:0"
           ];
         };
 
@@ -236,20 +278,19 @@ in
       tasks = {
         # The web app bundle and the participant scripts -> apps/worker/worker-assets.
         "rafi:app-assets" = {
-          exec = "CLERK_PUBLISHABLE_KEY= ${root}/scripts/app-assets.sh";
+          exec = ''
+            ${requireClerkKeys}
+            ${lib.optionalString (!cfg.clerk) "CLERK_PUBLISHABLE_KEY= "}./scripts/app-assets.sh
+            mkdir -p "$(dirname ${appAssetsStamp})"
+            echo ${appAssetsAuth} > ${appAssetsStamp}
+          '';
+          status = ''
+            [ "$(cat ${appAssetsStamp} 2>/dev/null)" = ${appAssetsAuth} ] \
+              && [ -f ${appAssets}/index.html ] \
+              && [ -z "$(find ${appAssets}/index.html ${lib.concatStringsSep " " appAssetsSources} \
+                -newer ${appAssetsStamp} ! -path apps/web/assets/tailwind.css -print -quit)" ]
+          '';
           cwd = root;
-          execIfModified = [
-            "apps/web/src"
-            "apps/web/assets"
-            "apps/web/tailwind.css"
-            "apps/web/Cargo.toml"
-            "apps/web/Dioxus.toml"
-            "apps/participant/src"
-            "apps/participant/fallback.js"
-            "apps/participant/Cargo.toml"
-            "crates"
-            "Cargo.lock"
-          ];
           before = [ "devenv:processes:wrangler-app" ];
         };
 
