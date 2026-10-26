@@ -64,7 +64,10 @@ async fn app_with_engine(
         .await
         .expect("database");
     let engine = rafi_engine::local::LocalEngine::new(
-        rafi_engine::drand::DrandClient::new(drand).expect("drand configuration"),
+        rafi_engine::drand::DrandClient::builder(drand)
+            .http_transport(drand::client::ReqwestTransport::default())
+            .build()
+            .expect("drand configuration"),
         rafi_store::RaffleWriter::new(db.clone()),
         rafi_live_server::Polling,
     );

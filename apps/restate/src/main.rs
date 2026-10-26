@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use drand::client::ReqwestTransport;
 use rafi_engine::drand::DrandClient;
 use restate_config::ConfigureEndpointExt;
 use restate_ext::shutdown_signal;
@@ -71,7 +72,11 @@ async fn main() -> Result<()> {
 /// its policy and the `EngineInfo` service.
 /// Fails on invalid configuration, so the process exits before accepting requests.
 fn endpoint(config: Config) -> Result<Endpoint> {
-    let drand = DrandClient::new(config.drand).context("invalid drand configuration")?;
+    let relays = ReqwestTransport::try_default().context("building the drand HTTP client")?;
+    let drand = DrandClient::builder(config.drand)
+        .http_transport(relays)
+        .build()
+        .context("invalid drand configuration")?;
     let (raffle, info) = rafi_engine_restate::services(
         drand,
         config.database.raffle_store()?,

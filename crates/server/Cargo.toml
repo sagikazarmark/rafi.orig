@@ -18,7 +18,7 @@ altcha-server = { workspace = true, features = ["axum"] }
 axum = { version = "0.8", default-features = false, features = ["form", "json", "query", "matched-path", "original-uri"] }
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "ssr"] }
 dioxus-altcha = { workspace = true }
-dioxus-clerk = { version = "0.6", features = ["server"] }
+dioxus-clerk = { version = "0.7", features = ["server"] }
 dioxus-icons = "=0.1.0"
 hex = { workspace = true }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
@@ -43,7 +43,8 @@ tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.7", features = ["fs"] }
 
 [dev-dependencies]
-dioxus-clerk = { version = "0.6", features = ["server", "testing"] }
+dioxus-clerk = { version = "0.7", features = ["server", "testing"] }
+drand = { workspace = true, features = ["reqwest", "rustls"] }
 http-body-util = "0.1"
 altcha = { workspace = true }
 rafi-engine = { workspace = true, features = ["local", "mock-drand"] }

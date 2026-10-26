@@ -7,16 +7,26 @@
 //!
 //! The chain is quicknet, or (with `mock = true` and the `mock-drand`
 //! feature) the mock chain (`rafi_raffle::drand::mock_chain`).
+//!
+//! HTTP is the host's: whoever builds the client hands it an
+//! [`HttpTransport`] for the relays ([`DrandClientBuilder::http_transport`]).
+//! Natively that is `drand`'s `ReqwestTransport`; on Cloudflare Workers, its
+//! `TowerTransport` over `tower-worker-fetch`. This crate names neither.
 
-use std::time::{Duration, SystemTime};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 pub use ::drand::client::Error as FetchError;
+/// What the relays are asked through (`drand::client::HttpTransport`).
+pub use ::drand::client::HttpTransport;
 use ::drand::{
     ChainHash, ChainInfo, Schedule, UnixTime, VerifiedBeacon, chains,
-    client::{Client, ReqwestTransport, Strategy},
+    client::{Client, Strategy},
     http::Relay,
 };
-use anyhow::{Context, bail, ensure};
+use anyhow::{Context, anyhow, bail, ensure};
 #[cfg(feature = "mock-drand")]
 use rafi_raffle::drand::mock_chain;
 use serde::{Deserialize, Serialize};
@@ -141,11 +151,26 @@ pub struct DrandClient {
     client: Client,
 }
 
-impl DrandClient {
+/// Builds a [`DrandClient`]: the settings, and the host's HTTP for the relays.
+#[must_use]
+pub struct DrandClientBuilder {
+    cfg: DrandConfig,
+    transport: Option<Arc<dyn HttpTransport>>,
+}
+
+impl DrandClientBuilder {
+    /// Asks the relays through `transport`. Required unless the settings ask
+    /// for the mock chain, which is served in process (and ignores it).
+    pub fn http_transport(mut self, transport: impl HttpTransport) -> Self {
+        self.transport = Some(Arc::new(transport));
+        self
+    }
+
     /// Validates the configuration and builds the client (fails at startup on
-    /// bad settings, a mock request without the `mock-drand` feature, or an
-    /// unverifiable chain).
-    pub fn new(cfg: DrandConfig) -> anyhow::Result<Self> {
+    /// bad settings, a mock request without the `mock-drand` feature, relays
+    /// without a transport, or an unverifiable chain).
+    pub fn build(self) -> anyhow::Result<DrandClient> {
+        let Self { cfg, transport } = self;
         cfg.validate()?;
         let chain = cfg.chain()?;
         let builder = Client::builder(chain)
@@ -160,12 +185,31 @@ impl DrandClient {
             #[cfg(not(feature = "mock-drand"))]
             unreachable!("validate rejects mock without the feature")
         } else {
+            let transport =
+                transport.ok_or_else(|| anyhow!("no HTTP transport for the drand relays"))?;
             builder
                 .relays(cfg.parsed_relays()?)
-                .http_transport(ReqwestTransport::new(reqwest::Client::new()))
+                .http_transport(transport)
                 .build()?
         };
-        Ok(Self { cfg, client })
+        Ok(DrandClient { cfg, client })
+    }
+}
+
+impl DrandClient {
+    /// A client for `cfg`; [`DrandClientBuilder::http_transport`] says how the
+    /// relays are asked.
+    pub fn builder(cfg: DrandConfig) -> DrandClientBuilder {
+        DrandClientBuilder {
+            cfg,
+            transport: None,
+        }
+    }
+
+    /// A client without HTTP: only the mock chain builds this way (tests and
+    /// development). Anything with relays needs [`DrandClient::builder`].
+    pub fn new(cfg: DrandConfig) -> anyhow::Result<Self> {
+        Self::builder(cfg).build()
     }
 
     pub fn config(&self) -> &DrandConfig {
@@ -218,7 +262,16 @@ impl DrandClient {
 
 #[cfg(test)]
 mod tests {
+    use ::drand::client::ReqwestTransport;
+
     use super::*;
+
+    /// A client over relays (none is asked in these tests).
+    fn with_relays(cfg: DrandConfig) -> anyhow::Result<DrandClient> {
+        DrandClient::builder(cfg)
+            .http_transport(ReqwestTransport::default())
+            .build()
+    }
 
     #[test]
     fn config_from_flat_variables() {
@@ -276,7 +329,11 @@ mod tests {
         );
         assert_eq!(relays[0].to_string(), "v1:https://drand.cloudflare.com");
         assert_eq!(relays[1].to_string(), "v2:https://api.drand.sh");
-        assert!(DrandClient::new(cfg).is_ok());
+        assert!(with_relays(cfg.clone()).is_ok());
+        assert!(
+            DrandClient::new(cfg).is_err(),
+            "relays need the host's HTTP transport"
+        );
     }
 
     #[test]
@@ -298,7 +355,7 @@ mod tests {
 
     #[test]
     fn quicknet_target_round_is_lead_seconds_ahead() {
-        let client = DrandClient::new(DrandConfig::default()).unwrap();
+        let client = with_relays(DrandConfig::default()).unwrap();
         let g = 1_692_803_367u64;
         for now in g..g + 30 {
             let (round, due) = client.target_round(now);
@@ -316,7 +373,7 @@ mod tests {
         let q = chains::quicknet();
         let genesis_ms = q.genesis_time().as_secs() * 1000;
         for lead_secs in [3u64, 6, 7] {
-            let client = DrandClient::new(DrandConfig {
+            let client = with_relays(DrandConfig {
                 lead_secs,
                 ..DrandConfig::default()
             })

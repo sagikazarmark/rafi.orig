@@ -27,6 +27,7 @@ futures-util = { version = "0.3", default-features = false }
 gloo-timers = { version = "0.4", features = ["futures"] }
 
 [dev-dependencies]
+drand = { workspace = true, features = ["reqwest", "rustls"] }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
 rafi-engine = { workspace = true, features = ["conformance"] }
 restate-e2e-harness = "0.3"

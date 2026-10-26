@@ -9,8 +9,9 @@ publish = false
 
 [features]
 ## `drand`: the drand client every engine draws with (`DrandConfig`,
-## `DrandClient`): Rafi's chain, relays, lead and fetch timeout.
-drand = ["dep:drand", "dep:reqwest"]
+## `DrandClient`): Rafi's chain, relays, lead and fetch timeout. No HTTP
+## client: the host passes one in (`DrandClientBuilder::http_transport`).
+drand = ["dep:drand"]
 ## `mock-drand`: allow `mock = true`, drawing from the mock chain (a test
 ## chain with a public seed; development and tests only).
 mock-drand = ["drand", "drand/test-chain", "rafi-raffle/mock-chain"]
@@ -20,8 +21,9 @@ mock-drand = ["drand", "drand/test-chain", "rafi-raffle/mock-chain"]
 local = ["dep:tokio", "dep:tracing", "drand"]
 ## `conformance`: the scenarios every raffle engine must pass. This crate's
 ## tests run it on `LocalEngine`; `rafi-engine-restate`'s on the `Raffle`
-## object through the app's client.
-conformance = ["dep:tokio", "dep:serde_json", "mock-drand"]
+## object through the app's client. Its relays (a forging one, an
+## unreachable one) are asked over reqwest. Native only.
+conformance = ["dep:tokio", "dep:serde_json", "mock-drand", "drand/reqwest", "drand/rustls"]
 
 [dependencies]
 anyhow = "1"
@@ -30,8 +32,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 
 # drand
-drand = { workspace = true, features = ["reqwest", "rustls", "bls12-381"], optional = true }
-reqwest = { version = "0.13", default-features = false, features = ["rustls"], optional = true }
+drand = { workspace = true, features = ["client", "bls12-381"], optional = true }
 
 # local, conformance
 tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net", "io-util"], optional = true }

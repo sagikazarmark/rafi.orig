@@ -21,11 +21,13 @@
 
 use std::sync::Arc;
 
+use drand::client::TowerTransport;
 use http_body_util::BodyExt;
 use rafi_cloudflare::{DurableObjects, lookup};
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_store::RaffleWriter;
 use restate_sdk::endpoint::{Endpoint, HandleOptions, ProtocolMode, ResponseBody};
+use tower_worker_fetch::FetchService;
 use worker::{Env, HttpRequest};
 
 /// The path prefix Restate's requests arrive under. Registered with Restate
@@ -50,7 +52,11 @@ fn drand_config(env: &Env) -> DrandConfig {
 /// The SDK endpoint over the Worker's bindings. Fails closed on missing keys.
 pub fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
     let store = RaffleWriter::new(rafi_cloudflare::database(env)?);
-    let drand = DrandClient::new(drand_config(env))?;
+    // The relays are asked through the Workers `fetch` API. The client's own
+    // per-request timeout bounds each one; dropping the request aborts it.
+    let drand = DrandClient::builder(drand_config(env))
+        .http_transport(TowerTransport::new(FetchService::new()))
+        .build()?;
     // A raffle's changes go to its room.
     let observer = Arc::new(DurableObjects::new(env.clone()));
     let (raffle, info) = rafi_engine_restate::services(drand, store, Some(observer));

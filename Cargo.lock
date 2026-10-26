@@ -1495,9 +1495,9 @@ dependencies = [
 
 [[package]]
 name = "dioxus-clerk"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f138a6a6f6bf767b0bce9be2fbdb5099d951c0015ef3812da7a2eef8006d8b6"
+checksum = "1cbae810c05aa7b03b14b61a9af49c12affe4957a370317ee796cd96fbde4667"
 dependencies = [
  "axum",
  "axum-extra",
@@ -1506,17 +1506,19 @@ dependencies = [
  "dioxus-fullstack-core",
  "futures-util",
  "gloo-timers 0.4.0",
+ "http-body-util",
  "js-sys",
  "jwk-simple",
  "jwt-simple",
  "reqwest 0.13.5",
- "send_wrapper",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
  "thiserror 2.0.21",
  "tower",
+ "tower-worker-fetch",
  "tracing",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -2055,6 +2057,8 @@ dependencies = [
  "gloo-timers 0.4.0",
  "hex",
  "http",
+ "http-body",
+ "http-body-util",
  "reqwest 0.13.5",
  "send_wrapper",
  "serde",
@@ -2062,6 +2066,7 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "tokio",
+ "tower-service",
  "tracing",
  "web-time",
 ]
@@ -3373,20 +3378,27 @@ dependencies = [
 
 [[package]]
 name = "jwk-simple"
-version = "0.5.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1e9741b5720b24411216c72d9dedfd5d304befbd1af0106498cebdceec656b5"
+checksum = "b7a071eca79dc7e3db2a8c9267d1fb227c4182df24013bc19272b2f944ed10a7"
 dependencies = [
  "async-trait",
  "base64ct",
+ "bytes",
+ "futures-core",
  "getrandom 0.4.3",
+ "http",
+ "http-body",
+ "http-body-util",
  "jwt-simple",
- "pkcs1",
+ "reqwest 0.13.5",
+ "send_wrapper",
  "serde",
  "serde_json",
  "sha1 0.11.0",
  "sha2 0.11.0",
  "subtle",
+ "tower-service",
  "url",
  "x509-parser",
  "zeroize",
@@ -3394,9 +3406,9 @@ dependencies = [
 
 [[package]]
 name = "jwt-simple"
-version = "0.13.2"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfe0b6f4da7d4625a81dc8018fe520627f34711df9557cc9588dbe8af4a0a37e"
+checksum = "16f66c560ab0aca6510c246003ab23e56eb4f4583029c26374c4e043d08786ec"
 dependencies = [
  "anyhow",
  "binstring",
@@ -4903,7 +4915,6 @@ dependencies = [
  "drand",
  "rafi-engine",
  "rafi-raffle",
- "reqwest 0.13.5",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4917,6 +4928,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "drand",
  "futures-util",
  "gloo-timers 0.4.0",
  "http",
@@ -5006,6 +5018,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "drand",
  "figment",
  "rafi-engine",
  "rafi-engine-restate",
@@ -5031,6 +5044,7 @@ dependencies = [
  "dioxus-altcha",
  "dioxus-clerk",
  "dioxus-icons",
+ "drand",
  "hex",
  "http-body-util",
  "pulldown-cmark",
@@ -5121,6 +5135,7 @@ dependencies = [
  "anyhow",
  "axum",
  "dioxus-clerk",
+ "drand",
  "http",
  "http-body-util",
  "rafi-app",
@@ -5132,6 +5147,7 @@ dependencies = [
  "rafi-store",
  "restate-sdk",
  "tower-service",
+ "tower-worker-fetch",
  "worker",
 ]
 
@@ -6901,6 +6917,21 @@ name = "tower-service"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
+
+[[package]]
+name = "tower-worker-fetch"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abd7f0ee86450c757b1f52ab67919ebcbddecbe2a91f8a3f42f144e3a2afd6e4"
+dependencies = [
+ "bytes",
+ "http",
+ "http-body",
+ "pin-project-lite",
+ "tower-service",
+ "web-sys",
+ "worker",
+]
 
 [[package]]
 name = "tracing"

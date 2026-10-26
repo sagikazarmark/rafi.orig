@@ -21,7 +21,9 @@ dev = ["rafi-server/mock-drand", "rafi-engine/mock-drand"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = "1"
 axum = { version = "0.8", default-features = false }
-dioxus-clerk = { version = "0.6", features = ["server", "worker"] }
+dioxus-clerk = { version = "0.7", features = ["server", "worker"] }
+# The drand client's relays, asked through the Workers `fetch` API.
+drand = { workspace = true, features = ["tower"] }
 http = "1"
 http-body-util = "0.1"
 rafi-app = { workspace = true }
@@ -33,4 +35,5 @@ rafi-server = { workspace = true }
 rafi-store = { workspace = true }
 restate-sdk = { workspace = true, features = ["rust_crypto"] }
 tower-service = "0.3"
+tower-worker-fetch = "0.2"
 worker = { version = "0.8.7", features = ["http", "axum"] }

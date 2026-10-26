@@ -27,6 +27,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use ::drand::client::ReqwestTransport;
+
 use crate::drand::{DrandClient, DrandConfig};
 use crate::{BoxFuture, Engine, EngineError, MemoryStore, Observer, RecordingObserver, Store};
 use rafi_raffle::{
@@ -186,7 +188,10 @@ impl Fixture {
             Profile::Withheld => quicknet("http://127.0.0.1:9".into()),
             Profile::Forged => quicknet(forging_relay().await?),
         };
-        let drand = DrandClient::new(config).map_err(|e| format!("drand: {e:#}"))?;
+        let drand = DrandClient::builder(config)
+            .http_transport(ReqwestTransport::default())
+            .build()
+            .map_err(|e| format!("drand: {e:#}"))?;
         let store = MemoryStore::default();
         let observer = Arc::new(RecordingObserver::default());
         let writes: Arc<dyn Store> = match profile {

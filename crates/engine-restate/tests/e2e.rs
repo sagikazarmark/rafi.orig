@@ -275,12 +275,14 @@ async fn e2e_stalled_draw() {
     };
     let restate = launcher.launch(&SERVER).await;
     // quicknet behind an unreachable relay: every fetch fails, and gives up after a second.
-    let drand = DrandClient::new(DrandConfig {
+    let drand = DrandClient::builder(DrandConfig {
         relays: vec!["http://127.0.0.1:9".into()],
         mock: false,
         lead_secs: 3,
         timeout_secs: 1,
     })
+    .http_transport(drand::client::ReqwestTransport::default())
+    .build()
     .unwrap();
     let store = MemoryStore::default();
     let observer = std::sync::Arc::new(RecordingObserver::default());

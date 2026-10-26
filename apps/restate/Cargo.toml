@@ -13,6 +13,8 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
+# The drand client's relays, asked over reqwest.
+drand = { workspace = true, features = ["reqwest", "rustls"] }
 rafi-engine = { workspace = true, features = ["drand"] }
 rafi-engine-restate = { workspace = true }
 rafi-store = { workspace = true }
