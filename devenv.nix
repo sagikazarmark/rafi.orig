@@ -91,20 +91,14 @@ in
     {
       dotenv.enable = true;
 
-      packages =
-        with pkgs;
-        [
-          cargo-deny
-          cargo-watch
+      packages = with pkgs; [
+        cargo-deny
+        cargo-watch
 
-          # Rafi
-          python3 # tools/verify.py
-          sqlite
-        ]
-        # Headless Chromium for the browser checks (apps/participant/smoke.mjs,
-        # apps/worker/evening.mjs, through scripts/workers-check.sh). nixpkgs
-        # builds it for Linux only; on macOS, point CHROMIUM at a browser.
-        ++ lib.optionals stdenv.isLinux [ chromium ];
+        # Rafi
+        python3 # tools/verify.py
+        sqlite
+      ];
 
       dioxus = {
         enable = true;
@@ -117,6 +111,10 @@ in
       # Cloudflare Workers: wrangler dev, D1 migrations, deploys
       wrangler = {
         enable = true;
+      };
+
+      browsers = {
+        chrome.enable = true;
       };
 
       languages = {

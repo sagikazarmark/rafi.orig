@@ -27,3 +27,4 @@ imports:
 nixpkgs:
   permitted_unfree_packages:
     - restate-bin
+    - google-chrome
