@@ -154,7 +154,7 @@ RAFI_RESTATE_DRAND__MOCK=true … cargo run -p rafi-restate --features mock-dran
 across restarts:
 
 ```sh
-./scripts/app-assets.sh                                   # web app bundle + participant scripts -> apps/worker/worker-assets
+./scripts/app-assets.sh --dev                             # web app bundle (dev auth) + participant scripts -> apps/worker/worker-assets
 (cd apps/worker && wrangler d1 migrations apply rafi --local --env dev --persist-to ../../.wrangler-state)
 (cd apps/worker && wrangler dev --env dev --persist-to ../../.wrangler-state)   # http://127.0.0.1:8787, dev auth, mock drand
 # Restate with its ingress on :18080 (the dev Worker's RAFI_ENGINE_INGRESS_URL), then register the engine, which is

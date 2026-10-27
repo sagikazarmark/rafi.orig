@@ -111,7 +111,12 @@ nothing, silently.
 ### 5. Check
 
 Open `/healthz`, `/terms` and `/privacy`, then run a test-mode raffle end to end, as in
-[Self-hosting](self-hosting.md#8-check).
+[Self-hosting](self-hosting.md#8-check). `/healthz` answering `ok` means the Worker has every secret and its
+documents; it does not check the database's schema against the build (apply the migrations first, as above).
+
+Deploys are manual, on purpose: nothing in CI holds a Cloudflare token. CI does run the production shape through
+`wrangler deploy --dry-run` and serves it without secrets ([Testing](../development/testing.md#workers)), so what
+reaches you has been built and validated the way `wrangler deploy` builds and validates it.
 
 ## Data residency
 

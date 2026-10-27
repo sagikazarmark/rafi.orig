@@ -31,6 +31,10 @@ use rafi_store::{audit, housekeeping as store, retention};
 
 use crate::{App, altcha, ids};
 
+/// The most raffles one housekeeping run asks the engine to finish
+/// ([`finish_at_ceiling`]).
+const FINISHES_PER_RUN: usize = 5;
+
 /// How long after finishing a raffle keeps its live channel, unless the
 /// organizer ends live updates earlier.
 pub const CHANNEL_GRACE_SECS: i64 = 86_400;
@@ -88,15 +92,25 @@ pub async fn run_at(app: &App, now: i64) -> anyhow::Result<Report> {
 /// Asks the engine to finish every frozen or drawing raffle past the
 /// ceiling: everyone in it is erased, and nothing more can be drawn. Best
 /// effort: erasure never waits for the engine, and a raffle that won't
-/// finish is tried again on the next run.
+/// finish is tried again on the next run. At most [`FINISHES_PER_RUN`] are
+/// asked per run, one after the other: each call may wait the engine's
+/// timeout, and the run must end well within the hour (on Workers, within
+/// the Cron Trigger's wall clock).
 async fn finish_at_ceiling(app: &App, now: i64, hold: i64) {
-    let due = match retention::unfinished_at_ceiling(&app.db, now, hold).await {
+    let mut due = match retention::unfinished_at_ceiling(&app.db, now, hold).await {
         Ok(due) => due,
         Err(e) => {
             tracing::warn!(error = %e, "looking for unfinished raffles past the ceiling failed");
             return;
         }
     };
+    if due.len() > FINISHES_PER_RUN {
+        tracing::warn!(
+            due = due.len(),
+            "more unfinished raffles past the ceiling than one run asks the engine about; the rest wait for the next"
+        );
+        due.truncate(FINISHES_PER_RUN);
+    }
     let Ok(engine) = app.engine() else {
         return;
     };

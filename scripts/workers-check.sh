@@ -9,8 +9,14 @@
 #   4. a whole evening on the Worker itself (apps/worker/evening.mjs): the admin
 #      API, a phone joining in Chromium, draws through Restate (a local
 #      restate-server calling the engine in the same Worker, under /restate),
-#      the live channel, the end. Needs RESTATE_SERVER_BIN (the devenv shell
-#      sets it), Chromium and dx (for the web app bundle).
+#      the live channel, the end, and the hourly housekeeping fired as the
+#      Cron Trigger would fire it. Needs RESTATE_SERVER_BIN (the devenv shell
+#      sets it), Chromium and dx (for the web app bundle);
+#   5. the production shape (the top level of wrangler.toml, built without
+#      the `dev` feature): `wrangler deploy --dry-run` validates the
+#      configuration and the bundle against a size budget, and the Worker
+#      served without any secret answers 500 "misconfigured", so a deploy
+#      can't run open. Needs dx too (the dry run uploads the assets).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node,
 # wasm-bindgen-cli at the lockfile's version and wasm-opt (for the participant page).
@@ -80,7 +86,7 @@ fi
 
 if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev/null; then
   step "an evening on the Worker"
-  "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
+  "$ROOT/scripts/app-assets.sh" --dev >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
   (cd "$ROOT/apps/worker" && worker-build --release --features dev) >"$LOGS/build-app.log" 2>&1
   (cd "$ROOT/apps/worker" && $WRANGLER d1 migrations apply rafi --local --env dev --persist-to "$STATE/wrangler") >/dev/null
   (cd "$STATE" && RESTATE_BASE_DIR="$STATE/restate" RESTATE_NODE_NAME=workers-check \
@@ -89,15 +95,69 @@ if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev
     RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 RESTATE_ADMIN__BIND_ADDRESS=127.0.0.1:19070 \
     exec "$RESTATE_SERVER_BIN") >"$LOGS/restate-server.log" 2>&1 &
   PIDS+=($!)
-  serve apps/worker 8787 /healthz --env dev
+  # --test-scheduled: the Cron Trigger can be fired by hand (/__scheduled).
+  serve apps/worker 8787 /healthz --env dev --test-scheduled
   for _ in $(seq 1 60); do curl -s -m 3 -o /dev/null http://127.0.0.1:19070/health && break; sleep 1; done
   # The engine is the same Worker, under /restate; wrangler dev speaks HTTP/1.1 only.
   curl -s -m 30 -X POST http://127.0.0.1:19070/deployments -H 'content-type: application/json' \
     -d '{"uri":"http://127.0.0.1:8787/restate","use_http_11":true}' >/dev/null
   CHROMIUM="$CHROMIUM" APP=http://127.0.0.1:8787 INGRESS=http://127.0.0.1:18080 \
     node "$ROOT/apps/worker/evening.mjs" "$STATE/chrome-app"
+
+  step "housekeeping, fired as the Cron Trigger fires it"
+  # The erasure promise rests on this handler running; it records each
+  # success in `meta`, which is what the admin's staleness warning reads.
+  curl -s -m 120 -o /dev/null "http://127.0.0.1:8787/__scheduled?cron=0+*+*+*+*"
+  last_ok="$(cd "$ROOT/apps/worker" && $WRANGLER d1 execute rafi --local --env dev --persist-to "$STATE/wrangler" --json \
+    --command "SELECT value FROM meta WHERE key = 'last_retention_ok_at'" | node -e '
+      const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+      const rows = out[0]?.results ?? [];
+      process.stdout.write(rows[0]?.value ?? "");')"
+  if [ -z "$last_ok" ]; then
+    echo "the scheduled handler didn't record a successful housekeeping run; log:" >&2
+    tail -30 "$LOGS/worker.log" >&2
+    exit 1
+  fi
+  echo "ok   housekeeping ran and recorded its success (last_retention_ok_at=$last_ok)"
+  stale="$(curl -s -m 10 -X POST http://127.0.0.1:8787/api/admin/whoami -H 'content-type: application/json' -d '{}' \
+    | node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(0, "utf8")).retention_stale))')"
+  [ "$stale" = "false" ] || { echo "whoami.retention_stale is $stale after a run" >&2; exit 1; }
+  echo "ok   the admin sees automatic erasure as running"
+  # The dev Worker is done: the production shape takes the port's build dir.
+  kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
 else
   step "an evening on the Worker: skipped (needs RESTATE_SERVER_BIN, Chromium and dx)"
+fi
+
+if command -v dx >/dev/null; then
+  step "the production shape: a dry deploy within budget, and fail-closed without secrets"
+  [ -d "$ROOT/apps/worker/worker-assets" ] || "$ROOT/scripts/app-assets.sh" --dev >"$LOGS/app-assets.log" 2>&1
+  # The top level of wrangler.toml, built as `wrangler deploy` builds it (no
+  # `dev` feature). The dry run validates every binding and uploads nothing.
+  dry="$(cd "$ROOT/apps/worker" && $WRANGLER deploy --dry-run --outdir "$STATE/dry" 2>&1)" \
+    || { echo "$dry" | tail -30 >&2; exit 1; }
+  gzip_kib="$(echo "$dry" | sed -n 's/.*gzip: \([0-9.]*\) KiB.*/\1/p' | head -1 | cut -d. -f1)"
+  [ -n "$gzip_kib" ] || { echo "no upload size in wrangler's output:" >&2; echo "$dry" | tail -20 >&2; exit 1; }
+  # Workers' limit is 3 MiB compressed on the free plan, 10 MiB paid; the
+  # budget keeps a deploy from sliding towards either unnoticed.
+  budget=2560
+  if [ "$gzip_kib" -gt "$budget" ]; then
+    echo "the Worker is $gzip_kib KiB gzipped, over the $budget KiB budget" >&2
+    exit 1
+  fi
+  echo "ok   wrangler deploy --dry-run: $gzip_kib KiB gzipped (budget $budget KiB)"
+  # Served with no secret at all: every request is refused, the health check
+  # included, instead of running open with defaults.
+  serve apps/worker 8791 /healthz
+  closed="$(curl -s -m 10 -w '\n%{http_code}' http://127.0.0.1:8791/healthz)"
+  if [ "$(echo "$closed" | tail -1)" != "500" ] || ! echo "$closed" | head -1 | grep -q misconfigured; then
+    echo "the production Worker without secrets answered: $closed" >&2
+    tail -20 "$LOGS/worker.log" >&2
+    exit 1
+  fi
+  echo "ok   without secrets the production Worker refuses every request (500 misconfigured)"
+else
+  step "the production shape: skipped (needs dx for the assets)"
 fi
 
 step "all Workers checks passed"

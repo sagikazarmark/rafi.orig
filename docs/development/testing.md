@@ -93,5 +93,12 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 - a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
   through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), the live channel,
   the end
+- the hourly housekeeping fired as the Cron Trigger fires it (`wrangler dev --test-scheduled`, `/__scheduled`),
+  checked to have recorded its success, which is what the admin's staleness warning reads
+- the production shape: `wrangler deploy --dry-run` of the top level of `wrangler.toml`, built without the `dev`
+  feature, against a size budget (2.5 MiB gzipped; Workers allow 3 on the free plan, 10 paid), and the same
+  Worker served with no secret at all answering 500 `misconfigured` to everything, so a deploy can't run open
 
-CI's `workers` job runs it. Testbeds are never deployed.
+CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from CI: a deploy is the operator's
+`wrangler deploy -c wrangler.<site>.toml` ([Cloudflare](../operations/cloudflare.md)), and the dry run above is
+its gate.

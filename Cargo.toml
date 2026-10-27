@@ -6,7 +6,7 @@ members = ["crates/*", "apps/*", "testbeds/*"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/sagikazarmark/rafi"
-rust-version = "1.92"
+rust-version = "1.94"
 
 [workspace.dependencies]
 dioxus-altcha = { version = "0.2", default-features = false }
@@ -43,6 +43,8 @@ codegen-units = 1
 
 # Restate SDK made safe on wasm32-unknown-unknown (Cloudflare Workers): std
 # clocks via web-time, no Tokio timer around the input drain, JS getrandom
-# backends. Upstream PR open; drop this once it is released.
+# backends. Upstream PR restatedev/sdk-rust#128 is open; drop this once it is
+# released. Pinned to a commit of the `wasm` branch: `worker-build` doesn't
+# pass `--locked`, so a branch alone could move under a deploy.
 [patch.crates-io]
-restate-sdk = { git = "https://github.com/sagikazarmark/restate-sdk-rust", branch = "wasm" }
+restate-sdk = { git = "https://github.com/sagikazarmark/restate-sdk-rust", rev = "91bf758b8f6d8fc8eb91fb63524f01dbe74b2bea" }

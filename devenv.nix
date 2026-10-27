@@ -267,7 +267,7 @@ in
         "rafi:app-assets" = {
           exec = ''
             ${requireClerkKeys}
-            ${lib.optionalString (!cfg.clerk) "CLERK_PUBLISHABLE_KEY= "}./scripts/app-assets.sh
+            ./scripts/app-assets.sh${lib.optionalString (!cfg.clerk) " --dev"}
             mkdir -p "$(dirname ${appAssetsStamp})"
             echo ${appAssetsAuth} > ${appAssetsStamp}
           '';

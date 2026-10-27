@@ -28,11 +28,13 @@ command = "worker-build --release"
 # Paths the Worker answers go to it first (Restate's requests under /restate/
 # included); anything else is a file, or the web app's index.html (single-page
 # routing). The Worker serves the participant page's proof-of-work solver
-# (dioxus-altcha's, as built in).
+# (dioxus-altcha's, as built in). /__scheduled is `wrangler dev
+# --test-scheduled`'s way of firing the Cron Trigger (scripts/workers-check.sh);
+# in production it is a path like any other, which the Worker answers 404.
 [assets]
 directory = "./worker-assets"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js"]
+run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js", "/__scheduled"]
 
 [[d1_databases]]
 binding = "DB"

@@ -728,7 +728,7 @@ day). **Why now**: what gets expensive after the release.
 
 ### Build, CI and the production path
 
-#### CI-1 · The production build and configuration are never exercised
+#### CI-1 · The production build and configuration are never exercised — **done**
 
 - **Where**: `scripts/workers-check.sh:84` and `.github/workflows/ci.yaml:89-106` build the Worker only with
   `--features dev`; nothing runs `wrangler deploy --dry-run`; nothing fires the `scheduled` handler
@@ -744,7 +744,7 @@ day). **Why now**: what gets expensive after the release.
   passed and prints the mode it built.
 - **Size**: small.
 
-#### CI-2 · `cargo deny` is red on `main`
+#### CI-2 · `cargo deny` is red on `main` — **done**
 
 - **Where**: RUSTSEC-2026-0381/0383 (webpki-roots, webpki-root-certs), 0382 (rustls-webpki), 0385 (ctutils), 0386
   (tokio, unsound), 0387 (crypto-bigint 0.5.5 and 0.7.5), 0391/0398/0403 (zstd, zstd-safe), 0410 (zstd-sys);
@@ -754,7 +754,7 @@ day). **Why now**: what gets expensive after the release.
   `liboliphaunt-native-bindings` ← `oliphaunt`, test-only, visible because `deny.toml` sets `all-features`).
 - **Size**: small.
 
-#### CI-3 · The MSRV is false
+#### CI-3 · The MSRV is false — **done**
 
 - **Where**: `Cargo.toml:9` `rust-version = "1.92"`; `sqlx 0.9` declares `1.94.0`, `oliphaunt` `1.93`. With
   `resolver = "3"` (MSRV-aware) `cargo update` already refuses to move those crates.
@@ -772,7 +772,7 @@ day). **Why now**: what gets expensive after the release.
   backwards yields exactly that), and sort before comparing, as `expired` does at `:1657`.
 - **Size**: trivial.
 
-#### CI-5 · Pinning and small CI gaps
+#### CI-5 · Pinning and small CI gaps — **done**
 
 - `Cargo.toml:44-46`: `restate-sdk` is patched by `branch = "wasm"`; `worker-build` doesn't pass `--locked`. Pin
   `rev =`; keep tracking restatedev/sdk-rust#128. (trivial)
@@ -859,7 +859,8 @@ the `room` feature; `cargo build` and `cargo clippy` are warning-free natively a
    then join) impossible by design, which is the point; the one test that needed it now joins first and shifts
    the clock in the database, as the conformance suite does.
 6. **CI** (CI-1 … CI-5): so what was fixed stays fixed; `cargo deny`, the MSRV and the flaky test can go in any
-   earlier step's PR.
+   earlier step's PR. **Done 2026-10-27.** `/__scheduled` had to join `run_worker_first`: the Assets layer's
+   single-page fallback answered it before the Worker could, which is also why the cron was never observed.
 7. **Cleanup** (CLN-*) as one sweep, and the status texts at tag time.
 
 Each step ends with `cargo test --workspace`, `cargo clippy` on both targets, and `scripts/workers-check.sh`.
