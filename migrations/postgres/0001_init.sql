@@ -88,7 +88,7 @@ CREATE TABLE entrants (
     -- Private code shown only to the entrant and the organizer; NULL once
     -- their personal data is erased.
     claim_code TEXT,
-    -- SHA-256 of the secret entrant token stored in the attendee's cookie.
+    -- SHA-256 of the secret token in the entrant's cookie.
     token_hash TEXT,
     -- What the join form showed when the rules were accepted:
     -- `<form version>/age<minimum age>`, e.g. `2026-10-21.2/age16`; the form

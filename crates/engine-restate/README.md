@@ -31,10 +31,14 @@ room. `services` binds both services the way every host does.
 ```rust
 use std::sync::Arc;
 
+use drand::client::ReqwestTransport;
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::{MemoryStore, RecordingObserver};
 
-let drand = DrandClient::new(DrandConfig::default())?;
+// The relays are asked over the host's HTTP client (`new` is for the mock chain only).
+let drand = DrandClient::builder(DrandConfig::default())
+    .http_transport(ReqwestTransport::default())
+    .build()?;
 // Clients that poll the store need no observer: pass None.
 let observer = Arc::new(RecordingObserver::default());
 let (raffle, info) = rafi_engine_restate::services(drand, MemoryStore::default(), Some(observer));

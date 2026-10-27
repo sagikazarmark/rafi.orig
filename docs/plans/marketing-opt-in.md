@@ -1,8 +1,9 @@
 # Marketing opt-in
 
-**Status: proposed, deferred (2026-10-21).** Builds on [privacy-and-retention.md](privacy-and-retention.md), which
-removes the half-built opt-in Rafi has today. This plan brings it back whole: the consent, the export it was always
-missing, a retention clock of its own, and withdrawal. Nothing here is started until that spec has shipped.
+**Status: proposed, deferred (2026-10-21).** Builds on
+[privacy-and-retention.md](../history/privacy-and-retention.md) (shipped, now in the history), which removed the
+half-built opt-in Rafi had. This plan brings it back whole: the consent, the export it was always missing, a
+retention clock of its own, and withdrawal.
 
 > Not legal advice. §Further notes lists what a lawyer must check before the feature goes live on the hosted
 > instance.

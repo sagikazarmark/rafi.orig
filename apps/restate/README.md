@@ -27,7 +27,7 @@ curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
 
 ## Configuration
 
-Pass a configuration file with `--config <FILE>` (or `RAFI_RESTATE_CONFIG`), in JSON, YAML or TOML. Every setting can also be
+Pass a configuration file with `--config <FILE>` (or `RAFI_RESTATE_CONFIG`), in TOML or JSON. Every setting can also be
 set with a `RAFI_RESTATE_` environment variable, with `__` separating the levels (`RAFI_RESTATE_DATABASE__URL`).
 
 Every setting is described in the

@@ -8,6 +8,6 @@ command = "worker-build --release"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "rafi-store-check"
+database_name = "rafi-store-d1-check"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "../../migrations/sqlite"

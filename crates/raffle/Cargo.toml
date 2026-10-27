@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "Rafi's raffle: a verifiable raffle of items among entrants (the state machine, the draw algorithm, the manifest and the verifier)"
+publish = false
 
 [features]
 ## `mock-chain`: the mock drand chain, a test chain with a public seed

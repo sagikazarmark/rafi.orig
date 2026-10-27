@@ -475,7 +475,7 @@ fn RetentionCard(admin: AdminData) -> Element {
                     p { "Entrants' names and emails are erased at the end of " strong { "{erase}" } ", whatever else happens to this raffle. You can erase earlier from the menu once it has finished." }
                 }
                 if r.held_winners > 0 {
-                    p { "{r.held_winners} winner(s)' data is kept until you mark their prize delivered, at the latest until the end of " strong { "{winners}" } ". Everything handed over? Use “All prizes delivered” in the menu." }
+                    p { "{r.held_winners} winner(s)' data is kept until you mark their prize delivered, at the latest until the end of " strong { "{winners}" } ". Everything delivered? Use “All prizes delivered” in the menu." }
                 }
                 if r.unfinished_past_event {
                     p { class: "text-warning", "⚠ Not finished, and the event day has passed. Entrants' data is erased on the date regardless; finish the raffle so its data can be erased for good." }

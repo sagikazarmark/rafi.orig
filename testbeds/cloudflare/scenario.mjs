@@ -1,6 +1,6 @@
 // Drives rafi-cloudflare's RaffleRoom end to end against `wrangler dev` (see src/lib.rs):
 // phones connect over partyline, the raffle changes the way the app and the
-// drawing engine change it, and every step checks what the phones received.
+// raffle engine change it, and every step checks what the phones received.
 //
 //   node scenario.mjs http://127.0.0.1:8790
 

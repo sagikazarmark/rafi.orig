@@ -1,16 +1,18 @@
 # Privacy and retention
 
-**Status: implemented (2026-10-21), amended (2026-10-26).** The privacy review's main spec: automatic erasure comes
+> **Historical document.** The spec the privacy and retention features were built from, kept for the reasoning behind its decisions. What the software does is in [docs/explanation/privacy-and-abuse.md](../explanation/privacy-and-abuse.md), which is the source of truth; its "Follow-ups" are tracked there and in the pre-release review.
+
+**Status: implemented (2026-10-21), amended (2026-10-26), moved to history (2026-10-27).** The privacy review's main spec: automatic erasure comes
 back, redesigned; the legal surfaces the hosted instance needs are added; the marketing opt-in is removed and gets
-its own plan ([marketing-opt-in.md](marketing-opt-in.md)). What the software does is in
+its own plan ([docs/plans/marketing-opt-in.md](../plans/marketing-opt-in.md)). What the software does is in
 [docs/explanation/privacy-and-abuse.md](../explanation/privacy-and-abuse.md); this document is the reasoning.
 
-> **Amended before the first release** ([pre-release-review.md](pre-release-review.md), SCH-3): the recorded
+> **Amended before the first release** ([docs/plans/pre-release-review.md](../plans/pre-release-review.md), SCH-3): the recorded
 > acceptance of the terms (`legal_acceptances`, the gate on creating a raffle, the admin's "I accept") was removed.
 > `/terms` and `/privacy` stay, with their versions; acceptance is by use. The reasoning and the consequences are
 > in that document's §Accepted risks. §Terms and the processing agreement below describes the removed design.
 
-[docs/history/retention.md](../history/retention.md) describes the automatic erasure Rafi had until 2026-10-20.
+[retention.md](retention.md) describes the automatic erasure Rafi had until 2026-10-20.
 Where this spec differs from it, this spec wins; where it is silent, that design and its §8 "decisions worth
 keeping" still hold.
 
@@ -408,7 +410,7 @@ Workers CI job starts it under `wrangler dev`; a cron smoke test there is welcom
 
 Recorded here so they aren't lost; none blocks the hosted launch.
 
-- **Audit actor.** Done before the release ([pre-release-review.md](pre-release-review.md), SCH-1): every audit
+- **Audit actor.** Done before the release ([docs/plans/pre-release-review.md](../plans/pre-release-review.md), SCH-1): every audit
   row carries `actor` (the owner key) and `user_id` (the signed-in user acting for it), so members of one
   organization are told apart.
 - **Account deletion.** Deleting a Clerk account or organization doesn't remove the organizer's data here; the

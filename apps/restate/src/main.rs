@@ -23,7 +23,7 @@ use crate::config::Config;
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct Cli {
-    /// Configuration file (JSON, YAML or TOML); `RAFI_RESTATE_*` variables override it.
+    /// Configuration file (TOML or JSON); `RAFI_RESTATE_*` variables override it.
     #[arg(long, value_name = "FILE", env = "RAFI_RESTATE_CONFIG")]
     config: Option<PathBuf>,
 }

@@ -10,18 +10,24 @@ title = "Rafi"
 watch_path = ["src", "assets"]
 
 # `dx serve` serves the web app; everything the native server owns goes to it
-# (`PORT=8788 cargo run -p rafi`, see the README).
+# (`PORT=8788 cargo run -p rafi --features dev`, see docs/development/getting-started.md).
 [[web.proxy]]
 backend = "http://127.0.0.1:8788/api/"
+
+[[web.proxy]]
+backend = "http://127.0.0.1:8788/terms"
+
+[[web.proxy]]
+backend = "http://127.0.0.1:8788/privacy"
+
+[[web.proxy]]
+backend = "http://127.0.0.1:8788/healthz"
 
 [[web.proxy]]
 backend = "http://127.0.0.1:8788/j/"
 
 [[web.proxy]]
 backend = "http://127.0.0.1:8788/rules/"
-
-[[web.proxy]]
-backend = "http://127.0.0.1:8788/privacy/"
 
 [[web.proxy]]
 backend = "http://127.0.0.1:8788/participant/"

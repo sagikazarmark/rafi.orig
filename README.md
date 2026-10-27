@@ -80,10 +80,11 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 
 ## Status
 
-- **Self-hosting** (native `rafi` and `rafi-restate`) works today. There are no packaged images yet: you build from
-  source.
-- **Cloudflare Workers** is the planned production deployment. It is verified locally under `wrangler dev`, but not
-  deployed yet.
+- **Cloudflare Workers** is the production deployment: [the first deploy](docs/operations/cloudflare.md) is
+  documented step by step, and CI runs the production shape through a dry deploy, a whole evening under
+  `wrangler dev` and the hourly housekeeping.
+- **Self-hosting** (native `rafi` and `rafi-restate`) is supported. There are no packaged images yet: you build
+  from source. Container images and native packages come later.
 - The UI is in English only.
 
 ## Documentation
@@ -113,8 +114,7 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 - [Getting started](docs/development/getting-started.md) · [Testing](docs/development/testing.md) ·
   [The web app](docs/development/web-app.md)
 - [Plans](docs/plans): specs for work in progress or just done, with the reasoning
-  ([pre-release review](docs/plans/pre-release-review.md),
-  [privacy and retention](docs/plans/privacy-and-retention.md), [marketing opt-in](docs/plans/marketing-opt-in.md))
+  ([pre-release review](docs/plans/pre-release-review.md), [marketing opt-in](docs/plans/marketing-opt-in.md))
 - [Design history](docs/history): the notes written during development, with the reasoning behind decisions.
   These are historical: the code is the source of truth.
 

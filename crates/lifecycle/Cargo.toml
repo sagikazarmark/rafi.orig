@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "A Rafi raffle's lifecycle in the app: its states and the rules on them, starting the draw, entrants and settings"
+publish = false
 
 [dependencies]
 rafi-raffle = { workspace = true }

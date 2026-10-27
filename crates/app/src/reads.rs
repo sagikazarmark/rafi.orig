@@ -146,6 +146,13 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) ->
 
 /// The drawn entrants as CSV: who won what, and how to reach them. Every
 /// export is audited (who, when, how many rows), never stored.
+///
+/// The format (also in `docs/reference/routes.md`): UTF-8 with a byte order
+/// mark (Excel on Windows reads accented names wrong without one), one header
+/// line, every field double-quoted with `"` doubled, and a field that starts
+/// with `=`, `+`, `-` or `@` prefixed with `'` so a spreadsheet doesn't run it
+/// as a formula. Columns: `entrant_id,display_name,email,source,claim_code,
+/// outcome,prize,delivered`.
 pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String> {
     let full = Full::read(&app.db, id).await?.ok_or(Error::NotFound)?;
     if full.raffle.owner_id != actor.owner {
@@ -161,8 +168,9 @@ pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String>
         };
         format!("\"{}\"", s.replace('"', "\"\""))
     }
-    let mut out =
-        String::from("entrant_id,display_name,email,source,claim_code,outcome,prize,delivered\n");
+    let mut out = String::from(
+        "\u{FEFF}entrant_id,display_name,email,source,claim_code,outcome,prize,delivered\n",
+    );
     let mut rows = 0;
     for e in admin_entrants(&full, full.drawn.as_ref(), hold)
         .iter()

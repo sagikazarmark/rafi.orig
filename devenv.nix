@@ -95,7 +95,6 @@ in
 
       packages = with pkgs; [
         cargo-deny
-        cargo-watch
 
         # Rafi
         python3 # tools/verify.py

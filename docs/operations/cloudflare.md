@@ -1,7 +1,9 @@
 # Cloudflare Workers
 
 Rafi on Cloudflare: one Worker and one D1 database, with Restate Cloud running the raffle engine. This is the
-planned production deployment. It is verified locally under `wrangler dev`, but hasn't been deployed yet.
+production deployment. CI runs its shape through `wrangler deploy --dry-run`, a whole evening under `wrangler
+dev` and the hourly housekeeping; what it can't check locally is listed under [First deploy](#first-deploy)'s
+check step.
 
 Cloudflare is one deployment, not an assumption of the code. The app and the engine are written against small
 interfaces (the engine's `Store` and `Observer`, the live `Notifier`, the app's `RateLimit`), and `rafi-cloudflare`
@@ -18,7 +20,7 @@ The Worker, `rafi` (`apps/worker`), hosts:
 
 ## You'll need
 
-- a Cloudflare account (Workers, D1, Durable Objects; the paid plan may be needed, depending on BLS CPU time)
+- a Cloudflare account on the paid Workers plan (Workers, D1, Durable Objects): verifying a BLS signature and rendering the participant page don't fit the free plan's CPU time
 - a Restate Cloud environment
 - a Clerk application
 - the toolchain in `devenv.nix`: `worker-build`, `wrangler`, `wasm-bindgen-cli` matching `Cargo.lock`, `dx`,
@@ -117,6 +119,18 @@ documents; it does not check the database's schema against the build (apply the 
 Deploys are manual, on purpose: nothing in CI holds a Cloudflare token. CI does run the production shape through
 `wrangler deploy --dry-run` and serves it without secrets ([Testing](../development/testing.md#workers)), so what
 reaches you has been built and validated the way `wrangler deploy` builds and validates it.
+
+What only a real deploy can check, so check it on the first one:
+
+- the Worker reaches Restate Cloud's ingress on its port (`:8080`): `workerd` allows any port, production has port
+  rules for proxied hosts; Restate Cloud's `:443` alias is the fallback;
+- the startup time `wrangler deploy` reports stays under the 400 ms limit (the module is about 5 MB);
+- the Durable Objects' EU jurisdiction (`ns.jurisdiction("eu")`) is reached only in production: the test-mode
+  raffle's first phone connect exercises it;
+- Restate Cloud calls `/restate/*` over HTTP/2 (locally HTTP/1.1 only);
+- a zone-level Bot Fight Mode or WAF rule that challenges `POST /restate/*` (a non-browser client) needs a skip
+  rule for that path;
+- the paid Workers plan: BLS verification and server-side rendering don't fit the free plan's CPU time.
 
 ## Data residency
 

@@ -15,8 +15,6 @@ crate-type = ["cdylib", "rlib"]
 ## (RAFI_DRAND_MOCK) and Restate requests without identity keys.
 dev = ["rafi-server/mock-drand", "rafi-engine/mock-drand"]
 
-[dependencies]
-
 # Everything here is Workers glue: the crate is empty on other targets.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = "1"

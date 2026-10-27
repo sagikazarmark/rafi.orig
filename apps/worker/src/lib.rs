@@ -12,7 +12,7 @@
 //!     ([`rafi_server::routes`]) behind Clerk. Workers Assets serves the web app
 //!     and the participant scripts before the Worker is called
 //!     (`run_worker_first` in `wrangler.toml` lists the Worker's paths).
-//! - `scheduled`: the Cron Trigger runs [`rafi_app::housekeeping::run`].
+//! - `scheduled`: the Cron Trigger runs housekeeping (`rafi_app::housekeeping::run`).
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
 //! The installation's legal documents (its privacy notice, its terms with

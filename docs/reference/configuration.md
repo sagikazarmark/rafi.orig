@@ -83,7 +83,7 @@ The bindings:
 
 ## The raffle engine (`rafi-restate`)
 
-Settings come from an optional configuration file (`--config <FILE>` or `RAFI_RESTATE_CONFIG`; JSON, YAML or TOML),
+Settings come from an optional configuration file (`--config <FILE>` or `RAFI_RESTATE_CONFIG`; TOML or JSON),
 overridden by `RAFI_RESTATE_` environment variables, with `__` separating levels. Unknown settings are errors.
 
 | Setting | Variable | Default | |

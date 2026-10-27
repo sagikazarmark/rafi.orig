@@ -7,7 +7,7 @@ installation's own notice is at `/privacy`, and the operator's terms, with the d
 
 > This page describes the software, not your legal obligations. As the organizer, you are the data controller; the
 > operator of the installation is your processor. The plan behind this design is
-> [docs/plans/privacy-and-retention.md](../plans/privacy-and-retention.md).
+> [docs/history/privacy-and-retention.md](../history/privacy-and-retention.md).
 
 ## Data minimization
 

@@ -1693,10 +1693,10 @@ async fn stalled_draw_keeps_its_round() {
     assert!(rafi_raffle::verify_public(&data.manifest, &data.manifest_hash, &data.events).ok());
 }
 
-/// While a draw waits for its round, "not here" is refused; "handed over" is
+/// While a draw waits for its round, "not here" is refused; "claimed" is
 /// accepted, and the engine applies it once that draw settles.
 #[tokio::test]
-async fn only_handing_over_passes_a_waiting_draw() {
+async fn only_claiming_passes_a_waiting_draw() {
     let drand = rafi_engine::drand::DrandConfig {
         lead_secs: 3,
         ..mock_drand()
@@ -3107,7 +3107,8 @@ async fn exports_have_the_winners_and_are_audited() {
         .unwrap();
 
     let csv = service::export_csv(&app, ACTOR, &raffle.id).await.unwrap();
-    let lines: Vec<&str> = csv.lines().collect();
+    assert!(csv.starts_with('\u{FEFF}'), "a byte order mark, for Excel");
+    let lines: Vec<&str> = csv.trim_start_matches('\u{FEFF}').lines().collect();
     assert_eq!(
         lines[0],
         "entrant_id,display_name,email,source,claim_code,outcome,prize,delivered"

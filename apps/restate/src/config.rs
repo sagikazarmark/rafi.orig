@@ -1,4 +1,4 @@
-//! Endpoint configuration: a file (JSON, YAML or TOML) merged with
+//! Endpoint configuration: a file (TOML or JSON) merged with
 //! `RAFI_RESTATE_`-prefixed environment variables (`__` separates levels).
 
 use std::{net::SocketAddr, path::Path};
@@ -6,7 +6,7 @@ use std::{net::SocketAddr, path::Path};
 use anyhow::{Context, Result, bail};
 use figment::{
     Figment,
-    providers::{Env, Format, Json, Toml, Yaml},
+    providers::{Env, Format, Json, Toml},
 };
 use rafi_engine::drand::DrandConfig;
 use rafi_store::{Db, RaffleWriter};
@@ -156,8 +156,7 @@ impl Config {
             figment = match path.extension().and_then(|s| s.to_str()) {
                 Some("toml") => figment.merge(Toml::file(path)),
                 Some("json") => figment.merge(Json::file(path)),
-                Some("yaml" | "yml") => figment.merge(Yaml::file(path)),
-                _ => bail!("unsupported config file format; use .toml, .json, .yaml or .yml"),
+                _ => bail!("unsupported config file format; use .toml or .json"),
             };
         }
         // `RAFI_RESTATE_CONFIG` names the file itself (the CLI reads it); it

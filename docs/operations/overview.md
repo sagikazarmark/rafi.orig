@@ -60,7 +60,7 @@ binding; only the path tells them apart.
 
 | | Native | Workers |
 |---|---|---|
-| Status | Supported for self-hosting. No packaged images yet: build from source. | The planned production target. Not deployed yet. |
+| Status | Supported for self-hosting. No packaged images yet: build from source. | The production deployment; CI dry-deploys the production shape on every change. |
 | Live updates | Polling (every few seconds) | Pushed over WebSockets |
 | Database | SQLite or Postgres | D1, EU jurisdiction |
 | Restate | Self-hosted or Cloud | Cloud |

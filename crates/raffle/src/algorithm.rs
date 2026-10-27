@@ -160,10 +160,9 @@ mod tests {
         let a = select(&[1; 32], &[2; 32], 3, 100);
         let b = select(&[1; 32], &[2; 32], 3, 100);
         assert_eq!(a, b);
-        let c = select(&[1; 32], &[2; 32], 4, 100);
-        // Different draw numbers give (almost certainly) different results;
-        // this specific pair is pinned by the test vectors anyway.
-        let _ = c;
+        // Another draw number is another seed; this pair happens to differ
+        // (the test vectors pin the exact values).
+        assert_ne!(select(&[1; 32], &[2; 32], 4, 100), a);
     }
 
     #[test]

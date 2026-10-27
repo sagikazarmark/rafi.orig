@@ -63,7 +63,7 @@ step "build"
 for dir in testbeds/store-d1 testbeds/cloudflare; do
   (cd "$ROOT/$dir" && worker-build --release) >"$LOGS/build-${dir##*/}.log" 2>&1
 done
-migrate testbeds/store-d1 rafi-store-check
+migrate testbeds/store-d1 rafi-store-d1-check
 migrate testbeds/cloudflare rafi-cloudflare-check
 
 step "rafi-store's conformance suite on D1"

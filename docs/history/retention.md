@@ -4,7 +4,7 @@
 
 **Status: removed (2026-10-20), redesigned and re-added (2026-10-21).** §1–§9 describe the feature as it was.
 §10 was the checklist for re-adding it; the redesign that replaced it is
-[docs/plans/privacy-and-retention.md](../plans/privacy-and-retention.md): the clock anchors on a locked event date
+[privacy-and-retention.md](privacy-and-retention.md): the clock anchors on a locked event date
 instead of the finish, winners are held past the erasure date rather than erased later than non-winners, never-frozen
 raffles expire, and erasure is always on. §11 lists everything removed and what each part did.
 

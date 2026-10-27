@@ -38,7 +38,7 @@ This shows the main dependencies only.
 |---|---|---|
 | [`raffle`](../../crates/raffle) | `rafi-raffle` | **The raffle**: the manifest, the state machine and its admission rule, the draw algorithm (`rafi-draw-v1`) and the verifier. Pure: no I/O. It also compiles to WebAssembly for the verification page. With the `mock-chain` feature, it includes the mock drand chain (development and tests). |
 | [`lifecycle`](../../crates/lifecycle) | `rafi-lifecycle` | **The raffle's lifecycle in the app**. Pure. It covers the states and who may join, starting the draw (`start::next`), entrants' names and emails, settings, prizes as the raffle's items, and what phones see. |
-| [`engine`](../../crates/engine) | `rafi-engine` | **The raffle engine's contract**: `Engine`, `Store`, `Observer`. Behind features: the drand client engines draw with (`drand`), an in-process engine for tests and development (`local`), and the engine conformance suite (`conformance`). |
+| [`engine`](../../crates/engine) | `rafi-engine` | **The raffle engine's contract**: `Engine`, `Store`, `Observer`. Behind features: the drand client engines draw with (`drand`), the mock chain for offline development (`mock-drand`), an in-process engine for tests and development (`local`), and the engine conformance suite (`conformance`). |
 | [`engine-restate`](../../crates/engine-restate) | `rafi-engine-restate` | **The engine on Restate**: the `Raffle` virtual object, the `EngineInfo` service, and `RestateClient`, the app's `Engine` over the ingress. See its [README](../../crates/engine-restate/README.md). |
 | [`store`](../../crates/store) | `rafi-store` | **All SQL**, over SQLite, Postgres and D1. It includes the engine's write (`save_raffle`), the snapshot phones are shown, and the storage conformance suite. |
 | [`live-client`](../../crates/live-client) | `rafi-live-client` | **What a phone sees and runs**: the participant view and channel, how clients follow, the page config. `card` is the Dioxus card. |
@@ -68,6 +68,7 @@ This shows the main dependencies only.
 | [`testbeds/cloudflare`](../../testbeds/cloudflare) | `rafi-cloudflare-check`: a Worker hosting `RaffleRoom` for the live channel's checks. Testbeds are never deployed: `scripts/workers-check.sh` runs them under `wrangler dev`. |
 | [`tools/verify.py`](../../tools/verify.py) | The independent verifier (Python standard library only) |
 | [`testdata`](../../testdata) | Shared test vectors (real quicknet beacons) |
-| [`scripts`](../../scripts) | Build and check scripts: `participant.sh`, `app-assets.sh`, `workers-check.sh` |
+| [`scripts`](../../scripts) | Build and check scripts: `participant.sh`, `app-assets.sh`, `worker-config.sh`, `workers-check.sh` |
 | [`devenv.nix`](../../devenv.nix) | The development shell and `devenv up` (see [Getting started](../development/getting-started.md)) |
+| [`docs/plans`](../plans) | Specs for work in progress or just done, with the reasoning |
 | [`docs/history`](../history) | Design notes from development. Historical: the code is the source of truth. |

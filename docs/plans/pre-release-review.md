@@ -1,8 +1,8 @@
 # Pre-release review
 
-**Status: accepted, in progress (2026-10-26).** The review before the first stable release, and the remediation
-it decided. Five passes over the code, each on its own axis: the Cloudflare Workers deployment, the privacy and
-retention features against [privacy-and-retention.md](privacy-and-retention.md), dead code and stale references,
+**Status: done (2026-10-27).** The review before the first stable release, and the remediation it decided, all
+of it carried out in seven commits (one per step of §Order of work); what remains is in §Deferred. Five passes over the code, each on its own axis: the Cloudflare Workers deployment, the privacy and
+retention features against [privacy-and-retention.md](../history/privacy-and-retention.md), dead code and stale references,
 what becomes expensive to change once a database and a deployment exist, and security. Every finding is here,
 with what to do about it, so the work can be ticketed and checked off. Findings that were raised and rejected are
 in §Accepted risks and §Deferred, with the reasoning.
@@ -801,7 +801,7 @@ day). **Why now**: what gets expensive after the release.
 - The paid plan is a certainty, not a "may be needed" (`cloudflare.md:21`): BLS verification and server-side
   rendering won't fit 10 ms of CPU.
 
-### Cleanup: dead code, stale references, hygiene
+### Cleanup: dead code, stale references, hygiene — **done**
 
 All trivial unless marked. The sweep found no `TODO`/`FIXME`, no commented-out code, no unused dependency, no
 declared-but-unused feature, no residue of the removed marketing opt-in, `RAFI_RETENTION` flag,
@@ -861,7 +861,9 @@ the `room` feature; `cargo build` and `cargo clippy` are warning-free natively a
 6. **CI** (CI-1 … CI-5): so what was fixed stays fixed; `cargo deny`, the MSRV and the flaky test can go in any
    earlier step's PR. **Done 2026-10-27.** `/__scheduled` had to join `run_worker_first`: the Assets layer's
    single-page fallback answered it before the Worker could, which is also why the cron was never observed.
-7. **Cleanup** (CLN-*) as one sweep, and the status texts at tag time.
+7. **Cleanup** (CLN-*) as one sweep, and the status texts at tag time. **Done 2026-10-27**, the status texts
+   included: they now describe what the repository provides (Workers is the production deployment, CI dry-deploys
+   it) rather than what its authors have done so far.
 
 Each step ends with `cargo test --workspace`, `cargo clippy` on both targets, and `scripts/workers-check.sh`.
 

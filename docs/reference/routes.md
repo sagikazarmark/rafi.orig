@@ -41,6 +41,12 @@ which also says how the functions are named. Among them: `whoami` (who is signed
 housekeeping looks stopped), `set_lifecycle` (publish, open, close), `deliver_all_prizes` ("All prizes delivered"),
 `remove_my_data` (the organizer leaving), and `export_winners_csv`, which is audited.
 
+`export_winners_csv` returns the drawn entrants as CSV text: UTF-8 with a byte order mark, a header line, every
+field double-quoted (`"` doubled), a field starting with `=`, `+`, `-` or `@` prefixed with `'` so a spreadsheet
+doesn't run it as a formula, columns `entrant_id,display_name,email,source,claim_code,outcome,prize,delivered`
+(`outcome` is `drawn`, `claimed`, `not_here` or `declined`; `delivered` is `yes` or `no`). Every export is
+audited with its row count.
+
 A failed call answers with a non-2xx status and `{"code": "…", "message": "…"}`: the `code` is a stable
 `snake_case` name a program can act on (a refusal's kind, such as `settings_fixed` or `forbidden`, or `not_found`,
 `invalid_arguments`, `unauthorized`, `unavailable`, `internal`), the `message` is for the organizer. The status says
@@ -59,6 +65,7 @@ what kind of failure: 400 for a request that can never succeed, 401 without a se
 | Path | What |
 |---|---|
 | `/partyline/raffle/<id>` | The raffle's live channel (WebSocket, through the `RaffleRoom` Durable Object). Available while the raffle is public and not over. |
+| `/restate`, `/restate/*` | The raffle engine's Restate endpoint (`/restate/discover`, `/restate/invoke/…`), called by Restate Cloud with signed requests, which the SDK verifies before anything else. Not for browsers. |
 
 On Workers, the paths the Worker answers before static assets are listed in `run_worker_first` in
 [`apps/worker/wrangler.toml`](../../apps/worker/wrangler.toml). A reverse proxy in front of a native server can pass

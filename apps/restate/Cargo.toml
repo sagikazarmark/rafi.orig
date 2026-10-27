@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Standalone endpoint hosting the Rafi draw engine for Restate"
+description = "The native Rafi raffle engine: an endpoint serving the Raffle virtual object and EngineInfo to Restate"
 publish = false
 
 [[bin]]
@@ -21,7 +21,7 @@ rafi-store = { workspace = true }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
-figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }
+figment = { version = "0.10", features = ["env", "json", "toml"] }
 restate-config = "0.3"
 restate-ext = { version = "0.3", features = ["shutdown"] }
 # `http_server` serves the endpoint; `rust_crypto` verifies configured identity keys;
@@ -37,4 +37,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 mock-drand = ["rafi-engine/mock-drand"]
 
 [dev-dependencies]
-figment = { version = "0.10", features = ["env", "json", "toml", "yaml", "test"] }
+figment = { version = "0.10", features = ["env", "json", "toml", "test"] }
