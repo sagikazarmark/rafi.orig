@@ -20,24 +20,27 @@ pub(crate) const RAFFLE_HEADER: &str = "x-rafi-raffle";
 /// IP: a venue shares one address). Optional.
 pub const CONNECT_LIMITER: &str = "CONNECT_LIMITER";
 
-/// The variable naming the objects' jurisdiction. Defaults to `eu`; set it to
-/// an empty string to create objects without one (local experiments only).
+/// The variable naming the objects' jurisdiction. Defaults to `eu`; the
+/// literal [`NO_JURISDICTION`] creates objects without one (local
+/// development: workerd has no jurisdictions). Empty counts as unset, as
+/// every variable's does.
 pub const JURISDICTION_VAR: &str = "RAFI_DO_JURISDICTION";
+
+/// The value of [`JURISDICTION_VAR`] that means "no jurisdiction".
+pub const NO_JURISDICTION: &str = "none";
 
 /// The base URL of requests to the object. The host is never resolved.
 const INTERNAL: &str = "https://rafi-raffle-room.internal";
 
 fn jurisdiction(env: &Env) -> String {
-    env.var(JURISDICTION_VAR)
-        .map(|v| v.to_string())
-        .unwrap_or_else(|_| "eu".into())
+    crate::lookup(env, JURISDICTION_VAR).unwrap_or_else(|| "eu".into())
 }
 
 /// The channel's namespace, restricted to the configured jurisdiction.
 pub fn namespace(env: &Env) -> Result<ObjectNamespace> {
     let ns = env.durable_object(BINDING)?;
     let jd = jurisdiction(env);
-    if jd.is_empty() {
+    if jd == NO_JURISDICTION {
         return Ok(ns);
     }
     let raw: &JsValue = ns.as_ref();

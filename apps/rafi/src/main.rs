@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
     if cfg.restate.ingress_url.is_empty() {
-        tracing::warn!("RESTATE_INGRESS_URL is not set: draws can't start");
+        tracing::warn!("RAFI_ENGINE_INGRESS_URL is not set: draws can't start");
     }
     let app = server::AppState::new(cfg).await?;
     server::spawn_background(&app);

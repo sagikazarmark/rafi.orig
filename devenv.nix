@@ -187,7 +187,7 @@ in
         env = {
           RAFI_PUBLIC_URL = "http://localhost:${toString (port "dioxus")}";
           RAFI_DATABASE_URL = databaseUrl;
-          RESTATE_INGRESS_URL = restateIngressUrl;
+          RAFI_ENGINE_INGRESS_URL = restateIngressUrl;
           PORT = "8788";
         }
         // lib.optionalAttrs (!cfg.clerk) {
@@ -240,7 +240,7 @@ in
         ready.path = "/healthz";
         vars = {
           RAFI_PUBLIC_URL = config.wrangler.dev.app.url;
-          RESTATE_INGRESS_URL = restateIngressUrl;
+          RAFI_ENGINE_INGRESS_URL = restateIngressUrl;
         }
         # The dev environment's RAFI_DEV_AUTH off: Clerk signs in.
         // lib.optionalAttrs cfg.clerk { RAFI_DEV_AUTH = "0"; };

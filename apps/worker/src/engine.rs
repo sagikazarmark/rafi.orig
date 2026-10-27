@@ -12,7 +12,7 @@
 //!
 //! | Name | Kind | Meaning |
 //! | --- | --- | --- |
-//! | `RESTATE_IDENTITY_KEYS` | secret | Comma-separated `publickeyv1_…` keys of the Restate environment. Required: without them the Worker refuses every request |
+//! | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | secret | Comma-separated `publickeyv1_…` keys of the Restate environment. Required: without them the Worker refuses every request |
 //! | `RAFI_DRAND_RELAYS` | var | Comma-separated drand relays (default: the built-in ones) |
 //! | `RAFI_DRAND_LEAD_SECS`, `RAFI_DRAND_TIMEOUT_SECS` | var | Draw timing (defaults as natively) |
 //! | `RAFI_DRAND_MOCK` | var | The mock chain, `dev` feature only. The app reads it too, so both sides draw from the same chain |
@@ -40,13 +40,13 @@ pub fn owns(path: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
-fn drand_config(env: &Env) -> DrandConfig {
-    let config = DrandConfig::from_lookup(|name| lookup(env, name));
-    DrandConfig {
+fn drand_config(env: &Env) -> anyhow::Result<DrandConfig> {
+    let config = DrandConfig::from_lookup(|name| lookup(env, name))?;
+    Ok(DrandConfig {
         // Production ignores the mock chain.
         mock: cfg!(feature = "dev") && config.mock,
         ..config
-    }
+    })
 }
 
 /// The SDK endpoint over the Worker's bindings. Fails closed on missing keys.
@@ -54,21 +54,21 @@ pub fn endpoint(env: &Env) -> anyhow::Result<Endpoint> {
     let store = RaffleWriter::new(rafi_cloudflare::database(env)?);
     // The relays are asked through the Workers `fetch` API. The client's own
     // per-request timeout bounds each one; dropping the request aborts it.
-    let drand = DrandClient::builder(drand_config(env))
+    let drand = DrandClient::builder(drand_config(env)?)
         .http_transport(TowerTransport::new(FetchService::new()))
         .build()?;
     // A raffle's changes go to its room.
     let observer = Arc::new(DurableObjects::new(env.clone()));
     let (raffle, info) = rafi_engine_restate::services(drand, store, Some(observer));
     let mut builder = Endpoint::builder();
-    let keys = lookup(env, "RESTATE_IDENTITY_KEYS").unwrap_or_default();
+    let keys = lookup(env, "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS").unwrap_or_default();
     let keys: Vec<&str> = keys
         .split(',')
         .map(str::trim)
         .filter(|k| !k.is_empty())
         .collect();
     if keys.is_empty() && !cfg!(feature = "dev") {
-        anyhow::bail!("RESTATE_IDENTITY_KEYS is not set: refusing every request");
+        anyhow::bail!("RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS is not set: refusing every request");
     }
     for key in keys {
         builder = builder

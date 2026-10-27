@@ -88,7 +88,9 @@ impl Config {
                 _ => bail!("unsupported config file format; use .toml, .json, .yaml or .yml"),
             };
         }
-        Ok(figment.merge(Env::prefixed(ENV_PREFIX).split("__")))
+        // `RAFI_RESTATE_CONFIG` names the file itself (the CLI reads it); it
+        // isn't a setting, so the prefix scan skips it instead of refusing it.
+        Ok(figment.merge(Env::prefixed(ENV_PREFIX).ignore(&["CONFIG"]).split("__")))
     }
 }
 
@@ -173,6 +175,17 @@ mod tests {
         figment::Jail::expect_with(|jail| {
             jail.set_env("RAFI_RESTATE_DATABSE__URL", "typo");
             assert!(Config::load(None).is_err());
+            Ok(())
+        });
+    }
+
+    /// The variable naming the config file shares the prefix but isn't a
+    /// setting: an engine started with it must not refuse to start.
+    #[test]
+    fn the_config_file_variable_is_not_a_setting() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("RAFI_RESTATE_CONFIG", "/etc/rafi/rafi-restate.toml");
+            assert!(Config::load(None).is_ok());
             Ok(())
         });
     }

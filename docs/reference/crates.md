@@ -53,7 +53,7 @@ This shows the main dependencies only.
 | App | Package | |
 |---|---|---|
 | [`rafi`](../../apps/rafi) | `rafi` | The native app server: `rafi-server` plus the web app's files. For self-hosting. |
-| [`worker`](../../apps/worker) | `rafi-worker` | Rafi on Cloudflare Workers, in one Worker: `rafi-server`'s routes, the raffle engine's Restate endpoint under `/restate`, the housekeeping Cron, `RaffleRoom` |
+| [`worker`](../../apps/worker) | `rafi-worker` | Rafi on Cloudflare Workers, in one Worker: `rafi-server`'s routes, the raffle engine's Restate endpoint under `/restate`, the housekeeping Cron, `RaffleRoom`. The crate is `rafi-worker`; the Worker it deploys as is named `rafi` in Cloudflare (`wrangler tail rafi`). |
 | [`restate`](../../apps/restate) | `rafi-restate` | The native raffle engine: an endpoint serving `rafi-engine-restate`'s services to Restate. See its [README](../../apps/restate/README.md). |
 | [`web`](../../apps/web) | `rafi-web` | The Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx` |
 | [`participant`](../../apps/participant) | `rafi-participant` | The participant page's WebAssembly and its JavaScript fallback |

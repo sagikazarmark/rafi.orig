@@ -26,52 +26,75 @@ The Worker, `rafi` (`apps/worker`), hosts:
 
 ## First deploy
 
+Nothing of your installation's goes into a tracked file, so every upgrade is a plain `git pull`:
+[`apps/worker/wrangler.toml`](../../apps/worker/wrangler.toml) is the Worker's *shape*; your database ID goes into
+a generated copy of it, your legal documents live where you keep them, and everything else is a secret.
+
 ### 1. Database
 
 ```sh
-cd apps/worker
-wrangler d1 create rafi --jurisdiction eu
+wrangler d1 create rafi --jurisdiction eu                 # note the database_id it prints
+./scripts/worker-config.sh prod <database_id>             # -> apps/worker/wrangler.prod.toml (untracked)
+(cd apps/worker && wrangler d1 migrations apply rafi --remote -c wrangler.prod.toml)
 ```
 
-Put the new database's ID into `database_id` in `apps/worker/wrangler.toml`. Then apply the schema:
-
-```sh
-wrangler d1 migrations apply rafi --remote
-```
+`wrangler.prod.toml` is `wrangler.toml` with your ID in it. Never edit it: run the script again after every
+upgrade, so its shape is the release's and the ID stays yours. Every `wrangler` command below takes
+`-c wrangler.prod.toml`.
 
 ### 2. The legal documents and the operator
 
-The Worker bundles the installation's documents from [`apps/worker/legal/`](../../apps/worker/legal/): `terms.md`
-(with the data processing agreement, which organizers accept by using the service) and `privacy.md` (the
-operator's own notice, naming the
-subprocessors: Cloudflare, Restate Cloud, Clerk, drand). They ship as engineering drafts marked as templates: fill in
-the bracketed parts, have a lawyer review them, and set `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`,
-`RAFI_OPERATOR_NAME` and `RAFI_OPERATOR_EMAIL` in `[vars]`. Without them the Worker refuses every request. A changed
-document is a new version, shown with it; a change to the processing agreement is notified to organizers directly,
-since nothing records who read which version. The retention settings (`RAFI_RETENTION_DAYS` and the
-others, see the [configuration](../reference/configuration.md)) have defaults; `RAFI_MIN_AGE` too.
+The Worker bundles the installation's documents at build time: `terms.md` (with the data processing agreement,
+which organizers accept by using the service) and `privacy.md` (the operator's own notice, naming the
+subprocessors: Cloudflare, Restate Cloud, Clerk, drand). Start from
+[`apps/worker/legal/`](../../apps/worker/legal/), which ship as engineering drafts marked as templates: copy them
+to a directory of yours (outside the tree, so an upgrade doesn't touch them), fill in the bracketed parts, have a
+lawyer review them, and point the build at them with `RAFI_LEGAL_DIR` (below). A document that still carries the
+template marker makes the Worker refuse every request. Their versions (`RAFI_TERMS_VERSION`,
+`RAFI_PRIVACY_VERSION`, e.g. `2026-10`) and the operator's name and email (`RAFI_OPERATOR_NAME`,
+`RAFI_OPERATOR_EMAIL`) are secrets, next. A changed document is a new version, shown with it; a change to the
+processing agreement is notified to organizers directly, since nothing records who read which version. The
+retention settings (`RAFI_RETENTION_DAYS` and the others, see the
+[configuration](../reference/configuration.md)) have defaults; `RAFI_MIN_AGE` too; set them as secrets if you
+change them.
 
 ### 3. The Worker
 
-Set `RAFI_PUBLIC_URL` and `RESTATE_INGRESS_URL` in `[vars]` of `apps/worker/wrangler.toml`, then the secrets:
+The installation's values are secrets. `wrangler.toml` lists them under `[secrets] required`, and a deploy
+refuses to go out while one is missing. One JSON file, kept out of the repository:
+
+```json
+{
+  "RAFI_PUBLIC_URL": "https://raffle.example.org",
+  "RAFI_ENGINE_INGRESS_URL": "https://<env>.env.eu.restate.cloud:8080",
+  "RAFI_ENGINE_API_KEY": "…",
+  "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS": "publickeyv1_…",
+  "RAFI_ALTCHA_KEY": "<openssl rand -hex 32>",
+  "CLERK_SECRET_KEY": "sk_live_…",
+  "RAFI_OPERATOR_NAME": "Example Meetups e.V.",
+  "RAFI_OPERATOR_EMAIL": "privacy@example.org",
+  "RAFI_TERMS_VERSION": "2026-10",
+  "RAFI_PRIVACY_VERSION": "2026-10"
+}
+```
+
+Build the static files (web app and participant scripts) with Clerk's publishable key compiled in, build the
+Worker with your documents, deploy, and set the secrets:
 
 ```sh
+CLERK_PUBLISHABLE_KEY=pk_live_… ./scripts/app-assets.sh         # -> apps/worker/worker-assets
 cd apps/worker
-wrangler secret put RAFI_ALTCHA_KEY          # random, 32+ bytes; never rotate during an event
-wrangler secret put CLERK_SECRET_KEY
-wrangler secret put RESTATE_API_KEY          # Restate Cloud, ingress access
-wrangler secret put RESTATE_IDENTITY_KEYS    # your Restate environment's public key(s), comma separated
+RAFI_LEGAL_DIR=/path/to/your/legal wrangler deploy -c wrangler.prod.toml
+wrangler secret bulk ~/rafi-prod.secrets.json -c wrangler.prod.toml
 ```
 
-Build the static files (web app and participant scripts) with Clerk's publishable key compiled in, then deploy:
+The very first `deploy` creates the Worker and stops at the missing secrets (there is no Worker to hold them yet);
+`secret bulk` then sets them, and the deploy is run again. From then on, a deploy that is missing one refuses.
+Never rotate `RAFI_ALTCHA_KEY` during an event.
 
-```sh
-CLERK_PUBLISHABLE_KEY=pk_live_… ./scripts/app-assets.sh   # -> apps/worker/worker-assets
-(cd apps/worker && wrangler deploy)
-```
-
-The Worker refuses every request without `RAFI_ALTCHA_KEY`, `RESTATE_INGRESS_URL`, `CLERK_SECRET_KEY`,
-`RESTATE_IDENTITY_KEYS`, the operator and the document versions. Release builds reject dev auth and the mock chain.
+The Worker refuses every request without `RAFI_ALTCHA_KEY`, `RAFI_ENGINE_INGRESS_URL`, `CLERK_SECRET_KEY`,
+`RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, the operator and the document versions. Release builds reject dev auth and
+the mock chain.
 
 Attach a custom domain. `workers_dev` and preview URLs are off on purpose, because previews would share
 production's database and Durable Objects.

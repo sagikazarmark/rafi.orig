@@ -108,7 +108,7 @@ pub struct Config {
     /// behind the soft rate limits.
     pub max_entrants: i64,
     /// When personal data is erased (`RAFI_RETENTION_DAYS`,
-    /// `RAFI_RETENTION_DAYS_MAX`, `RAFI_RETENTION_WINNERS_DAYS`).
+    /// `RAFI_RETENTION_MAX_DAYS`, `RAFI_RETENTION_WINNERS_DAYS`).
     pub retention: RetentionPolicy,
     /// The youngest an entrant may be (`RAFI_MIN_AGE`): rendered in the rules
     /// and on the join form; entrants confirm it by entering.
@@ -171,27 +171,28 @@ impl Config {
             public_url,
             dev_auth,
             restate: RestateConfig {
-                ingress_url: var("RESTATE_INGRESS_URL")
+                ingress_url: var("RAFI_ENGINE_INGRESS_URL")
                     .unwrap_or_default()
                     .trim_end_matches('/')
                     .to_owned(),
-                api_key: var("RESTATE_API_KEY").unwrap_or_default(),
-                timeout_secs: var("RESTATE_TIMEOUT_SECS")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(RestateConfig::DEFAULT_TIMEOUT_SECS),
+                api_key: var("RAFI_ENGINE_API_KEY").unwrap_or_default(),
+                timeout_secs: u64::try_from(int(
+                    "RAFI_ENGINE_TIMEOUT_SECS",
+                    i64::try_from(RestateConfig::DEFAULT_TIMEOUT_SECS).unwrap_or(90),
+                ))
+                .unwrap_or(RestateConfig::DEFAULT_TIMEOUT_SECS),
             },
             // Only the chain matters here: the raffle engine fetches the beacons.
             drand_chain: var("RAFI_DRAND_CHAIN")
                 .or_else(|| flag("RAFI_DRAND_MOCK").then(|| MOCK.to_owned()))
                 .unwrap_or_else(|| chains::QUICKNET_HASH.to_string()),
             altcha_key,
-            altcha_cost: var("RAFI_ALTCHA_COST")
-                .and_then(|v| v.parse().ok())
+            altcha_cost: u32::try_from(int("RAFI_ALTCHA_COST", i64::from(DEFAULT_ALTCHA_COST)))
                 .unwrap_or(DEFAULT_ALTCHA_COST),
             max_entrants: int("RAFI_MAX_ENTRANTS", 2000),
             retention: RetentionPolicy {
                 days: int("RAFI_RETENTION_DAYS", DEFAULT_RETENTION_DAYS),
-                max_days: int("RAFI_RETENTION_DAYS_MAX", DEFAULT_RETENTION_DAYS_MAX),
+                max_days: int("RAFI_RETENTION_MAX_DAYS", DEFAULT_RETENTION_DAYS_MAX),
                 winner_hold_days: int("RAFI_RETENTION_WINNERS_DAYS", DEFAULT_WINNER_HOLD_DAYS),
             },
             min_age: u32::try_from(int("RAFI_MIN_AGE", i64::from(DEFAULT_MIN_AGE)))
@@ -306,7 +307,7 @@ pub const DEFAULT_ALTCHA_COST: u32 = 1000;
 
 /// `RAFI_RETENTION_DAYS` when unset: a week after the event.
 pub const DEFAULT_RETENTION_DAYS: i64 = 7;
-/// `RAFI_RETENTION_DAYS_MAX` when unset.
+/// `RAFI_RETENTION_MAX_DAYS` when unset.
 pub const DEFAULT_RETENTION_DAYS_MAX: i64 = 30;
 /// `RAFI_RETENTION_WINNERS_DAYS` when unset: how long a winner's data is held
 /// past the erasure date unless their prize is marked delivered.
@@ -404,7 +405,7 @@ mod tests {
     fn retention_and_age_come_from_the_environment() {
         let cfg = Config::from_lookup(|name| match name {
             "RAFI_RETENTION_DAYS" => Some("3".into()),
-            "RAFI_RETENTION_DAYS_MAX" => Some("10".into()),
+            "RAFI_RETENTION_MAX_DAYS" => Some("10".into()),
             "RAFI_RETENTION_WINNERS_DAYS" => Some("60".into()),
             "RAFI_MIN_AGE" => Some("18".into()),
             _ => None,
@@ -428,6 +429,23 @@ mod tests {
         });
         let err = typo.validate().unwrap_err().to_string();
         assert!(err.contains("RAFI_RETENTION_DAYS=\"7d\""), "{err}");
+        // Every numeric variable refuses a typo the same way, instead of
+        // quietly taking its default.
+        for (name, default) in [
+            ("RAFI_ENGINE_TIMEOUT_SECS", "90"),
+            ("RAFI_ALTCHA_COST", "1000"),
+            ("RAFI_MAX_ENTRANTS", "2000"),
+        ] {
+            let typo = Config::from_lookup(|n| match n {
+                n if n == name => Some("ninety".into()),
+                "RAFI_DEV_AUTH" => Some("1".into()),
+                _ => None,
+            });
+            let err = typo.validate().unwrap_err().to_string();
+            assert!(err.contains(&format!("{name}=\"ninety\"")), "{name}: {err}");
+            let set = Config::from_lookup(|n| (n == name).then(|| default.into()));
+            assert!(set.misparsed.is_empty(), "{name}: {default} parses");
+        }
     }
 
     #[test]

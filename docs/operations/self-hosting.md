@@ -55,7 +55,7 @@ The app reaches the engine through Restate's **ingress**. Restate reaches `rafi-
   `nix-restate`). By
   default its ingress is on `:8080`, its admin API on `:9070`, and its data in `./restate-data`. If it shares a
   machine with `rafi`, move one of them off `:8080`.
-- **Restate Cloud:** create an environment, an API key with ingress access for the app (`RESTATE_API_KEY`), and set
+- **Restate Cloud:** create an environment, an API key with ingress access for the app (`RAFI_ENGINE_API_KEY`), and set
   the engine's `endpoint.identity_keys` to the environment's public key, so it only accepts requests signed by your
   Restate.
 
@@ -98,7 +98,7 @@ service; the admin links them. The software can't write these for you:
 Without these, the app refuses to start (except under `RAFI_DEV_AUTH`, with placeholders marked as such).
 
 The retention settings are yours too, within limits: `RAFI_RETENTION_DAYS` (7: days after the event date before
-non-winners are erased, for organizers who choose nothing), `RAFI_RETENTION_DAYS_MAX` (30: the most an organizer may
+non-winners are erased, for organizers who choose nothing), `RAFI_RETENTION_MAX_DAYS` (30: the most an organizer may
 choose) and `RAFI_RETENTION_WINNERS_DAYS` (90: how long winners are held past that unless their prize is marked
 delivered). `RAFI_MIN_AGE` (16) is what entrants confirm by entering. See [Privacy and
 abuse](../explanation/privacy-and-abuse.md).
@@ -108,7 +108,7 @@ abuse](../explanation/privacy-and-abuse.md).
 ```sh
 RAFI_PUBLIC_URL=https://raffle.example.org \
 RAFI_DATABASE_URL=… \
-RESTATE_INGRESS_URL=http://localhost:8080 \
+RAFI_ENGINE_INGRESS_URL=http://localhost:8080 \
 CLERK_SECRET_KEY=sk_live_… \
 RAFI_ALTCHA_KEY=$(openssl rand -hex 32) \
 RAFI_DOCS_DIR=/etc/rafi RAFI_TERMS_VERSION=2026-10 RAFI_PRIVACY_VERSION=2026-10 \
@@ -123,7 +123,7 @@ IP=127.0.0.1 PORT=8081 \
   when `participant.sh` ran) when the browser accepts it: no compressing proxy is needed in front of them.
 - Set `RAFI_ALTCHA_KEY` to a fixed secret. Otherwise it is random per start, and a restart during registration
   invalidates the challenges phones are solving. Don't rotate it during an event.
-- Keep `RESTATE_TIMEOUT_SECS` (90) above the engine's `lead_secs + timeout_secs` (66 by default).
+- Keep `RAFI_ENGINE_TIMEOUT_SECS` (90) above the engine's `lead_secs + timeout_secs` (66 by default).
 - At startup the app warns if dev auth is on, the chain is the mock one, the ingress URL is missing, or the web app
   or participant scripts aren't where it expects.
 

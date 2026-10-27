@@ -10,10 +10,15 @@ Every setting of every Rafi deployable. To see how the deployables fit together,
 
 Empty values count as unset everywhere. Flags take `1`/`true`/`yes`/`on`.
 
+The names: everything of Rafi's is `RAFI_*`. `RAFI_ENGINE_*` is how the app reaches the raffle engine (Restate's
+ingress); `RAFI_RESTATE_*` is the raffle engine's own configuration (the `rafi-restate` binary natively, the same
+settings on the Worker where its endpoint lives, with `__` between levels). Nothing of Rafi's is `RESTATE_*`:
+that is `restate-server`'s own namespace, and the two often share an environment. `CLERK_*` is Clerk's.
+
 ## The app (`rafi` and `rafi-worker`)
 
-Natively these are environment variables. On Workers they are vars and secrets: a secret wins over a var with the
-same name.
+Natively these are environment variables. On Workers they are vars and secrets, read alike (wrangler refuses a
+var and a secret of the same name).
 
 | Variable | Default | |
 |---|---|---|
@@ -25,20 +30,20 @@ same name.
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate` (native only; Workers use D1). Either SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`; the database must exist). The app applies the migrations on start. |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, and every admin is `dev`. Workers refuse it unless built with the `dev` feature. |
 | `CLERK_SECRET_KEY` | | Clerk backend key. Required unless `RAFI_DEV_AUTH` is set. See also `CLERK_PUBLISHABLE_KEY` [at build time](#build-time). In a Clerk organization, the session's role decides what a member may do: `org:admin` everything; the custom role `org:manager` or permission `org:raffles:manage` (made in the Clerk dashboard) creates, configures and deletes raffles; any member runs them. |
-| `RESTATE_INGRESS_URL` | | The raffle engine's Restate ingress. Without it, draws can't start (required on Workers). |
-| `RESTATE_API_KEY` | | Restate Cloud: an API key with ingress access |
-| `RESTATE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits. A command queued behind a draw that is waiting for its beacon may take the engine's drand lead plus its fetch timeout. Past this timeout the command is accepted and applies later. Keep it above the engine's `lead_secs + timeout_secs`. |
+| `RAFI_ENGINE_INGRESS_URL` | | The raffle engine's Restate ingress. Without it, draws can't start (required on Workers). |
+| `RAFI_ENGINE_API_KEY` | | Restate Cloud: an API key with ingress access |
+| `RAFI_ENGINE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits. A command queued behind a draw that is waiting for its beacon may take the engine's drand lead plus its fetch timeout. Past this timeout the command is accepted and applies later. Keep it above the engine's `lead_secs + timeout_secs`. |
 | `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to, as a chain hash. Release builds accept only public drand chains. `mock` (a public test chain, **not** verifiable) needs a `mock-drand` build. The raffle engine must draw from the same chain: the app checks this and refuses to start a draw otherwise. |
 | `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
 | `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges. Required on Workers. Without it natively, challenges die with the process. Never rotate it during an event. |
 | `RAFI_ALTCHA_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve. At least 1. Provisional. |
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes. This is the hard limit behind the soft rate limits. |
-| `RAFI_RETENTION_DAYS` | `7` | Days after the event date before non-winners' personal data is erased, for organizers who choose nothing. At most `RAFI_RETENTION_DAYS_MAX`. |
-| `RAFI_RETENTION_DAYS_MAX` | `30` | The longest period an organizer or a raffle may choose. At most 365. |
+| `RAFI_RETENTION_DAYS` | `7` | Days after the event date before non-winners' personal data is erased, for organizers who choose nothing. At most `RAFI_RETENTION_MAX_DAYS`. |
+| `RAFI_RETENTION_MAX_DAYS` | `30` | The longest period an organizer or a raffle may choose. At most 365. |
 | `RAFI_RETENTION_WINNERS_DAYS` | `90` | How long a winner's data is held past the erasure date unless their prize is marked delivered: the hard ceiling, after which everyone is erased and a finished raffle is purged. |
 | `RAFI_MIN_AGE` | `16` | The youngest an entrant may be. Rendered in the rules and on the join form; entrants confirm it by entering. Organizers raise it in their additional rules. |
 | `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | required | Who runs this installation: named as the processor in every raffle's privacy notice. Under `RAFI_DEV_AUTH`, placeholders. |
-| `RAFI_DOCS_DIR` | required (native) | The directory with the installation's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown. On Workers they are bundled from `apps/worker/legal/`. Under `RAFI_DEV_AUTH`, placeholders marked as such. |
+| `RAFI_DOCS_DIR` | required (native) | The directory with the installation's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown. On Workers they are bundled at build time from `RAFI_LEGAL_DIR` ([below](#build-time)). Under `RAFI_DEV_AUTH`, placeholders marked as such. |
 | `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION` | required | The documents' versions, e.g. `2026-10`, shown with them at `/terms` and `/privacy` and named in every raffle's notice. Under `RAFI_DEV_AUTH`, `dev`. |
 | `RUST_LOG` | `info` | Log level, in [`tracing-subscriber` filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) (native only) |
 
@@ -52,13 +57,14 @@ re-applies the erasure log, the purges and the organizers who left, runs houseke
 ### Workers only
 
 The Worker hosts the app and the raffle engine (under `/restate`), so it takes the app's variables above and
-these. Vars and secrets live in [`apps/worker/wrangler.toml`](../../apps/worker/wrangler.toml) and
-`wrangler secret put`; the Worker reads nothing else.
+these. The shape is [`apps/worker/wrangler.toml`](../../apps/worker/wrangler.toml); an installation's values are
+secrets (`wrangler secret bulk`), listed there under `[secrets] required`, and its database ID goes into a
+generated copy (`scripts/worker-config.sh`). The Worker reads vars and secrets alike, and nothing else.
 
 | Variable | Default | |
 |---|---|---|
-| `RESTATE_IDENTITY_KEYS` | required | Restate's request signing keys (`publickeyv1_…`, comma separated). Without them the Worker refuses every request, except in a `dev` build. |
-| `RAFI_DO_JURISDICTION` | `eu` | The Durable Objects' jurisdiction. Empty means none, which is what local development needs because workerd has no jurisdictions. |
+| `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | required | Restate's request signing keys (`publickeyv1_…`, comma separated), under the native engine's name for the same setting. Without them the Worker refuses every request, except in a `dev` build. |
+| `RAFI_DO_JURISDICTION` | `eu` | The Durable Objects' jurisdiction, or `none` (which local development needs: workerd has no jurisdictions). |
 | `RAFI_DRAND_RELAYS` | as `drand.relays` below | Relays the engine asks, in order, comma separated |
 | `RAFI_DRAND_LEAD_SECS` | `6` | As `drand.lead_secs` below |
 | `RAFI_DRAND_TIMEOUT_SECS` | `60` | As `drand.timeout_secs` below |
@@ -77,7 +83,7 @@ The bindings:
 
 ## The raffle engine (`rafi-restate`)
 
-Settings come from an optional configuration file (`--config <FILE>` or `CONFIG_FILE`; JSON, YAML or TOML),
+Settings come from an optional configuration file (`--config <FILE>` or `RAFI_RESTATE_CONFIG`; JSON, YAML or TOML),
 overridden by `RAFI_RESTATE_` environment variables, with `__` separating levels. Unknown settings are errors.
 
 | Setting | Variable | Default | |
@@ -112,5 +118,6 @@ inactivity_timeout = "5m"
 | Variable | | |
 |---|---|---|
 | `CLERK_PUBLISHABLE_KEY` | `rafi-web` | Clerk's frontend key, compiled into the web app |
+| `RAFI_LEGAL_DIR` | `rafi-worker` | The directory with the installation's `terms.md` and `privacy.md`, bundled into the Worker (default: `apps/worker/legal/`, the templates). The native server reads them at runtime from `RAFI_DOCS_DIR` instead. |
 | Feature `mock-drand` | `rafi`, `rafi-server`, `rafi-restate` | Allows the mock chain. Never ship it. |
 | Feature `dev` | `rafi-worker` | Local development only: allows `RAFI_DEV_AUTH`, the mock chain and Restate requests without identity keys. `[env.dev]` in `wrangler.toml` builds with it. |

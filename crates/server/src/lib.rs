@@ -44,7 +44,7 @@ pub struct Inner {
     pub cfg: Config,
     /// What the use cases run against: the database, the drand chain
     /// ([`Config::chain`]), the raffle engine (`None` without
-    /// `RESTATE_INGRESS_URL`), the live updates and the join's rate limits.
+    /// `RAFI_ENGINE_INGRESS_URL`), the live updates and the join's rate limits.
     /// `Inner` derefs to it.
     pub core: service::App,
 }
@@ -114,7 +114,7 @@ impl AppState {
 }
 
 /// The raffle engine `cfg` points at: the `rafi-restate` service through the
-/// Restate ingress; `None` without `RESTATE_INGRESS_URL`.
+/// Restate ingress; `None` without `RAFI_ENGINE_INGRESS_URL`.
 pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn Engine>> {
     (!cfg.restate.ingress_url.is_empty())
         .then(|| Arc::new(RestateClient::new(cfg.restate.clone())) as Arc<dyn Engine>)

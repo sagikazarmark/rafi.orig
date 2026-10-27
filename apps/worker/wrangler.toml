@@ -1,15 +1,17 @@
 # Rafi on Cloudflare Workers: the app and the raffle engine in one Worker. The
-# top level is production; `[env.dev]` is local development (`wrangler dev --env dev`).
+# top level is production's shape; `[env.dev]` is local development
+# (`wrangler dev --env dev`).
 #
-# Before the first deploy:
-#   wrangler d1 create rafi --jurisdiction eu      # then put its ID below
-#   wrangler d1 migrations apply rafi --remote
-#   wrangler secret put RAFI_ALTCHA_KEY            # random, 32+ bytes; never rotate during an event
-#   wrangler secret put CLERK_SECRET_KEY
-#   wrangler secret put RESTATE_API_KEY            # Restate Cloud ingress
-#   wrangler secret put RESTATE_IDENTITY_KEYS      # the Restate environment's public key(s)
-# and build the static files: ./scripts/app-assets.sh
-# After each deploy, register https://<this Worker's host>/restate with Restate.
+# Nothing of one installation's is in this file, so an upgrade is a plain
+# pull. The one value that has to be (the D1 database's ID) goes into a
+# generated, untracked copy: `./scripts/worker-config.sh <site> <database id>`
+# writes wrangler.<site>.toml next to this file, and the deploy is
+# `wrangler deploy -c wrangler.<site>.toml`. Everything else of the
+# installation's is a secret (`wrangler secret bulk`; the Worker reads vars
+# and secrets alike), listed under [secrets] so a deploy refuses to go out
+# without them. The legal documents are read at build time from legal/, or
+# from RAFI_LEGAL_DIR (see build.rs). The full procedure:
+# docs/operations/cloudflare.md.
 
 name = "rafi"
 main = "build/index.js"
@@ -35,7 +37,7 @@ run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/te
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
-database_id = "00000000-0000-0000-0000-000000000000" # `wrangler d1 create rafi --jurisdiction eu`
+database_id = "00000000-0000-0000-0000-000000000000" # the placeholder worker-config.sh replaces
 migrations_dir = "../../migrations/sqlite"
 
 # One live channel per raffle; IDs come from the EU jurisdiction (RAFI_DO_JURISDICTION).
@@ -73,28 +75,47 @@ crons = ["0 * * * *"]
 [observability]
 enabled = false
 
-# The engine's drand settings (RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS,
-# RAFI_DRAND_TIMEOUT_SECS) go here too when they differ from the defaults.
+# What belongs to Rafi, not to an installation. An installation's own values
+# are secrets (below); optional settings with defaults (RAFI_RETENTION_DAYS,
+# RAFI_RETENTION_MAX_DAYS, RAFI_RETENTION_WINNERS_DAYS, RAFI_MIN_AGE,
+# RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS, RAFI_DRAND_TIMEOUT_SECS) are
+# secrets too when an installation changes them.
 [vars]
-RAFI_PUBLIC_URL = "https://rafi.example" # the public origin, no trailing slash
-RESTATE_INGRESS_URL = "" # Restate Cloud ingress URL (EU)
 RAFI_DO_JURISDICTION = "eu"
-# Who runs this installation: named as the processor in every raffle's privacy
-# notice. The documents themselves are legal/terms.md and legal/privacy.md,
-# bundled into the Worker; bump a version whenever its text changes.
-RAFI_OPERATOR_NAME = "" # required
-RAFI_OPERATOR_EMAIL = "" # required
-RAFI_TERMS_VERSION = "" # required, e.g. "2026-10"
-RAFI_PRIVACY_VERSION = "" # required
-# When personal data is erased: days after the event date for non-winners
-# (default 7, organizers may shorten; at most RAFI_RETENTION_DAYS_MAX, 30),
-# and how long winners are held past that unless their prize is marked
-# delivered (90). RAFI_MIN_AGE (16) is what entrants confirm by entering.
 
-# Local development: wrangler dev --env dev (see README). Bindings aren't
-# inherited by environments, so they're repeated.
+# What every installation must set before its first deploy, with
+# `wrangler secret bulk <file>` or `wrangler secret put <NAME>`:
+#   RAFI_PUBLIC_URL                        the public origin, no trailing slash
+#   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL (EU)
+#   RAFI_ENGINE_API_KEY                    a Restate Cloud API key with ingress access
+#   RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS   the Restate environment's public key(s), comma separated
+#   RAFI_ALTCHA_KEY                        random, 32+ characters; never rotate during an event
+#   CLERK_SECRET_KEY
+#   RAFI_OPERATOR_NAME, RAFI_OPERATOR_EMAIL   named as the processor in every raffle's notice
+#   RAFI_TERMS_VERSION, RAFI_PRIVACY_VERSION  the documents' versions, e.g. "2026-10"
+# A deploy refuses to go out while one is missing.
+[secrets]
+required = [
+  "RAFI_PUBLIC_URL",
+  "RAFI_ENGINE_INGRESS_URL",
+  "RAFI_ENGINE_API_KEY",
+  "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS",
+  "RAFI_ALTCHA_KEY",
+  "CLERK_SECRET_KEY",
+  "RAFI_OPERATOR_NAME",
+  "RAFI_OPERATOR_EMAIL",
+  "RAFI_TERMS_VERSION",
+  "RAFI_PRIVACY_VERSION",
+]
+
+# Local development: wrangler dev --env dev (docs/development/getting-started.md).
+# Bindings aren't inherited by environments, so they're repeated; the
+# required secrets are, as an empty list, so dev isn't asked for production's.
 [env.dev]
 workers_dev = true
+
+[env.dev.secrets]
+required = []
 
 [env.dev.build]
 command = "worker-build --release --features dev"
@@ -126,8 +147,8 @@ simple = { limit = 600, period = 60 }
 
 [env.dev.vars]
 RAFI_PUBLIC_URL = "http://127.0.0.1:8787"
-RESTATE_INGRESS_URL = "http://127.0.0.1:18080"
-RAFI_DO_JURISDICTION = "" # workerd doesn't implement jurisdictions
+RAFI_ENGINE_INGRESS_URL = "http://127.0.0.1:18080"
+RAFI_DO_JURISDICTION = "none" # workerd doesn't implement jurisdictions
 RAFI_DEV_AUTH = "1" # also stands in for the operator and the document versions
 RAFI_DRAND_MOCK = "1" # the mock chain, for the app and the engine alike
 RAFI_DRAND_LEAD_SECS = "3"

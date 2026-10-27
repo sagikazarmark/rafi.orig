@@ -347,7 +347,7 @@ day). **Why now**: what gets expensive after the release.
 
 ### Configuration names, before the first operator writes them down
 
-#### CFG-1 · Three environment prefixes, and a collision waiting to happen
+#### CFG-1 · Three environment prefixes, and a collision waiting to happen — **done**
 
 - **Where**: the app reads `RESTATE_INGRESS_URL`, `RESTATE_API_KEY`, `RESTATE_TIMEOUT_SECS`
   (`crates/server/src/config.rs:179-188`); the Worker's engine reads `RESTATE_IDENTITY_KEYS`
@@ -377,7 +377,7 @@ day). **Why now**: what gets expensive after the release.
   `RAFI_RETENTION_MAX_DAYS` reads like the other.
 - **Size**: medium (mechanical, many files). **Why now**: every operator's env file and runbook.
 
-#### CFG-2 · Operator-specific values live in tracked files
+#### CFG-2 · Operator-specific values live in tracked files — **done**
 
 - **Where**: `apps/worker/wrangler.toml:38` (`database_id` placeholder), `:79-89` (`RAFI_PUBLIC_URL`,
   `RESTATE_INGRESS_URL`, operator name and email, document versions); `apps/worker/legal/{terms,privacy}.md`
@@ -408,7 +408,7 @@ day). **Why now**: what gets expensive after the release.
   emits `cargo:rustc-env` plus `rerun-if-env-changed` and `rerun-if-changed` for both files.
 - **Size**: small. **Why now**: the first real deployment's config is the one that gets merged forever.
 
-#### CFG-3 · The Worker's name
+#### CFG-3 · The Worker's name — **done**
 
 - **Where**: `apps/worker/wrangler.toml:14` (`name = "rafi"`); the crate is `rafi-worker`; `README.md:71`,
   `docs/reference/crates.md:56`, `glossary.md:76` call the deployable `rafi-worker`.
@@ -416,7 +416,7 @@ day). **Why now**: what gets expensive after the release.
   `wrangler tail rafi` ends up in runbooks.
 - **Size**: trivial.
 
-#### CFG-4 · Numeric variables parse inconsistently
+#### CFG-4 · Numeric variables parse inconsistently — **done**
 
 - **Where**: `RAFI_MAX_ENTRANTS`, `RAFI_RETENTION_*`, `RAFI_MIN_AGE` refuse a typo (`crates/server/src/config.rs:157-163`,
   through `misparsed`); `RESTATE_TIMEOUT_SECS` (`:185-187`), `RAFI_ALTCHA_COST` (`:194-196`) and
@@ -847,7 +847,8 @@ the `room` feature; `cargo build` and `cargo clippy` are warning-free natively a
    found while doing it: tower-http 0.7 (the version `ServeDir` runs on) does send an `ETag`, so natively only
    `Cache-Control` and compression were missing; `remove_entrant` keeps its name, since "remove" (deleted before
    the freeze, erased after it) is the right word and `delete` would be wrong half the time.
-3. **Names** (CFG-1 … CFG-4): one commit, every file, with the docs.
+3. **Names** (CFG-1 … CFG-4): one commit, every file, with the docs. **Done 2026-10-27**; `wrangler deploy
+   --dry-run` of the production shape passes.
 4. **Fail-closed and security** (SEC-1 … SEC-11): the subscriber first, so the rest is observable; then the
    delete rule, the secrets, the headers, the names.
 5. **Privacy** (PRV-1 … PRV-7): wording, the join guard, the restore tool, limbo, the audit rows, the docs.

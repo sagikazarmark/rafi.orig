@@ -73,7 +73,7 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 
 | Term | Meaning |
 |---|---|
-| **App** | The server and the web app: `rafi` natively, `rafi-worker` on Cloudflare Workers |
+| **App** | The server and the web app: `rafi` natively, `rafi-worker` on Cloudflare Workers (the crate; the deployed Worker is named `rafi`) |
 | **Raffle engine** | The component that owns a raffle from opening to finish and runs its draws. It sees only anonymous IDs. |
 | **Restate** | The durable execution engine the raffle engine runs on. Each raffle is one `Raffle` **virtual object**. |
 | **Projection** | The raffle as stored in the app's database. The engine writes it after every change, and everything reads it. |

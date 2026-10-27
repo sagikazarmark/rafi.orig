@@ -27,4 +27,4 @@ new_sqlite_classes = ["RaffleRoom"]
 
 # workerd (wrangler dev) doesn't implement jurisdictions; production uses "eu".
 [vars]
-RAFI_DO_JURISDICTION = ""
+RAFI_DO_JURISDICTION = "none"

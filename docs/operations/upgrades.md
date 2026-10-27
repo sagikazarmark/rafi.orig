@@ -41,7 +41,8 @@ The app applies migrations on start: `migrations/sqlite` for SQLite, `migrations
 apply them with wrangler before deploying the Worker:
 
 ```sh
-(cd apps/worker && wrangler d1 migrations apply rafi --remote)
+./scripts/worker-config.sh prod <database_id>     # the release's wrangler.toml, your ID
+(cd apps/worker && wrangler d1 migrations apply rafi --remote -c wrangler.prod.toml)
 ```
 
 Natively, deploy the app before (or together with) the engine. Until the schema is current, the engine's writes

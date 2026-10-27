@@ -16,8 +16,10 @@
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
 //! The installation's legal documents (its privacy notice, its terms with
-//! the processing agreement) are bundled from `legal/`: the operator edits
-//! them there and sets their versions in `wrangler.toml`.
+//! the processing agreement) are bundled at build time, from `legal/` or
+//! from the directory `RAFI_LEGAL_DIR` names (`build.rs`), so an
+//! installation's reviewed documents live outside the tree; their versions
+//! are the `RAFI_TERMS_VERSION` and `RAFI_PRIVACY_VERSION` secrets.
 //!
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
 //! raffles' Durable Objects (the engine's observer, too) and configuration
@@ -84,8 +86,8 @@ fn cached(env: &Env) -> anyhow::Result<App> {
 fn app(env: &Env) -> anyhow::Result<App> {
     let mut cfg = Config::from_lookup(|name| lookup(env, name));
     cfg.documents = Documents::new(
-        include_str!("../legal/terms.md"),
-        include_str!("../legal/privacy.md"),
+        include_str!(env!("RAFI_LEGAL_TERMS")),
+        include_str!(env!("RAFI_LEGAL_PRIVACY")),
     );
     let dev = cfg!(feature = "dev");
     if cfg.dev_auth && !dev {
@@ -95,7 +97,7 @@ fn app(env: &Env) -> anyhow::Result<App> {
         anyhow::bail!("RAFI_ALTCHA_KEY is not set");
     }
     if cfg.restate.ingress_url.is_empty() {
-        anyhow::bail!("RESTATE_INGRESS_URL is not set");
+        anyhow::bail!("RAFI_ENGINE_INGRESS_URL is not set");
     }
     let auth = if cfg.dev_auth {
         None

@@ -152,7 +152,7 @@ New terms, to go into the glossary:
 
 | Clock | Counts from | Default | Who can shorten it | How |
 |---|---|---|---|---|
-| Non-winners | end of the event date | 7 days | installation (`RAFI_RETENTION_DAYS`, ≤ `RAFI_RETENTION_DAYS_MAX`), organizer defaults, the raffle | a setting, until the lock; then "Erase personal data now" |
+| Non-winners | end of the event date | 7 days | installation (`RAFI_RETENTION_DAYS`, ≤ `RAFI_RETENTION_MAX_DAYS`), organizer defaults, the raffle | a setting, until the lock; then "Erase personal data now" |
 | Winners | the erasure date | 90 days (`RAFI_RETENTION_WINNERS_DAYS`) | nobody configures it | "Mark delivered" / "All prizes delivered" moves a winner onto the non-winner clock |
 | Everyone | the erasure date + winner hold | — | — | the hard ceiling: the raffle becomes `Purged` |
 
@@ -309,7 +309,7 @@ Nothing is deployed, so `0001_init.sql` is edited in both dialects:
 | Variable | Default | Meaning |
 |---|---|---|
 | `RAFI_RETENTION_DAYS` | 7 | Non-winner period for owners who set none |
-| `RAFI_RETENTION_DAYS_MAX` | 30 | The longest an owner or raffle may choose |
+| `RAFI_RETENTION_MAX_DAYS` | 30 | The longest an owner or raffle may choose |
 | `RAFI_RETENTION_WINNERS_DAYS` | 90 | Winner hold after the erasure date; the hard ceiling |
 | `RAFI_MIN_AGE` | 16 | Rendered in the rules and the join form |
 | `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | required (placeholders under dev auth) | Named as processor in every notice |

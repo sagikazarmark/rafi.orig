@@ -68,17 +68,22 @@ impl DrandConfig {
     /// The settings from flat variables, for hosts without a configuration
     /// file (Workers' vars): `RAFI_DRAND_RELAYS` (comma-separated),
     /// `RAFI_DRAND_MOCK` (`1`, `true`, `yes` or `on`, as the app reads its own
-    /// flags), `RAFI_DRAND_LEAD_SECS` and
-    /// `RAFI_DRAND_TIMEOUT_SECS`. Anything missing or unparsable is the
-    /// default.
-    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
+    /// flags), `RAFI_DRAND_LEAD_SECS` and `RAFI_DRAND_TIMEOUT_SECS`. Anything
+    /// missing is the default; a number that doesn't parse is refused, named,
+    /// as every numeric variable of Rafi's is (a typo must not quietly become
+    /// a 6-second lead).
+    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
         let defaults = Self::default();
-        let number = |name, default| {
-            get(name)
-                .and_then(|v| v.trim().parse().ok())
-                .unwrap_or(default)
+        let number = |name: &str, default: u64| -> anyhow::Result<u64> {
+            match get(name) {
+                None => Ok(default),
+                Some(v) => v
+                    .trim()
+                    .parse()
+                    .map_err(|_| anyhow!("not a number: {name}={v:?}")),
+            }
         };
-        Self {
+        Ok(Self {
             relays: get("RAFI_DRAND_RELAYS")
                 .map(|v| {
                     v.split(',')
@@ -90,9 +95,9 @@ impl DrandConfig {
                 .unwrap_or(defaults.relays),
             mock: get("RAFI_DRAND_MOCK")
                 .is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes" | "on")),
-            lead_secs: number("RAFI_DRAND_LEAD_SECS", defaults.lead_secs),
-            timeout_secs: number("RAFI_DRAND_TIMEOUT_SECS", defaults.timeout_secs),
-        }
+            lead_secs: number("RAFI_DRAND_LEAD_SECS", defaults.lead_secs)?,
+            timeout_secs: number("RAFI_DRAND_TIMEOUT_SECS", defaults.timeout_secs)?,
+        })
     }
 
     /// The chain draws use.
@@ -279,23 +284,31 @@ mod tests {
             "RAFI_DRAND_RELAYS" => Some(" v2:https://a , ,v1:https://b".to_owned()),
             "RAFI_DRAND_MOCK" => Some("1".to_owned()),
             "RAFI_DRAND_LEAD_SECS" => Some("9".to_owned()),
-            "RAFI_DRAND_TIMEOUT_SECS" => Some("soon".to_owned()),
             _ => None,
         };
-        let cfg = DrandConfig::from_lookup(vars);
+        let cfg = DrandConfig::from_lookup(vars).unwrap();
         assert_eq!(cfg.relays, ["v2:https://a", "v1:https://b"]);
         assert!(cfg.mock);
         assert_eq!(cfg.lead_secs, 9);
-        assert_eq!(
-            cfg.timeout_secs,
-            DrandConfig::default().timeout_secs,
-            "unparsable is the default"
+        assert_eq!(cfg.timeout_secs, DrandConfig::default().timeout_secs);
+        let typo = DrandConfig::from_lookup(|name| {
+            (name == "RAFI_DRAND_TIMEOUT_SECS").then(|| "soon".to_owned())
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(
+            typo.contains("RAFI_DRAND_TIMEOUT_SECS=\"soon\""),
+            "a typo is refused, not defaulted: {typo}"
         );
-        assert_eq!(DrandConfig::from_lookup(|_| None), DrandConfig::default());
+        assert_eq!(
+            DrandConfig::from_lookup(|_| None).unwrap(),
+            DrandConfig::default()
+        );
         for (value, mock) in [("true", true), ("on", true), ("0", false), ("no", false)] {
             let cfg = DrandConfig::from_lookup(|name| {
                 (name == "RAFI_DRAND_MOCK").then(|| value.to_owned())
-            });
+            })
+            .unwrap();
             assert_eq!(cfg.mock, mock, "RAFI_DRAND_MOCK={value}");
         }
     }

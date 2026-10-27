@@ -20,7 +20,7 @@ foreground. On Workers, check that `RAFFLE_ROOM` is bound, and `wrangler tail` f
 
 **"Freeze list & start the draw" fails, or "Retry handing the list to the raffle engine" appears.**
 The list froze, but the raffle couldn't be opened in the engine. Check that:
-- `RESTATE_INGRESS_URL` (and `RESTATE_API_KEY` for Restate Cloud) is set on the app. Without it, draws can't start,
+- `RAFI_ENGINE_INGRESS_URL` (and `RAFI_ENGINE_API_KEY` for Restate Cloud) is set on the app. Without it, draws can't start,
   and the app logs this at startup.
 - Restate is up, and the engine is registered with it (`curl localhost:9070/deployments` on a self-hosted Restate).
 - The engine is up and can write to the database.
@@ -41,7 +41,7 @@ organizer **Abandon this draw**, which is public. See [The draw](../guide/the-dr
 
 **A decision takes long, or answers "applies after the current draw".**
 Commands for a raffle apply one at a time. A decision sent during a draw queues behind it. Past
-`RESTATE_TIMEOUT_SECS` the app reports it as accepted, and it applies once the draw settles. Retrying is safe:
+`RAFI_ENGINE_TIMEOUT_SECS` the app reports it as accepted, and it applies once the draw settles. Retrying is safe:
 every command has an ID and applies once.
 
 **"Not here" / "Declined" are disabled.** A draw is counting down. Those would change who it can pick, so they wait.
