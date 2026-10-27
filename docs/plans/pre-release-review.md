@@ -945,43 +945,45 @@ challenge changed the reasoning, the corrected reasoning is here.
 
 ## Deferred
 
-Worth doing, not before the release.
+Worth doing, not before the release. Each is an issue on the tracker, collected under
+[#36](https://github.com/sagikazarmark/rafi.orig/issues/36); the issues carry the design notes below and are where
+the state is kept from here on.
 
-- **Content-hashed participant scripts with `immutable`.** Design: `scripts/participant.sh` hashes the wasm,
+- **Content-hashed participant scripts with `immutable`** ([#21](https://github.com/sagikazarmark/rafi.orig/issues/21)). Design: `scripts/participant.sh` hashes the wasm,
   rewrites the reference in `rafi_participant.js` (the glue resolves `rafi_participant_bg.wasm` relative to
   `import.meta.url`, which is why a `?v=` on the import alone can't work), hashes the JS and `fallback.js`,
   writes `manifest.json`; `rafi-server` reads it at startup natively (`Dirs::participant`) and the Worker fetches
   it once per isolate through the `ASSETS` binding; `LOADER` becomes a formatted string; `_headers` sets
   `immutable` on the hashed names. `/participant/altcha-worker.js` stays a fixed route (a Web Worker URL).
-- **Enforcing the audit identifiers' retention period.** A housekeeping sweep that blanks `actor` and `user_id`
+- **Enforcing the audit identifiers' retention period** ([#22](https://github.com/sagikazarmark/rafi.orig/issues/22)). A housekeeping sweep that blanks `actor` and `user_id`
   on audit rows of raffles whose `organizer_left_at` is older than the period the operator's notice names, so the
   stated period is enforced rather than aspirational. Not on `remove_my_data` itself: the row is the operator's
   defence record.
-- **A full Content-Security-Policy.** Inline `HEAD_SCRIPT` and `LOADER`, Dioxus `document::eval` and the SPA's
+- **A full Content-Security-Policy** ([#23](https://github.com/sagikazarmark/rafi.orig/issues/23)). Inline `HEAD_SCRIPT` and `LOADER`, Dioxus `document::eval` and the SPA's
   inline styles need nonces or hashes; a day's work with the Dioxus build.
-- **The `tracing`/`console` layer growing into request IDs.** The router has one place for a `TraceLayer`
+- **The `tracing`/`console` layer growing into request IDs** ([#24](https://github.com/sagikazarmark/rafi.orig/issues/24)). The router has one place for a `TraceLayer`
   (`crates/server/src/lib.rs:126-132`) and the admin API one error mapper (`admin.rs:51-69`), so nothing structural
   is needed now.
-- **A `Clock` on `App`/`Policy`.** `ids::now()` is called directly in ~15 places; tests shift data instead. Not a
+- **A `Clock` on `App`/`Policy`** ([#25](https://github.com/sagikazarmark/rafi.orig/issues/25)). `ids::now()` is called directly in ~15 places; tests shift data instead. Not a
   contract.
-- **Rate-limit budgets in two places** (`crates/app/src/ratelimit.rs:25-30` and the `[[ratelimits]]` bindings).
+- **Rate-limit budgets in two places** ([#26](https://github.com/sagikazarmark/rafi.orig/issues/26); `crates/app/src/ratelimit.rs:25-30` and the `[[ratelimits]]` bindings).
   Document that `wrangler.toml` is authoritative on Workers, or move the native budgets into `Policy`.
-- **Smart Placement** (`[placement] mode = "smart"`): D1 is EU-pinned and the participant page makes several
+- **Smart Placement** ([#27](https://github.com/sagikazarmark/rafi.orig/issues/27); `[placement] mode = "smart"`): D1 is EU-pinned and the participant page makes several
   round trips; measure first.
-- **Caching the axum `Router` in `App`** (`apps/worker/src/lib.rs:158-162` rebuilds it per request).
-- **A Worker path for `reapply-erasures`**, or generating `cloudflare.md`'s D1 SQL from `rafi_store`, so the two
+- **Caching the axum `Router` in `App`** ([#28](https://github.com/sagikazarmark/rafi.orig/issues/28); `apps/worker/src/lib.rs:158-162` rebuilds it per request).
+- **A Worker path for `reapply-erasures`** ([#29](https://github.com/sagikazarmark/rafi.orig/issues/29)), or generating `cloudflare.md`'s D1 SQL from `rafi_store`, so the two
   can't drift.
-- **`DrandClient::wait_for` uses `std::time::SystemTime`** (`crates/engine/src/drand.rs:256`); only `LocalEngine`
+- **`DrandClient::wait_for` uses `std::time::SystemTime`** ([#30](https://github.com/sagikazarmark/rafi.orig/issues/30); `crates/engine/src/drand.rs:256`); only `LocalEngine`
   calls it, but it is compiled on wasm32. Gate it or use `web_time`.
-- **Clerk deletion webhook** (`user.deleted`, `organization.deleted` → `remove_my_data`): the terms and the admin
+- **Clerk deletion webhook** ([#31](https://github.com/sagikazarmark/rafi.orig/issues/31); `user.deleted`, `organization.deleted` → `remove_my_data`): the terms and the admin
   say to remove data first; the webhook needs Svix verification and an ID mapping.
-- **`RAFI_ALTCHA_*`, `/api/altcha`, `altcha_used`, `/participant/altcha-worker.js`** bake a library's name into
+- **`RAFI_ALTCHA_*`, `/api/altcha`, `altcha_used`, `/participant/altcha-worker.js`** ([#32](https://github.com/sagikazarmark/rafi.orig/issues/32)) bake a library's name into
   env, route and table names. Renaming is cosmetic; not before release.
-- **Clerk on Workers (JWKS through `tower-worker-fetch`)** is checked only by hand with `--profile clerk`; CI runs
+- **Clerk on Workers (JWKS through `tower-worker-fetch`)** ([#33](https://github.com/sagikazarmark/rafi.orig/issues/33)) is checked only by hand with `--profile clerk`; CI runs
   dev auth. A CI secret for a test instance would close it.
-- **A notifier or live-channel conformance suite** comparable to the store's and the engine's. One real
+- **A notifier or live-channel conformance suite** ([#34](https://github.com/sagikazarmark/rafi.orig/issues/34)) comparable to the store's and the engine's. One real
   `Notifier` exists; `testbeds/cloudflare` covers it.
-- **A "drawn by a newer version" screen** instead of a 500 when an older build reads a raffle a newer one wrote
+- **A "drawn by a newer version" screen** ([#35](https://github.com/sagikazarmark/rafi.orig/issues/35)) instead of a 500 when an older build reads a raffle a newer one wrote
   (the rollback case in §Accepted risks).
 
 ## Checked and found solid
