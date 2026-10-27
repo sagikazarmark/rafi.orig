@@ -1015,9 +1015,11 @@ async fn admin_requires_clerk_session() {
     std::fs::write(participant.join("fallback.js"), "// fallback").unwrap();
     // A precompressed variant, as participant.sh leaves next to each file.
     std::fs::write(participant.join("fallback.js.gz"), "gzipped bytes").unwrap();
+    // Clerk's layer as both hosts build it: the public origin is the one
+    // authorized party.
     let router = super::build_router(
         app.clone(),
-        Some(clerk.layer().unwrap()),
+        Some(super::auth::clerk_layer(&app.cfg, clerk.config().unwrap()).unwrap()),
         &super::Dirs {
             public: public.clone(),
             participant,
@@ -1071,13 +1073,88 @@ async fn admin_requires_clerk_session() {
     assert_eq!(me.owner_id, "user_2abc");
     assert!(!me.dev_auth);
 
-    // The web app, with a single-page fallback for its own routes.
-    for path in ["/", "/admin", "/admin/r/abc", "/s/some-slug"] {
-        let (status, _, body) =
+    // A token minted for this origin passes; one minted for another site on
+    // the same Clerk instance doesn't (`azp`).
+    let for_origin = |party: &str| {
+        let mut req = admin_call("whoami", "{}");
+        req.headers_mut().insert(
+            header::COOKIE,
+            clerk
+                .cookie_for(&clerk.session("user_2abc").with_authorized_party(party))
+                .unwrap()
+                .parse()
+                .unwrap(),
+        );
+        req
+    };
+    let (status, _, body) = send(&router, for_origin(&app.cfg.public_url)).await;
+    assert!(status.is_success(), "our origin: {status}: {body}");
+    let (status, _, body) = send(&router, for_origin("https://other.example")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "another origin: {body}");
+
+    // The arguments must be JSON: what a cross-site form could send is refused.
+    let mut req = Request::post("/api/admin/create_raffle")
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(Body::from(
+            r#"{"title":"x","event_date":"2026-10-28","event_ends_at":null}"#,
+        ))
+        .unwrap();
+    req.headers_mut().insert(
+        header::COOKIE,
+        clerk.cookie("user_2abc").unwrap().parse().unwrap(),
+    );
+    let (status, _, body) = send(&router, req).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+    assert!(
+        service::list(&app, "user_2abc").await.unwrap().is_empty(),
+        "nothing was created"
+    );
+
+    // The web app, with a single-page fallback for its own routes, and the
+    // security headers: the admin can't be framed, the projector and the
+    // verification page can.
+    for path in [
+        "/",
+        "/admin",
+        "/admin/r/abc",
+        "/s/some-slug",
+        "/v/some-slug",
+    ] {
+        let (status, headers, body) =
             send(&router, Request::get(path).body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::OK, "{path}");
         assert!(body.contains("<div id=\"main\">"), "{path}: {body}");
+        assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff", "{path}");
+        assert_eq!(
+            headers[header::REFERRER_POLICY],
+            "strict-origin-when-cross-origin",
+            "{path}"
+        );
+        let framed = path.starts_with("/s/") || path.starts_with("/v/");
+        assert_eq!(
+            headers
+                .get(header::CONTENT_SECURITY_POLICY)
+                .map(|v| v.to_str().unwrap()),
+            (!framed).then_some("frame-ancestors 'none'"),
+            "{path}"
+        );
+        assert_eq!(
+            headers.contains_key(header::X_FRAME_OPTIONS),
+            !framed,
+            "{path}"
+        );
     }
+    // And on what the server renders itself.
+    let (_, headers, _) = send(
+        &router,
+        Request::get("/healthz").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(
+        headers[header::CONTENT_SECURITY_POLICY],
+        "frame-ancestors 'none'"
+    );
+    assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
     std::fs::remove_dir_all(&public).ok();
 }
 
@@ -1822,14 +1899,20 @@ async fn proof_of_work_forgeries_are_refused() {
             .unwrap()
     };
 
-    let expired = solve_altcha_from(issue("test-key", Some(service::ids::now() - 1)), 0);
+    let expired = solve_altcha_from(
+        issue(
+            super::config::TEST_ALTCHA_KEY,
+            Some(service::ids::now() - 1),
+        ),
+        0,
+    );
     assert!(refused(&expired).await, "expired");
     let foreign = solve_altcha_from(issue("another-key", soon), 0);
     assert!(refused(&foreign).await, "signed with another key");
-    let eternal = solve_altcha_from(issue("test-key", None), 0);
+    let eternal = solve_altcha_from(issue(super::config::TEST_ALTCHA_KEY, None), 0);
     assert!(refused(&eternal).await, "no expiresAt");
 
-    let good = solve_altcha_from(issue("test-key", soon), 0);
+    let good = solve_altcha_from(issue(super::config::TEST_ALTCHA_KEY, soon), 0);
     let mut cheaper = good.clone();
     cheaper.challenge.parameters.cost = 0;
     assert!(refused(&cheaper).await, "a changed parameter");
@@ -3746,4 +3829,104 @@ async fn never_frozen_raffles_expire() {
         service::verify_data(&app, &open.slug).await,
         Err(service::Error::NotFound)
     ));
+}
+
+/// A raffle can be deleted until its first draw is announced: a freeze by
+/// accident has a way out, and a raffle that drew keeps its record. The
+/// admin is told which, and a frozen raffle's engine state goes with it.
+#[tokio::test]
+async fn deleting_stops_at_the_first_draw() {
+    let app = app().await;
+    let router = routes(app.clone());
+
+    // Frozen by accident: deletable, and the engine forgets it.
+    let frozen = setup_open(&app, &[("Book", 1)]).await;
+    join(&router, &frozen.join_code, "Anna", "anna@example.com").await;
+    service::start_draw(&app, ACTOR, &frozen.id).await.unwrap();
+    wait_for(&app, &frozen.id, |r| r.raffle.opened()).await;
+    assert!(
+        service::admin(&app, OWNER, &frozen.id)
+            .await
+            .unwrap()
+            .actions
+            .delete
+    );
+    service::delete(&app, ACTOR, &frozen.id).await.unwrap();
+    assert!(raffles::get(&app.db, &frozen.id).await.unwrap().is_none());
+    let engine = app.engine.as_ref().unwrap();
+    let forgotten = engine
+        .decide(
+            &RaffleId::new(&frozen.id),
+            &Decision::Finish,
+            "after-delete",
+        )
+        .await;
+    assert!(
+        forgotten.is_err(),
+        "the engine was asked to finish and forgot the raffle: {forgotten:?}"
+    );
+
+    // Drawn: the record stays; the admin offers no delete, and a call refuses.
+    let drawn = setup_open(&app, &[("Mug", 1)]).await;
+    join(&router, &drawn.join_code, "Bence", "bence@example.com").await;
+    service::start_draw(&app, ACTOR, &drawn.id).await.unwrap();
+    let state = wait_for(&app, &drawn.id, |r| r.raffle.opened())
+        .await
+        .drawn
+        .unwrap();
+    let item = state.items()[0].id.clone();
+    service::command(
+        &app,
+        ACTOR,
+        &drawn.id,
+        DrawRequest { item: item.clone() },
+        "d1",
+    )
+    .await
+    .unwrap();
+    wait_for(&app, &drawn.id, |r| {
+        r.drawn
+            .as_ref()
+            .is_some_and(|s| s.items()[0].status() == ItemStatus::Drawn)
+    })
+    .await;
+    assert!(
+        !service::admin(&app, OWNER, &drawn.id)
+            .await
+            .unwrap()
+            .actions
+            .delete
+    );
+    let refused = service::delete(&app, ACTOR, &drawn.id).await;
+    assert!(
+        matches!(
+            refused,
+            Err(service::Error::Refused(service::Refusal::Drawn))
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(service::Refusal::Drawn.code(), "drawn");
+    assert!(
+        service::Refusal::Drawn
+            .to_string()
+            .contains("stays verifiable")
+    );
+    // Finished with the one draw, still not deletable: purge is the way.
+    service::command(
+        &app,
+        ACTOR,
+        &drawn.id,
+        Decision::Resolve {
+            item,
+            resolution: Resolution::Claimed,
+        },
+        "r1",
+    )
+    .await
+    .unwrap();
+    service::command(&app, ACTOR, &drawn.id, Decision::Finish, "fin")
+        .await
+        .unwrap();
+    let admin = service::admin(&app, OWNER, &drawn.id).await.unwrap();
+    assert!(!admin.actions.delete && admin.actions.purge);
 }

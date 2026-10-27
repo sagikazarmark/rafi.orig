@@ -308,15 +308,41 @@ pub fn legal(title: &str, version: &str, markdown_text: &str) -> String {
     document(title, body, None)
 }
 
+/// Whether a link may point there: a web page, a mail address or a place on
+/// this page. The documents are the operator's, so this guards against a
+/// slip (a pasted `javascript:` or `data:` link), not an attacker.
+fn safe_link(dest: &str) -> bool {
+    let dest = dest.trim();
+    let lower = dest.to_ascii_lowercase();
+    lower.starts_with("https://")
+        || lower.starts_with("http://")
+        || lower.starts_with("mailto:")
+        || dest.starts_with('#')
+        || dest.starts_with('/')
+}
+
 /// Markdown as HTML: CommonMark with tables, strikethrough and footnotes;
-/// raw HTML in the source is escaped, never passed through.
+/// raw HTML in the source is escaped, never passed through, and a link or
+/// image to anything but a web page, a mail address or this page is
+/// rendered as its text.
 fn markdown(text: &str) -> String {
-    use pulldown_cmark::{Event, Options, Parser, html};
+    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
     let options =
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_FOOTNOTES;
-    let parser = Parser::new_ext(text, options).map(|event| match event {
-        Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
-        other => other,
+    let mut dropped: usize = 0;
+    let parser = Parser::new_ext(text, options).filter_map(|event| match event {
+        Event::Html(raw) | Event::InlineHtml(raw) => Some(Event::Text(raw)),
+        Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. })
+            if !safe_link(&dest_url) =>
+        {
+            dropped += 1;
+            None
+        }
+        Event::End(TagEnd::Link | TagEnd::Image) if dropped > 0 => {
+            dropped -= 1;
+            None
+        }
+        other => Some(other),
     });
     let mut out = String::with_capacity(text.len() * 2);
     html::push_html(&mut out, parser);
@@ -334,6 +360,27 @@ mod tests {
         assert!(html.contains("<strong>bold</strong>"));
         assert!(!html.contains("<script>"), "{html}");
         assert!(html.contains("&lt;script&gt;"), "{html}");
+        // Links to a page, a mail address or this document stay; anything
+        // else is rendered as its text.
+        let html = markdown(
+            "[site](https://example.org) [mail](mailto:p@example.org) [here](#top) [own](/privacy) [bad](javascript:alert(1)) [data](data:text/html,x)",
+        );
+        assert!(
+            html.contains(r#"<a href="https://example.org">site</a>"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<a href="mailto:p@example.org">mail</a>"#),
+            "{html}"
+        );
+        assert!(html.contains(r##"<a href="#top">here</a>"##), "{html}");
+        assert!(html.contains(r#"<a href="/privacy">own</a>"#), "{html}");
+        assert!(!html.contains("javascript:"), "{html}");
+        assert!(!html.contains("data:"), "{html}");
+        assert!(
+            html.contains("bad") && html.contains("data"),
+            "the text stays: {html}"
+        );
     }
 
     #[test]

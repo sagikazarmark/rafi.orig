@@ -49,7 +49,8 @@ Pick one, and point both processes at it.
 
 ## 3. Restate
 
-The app reaches the engine through Restate's **ingress**. Restate reaches `rafi-restate` on its endpoint (`:9080`).
+The app reaches the engine through Restate's **ingress**. Restate reaches `rafi-restate` on its endpoint
+(`127.0.0.1:9080` by default; set `endpoint.listener` if Restate runs on another machine, on a private network).
 
 - **Self-hosted:** run `restate-server` (the tests use 1.8.0, the devenv shell's: see `devenv.lock`'s
   `nix-restate`). By
@@ -140,7 +141,11 @@ HTTP to `rafi` but `RAFI_PUBLIC_URL` is `https://`, the participant cookie is al
 
 Don't rate-limit by IP aggressively: a whole venue shares one address. Rafi limits joins per raffle and per email.
 
-Expose neither `rafi-restate` (`:9080`) nor Restate's admin API (`:9070`) publicly.
+Expose none of these publicly: `rafi-restate`'s endpoint (`:9080`; whoever reaches it supplies the raffle's state,
+which is why it listens on the loopback address by default and refuses to start without `identity_keys` unless
+told the network is trusted), Restate's admin API (`:9070`), or Restate's **ingress** (`:8080`): the ingress has
+no authentication of its own, and anyone reaching it can send any raffle's `draw`, `decide` or `finish`, bypassing
+the app's ownership checks. Only `rafi` talks to the ingress.
 
 ## 8. Check
 

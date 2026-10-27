@@ -7,8 +7,9 @@
 const base = process.argv[2] ?? "http://127.0.0.1:8790";
 const wsBase = base.replace(/^http/, "ws");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// Raffle IDs are unique in real life; a fresh one per run keeps runs independent.
-const raffle = `r${Date.now()}`;
+// Raffle IDs are 32 hex digits (the gate checks the shape before anything
+// else); a fresh one per run keeps runs independent.
+const raffle = crypto.randomUUID().replaceAll("-", "");
 const entrant = (name) => `${raffle}-${name}`;
 let failures = 0;
 

@@ -56,17 +56,61 @@ const BLOCKED: &[&str] = &[
 /// Why a display name is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameError {
-    /// Empty, longer than [`MAX_NAME_CHARS`], or with control characters.
+    /// Empty, longer than [`MAX_NAME_CHARS`], with control or invisible
+    /// characters, or without a single letter or digit.
     Invalid,
     /// Contains a blocked word.
     Blocked,
+}
+
+/// Whether a character has no business in a name shown on a screen: a
+/// control character, or one of Unicode's *default ignorable* code points
+/// (bidirectional controls like U+202E that reverse what follows, zero-width
+/// joiners and spaces, soft hyphens, variation selectors, the Hangul fillers
+/// U+115F, U+1160, U+3164 and U+FFA0 that render as blanks yet count as
+/// letters, tag characters), or the Braille blank U+2800. Each lets a name
+/// look like another ("Anna" and "Anna\u{200B}"), look empty, or slip a
+/// blocked word past a substring check. The ranges are Unicode's
+/// `Default_Ignorable_Code_Point` property, which is stable, written out so
+/// no table crate is needed where this compiles (the Worker, the admin's
+/// WebAssembly).
+pub fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{034F}'
+            | '\u{061C}'
+            | '\u{115F}'..='\u{1160}'
+            | '\u{17B4}'..='\u{17B5}'
+            | '\u{180B}'..='\u{180F}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{2800}'
+            | '\u{3164}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+            | '\u{FFF0}'..='\u{FFF8}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E0FFF}'
+    )
+}
+
+/// Whether `text` could be a name on a screen: no control or invisible
+/// characters ([`is_invisible`]), and at least one letter or digit, so it
+/// can't be blank and can't be another name with something unseen added.
+pub fn legible(text: &str) -> bool {
+    !text.chars().any(|c| c.is_control() || is_invisible(c))
+        && text.chars().any(char::is_alphanumeric)
 }
 
 /// The display name `input` stands for, with its whitespace collapsed.
 pub fn display_name(input: &str) -> Result<String, NameError> {
     let name = input.split_whitespace().collect::<Vec<_>>().join(" ");
     let len = name.chars().count();
-    if len == 0 || len > MAX_NAME_CHARS || name.chars().any(char::is_control) {
+    if len == 0 || len > MAX_NAME_CHARS || !legible(&name) {
         return Err(NameError::Invalid);
     }
     let lower = name.to_lowercase();
@@ -397,6 +441,32 @@ mod tests {
         );
         assert_eq!(display_name("a\u{7}b"), Err(NameError::Invalid));
         assert_eq!(display_name("Kurva Anna"), Err(NameError::Blocked));
+        // Nothing unseen: a zero-width space that makes a second "Anna", a
+        // right-to-left override that reverses the line, a soft hyphen, the
+        // Hangul filler that renders blank yet is a letter, a Braille blank;
+        // and nothing without a letter or digit in it.
+        for invisible in [
+            "Anna\u{200B}",
+            "\u{202E}Anna",
+            "An\u{00AD}na",
+            "\u{3164}",
+            "\u{3164}\u{3164}",
+            "\u{2800}",
+            "Anna\u{FE0F}",
+            "fu\u{200B}ck",
+        ] {
+            assert_eq!(
+                display_name(invisible),
+                Err(NameError::Invalid),
+                "{invisible:?}"
+            );
+        }
+        for blank in ["★ ★ ★", "---", "..."] {
+            assert_eq!(display_name(blank), Err(NameError::Invalid), "{blank:?}");
+        }
+        assert_eq!(display_name("Bence 🎉").as_deref(), Ok("Bence 🎉"));
+        assert_eq!(display_name("Árvíztűrő").as_deref(), Ok("Árvíztűrő"));
+        assert_eq!(display_name("李雷").as_deref(), Ok("李雷"));
     }
 
     #[test]

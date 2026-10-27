@@ -53,7 +53,8 @@ The organizer can always erase earlier, never later:
 - **"Erase personal data now"** (the raffle's menu, once it is finished) erases everyone at once and ends live updates.
 - **Erasing one entrant** (People tab) works once the raffle is finished, or once its erasure date has passed: for
   example on request.
-- **Before the freeze**, removing an entrant deletes them outright.
+- **Before the freeze**, removing an entrant deletes them outright; so does deleting the raffle, which is
+  possible until its first draw is announced (from then on the record stays, and the raffle is purged instead).
 - **From the freeze until the finish or the date**, nobody leaves the list: sharing their entry with the event is
   part of the rules entrants accept. The organizer can hide or rename a name meanwhile.
 
@@ -97,13 +98,13 @@ An entry has three parts:
 
 - a public **entrant ID**
 - a private **claim code**
-- a secret token in an `HttpOnly`, `SameSite=Lax` cookie (`Secure` over HTTPS) that lasts 3 days. Only the token's
-  SHA-256 is stored.
+- a secret token in an `HttpOnly`, `SameSite=Lax` cookie (`Secure` over HTTPS) that lasts 3 days, sent only to the
+  join page (`Path=/j/`): never to the APIs or the live channel. Only the token's SHA-256 is stored.
 
 | Situation | What happens |
 |---|---|
 | The phone locks, the tab is closed, the QR code is scanned again | The cookie restores the entry, claim code included |
-| Another browser, private mode, cleared cookies | The same email finds the entry, and the page says it is safe. It is **not** moved to the new device: otherwise anyone could take over an entry by typing someone else's email. |
+| Another browser, private mode, cleared cookies | The same email finds the entry, and the page says it is safe. It is **not** moved to the new device: otherwise anyone could take over an entry by typing someone else's email. This does tell whoever types the email that it is entered. That can't be hidden by wording: a join is visible in the public entrant count and the recent names anyway, so anyone with the join code who solves a proof-of-work can learn it, five tries a minute per email, while registration is open. The page says so plainly rather than pretending otherwise. |
 | No phone | The organizer adds the person in the admin and confirms them by name at the stage |
 
 The projector is the source of truth. A faked "you won" screen lacks the winner's private claim code.
@@ -115,10 +116,10 @@ The projector is the source of truth. A faked "you won" screen lacks the winner'
 | **One entry per email** | Per raffle, on a normalized key: lowercased, `+tag` dropped, and for Gmail, dots dropped. No device fingerprinting. |
 | **Proof-of-work** | Joining requires solving an [ALTCHA v2](https://altcha.org) challenge (PBKDF2/SHA-256) in the browser. Challenges are HMAC-signed and each is redeemed once. The difficulty is `RAFI_ALTCHA_COST`. |
 | **Rate limits** | 600 joins per minute per raffle, and 5 per minute per raffle and email. **Never per IP**, because a venue shares one. On Workers they are soft (per location). |
-| **Entrant cap** | `RAFI_MAX_ENTRANTS` (2000), enforced in the database: the hard limit |
+| **Entrant cap** | `RAFI_MAX_ENTRANTS` (2000), enforced in the database for joins (the hard limit) and checked for the organizer's additions; at most 1000 items (prize copies) in one raffle |
 | **Registration window** | The join code lets people in only while registration is open. The code is six characters out of 31 (887 million), and there is no per-IP limit, so codes can be guessed at a cost; a hit shows the raffle's public pages. Once the raffle is purged, its code answers nothing, so guessing finds only raffles inside their hold period. |
 | **Presence** | The rules require winners to be present to claim. Remote entries forfeit ("Not here"), and the prize is drawn again. |
-| **Display names** | A blocklist, a 5 s delay before a name reaches the projector, and one-tap hide or rename |
+| **Display names** | Nothing invisible (bidirectional controls, zero-width characters, soft hyphens, blank fillers) and at least one letter or digit, so no name can look like another or like nothing; a blocklist; a 5 s delay before a name reaches the projector; one-tap hide or rename |
 | **Before the freeze** | The organizer can remove duplicates and trolls |
 
 Edge protection by IP (DDoS and similar) is the platform's job: Cloudflare, or your reverse proxy.
@@ -126,7 +127,9 @@ Edge protection by IP (DDoS and similar) is the platform's job: Cloudflare, or y
 ## Cookies and tracking
 
 There is one strictly necessary cookie: the entry. There are no analytics and no tracking, so no cookie banner is
-needed. On Workers, invocation logs are off because they would record client IPs and cookies.
+needed. On Workers, the automatic per-invocation logs are off because they would record client IPs and cookies;
+what is logged is the application's own warnings and errors, which carry raffle IDs and error text, no personal
+data (and `wrangler tail`, when an operator runs it, shows request details live).
 
 ## Rules and legal notes
 

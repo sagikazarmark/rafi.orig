@@ -40,6 +40,16 @@ pub use engine::{Engine, EngineError, EngineInfo, NOT_OPEN};
 pub use observer::{Observer, RecordingObserver};
 pub use store::{MemoryStore, Store};
 
+/// What a stalled draw's event says when no relay served the round in time.
+/// The event log is public and permanent, so the reason in it is a fixed
+/// phrase; what the relays answered (their URLs, the error) goes to the
+/// engine's log.
+pub const UNAVAILABLE_REASON: &str = "no drand relay served the round in time";
+
+/// What a stalled draw's event says when the engine's own step failed (not
+/// drand): the error's text is for the engine's log.
+pub const INTERRUPTED_REASON: &str = "the draw was interrupted; it continues on the same round";
+
 use std::{future::Future, pin::Pin};
 
 /// A boxed, sendable future, so the contract works with trait objects (axum

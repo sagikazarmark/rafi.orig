@@ -3,6 +3,7 @@
 
 use rafi_api::{LifecycleCommand, RaffleDefaults, RaffleSettings, RaffleSummary};
 use rafi_lifecycle::{self as lifecycle, dates::Date, settings};
+use rafi_raffle::{Decision, RaffleId};
 use rafi_store::{RaffleRow, audit, defaults, entrants, prizes, raffles};
 
 use crate::{Actor, App, Refusal, Result, ids, owned};
@@ -271,11 +272,28 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
     }
 }
 
+/// Deletes a raffle that hasn't drawn ([`lifecycle::raffle::deletable`]):
+/// its entrants, prizes and log go with it. A frozen raffle the engine has
+/// opened is finished there first, so the engine forgets it instead of
+/// holding its state until the retention ceiling; if the engine can't be
+/// asked, the raffle is deleted all the same (housekeeping asks again at the
+/// ceiling, and finds nothing to write to).
 pub async fn delete(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
     let raffle = owned(app, actor.owner, id).await?;
     let drawn = raffles::drawn(&app.db, &raffle).await?;
-    if !lifecycle::raffle::deletable(raffle.state, drawn.as_ref()) {
-        return Err(Refusal::DrawPending.into());
+    if !lifecycle::raffle::deletable(drawn.as_ref()) {
+        return Err(Refusal::Drawn.into());
+    }
+    if drawn.is_some_and(|d| !d.is_finished())
+        && let Ok(engine) = app.engine()
+    {
+        let command_id = format!("delete-{id}");
+        if let Err(e) = engine
+            .decide(&RaffleId::new(id), &Decision::Finish, &command_id)
+            .await
+        {
+            tracing::warn!(raffle_id = id, error = %e, "the engine couldn't be asked to forget a deleted raffle");
+        }
     }
     raffles::delete(&app.db, id).await?;
     audit::record(&app.db, id, actor, "delete", "").await?;

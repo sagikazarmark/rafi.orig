@@ -101,7 +101,8 @@ pub enum Refusal {
     PrizeQty,
     PrizesFrozen,
     // Raffles.
-    DrawPending,
+    /// The raffle has drawn (or announced a draw): its record stays.
+    Drawn,
     JoinCodes,
     /// Registration can't open: the privacy notice can't name the organizer
     /// or a way to reach them. The fields still missing.
@@ -142,6 +143,8 @@ pub enum Refusal {
     },
     // Entrants.
     EntrantsFrozen,
+    /// The raffle has as many entrants as the installation allows.
+    Full,
     Name(NameError),
     Email,
     EmailTaken,
@@ -208,7 +211,7 @@ impl Refusal {
             Self::PrizeName => "prize_name",
             Self::PrizeQty => "prize_qty",
             Self::PrizesFrozen => "prizes_frozen",
-            Self::DrawPending => "draw_pending",
+            Self::Drawn => "drawn",
             Self::JoinCodes => "join_codes",
             Self::OrganizerMissing(_) => "organizer_missing",
             Self::ErasureDatePassed => "erasure_date_passed",
@@ -224,6 +227,7 @@ impl Refusal {
             Self::Raffle { .. } => "raffle",
             Self::Engine { .. } => "engine",
             Self::EntrantsFrozen => "entrants_frozen",
+            Self::Full => "full",
             Self::Name(_) => "name",
             Self::Email => "email",
             Self::EmailTaken => "email_taken",
@@ -297,7 +301,9 @@ impl fmt::Display for Refusal {
             Self::PrizesFrozen => {
                 f.write_str("Prizes cannot change after the entrant list is frozen.")
             }
-            Self::DrawPending => f.write_str("A draw is in progress."),
+            Self::Drawn => f.write_str(
+                "This raffle has drawn prizes, so its record stays verifiable and it can't be deleted. Finish it, then erase its personal data from the menu.",
+            ),
             Self::JoinCodes => f.write_str("Could not allocate a unique join code; please try again."),
             Self::OrganizerMissing(fields) => write!(
                 f,
@@ -327,6 +333,11 @@ impl fmt::Display for Refusal {
             ),
             Self::Start(start::Refusal::NoEntrants) => f.write_str("Nobody has entered yet."),
             Self::Start(start::Refusal::NoPrizes) => f.write_str("Add at least one prize first."),
+            Self::Start(start::Refusal::TooManyItems) => write!(
+                f,
+                "Too many prizes to draw for: at most {} items (prize copies) in one raffle.",
+                settings::MAX_ITEMS
+            ),
             Self::Start(start::Refusal::FakeEntrants) => f.write_str(
                 "Fake entrants are on the list, but test mode is off. Switch test mode on and off again to remove them.",
             ),
@@ -337,7 +348,10 @@ impl fmt::Display for Refusal {
             Self::Raffle { command, error } => f.write_str(&raffle_refusal(command.as_ref(), error)),
             Self::Engine { message, .. } => f.write_str(message),
             Self::EntrantsFrozen => f.write_str("The entrant list is frozen."),
-            Self::Name(NameError::Invalid) => f.write_str("Please enter a name (1–24 characters)."),
+            Self::Full => f.write_str("The raffle is full: it has as many entrants as this installation allows."),
+            Self::Name(NameError::Invalid) => f.write_str(
+                "Please enter a name: 1–24 characters, with at least one letter or digit and nothing invisible.",
+            ),
             Self::Name(NameError::Blocked) => f.write_str("Please choose a different name."),
             Self::Email => f.write_str("Invalid email address."),
             Self::EmailTaken => f.write_str("This email is already entered."),

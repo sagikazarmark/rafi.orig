@@ -5148,6 +5148,8 @@ dependencies = [
  "restate-sdk",
  "tower-service",
  "tower-worker-fetch",
+ "tracing",
+ "tracing-subscriber",
  "worker",
 ]
 

@@ -51,6 +51,8 @@ let
   };
 
   features = lib.optionalString cfg.mockDrand " --features mock-drand";
+  # The server allows RAFI_DEV_AUTH only when built with `dev`.
+  rafiFeatures = " --features dev" + lib.optionalString cfg.mockDrand ",mock-drand";
 
   # The Workers' static files (apps/worker/worker-assets) are rebuilt when their
   # sources change, when something else rebuilt them (scripts/workers-check.sh),
@@ -181,7 +183,7 @@ in
       processes.rafi = {
         exec = ''
           ${requireClerkKeys}
-          exec cargo run -p rafi${features}
+          exec cargo run -p rafi${rafiFeatures}
         '';
         cwd = root;
         env = {
@@ -207,6 +209,8 @@ in
         ports.http.allocate = 9080;
         env = {
           RAFI_RESTATE_ENDPOINT__LISTENER = "127.0.0.1:${toString (port "engine")}";
+          # Loopback, Restate alone: no request signing in development.
+          RAFI_RESTATE_ENDPOINT__INSECURE = "true";
           RAFI_RESTATE_DATABASE__URL = databaseUrl;
         }
         // lib.optionalAttrs cfg.mockDrand {

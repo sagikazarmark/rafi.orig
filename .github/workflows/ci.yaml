@@ -73,7 +73,7 @@ jobs:
           cargo clippy -p rafi-server --all-targets -- -D warnings
           cargo clippy -p rafi-server --features mock-drand --all-targets -- -D warnings
           cargo clippy -p rafi --all-targets -- -D warnings
-          cargo clippy -p rafi --features mock-drand --all-targets -- -D warnings
+          cargo clippy -p rafi --features dev,mock-drand --all-targets -- -D warnings
       - name: Clippy (app web)
         run: cargo clippy -p rafi-web --target wasm32-unknown-unknown -- -D warnings
       - name: Clippy (Workers crates)

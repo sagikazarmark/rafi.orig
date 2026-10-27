@@ -117,7 +117,8 @@ Open `/healthz`, `/terms` and `/privacy`, then run a test-mode raffle end to end
 
 - D1 is created with `--jurisdiction eu`.
 - Durable Objects come from an EU-jurisdiction namespace (`RAFI_DO_JURISDICTION=eu`, fixed at creation).
-- Invocation logs are off, because they would record client IPs and cookies.
+- The automatic per-invocation logs are off, because they would record client IPs and cookies; the application's
+  own lines (warnings and errors, with raffle IDs and error text) are kept.
 - D1 Time Travel keeps erased data for up to 30 more days. Say so in your privacy notice (the template does). After
   restoring with Time Travel, re-apply the erasures. The hourly housekeeping erases again whatever is past its date
   on its own (the dates are in the raffles themselves). What it can't know is what organizers erased before the

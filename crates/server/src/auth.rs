@@ -1,9 +1,22 @@
 //! Organizer authentication and what the session may do.
 
-use dioxus_clerk::server::ClerkAuth;
+use dioxus_clerk::server::{ClerkAuth, ClerkAuthLayer, ClerkAuthLayerConfig};
 use rafi_api::{Access, Caller};
 
-use super::AppState;
+use super::{AppState, config::Config};
+
+/// Clerk's layer as both hosts build it: `config` (the secret key, and on
+/// Workers the JWKS transport) plus what the app knows, the public origin as
+/// the one authorized party. A session token names the origin that asked
+/// for it (`azp`); one minted for another site on the same Clerk instance is
+/// refused, as Clerk recommends. Tokens without `azp` still pass (Clerk's
+/// own guidance), so this is defence in depth, not the only check.
+pub fn clerk_layer(
+    cfg: &Config,
+    config: ClerkAuthLayerConfig,
+) -> Result<ClerkAuthLayer, dioxus_clerk::core::ClerkError> {
+    ClerkAuthLayer::from_config(config.add_authorized_party(cfg.public_url.clone()))
+}
 
 /// Who is calling: the owner key for the current organizer (the active Clerk
 /// organization if any, since co-hosts share raffles, otherwise the Clerk

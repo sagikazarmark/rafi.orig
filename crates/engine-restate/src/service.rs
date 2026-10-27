@@ -175,9 +175,14 @@ impl Raffle {
 
         // Sleeps until the round is due, fetches it (journaled, retried) and
         // verifies it. If it can't be had, the draw stalls on its round.
+        // What goes into the event, and so into the public log, is a fixed
+        // phrase: the detail (relay URLs, an error's text) is for the log.
         let outcome = match self.drand.await_beacon(&ctx, pending.round).await {
             Ok(beacon) => BeaconFetch::Verified(beacon),
-            Err(AwaitError::Unavailable { reason, .. }) => BeaconFetch::Unavailable(reason),
+            Err(AwaitError::Unavailable { reason, round }) => {
+                tracing::warn!(%round, %reason, "drand round unavailable");
+                BeaconFetch::Unavailable(rafi_engine::UNAVAILABLE_REASON.to_owned())
+            }
             // Cancelled (or a step failed): the draw stays pending on its
             // round. Record why, so the organizer sees the retry and abandon
             // controls right away, then fail the invocation.
@@ -185,7 +190,8 @@ impl Raffle {
                 let reason = if e.is_cancelled() {
                     "draw cancelled".to_owned()
                 } else {
-                    format!("draw failed: {e}")
+                    tracing::warn!(error = %e, "the draw's step failed");
+                    rafi_engine::INTERRUPTED_REASON.to_owned()
                 };
                 state
                     .settle(BeaconFetch::Interrupted(reason))

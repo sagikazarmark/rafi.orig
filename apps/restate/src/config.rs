@@ -1,7 +1,7 @@
 //! Endpoint configuration: a file (JSON, YAML or TOML) merged with
 //! `RAFI_RESTATE_`-prefixed environment variables (`__` separates levels).
 
-use std::path::Path;
+use std::{net::SocketAddr, path::Path};
 
 use anyhow::{Context, Result, bail};
 use figment::{
@@ -20,13 +20,85 @@ pub const ENV_PREFIX: &str = "RAFI_RESTATE_";
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     /// Listener and request identity verification.
-    pub endpoint: EndpointConfig,
+    pub endpoint: EndpointSettings,
     /// Restate policy per service.
     pub services: ServicesConfig,
     /// Beacon relays and timing.
     pub drand: DrandConfig,
     /// The Rafi app's database (SQLite or Postgres), where the draw state is written.
     pub database: DatabaseConfig,
+}
+
+/// The endpoint's listener and request identity: what the SDK's
+/// [`EndpointConfig`] holds, with Rafi's defaults and an explicit way to run
+/// open. The endpoint speaks the Restate service protocol, and whoever
+/// reaches it supplies the raffle's state, so it must only ever be reached
+/// by your Restate server: it listens on the loopback address unless told
+/// otherwise, and refuses to start without `identity_keys` (the requests'
+/// signatures) unless `insecure = true` says the network is trusted (a
+/// development machine, a private network with Restate alone on it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct EndpointSettings {
+    /// TCP address to bind, default `127.0.0.1:9080`. Port zero requests an
+    /// ephemeral port.
+    pub listener: SocketAddr,
+    /// Trusted Restate public verification keys (`publickeyv1_…`): a list,
+    /// or one comma- or whitespace-delimited string. Several keys support
+    /// rotation.
+    #[serde(deserialize_with = "identity_keys")]
+    pub identity_keys: Vec<String>,
+    /// Run without `identity_keys`: every request is taken as Restate's.
+    pub insecure: bool,
+}
+
+impl Default for EndpointSettings {
+    fn default() -> Self {
+        Self {
+            listener: SocketAddr::from(([127, 0, 0, 1], 9080)),
+            identity_keys: Vec::new(),
+            insecure: false,
+        }
+    }
+}
+
+impl EndpointSettings {
+    /// Whether the settings may serve: keys, or an explicit `insecure`.
+    pub fn validate(&self) -> Result<()> {
+        if self.identity_keys.is_empty() && !self.insecure {
+            bail!(
+                "no endpoint.identity_keys: requests wouldn't be verified to come from your Restate server. Set them (RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS), or endpoint.insecure = true if the endpoint is reachable by Restate alone"
+            );
+        }
+        Ok(())
+    }
+
+    /// The SDK's settings: the same keys, for `Endpoint::builder().configure`.
+    pub fn sdk(&self) -> EndpointConfig {
+        EndpointConfig {
+            listener: self.listener,
+            identity_keys: self.identity_keys.clone(),
+        }
+    }
+}
+
+fn identity_keys<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Keys {
+        List(Vec<String>),
+        Delimited(String),
+    }
+    Ok(match Keys::deserialize(deserializer)? {
+        Keys::List(keys) => keys,
+        Keys::Delimited(keys) => keys
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .filter(|key| !key.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    })
 }
 
 /// The Rafi app's database.
@@ -124,7 +196,11 @@ mod tests {
     fn defaults_listen_on_9080_with_real_drand() {
         figment::Jail::expect_with(|_| {
             let cfg = Config::load(None).expect("defaults");
-            assert_eq!(cfg.endpoint.listener.port(), 9080);
+            assert_eq!(cfg.endpoint.listener.to_string(), "127.0.0.1:9080");
+            assert!(
+                cfg.endpoint.validate().is_err(),
+                "no keys and not insecure: refused"
+            );
             assert!(!cfg.drand.mock);
             assert_eq!(cfg.drand.lead_secs, 6);
             assert_eq!(cfg.database.url, "sqlite://rafi.db");
@@ -175,6 +251,21 @@ mod tests {
         figment::Jail::expect_with(|jail| {
             jail.set_env("RAFI_RESTATE_DATABSE__URL", "typo");
             assert!(Config::load(None).is_err());
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn the_endpoint_runs_open_only_when_told() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("RAFI_RESTATE_ENDPOINT__INSECURE", "true");
+            let cfg = Config::load(None).expect("config");
+            assert!(cfg.endpoint.validate().is_ok());
+            jail.set_env("RAFI_RESTATE_ENDPOINT__INSECURE", "false");
+            jail.set_env("RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS", "publickeyv1_a");
+            let cfg = Config::load(None).expect("config");
+            assert!(cfg.endpoint.validate().is_ok());
+            assert_eq!(cfg.endpoint.sdk().identity_keys, ["publickeyv1_a"]);
             Ok(())
         });
     }

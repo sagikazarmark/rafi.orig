@@ -16,7 +16,8 @@ use rafi_engine::BoxFuture;
 pub enum Limit {
     /// Joins per raffle (key: the raffle ID).
     JoinPerRaffle,
-    /// Joins per raffle and email address (key: raffle ID and normalized email).
+    /// Joins per raffle and email address (key: the SHA-256 of the raffle ID
+    /// and the normalized email, so the limiter never holds an address).
     JoinPerEmail,
 }
 

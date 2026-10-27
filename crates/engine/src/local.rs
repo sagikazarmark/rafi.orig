@@ -242,7 +242,10 @@ impl Io {
                 self.project(s).await;
                 let outcome = match self.drand.wait_for(pending.round).await {
                     Ok(beacon) => BeaconFetch::Verified(beacon),
-                    Err(e) => BeaconFetch::Unavailable(e.to_string()),
+                    Err(e) => {
+                        tracing::warn!(round = pending.round, error = %e, "drand round unavailable");
+                        BeaconFetch::Unavailable(crate::UNAVAILABLE_REASON.to_owned())
+                    }
                 };
                 s.settle(outcome).map_err(refused)?;
                 self.project(s).await;

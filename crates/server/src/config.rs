@@ -237,6 +237,13 @@ impl Config {
         if self.dev_auth {
             return Ok(());
         }
+        // The challenges are public and HMAC-signed with this key: a short
+        // one is crackable offline, and a forged proof skips the work.
+        if self.altcha_key.len() < MIN_ALTCHA_KEY_CHARS {
+            bail!(
+                "RAFI_ALTCHA_KEY must be at least {MIN_ALTCHA_KEY_CHARS} characters (openssl rand -hex 32)"
+            );
+        }
         if self.operator.name.is_empty() || self.operator.email.is_empty() {
             bail!(
                 "RAFI_OPERATOR_NAME and RAFI_OPERATOR_EMAIL are required: the privacy notices name the operator"
@@ -275,7 +282,7 @@ impl Config {
                 timeout_secs: RestateConfig::DEFAULT_TIMEOUT_SECS,
             },
             drand_chain: MOCK.into(),
-            altcha_key: "test-key".into(),
+            altcha_key: TEST_ALTCHA_KEY.into(),
             altcha_cost: 1,
             cookie_secure: false,
             max_entrants: 2000,
@@ -304,6 +311,11 @@ impl Config {
 /// `RAFI_ALTCHA_COST` when unset. Provisional: it should be tuned against
 /// solve times on slow phones.
 pub const DEFAULT_ALTCHA_COST: u32 = 1000;
+/// The shortest `RAFI_ALTCHA_KEY` a production server accepts. The key is
+/// the HMAC secret behind every proof-of-work challenge, which is public.
+pub const MIN_ALTCHA_KEY_CHARS: usize = 32;
+/// The tests' key: long enough for a production server.
+pub const TEST_ALTCHA_KEY: &str = "test-key-test-key-test-key-test-key";
 
 /// `RAFI_RETENTION_DAYS` when unset: a week after the event.
 pub const DEFAULT_RETENTION_DAYS: i64 = 7;
@@ -395,6 +407,14 @@ mod tests {
         full.documents = Documents::new("# T\n\n> **Template.** Review me.", "# P");
         assert!(full.validate().is_err(), "an unedited template");
         full.documents = Documents::new("# T", "# P");
+        assert!(full.validate().is_ok(), "a random key is long enough");
+        full.altcha_key = "short".into();
+        let err = full.validate().unwrap_err().to_string();
+        assert!(
+            err.contains("RAFI_ALTCHA_KEY"),
+            "a short key is refused: {err}"
+        );
+        full.altcha_key = "x".repeat(MIN_ALTCHA_KEY_CHARS);
         assert!(full.validate().is_ok());
         full.retention.days = 31;
         assert!(full.validate().is_err(), "default over the maximum");

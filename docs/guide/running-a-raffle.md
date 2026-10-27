@@ -170,7 +170,10 @@ only make it sooner:
   and the anonymous draw log stays verifiable. This can't be undone.
 - **Export winners (CSV)** while their details are still here: the export is logged, and the copy is yours to keep
   and erase under your own rules.
-- **Delete raffle** removes it entirely, including its draw log and therefore its verifiability.
+- **Delete raffle** removes it entirely, entrants and all, **until the first draw is announced**: it is the way out
+  of a freeze by accident (a "fixed" list means everyone joins again under a new code). Once a draw has happened,
+  the raffle can't be deleted: its record is what makes the draw verifiable, and "Erase personal data now" is the
+  way to be rid of what's personal in it. Raffles whose data is erased are hidden from your list by default.
 - A raffle you never finished is erased on the date all the same, and asked to finish once the hold passes; a raffle
   you never froze simply expires: its entrants are deleted.
 

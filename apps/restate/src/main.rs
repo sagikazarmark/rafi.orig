@@ -47,9 +47,10 @@ async fn main() -> Result<()> {
     if config.drand.mock {
         warn!("drand.mock is on: draws use a public test chain and are NOT verifiable as drand");
     }
+    config.endpoint.validate()?;
     if config.endpoint.identity_keys.is_empty() {
         warn!(
-            "no endpoint.identity_keys: requests are not verified to come from your Restate server"
+            "endpoint.insecure: requests are not verified to come from your Restate server; the endpoint must be reachable by it alone"
         );
     }
 
@@ -84,7 +85,7 @@ fn endpoint(config: Config) -> Result<Endpoint> {
         None,
     );
     Ok(Endpoint::builder()
-        .configure(&config.endpoint)?
+        .configure(&config.endpoint.sdk())?
         .bind(config.services.raffle.apply(raffle)?)
         .bind(info)
         .build())

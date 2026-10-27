@@ -46,6 +46,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         edit_rules: settings::rules_editable(full.entrants.iter().map(|e| e.source)),
         removal: raffle.state.removal(raffle.past_erase_date(now)),
         deliver_all: raffle.state.is_over() && held_winners > 0,
+        delete: lifecycle::raffle::deletable(full.drawn.as_ref()),
     };
     Ok(RaffleAdmin {
         id: raffle.id.clone(),

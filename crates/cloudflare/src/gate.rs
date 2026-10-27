@@ -88,12 +88,39 @@ pub async fn destroy(env: &Env, raffle_id: &str) -> Result<()> {
     call(env, raffle_id, "/destroy").await.map(|_| ())
 }
 
+/// Whether `id` has a raffle ID's shape: 32 lowercase hex digits
+/// (`rafi_app::ids::id`).
+fn is_raffle_id(id: &str) -> bool {
+    id.len() == 32
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+
 /// Handles a phone's WebSocket upgrade for a raffle (`GET /partyline/raffle/{id}`).
 ///
 /// Refusals accept the socket and close it with 4403, never an HTTP error:
 /// browsers see a failed upgrade as a network error (1006) and keep retrying,
 /// while 4403 tells the partyline client to stop (and rafi's page to poll).
 pub async fn connect(env: &Env, raffle_id: &str, req: Request) -> Result<Response> {
+    // The ID's shape first, and the budget second, both before anything is
+    // read: a made-up ID costs no database read, and the budget is keyed by
+    // an ID that can at least be a raffle's.
+    if !is_raffle_id(raffle_id) {
+        return reject(close::FORBIDDEN, "no such raffle");
+    }
+    if let Ok(limiter) = env.rate_limiter(CONNECT_LIMITER) {
+        match limiter.limit(raffle_id.to_owned()).await {
+            Ok(outcome) if !outcome.success => {
+                return reject(close::FORBIDDEN, "too many connections");
+            }
+            Ok(_) => {}
+            // The limiter is a soft limit over a hard one (the entrant cap);
+            // one that errors lets the connect through rather than failing
+            // every phone, as the join's limiter does.
+            Err(e) => worker::console_error!("rafi: connect limiter: {e}"),
+        }
+    }
     let db = crate::database(env)?;
     let open = match rafi_store::live::snapshot(&db, raffle_id).await {
         Ok(Some(s)) => s.accepts_sockets(),
@@ -105,11 +132,6 @@ pub async fn connect(env: &Env, raffle_id: &str, req: Request) -> Result<Respons
     };
     if !open {
         return reject(close::FORBIDDEN, "live updates ended");
-    }
-    if let Ok(limiter) = env.rate_limiter(CONNECT_LIMITER)
-        && !limiter.limit(raffle_id.to_owned()).await?.success
-    {
-        return reject(close::FORBIDDEN, "too many connections");
     }
     // Forward the upgrade, carrying the raffle ID and nothing the client could forge.
     let headers = req.headers().clone();

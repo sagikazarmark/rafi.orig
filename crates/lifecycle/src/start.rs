@@ -39,6 +39,8 @@ pub enum Refusal {
     NoEntrants,
     /// Nothing to draw for.
     NoPrizes,
+    /// More items than [`crate::settings::MAX_ITEMS`].
+    TooManyItems,
     /// Fake entrants are on the list of a raffle that isn't in test mode.
     FakeEntrants,
 }
@@ -64,6 +66,9 @@ pub fn next(state: RaffleState, has_manifest: bool, opened: bool) -> Result<Star
 pub fn ready(entrants: usize, items: usize) -> Result<(), Refusal> {
     if items == 0 {
         return Err(Refusal::NoPrizes);
+    }
+    if items > crate::settings::MAX_ITEMS as usize {
+        return Err(Refusal::TooManyItems);
     }
     if entrants == 0 {
         return Err(Refusal::NoEntrants);
@@ -148,6 +153,9 @@ mod tests {
         assert_eq!(ready(0, 0), Err(Refusal::NoPrizes));
         assert_eq!(ready(0, 1), Err(Refusal::NoEntrants));
         assert_eq!(ready(1, 1), Ok(()));
+        let max = crate::settings::MAX_ITEMS as usize;
+        assert_eq!(ready(1, max), Ok(()));
+        assert_eq!(ready(1, max + 1), Err(Refusal::TooManyItems));
     }
 
     #[test]

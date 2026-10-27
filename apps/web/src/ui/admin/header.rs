@@ -196,7 +196,7 @@ pub(super) fn Header(
             rsx! { Trash { class: "size-4" } },
         ));
     }
-    if manages {
+    if manages && admin.actions.delete {
         menu.push((
             "delete",
             "Delete raffle",

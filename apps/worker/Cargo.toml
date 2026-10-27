@@ -33,7 +33,10 @@ rafi-engine-restate = { workspace = true }
 rafi-live-server = { workspace = true }
 rafi-server = { workspace = true }
 rafi-store = { workspace = true }
-restate-sdk = { workspace = true, features = ["rust_crypto"] }
+# `tracing-span-filter`: each log line once while a journal replays (log.rs).
+restate-sdk = { workspace = true, features = ["rust_crypto", "tracing-span-filter"] }
 tower-service = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 tower-worker-fetch = "0.2"
 worker = { version = "0.8.7", features = ["http", "axum"] }

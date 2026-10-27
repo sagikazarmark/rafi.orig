@@ -71,9 +71,16 @@ simple = { limit = 600, period = 60 }
 [triggers]
 crons = ["0 * * * *"]
 
-# No invocation logs: they would record client IPs and cookies.
+# The application's own log lines (warnings and errors, raffle IDs and error
+# text, never personal data; the hourly housekeeping report) are kept in
+# Workers Logs. The automatic per-invocation records are not: they would
+# hold client IPs and cookies. `wrangler tail` shows both live, whatever is
+# set here.
 [observability]
-enabled = false
+enabled = true
+
+[observability.logs]
+invocation_logs = false
 
 # What belongs to Rafi, not to an installation. An installation's own values
 # are secrets (below); optional settings with defaults (RAFI_RETENTION_DAYS,

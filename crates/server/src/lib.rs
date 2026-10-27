@@ -120,13 +120,61 @@ pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn Engine>> {
         .then(|| Arc::new(RestateClient::new(cfg.restate.clone())) as Arc<dyn Engine>)
 }
 
-/// The server's own routes: participant pages, public JSON and the admin API.
+/// The server's own routes: participant pages, public JSON and the admin API,
+/// with the [security headers](security_headers) on every response.
 pub fn routes(app: AppState) -> Router {
     Router::new()
         .merge(participant::routes())
         .merge(public::routes())
         .merge(admin::routes())
+        .layer(axum::middleware::from_fn(security_headers))
         .layer(Extension(app))
+}
+
+/// The paths of the web app that may be shown inside another page: the
+/// projector (a venue's signage) and the verification page (a meetup's
+/// site). Nothing else may be framed: not the admin, not the join page.
+pub fn frameable(path: &str) -> bool {
+    path.starts_with("/s/") || path.starts_with("/v/")
+}
+
+/// The headers every response carries, and that a browser acts on:
+///
+/// - `X-Content-Type-Options: nosniff`: a response is what its type says;
+/// - `Referrer-Policy: strict-origin-when-cross-origin`: a link out of a
+///   page (the organizer's own privacy notice, from a join page whose URL
+///   holds the join code) carries the origin, not the path;
+/// - `Content-Security-Policy: frame-ancestors` (and `X-Frame-Options` for
+///   older browsers): no page is framed, except the ones [`frameable`] names,
+///   so the admin can't be clickjacked.
+///
+/// On Workers, the web app's files are served by Workers Assets with the
+/// same headers from `_headers` (`scripts/app-assets.sh`). HSTS is the
+/// edge's: Cloudflare's, or the reverse proxy's natively.
+pub async fn security_headers(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{HeaderValue, header};
+    let frameable = frameable(req.uri().path());
+    let mut resp = next.run(req).await;
+    let headers = resp.headers_mut();
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+    if !frameable {
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("frame-ancestors 'none'"),
+        );
+        headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    }
+    resp
 }
 
 /// Starts the native background work: the hourly housekeeping run.
@@ -169,8 +217,11 @@ pub fn build_router(
         set_header::SetResponseHeaderLayer,
     };
 
-    let web_app =
-        ServeDir::new(&dirs.public).fallback(ServeFile::new(dirs.public.join("index.html")));
+    let web_app = Router::new()
+        .fallback_service(
+            ServeDir::new(&dirs.public).fallback(ServeFile::new(dirs.public.join("index.html"))),
+        )
+        .layer(axum::middleware::from_fn(security_headers));
     let participant = Router::new()
         .fallback_service(
             ServeDir::new(&dirs.participant)

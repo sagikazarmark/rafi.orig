@@ -28,14 +28,14 @@ var and a secret of the same name).
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL, used for QR codes and links |
 | `RAFI_COOKIE_SECURE` | on when `RAFI_PUBLIC_URL` is `https://` | Marks the participant cookie `Secure` (`1`/`true` or `0`/`false`). Set it when TLS ends at a proxy in front of a plain `http://` URL. |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate` (native only; Workers use D1). Either SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`; the database must exist). The app applies the migrations on start. |
-| `RAFI_DEV_AUTH` | off | **Development only:** no login, and every admin is `dev`. Workers refuse it unless built with the `dev` feature. |
+| `RAFI_DEV_AUTH` | off | **Development only:** no login, and every admin is `dev`. Both `rafi` and the Worker refuse to start with it unless built with the `dev` feature ([below](#build-time)). |
 | `CLERK_SECRET_KEY` | | Clerk backend key. Required unless `RAFI_DEV_AUTH` is set. See also `CLERK_PUBLISHABLE_KEY` [at build time](#build-time). In a Clerk organization, the session's role decides what a member may do: `org:admin` everything; the custom role `org:manager` or permission `org:raffles:manage` (made in the Clerk dashboard) creates, configures and deletes raffles; any member runs them. |
 | `RAFI_ENGINE_INGRESS_URL` | | The raffle engine's Restate ingress. Without it, draws can't start (required on Workers). |
-| `RAFI_ENGINE_API_KEY` | | Restate Cloud: an API key with ingress access |
+| `RAFI_ENGINE_API_KEY` | | Restate Cloud: an API key with ingress access. Required on Workers (a `dev` build excepted). |
 | `RAFI_ENGINE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits. A command queued behind a draw that is waiting for its beacon may take the engine's drand lead plus its fetch timeout. Past this timeout the command is accepted and applies later. Keep it above the engine's `lead_secs + timeout_secs`. |
 | `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to, as a chain hash. Release builds accept only public drand chains. `mock` (a public test chain, **not** verifiable) needs a `mock-drand` build. The raffle engine must draw from the same chain: the app checks this and refuses to start a draw otherwise. |
 | `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
-| `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges. Required on Workers. Without it natively, challenges die with the process. Never rotate it during an event. |
+| `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges: at least 32 characters outside dev auth (`openssl rand -hex 32`), since the challenges are public and a short key could be cracked offline. Required on Workers. Without it natively, challenges die with the process. Never rotate it during an event. |
 | `RAFI_ALTCHA_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve. At least 1. Provisional. |
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes. This is the hard limit behind the soft rate limits. |
 | `RAFI_RETENTION_DAYS` | `7` | Days after the event date before non-winners' personal data is erased, for organizers who choose nothing. At most `RAFI_RETENTION_MAX_DAYS`. |
@@ -89,8 +89,9 @@ overridden by `RAFI_RESTATE_` environment variables, with `__` separating levels
 | Setting | Variable | Default | |
 |---|---|---|---|
 | `database.url` | `RAFI_RESTATE_DATABASE__URL` | `sqlite://rafi.db` | The app's database (its `RAFI_DATABASE_URL`) |
-| `endpoint.listener` | `RAFI_RESTATE_ENDPOINT__LISTENER` | `0.0.0.0:9080` | Listen address |
-| `endpoint.identity_keys` | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | | Restate's request signing keys (`publickeyv1_…`, comma separated) |
+| `endpoint.listener` | `RAFI_RESTATE_ENDPOINT__LISTENER` | `127.0.0.1:9080` | Listen address. Whoever reaches the endpoint supplies the raffle's state, so it is for your Restate server alone: loopback unless told otherwise, and never a public address. |
+| `endpoint.identity_keys` | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | required | Restate's request signing keys (`publickeyv1_…`, comma separated). Without them the engine refuses to start, unless `endpoint.insecure` says the network is trusted. |
+| `endpoint.insecure` | `RAFI_RESTATE_ENDPOINT__INSECURE` | `false` | Run without `identity_keys`: every request is taken as Restate's. For a development machine, or a private network with Restate alone on it. |
 | `drand.relays` | `RAFI_RESTATE_DRAND__RELAYS` | `api.drand.sh`, `api2`, `api3` (v2), `drand.cloudflare.com` (v1) | Relays to ask, in order. A list (`[a, b]`) of URLs with a `v1:` or `v2:` prefix; a bare URL means v1. Every beacon is BLS-verified, whichever relay serves it. |
 | `drand.lead_secs` | `RAFI_RESTATE_DRAND__LEAD_SECS` | `6` | Seconds from a draw request to its committed round. Must be at least the chain period (3 s for quicknet). |
 | `drand.timeout_secs` | `RAFI_RESTATE_DRAND__TIMEOUT_SECS` | `60` | Stop fetching after this many seconds. The draw then stays pending (stalled) on its round. |
@@ -120,4 +121,4 @@ inactivity_timeout = "5m"
 | `CLERK_PUBLISHABLE_KEY` | `rafi-web` | Clerk's frontend key, compiled into the web app |
 | `RAFI_LEGAL_DIR` | `rafi-worker` | The directory with the installation's `terms.md` and `privacy.md`, bundled into the Worker (default: `apps/worker/legal/`, the templates). The native server reads them at runtime from `RAFI_DOCS_DIR` instead. |
 | Feature `mock-drand` | `rafi`, `rafi-server`, `rafi-restate` | Allows the mock chain. Never ship it. |
-| Feature `dev` | `rafi-worker` | Local development only: allows `RAFI_DEV_AUTH`, the mock chain and Restate requests without identity keys. `[env.dev]` in `wrangler.toml` builds with it. |
+| Feature `dev` | `rafi`, `rafi-worker` | Local development only. On `rafi`, allows `RAFI_DEV_AUTH`; on the Worker, also the mock chain and Restate requests without identity keys (`[env.dev]` in `wrangler.toml` builds with it). |

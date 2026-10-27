@@ -32,7 +32,9 @@
 //! The app and the endpoint are built once per isolate ([`cached`]): the
 //! bindings and vars are the isolate's, Clerk's layer keeps its verified
 //! signing keys (JWKS) between requests instead of fetching them for each, and
-//! the drand client keeps its verified chain.
+//! the drand client keeps its verified chain. The `tracing` subscriber is
+//! installed with them ([`log`]), so the application's warnings and errors
+//! reach the console.
 
 #![cfg(target_arch = "wasm32")]
 
@@ -52,6 +54,7 @@ use rafi_server::{
 };
 
 mod engine;
+mod log;
 mod ratelimit;
 
 use ratelimit::RateLimitBindings;
@@ -77,6 +80,7 @@ fn cached(env: &Env) -> anyhow::Result<App> {
         if let Some(app) = cell.get() {
             return Ok(app.clone());
         }
+        log::install();
         let app = app(env)?;
         Ok(cell.get_or_init(|| app).clone())
     })
@@ -99,13 +103,18 @@ fn app(env: &Env) -> anyhow::Result<App> {
     if cfg.restate.ingress_url.is_empty() {
         anyhow::bail!("RAFI_ENGINE_INGRESS_URL is not set");
     }
+    // On Workers the ingress is Restate Cloud's, which wants a key; without
+    // one, draws would fail at the first call with nothing in the log.
+    if cfg.restate.api_key.is_empty() && !dev {
+        anyhow::bail!("RAFI_ENGINE_API_KEY is not set");
+    }
     let auth = if cfg.dev_auth {
         None
     } else {
         let key = lookup(env, "CLERK_SECRET_KEY")
             .ok_or_else(|| anyhow::anyhow!("CLERK_SECRET_KEY is not set"))?;
         Some(
-            ClerkAuthLayer::from_config(ClerkAuthLayerConfig::new(key))
+            rafi_server::auth::clerk_layer(&cfg, ClerkAuthLayerConfig::new(key))
                 .map_err(|e| anyhow::anyhow!("Clerk configuration: {e:?}"))?,
         )
     };

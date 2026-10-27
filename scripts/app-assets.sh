@@ -22,13 +22,31 @@ mv "$OUT.participant.tmp" "$OUT/participant"
 # native server and would only be served as files here.
 rm -f "$OUT"/participant/*.gz "$OUT"/participant/*.br
 
-# Workers Assets' headers (https://developers.cloudflare.com/workers/static-assets/headers/).
-# The participant scripts keep fixed names, so phones must revalidate them:
-# Assets does that by default (max-age=0, must-revalidate, with an ETag); this
-# says so explicitly, and is where the next header rules go. Rules don't
-# apply to what the Worker itself answers (/participant/altcha-worker.js is
-# a route, with the same header from the server).
+# Workers Assets' headers (https://developers.cloudflare.com/workers/static-assets/headers/),
+# the same ones rafi-server puts on what it answers itself (security_headers
+# in crates/server/src/lib.rs; rules here don't apply to the Worker's own
+# responses). Every file: no sniffing, the origin only as referrer. The web
+# app's shell may be framed only as the projector (/s/) and the verification
+# page (/v/): later rules add to earlier ones, and the first two rules below
+# deny framing everywhere, so the two frameable paths can't be matched by
+# them; they are listed as the exception instead. The participant scripts
+# keep fixed names, so phones must revalidate them: Assets does that by
+# default (max-age=0, must-revalidate, with an ETag); this says so.
 cat >"$OUT/_headers" <<'HEADERS'
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+
+/s/*
+  ! Content-Security-Policy
+  ! X-Frame-Options
+
+/v/*
+  ! Content-Security-Policy
+  ! X-Frame-Options
+
 /participant/*
   Cache-Control: no-cache
 HEADERS

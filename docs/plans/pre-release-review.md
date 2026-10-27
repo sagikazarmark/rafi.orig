@@ -427,7 +427,7 @@ day). **Why now**: what gets expensive after the release.
 
 ### Fail-closed defaults and security
 
-#### SEC-1 · Production is blind: no `tracing` subscriber on Workers
+#### SEC-1 · Production is blind: no `tracing` subscriber on Workers — **done**
 
 - **Where**: `apps/worker/src/lib.rs` installs none (only `apps/rafi/src/main.rs:14` and
   `apps/restate/src/main.rs:35` do); `[observability] enabled = false` (`wrangler.toml:73-74`). Every
@@ -455,7 +455,7 @@ day). **Why now**: what gets expensive after the release.
   works with observability off and shows request metadata live (transient, operator-initiated).
 - **Size**: small. **Why now**: the first live failure.
 
-#### SEC-2 · A raffle that has drawn can be deleted, and the public record with it
+#### SEC-2 · A raffle that has drawn can be deleted, and the public record with it — **done**
 
 - **Where**: `crates/lifecycle/src/raffle.rs:82-84` (`deletable` refuses only `Drawing` with a pending beacon);
   `crates/app/src/raffles.rs:261-274`; `ON DELETE CASCADE` on `prizes`, `entrants`, `raffle_events`, `draws`;
@@ -484,7 +484,7 @@ day). **Why now**: what gets expensive after the release.
   good. `running-a-raffle.md` and `privacy-and-abuse.md` say so.
 - **Size**: small. **Why now**: organizers will have learned the other behaviour.
 
-#### SEC-3 · `RESTATE_API_KEY` is not fail-closed
+#### SEC-3 · `RESTATE_API_KEY` is not fail-closed — **done**
 
 - **Where**: `crates/server/src/config.rs:184` (`unwrap_or_default()`); `crates/engine-restate/src/client.rs:85`
   skips auth on empty; `apps/worker/src/lib.rs:26-27` and `cloudflare.md:71-72` claim every secret fails closed.
@@ -492,7 +492,7 @@ day). **Why now**: what gets expensive after the release.
   says "required on Workers".
 - **Size**: trivial.
 
-#### SEC-4 · Native dev auth has no build gate
+#### SEC-4 · Native dev auth has no build gate — **done**
 
 - **Where**: `crates/server/src/config.rs:164` (`flag("RAFI_DEV_AUTH")`), `:242-244` (`validate` returns early, so
   no operator identity or documents are required either); `apps/rafi/src/main.rs:26-27,39-43` (warn, then no Clerk
@@ -502,7 +502,7 @@ day). **Why now**: what gets expensive after the release.
 - **Change**: mirror the Worker: a `dev` feature on `rafi` gates `RAFI_DEV_AUTH`; devenv builds with it.
 - **Size**: small.
 
-#### SEC-5 · The native engine fails open, and the ingress isn't on the "never expose" list
+#### SEC-5 · The native engine fails open, and the ingress isn't on the "never expose" list — **done**
 
 - **Where**: `rafi-restate` listens on `0.0.0.0:9080` (`restate-config`'s `EndpointConfig::default`) and runs
   without identity keys with a warning (`apps/restate/src/main.rs:48-52`); `self-hosting.md:139` names `:9080` and
@@ -515,7 +515,7 @@ day). **Why now**: what gets expensive after the release.
   `endpoint.insecure = true`; add the ingress to the line in `self-hosting.md`.
 - **Size**: trivial.
 
-#### SEC-6 · No security headers anywhere
+#### SEC-6 · No security headers anywhere — **done**
 
 - **Where**: no `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` or
   `Strict-Transport-Security` in `crates/server`, `apps/worker` or `crates/cloudflare`; `crates/server/src/lib.rs:126-132`
@@ -532,7 +532,7 @@ day). **Why now**: what gets expensive after the release.
   CSP is in §Deferred.
 - **Size**: small.
 
-#### SEC-7 · Clerk: no authorized party; admin API: no content-type check
+#### SEC-7 · Clerk: no authorized party; admin API: no content-type check — **done**
 
 - **Where**: `apps/worker/src/lib.rs:106` (`ClerkAuthLayerConfig::new(key)`), `apps/rafi/src/main.rs:42`
   (`from_env()`), never `add_authorized_party`; `crates/server/src/admin.rs:35-48` reads raw `Bytes` with no
@@ -544,7 +544,7 @@ day). **Why now**: what gets expensive after the release.
   application/json` (the SPA always sends it). Later: `Authorization: Bearer` from Clerk.js.
 - **Size**: trivial.
 
-#### SEC-8 · `RAFI_ALTCHA_KEY` has no minimum strength
+#### SEC-8 · `RAFI_ALTCHA_KEY` has no minimum strength — **done**
 
 - **Where**: `crates/server/src/config.rs:170-171`; `altcha-server` refuses only an empty key.
 - **Why**: challenges are public (`/api/altcha`) and HMAC-signed, so a short key is crackable offline and the
@@ -552,14 +552,14 @@ day). **Why now**: what gets expensive after the release.
 - **Change**: `validate()` requires ≥ 32 characters outside dev; `configuration.md` says so.
 - **Size**: trivial.
 
-#### SEC-9 · The rate-limit key carries the plaintext email into the platform's limiter
+#### SEC-9 · The rate-limit key carries the plaintext email into the platform's limiter — **done**
 
 - **Where**: `crates/app/src/entrants.rs:117-122` builds `"{raffle_id}:{normalized email}"`;
   `apps/worker/src/ratelimit.rs:35` hands it to the Cloudflare binding.
 - **Change**: SHA-256 the key in `entrants.rs`, so native and Workers both get it; the key only needs stability.
 - **Size**: trivial.
 
-#### SEC-10 · Display names admit bidi, zero-width and filler characters
+#### SEC-10 · Display names admit bidi, zero-width and filler characters — **done**
 
 - **Where**: `crates/lifecycle/src/entrant.rs:66-77` rejects `is_control` (Cc) only and collapses whitespace with
   `split_whitespace()` (so U+2028/2029, `Zl`/`Zp`, are already handled). U+202E (RLO), U+2066–2069, U+200B/200D,
@@ -579,7 +579,7 @@ day). **Why now**: what gets expensive after the release.
   and organizer names.
 - **Size**: small. **Why now**: changes what the projector accepts; easier before real data.
 
-#### SEC-11 · Smaller hardening
+#### SEC-11 · Smaller hardening — **done**
 
 - `crates/cloudflare/src/gate.rs:94-110`: the socket gate reads D1 (`live::snapshot`) for any `raffle_id` before
   rate limiting, and the limiter key is the attacker-chosen ID. Shape-check the ID (32 hex) and limit first.
@@ -850,7 +850,10 @@ the `room` feature; `cargo build` and `cargo clippy` are warning-free natively a
 3. **Names** (CFG-1 … CFG-4): one commit, every file, with the docs. **Done 2026-10-27**; `wrangler deploy
    --dry-run` of the production shape passes.
 4. **Fail-closed and security** (SEC-1 … SEC-11): the subscriber first, so the rest is observable; then the
-   delete rule, the secrets, the headers, the names.
+   delete rule, the secrets, the headers, the names. **Done 2026-10-27.** Two things found while doing it: the
+   SDK's `EndpointConfig` has no `insecure` flag, so the native engine has its own `EndpointSettings` section
+   (loopback default, keys or an explicit `insecure`); and a stalled draw's reason is in the *public* event log,
+   so the fixed phrases are written by the engines, not mapped at `/view`.
 5. **Privacy** (PRV-1 … PRV-7): wording, the join guard, the restore tool, limbo, the audit rows, the docs.
 6. **CI** (CI-1 … CI-5): so what was fixed stays fixed; `cargo deny`, the MSRV and the flaky test can go in any
    earlier step's PR.

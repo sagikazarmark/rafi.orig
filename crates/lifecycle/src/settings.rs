@@ -18,6 +18,10 @@ pub const MAX_PRIVACY_TEXT_CHARS: usize = MAX_RULES_CHARS;
 pub const MAX_URL_CHARS: usize = 2000;
 /// The most copies of one prize: each is an item of the raffle.
 pub const MAX_PRIZE_QTY: u32 = 500;
+/// The most items (prize copies) a raffle draws for, over all its prizes:
+/// every item is in the manifest and on every screen, and a raffle with more
+/// items than this has more than people.
+pub const MAX_ITEMS: u32 = 1000;
 /// How far ahead an event date may be set, in days: the retention period is
 /// bounded by the installation, and so must be the day it counts from, or
 /// a date far in the future would keep entrants' data for years.
@@ -296,11 +300,15 @@ impl<'a> Defaults<'a> {
     }
 }
 
-/// `input` trimmed, if it is a valid title (or prize name): 1 to
-/// [`MAX_TITLE_CHARS`] characters.
+/// `input` trimmed, if it is a valid title (or prize name, or organizer
+/// name): 1 to [`MAX_TITLE_CHARS`] characters, legible on a screen
+/// ([`crate::entrant::legible`]: nothing invisible, a letter or digit in it).
 pub fn title(input: &str) -> Option<&str> {
     let title = input.trim();
-    (!title.is_empty() && title.chars().count() <= MAX_TITLE_CHARS).then_some(title)
+    (!title.is_empty()
+        && title.chars().count() <= MAX_TITLE_CHARS
+        && crate::entrant::legible(title))
+    .then_some(title)
 }
 
 /// Whether a description and rules fit.
@@ -398,6 +406,13 @@ mod tests {
     fn titles() {
         assert_eq!(title("  Meetup "), Some("Meetup"));
         assert_eq!(title("   "), None);
+        assert_eq!(title("\u{200B}"), None, "nothing invisible");
+        assert_eq!(title("Meetup\u{202E}"), None);
+        assert_eq!(title("---"), None, "a letter or digit in it");
+        assert_eq!(
+            title("Rust in Action, 2nd ed."),
+            Some("Rust in Action, 2nd ed.")
+        );
         assert_eq!(title(&"x".repeat(MAX_TITLE_CHARS + 1)), None);
     }
 

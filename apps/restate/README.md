@@ -18,7 +18,8 @@ cargo build --release -p rafi-restate     # target/release/rafi-restate
 Run it on the app's database and register it with Restate:
 
 ```bash
-RAFI_RESTATE_DATABASE__URL=sqlite://$PWD/rafi.db rafi-restate
+RAFI_RESTATE_DATABASE__URL=sqlite://$PWD/rafi.db \
+RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS=publickeyv1_… rafi-restate    # or RAFI_RESTATE_ENDPOINT__INSECURE=true, with Restate alone on the network
 # Restate's admin API (here a local restate-server's, on :9070):
 curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
   -d '{"uri": "http://localhost:9080"}'

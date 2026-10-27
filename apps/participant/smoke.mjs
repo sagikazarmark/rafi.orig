@@ -10,7 +10,8 @@ import { spawn } from "node:child_process";
 
 const base = process.env.BASE ?? "http://127.0.0.1:8790";
 const port = 9334;
-let raffle = `r${Date.now()}`;
+// A raffle ID's shape: 32 hex digits, as the live channel's gate wants.
+let raffle = crypto.randomUUID().replaceAll("-", "");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
 const check = (ok, what) => {
@@ -92,7 +93,7 @@ check((await card()).includes("Thanks, enjoy!"), "the final page shows the win")
 check((await js(`!!document.querySelector("#live [role=alert]")`)) === false, "an old win is not announced again");
 
 // A visitor's page from before registration opened reloads when it opens.
-raffle = `v${Date.now()}`;
+raffle = crypto.randomUUID().replaceAll("-", "");
 const visitor = raffle;
 await post("/reset?nudge=0");
 await post("/ready");
@@ -104,7 +105,7 @@ check(await until(() => js("window.__beforeReload !== true"), 10000), "the visit
 
 // Without WebAssembly, the loader hands over to the JavaScript fallback,
 // which renders the same card and follows the raffle by polling.
-raffle = `f${Date.now()}`;
+raffle = crypto.randomUUID().replaceAll("-", "");
 await post("/reset?nudge=0");
 await open(`/page?r=${raffle}&me=anna&nowasm=1`);
 check(await until(() => js("window.__rafiFallbackRunning === true"), 3000), "no WebAssembly: the fallback starts");

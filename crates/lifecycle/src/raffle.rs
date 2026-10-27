@@ -76,11 +76,21 @@ pub fn deliverable(raffle: Option<&Raffle>, entrant: &str) -> bool {
     })
 }
 
-/// Whether a raffle in `state`, drawn as `raffle`, can be deleted: not while
-/// a draw waits for its beacon (the engine would write to a raffle that's
-/// gone).
-pub fn deletable(state: RaffleState, raffle: Option<&Raffle>) -> bool {
-    !(state == RaffleState::Drawing && raffle.is_some_and(|d| d.pending().is_some()))
+/// Whether a raffle drawn as `raffle` can be deleted: until its first draw
+/// is announced. From then on its record (the manifest hash on the
+/// verification page, the event log with every draw and abandon) is what
+/// makes the draw verifiable, and deleting it would let an organizer draw,
+/// dislike the winner, and start over with no trace; "Erase personal data
+/// now" is the way to be rid of it. A frozen raffle with no draw stays
+/// deletable: it is the way out of a freeze by accident (organizers can't
+/// unfreeze), and deleting it takes its entrants with it, so a "fixed" list
+/// means the whole room joins again under a new code.
+pub fn deletable(raffle: Option<&Raffle>) -> bool {
+    !raffle.is_some_and(|d| {
+        d.events()
+            .iter()
+            .any(|e| matches!(e, Event::Announced { .. }))
+    })
 }
 
 #[cfg(test)]
@@ -140,22 +150,34 @@ mod tests {
     }
 
     #[test]
-    fn deletable_unless_a_draw_waits_for_its_beacon() {
+    fn deletable_until_the_first_draw_is_announced() {
         let mut raffle = opened();
-        for s in RaffleState::ALL {
-            assert!(deletable(s, None), "{s:?} without a raffle drawn");
-            assert!(deletable(s, Some(&raffle)), "{s:?} with nothing pending");
-        }
+        assert!(deletable(None), "never opened in the engine");
+        assert!(deletable(Some(&raffle)), "frozen, nothing drawn");
         let book = DrawRequest {
             item: "book-1".into(),
         };
         raffle
             .announce(&book, &BeaconSource::QUICKNET, 1, 0)
             .unwrap();
-        assert!(!deletable(RaffleState::Drawing, Some(&raffle)));
+        assert!(!deletable(Some(&raffle)), "a draw is pending");
+        raffle
+            .decide(&Decision::Abandon {
+                item: "book-1".into(),
+            })
+            .unwrap();
         assert!(
-            deletable(RaffleState::Frozen, Some(&raffle)),
-            "only a drawing raffle waits"
+            !deletable(Some(&raffle)),
+            "an abandoned draw is part of the record too"
+        );
+        let finished = {
+            let mut r = opened();
+            r.decide(&Decision::Finish).unwrap();
+            r
+        };
+        assert!(
+            deletable(Some(&finished)),
+            "finished without a draw: nothing to keep verifiable"
         );
     }
 

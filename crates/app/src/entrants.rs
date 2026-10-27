@@ -119,12 +119,17 @@ pub async fn join(
 ) -> std::result::Result<JoinOutcome, JoinError> {
     // An email that doesn't normalize is refused by the join itself; it gets
     // no per-email bucket, rather than one shared by every malformed address.
+    // The bucket's key is a hash: the limiter (Cloudflare's binding, on
+    // Workers) only needs it stable, and shouldn't see the address.
     let email_key = Email::parse(req.email).map(|e| e.key);
     let limited = !app.limiter.allow(Limit::JoinPerRaffle, &raffle.id).await
         || match &email_key {
             Some(key) => {
                 !app.limiter
-                    .allow(Limit::JoinPerEmail, &format!("{}:{key}", raffle.id))
+                    .allow(
+                        Limit::JoinPerEmail,
+                        &ids::token_hash(&format!("{}:{key}", raffle.id)),
+                    )
                     .await
             }
             None => false,
@@ -242,6 +247,11 @@ pub async fn add_manual(
     if !raffle.state.entrants_editable() {
         return Err(Refusal::EntrantsFrozen.into());
     }
+    // The cap holds for the organizer's additions too (the join enforces it
+    // in its INSERT, because joins race; an organizer's don't).
+    if entrants::count_active(&app.db, raffle_id).await? >= app.policy.max_entrants {
+        return Err(Refusal::Full.into());
+    }
     let name = entrant::display_name(name).map_err(Refusal::Name)?;
     let email = match email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
         Some(e) => Some(Email::parse(e).ok_or(Refusal::Email)?),
@@ -278,6 +288,12 @@ pub async fn add_manual(
 pub async fn add_fakes(app: &App, actor: Actor<'_>, raffle_id: &str, n: u32) -> Result<()> {
     let raffle = owned(app, actor.owner, raffle_id).await?;
     let n = entrant::fakes(raffle.test_mode, raffle.state, n).map_err(Refusal::Fakes)?;
+    // Up to the cap, as the join would be.
+    let room = app.policy.max_entrants - entrants::count_active(&app.db, raffle_id).await?;
+    let n = u32::try_from(room.max(0)).map_or(n, |room| n.min(room));
+    if n == 0 {
+        return Err(Refusal::Full.into());
+    }
     let mut taken = taken_names(app, raffle_id).await?;
     let fakes: Vec<entrants::Fake> = (0..n)
         .map(|_| {

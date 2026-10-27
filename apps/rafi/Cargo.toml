@@ -13,6 +13,10 @@ path = "src/main.rs"
 doc = false
 
 [features]
+## Local development only: allows `RAFI_DEV_AUTH` (no sign-in, every admin is
+## `dev`). A build without it refuses to start with the flag set, so a
+## development environment copied onto a public host can't run open.
+dev = []
 ## Allow `RAFI_DRAND_CHAIN=mock` (or `RAFI_DRAND_MOCK=1`): raffles commit to a
 ## public test chain (offline development). Release builds refuse it.
 mock-drand = ["rafi-server/mock-drand"]

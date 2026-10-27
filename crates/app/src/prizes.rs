@@ -1,7 +1,7 @@
 //! A raffle's prizes, while they can change (until the freeze).
 
 use rafi_api::PrizeInput;
-use rafi_lifecycle::settings;
+use rafi_lifecycle::{settings, start};
 use rafi_store::prizes;
 
 use crate::{Actor, App, Error, Refusal, Result, ids, owned};
@@ -20,6 +20,17 @@ pub async fn upsert_prize(
     let name = settings::title(&input.name).ok_or(Refusal::PrizeName)?;
     if !settings::prize_qty(input.qty) {
         return Err(Refusal::PrizeQty.into());
+    }
+    // The raffle's items, with this prize as it would be: within the cap
+    // (which the freeze checks again).
+    let others: u32 = prizes::list(&app.db, raffle_id)
+        .await?
+        .iter()
+        .filter(|p| Some(&p.id) != input.id.as_ref())
+        .map(|p| u32::try_from(p.qty).unwrap_or(0))
+        .sum();
+    if others.saturating_add(input.qty) > settings::MAX_ITEMS {
+        return Err(Refusal::Start(start::Refusal::TooManyItems).into());
     }
     let fields = prizes::PrizeFields {
         name,

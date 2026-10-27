@@ -237,8 +237,12 @@ async fn submit(
             } else {
                 ""
             };
+            // Only the join page reads the cookie (`/j/<code>`), so only
+            // requests there carry it: never the APIs, never the live
+            // channel's upgrade (whose headers the Worker forwards to the
+            // raffle's object), never a proxy's log of them.
             let cookie = format!(
-                "{}={token}; Path=/; Max-Age={COOKIE_MAX_AGE}; HttpOnly; SameSite=Lax{secure}",
+                "{}={token}; Path=/j/; Max-Age={COOKIE_MAX_AGE}; HttpOnly; SameSite=Lax{secure}",
                 cookie_name(&raffle.id)
             );
             let mut resp = Redirect::to(&format!("/j/{}", raffle.join_code)).into_response();

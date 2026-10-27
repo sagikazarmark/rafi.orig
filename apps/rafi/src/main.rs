@@ -24,6 +24,11 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     if cfg.dev_auth {
+        if !cfg!(feature = "dev") {
+            anyhow::bail!(
+                "RAFI_DEV_AUTH is set, but this build has no `dev` feature: a production build never runs without sign-in (build with --features dev for local development)"
+            );
+        }
         tracing::warn!("RAFI_DEV_AUTH is on: admin pages are NOT protected");
     }
     if cfg.drand_chain.eq_ignore_ascii_case("mock") {
@@ -39,7 +44,14 @@ async fn main() -> anyhow::Result<()> {
     let auth = if app.cfg.dev_auth {
         None
     } else {
-        Some(dioxus_clerk::server::ClerkAuthLayer::from_env().context("Clerk configuration")?)
+        Some(
+            server::auth::clerk_layer(
+                &app.cfg,
+                dioxus_clerk::server::ClerkAuthLayerConfig::from_env()
+                    .context("Clerk configuration")?,
+            )
+            .context("Clerk configuration")?,
+        )
     };
 
     let dir = |var: &str, default: &str| {

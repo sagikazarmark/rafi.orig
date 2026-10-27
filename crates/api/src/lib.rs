@@ -278,6 +278,15 @@ pub struct AdminActions {
     /// Whether "all prizes delivered" applies: finished, with winners held.
     #[serde(default)]
     pub deliver_all: bool,
+    /// Whether the raffle can be deleted: until its first draw is announced.
+    /// From then on its record stays, and "erase personal data now" is the
+    /// way to be rid of what's personal in it.
+    #[serde(default = "yes")]
+    pub delete: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// Where starting a raffle's draw stands.

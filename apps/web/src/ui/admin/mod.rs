@@ -32,6 +32,7 @@ use crate::{
             DropdownMenu, DropdownMenuAlign, DropdownMenuContent, DropdownMenuItem,
             DropdownMenuTrigger,
         },
+        switch::Switch,
         tabs::{TabContent, TabContentAppearance, TabTrigger, Tabs, TabsAppearance},
         toast::{ToastOptions, use_toast},
     },
@@ -162,6 +163,9 @@ pub fn AdminHome() -> Element {
     let mut raffles = use_resource(api::list_raffles);
     let me = use_resource(api::whoami);
     let nav = navigator();
+    // Raffles whose personal data is erased stay (their draws are
+    // verifiable) and would otherwise fill the list for good.
+    let mut show_erased = use_signal(|| false);
     let (retention_stale, access, shared) = match &*me.read() {
         Some(Ok(me)) => (me.retention_stale, me.access, me.shared),
         // Until we know, assume the best: the server refuses anyway.
@@ -205,9 +209,21 @@ pub fn AdminHome() -> Element {
                         p { class: "text-base-content/60", "Create your first one above." }
                     }
                 },
-                Some(Ok(list)) => rsx! {
+                Some(Ok(list)) => {
+                    let erased = list.iter().filter(|r| r.state == RaffleState::Purged).count();
+                    let shown: Vec<_> = list
+                        .iter()
+                        .filter(|r| show_erased() || r.state != RaffleState::Purged)
+                        .collect();
+                    rsx! {
+                    if erased > 0 {
+                        label { class: "flex items-center gap-2 text-sm text-base-content/60",
+                            Switch { value: Some(show_erased()), on_change: move |on| show_erased.set(on) }
+                            if erased == 1 { "Show 1 raffle whose data is erased" } else { "Show {erased} raffles whose data is erased" }
+                        }
+                    }
                     div { class: "grid gap-4 sm:grid-cols-2 lg:grid-cols-3",
-                        for r in list.iter() {
+                        for r in shown.into_iter() {
                             Link {
                                 key: "{r.id}",
                                 class: "card bg-base-100 shadow-sm ring-1 ring-base-300 transition hover:-translate-y-1 hover:shadow-lg hover:ring-primary/40",
@@ -226,7 +242,8 @@ pub fn AdminHome() -> Element {
                             }
                         }
                     }
-                },
+                    }
+                }
             }
             if access.allows(Access::Admin) {
                 YourData { shared, on_removed: move |_| { raffles.restart(); } }

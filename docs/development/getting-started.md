@@ -107,8 +107,9 @@ participant page still renders, but phones can't join or follow the draw.
 Draws need Restate (below). For everything else, run without Clerk, in two terminals:
 
 ```sh
-# the server; dx proxies /api/, /j/, /rules/, /privacy/ and /participant/ to it (apps/web/Dioxus.toml)
-RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi
+# the server; dx proxies /api/, /j/, /rules/, /privacy/ and /participant/ to it (apps/web/Dioxus.toml).
+# `--features dev` is what allows RAFI_DEV_AUTH: a build without it refuses to start with the flag.
+RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi --features dev
 
 # the web app, with hot reload
 cd apps/web && dx serve --port 8787
@@ -128,11 +129,11 @@ restate-server
 
 # the server (it creates the database) and the web app
 RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RAFI_ENGINE_INGRESS_URL=http://localhost:8080 \
-  PORT=8788 cargo run -p rafi
+  PORT=8788 cargo run -p rafi --features dev
 (cd apps/web && dx serve --port 8787)
 
-# the raffle engine, in another terminal
-RAFI_RESTATE_DATABASE__URL="$RAFI_DATABASE_URL" cargo run -p rafi-restate
+# the raffle engine, in another terminal (on the loopback address, with Restate alone: no request signing)
+RAFI_RESTATE_DATABASE__URL="$RAFI_DATABASE_URL" RAFI_RESTATE_ENDPOINT__INSECURE=true cargo run -p rafi-restate
 
 # once, and again whenever the services' handlers change (Raffle, EngineInfo);
 # `force` overwrites the registration: fine in development, never in production
@@ -143,7 +144,7 @@ curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
 For the mock drand chain (offline):
 
 ```sh
-RAFI_DRAND_CHAIN=mock … cargo run -p rafi --features mock-drand
+RAFI_DRAND_CHAIN=mock … cargo run -p rafi --features dev,mock-drand
 RAFI_RESTATE_DRAND__MOCK=true … cargo run -p rafi-restate --features mock-drand
 ```
 
@@ -175,7 +176,7 @@ Once the web app is bundled, `rafi` serves everything itself:
 ```sh
 (cd apps/web && dx bundle --platform web --release)   # -> target/dx/rafi-web/release/web/public
 ./scripts/participant.sh                                 # -> apps/participant/dist
-RAFI_DEV_AUTH=1 cargo run --release -p rafi              # http://localhost:8080
+RAFI_DEV_AUTH=1 cargo run --release -p rafi --features dev   # http://localhost:8080
 ```
 
 It listens on `IP`:`PORT` (default `127.0.0.1:8080`). It serves the participant scripts at `/participant/` from
