@@ -96,7 +96,10 @@ fn retention_of(app: &App, raffle: &RaffleRow, now: i64) -> Retention {
         past_event,
         past_erase_date: raffle.past_erase_date(now),
         unfinished_past_event: past_event && raffle.state.drawable(),
-        expires_unfrozen: past_event && raffle.state.expires(),
+        expires_unfrozen: past_event && raffle.state.expires_with(raffle.manifest.is_some()),
+        erasure_imminent: !raffle.state.is_over()
+            && !raffle.past_erase_date(now)
+            && raffle.erase_at - now < 24 * 60 * 60,
         default_days: app.policy.retention.days,
         max_days: app.policy.retention.max_days,
         winner_hold_days: hold,

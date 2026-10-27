@@ -27,6 +27,10 @@ pub struct Raffle<'a> {
     pub slug: &'a str,
     pub join_code: &'a str,
     pub test_mode: bool,
+    /// Whether someone may join now: registration open, and the erasure
+    /// date not yet passed ([`rafi_lifecycle::entrant::may_join`]). The
+    /// form is shown only then.
+    pub joinable: bool,
 }
 
 /// The entrant this device joined as.
@@ -170,7 +174,7 @@ pub fn page(page: Page<'_>) -> String {
         None => format!("/v/{}", raffle.slug),
     };
     let claim_code = entrant.map(|e| e.claim_code.to_owned());
-    let joining = entrant.is_none() && phase == Phase::Open && notice != Notice::AlreadyIn;
+    let joining = entrant.is_none() && raffle.joinable && notice != Notice::AlreadyIn;
 
     // The live card's mount point: the page owns it, the card renders inside.
     let live = rsx! {
@@ -258,7 +262,7 @@ pub fn page(page: Page<'_>) -> String {
             let (emoji, msg) = match (notice, phase) {
                 (Notice::AlreadyIn, _) => (
                     "👋",
-                    "This email is already entered. Your entry is safe — watch the screen. If you win, the organizer will confirm you by email.",
+                    "This email is already entered. Your entry is safe — watch the screen. If you win, go to the organizer; the device you entered on has your claim code.",
                 ),
                 (Notice::Error(why), _) => ("⚠️", why),
                 (_, Phase::Ready) => (

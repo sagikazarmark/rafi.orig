@@ -127,11 +127,24 @@ Open `/healthz`, `/terms` and `/privacy`, then run a test-mode raffle end to end
   natively, see [Self-hosting](self-hosting.md#backups)):
 
   ```sh
-  wrangler d1 execute rafi --remote --command "
+  wrangler d1 execute rafi --remote -c wrangler.prod.toml --command "
+    -- Entrants the log names (if the log came along).
     UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL,
       token_hash = NULL, claim_code = NULL, erased = 1
     WHERE erased = 0 AND EXISTS (SELECT 1 FROM erasures
       WHERE erasures.raffle_id = entrants.raffle_id AND erasures.entrant_id = entrants.id);
+    -- Entrants of a purged raffle, or one whose organizer left: nobody in it is
+    -- un-erased, whether or not the log came along. Logged, then erased.
+    INSERT INTO erasures (raffle_id, entrant_id, at)
+      SELECT raffle_id, id, unixepoch() FROM entrants
+      WHERE erased = 0
+        AND EXISTS (SELECT 1 FROM raffles r WHERE r.id = entrants.raffle_id
+                      AND (r.purged_at IS NOT NULL OR r.organizer_left_at IS NOT NULL))
+        AND NOT EXISTS (SELECT 1 FROM erasures e WHERE e.raffle_id = entrants.raffle_id AND e.entrant_id = entrants.id);
+    UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL,
+      token_hash = NULL, claim_code = NULL, erased = 1
+    WHERE erased = 0 AND EXISTS (SELECT 1 FROM raffles r WHERE r.id = entrants.raffle_id
+      AND (r.purged_at IS NOT NULL OR r.organizer_left_at IS NOT NULL));
     UPDATE raffles SET state = 'purged' WHERE purged_at IS NOT NULL AND state <> 'purged';
     UPDATE raffles SET organizer_name = '', contact_email = '', privacy_email = '', privacy_text = '',
       privacy_url = '' WHERE organizer_left_at IS NOT NULL;"

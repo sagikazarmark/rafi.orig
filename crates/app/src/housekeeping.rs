@@ -27,7 +27,7 @@
 //! [`remove_entrant`](crate::remove_entrant)); nothing extends a date.
 
 use rafi_raffle::{Decision, RaffleId};
-use rafi_store::{housekeeping as store, retention};
+use rafi_store::{audit, housekeeping as store, retention};
 
 use crate::{App, altcha, ids};
 
@@ -106,7 +106,27 @@ async fn finish_at_ceiling(app: &App, now: i64, hold: i64) {
             .decide(&RaffleId::new(&id), &Decision::Finish, &command_id)
             .await
         {
-            Ok(_) | Err(rafi_engine::EngineError::Pending) => {}
+            Ok(_) => {
+                if let Err(e) =
+                    audit::record(&app.db, &id, audit::HOUSEKEEPING, "auto_finish", "").await
+                {
+                    tracing::warn!(raffle_id = id, error = %e, "auditing an automatic finish failed");
+                }
+            }
+            Err(rafi_engine::EngineError::Pending) => {}
+            // The engine doesn't hold it (never opened, or forgotten): the
+            // log in the database is the record, and nothing is left to
+            // wait for, so the raffle is purged here.
+            Err(rafi_engine::EngineError::Rejected {
+                kind: rafi_raffle::ErrorKind::NotFound,
+                ..
+            }) => {
+                if let Err(e) = retention::purge_unfinished(&app.db, &id, now).await {
+                    tracing::warn!(raffle_id = id, error = %e, "purging a raffle the engine doesn't hold failed");
+                } else if let Err(e) = app.live_updates.end(&id).await {
+                    tracing::warn!(raffle_id = id, error = %e, "ending the live channel of a purged raffle failed");
+                }
+            }
             Err(e) => {
                 tracing::warn!(raffle_id = id, error = %e, "finishing a raffle past the ceiling failed")
             }

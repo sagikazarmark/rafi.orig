@@ -248,6 +248,13 @@ pub struct Retention {
     /// expires on the erasure date (within the hour, once it has passed),
     /// its entrants deleted.
     pub expires_unfrozen: bool,
+    /// The erasure date is less than a day away and the raffle is still
+    /// taking or holding entrants (not drawn, not over): with a period of
+    /// zero, or yesterday's date, an evening that runs past midnight loses
+    /// its entrants in the middle of it unless it is frozen and finished
+    /// before.
+    #[serde(default)]
+    pub erasure_imminent: bool,
     /// The installation's default period, the longest one a raffle may
     /// choose, and the winner hold, in days.
     pub default_days: i64,

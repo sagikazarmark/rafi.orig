@@ -673,7 +673,7 @@ pub fn SettingsForm(
                 context: form.text(f.retention_days()),
                 label: "Retention period (days after the event)",
                 description: if rules_editable {
-                    format!("Days after the event date. Up to {max_days}; this service's default is {}. Winners are kept until their prize is marked delivered, at the latest {} days longer.", retention.default_days, retention.winner_hold_days)
+                    format!("Days after the event date. Up to {max_days}; this service's default is {}. Winners are kept until their prize is marked delivered, at the latest {} days longer. With 0, erasure is at midnight at the end of the event day: an evening that runs past midnight needs its draws done before.", retention.default_days, retention.winner_hold_days)
                 } else {
                     "Locked: entrants were told their erasure date.".to_owned()
                 },

@@ -35,10 +35,14 @@ Clerk.
 
 | Provider | What for | What it sees |
 |---|---|---|
-| **[Hosting: e.g. Cloudflare, Inc. (USA; DPF, SCCs), Workers and D1 in the EU jurisdiction]** | Running the application and storing its database | Everything the service stores. D1's point-in-time recovery keeps erased data for up to 30 more days. |
+| **[Hosting: e.g. Cloudflare, Inc. (USA; DPF, SCCs); the database (D1) and the live channels (Durable Objects) in the EU jurisdiction, the application code running wherever the user is]** | Running the application and storing its database | Everything the service stores. D1's point-in-time recovery keeps erased data for up to 30 more days. |
 | **Restate** ([Restate Cloud, EU] or self-hosted) | The raffle engine: it runs each draw against the public randomness round it committed to | Anonymous entrant IDs and prize names only; its journal is kept for about an hour and a raffle is forgotten when it finishes |
 | **Clerk, Inc.** (USA; DPF) | Organizer sign-in | Organizers' account details; never entrants' data |
 | **drand / League of Entropy** | Public randomness | Nothing: we only download public beacons |
+
+Providers outside the EU/EEA are covered by **[the EU–US Data Privacy Framework, where certified, and otherwise
+the European Commission's standard contractual clauses]**. A copy of the clauses in force is available from
+**[the operator's email]** on request.
 
 ## Logs, security and backups
 

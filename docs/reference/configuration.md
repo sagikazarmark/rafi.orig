@@ -40,8 +40,8 @@ var and a secret of the same name).
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes. This is the hard limit behind the soft rate limits. |
 | `RAFI_RETENTION_DAYS` | `7` | Days after the event date before non-winners' personal data is erased, for organizers who choose nothing. At most `RAFI_RETENTION_MAX_DAYS`. |
 | `RAFI_RETENTION_MAX_DAYS` | `30` | The longest period an organizer or a raffle may choose. At most 365. |
-| `RAFI_RETENTION_WINNERS_DAYS` | `90` | How long a winner's data is held past the erasure date unless their prize is marked delivered: the hard ceiling, after which everyone is erased and a finished raffle is purged. |
-| `RAFI_MIN_AGE` | `16` | The youngest an entrant may be. Rendered in the rules and on the join form; entrants confirm it by entering. Organizers raise it in their additional rules. |
+| `RAFI_RETENTION_WINNERS_DAYS` | `90` | How long a winner's data is held past the erasure date unless their prize is marked delivered: the hard ceiling, after which everyone is erased and a finished raffle is purged. At most 365. |
+| `RAFI_MIN_AGE` | `16` | The youngest an entrant may be. Rendered in the rules and on the join form; entrants confirm it by entering. Organizers raise it in their additional rules. At most 30. |
 | `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | required | Who runs this installation: named as the processor in every raffle's privacy notice. Under `RAFI_DEV_AUTH`, placeholders. |
 | `RAFI_DOCS_DIR` | required (native) | The directory with the installation's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown. On Workers they are bundled at build time from `RAFI_LEGAL_DIR` ([below](#build-time)). Under `RAFI_DEV_AUTH`, placeholders marked as such. |
 | `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION` | required | The documents' versions, e.g. `2026-10`, shown with them at `/terms` and `/privacy` and named in every raffle's notice. Under `RAFI_DEV_AUTH`, `dev`. |

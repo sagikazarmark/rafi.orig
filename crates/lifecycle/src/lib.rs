@@ -124,6 +124,14 @@ impl RaffleState {
         !self.frozen_or_later()
     }
 
+    /// [`expires`](Self::expires), knowing whether the raffle has a manifest:
+    /// a raffle frozen without one (a freeze that stopped after closing
+    /// registration, which the organizer then left) has nothing to keep
+    /// verifiable either, and would otherwise sit frozen for good.
+    pub fn expires_with(self, has_manifest: bool) -> bool {
+        self.expires() || (self == Self::Frozen && !has_manifest)
+    }
+
     /// The state an expired raffle ends in.
     pub fn expire(self) -> Option<Self> {
         self.expires().then_some(Self::Purged)
@@ -286,6 +294,18 @@ mod tests {
                 S::Frozen | S::Drawing | S::Finished | S::Purged => None,
             };
             assert_eq!(s.expire(), want, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn a_freeze_without_a_manifest_expires_too() {
+        for s in S::ALL {
+            assert_eq!(s.expires_with(true), s.expires(), "{s:?} with a manifest");
+            assert_eq!(
+                s.expires_with(false),
+                s.expires() || s == S::Frozen,
+                "{s:?} without one"
+            );
         }
     }
 

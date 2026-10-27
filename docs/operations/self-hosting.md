@@ -141,6 +141,11 @@ HTTP to `rafi` but `RAFI_PUBLIC_URL` is `https://`, the participant cookie is al
 
 Don't rate-limit by IP aggressively: a whole venue shares one address. Rafi limits joins per raffle and per email.
 
+The app logs no personal data; the proxy's access log is where client IPs end up, and the join URL carries the
+join code. Keep that log short-lived, don't log request bodies or cookies (the entry cookie is sent to `/j/*`
+only), and say what you keep in your privacy notice. Have the proxy send `Strict-Transport-Security`; the app
+sets the other security headers itself.
+
 Expose none of these publicly: `rafi-restate`'s endpoint (`:9080`; whoever reaches it supplies the raffle's state,
 which is why it listens on the loopback address by default and refuses to start without `identity_keys` unless
 told the network is trusted), Restate's admin API (`:9070`), or Restate's **ingress** (`:8080`): the ingress has

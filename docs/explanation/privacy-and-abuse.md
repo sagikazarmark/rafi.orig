@@ -40,7 +40,8 @@ Every raffle has an **event date** (at most a year ahead, so the bounded period 
 once a real entrant has joined, and a **retention period** fixed with it. Together they give the raffle one
 **erasure date**, which the database computes from the two, which the join form and the privacy notice show
 entrants as a calendar day ("at the end of 4 November 2026"), and which no later action of the organizer moves.
-Registration can't open once that date has passed. The hourly housekeeping run then keeps three clocks:
+Registration can't open once that date has passed, and a raffle still open then stops taking joins (the form would
+promise a day gone by) and expires within the hour. The hourly housekeeping run keeps three clocks:
 
 | Clock | When | What |
 |---|---|---|
@@ -69,6 +70,16 @@ copy, outside Rafi.
 If no housekeeping run has succeeded for two hours (counting from the first raffle: a fresh installation has
 nothing to erase yet), every organizer's admin says so.
 
+## The audit log
+
+Every action on a raffle is a row: who (the owner key, and the member who acted), when, what, and a detail that
+never holds personal data (a count, an ID, the names of the settings that changed). The organizer's: `create`,
+`settings` (which fields), `delete`, the lifecycle moves, `freeze`, `draw`, `resolve`, `void`, `abandon`,
+`finish`, `add_manual`, `add_fakes`, `remove_fakes`, `patch_entrant`, `deliver`, `undeliver`, `deliver_all`,
+`remove_entrant`, `erase_entrant`, `purge`, `end_live`, `export_csv`. Housekeeping's: `expire`, `auto_erase`,
+`auto_purge`, `auto_finish`. Leaving: `delete` and `purge` with "owner left". The log is the operator's record
+and stays after the organizer leaves.
+
 On Cloudflare D1, Time Travel keeps erased data for up to 30 more days. The installation's notice should say so (the
 template does).
 
@@ -87,10 +98,11 @@ template does).
   the processing agreement is for the operator to notify organizers of directly.
 - **Leaving:** "Remove my data" in the admin deletes the organizer's raffles that were never frozen, erases their
   other raffles' personal data and takes their name and contacts off them, and deletes their defaults, all in one
-  write that does nothing while a raffle of theirs is being drawn. The anonymous draws stay verifiable. The
-  account's identifiers stay on its raffles and in the audit log (the owner, and the member who acted) as the
-  operator's record of what was done, for the period the operator's notice names. The account itself is deleted
-  in Clerk.
+  write that does nothing while a raffle of theirs is being drawn. The anonymous draws stay verifiable. What stays
+  besides: the account's identifiers on its raffles and in the audit log (the owner, and the member who acted) as
+  the operator's record of what was done, for the period the operator's notice names; and the raffles' titles,
+  descriptions, rules and prize sponsors, which the organizer wrote and may want to blank before leaving if they
+  name anyone. The account itself is deleted in Clerk.
 
 ## Coming back without an account
 

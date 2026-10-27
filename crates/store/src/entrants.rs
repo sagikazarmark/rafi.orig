@@ -147,7 +147,9 @@ pub struct Join<'a> {
 /// than `max_entrants`: the hard limit behind the (soft) rate limits.
 ///
 /// Returns `false` if registration isn't open or the raffle is full. An email
-/// that already entered is an [`Error::Unique`](crate::Error::Unique).
+/// that already entered is an [`Error::Unique`](crate::Error::Unique). Past
+/// the raffle's erasure date nobody joins: the raffle expires within the
+/// hour ([`crate::retention::expire_due`]).
 pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64) -> Result<bool> {
     let now = now();
     let inserted = db
@@ -155,7 +157,7 @@ pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64) -> Result<bool> {
             "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, token_hash,
                                    consent_version, consent_rules_at, created_at)
              SELECT ?1, ?2, ?3, ?4, ?5, '{source}', ?6, ?7, ?8, ?9, ?10
-             WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ?2 AND state IN ({joinable}))
+             WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ?2 AND state IN ({joinable}) AND erase_at > ?10)
                AND (SELECT COUNT(*) FROM entrants WHERE raffle_id = ?2) < ?11",
             source = Source::SelfService.as_str(),
             joinable = crate::raffles::states(RaffleState::joinable),

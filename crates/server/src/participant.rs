@@ -109,6 +109,12 @@ fn raffle_of(raffle: &RaffleRow) -> Raffle<'_> {
         slug: &raffle.slug,
         join_code: &raffle.join_code,
         test_mode: raffle.test_mode,
+        joinable: rafi_lifecycle::entrant::may_join(
+            raffle.state,
+            raffle.past_erase_date(service::ids::now()),
+            true,
+        )
+        .is_ok(),
     }
 }
 

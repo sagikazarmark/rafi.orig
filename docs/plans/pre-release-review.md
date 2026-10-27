@@ -612,7 +612,7 @@ day). **Why now**: what gets expensive after the release.
 
 ### Privacy and retention: what the audit found incomplete
 
-#### PRV-1 · The generated notice is wrong about hosting
+#### PRV-1 · The generated notice is wrong about hosting — **done**
 
 - **Where**: `crates/server/src/pages/text.rs:259`: "… hosting, the raffle engine, organizer sign-in and the public
   randomness network, none of which receives your email."
@@ -622,7 +622,7 @@ day). **Why now**: what gets expensive after the release.
   shown, not accepted.
 - **Size**: trivial.
 
-#### PRV-2 · Portability, third-country transfers, residue and backups are missing from the notice
+#### PRV-2 · Portability, third-country transfers, residue and backups are missing from the notice — **done**
 
 - **Where**: `crates/server/src/pages/text.rs:206-288`, checked line by line against Art. 13. Present: controller
   and contact (`:218-228`), purposes with their legal bases 6(1)(b) and 6(1)(f) (`:233-234`), the legitimate
@@ -655,7 +655,7 @@ day). **Why now**: what gets expensive after the release.
     can check; it makes no decision with legal or similarly significant effects on you."
 - **Size**: trivial.
 
-#### PRV-3 · Joins are accepted after the erasure date on an already-open raffle
+#### PRV-3 · Joins are accepted after the erasure date on an already-open raffle — **done**
 
 - **Where**: `crates/store/src/entrants.rs:155-159` (the INSERT guards on `state` only);
   `crates/lifecycle/src/entrant.rs:278-286` (`may_join`); `Command::Open` has the guard
@@ -676,7 +676,7 @@ day). **Why now**: what gets expensive after the release.
   and the settings form warns when the period is 0. Don't touch the lock.
 - **Size**: trivial.
 
-#### PRV-4 · The restore tool relies on the `erasures` table being restored too
+#### PRV-4 · The restore tool relies on the `erasures` table being restored too — **done**
 
 - **Where**: `crates/store/src/retention.rs:195-211` (`reapply_purges` flips `state` only);
   `docs/operations/cloudflare.md:101-108` (the hand-written D1 SQL).
@@ -687,7 +687,7 @@ day). **Why now**: what gets expensive after the release.
   it in the D1 SQL. A purged raffle has nobody un-erased by definition, so it is idempotent.
 - **Size**: small.
 
-#### PRV-5 · A frozen raffle without a manifest never leaves limbo
+#### PRV-5 · A frozen raffle without a manifest never leaves limbo — **done**
 
 - **Where**: `crates/lifecycle/src/lib.rs:123-125` (`expires` = `!frozen_or_later`);
   `crates/store/src/retention.rs:85-90` (`at_ceiling` = `Finished` only); `crates/app/src/housekeeping.rs:92-115`.
@@ -697,7 +697,7 @@ day). **Why now**: what gets expensive after the release.
   engine refuses to finish is purged at the ceiling.
 - **Size**: small.
 
-#### PRV-6 · Audit gaps and a misleading refusal
+#### PRV-6 · Audit gaps and a misleading refusal — **done**
 
 - Settings changes aren't audited (`crates/app/src/raffles.rs:181-239` audits only `remove_fakes`): the
   controller's name and contacts can change silently. Record `settings` with the changed field *names*. (trivial)
@@ -708,7 +708,7 @@ day). **Why now**: what gets expensive after the release.
   gated. Folded into API-5's refusal cleanup. (trivial)
 - Individual "Mark delivered" is audited as a generic `patch_entrant` (`entrants.rs:348`); name it. (trivial)
 
-#### PRV-7 · Docs that under-report
+#### PRV-7 · Docs that under-report — **done**
 
 - `privacy-and-abuse.md:62-64`: the residue list omits `consent_version`.
 - `privacy-and-abuse.md:84-87` ("Leaving"): the account identifier stays on raffles and in the audit log (the
@@ -855,6 +855,9 @@ the `room` feature; `cargo build` and `cargo clippy` are warning-free natively a
    (loopback default, keys or an explicit `insecure`); and a stalled draw's reason is in the *public* event log,
    so the fixed phrases are written by the engines, not mapped at `/view`.
 5. **Privacy** (PRV-1 … PRV-7): wording, the join guard, the restore tool, limbo, the audit rows, the docs.
+   **Done 2026-10-27.** The join guard made the HTTP tests' clock technique (backdate through the settings API,
+   then join) impossible by design, which is the point; the one test that needed it now joins first and shifts
+   the clock in the database, as the conformance suite does.
 6. **CI** (CI-1 … CI-5): so what was fixed stays fixed; `cargo deny`, the MSRV and the flaky test can go in any
    earlier step's PR.
 7. **Cleanup** (CLN-*) as one sweep, and the status texts at tag time.

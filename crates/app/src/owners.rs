@@ -44,12 +44,14 @@ pub struct Reapplied {
 }
 
 /// After a database restore: erases again every entrant the erasure log
-/// names, purges again every raffle that was purged, blanks again every
-/// organizer who left, and runs housekeeping once, so whatever was due is
-/// erased again too. Idempotent.
+/// names, erases every entrant of a raffle that was purged or whose
+/// organizer left (whether or not the backup carried the log) and purges
+/// such raffles again, blanks again every organizer who left, and runs
+/// housekeeping once, so whatever was due is erased again too. Idempotent.
 pub async fn reapply_erasures(app: &App) -> Result<Reapplied> {
-    let entrants = entrants::reapply_erasures(&app.db).await?;
-    let raffles = retention::reapply_purges(&app.db).await?;
+    let logged = entrants::reapply_erasures(&app.db).await?;
+    let (of_purged, raffles) = retention::reapply_purges(&app.db, ids::now()).await?;
+    let entrants = logged + of_purged;
     let organizers = raffles::reapply_organizer_left(&app.db).await?;
     crate::housekeeping::run(app).await?;
     Ok(Reapplied {

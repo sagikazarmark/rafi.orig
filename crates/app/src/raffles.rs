@@ -247,9 +247,43 @@ pub async fn update_settings(
     if write.fakes_removed {
         audit::record(&app.db, id, actor, "remove_fakes", &fakes.to_string()).await?;
     }
+    // What changed, by field name (never the values: the organizer's name
+    // and contacts are personal data; the log says who changed what, when).
+    let changed = changed_fields(&raffle, &stored(normalized, s.test_mode));
+    if !changed.is_empty() {
+        audit::record(&app.db, id, actor, "settings", &changed.join(",")).await?;
+    }
     // Nothing phones see: the participant view has no settings, and names
     // only of drawn entrants (fakes are never drawn outside test mode).
     Ok(())
+}
+
+/// The settings that differ between the row and what was written, by name.
+fn changed_fields(before: &RaffleRow, after: &raffles::Settings<'_>) -> Vec<&'static str> {
+    let mut changed = Vec::new();
+    let mut diff = |name: &'static str, same: bool| {
+        if !same {
+            changed.push(name);
+        }
+    };
+    diff("title", before.title == after.title);
+    diff("description", before.description == after.description);
+    diff(
+        "organizer_name",
+        before.organizer_name == after.organizer_name,
+    );
+    diff("contact_email", before.contact_email == after.contact_email);
+    diff("privacy_email", before.privacy_email == after.privacy_email);
+    diff("privacy_text", before.privacy_text == after.privacy_text);
+    diff("privacy_url", before.privacy_url == after.privacy_url);
+    diff("rules", before.rules == after.rules);
+    diff("event_date", before.event_date == after.event_date);
+    diff(
+        "retention_days",
+        before.retention_days == after.retention_days,
+    );
+    diff("test_mode", before.test_mode == after.test_mode);
+    changed
 }
 
 /// Normalized settings, as the store writes them.

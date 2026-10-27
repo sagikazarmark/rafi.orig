@@ -158,7 +158,8 @@ async fn enter(
         name, email, rules, ..
     } = *req;
     // Closed first: nothing else matters then.
-    if let Err(JoinRefusal::Closed) = entrant::may_join(raffle.state, true) {
+    let past = raffle.past_erase_date(ids::now());
+    if let Err(JoinRefusal::Closed) = entrant::may_join(raffle.state, past, true) {
         return Err(JoinError::Closed);
     }
     let name = if name.trim().is_empty() {
@@ -167,7 +168,7 @@ async fn enter(
         Some(entrant::display_name(name).map_err(JoinError::Name)?)
     };
     let email = Email::parse(email).ok_or(JoinError::Email)?;
-    entrant::may_join(raffle.state, rules).map_err(|r| match r {
+    entrant::may_join(raffle.state, past, rules).map_err(|r| match r {
         JoinRefusal::Closed => JoinError::Closed,
         JoinRefusal::Rules => JoinError::Rules,
     })?;
@@ -221,7 +222,7 @@ async fn not_joined(
 ) -> std::result::Result<JoinOutcome, JoinError> {
     let open = matches!(
         raffles::get(&app.db, &raffle.id).await,
-        Ok(Some(r)) if r.state.joinable()
+        Ok(Some(r)) if r.state.joinable() && !r.past_erase_date(ids::now())
     );
     if !open {
         return Err(JoinError::Closed);
@@ -366,7 +367,14 @@ pub async fn patch_entrant(
         // Erased since the read above.
         return Err(Refusal::Erased.into());
     }
-    audit::record(&app.db, raffle_id, actor, "patch_entrant", entrant_id).await?;
+    // The action names what changed: delivery moves a winner onto the
+    // erasure clock, which the log should say outright.
+    let action = match patch.delivered {
+        Some(true) => "deliver",
+        Some(false) => "undeliver",
+        None => "patch_entrant",
+    };
+    audit::record(&app.db, raffle_id, actor, action, entrant_id).await?;
     // A drawn entrant's name is on the phones.
     if patch.display_name.is_some() || patch.hidden.is_some() {
         app.live_updates.notify(raffle_id).await;

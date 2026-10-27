@@ -25,7 +25,8 @@ running during events but give no availability guarantee.
   you as the data controller, with the contact you provide.
 - You honour the erasure dates the service shows your entrants, and the requests they make to you about their
   data. You can always erase earlier; nothing extends a date. You mark prizes delivered as they reach their
-  winners, so their data stops being held; we may remind you, and may review what is held past the event.
+  winners, so their data stops being held; the admin shows you what is held and until when, and we may review
+  what is held past the event.
 - Winners' details you export are your copies, outside the service: you keep, protect and erase them under
   your own rules.
 - You keep your sign-in credentials safe and tell us about any suspected misuse.

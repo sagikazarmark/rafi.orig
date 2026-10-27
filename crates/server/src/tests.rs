@@ -2349,9 +2349,12 @@ async fn fakes_stay_in_test_mode() {
         .await
         .unwrap();
     assert_eq!(
-        audit.last(),
-        Some(&("remove_fakes".into(), "5".into())),
-        "{audit:?}"
+        &audit[audit.len() - 2..],
+        [
+            ("remove_fakes".into(), "5".into()),
+            ("settings".into(), "test_mode".into())
+        ],
+        "the removal, and the setting that changed, by name: {audit:?}"
     );
     assert!(
         service::add_fakes(&app, ACTOR, &raffle.id, 1)
@@ -2419,6 +2422,26 @@ async fn date_event(app: &AppState, id: &str, days_ago: i64, retention_days: i64
     settings.event_ends_at = None;
     settings.retention_days = retention_days;
     service::update_settings(app, ACTOR, id, settings)
+        .await
+        .unwrap();
+    raffles::get(&app.db, id).await.unwrap().unwrap()
+}
+
+/// Moves a raffle's event date `days_ago` back with `retention_days`
+/// directly in the database, lock or no lock: the tests' clock, for a raffle
+/// that already has entrants (who couldn't join past the date).
+async fn shift_clock(app: &AppState, id: &str, days_ago: i64, retention_days: i64) -> RaffleRow {
+    use rafi_lifecycle::dates::Date;
+    let day = Date::of_utc(service::ids::now() - days_ago * DAY);
+    app.db
+        .query(
+            "UPDATE raffles SET event_date = ?, event_ends_at = ?, retention_days = ? WHERE id = ?",
+        )
+        .bind(day.iso())
+        .bind(day.ends_utc())
+        .bind(retention_days)
+        .bind(id)
+        .run()
         .await
         .unwrap();
     raffles::get(&app.db, id).await.unwrap().unwrap()
@@ -2615,13 +2638,9 @@ async fn housekeeping_erases_on_the_dates() {
     let hold = app.policy.retention.winner_hold_secs();
 
     // A finished raffle: two prizes, one winner delivered, one not, one
-    // drawn but not here.
+    // drawn but not here. People join (nobody joins past the erasure date),
+    // then the clock is moved under them.
     let finished = setup_open(&app, &[("Book", 1), ("Mug", 1)]).await;
-    let finished = date_event(&app, &finished.id, 10, 7).await;
-    assert!(
-        finished.erase_at < now && finished.erase_at + hold > now,
-        "due, not at the ceiling"
-    );
     let router = routes(app.clone());
     for (name, email) in [
         ("Anna", "anna@x.org"),
@@ -2632,6 +2651,11 @@ async fn housekeeping_erases_on_the_dates() {
         let (status, _, _) = join(&router, &finished.join_code, name, email).await;
         assert_eq!(status, StatusCode::SEE_OTHER);
     }
+    let finished = shift_clock(&app, &finished.id, 10, 7).await;
+    assert!(
+        finished.erase_at < now && finished.erase_at + hold > now,
+        "due, not at the ceiling"
+    );
     service::start_draw(&app, ACTOR, &finished.id)
         .await
         .unwrap();
@@ -3929,4 +3953,174 @@ async fn deleting_stops_at_the_first_draw() {
         .unwrap();
     let admin = service::admin(&app, OWNER, &drawn.id).await.unwrap();
     assert!(!admin.actions.delete && admin.actions.purge);
+}
+
+/// Once a raffle's erasure date has passed, nobody joins it, even while it is
+/// still open (it expires within the hour): the form would promise erasure
+/// on a day gone by. The admin is warned a day ahead.
+#[tokio::test]
+async fn nobody_joins_past_the_erasure_date() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    // Yesterday's event, a period of 0: erased at midnight, which has passed.
+    let raffle = date_event(&app, &raffle.id, 1, 0).await;
+    assert!(raffle.past_erase_date(service::ids::now()));
+    assert_eq!(
+        raffle.state,
+        RaffleState::Open,
+        "still open until housekeeping runs"
+    );
+
+    let (status, cookie, body) = join(&router, &raffle.join_code, "Anna", "anna@example.com").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(cookie.is_none());
+    assert!(body.contains("Registration is closed."), "{body}");
+    assert!(
+        entrants::list(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // The join page says so too, with no form.
+    let (status, _, page) = send(
+        &router,
+        Request::get(format!("/j/{}", raffle.join_code))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!page.contains("name=\"email\""), "no form: {page}");
+
+    // A day ahead, the admin is warned; past the date, told it has passed.
+    let soon = setup_open(&app, &[("Book", 1)]).await;
+    let soon = date_event(&app, &soon.id, 0, 0).await;
+    let r = service::admin(&app, OWNER, &soon.id)
+        .await
+        .unwrap()
+        .retention;
+    assert!(r.erasure_imminent && !r.past_erase_date, "{r:?}");
+    let r = service::admin(&app, OWNER, &raffle.id)
+        .await
+        .unwrap()
+        .retention;
+    assert!(!r.erasure_imminent && r.past_erase_date, "{r:?}");
+}
+
+/// A frozen raffle the engine doesn't hold (its freeze stopped before the
+/// engine opened it, and the organizer walked away) is purged at the
+/// ceiling instead of being nudged every hour for good; one frozen without
+/// a manifest expires on the date like a never-frozen raffle.
+#[tokio::test]
+async fn abandoned_freezes_leave_limbo() {
+    let app = app().await;
+    let hold = app.cfg.retention.winner_hold_days * DAY;
+
+    // A manifest written, never handed to the engine (as `Start::Resend`
+    // would find it): everyone is a non-winner, so all are erased on the
+    // date, and at the ceiling the engine refuses to finish what it never
+    // opened, which purges the raffle here.
+    let orphan = setup_open(&app, &[("Book", 1)]).await;
+    let orphan = date_event(&app, &orphan.id, 10, 0).await;
+    service::add_manual(&app, ACTOR, &orphan.id, "Anna", None)
+        .await
+        .unwrap();
+    assert!(
+        raffles::freeze(&app.db, &orphan.id, RaffleState::Open)
+            .await
+            .unwrap()
+    );
+    let manifest = rafi_raffle::Manifest::new(
+        orphan.id.as_str(),
+        rafi_raffle::BeaconSource::Drand(app.chain),
+        entrants::active_ids(&app.db, &orphan.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        vec![rafi_raffle::ManifestItem {
+            id: "book-1".into(),
+            name: "Book".into(),
+        }],
+    );
+    raffles::set_manifest(
+        &app.db,
+        &orphan.id,
+        &manifest.canonical_json(),
+        &manifest.hash().to_string(),
+    )
+    .await
+    .unwrap();
+    let r = raffles::get(&app.db, &orphan.id).await.unwrap().unwrap();
+    assert!(r.state == RaffleState::Frozen && r.manifest.is_some() && !r.opened());
+
+    // Frozen without a manifest: the freeze stopped after closing registration.
+    let stuck = setup_open(&app, &[("Book", 1)]).await;
+    let stuck = date_event(&app, &stuck.id, 10, 0).await;
+    service::add_manual(&app, ACTOR, &stuck.id, "Bence", None)
+        .await
+        .unwrap();
+    assert!(
+        raffles::freeze(&app.db, &stuck.id, RaffleState::Open)
+            .await
+            .unwrap()
+    );
+    assert!(
+        service::admin(&app, OWNER, &stuck.id)
+            .await
+            .unwrap()
+            .retention
+            .expires_unfrozen,
+        "the admin says it expires"
+    );
+
+    let now = service::ids::now();
+    let report = service::housekeeping::run_at(&app, now).await.unwrap();
+    assert_eq!(report.expired, 1, "the manifest-less freeze expired");
+    assert_eq!(
+        raffles::get(&app.db, &stuck.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        RaffleState::Purged
+    );
+    assert!(entrants::list(&app.db, &stuck.id).await.unwrap().is_empty());
+    assert_eq!(
+        raffles::get(&app.db, &orphan.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        RaffleState::Frozen,
+        "the one with a manifest is erased, not moved, before the ceiling"
+    );
+    assert!(
+        entrants::list(&app.db, &orphan.id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|e| e.erased)
+    );
+
+    service::housekeeping::run_at(&app, orphan.erase_at + hold + 1)
+        .await
+        .unwrap();
+    let r = raffles::get(&app.db, &orphan.id).await.unwrap().unwrap();
+    assert_eq!(
+        r.state,
+        RaffleState::Purged,
+        "purged, the engine not holding it"
+    );
+    assert!(r.purged_at.is_some() && r.live_ended_at.is_some());
+    assert_eq!(
+        audit_of(&app, &orphan.id).await.last().unwrap(),
+        &("auto_purge".to_owned(), "unfinished".to_owned())
+    );
+    let again = service::housekeeping::run_at(&app, orphan.erase_at + hold + 2)
+        .await
+        .unwrap();
+    assert_eq!((again.expired, again.purged), (0, 0), "nothing left to do");
 }

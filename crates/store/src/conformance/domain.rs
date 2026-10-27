@@ -1632,6 +1632,22 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         force_state(db, id, state).await?;
         erase_at(db, id, 100).await?;
     }
+    // Frozen without a manifest (a freeze that stopped after closing
+    // registration): nothing to keep verifiable, so it expires too.
+    raffle_in(db, "stuck", RaffleState::Open).await?;
+    check(join(db, "stuck", "s", "s@x", 10).await?, "joining stuck")?;
+    check(
+        raffles::freeze(db, "stuck", RaffleState::Open)
+            .await
+            .map_err(fail)?,
+        "closing stuck's registration",
+    )?;
+    check(
+        raffle(db, "stuck").await?.state == RaffleState::Frozen
+            && raffle(db, "stuck").await?.manifest.is_none(),
+        "stuck is frozen without a manifest",
+    )?;
+    erase_at(db, "stuck", 100).await?;
     // Finished, due later: q.
     raffle_in(db, "later", RaffleState::Open).await?;
     check(join(db, "later", "q", "q@x", 10).await?, "joining later")?;
@@ -1656,10 +1672,12 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     let mut expired = retention::expire_due(db, 100).await.map_err(fail)?;
     expired.sort();
     check(
-        expired == ["closed", "draft", "op", "ready"],
-        &format!("every never-frozen raffle expires: {expired:?}"),
+        expired == ["closed", "draft", "op", "ready", "stuck"],
+        &format!(
+            "every never-frozen raffle expires, and the one frozen without a manifest: {expired:?}"
+        ),
     )?;
-    for id in ["op", "draft", "ready", "closed"] {
+    for id in ["op", "draft", "ready", "closed", "stuck"] {
         check(
             entrants::list(db, id).await.map_err(fail)?.is_empty()
                 && raffle(db, id).await?.state == RaffleState::Purged,
@@ -1784,13 +1802,38 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     )?;
     erased_are(db, "fin", &["n", "d", "w"]).await?;
     check(
-        retention::reapply_purges(db).await.map_err(fail)? == 1
+        retention::reapply_purges(db, 2000).await.map_err(fail)? == (0, 1)
             && raffle(db, "fin").await?.state == RaffleState::Purged,
-        "the purge re-applied",
+        "the purge re-applied; nothing left to erase after the log was",
+    )?;
+    // A restore from a backup without the erasure log: a purged raffle has
+    // nobody un-erased, so its entrants are erased on that alone, and logged.
+    db.query("UPDATE entrants SET erased = 0, email_raw = 'back' WHERE raffle_id = 'fin'")
+        .run()
+        .await
+        .map_err(fail)?;
+    db.query("DELETE FROM erasures WHERE raffle_id = 'fin'")
+        .run()
+        .await
+        .map_err(fail)?;
+    check(
+        entrants::reapply_erasures(db).await.map_err(fail)? == 0,
+        "no log to re-apply",
     )?;
     check(
+        retention::reapply_purges(db, 2001).await.map_err(fail)? == (3, 0),
+        "the purged raffle's three entrants are erased on the purge alone",
+    )?;
+    erased_are(db, "fin", &["n", "d", "w"]).await?;
+    let relogged: (i64,) = db
+        .query("SELECT COUNT(*) FROM erasures WHERE raffle_id = 'fin' AND at = 2001")
+        .one()
+        .await
+        .map_err(fail)?;
+    check(relogged.0 == 3, "and logged again")?;
+    check(
         entrants::reapply_erasures(db).await.map_err(fail)? == 0
-            && retention::reapply_purges(db).await.map_err(fail)? == 0,
+            && retention::reapply_purges(db, 2002).await.map_err(fail)? == (0, 0),
         "re-applying is idempotent",
     )?;
 

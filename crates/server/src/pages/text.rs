@@ -232,7 +232,8 @@ pub fn privacy(p: &Privacy<'_>) -> String {
         ("What we collect and why".to_owned(), vec![
             "Your display name and email address, to run the prize draw you entered under the raffle rules (GDPR Art. 6(1)(b)): to tell entries apart, to identify winners and to deliver prizes.".into(),
             "Duplicate and abuse checks (one entry per email address, rate limiting, a proof-of-work check that runs in your browser) are based on our legitimate interest in a fair draw (Art. 6(1)(f)).".into(),
-            "Your email address is required to enter; a display name is optional. Your email is never shown on the screen or shared with sponsors.".into(),
+            "Your email address is required to enter: without it you can't take part. A display name is optional. Your email is never shown on the screen or shared with sponsors.".into(),
+            "The draw is automated and random, from public randomness anyone can check; it makes no decision with legal or similarly significant effects on you.".into(),
         ]),
         ("What is public".to_owned(), vec![
             "Your display name appears on the event screen and on the verification page, which lists every entrant's display name so everyone can check they were in, until your data is erased. It doesn't have to be your real name: leave it blank and we pick one for you. The organizer can also hide it.".into(),
@@ -252,11 +253,12 @@ pub fn privacy(p: &Privacy<'_>) -> String {
                 retention.winners_erase.long()
             ).into(),
             "Anonymous IDs and the draw log are kept so the draw stays verifiable. The organizer can export the winners' details to deliver prizes; a copy they exported is outside this service, and its erasure is the organizer's responsibility.".into(),
+            "After erasure, the anonymous entry keeps when it joined, how it joined, whether a prize was delivered and whether its name was hidden. Backups and the hosting provider's point-in-time recovery may hold erased data a while longer; the service's notice says how long.".into(),
         ]),
         ("Who processes it".to_owned(), vec![
             Para::Link {
                 text: format!(
-                    "{} ({}) runs this service and processes the raffle's data on the organizer's behalf, as its processor, under a data processing agreement. Its own privacy notice (version {}) names the providers it relies on: hosting, the raffle engine, organizer sign-in and the public randomness network, none of which receives your email.",
+                    "{} ({}) runs this service and processes the raffle's data on the organizer's behalf, as its processor, under a data processing agreement. Its own privacy notice (version {}) names the providers it relies on: the hosting provider stores the raffle's data on the operator's behalf; the raffle engine, organizer sign-in and the public randomness network receive no personal data. Where a provider is outside the EU/EEA, that notice names it and the safeguard that covers the transfer (an adequacy decision, the Data Privacy Framework or standard contractual clauses) and how to obtain a copy.",
                     operator.name, operator.email, operator.privacy_version
                 ),
                 href: "/privacy".into(),
@@ -264,7 +266,7 @@ pub fn privacy(p: &Privacy<'_>) -> String {
             },
         ]),
         ("Your rights".to_owned(), vec![
-            "You can request access, correction, erasure, restriction, or object to processing, by contacting the controller. You can also lodge a complaint with your local data protection supervisory authority.".into(),
+            "You can request access, correction, erasure, restriction, or object to processing, and receive the data you gave in a portable form, by contacting the controller. You can also lodge a complaint with your local data protection supervisory authority.".into(),
         ]),
     ];
     let mut own: Vec<Para> = organizer
