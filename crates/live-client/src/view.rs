@@ -22,7 +22,10 @@ pub fn public_name(id: &str, known: Option<Option<&str>>) -> String {
 /// Mirrors `rafi_lifecycle::RaffleState` variant for variant, with the same
 /// serde names. It lives here so the phone doesn't depend on `rafi-lifecycle`;
 /// `rafi-live-server` maps one to the other with an exhaustive match, so
-/// the two can't drift apart.
+/// the two can't drift apart. [`Unknown`](Self::Unknown) is the one variant
+/// the server never sends: it is what a phone running an older module reads
+/// when a newer server adds a state, so the module keeps following instead
+/// of freezing on its last view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
@@ -41,6 +44,11 @@ pub enum Phase {
     Finished,
     /// Personal data has been removed.
     Purged,
+    /// A state this build doesn't know (the server is newer). Treated as
+    /// live and not over: the phone keeps following, and shows the waiting
+    /// card until a state it knows comes along.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Phase {
@@ -51,11 +59,12 @@ impl Phase {
 
     /// Whether the raffle is public and not over, which is when a page
     /// subscribes to [`ParticipantChannel`](crate::ParticipantChannel). Ready is included so a
-    /// visitor's page can reload when registration opens.
+    /// visitor's page can reload when registration opens, and an unknown
+    /// state so an older module doesn't stop following a newer server.
     pub fn is_live(self) -> bool {
         matches!(
             self,
-            Self::Ready | Self::Open | Self::Closed | Self::Frozen | Self::Drawing
+            Self::Ready | Self::Open | Self::Closed | Self::Frozen | Self::Drawing | Self::Unknown
         )
     }
 }
@@ -231,13 +240,22 @@ mod tests {
     fn phases() {
         use Phase::*;
         let all = [
-            Draft, Ready, Open, Closed, Frozen, Drawing, Finished, Purged,
+            Draft, Ready, Open, Closed, Frozen, Drawing, Finished, Purged, Unknown,
         ];
         let over: Vec<_> = all.iter().filter(|p| p.is_over()).collect();
         let live: Vec<_> = all.iter().filter(|p| p.is_live()).collect();
         assert_eq!(over, [&Finished, &Purged]);
-        assert_eq!(live, [&Ready, &Open, &Closed, &Frozen, &Drawing]);
+        assert_eq!(live, [&Ready, &Open, &Closed, &Frozen, &Drawing, &Unknown]);
         assert_eq!(serde_json::to_string(&Drawing).unwrap(), "\"drawing\"");
+        // A state from a newer server: the module keeps following.
+        let newer: Phase = serde_json::from_str("\"archived\"").unwrap();
+        assert_eq!(newer, Unknown);
+        let view: ParticipantView = serde_json::from_value(serde_json::json!({
+            "v": 7, "state": "archived", "current": null, "last": null,
+            "winners": [], "prizes_left": 1, "from_the_future": true
+        }))
+        .unwrap();
+        assert!(view.state.is_live() && !view.state.is_over());
         assert_eq!(
             serde_json::to_string(&DrawOutcome::NotHere).unwrap(),
             "\"not_here\""

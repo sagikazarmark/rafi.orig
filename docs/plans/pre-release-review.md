@@ -192,7 +192,7 @@ day). **Why now**: what gets expensive after the release.
 
 ### Public contracts: JSON, the algorithm, the engine, the admin API
 
-#### API-1 · The algorithm identifier is checked by equality on every restore; the verifiers disagree on unknown events
+#### API-1 · The algorithm identifier is checked by equality on every restore; the verifiers disagree on unknown events — **done** (the rule and the Python fix; no dispatch code)
 
 - **Where**: `crates/raffle/src/manifest.rs:88` (`if self.algo != ALGO`), called by `Raffle::open`
   (`raffle.rs:390-393`), which `Raffle::restore` calls (`raffle.rs:400-407`), which `rafi_store::raffles::rebuild`
@@ -216,7 +216,7 @@ day). **Why now**: what gets expensive after the release.
   "hasn't been frozen yet, or doesn't exist". The rollback case goes to §Accepted risks.
 - **Size**: trivial. **Why now**: the forward-compatibility rule is the contract; the dispatch code is v2's.
 
-#### API-2 · The engine's deploy story
+#### API-2 · The engine's deploy story — **done**
 
 - **Where**: `docs/operations/upgrades.md:5-8` ("Don't deploy while a raffle is live, meaning registration is
   open, or the list is frozen…"; "A deploy during a draw is safe for the result") and `:35-39`,
@@ -258,7 +258,7 @@ day). **Why now**: what gets expensive after the release.
   orphaned for good.
 - **Size**: small (docs, one test). **Why now**: the first registered deployment makes it operational.
 
-#### API-3 · Phones reject unknown enum variants
+#### API-3 · Phones reject unknown enum variants — **done**
 
 - **Where**: `crates/live-client/src/view.rs:26-44` (`Phase`, externally tagged, unit-only, `rename_all`), no
   `#[serde(other)]`; `:55-60` (`is_live()` is a `matches!` over five named states); `crates/live-client/src/page.rs`
@@ -276,7 +276,7 @@ day). **Why now**: what gets expensive after the release.
   `Unknown`; `screen()` shows the waiting card. Nothing on `DrawOutcome`.
 - **Size**: trivial. **Why now**: every phone that ever loads the module before the first change.
 
-#### API-4 · `verify.json` has no format version, no caching headers, and reads inconsistently
+#### API-4 · `verify.json` has no format version, no caching headers, and reads inconsistently — **done**
 
 - **Where**: `crates/api/src/lib.rs:310-324` (`VerifyData`, no `v`); `crates/app/src/reads.rs:191,200,216` (three
   separate reads); `crates/server/src/public.rs:67-76` (no `Cache-Control`, no `ETag`).
@@ -295,7 +295,7 @@ day). **Why now**: what gets expensive after the release.
   `Cache-Control: no-cache` (revalidate).
 - **Size**: small. **Why now**: `tools/verify.py` and anyone else's verifier read this shape.
 
-#### API-5 · Admin API: no error code, inconsistent function names
+#### API-5 · Admin API: no error code, inconsistent function names — **done**
 
 - **Where**: `crates/api/src/admin.rs:88-92` (`ApiError { message }`, English only); `:29-83` (`deliver_all` vs
   `purge_raffle`/`finish_raffle`, `remove_entrant` vs `delete_prize`/`delete_raffle`, `lifecycle` as a bare noun,
@@ -309,7 +309,7 @@ day). **Why now**: what gets expensive after the release.
   `NotPurgeable`, `crates/app/src/error.rs:111,157-160`) into one with the action named.
 - **Size**: small. **Why now**: one macro edit now; a versioned API later.
 
-#### API-6 · The verifier re-serialises the manifest and fails on a mismatch
+#### API-6 · The verifier re-serialises the manifest and fails on a mismatch — **done** (the escaping is pinned; the check stays an error)
 
 - **Where**: `crates/raffle/src/verify.rs:118-122`; `docs/reference/draw-algorithm.md:36` ("verifiers must not
   re-serialize").
@@ -319,7 +319,7 @@ day). **Why now**: what gets expensive after the release.
   that doesn't flip `ok()`. The Python verifier must agree.
 - **Size**: trivial. **Why now**: the spec is the contract; the first published manifest freezes it.
 
-#### API-7 · Participant scripts: explicit caching, and compression natively
+#### API-7 · Participant scripts: explicit caching, and compression natively — **done**
 
 - **Where**: `crates/server/src/pages/participant.rs:82-84` (`LOADER`), `crates/server/src/lib.rs:166`
   (`ServeDir`), `apps/worker/wrangler.toml:33` (`run_worker_first` lists `/participant/altcha-worker.js` only, so
@@ -843,7 +843,10 @@ the `room` feature; `cargo build` and `cargo clippy` are warning-free natively a
    assertion) went with SCH-6.
 2. **Contracts** (API-1 … API-7): the forward-compatibility rule and the Python verifier's `else`, the engine
    docs and the event-shape fixture test, the phone enums, `verify.json`, the admin API names and error code, the
-   verifier's canonical check, the participant caching and compression.
+   verifier's canonical check, the participant caching and compression. **Done 2026-10-27.** Two corrections
+   found while doing it: tower-http 0.7 (the version `ServeDir` runs on) does send an `ETag`, so natively only
+   `Cache-Control` and compression were missing; `remove_entrant` keeps its name, since "remove" (deleted before
+   the freeze, erased after it) is the right word and `delete` would be wrong half the time.
 3. **Names** (CFG-1 … CFG-4): one commit, every file, with the docs.
 4. **Fail-closed and security** (SEC-1 … SEC-11): the subscriber first, so the rest is observable; then the
    delete rule, the secrets, the headers, the names.

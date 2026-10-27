@@ -200,4 +200,30 @@ mod tests {
             )
         );
     }
+
+    /// The canonical form's escaping, as the draw algorithm pins it: only
+    /// `"`, `\` and the C0 controls are escaped (the five short forms, else
+    /// `\u00xx` in lowercase); `/`, U+007F, U+2028/2029 and every non-ASCII
+    /// character are written raw. A `serde_json` that changed this would
+    /// make legitimate published manifests "not canonical".
+    #[test]
+    fn canonical_escaping_is_pinned() {
+        let manifest = Manifest::new(
+            "d1",
+            QUICKNET,
+            vec!["01".into()],
+            vec![ManifestItem {
+                id: "i".into(),
+                name: "a\"b\\c/d\u{8}\t\n\u{c}\r\u{1}\u{1f}\u{7f}\u{2028}é🎉".into(),
+            }],
+        );
+        let json = manifest.canonical_json();
+        let name = json.split(r#""name":"#).nth(1).unwrap();
+        assert_eq!(
+            name,
+            "\"a\\\"b\\\\c/d\\b\\t\\n\\f\\r\\u0001\\u001f\u{7f}\u{2028}é🎉\"}]}"
+        );
+        let parsed: Manifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, manifest);
+    }
 }

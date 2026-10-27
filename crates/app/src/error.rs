@@ -109,8 +109,6 @@ pub enum Refusal {
     /// Registration can't open: the erasure date has passed, so the raffle
     /// expires within the hour. The date can move while nobody has joined.
     ErasureDatePassed,
-    /// Prizes are marked delivered once the raffle is over.
-    NotFinishedForDelivery,
     /// The organizer's data can't be removed while one of their raffles is
     /// frozen or drawing.
     EventLive,
@@ -152,8 +150,20 @@ pub enum Refusal {
     /// From the freeze until the raffle finishes, nobody leaves the list.
     NotRemovable,
     NotDeliverable,
-    NotPurgeable,
-    NotOver,
+    /// The raffle hasn't finished, which what was asked needs.
+    NotOver(Unfinished),
+}
+
+/// What waits for the raffle to finish ([`Refusal::NotOver`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unfinished {
+    /// "Erase personal data now".
+    Purge,
+    /// "All prizes delivered" (one winner's prize can be marked delivered
+    /// any time after they claimed it).
+    DeliverAll,
+    /// Ending live updates.
+    EndLive,
 }
 
 impl Refusal {
@@ -182,6 +192,49 @@ impl Refusal {
 impl std::error::Error for Refusal {}
 
 impl Refusal {
+    /// The refusal's kind as a stable `snake_case` name: the admin API's
+    /// error `code`, for programs. The message is for people.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Title => "title",
+            Self::Texts => "texts",
+            Self::EventDate => "event_date",
+            Self::EventDateTooFar => "event_date_too_far",
+            Self::Retention { .. } => "retention",
+            Self::PrivacyUrl => "privacy_url",
+            Self::ContactEmail => "contact_email",
+            Self::TestModeLocked => "test_mode_locked",
+            Self::SettingsFixed(_) => "settings_fixed",
+            Self::PrizeName => "prize_name",
+            Self::PrizeQty => "prize_qty",
+            Self::PrizesFrozen => "prizes_frozen",
+            Self::DrawPending => "draw_pending",
+            Self::JoinCodes => "join_codes",
+            Self::OrganizerMissing(_) => "organizer_missing",
+            Self::ErasureDatePassed => "erasure_date_passed",
+            Self::EventLive => "event_live",
+            Self::Forbidden(_) => "forbidden",
+            Self::Lifecycle { .. } => "lifecycle",
+            Self::Changed => "changed",
+            Self::NoEngine => "no_engine",
+            Self::BeaconMismatch { .. } => "beacon_mismatch",
+            Self::Start(_) => "start",
+            Self::NotDrawing => "not_drawing",
+            Self::NotOpened => "not_opened",
+            Self::Raffle { .. } => "raffle",
+            Self::Engine { .. } => "engine",
+            Self::EntrantsFrozen => "entrants_frozen",
+            Self::Name(_) => "name",
+            Self::Email => "email",
+            Self::EmailTaken => "email_taken",
+            Self::Fakes(_) => "fakes",
+            Self::Erased => "erased",
+            Self::NotRemovable => "not_removable",
+            Self::NotDeliverable => "not_deliverable",
+            Self::NotOver(_) => "not_over",
+        }
+    }
+
     /// Why settings were refused, with the installation's longest retention
     /// period for the message.
     pub(crate) fn settings(e: SettingsError, max_days: i64) -> Self {
@@ -254,9 +307,6 @@ impl fmt::Display for Refusal {
             Self::ErasureDatePassed => f.write_str(
                 "The erasure date has passed: this raffle expires within the hour. Move the event date (possible until someone joins) or duplicate the raffle.",
             ),
-            Self::NotFinishedForDelivery => {
-                f.write_str("Prizes can be marked delivered once the raffle has finished.")
-            }
             Self::EventLive => f.write_str(
                 "Your data can't be removed while one of your raffles is being drawn. Finish it first.",
             ),
@@ -302,11 +352,14 @@ impl fmt::Display for Refusal {
             Self::NotDeliverable => {
                 f.write_str("Only a winner who claimed their prize can get it delivered.")
             }
-            Self::NotPurgeable => {
-                f.write_str("Personal data can be erased at once only once the raffle has finished.")
+            Self::NotOver(Unfinished::Purge) => {
+                f.write_str("Personal data can be erased at once once the raffle has finished.")
             }
-            Self::NotOver => {
-                f.write_str("Live updates can only end once the raffle has finished.")
+            Self::NotOver(Unfinished::DeliverAll) => f.write_str(
+                "All prizes can be marked delivered at once once the raffle has finished. One winner's prize can be marked delivered any time after they claimed it.",
+            ),
+            Self::NotOver(Unfinished::EndLive) => {
+                f.write_str("Live updates can end once the raffle has finished.")
             }
         }
     }

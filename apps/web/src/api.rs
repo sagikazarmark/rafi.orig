@@ -3,7 +3,7 @@
 //! POSTs its arguments to `/api/admin/<name>` and decodes the reply; and
 //! the public reads the web app makes.
 
-pub use rafi_api::admin::ApiError;
+pub use rafi_api::admin::{ApiError, codes};
 use rafi_api::{RaffleView, VerifyData};
 
 macro_rules! client_side {
@@ -60,24 +60,32 @@ mod client {
         reply(Request::get(url).send().await.map_err(network)?).await
     }
 
+    use super::codes;
+
     fn network(e: gloo_net::Error) -> ApiError {
-        ApiError::new(format!("Could not reach the server: {e}"))
+        ApiError::new(codes::CLIENT, format!("Could not reach the server: {e}"))
     }
 
     async fn reply<T: DeserializeOwned>(resp: Response) -> Result<T, ApiError> {
         let body = resp.text().await.map_err(network)?;
         if resp.ok() {
-            return serde_json::from_str(&body)
-                .map_err(|e| ApiError::new(format!("Unexpected reply from the server: {e}")));
+            return serde_json::from_str(&body).map_err(|e| {
+                ApiError::new(
+                    codes::CLIENT,
+                    format!("Unexpected reply from the server: {e}"),
+                )
+            });
         }
         if let Ok(e) = serde_json::from_str::<ApiError>(&body) {
             return Err(e);
         }
-        Err(ApiError::new(match resp.status() {
-            401 => "Please sign in.".to_owned(),
-            404 => "not found".to_owned(),
-            status if body.trim().is_empty() => format!("Request failed ({status})."),
-            _ => body,
-        }))
+        Err(match resp.status() {
+            401 => ApiError::new(codes::UNAUTHORIZED, "Please sign in."),
+            404 => ApiError::new(codes::NOT_FOUND, "not found"),
+            status if body.trim().is_empty() => {
+                ApiError::new(codes::CLIENT, format!("Request failed ({status})."))
+            }
+            _ => ApiError::new(codes::CLIENT, body),
+        })
     }
 }

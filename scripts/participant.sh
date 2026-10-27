@@ -38,6 +38,15 @@ wasm-opt -Oz --strip-debug --strip-producers \
 cp "$ROOT/apps/participant/fallback.js" "$OUT/fallback.js"
 rm -f "$OUT/altcha-worker.js"
 
+# Precompressed variants next to each file, for the native server (tower-http
+# serves `x.br` or `x.gz` for `x` when the browser accepts it; Cloudflare
+# compresses at the edge and ignores them). Brotli when the tool is there.
+for f in "$OUT/rafi_participant.js" "$OUT/rafi_participant_bg.wasm" "$OUT/fallback.js"; do
+  rm -f "$f.gz" "$f.br"
+  gzip -9 -k -n "$f"
+  if command -v brotli >/dev/null 2>&1; then brotli -9 -k -f "$f"; fi
+done
+
 wasm=$(gzip -9c "$OUT/rafi_participant_bg.wasm" | wc -c | tr -d ' ')
 js=$(gzip -9c "$OUT/rafi_participant.js" | wc -c | tr -d ' ')
 total=$((wasm + js))

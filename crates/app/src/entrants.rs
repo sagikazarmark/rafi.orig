@@ -9,7 +9,10 @@ use rafi_lifecycle::{
 };
 use rafi_store::{RaffleRow, audit, entrants, raffles};
 
-use crate::{Actor, App, Error, Limit, Refusal, Result, altcha, ids, owned, view::NAME_DELAY_SECS};
+use crate::{
+    Actor, App, Error, Limit, Refusal, Result, altcha, error::Unfinished, ids, owned,
+    view::NAME_DELAY_SECS,
+};
 
 /// Version of the consent text shown on the join form: the rules checkbox,
 /// the erasure dates and the age line under it. Bumped whenever that text
@@ -402,7 +405,7 @@ pub async fn remove_entrant(
 pub async fn purge(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<()> {
     let raffle = owned(app, actor.owner, raffle_id).await?;
     if raffle.state.apply(lifecycle::Command::Purge).is_none() {
-        return Err(Refusal::NotPurgeable.into());
+        return Err(Refusal::NotOver(Unfinished::Purge).into());
     }
     entrants::erase(&app.db, raffle_id, None, ids::now()).await?;
     raffles::mark_purged(&app.db, raffle_id).await?;
@@ -418,7 +421,7 @@ pub async fn purge(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<()> {
 pub async fn deliver_all(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<u64> {
     let raffle = owned(app, actor.owner, raffle_id).await?;
     if !raffle.state.is_over() {
-        return Err(Refusal::NotFinishedForDelivery.into());
+        return Err(Refusal::NotOver(Unfinished::DeliverAll).into());
     }
     let delivered = entrants::deliver_all(&app.db, raffle_id, ids::now()).await?;
     if delivered > 0 {
@@ -440,7 +443,7 @@ pub async fn deliver_all(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result
 pub async fn end_live(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<()> {
     let raffle = owned(app, actor.owner, raffle_id).await?;
     if !raffle.state.is_over() {
-        return Err(Refusal::NotOver.into());
+        return Err(Refusal::NotOver(Unfinished::EndLive).into());
     }
     raffles::end_live(&app.db, raffle_id).await?;
     if raffle.live_ended_at.is_none() {

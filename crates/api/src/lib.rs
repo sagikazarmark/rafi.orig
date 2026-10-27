@@ -305,9 +305,23 @@ pub enum LifecycleCommand {
     Close,
 }
 
-/// Everything needed to independently verify a raffle's draws.
+/// The shape of [`VerifyData`] as published: `format` in the JSON. A reader
+/// refuses a format it doesn't know; a change that adds fields keeps the
+/// number, one that removes or renames any bumps it.
+pub const VERIFY_FORMAT: u32 = 1;
+
+/// Everything needed to independently verify a raffle's draws. The manifest
+/// and the events are [`rafi_raffle`]'s published shapes; `format` versions
+/// the envelope around them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VerifyData {
+    /// [`VERIFY_FORMAT`].
+    #[serde(default = "verify_format")]
+    pub format: u32,
+    /// The raffle's version in the database, as the views carry it: the
+    /// same `v` means the same content, which is what the `ETag` says.
+    #[serde(default)]
+    pub v: u64,
     pub title: String,
     pub state: RaffleState,
     /// A rehearsal: drawn in test mode, possibly with fake entrants.
@@ -321,6 +335,10 @@ pub struct VerifyData {
     /// aren't listed (they are in the manifest, by ID): once personal data
     /// is erased, this is empty.
     pub names: Vec<(String, String)>,
+}
+
+fn verify_format() -> u32 {
+    VERIFY_FORMAT
 }
 
 /// Current organizer identity, and what the admin must know before it

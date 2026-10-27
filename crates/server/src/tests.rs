@@ -636,7 +636,7 @@ async fn public_view_has_no_personal_data() {
     assert!(body.contains("Visible"));
     assert!(!body.contains("secret-address"), "email leaked: {body}");
     assert!(!body.contains(&format!("\"{claim}\"")), "claim code leaked");
-    let (_, _, verify) = send(
+    let (_, headers, verify) = send(
         &router,
         Request::get(format!("/api/r/{}/verify.json", raffle.slug))
             .body(Body::empty())
@@ -644,6 +644,56 @@ async fn public_view_has_no_personal_data() {
     )
     .await;
     assert!(!verify.contains("secret-address"));
+
+    // verify.json names its format and version; the version is its ETag, and
+    // a reader revalidates rather than keeps a copy (a name erased later
+    // must never come from a cache).
+    let data: rafi_api::VerifyData = serde_json::from_str(&verify).unwrap();
+    assert_eq!(data.format, rafi_api::VERIFY_FORMAT);
+    let etag = headers[header::ETAG].to_str().unwrap().to_owned();
+    assert_eq!(etag, format!("\"v{}\"", data.v));
+    assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+    let (status, headers, body) = send(
+        &router,
+        Request::get(format!("/api/r/{}/verify.json", raffle.slug))
+            .header(header::IF_NONE_MATCH, &etag)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!((status, body.as_str()), (StatusCode::NOT_MODIFIED, ""));
+    assert_eq!(headers[header::ETAG], etag);
+    // Erasing a name moves the version, so the ETag changes with the content.
+    let hidden = &entrants::list(&app.db, &raffle.id).await.unwrap()[0];
+    service::remove_entrant(&app, ACTOR, &raffle.id, &hidden.id)
+        .await
+        .unwrap_err();
+    service::patch_entrant(
+        &app,
+        ACTOR,
+        &raffle.id,
+        &hidden.id,
+        rafi_api::EntrantPatch {
+            hidden: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let (status, headers, body) = send(
+        &router,
+        Request::get(format!("/api/r/{}/verify.json", raffle.slug))
+            .header(header::IF_NONE_MATCH, &etag)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_ne!(headers[header::ETAG], etag);
+    assert!(
+        !body.contains("Visible"),
+        "the hidden name is masked: {body}"
+    );
 }
 
 async fn get_json(
@@ -963,6 +1013,8 @@ async fn admin_requires_clerk_session() {
     let participant = public.join("participant-dist");
     std::fs::create_dir_all(&participant).unwrap();
     std::fs::write(participant.join("fallback.js"), "// fallback").unwrap();
+    // A precompressed variant, as participant.sh leaves next to each file.
+    std::fs::write(participant.join("fallback.js.gz"), "gzipped bytes").unwrap();
     let router = super::build_router(
         app.clone(),
         Some(clerk.layer().unwrap()),
@@ -971,7 +1023,7 @@ async fn admin_requires_clerk_session() {
             participant,
         },
     );
-    let (status, _, body) = send(
+    let (status, headers, body) = send(
         &router,
         Request::get("/participant/fallback.js")
             .body(Body::empty())
@@ -979,6 +1031,30 @@ async fn admin_requires_clerk_session() {
     )
     .await;
     assert_eq!((status, body.as_str()), (StatusCode::OK, "// fallback"));
+    // Fixed names, so phones revalidate: no-cache with an ETag, and a 304
+    // when nothing changed.
+    assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+    let etag = headers[header::ETAG].clone();
+    let (status, _, body) = send(
+        &router,
+        Request::get("/participant/fallback.js")
+            .header(header::IF_NONE_MATCH, &etag)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!((status, body.as_str()), (StatusCode::NOT_MODIFIED, ""));
+    let (status, headers, body) = send(
+        &router,
+        Request::get("/participant/fallback.js")
+            .header(header::ACCEPT_ENCODING, "gzip, br")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_ENCODING], "gzip");
+    assert_eq!(body, "gzipped bytes", "the precompressed file is served");
 
     let (status, _, body) = send(&router, admin_call("whoami", "{}")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
@@ -1079,7 +1155,10 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
         let (status, _, body) = send(&router, admin_call(name, r#"{"title":"x"}"#)).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{name}: {body}");
         let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
-        assert_eq!(err.message, "Please sign in.");
+        assert_eq!(
+            (err.code.as_str(), err.message.as_str()),
+            (rafi_api::admin::codes::UNAUTHORIZED, "Please sign in.")
+        );
     }
 
     // Dev auth: the organizer is `dev`.
@@ -1108,7 +1187,7 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
     let (status, _, body) = send(
         &router,
         admin_call(
-            "lifecycle",
+            "set_lifecycle",
             &format!(r#"{{"id":"{id}","action":"publish"}}"#),
         ),
     )
@@ -1130,7 +1209,11 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
-    assert_eq!(err.message, "The title must be 1–120 characters.");
+    assert_eq!(
+        (err.code.as_str(), err.message.as_str()),
+        ("title", "The title must be 1–120 characters."),
+        "a refusal's code is its kind"
+    );
     let (status, _, body) = send(
         &router,
         admin_call(
@@ -1141,12 +1224,21 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert!(body.contains("calendar day"), "{body}");
-    let (status, _, body) = send(&router, admin_call("get_raffle", r#"{"id":"nope"}"#)).await;
+    let code = |body: &str| {
+        serde_json::from_str::<rafi_api::admin::ApiError>(body)
+            .unwrap()
+            .code
+    };
+    let (status, headers, body) = send(&router, admin_call("get_raffle", r#"{"id":"nope"}"#)).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(code(&body), rafi_api::admin::codes::NOT_FOUND);
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store", "errors too");
     let (status, _, body) = send(&router, admin_call("get_raffle", "{}")).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    let (status, _, _) = send(&router, admin_call("no_such_function", "{}")).await;
+    assert_eq!(code(&body), rafi_api::admin::codes::INVALID_ARGUMENTS);
+    let (status, _, body) = send(&router, admin_call("no_such_function", "{}")).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(code(&body), rafi_api::admin::codes::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -2757,15 +2849,15 @@ async fn all_prizes_delivered() {
     assert!(
         matches!(
             refused,
-            Err(service::Error::Refused(
-                service::Refusal::NotFinishedForDelivery
-            ))
+            Err(service::Error::Refused(service::Refusal::NotOver(
+                service::Unfinished::DeliverAll
+            )))
         ),
         "not before the finish: {refused:?}"
     );
     assert_eq!(
         refused.unwrap_err().to_string(),
-        "Prizes can be marked delivered once the raffle has finished."
+        "All prizes can be marked delivered at once once the raffle has finished. One winner's prize can be marked delivered any time after they claimed it."
     );
     service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
@@ -3281,7 +3373,7 @@ async fn organization_tiers_gate_the_admin_api() {
     assert_eq!(status, StatusCode::OK, "a member sets up prizes: {body}");
     let (status, body) = call(
         &member,
-        "lifecycle",
+        "set_lifecycle",
         &format!(r#"{{"id":"{id}","action":"publish"}}"#),
     )
     .await;
@@ -3491,6 +3583,7 @@ async fn settings_refusals_over_http() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
     let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, "settings_fixed");
     assert_eq!(
         err.message,
         "The event date cannot change: entrants have already accepted the rules they were shown with."
@@ -3535,7 +3628,7 @@ async fn settings_refusals_over_http() {
     let (status, _, body) = send(
         &router,
         admin_call(
-            "lifecycle",
+            "set_lifecycle",
             &format!(r#"{{"id":"{stale}","action":"open"}}"#),
         ),
     )

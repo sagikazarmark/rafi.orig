@@ -33,7 +33,7 @@ pub(super) fn Header(
         let id = id.clone();
         async move {
             busy.set(true);
-            match api::lifecycle(id, action).await {
+            match api::set_lifecycle(id, action).await {
                 Ok(()) => on_change.call(()),
                 Err(e) => error.set(Some(err_text(e))),
             }
@@ -96,7 +96,7 @@ pub(super) fn Header(
     let export = move || {
         let id = id.clone();
         async move {
-            match api::export_winners(id).await {
+            match api::export_winners_csv(id).await {
                 Ok(csv) => download("winners.csv", &csv),
                 Err(e) => error.set(Some(err_text(e))),
             }
@@ -119,7 +119,7 @@ pub(super) fn Header(
     let deliver_all = move || {
         let id = id.clone();
         async move {
-            match api::deliver_all(id).await {
+            match api::deliver_all_prizes(id).await {
                 Ok(n) => {
                     toast.success(
                         format!("📦 {n} prize(s) marked delivered"),

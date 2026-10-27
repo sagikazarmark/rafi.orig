@@ -33,6 +33,15 @@ pub fn Verify(slug: String) -> Element {
         None => {
             rsx! { div { class: "grid place-items-center py-24", span { class: "loading loading-dots loading-lg text-primary" } } }
         }
+        // A reply this page can't read is a page older than the server (or
+        // a record written by a newer one), not a missing raffle.
+        Some(Err(e)) if e.code == api::codes::CLIENT => rsx! {
+            div { class: "rounded-box border-2 border-dashed border-base-300 py-16 text-center",
+                p { class: "text-5xl", "🧩" }
+                p { class: "mt-3 text-base-content/70", "This page can't read the raffle's record. Reload the page; if that doesn't help, the record was written by a newer version of Rafi than this page." }
+                p { class: "mt-1 text-sm text-base-content/50", "{e.message}" }
+            }
+        },
         Some(Err(_)) => rsx! {
             div { class: "rounded-box border-2 border-dashed border-base-300 py-16 text-center",
                 p { class: "text-5xl", "🔍" }

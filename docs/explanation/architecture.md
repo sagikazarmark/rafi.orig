@@ -93,7 +93,8 @@ There is deliberately **no fallback engine** in production. Two engines owning o
 on two rounds. If the engine is unreachable, the app refuses to start a draw, and a stalled draw waits for it. The
 in-process `LocalEngine` exists for tests and development only.
 
-The app talks to the engine only through the `Engine` interface (`info`, `open`, `draw`, `decide`), documented in
+The app talks to the engine only through the `Engine` interface (`info`, `open`, `draw`, `decide`; the object
+also answers `get`, the current raffle, for recovery and debugging), documented in
 [`crates/engine/src/engine.rs`](../../crates/engine/src/engine.rs). Its contract:
 
 - State is read from the database (the projection), never from the engine.

@@ -4,7 +4,13 @@
 //! once: its name, arguments and result. A call POSTs the arguments as a
 //! JSON object (field names = parameter names) to `/api/admin/<name>`
 //! ([`PATH`]) and gets the JSON-encoded result back, or an [`ApiError`]
-//! with a non-2xx status (401 without a session).
+//! with a non-2xx status (401 without a session): a machine-readable `code`
+//! and a `message` for the organizer.
+//!
+//! The names are a contract with every client: a verb and its object
+//! (`create_raffle`, `save_prize`, `set_lifecycle`), `save` for an upsert,
+//! `delete` for what is gone for good, `remove` for an entrant (deleted
+//! before the freeze, erased after it), `export_…_csv` for what returns CSV.
 //!
 //! From that one list come the server's side, [`Admin`] (one method per
 //! function, so a server that misses one doesn't compile) and [`dispatch`],
@@ -46,7 +52,8 @@ macro_rules! admin_functions {
             /// Adds or edits a prize; returns its ID.
             fn save_prize(id: String, prize: $crate::PrizeInput) -> String;
             fn delete_prize(id: String, prize_id: String) -> ();
-            fn lifecycle(id: String, action: $crate::LifecycleCommand) -> ();
+            /// Moves the raffle through its lifecycle (publish, open, close, …).
+            fn set_lifecycle(id: String, action: $crate::LifecycleCommand) -> ();
             /// Freezes the entrants and hands the raffle to the engine.
             fn start_draw(id: String) -> ();
             fn draw_item(id: String, item: $crate::admin::ItemId, command_id: String) -> ();
@@ -64,34 +71,61 @@ macro_rules! admin_functions {
             fn add_entrant(id: String, name: String, email: Option<String>) -> String;
             fn add_fake_entrants(id: String, n: u32) -> ();
             fn patch_entrant(id: String, entrant_id: String, patch: $crate::EntrantPatch) -> ();
+            /// Takes an entrant off the list: deleted before the freeze, their
+            /// personal data erased after it (once the raffle is over or its
+            /// erasure date has passed).
             fn remove_entrant(id: String, entrant_id: String) -> ();
-            /// The winners as CSV.
-            fn export_winners(id: String) -> String;
+            /// The winners as CSV; every export is audited.
+            fn export_winners_csv(id: String) -> String;
             /// Erases the raffle's personal data now.
             fn purge_raffle(id: String) -> ();
             /// Marks every winner's prize delivered: their data goes on the
             /// non-winner clock. Returns how many.
-            fn deliver_all(id: String) -> u64;
+            fn deliver_all_prizes(id: String) -> u64;
             /// Removes the organizer's own data: their defaults, and their
             /// name and contacts from their raffles, whose personal data is
-            /// erased. Draft raffles are deleted.
+            /// erased. Raffles that were never frozen are deleted.
             fn remove_my_data() -> ();
         }
     };
 }
 
-/// An error reply: a message for the organizer.
+/// An error reply: what went wrong, for a program (`code`, stable
+/// `snake_case` names: a refusal's kind, or [`codes`]') and for the
+/// organizer (`message`, English).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
+    #[serde(default)]
+    pub code: String,
     pub message: String,
 }
 
 impl ApiError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
+            code: code.into(),
             message: message.into(),
         }
     }
+}
+
+/// The error codes that aren't a refusal's: how a call failed before, or
+/// instead of, reaching the raffle's rules.
+pub mod codes {
+    /// No session.
+    pub const UNAUTHORIZED: &str = "unauthorized";
+    /// No admin function by that name, or no such raffle, prize or entrant
+    /// of the caller's.
+    pub const NOT_FOUND: &str = "not_found";
+    /// The arguments don't decode.
+    pub const INVALID_ARGUMENTS: &str = "invalid_arguments";
+    /// The raffle engine can't be reached.
+    pub const UNAVAILABLE: &str = "unavailable";
+    /// The server failed; the details are in its log.
+    pub const INTERNAL: &str = "internal";
+    /// The browser's client couldn't reach the server, or couldn't read
+    /// what it sent back (an older page under a newer server).
+    pub const CLIENT: &str = "client";
 }
 
 impl fmt::Display for ApiError {

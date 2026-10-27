@@ -44,8 +44,8 @@ async function newRaffle(title) {
 }
 const id = await newRaffle(`Workers evening ${Date.now()}`);
 await api("save_prize", { id, prize: { id: null, name: "Rust in Action", sponsor: "Sponsor Kft.", description: "", qty: 1, position: 0 } });
-await api("lifecycle", { id, action: "publish" });
-await api("lifecycle", { id, action: "open" });
+await api("set_lifecycle", { id, action: "publish" });
+await api("set_lifecycle", { id, action: "open" });
 let admin = await api("get_raffle", { id });
 check(admin.retention.erase_at > Date.now() / 1000, "the erasure date is ahead");
 const { slug, join_code: code } = admin.view;
@@ -141,7 +141,7 @@ const cfg = await js(`JSON.parse(document.getElementById("rafi-config").textCont
 check(cfg.follow?.kind === "partyline", "the page subscribes over partyline");
 
 // The draw, through Restate; the phone follows over the live channel.
-await api("lifecycle", { id, action: "close" });
+await api("set_lifecycle", { id, action: "close" });
 await api("start_draw", { id });
 check(await until(async () => /draw is starting|starting/i.test(await card()), 15000), "the freeze reaches the phone");
 admin = await api("get_raffle", { id });
@@ -194,8 +194,8 @@ check(closed === 4403, `a socket after the end is refused (${closed})`);
 // the draw above keeps one entrant.
 const other = await newRaffle(`Workers evening, no wasm ${Date.now()}`);
 await api("save_prize", { id: other, prize: { id: null, name: "Sticker", sponsor: "", description: "", qty: 1, position: 0 } });
-await api("lifecycle", { id: other, action: "publish" });
-await api("lifecycle", { id: other, action: "open" });
+await api("set_lifecycle", { id: other, action: "publish" });
+await api("set_lifecycle", { id: other, action: "open" });
 const otherCode = (await api("get_raffle", { id: other })).view.join_code;
 const nowasm = await tab("about:blank");
 await nowasm.call("Page.enable");

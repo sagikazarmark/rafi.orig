@@ -141,8 +141,9 @@ pub struct Dirs {
     /// The web app (admin, projector, verification page): `dx bundle`'s output.
     pub public: PathBuf,
     /// The participant page's WebAssembly and fallback: `./scripts/participant.sh`'s
-    /// output, served at `/participant/`. The proof-of-work solver there,
-    /// `altcha-worker.js`, is a route in [`routes`].
+    /// output, served at `/participant/` (with `.br` and `.gz` next to each
+    /// file when the script could make them). The proof-of-work solver
+    /// there, `altcha-worker.js`, is a route in [`routes`].
     pub participant: PathBuf,
 }
 
@@ -150,18 +151,38 @@ pub struct Dirs {
 /// `/participant/`, then the web app from [`Dirs::public`] with a single-page
 /// fallback to its `index.html`, all behind the Clerk auth layer unless dev
 /// auth is on. On Workers, Workers Assets serves the files instead.
+///
+/// The participant scripts keep fixed names, so a phone must revalidate
+/// them: `Cache-Control: no-cache` with the `ETag` `ServeDir` derives from the
+/// file, which is what Workers Assets does by default, and what a deploy
+/// needs so no phone keeps an old module. They are served precompressed
+/// where `participant.sh` left a `.br` or `.gz`: the module crosses venue
+/// wifi, where the uncompressed size would be felt.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn build_router(
     app: AppState,
     auth: Option<dioxus_clerk::server::ClerkAuthLayer>,
     dirs: &Dirs,
 ) -> Router {
-    use tower_http::services::{ServeDir, ServeFile};
+    use tower_http::{
+        services::{ServeDir, ServeFile},
+        set_header::SetResponseHeaderLayer,
+    };
 
     let web_app =
         ServeDir::new(&dirs.public).fallback(ServeFile::new(dirs.public.join("index.html")));
+    let participant = Router::new()
+        .fallback_service(
+            ServeDir::new(&dirs.participant)
+                .precompressed_br()
+                .precompressed_gzip(),
+        )
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        ));
     let router = routes(app)
-        .nest_service("/participant", ServeDir::new(&dirs.participant))
+        .nest("/participant", participant)
         .fallback_service(web_app);
     match auth {
         Some(layer) => router.layer(layer),

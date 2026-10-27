@@ -69,16 +69,17 @@ RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS=publickeyv1_… \
 
 Every setting is in the [configuration reference](../reference/configuration.md#the-raffle-engine-rafi-restate).
 
-Then **register it with Restate**, once and again whenever its handlers change (see
-[Upgrades](upgrades.md#re-registering-the-raffle-engine)):
+Then **register it with Restate**, without `force`:
 
 ```sh
 # self-hosted Restate: its admin API
 curl -X POST http://localhost:9070/deployments -H 'content-type: application/json' \
-  -d '{"uri": "http://<engine host>:9080", "force": true}'
+  -d '{"uri": "http://<engine host>:9080"}'
 ```
 
-On Restate Cloud, register the engine's public URL as a deployment in the Cloud console or CLI.
+On Restate Cloud, register the engine's public URL as a deployment in the Cloud console or CLI. A release that
+changes the engine's handlers needs a **new URI** (Restate keeps what it already knows about a registered one, and
+`force` is never the answer); see [Upgrades](upgrades.md#registering-the-raffle-engine).
 
 ## 5. Legal documents and the operator
 
@@ -117,7 +118,9 @@ IP=127.0.0.1 PORT=8081 \
 ```
 
 - Run it from the repository root, or set `RAFI_PUBLIC_DIR` and `RAFI_PARTICIPANT_DIR` to where you put the web
-  bundle and the participant scripts.
+  bundle and the participant scripts. The scripts are served with `Cache-Control: no-cache` and an `ETag`, so a
+  deploy never leaves a phone on an old module, and precompressed (`.gz`, and `.br` if `brotli` was installed
+  when `participant.sh` ran) when the browser accepts it: no compressing proxy is needed in front of them.
 - Set `RAFI_ALTCHA_KEY` to a fixed secret. Otherwise it is random per start, and a restart during registration
   invalidates the challenges phones are solving. Don't rotate it during an event.
 - Keep `RESTATE_TIMEOUT_SECS` (90) above the engine's `lead_secs + timeout_secs` (66 by default).

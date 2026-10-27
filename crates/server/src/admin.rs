@@ -15,7 +15,7 @@ use dioxus_clerk::server::ClerkAuth;
 use rafi_api::{
     Access, Caller, EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleDefaults,
     RaffleSettings, RaffleSummary,
-    admin::{self, Admin, ApiError, ItemId, Resolution},
+    admin::{self, Admin, ApiError, ItemId, Resolution, codes},
 };
 use rafi_raffle::{Decision, DrawRequest};
 
@@ -39,7 +39,11 @@ async fn call(
     args: Bytes,
 ) -> Response {
     let Some(caller) = auth::caller(&app, auth) else {
-        return error(StatusCode::UNAUTHORIZED, "Please sign in.");
+        return error(
+            StatusCode::UNAUTHORIZED,
+            codes::UNAUTHORIZED,
+            "Please sign in.",
+        );
     };
     match admin::dispatch(&app, &caller, &name, &args).await {
         Ok(value) => ([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response(),
@@ -47,29 +51,54 @@ async fn call(
     }
 }
 
-/// The status and the organizer's message for why a call failed.
+/// The status, the code and the organizer's message for why a call failed.
+/// A refusal's code is its kind ([`service::Refusal::code`]); the status
+/// says what kind of failure: 400 for a request that can never succeed, 403
+/// for the caller's tier, 404 for what isn't theirs, 409 for what the
+/// raffle's state refuses, 503 for an engine out of reach.
 fn app_error(name: &str, e: DispatchError) -> Response {
-    let status = match &e {
-        DispatchError::Unknown | DispatchError::App(Error::NotFound) => StatusCode::NOT_FOUND,
-        DispatchError::Arguments(_) => StatusCode::BAD_REQUEST,
-        DispatchError::App(Error::Refused(r)) if r.invalid() => StatusCode::BAD_REQUEST,
-        DispatchError::App(Error::Refused(service::Refusal::Forbidden(_))) => StatusCode::FORBIDDEN,
-        DispatchError::App(Error::Refused(_)) => StatusCode::CONFLICT,
-        DispatchError::App(Error::Unavailable) => StatusCode::SERVICE_UNAVAILABLE,
+    let (status, code) = match &e {
+        DispatchError::Unknown | DispatchError::App(Error::NotFound) => {
+            (StatusCode::NOT_FOUND, codes::NOT_FOUND)
+        }
+        DispatchError::Arguments(_) => (StatusCode::BAD_REQUEST, codes::INVALID_ARGUMENTS),
+        DispatchError::App(Error::Refused(r)) if r.invalid() => (StatusCode::BAD_REQUEST, r.code()),
+        DispatchError::App(Error::Refused(r @ service::Refusal::Forbidden(_))) => {
+            (StatusCode::FORBIDDEN, r.code())
+        }
+        DispatchError::App(Error::Refused(r)) => (StatusCode::CONFLICT, r.code()),
+        DispatchError::App(Error::Unavailable) => {
+            (StatusCode::SERVICE_UNAVAILABLE, codes::UNAVAILABLE)
+        }
         DispatchError::App(Error::Internal(e)) => {
             tracing::error!(function = name, error = %e, "internal error");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "internal error");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                codes::INTERNAL,
+                "internal error",
+            );
         }
         DispatchError::Result(e) => {
             tracing::error!(function = name, error = %e, "encoding the result");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "internal error");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                codes::INTERNAL,
+                "internal error",
+            );
         }
     };
-    error(status, &e.to_string())
+    error(status, code, &e.to_string())
 }
 
-fn error(status: StatusCode, message: &str) -> Response {
-    (status, Json(ApiError::new(message))).into_response()
+/// Error replies are `no-store` like the successes: nothing of the admin API
+/// belongs in a cache.
+fn error(status: StatusCode, code: &str, message: &str) -> Response {
+    (
+        status,
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(ApiError::new(code, message)),
+    )
+        .into_response()
 }
 
 /// Refuses unless the caller's tier allows what `needs`. Running a raffle
@@ -172,7 +201,7 @@ impl Admin for AppState {
         service::delete_prize(self, service::actor(c), &id, &prize_id).await
     }
 
-    async fn lifecycle(
+    async fn set_lifecycle(
         &self,
         c: &Caller,
         id: String,
@@ -294,7 +323,7 @@ impl Admin for AppState {
         service::remove_entrant(self, service::actor(c), &id, &entrant_id).await
     }
 
-    async fn export_winners(&self, c: &Caller, id: String) -> service::Result<String> {
+    async fn export_winners_csv(&self, c: &Caller, id: String) -> service::Result<String> {
         service::export_csv(self, service::actor(c), &id).await
     }
 
@@ -302,7 +331,7 @@ impl Admin for AppState {
         service::purge(self, service::actor(c), &id).await
     }
 
-    async fn deliver_all(&self, c: &Caller, id: String) -> service::Result<u64> {
+    async fn deliver_all_prizes(&self, c: &Caller, id: String) -> service::Result<u64> {
         service::deliver_all(self, service::actor(c), &id).await
     }
 

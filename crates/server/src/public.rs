@@ -64,9 +64,41 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
     }
 }
 
-async fn verify_json(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
+/// What verifiers fetch. The raffle's version is the `ETag` (the same `v`,
+/// the same content: a name erased later bumps it), and `no-cache` makes
+/// browsers and tools revalidate rather than keep a copy, so an erased name
+/// is never served from a cache; a finished raffle costs them a 304.
+async fn verify_json(
+    Extension(app): Extension<AppState>,
+    Path(slug): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Response {
     match service::verify_data(&app, &slug).await {
-        Ok(data) => Json(data).into_response(),
+        Ok(data) => {
+            let etag = format!("\"v{}\"", data.v);
+            if headers
+                .get(header::IF_NONE_MATCH)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.split(',').any(|t| t.trim() == etag))
+            {
+                return (
+                    StatusCode::NOT_MODIFIED,
+                    [
+                        (header::ETAG, etag),
+                        (header::CACHE_CONTROL, "no-cache".to_owned()),
+                    ],
+                )
+                    .into_response();
+            }
+            (
+                [
+                    (header::ETAG, etag),
+                    (header::CACHE_CONTROL, "no-cache".to_owned()),
+                ],
+                Json(data),
+            )
+                .into_response()
+        }
         Err(service::Error::NotFound) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!(error = %e, "verify data");

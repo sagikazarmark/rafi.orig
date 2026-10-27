@@ -34,11 +34,18 @@ These never contain emails, tokens or claim codes.
 
 | Path | What |
 |---|---|
-| `POST /api/admin/<function>` | One function of the admin API. Requires a Clerk session, and every call checks that the raffle belongs to the caller (the active organization, or else the user). |
+| `POST /api/admin/<function>` | One function of the admin API: the arguments as a JSON object in, the result as JSON out. Requires a Clerk session, and every call checks that the raffle belongs to the caller (the active organization, or else the user). |
 
-Both sides come from one declaration, `admin_functions!` in [`crates/api/src/admin.rs`](../../crates/api/src/admin.rs).
-Among them: `whoami` (who is signed in and what they may do, whether housekeeping looks stopped), `deliver_all`
-("All prizes delivered"), `remove_my_data` (the organizer leaving), and `export_winners`, which is audited.
+Both sides come from one declaration, `admin_functions!` in [`crates/api/src/admin.rs`](../../crates/api/src/admin.rs),
+which also says how the functions are named. Among them: `whoami` (who is signed in and what they may do, whether
+housekeeping looks stopped), `set_lifecycle` (publish, open, close), `deliver_all_prizes` ("All prizes delivered"),
+`remove_my_data` (the organizer leaving), and `export_winners_csv`, which is audited.
+
+A failed call answers with a non-2xx status and `{"code": "…", "message": "…"}`: the `code` is a stable
+`snake_case` name a program can act on (a refusal's kind, such as `settings_fixed` or `forbidden`, or `not_found`,
+`invalid_arguments`, `unauthorized`, `unavailable`, `internal`), the `message` is for the organizer. The status says
+what kind of failure: 400 for a request that can never succeed, 401 without a session, 403 for the caller's tier,
+404 for what isn't theirs, 409 for what the raffle's state refuses, 503 for an engine out of reach.
 
 ## Static files
 

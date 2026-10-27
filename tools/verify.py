@@ -28,6 +28,9 @@ the committed round of an abandoned draw would have picked.
 
 import hashlib
 import json
+
+# The verify.json envelope this script reads (`format` in the file).
+VERIFY_FORMAT = 1
 import sys
 import urllib.request
 
@@ -87,6 +90,12 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
     else:
         print(f"ok   manifest hash {manifest_hash.hex()}")
     doc = json.loads(manifest)
+    # Canonical: the published string is what its parse re-serializes to
+    # (one way to read it). Python's compact dump escapes exactly as the
+    # canonical form prescribes.
+    if json.dumps(doc, separators=(",", ":"), ensure_ascii=False) != manifest:
+        print("FAIL manifest is not in canonical form")
+        ok = False
     entrants = doc["entrants"]
     # A manifest an engine would open: the algorithm this script implements,
     # entrants in canonical form (sorted, unique, lowercase), unique item IDs.
@@ -187,6 +196,14 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
             pending = None
         elif t == "voided":
             print(f"     item {ev['item']} voided")
+        elif t == "finished":
+            print("     the raffle finished")
+        else:
+            # A verifier never skips what it can't interpret: an event type this
+            # script doesn't know could change the pool, and skipping it would
+            # vouch for a log that wasn't checked.
+            print(f"FAIL unknown event type {t!r}: this verifier is older than the log")
+            ok = False
     return ok
 
 
@@ -217,6 +234,12 @@ def main(argv):
             print(__doc__)
             return 2
         data = load(args[0])
+        # The envelope's format: fields may be added under the same number;
+        # another number means this script predates the file.
+        fmt = data.get("format", 1)
+        if fmt != VERIFY_FORMAT:
+            print(f"FAIL verify.json format {fmt}: this verifier knows format {VERIFY_FORMAT}")
+            return 1
         ok = verify(data["manifest"], data["manifest_hash"], data["events"], fetch=fetch)
     print("VERIFIED" if ok else "VERIFICATION FAILED")
     return 0 if ok else 1

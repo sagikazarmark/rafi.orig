@@ -20,6 +20,10 @@ pub enum Follow {
     },
     /// No push: fetch the view every `every_ms` milliseconds.
     Poll { every_ms: u32 },
+    /// A way this build doesn't know (the server is newer): the client
+    /// polls at [`DEFAULT_POLL_MS`], which every server answers.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Follow {
@@ -35,6 +39,7 @@ impl Follow {
         match self {
             Self::Partyline { .. } => None,
             Self::Poll { every_ms } => Some((*every_ms).max(250)),
+            Self::Unknown => Some(DEFAULT_POLL_MS),
         }
     }
 }
@@ -51,9 +56,12 @@ mod tests {
             r#"{"kind":"partyline"}"#
         );
         assert_eq!(json(&Follow::poll()), r#"{"kind":"poll","every_ms":2500}"#);
-        assert!(
-            serde_json::from_str::<Follow>(r#"{"kind":"sse","url":"/hub"}"#).is_err(),
-            "unknown kinds are rejected"
+        let newer: Follow = serde_json::from_str(r#"{"kind":"sse","url":"/hub"}"#).unwrap();
+        assert_eq!(newer.poll_every_ms(), Some(DEFAULT_POLL_MS));
+        assert_eq!(
+            newer,
+            Follow::Unknown,
+            "a kind from a newer server falls back to polling"
         );
         let party: Follow =
             serde_json::from_str(r#"{"kind":"partyline","base_url":"https://x"}"#).unwrap();

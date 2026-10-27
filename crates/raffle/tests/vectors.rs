@@ -232,3 +232,55 @@ fn claimed_draws_are_the_winners() {
     }
     assert_eq!(claims, 3, "the scenario ends with three claims");
 }
+
+/// The stored scenario is the pinned shape of every `rafi-draw-v1` event: it
+/// holds every event type, each reads back and re-serializes to the very same
+/// JSON (names, order, values), and a field it doesn't know is ignored. These
+/// are the compatibility rules of the draw algorithm's "Versions and
+/// compatibility": a log in the database, in `verify.json` or in Restate's
+/// state keeps reading, and a change that would break one shows up here.
+#[test]
+fn event_shapes_are_pinned() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/draw-vectors.json"
+    );
+    let stored: Vectors =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("vectors file")).unwrap();
+    let raw = stored.scenario.events.as_array().unwrap();
+    let kinds: BTreeSet<&str> = raw
+        .iter()
+        .map(|e| e["type"].as_str().expect("a type tag"))
+        .collect();
+    let all: BTreeSet<&str> = [
+        "announced",
+        "drawn",
+        "stalled",
+        "abandoned",
+        "resolved",
+        "voided",
+        "finished",
+    ]
+    .into();
+    assert_eq!(kinds, all, "the scenario holds every event type");
+    for json in raw {
+        let event: Event = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(event.kind(), json["type"].as_str().unwrap());
+        assert_eq!(
+            serde_json::to_value(&event).unwrap(),
+            *json,
+            "an event re-serializes as stored"
+        );
+        // Additive only: a field from a newer build reads, and is dropped.
+        let mut widened = json.clone();
+        widened["from_the_future"] = serde_json::json!(1);
+        let read: Event = serde_json::from_value(widened).expect("an unknown field is ignored");
+        assert_eq!(read, event);
+    }
+    // The manifest's shape, the same way.
+    let manifest: Manifest = serde_json::from_str(&stored.scenario.manifest).unwrap();
+    assert_eq!(manifest.canonical_json(), stored.scenario.manifest);
+    // And a reader older than the log fails closed on a type it doesn't know.
+    let unknown = serde_json::json!({"type": "swapped", "k": 1});
+    assert!(serde_json::from_value::<Event>(unknown).is_err());
+}

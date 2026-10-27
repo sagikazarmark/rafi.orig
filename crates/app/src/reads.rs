@@ -10,7 +10,7 @@ use rafi_lifecycle::{
     start::{self, Start},
 };
 use rafi_raffle::{ItemId, Outcome, Raffle};
-use rafi_store::{RaffleRow, audit, entrants, raffles, view::Full};
+use rafi_store::{RaffleRow, audit, raffles, view::Full};
 
 use crate::{
     Actor, App, Error, Result, ids,
@@ -186,19 +186,21 @@ pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String>
 }
 
 /// Everything needed to verify the draws of raffle `slug`, once its
-/// manifest is published.
+/// manifest is published. One snapshot ([`Full::read`]): the names, the
+/// events and the version agree, so the `ETag` built from `v` is honest.
 pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
-    let raffle = raffles::by_slug(&app.db, slug)
+    let id = raffles::by_slug(&app.db, slug)
         .await?
-        .ok_or(Error::NotFound)?;
-    let (Some(manifest), Some(manifest_hash)) =
-        (raffle.manifest.clone(), raffle.manifest_hash.clone())
-    else {
+        .ok_or(Error::NotFound)?
+        .id;
+    let full = Full::read(&app.db, &id).await?.ok_or(Error::NotFound)?;
+    let raffle = full.raffle;
+    let (Some(manifest), Some(manifest_hash)) = (raffle.manifest, raffle.manifest_hash) else {
         return Err(Error::NotFound);
     };
     // Erased entrants have no name left: the page shows the start of their ID.
-    let names = entrants::list(&app.db, &raffle.id)
-        .await?
+    let names = full
+        .entrants
         .into_iter()
         .filter(|e| !e.erased)
         .map(|e| {
@@ -210,13 +212,12 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
         })
         .collect();
     Ok(VerifyData {
-        title: raffle.title.clone(),
+        format: rafi_api::VERIFY_FORMAT,
+        v: raffle.version.max(0) as u64,
+        title: raffle.title,
         state: raffle.state,
         test_mode: raffle.test_mode,
-        events: raffles::drawn(&app.db, &raffle)
-            .await?
-            .map(|s| s.events().to_vec())
-            .unwrap_or_default(),
+        events: full.drawn.map(|s| s.events().to_vec()).unwrap_or_default(),
         manifest,
         manifest_hash,
         names,

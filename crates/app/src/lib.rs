@@ -41,7 +41,7 @@ pub use entrants::{
     CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_fakes, add_manual, deliver_all,
     end_live, join, name_ideas, patch_entrant, purge, remove_entrant,
 };
-pub use error::{Error, Refusal, Result};
+pub use error::{Error, Refusal, Result, Unfinished};
 pub use owners::{reapply_erasures, remove_owner_data};
 pub use prizes::{delete_prize, upsert_prize};
 pub use raffles::{

@@ -48,7 +48,9 @@ Then open <http://localhost:8787/admin>. Draws use real drand, so they need inte
 
 - `rafi` and `engine` restart when their Rust code changes. Restate only discovers the engine's handlers when it
   registers it, on start: after changing them (`Raffle`, `EngineInfo`), register it again with
-  `restate deployments register --force http://127.0.0.1:9080`.
+  `restate deployments register --force http://127.0.0.1:9080`. `--force` overwrites what Restate knows about the
+  URI, which is fine here, where no raffle in flight matters, and never in production (see
+  [Upgrades](../operations/upgrades.md#registering-the-raffle-engine)).
 - The database (`rafi.db`) and Restate's data are in `.devenv/state`.
 - Ports other than the server's are allocated: if one is taken, devenv takes the next free one.
 - `devenv up -d` runs in the background: `devenv processes logs rafi`, then `devenv down`.
@@ -132,7 +134,8 @@ RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http:/
 # the raffle engine, in another terminal
 RAFI_RESTATE_DATABASE__URL="$RAFI_DATABASE_URL" cargo run -p rafi-restate
 
-# once, and again whenever the services' handlers change (Raffle, EngineInfo)
+# once, and again whenever the services' handlers change (Raffle, EngineInfo);
+# `force` overwrites the registration: fine in development, never in production
 curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
   -d '{"uri": "http://localhost:9080", "force": true}'
 ```

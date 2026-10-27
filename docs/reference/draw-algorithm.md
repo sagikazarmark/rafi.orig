@@ -33,11 +33,26 @@ starts the draw, before any draw can be announced.
 | `items` | One item per copy of a prize, each with a unique `id` and a `name`. |
 
 The fields always appear in this order, and the manifest has no maps or floats. That makes its serialization
-canonical. Verifiers **must not re-serialize** the manifest: the exact published string is what gets hashed.
+canonical, and the canonical form is pinned so that any JSON library produces the same bytes:
+
+- no whitespace anywhere outside strings; object keys in the order shown; arrays in the order given;
+- integers as plain digits (the manifest has none today);
+- strings in UTF-8, escaping only `"` as `\"`, `\` as `\\`, and the control characters U+0000–U+001F: U+0008 as
+  `\b`, U+0009 as `\t`, U+000A as `\n`, U+000C as `\f`, U+000D as `\r`, every other one as `\u00xx` with
+  lowercase hex. Nothing else is escaped: not `/`, not U+007F, not U+2028 or U+2029, and no non-ASCII character.
+
+These are the rules of `serde_json` and of Python's `json.dumps(…, separators=(",", ":"), ensure_ascii=False)`,
+which is why both verifiers reproduce the string.
+
+The exact published string is what gets hashed: verifiers hash it **as published**, never a re-serialization. A
+verifier does also check that the published string *is* canonical, by parsing it and re-serializing it under the
+rules above: a string that isn't (a duplicate key, say, which parsers resolve differently) could be read two ways,
+and a manifest that can be read two ways isn't a commitment.
 
 A manifest is valid when:
 
-- `algo` is `rafi-draw-v1`
+- `algo` is an algorithm the reader knows (today only `rafi-draw-v1`; a reader *opening a new raffle* requires
+  the current one)
 - there is at least one entrant and at least one item
 - the entrants are sorted, unique and lowercase
 - the item IDs are unique
@@ -131,6 +146,8 @@ These rules hold, and the replay enforces them:
 
 ```json
 {
+  "format": 1,
+  "v": 42,
   "title": "…",
   "state": "drawing",
   "test_mode": false,
@@ -141,6 +158,12 @@ These rules hold, and the replay enforces them:
 }
 ```
 
+`format` versions this envelope (the manifest and the events are versioned by `algo`): fields may be added under
+the same number, and a reader refuses a number it doesn't know. `v` is the raffle's version in the database, which
+the response also sends as its `ETag`; the same `v` is the same content, and anything that changes the content
+(a draw, a name hidden or erased) moves it. The response is `Cache-Control: no-cache`: readers revalidate with
+`If-None-Match` and get a `304` while nothing changed, and an erased name is never served from a cache.
+
 `names` lets people check that they are in the list: hidden names show as `★ ★ ★`. An entrant whose personal data
 is erased is no longer in it (their ID stays in the manifest), so once the organizer erases everyone's, it is
 empty. `test_mode` is `true` for a rehearsal, whose entrants may be fakes.
@@ -149,14 +172,34 @@ empty. `test_mode` is `true` for a rehearsal, whose entrants may be fakes.
 
 A log verifies when all of these hold:
 
-1. `SHA256(manifest)` equals the published `manifest_hash`.
-2. The manifest is valid and canonical, and its chain is a public drand chain the verifier knows.
+1. `SHA256(manifest)` equals the published `manifest_hash`, hashing the published string as is.
+2. The manifest is valid and canonical (re-serializing what it parses to, under the rules above, gives the
+   published string back), and its chain is a public drand chain the verifier knows.
 3. Every `drawn` beacon's BLS signature verifies against that chain for its round, and
    `randomness = SHA256(signature)`.
 4. Replaying every event through the rules reproduces it exactly: the same pass, pool size, index and winner.
+5. Every event has a `type` the verifier knows. **A verifier never skips what it can't interpret**: an unknown
+   event could have changed the pool, and skipping it would vouch for a log that wasn't checked. An unknown
+   `algo` or `type` is a verification failure that says the verifier is older than the log.
 
 For each `abandoned` draw, a verifier can show whom the committed round would have picked: fetch the round, then
 apply the selection to the pool as it stood.
+
+## Versions and compatibility
+
+The manifest and the event log are published, stored in the database (`raffle_events.body`) and held by the
+raffle engine while a raffle runs, all as the JSON above, and they stay readable for as long as anyone may want to
+verify a draw. So their shape is a contract, and `algo` is its version:
+
+- **A reader dispatches on `algo`** and keeps every algorithm it ever shipped. Rebuilding a stored raffle, showing
+  it, and verifying it work for every version; only opening a *new* raffle requires the current one.
+- **Within a version, changes are additive only.** A new field on an event carries a default, so a log written
+  before it still reads; a field or an event type is never renamed or removed; a field's meaning never changes.
+- **A new event type, or any change to how winners are picked or pools are formed, is a new `algo`**
+  (`rafi-draw-v2`), with its own section in this document and its own vectors. Logs under the old version keep
+  verifying under the old rules.
+- **A reader older than the log fails closed** (rule 5 above) rather than guessing. Operators avoid the case by
+  never running a build older than the one that wrote the database (see [Upgrades](../operations/upgrades.md)).
 
 ## Test vectors
 

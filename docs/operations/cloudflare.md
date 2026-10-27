@@ -78,9 +78,12 @@ production's database and Durable Objects.
 
 ### 4. The raffle engine
 
-In Restate Cloud, **register `https://<the Worker's hostname>/restate` as a new deployment**. Do this again for
-every release (see [Upgrades](upgrades.md)). Restate appends `/discover` and `/invoke/…` to that URL; the Worker
-verifies each request's signature before anything else happens to it.
+In Restate Cloud, **register `https://<the Worker's hostname>/restate` as a deployment**, without `force`.
+Restate appends `/discover` and `/invoke/…` to that URL; the Worker verifies each request's signature before
+anything else happens to it. A release that changes the engine's handlers comes with a new path under `/restate/`
+and says so; register that, and drain the old deployment (see
+[Upgrades](upgrades.md#registering-the-raffle-engine)). Re-registering a URL Restate already knows changes
+nothing, silently.
 
 ### 5. Check
 
