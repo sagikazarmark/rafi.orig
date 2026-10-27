@@ -310,7 +310,7 @@ pub fn legal(title: &str, version: &str, markdown_text: &str) -> String {
 
 /// Markdown as HTML: CommonMark with tables, strikethrough and footnotes;
 /// raw HTML in the source is escaped, never passed through.
-pub fn markdown(text: &str) -> String {
+fn markdown(text: &str) -> String {
     use pulldown_cmark::{Event, Options, Parser, html};
     let options =
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_FOOTNOTES;

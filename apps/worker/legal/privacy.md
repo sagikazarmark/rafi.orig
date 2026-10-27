@@ -21,14 +21,15 @@
 ## Organizers' accounts
 
 Organizers sign in through **Clerk, Inc.** (USA; EU–US Data Privacy Framework), which holds their account
-details (name, email, sign-in method, organization). We keep the account's identifier with each raffle, the
-audit log of what was done to a raffle (actions and times, no entrants' personal data), and the record of
-which version of our terms the account accepted. Basis: performing our contract with the organizer
-(Art. 6(1)(b)) and our legitimate interest in running a secure service (Art. 6(1)(f)).
+details (name, email, sign-in method, organization). We keep the account's identifier with each raffle and the
+audit log of what was done to a raffle (actions and times, no entrants' personal data). Basis: performing our
+contract with the organizer (Art. 6(1)(b)) and our legitimate interest in running a secure service
+(Art. 6(1)(f)).
 
 An organizer can remove their own data from the admin ("Remove my data"): their defaults go, their name and
 contacts are taken off their raffles, and their raffles' personal data is erased. The anonymous draws stay
-verifiable; the acceptance record stays as our evidence. The account itself is deleted in Clerk.
+verifiable; the account's identifier stays with them and in the audit log. The account itself is deleted in
+Clerk.
 
 ## Providers we rely on (subprocessors)
 
@@ -50,7 +51,7 @@ every recorded erasure.
 
 Entrants' data is erased on the dates each raffle's notice shows: by default 7 days after the event for
 non-winners, and for winners once their prize is marked delivered, at the latest 90 days after that.
-Organizers' audit logs and acceptance records are kept for **[period]** after the account is removed.
+Organizers' audit logs are kept for **[period]** after the account is removed.
 
 ## Your rights
 

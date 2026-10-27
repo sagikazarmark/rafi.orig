@@ -111,10 +111,6 @@ pub enum Refusal {
     ErasureDatePassed,
     /// Prizes are marked delivered once the raffle is over.
     NotFinishedForDelivery,
-    /// The organizer hasn't accepted the current terms.
-    TermsNotAccepted,
-    /// The organizer accepted an older version of the terms than the current one.
-    TermsOutdated,
     /// The organizer's data can't be removed while one of their raffles is
     /// frozen or drawing.
     EventLive,
@@ -261,12 +257,6 @@ impl fmt::Display for Refusal {
             Self::NotFinishedForDelivery => {
                 f.write_str("Prizes can be marked delivered once the raffle has finished.")
             }
-            Self::TermsNotAccepted => f.write_str(
-                "Please read and accept the terms (with the data processing agreement) before creating a raffle.",
-            ),
-            Self::TermsOutdated => f.write_str(
-                "The terms have changed since you read them. Please reload and read the current version.",
-            ),
             Self::EventLive => f.write_str(
                 "Your data can't be removed while one of your raffles is being drawn. Finish it first.",
             ),

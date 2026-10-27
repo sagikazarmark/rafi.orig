@@ -4,16 +4,16 @@ use rafi_api::PrizeInput;
 use rafi_lifecycle::settings;
 use rafi_store::prizes;
 
-use crate::{App, Error, Refusal, Result, ids, owned};
+use crate::{Actor, App, Error, Refusal, Result, ids, owned};
 
 /// Adds a prize, or changes `input.id`; returns its ID.
 pub async fn upsert_prize(
     app: &App,
-    owner: &str,
+    actor: Actor<'_>,
     raffle_id: &str,
     input: PrizeInput,
 ) -> Result<String> {
-    let raffle = owned(app, owner, raffle_id).await?;
+    let raffle = owned(app, actor.owner, raffle_id).await?;
     if !raffle.state.prizes_editable() {
         return Err(Refusal::PrizesFrozen.into());
     }
@@ -38,7 +38,7 @@ pub async fn upsert_prize(
             id.clone()
         }
         None => {
-            let id = ids::code(6).to_lowercase();
+            let id = ids::id();
             if !prizes::insert(&app.db, &id, raffle_id, &fields).await? {
                 return Err(Refusal::PrizesFrozen.into());
             }
@@ -50,8 +50,13 @@ pub async fn upsert_prize(
     Ok(id)
 }
 
-pub async fn delete_prize(app: &App, owner: &str, raffle_id: &str, prize_id: &str) -> Result<()> {
-    let raffle = owned(app, owner, raffle_id).await?;
+pub async fn delete_prize(
+    app: &App,
+    actor: Actor<'_>,
+    raffle_id: &str,
+    prize_id: &str,
+) -> Result<()> {
+    let raffle = owned(app, actor.owner, raffle_id).await?;
     if !raffle.state.prizes_editable() {
         return Err(Refusal::PrizesFrozen.into());
     }

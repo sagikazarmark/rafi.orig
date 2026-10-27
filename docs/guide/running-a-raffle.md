@@ -68,11 +68,11 @@ deleted outright and it becomes Data erased.
 
 ## Before the event
 
-0. **The first time:** read and accept the service's terms, which include the data processing agreement. Your
-   entrants' data is processed on your behalf; the terms say how. A changed version is accepted again. In a Clerk
-   organization, an **admin** does this for everyone; **managers** (a custom `org:manager` role, or the
-   `org:raffles:manage` permission, set up in Clerk) create, configure and delete raffles; every **member** runs
-   them: registration, the draw, people, prizes, exports, erasure.
+0. **The first time:** read the service's terms (`/terms`), which include the data processing agreement. Your
+   entrants' data is processed on your behalf; the terms say how, and you accept them by using the service. In a
+   Clerk organization, **managers** (a custom `org:manager` role, or the `org:raffles:manage` permission, set up
+   in Clerk) create, configure and delete raffles; every **member** runs them: registration, the draw, people,
+   prizes, exports, erasure; an **admin** can also remove the organization's data.
 1. **Create a raffle** in `/admin`: give it a title and the **event date** (today, unless you set it up early; at
    most a year ahead). Entrants' personal data is erased a set number of days after it, and the join form tells
    them the date, so the date and the period lock once a real entrant has joined. Fake entrants don't lock

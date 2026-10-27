@@ -10,7 +10,7 @@ use rafi_lifecycle::{RaffleState, entrant::Source};
 use rafi_raffle::{Event, Manifest, Raffle};
 use serde::Deserialize;
 
-use crate::{Db, Error, Query, Result, Row, now, prizes::PrizeFields};
+use crate::{Db, Error, Query, Result, Row, audit::Actor, now, prizes::PrizeFields};
 
 /// The states `rule` holds for, as an SQL list of their names: SQL that
 /// guards on a state asks the raffle's rules ([`RaffleState`]) which.
@@ -215,7 +215,7 @@ pub async fn list_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleSummaryR
     db.query(
         "SELECT r.id, r.slug, r.title, r.state, r.test_mode, r.created_at,
                 (SELECT COUNT(*) FROM entrants e WHERE e.raffle_id = r.id) AS entrant_count
-         FROM raffles r WHERE r.owner_id = ? ORDER BY r.created_at DESC",
+         FROM raffles r WHERE r.owner_id = ? ORDER BY r.created_at DESC, r.id DESC",
     )
     .bind(owner_id)
     .all()
@@ -224,7 +224,7 @@ pub async fn list_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleSummaryR
 
 /// An owner's raffles, newest first, whole.
 pub async fn rows_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleRow>> {
-    db.query("SELECT * FROM raffles WHERE owner_id = ? ORDER BY created_at DESC")
+    db.query("SELECT * FROM raffles WHERE owner_id = ? ORDER BY created_at DESC, id DESC")
         .bind(owner_id)
         .all()
         .await
@@ -452,7 +452,8 @@ pub struct Left {
 /// raffle frozen since the caller looked leaves everything as it was
 /// ([`Left::refused`]). The anonymous raffles stay verifiable. What was
 /// touched is read back after the batch.
-pub async fn owner_leaves(db: &Db, owner: &str, now: i64) -> Result<Left> {
+pub async fn owner_leaves(db: &Db, actor: Actor<'_>, now: i64) -> Result<Left> {
+    let owner = actor.owner;
     let before = rows_by_owner(db, owner).await?;
     let (expiring, over) = (states(RaffleState::expires), states(RaffleState::is_over));
     let none_drawing = format!(
@@ -464,19 +465,21 @@ pub async fn owner_leaves(db: &Db, owner: &str, now: i64) -> Result<Left> {
     );
     db.batch(vec![
         db.query(format!(
-            "INSERT INTO audit (raffle_id, at, actor, action, detail)
-             SELECT id, ?2, ?1, 'delete', 'owner left' FROM raffles
+            "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
+             SELECT id, ?2, ?1, ?3, 'delete', 'owner left' FROM raffles
              WHERE owner_id = ?1 AND state IN ({expiring}) AND {none_drawing}"
         ))
         .bind(owner)
-        .bind(now),
+        .bind(now)
+        .bind(actor.user),
         db.query(format!(
-            "INSERT INTO audit (raffle_id, at, actor, action, detail)
-             SELECT id, ?2, ?1, 'purge', 'owner left' FROM raffles
+            "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
+             SELECT id, ?2, ?1, ?3, 'purge', 'owner left' FROM raffles
              WHERE owner_id = ?1 AND state IN ({over}) AND {none_drawing}"
         ))
         .bind(owner)
-        .bind(now),
+        .bind(now)
+        .bind(actor.user),
         db.query(format!(
             "INSERT INTO erasures (raffle_id, entrant_id, at)
              SELECT raffle_id, id, ?2 FROM entrants WHERE erased = 0 AND {over_raffle} AND {none_drawing}"

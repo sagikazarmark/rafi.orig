@@ -332,14 +332,10 @@ pub struct Me {
     /// What the signed-in user may do for the owner.
     #[serde(default = "Access::admin")]
     pub access: Access,
-    /// The owner is an organization: its raffles, defaults, terms and data
-    /// are shared with every member.
+    /// The owner is an organization: its raffles, defaults and data are
+    /// shared with every member.
     #[serde(default)]
     pub shared: bool,
-    /// Whether the organizer accepted the current terms (with the processing
-    /// agreement): until they have, no raffle can be created.
-    #[serde(default)]
-    pub terms_accepted: bool,
     /// Whether automatic erasure looks stopped: no housekeeping run has
     /// succeeded for two hours, counting from the first raffle.
     #[serde(default)]
@@ -370,7 +366,7 @@ pub enum Access {
     Member,
     /// Also creates, copies, deletes and configures raffles and the defaults.
     Manager,
-    /// Also accepts the terms for the owner and removes the owner's data.
+    /// Also removes the owner's data.
     Admin,
 }
 
@@ -411,15 +407,4 @@ impl Access {
             Self::Admin => "an organization admin",
         }
     }
-}
-
-/// A legal document the organizer reads and accepts: the operator's terms,
-/// with the data processing agreement.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TermsDocument {
-    pub version: String,
-    /// The document as HTML, rendered from the deployment's Markdown.
-    pub html: String,
-    /// Whether the organizer accepted this version.
-    pub accepted: bool,
 }

@@ -9,4 +9,4 @@ mod style;
 mod text;
 
 pub use participant::{Entrant, Notice, Page, Raffle, not_found, page};
-pub use text::{Operator, Organizer, Privacy, PrizeLine, Rules, legal, markdown, privacy, rules};
+pub use text::{Operator, Organizer, Privacy, PrizeLine, Rules, legal, privacy, rules};

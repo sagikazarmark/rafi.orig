@@ -2,7 +2,7 @@
 
 What Rafi stores, what it publishes, when it erases it, and how it keeps a raffle free of spam and remote entries.
 The privacy notice each raffle shows its entrants is rendered from the raffle's settings at `/privacy/<slug>`; the
-installation's own notice is at `/privacy`, and the terms organizers accept, with the data processing agreement, at
+installation's own notice is at `/privacy`, and the operator's terms, with the data processing agreement, at
 `/terms`.
 
 > This page describes the software, not your legal obligations. As the organizer, you are the data controller; the
@@ -60,8 +60,10 @@ The organizer can always erase earlier, never later:
 Entrant IDs and the event log stay, so the draw remains verifiable. Every erasure is recorded (entrant ID and time
 only) and every automatic one audited per raffle, so they can be re-applied after a database restore
 (`rafi reapply-erasures`, see [Self-hosting](../operations/self-hosting.md#backups)). What remains of an erased
-entrant besides the ID: when they joined and accepted the rules, whether their prize was delivered, how they got in,
-and whether their name was hidden. A winner's exported details are the organizer's copy, outside Rafi.
+entrant besides the ID: when they joined and accepted the rules, which version of the join form they were shown
+(`consent_version`, as `<form version>/age<minimum age>`, e.g. `2026-10-21.2/age16`), whether their prize was
+delivered, how they got in, and whether their name was hidden. A winner's exported details are the organizer's
+copy, outside Rafi.
 
 If no housekeeping run has succeeded for two hours (counting from the first raffle: a fresh installation has
 nothing to erase yet), every organizer's admin says so.
@@ -74,17 +76,20 @@ template does).
 - **The organizer** is the controller of their entrants' data. Registration can't open until the raffle names them
   and a way to reach them (a contact email, or a separate privacy contact that can change at any time). They may add
   their own privacy text or link to their own notice; it is shown after Rafi's generated notice, never instead of it.
-  In a Clerk organization the owner is the organization and every member runs its raffles; **admins** accept the
-  terms and remove the organization's data, **managers** (the custom `org:manager` role, or the
+  In a Clerk organization the owner is the organization and every member runs its raffles; **admins** remove the
+  organization's data, **managers** (the custom `org:manager` role, or the
   `org:raffles:manage` permission) also create, configure and delete raffles, **members** do everything else.
 - **The operator** of the installation is the organizer's processor, named in every notice with a link to the
   installation's own, which lists its subprocessors (hosting, the raffle engine, organizer sign-in, drand).
-  Organizers accept the operator's terms, with the data processing agreement, before their first raffle; the
-  acceptance, its version and a digest of the text are recorded, and a new version is accepted again.
+  Organizers accept the operator's terms, with the data processing agreement, by using the service; the admin
+  links them, and each version is shown with its text. Nothing records who accepted which version, so a change to
+  the processing agreement is for the operator to notify organizers of directly.
 - **Leaving:** "Remove my data" in the admin deletes the organizer's raffles that were never frozen, erases their
   other raffles' personal data and takes their name and contacts off them, and deletes their defaults, all in one
-  write that does nothing while a raffle of theirs is being drawn. The anonymous draws stay verifiable; the
-  acceptance record stays. The account itself is deleted in Clerk.
+  write that does nothing while a raffle of theirs is being drawn. The anonymous draws stay verifiable. The
+  account's identifiers stay on its raffles and in the audit log (the owner, and the member who acted) as the
+  operator's record of what was done, for the period the operator's notice names. The account itself is deleted
+  in Clerk.
 
 ## Coming back without an account
 
@@ -111,7 +116,7 @@ The projector is the source of truth. A faked "you won" screen lacks the winner'
 | **Proof-of-work** | Joining requires solving an [ALTCHA v2](https://altcha.org) challenge (PBKDF2/SHA-256) in the browser. Challenges are HMAC-signed and each is redeemed once. The difficulty is `RAFI_ALTCHA_COST`. |
 | **Rate limits** | 600 joins per minute per raffle, and 5 per minute per raffle and email. **Never per IP**, because a venue shares one. On Workers they are soft (per location). |
 | **Entrant cap** | `RAFI_MAX_ENTRANTS` (2000), enforced in the database: the hard limit |
-| **Registration window** | The join code works only while registration is open |
+| **Registration window** | The join code lets people in only while registration is open. The code is six characters out of 31 (887 million), and there is no per-IP limit, so codes can be guessed at a cost; a hit shows the raffle's public pages. Once the raffle is purged, its code answers nothing, so guessing finds only raffles inside their hold period. |
 | **Presence** | The rules require winners to be present to claim. Remote entries forfeit ("Not here"), and the prize is drawn again. |
 | **Display names** | A blocklist, a 5 s delay before a name reaches the projector, and one-tap hide or rename |
 | **Before the freeze** | The organizer can remove duplicates and trolls |

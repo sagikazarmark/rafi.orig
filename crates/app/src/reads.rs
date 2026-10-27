@@ -13,7 +13,7 @@ use rafi_raffle::{ItemId, Outcome, Raffle};
 use rafi_store::{RaffleRow, audit, entrants, raffles, view::Full};
 
 use crate::{
-    App, Error, Result, ids,
+    Actor, App, Error, Result, ids,
     raffles::{missing_for_open, settings_of},
     view,
 };
@@ -142,9 +142,9 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) ->
 
 /// The drawn entrants as CSV: who won what, and how to reach them. Every
 /// export is audited (who, when, how many rows), never stored.
-pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
+pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String> {
     let full = Full::read(&app.db, id).await?.ok_or(Error::NotFound)?;
-    if full.raffle.owner_id != owner {
+    if full.raffle.owner_id != actor.owner {
         return Err(Error::NotFound);
     }
     let hold = app.policy.retention.winners_erase_at(full.raffle.erase_at);
@@ -181,7 +181,7 @@ pub async fn export_csv(app: &App, owner: &str, id: &str) -> Result<String> {
         );
         out.push('\n');
     }
-    audit::record(&app.db, id, owner, "export_csv", &rows.to_string()).await?;
+    audit::record(&app.db, id, actor, "export_csv", &rows.to_string()).await?;
     Ok(out)
 }
 

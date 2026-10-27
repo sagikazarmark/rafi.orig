@@ -27,11 +27,6 @@ macro_rules! admin_functions {
         $callback! {
             /// Who is signed in.
             fn whoami() -> $crate::Me;
-            /// The operator's terms, with the processing agreement, and
-            /// whether the organizer accepted the current version.
-            fn get_terms() -> $crate::TermsDocument;
-            /// Accepts `version` of the terms, if it is the current one.
-            fn accept_terms(version: String) -> ();
             /// The organizer's raffles.
             fn list_raffles() -> Vec<$crate::RaffleSummary>;
             /// What the organizer's new raffles start with (empty until saved).

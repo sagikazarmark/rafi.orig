@@ -218,7 +218,6 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "domain.erase_race" needs Capabilities::CONCURRENT_SESSIONS
         => domain::racing_erasures_log_each_entrant_once,
     "domain.deliver_all_and_leave" => domain::delivers_all_and_removes_the_organizer,
-    "domain.legal_acceptances" => domain::records_legal_acceptances,
     "domain.live_channels" => domain::live_channels_end_once,
     "domain.altcha_replay" => domain::altcha_refuses_replays,
     "domain.full_view" => domain::reads_the_full_view,

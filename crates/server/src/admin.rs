@@ -14,13 +14,13 @@ use dioxus_clerk::server::ClerkAuth;
 
 use rafi_api::{
     Access, Caller, EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleDefaults,
-    RaffleSettings, RaffleSummary, TermsDocument,
+    RaffleSettings, RaffleSummary,
     admin::{self, Admin, ApiError, ItemId, Resolution},
 };
 use rafi_raffle::{Decision, DrawRequest};
 
 use super::{
-    AppState, auth, pages,
+    AppState, auth,
     service::{self, Error},
 };
 
@@ -74,8 +74,8 @@ fn error(status: StatusCode, message: &str) -> Response {
 
 /// Refuses unless the caller's tier allows what `needs`. Running a raffle
 /// needs nothing beyond membership; what the gate guards is creating,
-/// configuring and deleting raffles ([`Access::Manager`]) and the owner's
-/// legal standing and data ([`Access::Admin`]).
+/// configuring and deleting raffles ([`Access::Manager`]) and removing the
+/// owner's data ([`Access::Admin`]).
 fn allow(c: &Caller, needs: Access) -> service::Result<()> {
     if c.access.allows(needs) {
         Ok(())
@@ -93,22 +93,8 @@ impl Admin for AppState {
             dev_auth: self.cfg.dev_auth,
             access: c.access,
             shared: c.owner != c.user,
-            terms_accepted: service::terms_accepted(self, &c.owner).await?,
             retention_stale: service::housekeeping::stale(self).await?,
         })
-    }
-
-    async fn get_terms(&self, c: &Caller) -> service::Result<TermsDocument> {
-        Ok(TermsDocument {
-            version: self.cfg.terms_version.clone(),
-            html: pages::markdown(&self.cfg.documents.terms),
-            accepted: service::terms_accepted(self, &c.owner).await?,
-        })
-    }
-
-    async fn accept_terms(&self, c: &Caller, version: String) -> service::Result<()> {
-        allow(c, Access::Admin)?;
-        service::accept_terms(self, &c.owner, &c.user, &version).await
     }
 
     async fn list_raffles(&self, c: &Caller) -> service::Result<Vec<RaffleSummary>> {
@@ -121,7 +107,7 @@ impl Admin for AppState {
 
     async fn save_defaults(&self, c: &Caller, defaults: RaffleDefaults) -> service::Result<()> {
         allow(c, Access::Manager)?;
-        service::save_defaults(self, &c.owner, defaults).await
+        service::save_defaults(self, service::actor(c), defaults).await
     }
 
     async fn create_raffle(
@@ -136,7 +122,7 @@ impl Admin for AppState {
             date: event_date,
             ends_at: event_ends_at,
         };
-        service::create(self, &c.owner, &title, &event).await
+        service::create(self, service::actor(c), &title, &event).await
     }
 
     async fn get_raffle(&self, c: &Caller, id: String) -> service::Result<RaffleAdmin> {
@@ -150,12 +136,12 @@ impl Admin for AppState {
         settings: RaffleSettings,
     ) -> service::Result<()> {
         allow(c, Access::Manager)?;
-        service::update_settings(self, &c.owner, &id, settings).await
+        service::update_settings(self, service::actor(c), &id, settings).await
     }
 
     async fn delete_raffle(&self, c: &Caller, id: String) -> service::Result<()> {
         allow(c, Access::Manager)?;
-        service::delete(self, &c.owner, &id).await
+        service::delete(self, service::actor(c), &id).await
     }
 
     async fn duplicate_raffle(
@@ -170,7 +156,7 @@ impl Admin for AppState {
             date: event_date,
             ends_at: event_ends_at,
         };
-        service::duplicate(self, &c.owner, &id, &event).await
+        service::duplicate(self, service::actor(c), &id, &event).await
     }
 
     async fn save_prize(
@@ -179,11 +165,11 @@ impl Admin for AppState {
         id: String,
         prize: PrizeInput,
     ) -> service::Result<String> {
-        service::upsert_prize(self, &c.owner, &id, prize).await
+        service::upsert_prize(self, service::actor(c), &id, prize).await
     }
 
     async fn delete_prize(&self, c: &Caller, id: String, prize_id: String) -> service::Result<()> {
-        service::delete_prize(self, &c.owner, &id, &prize_id).await
+        service::delete_prize(self, service::actor(c), &id, &prize_id).await
     }
 
     async fn lifecycle(
@@ -192,11 +178,11 @@ impl Admin for AppState {
         id: String,
         action: LifecycleCommand,
     ) -> service::Result<()> {
-        service::lifecycle(self, &c.owner, &id, action).await
+        service::lifecycle(self, service::actor(c), &id, action).await
     }
 
     async fn start_draw(&self, c: &Caller, id: String) -> service::Result<()> {
-        service::start_draw(self, &c.owner, &id).await
+        service::start_draw(self, service::actor(c), &id).await
     }
 
     async fn draw_item(
@@ -206,7 +192,14 @@ impl Admin for AppState {
         item: ItemId,
         command_id: String,
     ) -> service::Result<()> {
-        service::command(self, &c.owner, &id, DrawRequest { item }, &command_id).await
+        service::command(
+            self,
+            service::actor(c),
+            &id,
+            DrawRequest { item },
+            &command_id,
+        )
+        .await
     }
 
     async fn resolve_item(
@@ -218,7 +211,7 @@ impl Admin for AppState {
         command_id: String,
     ) -> service::Result<()> {
         let decision = Decision::Resolve { item, resolution };
-        service::command(self, &c.owner, &id, decision, &command_id).await
+        service::command(self, service::actor(c), &id, decision, &command_id).await
     }
 
     async fn void_item(
@@ -228,7 +221,14 @@ impl Admin for AppState {
         item: ItemId,
         command_id: String,
     ) -> service::Result<()> {
-        service::command(self, &c.owner, &id, Decision::Void { item }, &command_id).await
+        service::command(
+            self,
+            service::actor(c),
+            &id,
+            Decision::Void { item },
+            &command_id,
+        )
+        .await
     }
 
     async fn abandon_draw(
@@ -238,7 +238,14 @@ impl Admin for AppState {
         item: ItemId,
         command_id: String,
     ) -> service::Result<()> {
-        service::command(self, &c.owner, &id, Decision::Abandon { item }, &command_id).await
+        service::command(
+            self,
+            service::actor(c),
+            &id,
+            Decision::Abandon { item },
+            &command_id,
+        )
+        .await
     }
 
     async fn finish_raffle(
@@ -247,11 +254,11 @@ impl Admin for AppState {
         id: String,
         command_id: String,
     ) -> service::Result<()> {
-        service::command(self, &c.owner, &id, Decision::Finish, &command_id).await
+        service::command(self, service::actor(c), &id, Decision::Finish, &command_id).await
     }
 
     async fn end_live_updates(&self, c: &Caller, id: String) -> service::Result<()> {
-        service::end_live(self, &c.owner, &id).await
+        service::end_live(self, service::actor(c), &id).await
     }
 
     async fn add_entrant(
@@ -261,11 +268,11 @@ impl Admin for AppState {
         name: String,
         email: Option<String>,
     ) -> service::Result<String> {
-        service::add_manual(self, &c.owner, &id, &name, email).await
+        service::add_manual(self, service::actor(c), &id, &name, email).await
     }
 
     async fn add_fake_entrants(&self, c: &Caller, id: String, n: u32) -> service::Result<()> {
-        service::add_fakes(self, &c.owner, &id, n).await
+        service::add_fakes(self, service::actor(c), &id, n).await
     }
 
     async fn patch_entrant(
@@ -275,7 +282,7 @@ impl Admin for AppState {
         entrant_id: String,
         patch: EntrantPatch,
     ) -> service::Result<()> {
-        service::patch_entrant(self, &c.owner, &id, &entrant_id, patch).await
+        service::patch_entrant(self, service::actor(c), &id, &entrant_id, patch).await
     }
 
     async fn remove_entrant(
@@ -284,23 +291,23 @@ impl Admin for AppState {
         id: String,
         entrant_id: String,
     ) -> service::Result<()> {
-        service::remove_entrant(self, &c.owner, &id, &entrant_id).await
+        service::remove_entrant(self, service::actor(c), &id, &entrant_id).await
     }
 
     async fn export_winners(&self, c: &Caller, id: String) -> service::Result<String> {
-        service::export_csv(self, &c.owner, &id).await
+        service::export_csv(self, service::actor(c), &id).await
     }
 
     async fn purge_raffle(&self, c: &Caller, id: String) -> service::Result<()> {
-        service::purge(self, &c.owner, &id).await
+        service::purge(self, service::actor(c), &id).await
     }
 
     async fn deliver_all(&self, c: &Caller, id: String) -> service::Result<u64> {
-        service::deliver_all(self, &c.owner, &id).await
+        service::deliver_all(self, service::actor(c), &id).await
     }
 
     async fn remove_my_data(&self, c: &Caller) -> service::Result<()> {
         allow(c, Access::Admin)?;
-        service::remove_owner_data(self, &c.owner).await
+        service::remove_owner_data(self, service::actor(c)).await
     }
 }

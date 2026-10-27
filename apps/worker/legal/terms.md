@@ -3,12 +3,12 @@
 > **Template.** Delete this note once a lawyer has reviewed the document: the server refuses to start while a
 > document still carries it. This is the engineering draft the Rafi repository ships with. Before this installation
 > goes live, its operator reviews it with a lawyer, fills in the bracketed parts, and sets
-> `RAFI_TERMS_VERSION`. Organizers accept the version that is current when they create a raffle;
-> changing this text means a new version, which they accept again.
+> `RAFI_TERMS_VERSION`. Changing this text means a new version. Nothing records which version an organizer
+> read: see §7 on what that means for changes to the processing agreement.
 
 These terms are between **[operator legal name, address]** ("the operator", "we") and the organizer who uses
-this service ("you"). They apply to the raffle service at **[public URL]** ("the service"). By accepting them in
-the admin you agree to them for yourself and, if you act for an organization, for that organization.
+this service ("you"). They apply to the raffle service at **[public URL]** ("the service"). By using the service
+you agree to them for yourself and, if you act for an organization, for that organization.
 
 ## 1. The service
 
@@ -71,7 +71,7 @@ reason.
 organization admin for an organization), remaining personal data of your raffles is erased and your name and
 contacts are taken off them; the anonymous draws stay verifiable. Entrants' data is erased on the dates shown
 whether or not you do. Deleting your account with the sign-in provider does not by itself remove your data
-here: do that first. We keep the record of your acceptance of these terms.
+here: do that first.
 
 **Audit.** We make available the information needed to show compliance with this section, and allow audits
 you reasonably request, at your cost.
@@ -88,8 +88,9 @@ loss. Nothing here limits liability that cannot be limited.
 
 ## 7. Changes and termination
 
-We may change these terms; a new version must be accepted before you create another raffle. You may stop
-using the service at any time and remove your data from the admin. Governing law and venue:
-**[jurisdiction]**.
+We may change these terms. A change to the data processing agreement (section 4) is notified to you directly
+and needs your approval; it is not made by publishing it here. Other changes take effect when published, with
+a new version shown on this page. You may stop using the service at any time and remove your data from the
+admin. Governing law and venue: **[jurisdiction]**.
 
 *Contact: [operator email]*

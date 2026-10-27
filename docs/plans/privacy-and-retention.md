@@ -1,9 +1,14 @@
 # Privacy and retention
 
-**Status: implemented (2026-10-21).** The privacy review's main spec: automatic erasure comes back, redesigned; the
-legal surfaces the hosted instance needs are added; the marketing opt-in is removed and gets its own plan
-([marketing-opt-in.md](marketing-opt-in.md)). What the software does is in
+**Status: implemented (2026-10-21), amended (2026-10-26).** The privacy review's main spec: automatic erasure comes
+back, redesigned; the legal surfaces the hosted instance needs are added; the marketing opt-in is removed and gets
+its own plan ([marketing-opt-in.md](marketing-opt-in.md)). What the software does is in
 [docs/explanation/privacy-and-abuse.md](../explanation/privacy-and-abuse.md); this document is the reasoning.
+
+> **Amended before the first release** ([pre-release-review.md](pre-release-review.md), SCH-3): the recorded
+> acceptance of the terms (`legal_acceptances`, the gate on creating a raffle, the admin's "I accept") was removed.
+> `/terms` and `/privacy` stay, with their versions; acceptance is by use. The reasoning and the consequences are
+> in that document's §Accepted risks. §Terms and the processing agreement below describes the removed design.
 
 [docs/history/retention.md](../history/retention.md) describes the automatic erasure Rafi had until 2026-10-20.
 Where this spec differs from it, this spec wins; where it is silent, that design and its §8 "decisions worth
@@ -403,9 +408,9 @@ Workers CI job starts it under `wrangler dev`; a cron smoke test there is welcom
 
 Recorded here so they aren't lost; none blocks the hosted launch.
 
-- **Audit actor.** `audit.actor` is the owner key (a Clerk organization for co-hosts), so two members of one
-  organization are indistinguishable in the log. The fix is threading the signed-in user through every use case;
-  deferred until the log is read by anyone but the operator.
+- **Audit actor.** Done before the release ([pre-release-review.md](pre-release-review.md), SCH-1): every audit
+  row carries `actor` (the owner key) and `user_id` (the signed-in user acting for it), so members of one
+  organization are told apart.
 - **Account deletion.** Deleting a Clerk account or organization doesn't remove the organizer's data here; the
   admin's "Remove my data" does, and the terms say to do that first. A Clerk webhook (`user.deleted`,
   `organization.deleted`) calling the same use case would close the gap.

@@ -31,13 +31,10 @@ async function api(name, args = {}) {
 }
 const commandId = () => `cmd-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-// The organizer accepts the terms (with the processing agreement), sets up
-// a raffle dated today with one prize, names themselves (registration won't
-// open otherwise) and opens registration.
-const terms = await api("get_terms");
-if (!terms.accepted) await api("accept_terms", { version: terms.version });
+// The organizer sets up a raffle dated today with one prize, names
+// themselves (registration won't open otherwise) and opens registration.
 const me = await api("whoami");
-check(me.terms_accepted === true, "the terms are accepted");
+check(me.owner_id === "dev", "dev auth signs the organizer in");
 const today = new Date().toISOString().slice(0, 10);
 async function newRaffle(title) {
   const id = await api("create_raffle", { title, event_date: today, event_ends_at: null });

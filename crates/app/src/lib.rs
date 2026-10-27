@@ -20,7 +20,6 @@ mod entrants;
 mod error;
 pub mod housekeeping;
 pub mod ids;
-mod legal;
 mod owners;
 mod prizes;
 pub mod public;
@@ -43,14 +42,14 @@ pub use entrants::{
     end_live, join, name_ideas, patch_entrant, purge, remove_entrant,
 };
 pub use error::{Error, Refusal, Result};
-pub use legal::{accept_terms, terms_accepted};
 pub use owners::{reapply_erasures, remove_owner_data};
 pub use prizes::{delete_prize, upsert_prize};
 pub use raffles::{
-    EventDate, create, delete, duplicate, get_defaults, lifecycle, list, save_defaults,
-    settings_of, update_settings,
+    EventDate, JOIN_CODE_LEN, create, delete, duplicate, get_defaults, lifecycle, list,
+    save_defaults, settings_of, update_settings,
 };
 pub use rafi_lifecycle::settings::RetentionPolicy;
+pub use rafi_store::audit::Actor;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ratelimit::Limiter;
 pub use ratelimit::{Limit, RateLimit};
@@ -84,11 +83,6 @@ pub struct Policy {
     /// When personal data is erased: the default period, the longest one an
     /// organizer may choose, and the winner hold.
     pub retention: RetentionPolicy,
-    /// The version of the operator's terms (with the processing agreement)
-    /// organizers must have accepted to create raffles, and the SHA-256 (hex)
-    /// of their text, recorded with each acceptance.
-    pub terms_version: String,
-    pub terms_digest: String,
     /// The youngest an entrant may be: part of what the join form says, so
     /// part of the consent version it records.
     pub min_age: u32,
@@ -118,6 +112,16 @@ impl App {
         self.engine
             .as_deref()
             .ok_or(Error::Refused(Refusal::NoEngine))
+    }
+}
+
+/// Who is acting, from who is calling the admin API: the owner the raffles
+/// belong to and the user acting for it, both recorded with every audited
+/// action.
+pub fn actor(c: &rafi_api::Caller) -> Actor<'_> {
+    Actor {
+        owner: &c.owner,
+        user: &c.user,
     }
 }
 

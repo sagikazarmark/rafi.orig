@@ -8,10 +8,10 @@
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::Outcome;
 
-use crate::{Db, Result, entrants::ERASED, raffles::states};
+use crate::{Db, Result, audit::HOUSEKEEPING, entrants::ERASED, raffles::states};
 
-/// Housekeeping as the audit log's actor.
-pub const ACTOR: &str = "housekeeping";
+/// Housekeeping as the audit log's actor, in both columns ([`HOUSEKEEPING`]).
+const ACTOR: &str = HOUSEKEEPING.owner;
 
 /// The raffles due to expire at `?1`: never frozen
 /// ([`RaffleState::expires`]), past their erasure date, not yet purged.
@@ -38,8 +38,8 @@ pub async fn expire_due(db: &Db, now: i64) -> Result<Vec<String>> {
     }
     db.batch(vec![
         db.query(format!(
-            "INSERT INTO audit (raffle_id, at, actor, action, detail)
-             SELECT id, ?1, '{ACTOR}', 'expire',
+            "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
+             SELECT id, ?1, '{ACTOR}', '{ACTOR}', 'expire',
                     CAST((SELECT COUNT(*) FROM entrants WHERE raffle_id = raffles.id) AS TEXT)
              FROM raffles WHERE {due}"
         ))
@@ -64,9 +64,17 @@ pub async fn expire_due(db: &Db, now: i64) -> Result<Vec<String>> {
 /// not erased, in a frozen (or later) raffle past its erasure date, and
 /// either not a winner (the entrant of a claimed draw), or a winner whose
 /// prize was delivered, or anyone once the hold has passed too.
+///
+/// The leading `raffle_id IN (…)` says nothing the `EXISTS` doesn't, but it
+/// lets the planner start from the few raffles that are due and reach their
+/// entrants through `entrants_raffle`, instead of scanning every entrant of
+/// every raffle on each hourly run (`SCAN entrants` → `SEARCH entrants USING
+/// INDEX`, for the `SELECT`s and the `UPDATE` alike). Purged raffles stay in
+/// the set on purpose: a restored backup can bring their entrants back.
 fn due() -> String {
     format!(
-        "entrants.erased = 0 AND EXISTS (
+        "entrants.raffle_id IN (SELECT id FROM raffles WHERE state IN ({frozen}) AND erase_at <= ?1)
+         AND entrants.erased = 0 AND EXISTS (
             SELECT 1 FROM raffles r
             WHERE r.id = entrants.raffle_id
               AND r.state IN ({frozen}) AND r.erase_at <= ?1
@@ -133,8 +141,8 @@ pub async fn erase_due(db: &Db, now: i64, winner_hold_secs: i64) -> Result<Erase
     }
     db.batch(vec![
         db.query(format!(
-            "INSERT INTO audit (raffle_id, at, actor, action, detail)
-             SELECT raffle_id, ?1, '{ACTOR}', 'auto_erase', CAST(COUNT(*) AS TEXT)
+            "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
+             SELECT raffle_id, ?1, '{ACTOR}', '{ACTOR}', 'auto_erase', CAST(COUNT(*) AS TEXT)
              FROM entrants WHERE {due} GROUP BY raffle_id"
         ))
         .bind(now)
@@ -149,8 +157,8 @@ pub async fn erase_due(db: &Db, now: i64, winner_hold_secs: i64) -> Result<Erase
             .bind(now)
             .bind(winner_hold_secs),
         db.query(format!(
-            "INSERT INTO audit (raffle_id, at, actor, action, detail)
-             SELECT id, ?1, '{ACTOR}', 'auto_purge', '' FROM raffles WHERE {ceiling}"
+            "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
+             SELECT id, ?1, '{ACTOR}', '{ACTOR}', 'auto_purge', '' FROM raffles WHERE {ceiling}"
         ))
         .bind(now)
         .bind(winner_hold_secs),

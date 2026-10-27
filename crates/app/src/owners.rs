@@ -3,22 +3,22 @@
 
 use rafi_store::{entrants, raffles, retention};
 
-use crate::{App, Refusal, Result, ids};
+use crate::{Actor, App, Refusal, Result, ids};
 
 /// Removes `owner`'s own data from Rafi: their defaults go; their raffles
 /// that were never frozen are deleted; every other raffle loses its
 /// entrants' personal data (logged as a purge) and the organizer's name and
 /// contacts, and is purged. One guarded batch
-/// ([`raffles::owner_leaves`]). The anonymous raffles stay verifiable; the
-/// terms they accepted stay recorded. Refused while any of their raffles is
-/// frozen or drawing: the event is live. The Clerk account is deleted in
-/// Clerk.
-pub async fn remove_owner_data(app: &App, owner: &str) -> Result<()> {
-    let rows = raffles::rows_by_owner(&app.db, owner).await?;
+/// ([`raffles::owner_leaves`]). The anonymous raffles stay verifiable, and
+/// the audit log keeps the account's identifiers. Refused while any of their
+/// raffles is frozen or drawing: the event is live. The Clerk account is
+/// deleted in Clerk.
+pub async fn remove_owner_data(app: &App, actor: Actor<'_>) -> Result<()> {
+    let rows = raffles::rows_by_owner(&app.db, actor.owner).await?;
     if rows.iter().any(|r| r.state.drawable()) {
         return Err(Refusal::EventLive.into());
     }
-    let left = raffles::owner_leaves(&app.db, owner, ids::now()).await?;
+    let left = raffles::owner_leaves(&app.db, actor, ids::now()).await?;
     if left.refused {
         // Frozen since the read above: nothing happened.
         return Err(Refusal::EventLive.into());

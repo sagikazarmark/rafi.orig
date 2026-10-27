@@ -11,7 +11,7 @@ use rafi_raffle::{
 };
 use rafi_store::{audit, entrants, prizes, raffles};
 
-use crate::{App, Error, Refusal, Result, owned};
+use crate::{Actor, App, Error, Refusal, Result, owned};
 
 /// A call to the raffle engine, as the organizer sees it. A call the engine
 /// accepted but hasn't settled yet ([`EngineError::Pending`]) succeeds: it
@@ -31,8 +31,8 @@ fn confirmed(result: std::result::Result<(), EngineError>) -> Result<()> {
 /// one built from its now-fixed entrant list; one with a manifest the engine
 /// hasn't opened is sent it again (opening is idempotent), which recovers
 /// from an engine outage at freeze time.
-pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
-    let raffle = owned(app, owner, id).await?;
+pub async fn start_draw(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
+    let raffle = owned(app, actor.owner, id).await?;
     let engine = app.engine()?;
     let info = engine.info().await?;
     // The app decides the beacon source; the engine would refuse another
@@ -63,10 +63,10 @@ pub async fn start_draw(app: &App, owner: &str, id: &str) -> Result<()> {
                 return Err(Refusal::Changed.into());
             }
             app.live_updates.notify(id).await;
-            write_manifest(app, owner, id, items, from).await?
+            write_manifest(app, actor, id, items, from).await?
         }
         Start::WriteManifest { unfreeze_to } => {
-            write_manifest(app, owner, id, items(app, id).await?, unfreeze_to).await?
+            write_manifest(app, actor, id, items(app, id).await?, unfreeze_to).await?
         }
         Start::Resend => {
             let json = raffle.manifest.as_deref().unwrap_or_default();
@@ -101,7 +101,7 @@ async fn items(app: &App, id: &str) -> Result<Vec<ManifestItem>> {
 /// freezing), the raffle goes back to `unfreeze_to`.
 async fn write_manifest(
     app: &App,
-    owner: &str,
+    actor: Actor<'_>,
     id: &str,
     items: Vec<ManifestItem>,
     unfreeze_to: RaffleState,
@@ -128,20 +128,20 @@ async fn write_manifest(
             .ok_or(Refusal::Changed)?;
         return Ok(serde_json::from_str(&stored).map_err(anyhow::Error::from)?);
     }
-    audit::record(&app.db, id, owner, "freeze", &hash).await?;
+    audit::record(&app.db, id, actor, "freeze", &hash).await?;
     Ok(manifest)
 }
 
 /// Sends a draw command to the raffle's engine.
 pub async fn command(
     app: &App,
-    owner: &str,
+    actor: Actor<'_>,
     id: &str,
     cmd: impl Into<Command>,
     command_id: &str,
 ) -> Result<()> {
     let cmd = cmd.into();
-    let raffle = owned(app, owner, id).await?;
+    let raffle = owned(app, actor.owner, id).await?;
     if !raffle.state.drawable() {
         return Err(Refusal::NotDrawing.into());
     }
@@ -160,7 +160,7 @@ pub async fn command(
         .into(),
     })?;
 
-    send(app, owner, id, cmd, command_id).await
+    send(app, actor, id, cmd, command_id).await
 }
 
 /// Hands a validated command to the raffle engine, which writes the new
@@ -168,7 +168,7 @@ pub async fn command(
 /// (applied, or accepted and queued). A command the engine refused, or
 /// couldn't be asked, isn't audited: the organizer's retry (same command ID,
 /// applied once) is.
-async fn send(app: &App, owner: &str, id: &str, cmd: Command, command_id: &str) -> Result<()> {
+async fn send(app: &App, actor: Actor<'_>, id: &str, cmd: Command, command_id: &str) -> Result<()> {
     let engine = app.engine()?;
     let raffle = RaffleId::new(id);
     confirmed(match &cmd {
@@ -176,7 +176,7 @@ async fn send(app: &App, owner: &str, id: &str, cmd: Command, command_id: &str) 
         Command::Decide(decision) => engine.decide(&raffle, decision, command_id).await,
     })?;
     let (action, detail) = audited(&cmd);
-    audit::record(&app.db, id, owner, action, &detail).await?;
+    audit::record(&app.db, id, actor, action, &detail).await?;
     Ok(())
 }
 

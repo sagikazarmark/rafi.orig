@@ -8,10 +8,10 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 |---|---|
 | **Raffle** | One event's prize draw, from setup to finish. It belongs to a Clerk organization, or else to a user. |
 | **Organizer** | Whoever runs the raffle in the admin. The rules and the privacy notice name them as the data controller. |
-| **Owner** | Whom a raffle belongs to in the admin: a Clerk organization (shared by its members) or a user. The audit log's actor. |
-| **Admin**, **Manager**, **Member** | An organization member's tier, from Clerk: admins accept the terms and remove the organization's data; managers (the custom `org:manager` role or `org:raffles:manage` permission) also create, configure and delete raffles; members run them |
-| **Leave**, "Remove my data" | The owner's data goes: never-frozen raffles deleted, the rest erased and purged with the organizer's name and contacts, the defaults deleted; the acceptance record stays |
-| **Operator** | Whoever runs the installation: the organizer's processor, named in every privacy notice, whose terms (with the data processing agreement) organizers accept |
+| **Owner** | Whom a raffle belongs to in the admin: a Clerk organization (shared by its members) or a user. The audit log's `actor`; the member who acted is its `user_id`. |
+| **Admin**, **Manager**, **Member** | An organization member's tier, from Clerk: admins remove the organization's data; managers (the custom `org:manager` role or `org:raffles:manage` permission) also create, configure and delete raffles; members run them |
+| **Leave**, "Remove my data" | The owner's data goes: never-frozen raffles deleted, the rest erased and purged with the organizer's name and contacts, the defaults deleted |
+| **Operator** | Whoever runs the installation: the organizer's processor, named in every privacy notice, whose terms (with the data processing agreement) organizers accept by using the service |
 | **Event date** | The calendar day the raffle is drawn. Required; fixed once a real entrant has joined. |
 | **Retention period** | Days after the event date before non-winners are erased: the installation's default (7), the organizer's, or the raffle's, at most the installation's maximum (30). Fixed with the event date. |
 | **Erasure date** | The end of the event day plus the retention period, computed by the database. Shown to entrants ("at the end of 4 November"); the day non-winners are erased. |
@@ -23,7 +23,7 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Generated name** | An adjective and an animal, like "Brave Otter": for entrants who leave their name blank (or press 🎲), and for fake entrants |
 | **Entrant ID** | A random 128-bit ID in lowercase hex. It is public: the manifest lists entrants by it. |
 | **Claim code** | A private code shown on the entrant's phone and in the admin. A winner shows it to collect their prize. Erasure clears it. |
-| **Join code** | The short code in the join URL `/j/<CODE>`, which is also on the projector |
+| **Join code** | The six-character code in the join URL `/j/<CODE>`, also on the projector for typing (shown as `K7Q-2X3`; case and dashes don't matter). Letters and digits without look-alikes. A purged raffle keeps its code but no longer answers to it |
 | **Slug** | The raffle's public name in `/s/<slug>`, `/v/<slug>`, `/rules/<slug>` and `/privacy/<slug>` |
 | **Test mode** | Rehearsal: the organizer can add fake entrants, and a TEST badge shows on every screen, the verification page included. Switching it off removes the fakes; it is fixed once the list is frozen. |
 

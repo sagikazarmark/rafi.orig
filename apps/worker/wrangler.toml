@@ -81,8 +81,7 @@ RESTATE_INGRESS_URL = "" # Restate Cloud ingress URL (EU)
 RAFI_DO_JURISDICTION = "eu"
 # Who runs this installation: named as the processor in every raffle's privacy
 # notice. The documents themselves are legal/terms.md and legal/privacy.md,
-# bundled into the Worker; bump a version whenever its text changes
-# (organizers accept the terms again).
+# bundled into the Worker; bump a version whenever its text changes.
 RAFI_OPERATOR_NAME = "" # required
 RAFI_OPERATOR_EMAIL = "" # required
 RAFI_TERMS_VERSION = "" # required, e.g. "2026-10"

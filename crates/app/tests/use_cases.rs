@@ -14,6 +14,8 @@ use rafi_raffle::{Decision, DrawRequest, ItemStatus, Resolution};
 use rafi_store::{Db, RaffleWriter, entrants, raffles};
 
 const OWNER: &str = "organizer";
+/// The test owner acting for themselves (a personal account).
+const ACTOR: app::Actor<'static> = app::Actor::solo(OWNER);
 
 async fn app() -> App {
     let db = Db::connect("sqlite::memory:").await.expect("database");
@@ -41,8 +43,6 @@ async fn app() -> App {
                 max_days: 30,
                 winner_hold_days: 90,
             },
-            terms_version: "test".into(),
-            terms_digest: "digest".into(),
             min_age: 16,
         },
     }
@@ -51,19 +51,18 @@ async fn app() -> App {
 /// An open raffle with one prize and `people` entered by hand, named so the
 /// notice can open registration; returns its ID and theirs.
 async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
-    app::accept_terms(app, OWNER, OWNER, "test").await.unwrap();
-    let id = app::create(app, OWNER, "Meetup", &EventDate::today())
+    let id = app::create(app, ACTOR, "Meetup", &EventDate::today())
         .await
         .unwrap();
     let mut settings = app::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
     settings.organizer_name = "Meetup".into();
     settings.contact_email = "hello@example.com".into();
-    app::update_settings(app, OWNER, &id, settings)
+    app::update_settings(app, ACTOR, &id, settings)
         .await
         .unwrap();
     app::upsert_prize(
         app,
-        OWNER,
+        ACTOR,
         &id,
         PrizeInput {
             id: None,
@@ -76,15 +75,15 @@ async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
     )
     .await
     .unwrap();
-    app::lifecycle(app, OWNER, &id, LifecycleCommand::Publish)
+    app::lifecycle(app, ACTOR, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
-    app::lifecycle(app, OWNER, &id, LifecycleCommand::Open)
+    app::lifecycle(app, ACTOR, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     let mut ids = Vec::new();
     for name in people {
-        ids.push(app::add_manual(app, OWNER, &id, name, None).await.unwrap());
+        ids.push(app::add_manual(app, ACTOR, &id, name, None).await.unwrap());
     }
     (id, ids)
 }
@@ -117,7 +116,7 @@ async fn a_refused_patch_changes_nothing() {
         delivered: Some(true),
         ..Default::default()
     };
-    let err = app::patch_entrant(&app, OWNER, &id, &people[0], patch)
+    let err = app::patch_entrant(&app, ACTOR, &id, &people[0], patch)
         .await
         .unwrap_err();
     assert!(
@@ -136,19 +135,19 @@ async fn a_refused_patch_changes_nothing() {
 async fn only_a_claimed_winner_is_delivered_to() {
     let app = app().await;
     let (id, people) = open_raffle(&app, &["Anna", "Bence"]).await;
-    app::start_draw(&app, OWNER, &id).await.unwrap();
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
     let unknown = DrawRequest {
         item: "nope".into(),
     };
     assert!(matches!(
-        app::command(&app, OWNER, &id, unknown, "d0").await,
+        app::command(&app, ACTOR, &id, unknown, "d0").await,
         Err(Error::NotFound)
     ));
     let item = {
         let admin = app::admin(&app, OWNER, &id).await.unwrap();
         admin.view.items[0].item.clone()
     };
-    app::command(&app, OWNER, &id, DrawRequest { item: item.clone() }, "d1")
+    app::command(&app, ACTOR, &id, DrawRequest { item: item.clone() }, "d1")
         .await
         .unwrap();
     let winner = drawn(&app, &id).await;
@@ -159,14 +158,14 @@ async fn only_a_claimed_winner_is_delivered_to() {
     };
     assert!(
         matches!(
-            app::patch_entrant(&app, OWNER, &id, &winner, deliver()).await,
+            app::patch_entrant(&app, ACTOR, &id, &winner, deliver()).await,
             Err(Error::Refused(Refusal::NotDeliverable))
         ),
         "drawn, but not claimed yet"
     );
     app::command(
         &app,
-        OWNER,
+        ACTOR,
         &id,
         Decision::Resolve {
             item,
@@ -176,11 +175,11 @@ async fn only_a_claimed_winner_is_delivered_to() {
     )
     .await
     .unwrap();
-    app::patch_entrant(&app, OWNER, &id, &winner, deliver())
+    app::patch_entrant(&app, ACTOR, &id, &winner, deliver())
         .await
         .unwrap();
     assert!(matches!(
-        app::patch_entrant(&app, OWNER, &id, &loser, deliver()).await,
+        app::patch_entrant(&app, ACTOR, &id, &loser, deliver()).await,
         Err(Error::Refused(Refusal::NotDeliverable))
     ));
     let admin = app::admin(&app, OWNER, &id).await.unwrap();
@@ -217,11 +216,11 @@ async fn the_admin_page_offers_what_the_rules_allow() {
     );
     assert!(actions.draw && actions.export && !actions.purge);
 
-    app::start_draw(&app, OWNER, &id).await.unwrap();
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
     let actions = app::admin(&app, OWNER, &id).await.unwrap().actions;
     assert_eq!(actions.start, Some(StartStep::Started));
 
-    app::command(&app, OWNER, &id, Decision::Finish, "f1")
+    app::command(&app, ACTOR, &id, Decision::Finish, "f1")
         .await
         .unwrap();
     for _ in 0..200 {

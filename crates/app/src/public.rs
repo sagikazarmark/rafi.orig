@@ -13,9 +13,13 @@ pub async fn raffle(app: &App, slug: &str) -> Result<RaffleRow> {
 }
 
 /// The raffle joined with `code`, as typed (it is normalized); not found
-/// unless the public may see it.
+/// unless the public may see it and it still answers its code
+/// ([`rafi_lifecycle::RaffleState::answers_join_code`]).
 pub async fn raffle_by_join_code(app: &App, code: &str) -> Result<RaffleRow> {
-    public(raffles::by_join_code(&app.db, &codes::normalize(code)).await?)
+    raffles::by_join_code(&app.db, &codes::normalize(code))
+        .await?
+        .filter(|r| r.state.answers_join_code())
+        .ok_or(Error::NotFound)
 }
 
 fn public(raffle: Option<RaffleRow>) -> Result<RaffleRow> {

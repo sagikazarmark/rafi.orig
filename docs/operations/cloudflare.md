@@ -42,11 +42,13 @@ wrangler d1 migrations apply rafi --remote
 ### 2. The legal documents and the operator
 
 The Worker bundles the installation's documents from [`apps/worker/legal/`](../../apps/worker/legal/): `terms.md`
-(with the data processing agreement organizers accept) and `privacy.md` (the operator's own notice, naming the
+(with the data processing agreement, which organizers accept by using the service) and `privacy.md` (the
+operator's own notice, naming the
 subprocessors: Cloudflare, Restate Cloud, Clerk, drand). They ship as engineering drafts marked as templates: fill in
 the bracketed parts, have a lawyer review them, and set `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`,
 `RAFI_OPERATOR_NAME` and `RAFI_OPERATOR_EMAIL` in `[vars]`. Without them the Worker refuses every request. A changed
-document is a new version, which organizers accept again. The retention settings (`RAFI_RETENTION_DAYS` and the
+document is a new version, shown with it; a change to the processing agreement is notified to organizers directly,
+since nothing records who read which version. The retention settings (`RAFI_RETENTION_DAYS` and the
 others, see the [configuration](../reference/configuration.md)) have defaults; `RAFI_MIN_AGE` too.
 
 ### 3. The Worker

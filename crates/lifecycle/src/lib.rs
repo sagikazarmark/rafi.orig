@@ -197,6 +197,16 @@ impl RaffleState {
         self != Self::Draft
     }
 
+    /// Whether the join code still leads to the raffle. A purged raffle keeps
+    /// its code but answers nothing to it: its entrants' tokens are erased,
+    /// so no phone can be recognized, and the page would show only that the
+    /// raffle is over. Not answering keeps the codes that can be guessed to
+    /// the raffles still inside their hold, and the raffle stays reachable by
+    /// its slug (the projector, the verification page).
+    pub fn answers_join_code(self) -> bool {
+        self.is_public() && self != Self::Purged
+    }
+
     /// Whether draws can happen.
     pub fn drawable(self) -> bool {
         matches!(self, Self::Frozen | Self::Drawing)
@@ -276,6 +286,18 @@ mod tests {
                 S::Frozen | S::Drawing | S::Finished | S::Purged => None,
             };
             assert_eq!(s.expire(), want, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn the_join_code_answers_while_the_raffle_is_public_and_not_purged() {
+        for s in S::ALL {
+            let want = !matches!(s, S::Draft | S::Purged);
+            assert_eq!(s.answers_join_code(), want, "{s:?}");
+            assert!(
+                !s.answers_join_code() || s.is_public(),
+                "{s:?}: a code never leads to what the public can't see"
+            );
         }
     }
 

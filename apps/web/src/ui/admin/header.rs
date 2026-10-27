@@ -151,6 +151,7 @@ pub(super) fn Header(
     // rules); the page derives none of it.
     let unconfirmed = admin.actions.start == Some(StartStep::Retry);
     let join_url = v.join_url.clone();
+    let join_code = grouped(&v.join_code);
     let can_export = admin.actions.export;
     let can_purge = admin.actions.purge;
     let can_deliver = admin.actions.deliver_all;
@@ -259,7 +260,7 @@ pub(super) fn Header(
                                 Copy { class: "size-4" }
                             }
                         }
-                        span { class: "badge badge-lg badge-accent font-mono font-bold tracking-widest", "{v.join_code}" }
+                        span { class: "badge badge-lg badge-accent font-mono font-bold tracking-widest", title: "The join code: typed instead of scanning", "{join_code}" }
                         if v.manifest_hash.is_some() {
                             a { class: "btn btn-ghost btn-sm", href: "{verify_url}", target: "_blank", ShieldCheck { class: "size-4" } "Verification page" }
                         }
@@ -343,6 +344,17 @@ pub(super) fn Header(
             on_confirm: move |_| { spawn(delete()); },
         }
     }
+}
+
+/// A join code in groups of three (`K7Q-2X3`), easier to read out and to
+/// type; the server drops the dash.
+fn grouped(code: &str) -> String {
+    code.chars()
+        .collect::<Vec<_>>()
+        .chunks(3)
+        .map(|c| c.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 fn download(name: &str, content: &str) {

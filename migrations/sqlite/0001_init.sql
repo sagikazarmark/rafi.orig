@@ -53,11 +53,15 @@ CREATE TABLE raffles (
     updated_at INTEGER NOT NULL
 );
 
-CREATE INDEX raffles_owner ON raffles (owner_id);
+-- The admin's list: an owner's raffles, newest first, with the ID as the
+-- tiebreak so the order is the same on every backend.
+CREATE INDEX raffles_owner ON raffles (owner_id, created_at, id);
 
 -- Housekeeping finds what is due to be erased by this.
 CREATE INDEX raffles_erase_at ON raffles (erase_at) WHERE purged_at IS NULL;
 
+-- A prize's ID is a random 128-bit hex string, like a raffle's: the raffle's
+-- items in the manifest are `<prize id>-<n>`, one per copy.
 CREATE TABLE prizes (
     id TEXT PRIMARY KEY NOT NULL,
     raffle_id TEXT NOT NULL REFERENCES raffles (id) ON DELETE CASCADE,
@@ -84,6 +88,9 @@ CREATE TABLE entrants (
     claim_code TEXT,
     -- SHA-256 of the secret entrant token stored in the attendee's cookie.
     token_hash TEXT,
+    -- What the join form showed when the rules were accepted:
+    -- `<form version>/age<minimum age>`, e.g. `2026-10-21.2/age16`; the form
+    -- version is rafi_app::CONSENT_VERSION, bumped whenever its text changes.
     consent_version TEXT,
     consent_rules_at INTEGER,
     delivered_at INTEGER,
@@ -183,11 +190,17 @@ CREATE TABLE draws (
     PRIMARY KEY (raffle_id, k)
 );
 
+-- Who did what to a raffle. `actor` is the owner key the raffle belongs to
+-- (a Clerk organization, or else the user), `user_id` the user acting for it
+-- (the same for a personal account; housekeeping writes `housekeeping` in
+-- both). Kept after the owner's data is removed, as the operator's record;
+-- `detail` never holds personal data (counts, IDs, a title).
 CREATE TABLE audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     raffle_id TEXT NOT NULL,
     at INTEGER NOT NULL,
     actor TEXT NOT NULL,
+    user_id TEXT NOT NULL DEFAULT '',
     action TEXT NOT NULL,
     detail TEXT NOT NULL DEFAULT ''
 );
@@ -227,21 +240,6 @@ CREATE TABLE owner_defaults (
     rules TEXT NOT NULL DEFAULT '',
     retention_days INTEGER,
     updated_at INTEGER NOT NULL
-);
-
--- Which version of which legal document (the operator's terms, with the
--- processing agreement) an owner accepted, which of its users did, and the
--- SHA-256 of the text as it was then (so an edit under the same version
--- label is visible). Kept when the owner's data is removed: it holds opaque
--- IDs only, and is the operator's evidence.
-CREATE TABLE legal_acceptances (
-    owner_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    document TEXT NOT NULL,
-    version TEXT NOT NULL,
-    digest TEXT NOT NULL,
-    accepted_at INTEGER NOT NULL,
-    PRIMARY KEY (owner_id, document, version)
 );
 
 -- Small operational facts: when housekeeping last succeeded

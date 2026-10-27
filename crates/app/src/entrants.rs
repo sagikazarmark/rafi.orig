@@ -9,11 +9,13 @@ use rafi_lifecycle::{
 };
 use rafi_store::{RaffleRow, audit, entrants, raffles};
 
-use crate::{App, Error, Limit, Refusal, Result, altcha, ids, owned, view::NAME_DELAY_SECS};
+use crate::{Actor, App, Error, Limit, Refusal, Result, altcha, ids, owned, view::NAME_DELAY_SECS};
 
 /// Version of the consent text shown on the join form: the rules checkbox,
-/// the erasure dates and the age line under it. What is stored with an entry
-/// also carries the age ([`Policy::consent_version`](crate::Policy::consent_version)).
+/// the erasure dates and the age line under it. Bumped whenever that text
+/// changes. What is stored with an entry is `<this>/age<minimum age>`
+/// ([`Policy::consent_version`](crate::Policy::consent_version)), so a row
+/// says which text and which age its entrant was shown.
 pub const CONSENT_VERSION: &str = "2026-10-21.2";
 
 async fn unique_claim_code(app: &App, raffle_id: &str) -> Result<String> {
@@ -228,12 +230,12 @@ async fn not_joined(
 /// Adds someone without a phone; returns their entrant ID.
 pub async fn add_manual(
     app: &App,
-    owner: &str,
+    actor: Actor<'_>,
     raffle_id: &str,
     name: &str,
     email: Option<String>,
 ) -> Result<String> {
-    let raffle = owned(app, owner, raffle_id).await?;
+    let raffle = owned(app, actor.owner, raffle_id).await?;
     if !raffle.state.entrants_editable() {
         return Err(Refusal::EntrantsFrozen.into());
     }
@@ -264,14 +266,14 @@ pub async fn add_manual(
         Err(e) if e.is_unique_violation() => return Err(Refusal::EmailTaken.into()),
         Err(e) => return Err(e.into()),
     }
-    audit::record(&app.db, raffle_id, owner, "add_manual", &id).await?;
+    audit::record(&app.db, raffle_id, actor, "add_manual", &id).await?;
     Ok(id)
 }
 
 /// Adds up to `n` fake entrants for rehearsals (test mode only), with
 /// generated names.
-pub async fn add_fakes(app: &App, owner: &str, raffle_id: &str, n: u32) -> Result<()> {
-    let raffle = owned(app, owner, raffle_id).await?;
+pub async fn add_fakes(app: &App, actor: Actor<'_>, raffle_id: &str, n: u32) -> Result<()> {
+    let raffle = owned(app, actor.owner, raffle_id).await?;
     let n = entrant::fakes(raffle.test_mode, raffle.state, n).map_err(Refusal::Fakes)?;
     let mut taken = taken_names(app, raffle_id).await?;
     let fakes: Vec<entrants::Fake> = (0..n)
@@ -298,7 +300,7 @@ pub async fn add_fakes(app: &App, owner: &str, raffle_id: &str, n: u32) -> Resul
             .unwrap_or(entrant::FakesRefusal::Frozen);
         return Err(Refusal::Fakes(refusal).into());
     }
-    audit::record(&app.db, raffle_id, owner, "add_fakes", &n.to_string()).await?;
+    audit::record(&app.db, raffle_id, actor, "add_fakes", &n.to_string()).await?;
     Ok(())
 }
 
@@ -306,12 +308,12 @@ pub async fn add_fakes(app: &App, owner: &str, raffle_id: &str, n: u32) -> Resul
 /// checked before anything is written, and the write is one statement).
 pub async fn patch_entrant(
     app: &App,
-    owner: &str,
+    actor: Actor<'_>,
     raffle_id: &str,
     entrant_id: &str,
     patch: EntrantPatch,
 ) -> Result<()> {
-    let raffle = owned(app, owner, raffle_id).await?;
+    let raffle = owned(app, actor.owner, raffle_id).await?;
     let entrant = entrants::get(&app.db, raffle_id, entrant_id)
         .await?
         .ok_or(Error::NotFound)?;
@@ -345,7 +347,7 @@ pub async fn patch_entrant(
         // Erased since the read above.
         return Err(Refusal::Erased.into());
     }
-    audit::record(&app.db, raffle_id, owner, "patch_entrant", entrant_id).await?;
+    audit::record(&app.db, raffle_id, actor, "patch_entrant", entrant_id).await?;
     // A drawn entrant's name is on the phones.
     if patch.display_name.is_some() || patch.hidden.is_some() {
         app.live_updates.notify(raffle_id).await;
@@ -359,11 +361,11 @@ pub async fn patch_entrant(
 /// ([`RaffleState::removal`](lifecycle::RaffleState::removal)).
 pub async fn remove_entrant(
     app: &App,
-    owner: &str,
+    actor: Actor<'_>,
     raffle_id: &str,
     entrant_id: &str,
 ) -> Result<()> {
-    let raffle = owned(app, owner, raffle_id).await?;
+    let raffle = owned(app, actor.owner, raffle_id).await?;
     let now = ids::now();
     let removal = match raffle.state.removal(raffle.past_erase_date(now)) {
         Some(Removal::Delete) if entrants::delete(&app.db, raffle_id, entrant_id).await? => {
@@ -384,10 +386,10 @@ pub async fn remove_entrant(
     };
     match removal {
         Some(Removal::Delete) => {
-            audit::record(&app.db, raffle_id, owner, "remove_entrant", entrant_id).await?;
+            audit::record(&app.db, raffle_id, actor, "remove_entrant", entrant_id).await?;
         }
         Some(Removal::Erase) => {
-            audit::record(&app.db, raffle_id, owner, "erase_entrant", entrant_id).await?;
+            audit::record(&app.db, raffle_id, actor, "erase_entrant", entrant_id).await?;
         }
         None => return Ok(()),
     }
@@ -397,14 +399,14 @@ pub async fn remove_entrant(
 
 /// Erases every entrant's personal data of a finished raffle now, and ends
 /// its live channel.
-pub async fn purge(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
-    let raffle = owned(app, owner, raffle_id).await?;
+pub async fn purge(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<()> {
+    let raffle = owned(app, actor.owner, raffle_id).await?;
     if raffle.state.apply(lifecycle::Command::Purge).is_none() {
         return Err(Refusal::NotPurgeable.into());
     }
     entrants::erase(&app.db, raffle_id, None, ids::now()).await?;
     raffles::mark_purged(&app.db, raffle_id).await?;
-    audit::record(&app.db, raffle_id, owner, "purge", "").await?;
+    audit::record(&app.db, raffle_id, actor, "purge", "").await?;
     // Destroying the channel publishes the final (erased) view first.
     app.live_updates.end(raffle_id).await?;
     Ok(())
@@ -413,8 +415,8 @@ pub async fn purge(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
 /// Marks every winner's prize of a finished raffle delivered, so their
 /// personal data goes on the non-winner clock instead of being held.
 /// Returns how many were.
-pub async fn deliver_all(app: &App, owner: &str, raffle_id: &str) -> Result<u64> {
-    let raffle = owned(app, owner, raffle_id).await?;
+pub async fn deliver_all(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<u64> {
+    let raffle = owned(app, actor.owner, raffle_id).await?;
     if !raffle.state.is_over() {
         return Err(Refusal::NotFinishedForDelivery.into());
     }
@@ -423,7 +425,7 @@ pub async fn deliver_all(app: &App, owner: &str, raffle_id: &str) -> Result<u64>
         audit::record(
             &app.db,
             raffle_id,
-            owner,
+            actor,
             "deliver_all",
             &delivered.to_string(),
         )
@@ -435,14 +437,14 @@ pub async fn deliver_all(app: &App, owner: &str, raffle_id: &str) -> Result<u64>
 /// Ends live updates of a finished raffle: phones stop listening and the
 /// raffle's live channel is destroyed. Safe to repeat (the channel is
 /// destroyed again).
-pub async fn end_live(app: &App, owner: &str, raffle_id: &str) -> Result<()> {
-    let raffle = owned(app, owner, raffle_id).await?;
+pub async fn end_live(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<()> {
+    let raffle = owned(app, actor.owner, raffle_id).await?;
     if !raffle.state.is_over() {
         return Err(Refusal::NotOver.into());
     }
     raffles::end_live(&app.db, raffle_id).await?;
     if raffle.live_ended_at.is_none() {
-        audit::record(&app.db, raffle_id, owner, "end_live", "").await?;
+        audit::record(&app.db, raffle_id, actor, "end_live", "").await?;
     }
     app.live_updates.end(raffle_id).await?;
     Ok(())

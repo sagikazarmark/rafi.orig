@@ -5,7 +5,14 @@ use rafi_api::{LifecycleCommand, RaffleDefaults, RaffleSettings, RaffleSummary};
 use rafi_lifecycle::{self as lifecycle, dates::Date, settings};
 use rafi_store::{RaffleRow, audit, defaults, entrants, prizes, raffles};
 
-use crate::{App, Refusal, Result, ids, legal, owned};
+use crate::{Actor, App, Refusal, Result, ids, owned};
+
+/// The join code's length: six characters of [`crate::codes::ALPHABET`]
+/// (31⁶ ≈ 887 million). Short enough to type from the projector when the QR
+/// code won't scan; a purged raffle keeps its code, so the space only fills.
+/// Lengthening it is a change here alone: the column is text, old codes stay
+/// valid, and [`crate::codes::normalize`] accepts any grouping.
+pub const JOIN_CODE_LEN: usize = 6;
 
 pub async fn list(app: &App, owner: &str) -> Result<Vec<RaffleSummary>> {
     Ok(raffles::list_by_owner(&app.db, owner)
@@ -52,11 +59,12 @@ fn normalized<'a>(app: &App, settings: settings::Settings<'a>) -> Result<setting
 }
 
 /// A new draft raffle titled `title` on `event`, with a copy of the owner's
-/// defaults; returns its ID. The owner must have accepted the current terms.
-pub async fn create(app: &App, owner: &str, title: &str, event: &EventDate) -> Result<String> {
-    legal::require_terms(app, owner).await?;
+/// defaults; returns its ID.
+pub async fn create(app: &App, actor: Actor<'_>, title: &str, event: &EventDate) -> Result<String> {
     let title = settings::title(title).ok_or(Refusal::Title)?;
-    let d = defaults::get(&app.db, owner).await?.unwrap_or_default();
+    let d = defaults::get(&app.db, actor.owner)
+        .await?
+        .unwrap_or_default();
     let normalized = normalized(
         app,
         settings::Settings {
@@ -80,9 +88,9 @@ pub async fn create(app: &App, owner: &str, title: &str, event: &EventDate) -> R
             &app.db,
             &raffles::NewRaffle {
                 id: &id,
-                owner_id: owner,
+                owner_id: actor.owner,
                 slug: &ids::slug(title),
-                join_code: &ids::code(4),
+                join_code: &ids::code(JOIN_CODE_LEN),
                 title,
             },
             &settings,
@@ -91,7 +99,7 @@ pub async fn create(app: &App, owner: &str, title: &str, event: &EventDate) -> R
         .await;
         match res {
             Ok(_) => {
-                audit::record(&app.db, &id, owner, "create", title).await?;
+                audit::record(&app.db, &id, actor, "create", title).await?;
                 return Ok(id);
             }
             Err(e) if e.is_unique_violation() => continue,
@@ -116,7 +124,7 @@ pub async fn get_defaults(app: &App, owner: &str) -> Result<RaffleDefaults> {
 }
 
 /// Saves what `owner`'s new raffles start with. Existing raffles keep theirs.
-pub async fn save_defaults(app: &App, owner: &str, d: RaffleDefaults) -> Result<()> {
+pub async fn save_defaults(app: &App, actor: Actor<'_>, d: RaffleDefaults) -> Result<()> {
     let max = app.policy.retention.max_days;
     let d = settings::Defaults {
         organizer_name: &d.organizer_name,
@@ -131,7 +139,7 @@ pub async fn save_defaults(app: &App, owner: &str, d: RaffleDefaults) -> Result<
     .map_err(|e| Refusal::settings(e, max))?;
     defaults::save(
         &app.db,
-        owner,
+        actor.owner,
         &defaults::Defaults {
             organizer_name: d.organizer_name.to_owned(),
             contact_email: d.contact_email.to_owned(),
@@ -178,8 +186,13 @@ fn fixed_of(r: &RaffleRow) -> settings::Fixed<'_> {
 /// fake entrants in the same write. A fixed setting (the rules, the event
 /// date, the retention period, the privacy text or link) can't change once
 /// an entrant accepted the rules: the refusal names which.
-pub async fn update_settings(app: &App, owner: &str, id: &str, s: RaffleSettings) -> Result<()> {
-    let raffle = owned(app, owner, id).await?;
+pub async fn update_settings(
+    app: &App,
+    actor: Actor<'_>,
+    id: &str,
+    s: RaffleSettings,
+) -> Result<()> {
+    let raffle = owned(app, actor.owner, id).await?;
     let normalized = normalized(
         app,
         settings::Settings {
@@ -231,7 +244,7 @@ pub async fn update_settings(app: &App, owner: &str, id: &str, s: RaffleSettings
         .into());
     }
     if write.fakes_removed {
-        audit::record(&app.db, id, owner, "remove_fakes", &fakes.to_string()).await?;
+        audit::record(&app.db, id, actor, "remove_fakes", &fakes.to_string()).await?;
     }
     // Nothing phones see: the participant view has no settings, and names
     // only of drawn entrants (fakes are never drawn outside test mode).
@@ -258,14 +271,14 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
     }
 }
 
-pub async fn delete(app: &App, owner: &str, id: &str) -> Result<()> {
-    let raffle = owned(app, owner, id).await?;
+pub async fn delete(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
+    let raffle = owned(app, actor.owner, id).await?;
     let drawn = raffles::drawn(&app.db, &raffle).await?;
     if !lifecycle::raffle::deletable(raffle.state, drawn.as_ref()) {
         return Err(Refusal::DrawPending.into());
     }
     raffles::delete(&app.db, id).await?;
-    audit::record(&app.db, id, owner, "delete", "").await?;
+    audit::record(&app.db, id, actor, "delete", "").await?;
     // Best effort: the raffle is gone either way, and its channel finds nothing to show.
     if let Err(e) = app.live_updates.end(id).await {
         tracing::warn!(raffle_id = id, error = %e, "ending the live channel of a deleted raffle failed");
@@ -275,17 +288,16 @@ pub async fn delete(app: &App, owner: &str, id: &str) -> Result<()> {
 
 /// Copies settings and prizes into a new draft raffle (no entrants) on
 /// `event` (the organizer's today, as a rule), in one write: a copy is whole
-/// or not there. The owner must have accepted the current terms.
-pub async fn duplicate(app: &App, owner: &str, id: &str, event: &EventDate) -> Result<String> {
-    legal::require_terms(app, owner).await?;
-    let raffle = owned(app, owner, id).await?;
+/// or not there.
+pub async fn duplicate(app: &App, actor: Actor<'_>, id: &str, event: &EventDate) -> Result<String> {
+    let raffle = owned(app, actor.owner, id).await?;
     let title = settings::copy_title(&raffle.title);
     let prizes = prizes::list(&app.db, id).await?;
     let copies: Vec<(String, prizes::PrizeFields)> = prizes
         .iter()
         .map(|prize| {
             (
-                ids::code(6).to_lowercase(),
+                ids::id(),
                 prizes::PrizeFields {
                     name: &prize.name,
                     sponsor: &prize.sponsor,
@@ -321,9 +333,9 @@ pub async fn duplicate(app: &App, owner: &str, id: &str, event: &EventDate) -> R
             &app.db,
             &raffles::NewRaffle {
                 id: &new_id,
-                owner_id: owner,
+                owner_id: actor.owner,
                 slug: &ids::slug(&title),
-                join_code: &ids::code(4),
+                join_code: &ids::code(JOIN_CODE_LEN),
                 title: &title,
             },
             &settings,
@@ -332,7 +344,7 @@ pub async fn duplicate(app: &App, owner: &str, id: &str, event: &EventDate) -> R
         .await;
         match res {
             Ok(()) => {
-                audit::record(&app.db, &new_id, owner, "create", &title).await?;
+                audit::record(&app.db, &new_id, actor, "create", &title).await?;
                 return Ok(new_id);
             }
             Err(e) if e.is_unique_violation() => continue,
@@ -345,8 +357,13 @@ pub async fn duplicate(app: &App, owner: &str, id: &str, event: &EventDate) -> R
 /// Moves the raffle through its lifecycle. Registration opens only once the
 /// privacy notice can name the organizer and a way to reach them
 /// ([`settings::missing_for_open`]).
-pub async fn lifecycle(app: &App, owner: &str, id: &str, action: LifecycleCommand) -> Result<()> {
-    let raffle = owned(app, owner, id).await?;
+pub async fn lifecycle(
+    app: &App,
+    actor: Actor<'_>,
+    id: &str,
+    action: LifecycleCommand,
+) -> Result<()> {
+    let raffle = owned(app, actor.owner, id).await?;
     let command = match action {
         LifecycleCommand::Publish => lifecycle::Command::Publish,
         LifecycleCommand::Unpublish => lifecycle::Command::Unpublish,
@@ -370,7 +387,7 @@ pub async fn lifecycle(app: &App, owner: &str, id: &str, action: LifecycleComman
     if !raffles::transition(&app.db, id, from, to).await? {
         return Err(Refusal::Changed.into());
     }
-    audit::record(&app.db, id, owner, to.as_str(), "").await?;
+    audit::record(&app.db, id, actor, to.as_str(), "").await?;
     app.live_updates.notify(id).await;
     Ok(())
 }

@@ -15,7 +15,7 @@
 //! - `scheduled`: the Cron Trigger runs [`rafi_app::housekeeping::run`].
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
-//! The installation's legal documents (its privacy notice, the terms with
+//! The installation's legal documents (its privacy notice, its terms with
 //! the processing agreement) are bundled from `legal/`: the operator edits
 //! them there and sets their versions in `wrangler.toml`.
 //!

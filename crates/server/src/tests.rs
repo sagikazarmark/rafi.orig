@@ -24,6 +24,8 @@ use super::{AppState, config::Config, routes, service};
 use rafi_api::{LifecycleCommand, PrizeInput};
 
 const OWNER: &str = "user_test";
+/// The test owner acting for themselves (a personal account).
+const ACTOR: service::Actor<'static> = service::Actor::solo(OWNER);
 
 async fn app() -> AppState {
     app_with(Config::for_tests()).await
@@ -175,30 +177,23 @@ async fn join(
     (status, cookie, text)
 }
 
-/// Accepts the current terms for `owner` (every raffle needs that first).
-async fn accept_terms(app: &AppState, owner: &str) {
-    service::accept_terms(app, owner, owner, &app.cfg.terms_version)
-        .await
-        .unwrap();
-}
-
-/// A raffle of `owner`'s titled `title`, dated today, with the terms
-/// accepted and an organizer named, so registration can open.
+/// A raffle of `owner`'s titled `title`, dated today, with an organizer
+/// named, so registration can open.
 async fn create(app: &AppState, owner: &str, title: &str) -> String {
-    accept_terms(app, owner).await;
-    let id = service::create(app, owner, title, &service::EventDate::today())
+    let actor = service::Actor::solo(owner);
+    let id = service::create(app, actor, title, &service::EventDate::today())
         .await
         .unwrap();
-    name_organizer(app, owner, &id).await;
+    name_organizer(app, actor, &id).await;
     id
 }
 
 /// Names the organizer of raffle `id`, as registration needs.
-async fn name_organizer(app: &AppState, owner: &str, id: &str) {
+async fn name_organizer(app: &AppState, actor: service::Actor<'_>, id: &str) {
     let mut settings = service::settings_of(&raffles::get(&app.db, id).await.unwrap().unwrap());
     settings.organizer_name = "Cloud Native Budapest".into();
     settings.contact_email = "hello@example.com".into();
-    service::update_settings(app, owner, id, settings)
+    service::update_settings(app, actor, id, settings)
         .await
         .unwrap();
 }
@@ -208,7 +203,7 @@ async fn setup_open(app: &AppState, prizes: &[(&str, u32)]) -> RaffleRow {
     for (i, (name, qty)) in prizes.iter().enumerate() {
         service::upsert_prize(
             app,
-            OWNER,
+            ACTOR,
             &id,
             PrizeInput {
                 name: (*name).into(),
@@ -220,10 +215,10 @@ async fn setup_open(app: &AppState, prizes: &[(&str, u32)]) -> RaffleRow {
         .await
         .unwrap();
     }
-    service::lifecycle(app, OWNER, &id, LifecycleCommand::Publish)
+    service::lifecycle(app, ACTOR, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
-    service::lifecycle(app, OWNER, &id, LifecycleCommand::Open)
+    service::lifecycle(app, ACTOR, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     raffles::get(&app.db, &id).await.unwrap().unwrap()
@@ -286,6 +281,8 @@ async fn full_raffle_flow() {
     )
     .await;
     let code = raffle.join_code.clone();
+    assert_eq!(code.len(), service::JOIN_CODE_LEN);
+    assert!(code.bytes().all(|b| service::codes::ALPHABET.contains(&b)));
 
     // The join page renders the form.
     let (status, _, page) = send(
@@ -297,6 +294,18 @@ async fn full_raffle_flow() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("name=\"email\""));
+    // Typed as the projector shows it, in groups and in any case: the
+    // canonical code is redirected to.
+    let grouped = format!("{}-{}", &code[..3], code[3..].to_lowercase());
+    let (status, headers, _) = send(
+        &router,
+        Request::get(format!("/j/{grouped}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], format!("/j/{code}"));
 
     // Participants join; the cookie brings them back to their entry.
     let mut cookies = Vec::new();
@@ -338,27 +347,27 @@ async fn full_raffle_flow() {
     assert!(page.contains("already entered"));
 
     // A person without a phone.
-    service::add_manual(&app, OWNER, &raffle.id, "No Phone", None)
+    service::add_manual(&app, ACTOR, &raffle.id, "No Phone", None)
         .await
         .unwrap();
     assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 6);
 
     // Freeze; joining is closed afterwards.
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     assert_eq!(r.raffle.state, RaffleState::Frozen);
     let (status, cookie, _) = join(&router, &code, "Late", "late@example.com").await;
     assert_ne!(status, StatusCode::SEE_OTHER);
     assert!(cookie.is_none());
     assert!(
-        service::add_manual(&app, OWNER, &raffle.id, "Late", None)
+        service::add_manual(&app, ACTOR, &raffle.id, "Late", None)
             .await
             .is_err()
     );
     assert!(
         service::upsert_prize(
             &app,
-            OWNER,
+            ACTOR,
             &raffle.id,
             PrizeInput {
                 name: "x".into(),
@@ -377,7 +386,7 @@ async fn full_raffle_flow() {
     for (i, item) in items.iter().enumerate() {
         service::command(
             &app,
-            OWNER,
+            ACTOR,
             &raffle.id,
             DrawRequest { item: item.clone() },
             &format!("c{i}"),
@@ -402,7 +411,7 @@ async fn full_raffle_flow() {
                 .unwrap();
             service::command(
                 &app,
-                OWNER,
+                ACTOR,
                 &raffle.id,
                 Decision::Resolve {
                     item: item.clone(),
@@ -414,7 +423,7 @@ async fn full_raffle_flow() {
             .unwrap();
             service::command(
                 &app,
-                OWNER,
+                ACTOR,
                 &raffle.id,
                 DrawRequest { item: item.clone() },
                 "redraw",
@@ -452,7 +461,7 @@ async fn full_raffle_flow() {
         );
         service::command(
             &app,
-            OWNER,
+            ACTOR,
             &raffle.id,
             Decision::Resolve {
                 item: item.clone(),
@@ -472,7 +481,7 @@ async fn full_raffle_flow() {
     assert!(
         service::command(
             &app,
-            OWNER,
+            ACTOR,
             &raffle.id,
             DrawRequest {
                 item: items[0].clone(),
@@ -483,7 +492,7 @@ async fn full_raffle_flow() {
         .is_err()
     );
 
-    service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
+    service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
@@ -527,11 +536,11 @@ async fn full_raffle_flow() {
     assert_eq!(report.draws.len(), items.len() + 1);
 
     // CSV export lists the winners (and the not-here entrant).
-    let csv = service::export_csv(&app, OWNER, &raffle.id).await.unwrap();
+    let csv = service::export_csv(&app, ACTOR, &raffle.id).await.unwrap();
     assert_eq!(csv.lines().count(), 1 + items.len() + 1);
 
     // Purging: personal data is erased but the draw stays verifiable.
-    service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    service::purge(&app, ACTOR, &raffle.id).await.unwrap();
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert_eq!(entrants.len(), 6);
     assert!(
@@ -559,6 +568,24 @@ async fn full_raffle_flow() {
     );
     assert!(data.names.is_empty(), "no names are left: {:?}", data.names);
     assert!(entrants.iter().all(|e| e.claim_code.is_none()));
+    // The join code no longer answers (nobody can be recognized on it, and
+    // guessing codes finds only raffles inside their hold); the slug does.
+    let (status, _, _) = send(
+        &router,
+        Request::get(format!("/j/{code}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "a purged raffle's code");
+    let (status, _, _) = send(
+        &router,
+        Request::get(format!("/api/r/{}/verify.json", raffle.slug))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the draw stays verifiable");
 }
 
 #[tokio::test]
@@ -573,12 +600,12 @@ async fn public_view_has_no_personal_data() {
         "secret-address@example.com",
     )
     .await;
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let state = full(&app, &raffle.id).await.drawn.unwrap();
     service::command(
         &app,
-        OWNER,
+        ACTOR,
         &raffle.id,
         DrawRequest {
             item: state.items()[0].id.clone(),
@@ -658,7 +685,7 @@ async fn full_view_v_is_the_version_column() {
     let (_, _, again) = get_json(&router, &url).await;
     assert_eq!(again["v"].as_u64().unwrap(), v0);
 
-    service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
+    service::add_manual(&app, ACTOR, &raffle.id, "Anna", None)
         .await
         .unwrap();
     let (_, _, view) = get_json(&router, &url).await;
@@ -694,12 +721,12 @@ async fn participant_view_has_no_personal_data() {
         assert!(!text.contains(secret), "{secret} leaked: {text}");
     }
 
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let item = r.drawn.as_ref().unwrap().items()[0].id.clone();
     service::command(
         &app,
-        OWNER,
+        ACTOR,
         &raffle.id,
         DrawRequest { item: item.clone() },
         "c",
@@ -750,7 +777,7 @@ async fn participant_view_has_no_personal_data() {
     // A hidden winner's name is masked.
     service::patch_entrant(
         &app,
-        OWNER,
+        ACTOR,
         &raffle.id,
         winner_id.as_str(),
         rafi_api::EntrantPatch {
@@ -873,10 +900,10 @@ async fn an_engine_on_another_chain_is_refused_before_freezing() {
     cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
     let app = app_with_engine(cfg, mock_drand(), LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
+    service::add_manual(&app, ACTOR, &raffle.id, "Anna", None)
         .await
         .unwrap();
-    let err = service::start_draw(&app, OWNER, &raffle.id)
+    let err = service::start_draw(&app, ACTOR, &raffle.id)
         .await
         .unwrap_err();
     assert!(matches!(err, service::Error::Refused(_)), "{err}");
@@ -893,10 +920,10 @@ async fn draws_need_restate() {
     let app = AppState::new(cfg).await.unwrap();
     assert!(app.engine.is_none());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, OWNER, &raffle.id, "Anna", None)
+    service::add_manual(&app, ACTOR, &raffle.id, "Anna", None)
         .await
         .unwrap();
-    let err = service::start_draw(&app, OWNER, &raffle.id)
+    let err = service::start_draw(&app, ACTOR, &raffle.id)
         .await
         .unwrap_err();
     assert!(err.to_string().contains("Restate"), "{err}");
@@ -1065,57 +1092,8 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let me: rafi_api::Me = serde_json::from_str(&body).unwrap();
     assert_eq!((me.owner_id.as_str(), me.dev_auth), ("dev", true));
-    assert!(!me.terms_accepted, "nothing accepted yet");
 
-    // No raffle before the terms are accepted.
     let create = r#"{"title":"Meetup #1","event_date":"2026-10-28","event_ends_at":null}"#;
-    let (status, _, body) = send(&router, admin_call("create_raffle", create)).await;
-    assert_eq!(status, StatusCode::CONFLICT, "{body}");
-    assert!(body.contains("accept the terms"), "{body}");
-    let (status, _, body) = send(&router, admin_call("get_terms", "{}")).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    let terms: rafi_api::TermsDocument = serde_json::from_str(&body).unwrap();
-    assert_eq!(terms.version, app.cfg.terms_version);
-    assert!(
-        terms.html.contains("<strong>processing agreement</strong>"),
-        "{}",
-        terms.html
-    );
-    assert!(!terms.accepted);
-    let (status, _, body) = send(
-        &router,
-        admin_call("accept_terms", r#"{"version":"stale"}"#),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT, "an old version: {body}");
-    let (status, _, body) = send(
-        &router,
-        admin_call(
-            "accept_terms",
-            &format!(r#"{{"version":"{}"}}"#, terms.version),
-        ),
-    )
-    .await;
-    assert_eq!((status, body.as_str()), (StatusCode::OK, "null"));
-    let (_, _, body) = send(&router, admin_call("whoami", "")).await;
-    let me: rafi_api::Me = serde_json::from_str(&body).unwrap();
-    assert!(me.terms_accepted);
-    let accepted: Vec<(String, String, String, String)> = app
-        .db
-        .query("SELECT owner_id, user_id, document, version FROM legal_acceptances")
-        .all()
-        .await
-        .unwrap();
-    assert_eq!(
-        accepted,
-        [(
-            "dev".to_owned(),
-            "dev".to_owned(),
-            "terms".to_owned(),
-            terms.version.clone()
-        )]
-    );
-
     let (status, _, body) = send(&router, admin_call("create_raffle", create)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let id: String = serde_json::from_str(&body).unwrap();
@@ -1176,24 +1154,24 @@ async fn lifecycle_guards() {
     let app = app().await;
     let id = create(&app, OWNER, "Guards").await;
     assert!(
-        service::lifecycle(&app, OWNER, &id, LifecycleCommand::Open)
+        service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open)
             .await
             .is_err(),
         "cannot open a draft"
     );
-    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Publish)
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
-    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Open)
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     assert!(
-        service::start_draw(&app, OWNER, &id).await.is_err(),
+        service::start_draw(&app, ACTOR, &id).await.is_err(),
         "no prizes"
     );
     service::upsert_prize(
         &app,
-        OWNER,
+        ACTOR,
         &id,
         PrizeInput {
             name: "P".into(),
@@ -1204,7 +1182,7 @@ async fn lifecycle_guards() {
     .await
     .unwrap();
     assert!(
-        service::start_draw(&app, OWNER, &id).await.is_err(),
+        service::start_draw(&app, ACTOR, &id).await.is_err(),
         "no entrants"
     );
     // The failed freeze must not leave the raffle frozen.
@@ -1213,10 +1191,10 @@ async fn lifecycle_guards() {
         RaffleState::Open
     );
     assert!(
-        service::add_fakes(&app, OWNER, &id, 3).await.is_err(),
+        service::add_fakes(&app, ACTOR, &id, 3).await.is_err(),
         "fakes need test mode"
     );
-    let dup = service::duplicate(&app, OWNER, &id, &service::EventDate::today())
+    let dup = service::duplicate(&app, ACTOR, &id, &service::EventDate::today())
         .await
         .unwrap();
     assert_eq!(prizes::list(&app.db, &dup).await.unwrap().len(), 1);
@@ -1227,7 +1205,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 2)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(&app, OWNER, &raffle.id, name, None)
+        service::add_manual(&app, ACTOR, &raffle.id, name, None)
             .await
             .unwrap();
     }
@@ -1239,7 +1217,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
         .await
         .unwrap();
 
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let Full {
         raffle: r, drawn, ..
     } = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
@@ -1258,7 +1236,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
     );
 
     // Starting again re-sends the same commitment.
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let again = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(again.manifest, r.manifest);
 }
@@ -1274,17 +1252,17 @@ async fn rules_are_fixed_once_accepted() {
         let mut settings = service::settings_of(&raffle);
         settings.rules = rules.into();
         settings.test_mode = test_mode;
-        service::update_settings(&app, OWNER, &raffle.id, settings)
+        service::update_settings(&app, ACTOR, &raffle.id, settings)
     };
     save("Rehearsal rules.", true).await.unwrap();
-    service::add_fakes(&app, OWNER, &raffle.id, 3)
+    service::add_fakes(&app, ACTOR, &raffle.id, 3)
         .await
         .unwrap();
     save("Fakes don't accept anything.", true).await.unwrap();
     let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
     assert!(admin.actions.edit_rules);
 
-    service::add_manual(&app, OWNER, &raffle.id, "No Phone", None)
+    service::add_manual(&app, ACTOR, &raffle.id, "No Phone", None)
         .await
         .unwrap();
     let refused = save("Changed after someone accepted.", true).await;
@@ -1305,7 +1283,7 @@ async fn rules_are_fixed_once_accepted() {
     settings.event_date = "2026-12-31".into();
     settings.retention_days = 1;
     settings.privacy_url = "https://example.com/other".into();
-    let refused = service::update_settings(&app, OWNER, &raffle.id, settings).await;
+    let refused = service::update_settings(&app, ACTOR, &raffle.id, settings).await;
     assert!(
         matches!(
             &refused,
@@ -1320,7 +1298,7 @@ async fn rules_are_fixed_once_accepted() {
     let mut settings = admin.settings;
     settings.title = "Renamed".into();
     settings.privacy_email = "dpo@example.com".into();
-    service::update_settings(&app, OWNER, &raffle.id, settings)
+    service::update_settings(&app, ACTOR, &raffle.id, settings)
         .await
         .unwrap();
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
@@ -1347,16 +1325,15 @@ async fn new_raffles_start_with_the_owners_defaults() {
         rules: "Entrants must be 18 or older.".into(),
         retention_days: Some(3),
     };
-    service::save_defaults(&app, OWNER, defaults).await.unwrap();
+    service::save_defaults(&app, ACTOR, defaults).await.unwrap();
     let saved = service::get_defaults(&app, OWNER).await.unwrap();
     assert_eq!(saved.organizer_name, "Cloud Native Budapest", "trimmed");
 
-    accept_terms(&app, OWNER).await;
     let event = service::EventDate {
         date: "2026-10-28".into(),
         ends_at: None,
     };
-    let id = service::create(&app, OWNER, "Meetup", &event)
+    let id = service::create(&app, ACTOR, "Meetup", &event)
         .await
         .unwrap();
     let r = raffles::get(&app.db, &id).await.unwrap().unwrap();
@@ -1387,13 +1364,12 @@ async fn new_raffles_start_with_the_owners_defaults() {
         "the erasure date follows the owner's period"
     );
 
-    service::save_defaults(&app, OWNER, Default::default())
+    service::save_defaults(&app, ACTOR, Default::default())
         .await
         .unwrap();
     let r = raffles::get(&app.db, &id).await.unwrap().unwrap();
     assert_eq!(r.rules, "Entrants must be 18 or older.", "a copy");
-    accept_terms(&app, "someone-else").await;
-    let other = service::create(&app, "someone-else", "Theirs", &event)
+    let other = service::create(&app, service::Actor::solo("someone-else"), "Theirs", &event)
         .await
         .unwrap();
     let r = raffles::get(&app.db, &other).await.unwrap().unwrap();
@@ -1409,7 +1385,7 @@ async fn new_raffles_start_with_the_owners_defaults() {
         ..Default::default()
     };
     assert!(matches!(
-        service::save_defaults(&app, OWNER, over).await,
+        service::save_defaults(&app, ACTOR, over).await,
         Err(service::Error::Refused(service::Refusal::Retention { .. }))
     ));
 }
@@ -1420,12 +1396,12 @@ async fn fake_entrants_are_added_in_one_batch() {
     let raffle = setup_open(&app, &[("Book", 1)]).await;
     let mut settings = service::settings_of(&raffle);
     settings.test_mode = true;
-    service::update_settings(&app, OWNER, &raffle.id, settings)
+    service::update_settings(&app, ACTOR, &raffle.id, settings)
         .await
         .unwrap();
     service::add_fakes(
         &app,
-        OWNER,
+        ACTOR,
         &raffle.id,
         rafi_lifecycle::entrant::MAX_FAKES + 1,
     )
@@ -1451,11 +1427,11 @@ async fn stalled_draw_keeps_its_round() {
     let app = unreachable_drand_app().await;
     let raffle = setup_open(&app, &[("Prize", 3)]).await;
     for i in 0..4 {
-        service::add_manual(&app, OWNER, &raffle.id, &format!("Person {i}"), None)
+        service::add_manual(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
             .await
             .unwrap();
     }
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let items: Vec<_> = r
         .drawn
@@ -1471,7 +1447,7 @@ async fn stalled_draw_keeps_its_round() {
         item: &str,
         id: &str,
     ) -> super::service::Result<()> {
-        service::command(app, OWNER, raffle_id, DrawRequest { item: item.into() }, id).await
+        service::command(app, ACTOR, raffle_id, DrawRequest { item: item.into() }, id).await
     }
     let draw = |item: &str, id: &str| {
         let (item, id) = (item.to_owned(), id.to_owned());
@@ -1516,7 +1492,7 @@ async fn stalled_draw_keeps_its_round() {
     // The organizer abandons it: logged, and the item can be drawn again.
     service::command(
         &app,
-        OWNER,
+        ACTOR,
         &raffle.id,
         Decision::Abandon {
             item: items[0].clone(),
@@ -1559,11 +1535,11 @@ async fn only_handing_over_passes_a_waiting_draw() {
     let app = app_with_engine(Config::for_tests(), drand, LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 2)]).await;
     for i in 0..3 {
-        service::add_manual(&app, OWNER, &raffle.id, &format!("Person {i}"), None)
+        service::add_manual(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
             .await
             .unwrap();
     }
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let items: Vec<_> = r
         .drawn
@@ -1578,7 +1554,7 @@ async fn only_handing_over_passes_a_waiting_draw() {
         let (app, raffle_id) = (app.clone(), raffle.id.clone());
         async move {
             let request = DrawRequest { item: item.into() };
-            service::command(&app, OWNER, &raffle_id, request, &id).await
+            service::command(&app, ACTOR, &raffle_id, request, &id).await
         }
     };
     let resolve = |resolution, id: &str| {
@@ -1586,7 +1562,7 @@ async fn only_handing_over_passes_a_waiting_draw() {
         let (app, raffle_id, item) = (app.clone(), raffle.id.clone(), items[0].clone());
         async move {
             let decision = Decision::Resolve { item, resolution };
-            service::command(&app, OWNER, &raffle_id, decision, &id).await
+            service::command(&app, ACTOR, &raffle_id, decision, &id).await
         }
     };
 
@@ -1624,10 +1600,10 @@ async fn only_handing_over_passes_a_waiting_draw() {
 async fn mock_raffles_are_not_publicly_verified() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, OWNER, &raffle.id, "Person", None)
+    service::add_manual(&app, ACTOR, &raffle.id, "Person", None)
         .await
         .unwrap();
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     let public = rafi_raffle::verify_public(&data.manifest, &data.manifest_hash, &data.events);
     assert!(!public.beacons_verified && !public.ok());
@@ -1796,12 +1772,12 @@ async fn proof_of_work_forgeries_are_refused() {
 async fn finished_raffle(app: &AppState) -> RaffleRow {
     let raffle = setup_open(app, &[("Prize", 1)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(app, OWNER, &raffle.id, name, None)
+        service::add_manual(app, ACTOR, &raffle.id, name, None)
             .await
             .unwrap();
     }
-    service::start_draw(app, OWNER, &raffle.id).await.unwrap();
-    service::command(app, OWNER, &raffle.id, Decision::Finish, "fin")
+    service::start_draw(app, ACTOR, &raffle.id).await.unwrap();
+    service::command(app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
@@ -1818,7 +1794,7 @@ async fn ending_live_updates() {
         !live.notified().is_empty(),
         "lifecycle changes nudge the channel"
     );
-    let err = service::end_live(&app, OWNER, &raffle.id)
+    let err = service::end_live(&app, ACTOR, &raffle.id)
         .await
         .unwrap_err();
     assert!(matches!(err, service::Error::Refused(_)), "{err}");
@@ -1830,7 +1806,7 @@ async fn ending_live_updates() {
     assert_eq!(view.follow, Follow::Partyline { base_url: None });
     assert!(!view.live_ended);
 
-    service::end_live(&app, OWNER, &raffle.id).await.unwrap();
+    service::end_live(&app, ACTOR, &raffle.id).await.unwrap();
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     let ended = r.live_ended_at.expect("live_ended_at is set");
     assert_eq!(live.ended(), [RaffleId::new(&raffle.id)]);
@@ -1839,13 +1815,13 @@ async fn ending_live_updates() {
     assert!(view.live_ended);
 
     // Again: the channel is destroyed again, the time stays.
-    service::end_live(&app, OWNER, &raffle.id).await.unwrap();
+    service::end_live(&app, ACTOR, &raffle.id).await.unwrap();
     assert_eq!(live.ended().len(), 2);
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.live_ended_at, Some(ended));
     // Other organizers can't.
     assert!(matches!(
-        service::end_live(&app, "someone_else", &raffle.id).await,
+        service::end_live(&app, service::Actor::solo("someone_else"), &raffle.id).await,
         Err(service::Error::NotFound)
     ));
 }
@@ -1862,7 +1838,7 @@ async fn writes_nudge_and_destroy_the_channel() {
 
     let before = nudges();
     join(&router, &raffle.join_code, "Anna", "anna@example.com").await;
-    service::add_manual(&app, OWNER, &raffle.id, "Bence", None)
+    service::add_manual(&app, ACTOR, &raffle.id, "Bence", None)
         .await
         .unwrap();
     assert_eq!(nudges(), before, "joins don't nudge");
@@ -1877,7 +1853,7 @@ async fn writes_nudge_and_destroy_the_channel() {
         .id;
     service::patch_entrant(
         &app,
-        OWNER,
+        ACTOR,
         &raffle.id,
         &anna,
         rafi_api::EntrantPatch {
@@ -1888,20 +1864,20 @@ async fn writes_nudge_and_destroy_the_channel() {
     .await
     .unwrap();
     assert_eq!(nudges(), before + 1, "hiding a name nudges");
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     assert_eq!(nudges(), before + 2, "the freeze nudges");
 
-    service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
+    service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
-    service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    service::purge(&app, ACTOR, &raffle.id).await.unwrap();
     assert_eq!(live.ended(), [RaffleId::new(&raffle.id)]);
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state, RaffleState::Purged);
     assert!(r.live_ended_at.is_some(), "a purge ends live updates");
 
     let other = create(&app, OWNER, "Other").await;
-    service::delete(&app, OWNER, &other).await.unwrap();
+    service::delete(&app, ACTOR, &other).await.unwrap();
     assert_eq!(
         live.ended(),
         [RaffleId::new(&raffle.id), RaffleId::new(other)]
@@ -1961,7 +1937,7 @@ async fn housekeeping_ends_stale_live_channels() {
 async fn erasures_are_logged_without_personal_data() {
     let app = app().await;
     let raffle = finished_raffle(&app).await;
-    service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    service::purge(&app, ACTOR, &raffle.id).await.unwrap();
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert!(
         entrants
@@ -1994,7 +1970,7 @@ async fn erasures_are_logged_without_personal_data() {
     ids.sort_unstable();
     assert_eq!(logged, ids, "every entrant, once");
 
-    service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    service::purge(&app, ACTOR, &raffle.id).await.unwrap();
     let again: Vec<serde_json::Value> = app.db.query("SELECT * FROM erasures").all().await.unwrap();
     assert_eq!(again.len(), log.len(), "purging again has nothing to do");
 }
@@ -2083,14 +2059,14 @@ async fn entrants_are_erased_only_once_the_raffle_is_over() {
     let mut ids = Vec::new();
     for name in ["Anna", "Bence", "Csilla"] {
         ids.push(
-            service::add_manual(&app, OWNER, &raffle.id, name, None)
+            service::add_manual(&app, ACTOR, &raffle.id, name, None)
                 .await
                 .unwrap(),
         );
     }
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
-    let refused = service::remove_entrant(&app, OWNER, &raffle.id, &ids[0]).await;
+    let refused = service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0]).await;
     assert!(
         matches!(
             refused,
@@ -2101,7 +2077,7 @@ async fn entrants_are_erased_only_once_the_raffle_is_over() {
     // Hiding still works.
     service::patch_entrant(
         &app,
-        OWNER,
+        ACTOR,
         &raffle.id,
         &ids[1],
         rafi_api::EntrantPatch {
@@ -2119,10 +2095,10 @@ async fn entrants_are_erased_only_once_the_raffle_is_over() {
             .all(|e| !e.erased)
     );
 
-    service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
+    service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
-    service::remove_entrant(&app, OWNER, &raffle.id, &ids[0])
+    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0])
         .await
         .unwrap();
     let anna = entrants::get(&app.db, &raffle.id, &ids[0])
@@ -2160,13 +2136,13 @@ async fn fakes_stay_in_test_mode() {
     let set_test_mode = |on: bool| {
         let mut settings = service::settings_of(&raffle);
         settings.test_mode = on;
-        service::update_settings(&app, OWNER, &raffle.id, settings)
+        service::update_settings(&app, ACTOR, &raffle.id, settings)
     };
     set_test_mode(true).await.unwrap();
-    service::add_fakes(&app, OWNER, &raffle.id, 5)
+    service::add_fakes(&app, ACTOR, &raffle.id, 5)
         .await
         .unwrap();
-    service::add_manual(&app, OWNER, &raffle.id, "Real Person", None)
+    service::add_manual(&app, ACTOR, &raffle.id, "Real Person", None)
         .await
         .unwrap();
     let listed = entrants::list(&app.db, &raffle.id).await.unwrap();
@@ -2203,7 +2179,7 @@ async fn fakes_stay_in_test_mode() {
         "{audit:?}"
     );
     assert!(
-        service::add_fakes(&app, OWNER, &raffle.id, 1)
+        service::add_fakes(&app, ACTOR, &raffle.id, 1)
             .await
             .is_err(),
         "no fakes outside test mode"
@@ -2219,7 +2195,7 @@ async fn fakes_stay_in_test_mode() {
         .run()
         .await
         .unwrap();
-    let refused = service::start_draw(&app, OWNER, &raffle.id).await;
+    let refused = service::start_draw(&app, ACTOR, &raffle.id).await;
     assert!(
         matches!(
             refused,
@@ -2240,7 +2216,7 @@ async fn fakes_stay_in_test_mode() {
 
     // A rehearsal freezes with its fakes, and says so.
     set_test_mode(true).await.unwrap();
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let data = service::verify_data(&app, &raffle.slug).await.unwrap();
     assert!(data.test_mode);
@@ -2267,7 +2243,7 @@ async fn date_event(app: &AppState, id: &str, days_ago: i64, retention_days: i64
     settings.event_date = Date::of_utc(service::ids::now() - days_ago * DAY).iso();
     settings.event_ends_at = None;
     settings.retention_days = retention_days;
-    service::update_settings(app, OWNER, id, settings)
+    service::update_settings(app, ACTOR, id, settings)
         .await
         .unwrap();
     raffles::get(&app.db, id).await.unwrap().unwrap()
@@ -2277,7 +2253,7 @@ async fn date_event(app: &AppState, id: &str, days_ago: i64, retention_days: i64
 async fn draw_and_claim(app: &AppState, raffle_id: &str, item: &rafi_raffle::ItemId) -> String {
     service::command(
         app,
-        OWNER,
+        ACTOR,
         raffle_id,
         DrawRequest { item: item.clone() },
         &format!("draw-{item}"),
@@ -2301,7 +2277,7 @@ async fn draw_and_claim(app: &AppState, raffle_id: &str, item: &rafi_raffle::Ite
         .unwrap();
     service::command(
         app,
-        OWNER,
+        ACTOR,
         raffle_id,
         Decision::Resolve {
             item: item.clone(),
@@ -2344,7 +2320,7 @@ async fn the_join_page_and_the_notices_say_when_data_is_erased() {
     settings.privacy_email = "dpo@example.com".into();
     settings.privacy_text = "We never sell anything.\nAsk us anything.".into();
     settings.privacy_url = "https://example.com/privacy".into();
-    service::update_settings(&app, OWNER, &raffle.id, settings)
+    service::update_settings(&app, ACTOR, &raffle.id, settings)
         .await
         .unwrap();
 
@@ -2481,7 +2457,7 @@ async fn housekeeping_erases_on_the_dates() {
         let (status, _, _) = join(&router, &finished.join_code, name, email).await;
         assert_eq!(status, StatusCode::SEE_OTHER);
     }
-    service::start_draw(&app, OWNER, &finished.id)
+    service::start_draw(&app, ACTOR, &finished.id)
         .await
         .unwrap();
     let r = wait_for(&app, &finished.id, |r| r.raffle.opened()).await;
@@ -2497,7 +2473,7 @@ async fn housekeeping_erases_on_the_dates() {
     let held = draw_and_claim(&app, &finished.id, &items[1]).await;
     service::patch_entrant(
         &app,
-        OWNER,
+        ACTOR,
         &finished.id,
         &delivered,
         rafi_api::EntrantPatch {
@@ -2507,7 +2483,7 @@ async fn housekeeping_erases_on_the_dates() {
     )
     .await
     .unwrap();
-    service::command(&app, OWNER, &finished.id, Decision::Finish, "fin")
+    service::command(&app, ACTOR, &finished.id, Decision::Finish, "fin")
         .await
         .unwrap();
     let admin = service::admin(&app, OWNER, &finished.id).await.unwrap();
@@ -2520,11 +2496,11 @@ async fn housekeeping_erases_on_the_dates() {
     let drawing = setup_open(&app, &[("Pen", 1)]).await;
     let drawing = date_event(&app, &drawing.id, 10, 7).await;
     for name in ["Erik", "Fanni"] {
-        service::add_manual(&app, OWNER, &drawing.id, name, None)
+        service::add_manual(&app, ACTOR, &drawing.id, name, None)
             .await
             .unwrap();
     }
-    service::start_draw(&app, OWNER, &drawing.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &drawing.id).await.unwrap();
     let r = wait_for(&app, &drawing.id, |r| r.raffle.opened()).await;
     let pen = r.drawn.as_ref().unwrap().items()[0].id.clone();
     let drawing_winner = draw_and_claim(&app, &drawing.id, &pen).await;
@@ -2678,18 +2654,18 @@ async fn erasure_on_request_follows_the_date() {
     assert!(before.erase_at > now && past.erase_at <= now);
     let mut ids = Vec::new();
     for r in [&before, &past] {
-        let id = service::add_manual(&app, OWNER, &r.id, "Anna", Some("anna@x.org".into()))
+        let id = service::add_manual(&app, ACTOR, &r.id, "Anna", Some("anna@x.org".into()))
             .await
             .unwrap();
-        service::add_manual(&app, OWNER, &r.id, "Bence", None)
+        service::add_manual(&app, ACTOR, &r.id, "Bence", None)
             .await
             .unwrap();
-        service::start_draw(&app, OWNER, &r.id).await.unwrap();
+        service::start_draw(&app, ACTOR, &r.id).await.unwrap();
         wait_for(&app, &r.id, |r| r.raffle.opened()).await;
         ids.push(id);
     }
 
-    let refused = service::remove_entrant(&app, OWNER, &before.id, &ids[0]).await;
+    let refused = service::remove_entrant(&app, ACTOR, &before.id, &ids[0]).await;
     assert!(
         matches!(
             refused,
@@ -2721,7 +2697,7 @@ async fn erasure_on_request_follows_the_date() {
             .removal,
         Some(Removal::Erase)
     );
-    service::remove_entrant(&app, OWNER, &past.id, &ids[1])
+    service::remove_entrant(&app, ACTOR, &past.id, &ids[1])
         .await
         .unwrap();
     let anna = entrants::get(&app.db, &past.id, &ids[1])
@@ -2760,11 +2736,11 @@ async fn all_prizes_delivered() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 1), ("Mug", 1)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(&app, OWNER, &raffle.id, name, None)
+        service::add_manual(&app, ACTOR, &raffle.id, name, None)
             .await
             .unwrap();
     }
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let items: Vec<_> = r
         .drawn
@@ -2777,7 +2753,7 @@ async fn all_prizes_delivered() {
     let w1 = draw_and_claim(&app, &raffle.id, &items[0]).await;
     let w2 = draw_and_claim(&app, &raffle.id, &items[1]).await;
 
-    let refused = service::deliver_all(&app, OWNER, &raffle.id).await;
+    let refused = service::deliver_all(&app, ACTOR, &raffle.id).await;
     assert!(
         matches!(
             refused,
@@ -2791,7 +2767,7 @@ async fn all_prizes_delivered() {
         refused.unwrap_err().to_string(),
         "Prizes can be marked delivered once the raffle has finished."
     );
-    service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
+    service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
     let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
@@ -2799,7 +2775,7 @@ async fn all_prizes_delivered() {
     assert!(admin.actions.deliver_all);
 
     assert_eq!(
-        service::deliver_all(&app, OWNER, &raffle.id).await.unwrap(),
+        service::deliver_all(&app, ACTOR, &raffle.id).await.unwrap(),
         2
     );
     for w in [&w1, &w2] {
@@ -2821,7 +2797,7 @@ async fn all_prizes_delivered() {
         &("deliver_all".to_owned(), "2".to_owned())
     );
     assert_eq!(
-        service::deliver_all(&app, OWNER, &raffle.id).await.unwrap(),
+        service::deliver_all(&app, ACTOR, &raffle.id).await.unwrap(),
         0,
         "idempotent"
     );
@@ -2832,11 +2808,10 @@ async fn all_prizes_delivered() {
 #[tokio::test]
 async fn registration_needs_an_organizer() {
     let app = app().await;
-    accept_terms(&app, OWNER).await;
-    let id = service::create(&app, OWNER, "Nameless", &service::EventDate::today())
+    let id = service::create(&app, ACTOR, "Nameless", &service::EventDate::today())
         .await
         .unwrap();
-    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Publish)
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
     let admin = service::admin(&app, OWNER, &id).await.unwrap();
@@ -2844,7 +2819,7 @@ async fn registration_needs_an_organizer() {
         admin.missing_for_open,
         ["the organizer's name", "a contact or privacy email"]
     );
-    let refused = service::lifecycle(&app, OWNER, &id, LifecycleCommand::Open).await;
+    let refused = service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open).await;
     assert!(
         matches!(
             &refused,
@@ -2862,7 +2837,7 @@ async fn registration_needs_an_organizer() {
     let mut settings = admin.settings;
     settings.organizer_name = "Org".into();
     settings.privacy_email = "dpo@example.com".into();
-    service::update_settings(&app, OWNER, &id, settings)
+    service::update_settings(&app, ACTOR, &id, settings)
         .await
         .unwrap();
     assert!(
@@ -2872,7 +2847,7 @@ async fn registration_needs_an_organizer() {
             .missing_for_open
             .is_empty()
     );
-    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Open)
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     assert_eq!(
@@ -2891,20 +2866,20 @@ async fn exports_have_the_winners_and_are_audited() {
     // A name that a spreadsheet would run as a formula.
     let formula = service::add_manual(
         &app,
-        OWNER,
+        ACTOR,
         &raffle.id,
         "=SUM(A1)",
         Some("sum@x.org".into()),
     )
     .await
     .unwrap();
-    service::add_manual(&app, OWNER, &raffle.id, "Bence", Some("bence@x.org".into()))
+    service::add_manual(&app, ACTOR, &raffle.id, "Bence", Some("bence@x.org".into()))
         .await
         .unwrap();
-    service::add_manual(&app, OWNER, &raffle.id, "Csilla", None)
+    service::add_manual(&app, ACTOR, &raffle.id, "Csilla", None)
         .await
         .unwrap();
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     let items: Vec<_> = r
         .drawn
@@ -2918,7 +2893,7 @@ async fn exports_have_the_winners_and_are_audited() {
     let w2 = draw_and_claim(&app, &raffle.id, &items[1]).await;
     service::patch_entrant(
         &app,
-        OWNER,
+        ACTOR,
         &raffle.id,
         &w1,
         rafi_api::EntrantPatch {
@@ -2928,11 +2903,11 @@ async fn exports_have_the_winners_and_are_audited() {
     )
     .await
     .unwrap();
-    service::command(&app, OWNER, &raffle.id, Decision::Finish, "fin")
+    service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
 
-    let csv = service::export_csv(&app, OWNER, &raffle.id).await.unwrap();
+    let csv = service::export_csv(&app, ACTOR, &raffle.id).await.unwrap();
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[0],
@@ -2966,7 +2941,7 @@ async fn exports_have_the_winners_and_are_audited() {
         &("export_csv".to_owned(), "2".to_owned())
     );
     assert!(
-        service::export_csv(&app, "someone-else", &raffle.id)
+        service::export_csv(&app, service::Actor::solo("someone-else"), &raffle.id)
             .await
             .is_err(),
         "another organizer's raffle doesn't exist for them"
@@ -2982,7 +2957,7 @@ async fn an_organizer_can_remove_their_data() {
     let router = routes(app.clone());
     service::save_defaults(
         &app,
-        OWNER,
+        ACTOR,
         rafi_api::RaffleDefaults {
             organizer_name: "Org".into(),
             contact_email: "a@b.c".into(),
@@ -2994,13 +2969,13 @@ async fn an_organizer_can_remove_their_data() {
     let finished = finished_raffle(&app).await;
     let draft = create(&app, OWNER, "Draft").await;
     let drawing = setup_open(&app, &[("Book", 1)]).await;
-    service::add_manual(&app, OWNER, &drawing.id, "Anna", None)
+    service::add_manual(&app, ACTOR, &drawing.id, "Anna", None)
         .await
         .unwrap();
-    service::start_draw(&app, OWNER, &drawing.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &drawing.id).await.unwrap();
     wait_for(&app, &drawing.id, |r| r.raffle.opened()).await;
 
-    let refused = service::remove_owner_data(&app, OWNER).await;
+    let refused = service::remove_owner_data(&app, ACTOR).await;
     assert!(
         matches!(
             refused,
@@ -3013,10 +2988,10 @@ async fn an_organizer_can_remove_their_data() {
         "nothing happened"
     );
 
-    service::command(&app, OWNER, &drawing.id, Decision::Finish, "fin")
+    service::command(&app, ACTOR, &drawing.id, Decision::Finish, "fin")
         .await
         .unwrap();
-    service::remove_owner_data(&app, OWNER).await.unwrap();
+    service::remove_owner_data(&app, ACTOR).await.unwrap();
 
     assert!(
         raffles::get(&app.db, &draft).await.unwrap().is_none(),
@@ -3070,10 +3045,6 @@ async fn an_organizer_can_remove_their_data() {
         Default::default()
     );
     assert!(
-        service::terms_accepted(&app, OWNER).await.unwrap(),
-        "the record stays"
-    );
-    assert!(
         service::list(&app, OWNER)
             .await
             .unwrap()
@@ -3108,12 +3079,12 @@ async fn erasures_are_reapplied_after_a_restore() {
         .into_iter()
         .map(|e| e.id)
         .collect();
-    service::remove_entrant(&app, OWNER, &raffle.id, &ids[0])
+    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0])
         .await
         .unwrap();
-    service::purge(&app, OWNER, &raffle.id).await.unwrap();
+    service::purge(&app, ACTOR, &raffle.id).await.unwrap();
     let left = finished_raffle(&app).await;
-    service::remove_owner_data(&app, OWNER).await.unwrap();
+    service::remove_owner_data(&app, ACTOR).await.unwrap();
 
     // "Restore": the personal data is back, the first raffle finished again,
     // the organizer named again on the second.
@@ -3203,65 +3174,6 @@ async fn a_stopped_run_is_reported() {
     .await
     .unwrap();
     assert!(me(&router).await.retention_stale);
-}
-
-/// A new version of the terms must be accepted before another raffle.
-#[tokio::test]
-async fn a_new_terms_version_is_accepted_again() {
-    let app = app().await;
-    accept_terms(&app, OWNER).await;
-    service::create(&app, OWNER, "First", &service::EventDate::today())
-        .await
-        .unwrap();
-
-    // The same database under a server whose terms moved on.
-    let mut cfg = Config::for_tests();
-    cfg.terms_version = "test-2".into();
-    let bumped = AppState::from_parts(
-        cfg,
-        app.db.clone(),
-        None,
-        LiveUpdates::polling(),
-        Arc::new(Limiter::default()),
-    )
-    .unwrap();
-    assert!(!service::terms_accepted(&bumped, OWNER).await.unwrap());
-    let refused = service::create(&bumped, OWNER, "Second", &service::EventDate::today()).await;
-    assert!(
-        matches!(
-            refused,
-            Err(service::Error::Refused(service::Refusal::TermsNotAccepted))
-        ),
-        "{refused:?}"
-    );
-    let first = service::list(&bumped, OWNER).await.unwrap()[0].id.clone();
-    let refused = service::duplicate(&bumped, OWNER, &first, &service::EventDate::today()).await;
-    assert!(
-        matches!(
-            refused,
-            Err(service::Error::Refused(service::Refusal::TermsNotAccepted))
-        ),
-        "duplicating is creating: {refused:?}"
-    );
-    let stale = service::accept_terms(&bumped, OWNER, OWNER, "test-1").await;
-    assert!(
-        matches!(
-            stale,
-            Err(service::Error::Refused(service::Refusal::TermsOutdated))
-        ),
-        "the old version can't be accepted: {stale:?}"
-    );
-    service::accept_terms(&bumped, OWNER, OWNER, "test-2")
-        .await
-        .unwrap();
-    service::create(&bumped, OWNER, "Second", &service::EventDate::today())
-        .await
-        .unwrap();
-    assert_eq!(
-        service::list(&bumped, OWNER).await.unwrap().len(),
-        2,
-        "both raffles kept running"
-    );
 }
 
 /// A raffle dated in the past, before anyone joined, is warned about: it
@@ -3354,26 +3266,9 @@ async fn organization_tiers_gate_the_admin_api() {
         rafi_api::Access::Manager,
         "the permission makes a manager"
     );
-
-    // Only an admin accepts the terms, for the whole organization.
-    let (_, body) = call(&admin, "get_terms", "").await;
-    let terms: rafi_api::TermsDocument = serde_json::from_str(&body).unwrap();
-    let accept = format!(r#"{{"version":"{}"}}"#, terms.version);
-    let (status, body) = call(&manager, "accept_terms", &accept).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-    assert!(
-        body.contains("Only an organization admin can do this."),
-        "{body}"
-    );
-    let (status, body) = call(&admin, "accept_terms", &accept).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    let accepted: Vec<(String, String)> = app
-        .db
-        .query("SELECT owner_id, user_id FROM legal_acceptances")
-        .all()
-        .await
-        .unwrap();
-    assert_eq!(accepted, [("org_cnb".to_owned(), "user_admin".to_owned())]);
+    let (_, body) = call(&admin, "whoami", "").await;
+    let me: rafi_api::Me = serde_json::from_str(&body).unwrap();
+    assert_eq!((me.access, me.shared), (rafi_api::Access::Admin, true));
 
     // Members run raffles; managers also create them.
     let (status, body) = call(&member, "create_raffle", create).await;
@@ -3391,6 +3286,22 @@ async fn organization_tiers_gate_the_admin_api() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "a member runs the raffle: {body}");
+    // The audit log tells the members apart: the owner is the organization,
+    // the user is whoever acted.
+    let who: Vec<(String, String, String)> = app
+        .db
+        .query("SELECT actor, user_id, action FROM audit WHERE raffle_id = ? ORDER BY id")
+        .bind(&id)
+        .all()
+        .await
+        .unwrap();
+    assert_eq!(
+        who,
+        [
+            ("org_cnb".into(), "user_manager".into(), "create".into()),
+            ("org_cnb".into(), "user_member".into(), "ready".into()),
+        ]
+    );
     let (status, body) = call(&member, "delete_raffle", &format!(r#"{{"id":"{id}"}}"#)).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     let (status, body) = call(&member, "remove_my_data", "").await;
@@ -3400,6 +3311,10 @@ async fn organization_tiers_gate_the_admin_api() {
         status,
         StatusCode::FORBIDDEN,
         "a manager isn't an admin: {body}"
+    );
+    assert!(
+        body.contains("Only an organization admin can do this."),
+        "{body}"
     );
     assert!(
         raffles::get(&app.db, &id).await.unwrap().is_some(),
@@ -3425,11 +3340,11 @@ async fn a_frozen_raffle_is_erased_in_place_and_finished_at_the_ceiling() {
     let raffle = setup_open(&app, &[("Book", 1)]).await;
     let raffle = date_event(&app, &raffle.id, 10, 7).await;
     for name in ["Anna", "Bence"] {
-        service::add_manual(&app, OWNER, &raffle.id, name, Some(format!("{name}@x.org")))
+        service::add_manual(&app, ACTOR, &raffle.id, name, Some(format!("{name}@x.org")))
             .await
             .unwrap();
     }
-    service::start_draw(&app, OWNER, &raffle.id).await.unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
     assert_eq!(
         raffles::get(&app.db, &raffle.id)
@@ -3515,11 +3430,10 @@ async fn the_notice_without_the_optional_fields() {
     assert!(!notice.contains("has since left"));
 
     // Published but nameless: it can't open, but its notice is public.
-    accept_terms(&app, OWNER).await;
-    let id = service::create(&app, OWNER, "Nameless", &service::EventDate::today())
+    let id = service::create(&app, ACTOR, "Nameless", &service::EventDate::today())
         .await
         .unwrap();
-    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Publish)
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
     let nameless = raffles::get(&app.db, &id).await.unwrap().unwrap();
@@ -3555,7 +3469,7 @@ async fn settings_refusals_over_http() {
         .run()
         .await
         .unwrap();
-    service::add_manual(&app, "dev", &raffle.id, "Anna", None)
+    service::add_manual(&app, service::Actor::solo("dev"), &raffle.id, "Anna", None)
         .await
         .unwrap();
 
@@ -3607,12 +3521,17 @@ async fn settings_refusals_over_http() {
     s.event_date = rafi_lifecycle::dates::Date::of_utc(service::ids::now() - 10 * DAY).iso();
     s.event_ends_at = None;
     s.retention_days = 7;
-    service::update_settings(&app, "dev", &stale, s)
+    service::update_settings(&app, service::Actor::solo("dev"), &stale, s)
         .await
         .unwrap();
-    service::lifecycle(&app, "dev", &stale, LifecycleCommand::Publish)
-        .await
-        .unwrap();
+    service::lifecycle(
+        &app,
+        service::Actor::solo("dev"),
+        &stale,
+        LifecycleCommand::Publish,
+    )
+    .await
+    .unwrap();
     let (status, _, body) = send(
         &router,
         admin_call(
@@ -3631,7 +3550,7 @@ async fn leaving_with_no_raffles() {
     let app = app().await;
     service::save_defaults(
         &app,
-        OWNER,
+        ACTOR,
         rafi_api::RaffleDefaults {
             organizer_name: "Org".into(),
             ..Default::default()
@@ -3646,7 +3565,7 @@ async fn leaving_with_no_raffles() {
         .run()
         .await
         .unwrap();
-    service::remove_owner_data(&app, OWNER).await.unwrap();
+    service::remove_owner_data(&app, ACTOR).await.unwrap();
     assert_eq!(
         service::get_defaults(&app, OWNER).await.unwrap(),
         Default::default()
@@ -3673,13 +3592,13 @@ async fn never_frozen_raffles_expire() {
     let now = service::ids::now();
     let open = setup_open(&app, &[("Cap", 1)]).await;
     let open = date_event(&app, &open.id, 10, 7).await;
-    service::add_manual(&app, OWNER, &open.id, "Gabi", Some("gabi@x.org".into()))
+    service::add_manual(&app, ACTOR, &open.id, "Gabi", Some("gabi@x.org".into()))
         .await
         .unwrap();
     let draft = create(&app, OWNER, "Draft").await;
     date_event(&app, &draft, 10, 7).await;
     let fresh = setup_open(&app, &[("Hat", 1)]).await;
-    service::add_manual(&app, OWNER, &fresh.id, "Hanna", None)
+    service::add_manual(&app, ACTOR, &fresh.id, "Hanna", None)
         .await
         .unwrap();
 

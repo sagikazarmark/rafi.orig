@@ -5,7 +5,7 @@ use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle,
 
 use super::{Outcome, check, fail};
 use crate::{
-    Db, EntrantRow, RaffleRow, altcha, defaults, entrants, housekeeping, legal, live, prizes,
+    Db, EntrantRow, RaffleRow, altcha, audit, defaults, entrants, housekeeping, live, prizes,
     raffles, retention, save_raffle, view::Full,
 };
 
@@ -1677,6 +1677,15 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         audit_of(db, "op").await? == [("expire".to_owned(), "1".to_owned())],
         "op's expiry is audited with the count",
     )?;
+    let who: (String, String) = db
+        .query("SELECT actor, user_id FROM audit WHERE raffle_id = 'op'")
+        .one()
+        .await
+        .map_err(fail)?;
+    check(
+        who == ("housekeeping".to_owned(), "housekeeping".to_owned()),
+        &format!("housekeeping is the actor in both columns: {who:?}"),
+    )?;
     let erased = retention::erase_due(db, 100, 900).await.map_err(fail)?;
     check(
         erased
@@ -1946,7 +1955,11 @@ pub(super) async fn delivers_all_and_removes_the_organizer(db: &Db) -> Outcome {
     .map_err(fail)?;
 
     // Nothing while a raffle is being drawn: all or nothing.
-    let left = raffles::owner_leaves(db, "o", 69).await.map_err(fail)?;
+    let admin = audit::Actor {
+        owner: "o",
+        user: "u-admin",
+    };
+    let left = raffles::owner_leaves(db, admin, 69).await.map_err(fail)?;
     check(
         left.refused && left.deleted.is_empty() && left.purged.is_empty(),
         &format!("refused while r3 is drawing: {left:?}"),
@@ -1960,7 +1973,8 @@ pub(super) async fn delivers_all_and_removes_the_organizer(db: &Db) -> Outcome {
     )?;
     force_state(db, "r3", RaffleState::Finished).await?;
 
-    let left = raffles::owner_leaves(db, "o", 70).await.map_err(fail)?;
+    let mut left = raffles::owner_leaves(db, admin, 70).await.map_err(fail)?;
+    left.purged.sort();
     check(
         left.deleted == ["r2"] && left.purged == ["r1", "r3"] && !left.refused,
         &format!("what went: {left:?}"),
@@ -1997,6 +2011,15 @@ pub(super) async fn delivers_all_and_removes_the_organizer(db: &Db) -> Outcome {
                 == Some(&("delete".to_owned(), "owner left".to_owned())),
         "both audited",
     )?;
+    let actors: Vec<(String, String)> = db
+        .query("SELECT DISTINCT actor, user_id FROM audit WHERE raffle_id IN ('r1', 'r2') AND detail = 'owner left'")
+        .all()
+        .await
+        .map_err(fail)?;
+    check(
+        actors == [("o".to_owned(), "u-admin".to_owned())],
+        &format!("the owner and the admin who pressed it are both recorded: {actors:?}"),
+    )?;
     let logged: Vec<(String,)> = db
         .query("SELECT entrant_id FROM erasures WHERE raffle_id = 'r1' ORDER BY entrant_id")
         .all()
@@ -2032,41 +2055,5 @@ pub(super) async fn delivers_all_and_removes_the_organizer(db: &Db) -> Outcome {
     check(
         raffles::reapply_organizer_left(db).await.map_err(fail)? == 0,
         "idempotent",
-    )
-}
-
-/// Which terms an owner accepted.
-pub(super) async fn records_legal_acceptances(db: &Db) -> Outcome {
-    check(
-        !legal::accepted(db, "o", legal::TERMS, "v1")
-            .await
-            .map_err(fail)?,
-        "nothing accepted yet",
-    )?;
-    legal::record(db, "o", "u1", legal::TERMS, "v1", "d1")
-        .await
-        .map_err(fail)?;
-    legal::record(db, "o", "u2", legal::TERMS, "v1", "d2")
-        .await
-        .map_err(fail)?;
-    check(
-        legal::accepted(db, "o", legal::TERMS, "v1")
-            .await
-            .map_err(fail)?,
-        "v1 accepted",
-    )?;
-    check(
-        !legal::accepted(db, "o", legal::TERMS, "v2")
-            .await
-            .map_err(fail)?
-            && !legal::accepted(db, "p", legal::TERMS, "v1")
-                .await
-                .map_err(fail)?,
-        "not another version, not another owner",
-    )?;
-    let list = legal::list(db, "o").await.map_err(fail)?;
-    check(
-        list.len() == 1 && list[0].user_id == "u1" && list[0].digest == "d1",
-        &format!("the first acceptance stays, with its digest: {list:?}"),
     )
 }

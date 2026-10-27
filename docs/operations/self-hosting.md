@@ -83,14 +83,15 @@ On Restate Cloud, register the engine's public URL as a deployment in the Cloud 
 ## 5. Legal documents and the operator
 
 Every raffle's privacy notice names **you**, the operator of this installation, as the processor, and links the
-installation's own privacy notice. Organizers accept your terms, with the data processing agreement, before their
-first raffle. The software can't write these for you:
+installation's own privacy notice. Organizers accept your terms, with the data processing agreement, by using the
+service; the admin links them. The software can't write these for you:
 
 1. Put `terms.md` and `privacy.md` in a directory (`RAFI_DOCS_DIR`). Start from
    [`apps/worker/legal/`](../../apps/worker/legal/), which are engineering drafts marked as templates, fill in the
    bracketed parts and have a lawyer review them.
 2. Give each a version (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`). Changing a document's text
-   means a new version; organizers accept the terms again before creating another raffle.
+   means a new version, shown with the document. Nothing records who read which version: a change to the data
+   processing agreement has to be notified to organizers directly, not only published.
 3. Name yourself: `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`.
 
 Without these, the app refuses to start (except under `RAFI_DEV_AUTH`, with placeholders marked as such).

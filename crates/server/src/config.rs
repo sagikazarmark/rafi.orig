@@ -19,10 +19,10 @@ pub struct Operator {
     pub email: String,
 }
 
-/// The installation's legal documents: its own privacy notice and the terms
-/// organizers accept (with the data processing agreement), as Markdown, each
-/// with the version the deployment gives it (`RAFI_PRIVACY_VERSION`,
-/// `RAFI_TERMS_VERSION`). Natively they are `privacy.md` and `terms.md` in
+/// The installation's legal documents: its own privacy notice and its terms
+/// (with the data processing agreement, which organizers accept by using the
+/// service), as Markdown, each with the version the deployment gives it
+/// (`RAFI_PRIVACY_VERSION`, `RAFI_TERMS_VERSION`). Natively they are `privacy.md` and `terms.md` in
 /// `RAFI_DOCS_DIR`; on Workers they are bundled into the Worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Documents {
@@ -59,12 +59,6 @@ impl Documents {
             privacy: PLACEHOLDER_PRIVACY.into(),
             placeholder: true,
         }
-    }
-
-    /// SHA-256 of the terms' text, in hex: what an acceptance records.
-    pub fn terms_digest(&self) -> String {
-        use sha2::{Digest, Sha256};
-        hex::encode(Sha256::digest(self.terms.as_bytes()))
     }
 
     /// `terms.md` and `privacy.md` from `dir`.

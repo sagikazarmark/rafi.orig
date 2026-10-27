@@ -28,6 +28,8 @@ use super::{
 use rafi_api::{LifecycleCommand, PrizeInput};
 
 const OWNER: &str = "user_restate";
+/// The test owner acting for themselves (a personal account).
+const ACTOR: service::Actor<'static> = service::Actor::solo(OWNER);
 const SERVER: ServerSpec = ServerSpec {
     name: "rafi-restate",
     features: &[],
@@ -95,22 +97,19 @@ async fn app_and_rafi_restate_share_the_database() {
     );
     let app = AppState::new(cfg).await.unwrap();
 
-    service::accept_terms(&app, OWNER, OWNER, &app.cfg.terms_version)
-        .await
-        .unwrap();
-    let id = service::create(&app, OWNER, "Shared database", &service::EventDate::today())
+    let id = service::create(&app, ACTOR, "Shared database", &service::EventDate::today())
         .await
         .unwrap();
     // Registration opens only once the notice names an organizer.
     let mut settings = service::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
     settings.organizer_name = "E2E".into();
     settings.contact_email = "e2e@example.com".into();
-    service::update_settings(&app, OWNER, &id, settings)
+    service::update_settings(&app, ACTOR, &id, settings)
         .await
         .unwrap();
     service::upsert_prize(
         &app,
-        OWNER,
+        ACTOR,
         &id,
         PrizeInput {
             name: "Ticket".into(),
@@ -120,19 +119,19 @@ async fn app_and_rafi_restate_share_the_database() {
     )
     .await
     .unwrap();
-    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Publish)
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
         .await
         .unwrap();
-    service::lifecycle(&app, OWNER, &id, LifecycleCommand::Open)
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open)
         .await
         .unwrap();
     for i in 0..3 {
-        service::add_manual(&app, OWNER, &id, &format!("Person {i}"), None)
+        service::add_manual(&app, ACTOR, &id, &format!("Person {i}"), None)
             .await
             .unwrap();
     }
     // Freeze: the service writes the frozen state.
-    service::start_draw(&app, OWNER, &id)
+    service::start_draw(&app, ACTOR, &id)
         .await
         .expect("freeze via rafi-restate");
     let r = wait_for(&app, &id, |r| r.raffle.opened()).await;
@@ -140,7 +139,7 @@ async fn app_and_rafi_restate_share_the_database() {
 
     service::command(
         &app,
-        OWNER,
+        ACTOR,
         &id,
         DrawRequest { item: item.clone() },
         "cmd-1",
@@ -167,7 +166,7 @@ async fn app_and_rafi_restate_share_the_database() {
 
     service::command(
         &app,
-        OWNER,
+        ACTOR,
         &id,
         Decision::Resolve {
             item: item.clone(),
@@ -177,7 +176,7 @@ async fn app_and_rafi_restate_share_the_database() {
     )
     .await
     .unwrap();
-    service::command(&app, OWNER, &id, Decision::Finish, "cmd-3")
+    service::command(&app, ACTOR, &id, Decision::Finish, "cmd-3")
         .await
         .unwrap();
     wait_for(&app, &id, |r| r.raffle.state == RaffleState::Finished).await;
