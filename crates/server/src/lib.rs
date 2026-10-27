@@ -1,7 +1,7 @@
 //! Rafi's server: the HTTP side of the app. Participant pages, public and
 //! admin APIs, over the use cases in `rafi-app` (re-exported as
 //! [`service`]): it maps requests onto them and their results onto
-//! responses. The pages render in [`pages`]; the database and all its SQL
+//! responses. The pages render in `pages`; the database and all its SQL
 //! are in `rafi-store`.
 //!
 //! The native binary (`rafi`, `apps/rafi`) serves it with the web app's files;

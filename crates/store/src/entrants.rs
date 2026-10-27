@@ -22,7 +22,7 @@ pub struct EntrantRow {
     pub consent_version: Option<String>,
     pub consent_rules_at: Option<i64>,
     pub delivered_at: Option<i64>,
-    /// Their personal data was erased ([`ERASED`]): the row stays, anonymous.
+    /// Their personal data was erased (the `ERASED` write): the row stays, anonymous.
     pub erased: bool,
     pub created_at: i64,
 }

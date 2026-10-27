@@ -2,7 +2,7 @@
 //! and joining by posting its form), the rules and privacy pages, the
 //! installation's own documents (`/privacy`, `/terms`), and the
 //! proof-of-work solver the page runs. Which raffle, which entrant and what
-//! the join did is decided here; [`pages`](crate::pages) renders them.
+//! the join did is decided here; `pages` renders them.
 
 use std::sync::LazyLock;
 

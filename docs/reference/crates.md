@@ -69,6 +69,7 @@ This shows the main dependencies only.
 | [`tools/verify.py`](../../tools/verify.py) | The independent verifier (Python standard library only) |
 | [`testdata`](../../testdata) | Shared test vectors (real quicknet beacons) |
 | [`scripts`](../../scripts) | Build and check scripts: `participant.sh`, `app-assets.sh`, `worker-config.sh`, `workers-check.sh` |
+| [`justfile`](../../justfile) | The checks, one recipe each; CI runs one job per recipe (see [Testing](../development/testing.md)) |
 | [`devenv.nix`](../../devenv.nix) | The development shell and `devenv up` (see [Getting started](../development/getting-started.md)) |
 | [`docs/plans`](../plans) | Specs for work in progress or just done, with the reasoning |
 | [`docs/history`](../history) | Design notes from development. Historical: the code is the source of truth. |

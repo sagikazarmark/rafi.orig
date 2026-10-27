@@ -17,9 +17,61 @@ defaults:
     # Every step runs in the devenv shell, with the project's toolchain and
     # tools at the versions used locally (wasm-bindgen at Cargo.lock's, dx,
     # worker-build, wasm-opt, wrangler, node, tailwindcss, restate-server).
+    # Each job runs one recipe of the justfile, so CI and `just ci` agree.
     shell: devenv shell -- bash -e {0}
 
 jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
+      - name: Check formatting
+        run: just fmt
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
+      - name: Clippy (libraries, the engine and the app)
+        run: just clippy-native
+
+  clippy-wasm:
+    name: Clippy (wasm32)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
+      # Entering the shell installs apps/web's npm packages (daisyUI), which
+      # the stylesheet the recipe builds first needs.
+      - name: Clippy (the web app, the Workers crates and the Worker)
+        run: just clippy-wasm
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -52,40 +104,42 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cmd-format: devenv shell -- {0}
-      # rafi-web's asset!() needs the stylesheet to exist. Entering the shell
-      # installs apps/web's npm packages (daisyUI).
-      - name: Build the stylesheet (Tailwind CSS + daisyUI)
-        working-directory: apps/web
-        run: tailwindcss -i tailwind.css -o assets/tailwind.css --minify
-      - name: Format
-        run: cargo fmt --all --check
       # The end-to-end tests run the shell's restate-server (RESTATE_SERVER_BIN, from devenv.nix).
-      - name: Libraries and the draw engine (incl. end-to-end against restate-server)
-        run: cargo test --workspace --exclude rafi-server --exclude rafi-web --locked -- --include-ignored
+      - name: Test (incl. end to end against restate-server)
+        run: just test
       - name: Independent verifier agrees with the test vectors
-        run: python3 tools/verify.py --vectors testdata/draw-vectors.json
-      - name: App (incl. end-to-end with the Restate engine and restate-server)
-        run: cargo test -p rafi-server --locked -- --include-ignored
-      - name: Clippy (libraries and the draw engine)
-        run: cargo clippy --workspace --exclude rafi-server --exclude rafi --exclude rafi-web --all-targets -- -D warnings
-      - name: Clippy (app server)
-        run: |
-          cargo clippy -p rafi-server --all-targets -- -D warnings
-          cargo clippy -p rafi-server --features mock-drand --all-targets -- -D warnings
-          cargo clippy -p rafi --all-targets -- -D warnings
-          cargo clippy -p rafi --features dev,mock-drand --all-targets -- -D warnings
-          cargo clippy -p rafi-restate --features mock-drand --all-targets -- -D warnings
-      - name: Clippy (app web)
-        run: cargo clippy -p rafi-web --target wasm32-unknown-unknown -- -D warnings
-      - name: Clippy (Workers crates)
-        run: |
-          cargo clippy --target wasm32-unknown-unknown \
-            -p rafi-lifecycle -p rafi-raffle -p rafi-api -p rafi-app \
-            -p rafi-store -p rafi-store-d1-check -p rafi-live-client -p rafi-live-server -p rafi-cloudflare -p rafi-cloudflare-check \
-            -p rafi-engine -p rafi-engine-restate -p rafi-participant -- -D warnings
-          cargo clippy --target wasm32-unknown-unknown -p rafi-server --lib -- -D warnings
-          cargo clippy --target wasm32-unknown-unknown -p rafi-worker -- -D warnings
-          cargo clippy --target wasm32-unknown-unknown -p rafi-worker --features dev -- -D warnings
+        run: just verify
+
+  doc:
+    name: Doc
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
+      - name: Doc
+        run: just doc
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
+      - name: Check dependencies
+        run: just deny
 
   workers:
     name: Workers (wrangler dev)
@@ -104,11 +158,4 @@ jobs:
           cmd-format: devenv shell -- {0}
       # Chrome and the browser drivers are the runner image's.
       - name: D1, the live channel, the participant page in Chrome, a draw through Restate, an evening on the app
-        run: CHROMIUM=$(command -v google-chrome) ./scripts/workers-check.sh
-
-  deny:
-    name: cargo-deny
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        run: CHROMIUM=$(command -v google-chrome) just workers

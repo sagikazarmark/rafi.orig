@@ -5,7 +5,8 @@ Building and running Rafi on your machine. To deploy it, see [Operations](../ope
 ## Requirements
 
 [devenv](https://devenv.sh) provides everything at the versions CI uses ([`devenv.nix`](../../devenv.nix)), and
-runs `npm install` in `apps/web` when you enter the shell. CI runs every step in it.
+runs `npm install` in `apps/web` when you enter the shell. CI runs every step in it, and every step is a recipe of
+the [`justfile`](../../justfile): `just` lists them, `just ci` runs the same checks CI does ([Testing](testing.md)).
 
 Without devenv, you need:
 
@@ -25,8 +26,8 @@ Without devenv, you need:
 - Node, for daisyUI (`apps/web/package.json`)
 - For draws: `restate-server` 1.8 ([Restate's releases](https://github.com/restatedev/restate/releases))
 - For Workers: `wrangler` and `worker-build`
-- For the browser checks (`./scripts/workers-check.sh`): a Chromium, found as `chromium` or `google-chrome` on the
-  path, or named in `CHROMIUM`. devenv installs one on Linux; on macOS, point `CHROMIUM` at your browser.
+- For the browser checks (`just workers`): a Chromium, found as `chromium` or `google-chrome` on the path, or
+  named in `CHROMIUM`. devenv installs one on Linux; on macOS, point `CHROMIUM` at your browser.
 
 ## With devenv
 
@@ -92,7 +93,7 @@ local Workers state. Pass the same `--profile` flags to `devenv down` and `deven
 A fresh checkout needs two generated things before everything compiles and runs:
 
 ```sh
-# the web app's stylesheet (dx builds it too; plain cargo build/clippy of rafi-web needs it to exist)
+# the web app's stylesheet (dx builds it too; plain cargo build/clippy of rafi-web needs it to exist; `just css`)
 (cd apps/web && tailwindcss -i tailwind.css -o assets/tailwind.css)
 
 # the participant page's WebAssembly and fallback -> apps/participant/dist

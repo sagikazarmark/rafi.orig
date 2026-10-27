@@ -8,11 +8,9 @@
 //! new one), and every beacon is BLS-verified against the committed chain.
 //!
 //! The object only ever sees anonymous entrant IDs. After every change it
-//! writes the state to a [`Store`](rafi_engine::Store) (the app's
-//! database), then tells clients through a
-//! [`Observer`](rafi_engine::Observer), best effort. Which
-//! database, and how live updates reach clients, is up to the deployment:
-//! this crate knows neither.
+//! writes the state to a [`Store`] (the app's database), then tells clients
+//! through an [`Observer`], best effort. Which database, and how live updates
+//! reach clients, is up to the deployment: this crate knows neither.
 //!
 //! [`EngineInfo`] is a keyless service next to it: `info` reports the
 //! engine's beacon source, which the app checks before opening a raffle.

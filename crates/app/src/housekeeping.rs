@@ -3,7 +3,7 @@
 //!
 //! - **Expiry:** a raffle that was never frozen and whose erasure date has
 //!   passed loses its entrants outright (there is no draw to keep
-//!   verifiable) and becomes purged ([`RaffleState::expire`]).
+//!   verifiable) and becomes purged ([`RaffleState::expire`](rafi_lifecycle::RaffleState::expire)).
 //! - **Erasure:** once a frozen raffle's erasure date passes, in any state,
 //!   the personal data of everyone but the winners is erased; winners (the
 //!   entrants of claimed draws) are held [`RetentionPolicy::winner_hold_days`](crate::RetentionPolicy::winner_hold_days)

@@ -94,6 +94,7 @@ in
       dotenv.enable = true;
 
       packages = with pkgs; [
+        just
         cargo-deny
 
         # Rafi

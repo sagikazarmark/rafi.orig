@@ -2,25 +2,30 @@
 
 ## Running the tests
 
-In the devenv shell (the end-to-end tests run its `restate-server`, `RESTATE_SERVER_BIN`):
+Every check is a recipe of the [`justfile`](../../justfile), and CI ([`.github/workflows/ci.yaml`](../../.github/workflows/ci.yaml))
+runs one job per recipe, in the devenv shell, so the two can't drift. `just` lists the recipes; `just ci` runs
+everything CI runs except the Workers checks.
+
+| Recipe | What it runs |
+|---|---|
+| `just fmt` | `cargo fmt --check` |
+| `just clippy` | Clippy natively (`clippy-native`: the libraries, the engine and the app, with and without the development features) and on `wasm32-unknown-unknown` (`clippy-wasm`: the web app, the Workers crates and the Worker), warnings refused |
+| `just test` | The rules, the app's use cases, drand, the store, the engine conformance suite (local runner, and the `Raffle` object on `restate-server`); then the app, with the in-process raffle engine and end to end with `rafi-restate` and `restate-server` |
+| `just verify` | The independent verifier against the shared vectors (`tools/verify.py`) |
+| `just doc` | `cargo doc` with warnings refused, so a broken link fails: natively with every feature, and the Workers crates on `wasm32` |
+| `just deny` | `cargo deny check`: advisories, licenses, bans, sources ([`deny.toml`](../../deny.toml)) |
+| `just workers` | [`./scripts/workers-check.sh`](#workers): everything under `wrangler dev`. Long, and it needs a Chromium, so `just ci` leaves it out |
+
+The end-to-end tests run the shell's `restate-server` (`RESTATE_SERVER_BIN`). Without it (outside the devenv shell,
+set it to a `restate-server` binary), they skip locally; CI fails them instead.
+
+The recipes are plain `cargo` commands, to run by hand when one is enough:
 
 ```sh
-# the rules, the app's use cases, drand, the store, the engine conformance suite
-# (local runner, and the Raffle object on restate-server)
 cargo test --workspace --exclude rafi-server --exclude rafi-web -- --include-ignored
-
-# the app (with the in-process raffle engine), and app + rafi-restate + restate-server
 cargo test -p rafi-server -- --include-ignored
-
-# the independent verifier against the shared vectors
 python3 tools/verify.py --vectors testdata/draw-vectors.json
 ```
-
-Without `RESTATE_SERVER_BIN` (outside the devenv shell, set it to a `restate-server` binary), the end-to-end tests
-skip locally (CI fails them instead).
-
-CI ([`.github/workflows/ci.yaml`](../../.github/workflows/ci.yaml)) also checks formatting, runs Clippy on native
-and `wasm32-unknown-unknown` targets, with and without the development features, and runs `cargo-deny`.
 
 ## What is tested where
 
@@ -85,7 +90,7 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 
 ## Workers
 
-`./scripts/workers-check.sh` runs every Workers check locally, under `wrangler dev`:
+`just workers` (`./scripts/workers-check.sh`) runs every Workers check locally, under `wrangler dev`:
 
 - `rafi-store`'s conformance suite on D1 (`testbeds/store-d1`)
 - the live channel over WebSockets (`testbeds/cloudflare`)

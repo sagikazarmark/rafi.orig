@@ -27,6 +27,8 @@ mod notifier;
 mod object;
 
 pub use config::{D1_BINDING, database, lookup};
-pub use gate::{BINDING, CONNECT_LIMITER, JURISDICTION_VAR, connect, destroy, namespace, nudge};
+pub use gate::{
+    BINDING, CONNECT_LIMITER, JURISDICTION_VAR, NO_JURISDICTION, connect, destroy, namespace, nudge,
+};
 pub use notifier::DurableObjects;
 pub use object::RaffleRoom;

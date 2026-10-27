@@ -101,8 +101,8 @@ impl Item {
 }
 
 /// An entry in the raffle's event log, which is published and which the
-/// verifier replays. Events are what happened, in the past tense; the
-/// commands that cause them are in [`command`](crate::command).
+/// verifier replays. Events are what happened, in the past tense; what causes
+/// them is a [`Command`](crate::Command).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {

@@ -2,7 +2,7 @@
 //! Worker, named `rafi`, hosting the app and the raffle engine.
 //!
 //! - `fetch`, in this order:
-//!   - `/restate/*`: the raffle engine's Restate endpoint ([`engine`]). Restate
+//!   - `/restate/*`: the raffle engine's Restate endpoint (`engine`). Restate
 //!     calls it over HTTPS; the SDK verifies each request's signature before
 //!     anything else happens to it. Nothing else sees these requests: not
 //!     Workers Assets, not Clerk's layer, not the app's routes;
@@ -24,16 +24,16 @@
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
 //! raffles' Durable Objects (the engine's observer, too) and configuration
 //! from the Worker's vars and secrets (see `wrangler.toml`). The join's rate
-//! limits, the app's own, are here ([`RateLimitBindings`]).
+//! limits, the app's own, are here (`RateLimitBindings`).
 //! Missing secrets fail closed: every request is refused rather than run with
 //! a default, the engine's included. Dev auth, the mock drand chain and
 //! running without Restate identity keys need the `dev` feature.
 //!
-//! The app and the endpoint are built once per isolate ([`cached`]): the
+//! The app and the endpoint are built once per isolate (`cached`): the
 //! bindings and vars are the isolate's, Clerk's layer keeps its verified
 //! signing keys (JWKS) between requests instead of fetching them for each, and
 //! the drand client keeps its verified chain. The `tracing` subscriber is
-//! installed with them ([`log`]), so the application's warnings and errors
+//! installed with them (`log`), so the application's warnings and errors
 //! reach the console.
 
 #![cfg(target_arch = "wasm32")]
