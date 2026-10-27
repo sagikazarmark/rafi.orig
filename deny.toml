@@ -32,25 +32,3 @@ allow-git = [
   # Remove with the [patch.crates-io] entry once it's released.
   "https://github.com/sagikazarmark/restate-sdk-rust",
 ]
-
-[advisories]
-ignore = [
-  # Marvin timing attack in `rsa` (via dioxus-clerk -> jwt-simple). It affects
-  # private-key decryption/signing; Rafi only verifies Clerk JWT signatures with
-  # public keys. No fixed `rsa` release exists yet.
-  { id = "RUSTSEC-2023-0071", reason = "only RSA signature verification with public keys is used" },
-  # crypto-bigint 0.5 (timing variability in constant-time operations) comes
-  # through jsonwebtoken 10's ECDSA (p256/p384) via restate-sdk-shared-core.
-  # Restate signs its requests with Ed25519 (`publickeyv1_…`); the ECDSA path
-  # isn't exercised, and verification holds no secret to leak. Fixed in
-  # crypto-bigint 0.7, which jsonwebtoken 10 can't take; goes with its update.
-  { id = "RUSTSEC-2026-0387", reason = "ECDSA via jsonwebtoken, unused: Restate signs with Ed25519; verification holds no secret" },
-  # zstd 0.13 / zstd-safe 7 (stream decoder and Seekable bugs) come through
-  # liboliphaunt-native-bindings: the embedded PostgreSQL rafi-store's tests
-  # run (a dev-dependency behind `embedded-postgres`; `all-features` above
-  # makes it visible). It decompresses the bundled Postgres download it
-  # fetched itself, in a test process, never input from anyone.
-  { id = "RUSTSEC-2026-0391", reason = "test-only embedded Postgres; decompresses its own download" },
-  { id = "RUSTSEC-2026-0398", reason = "test-only embedded Postgres; decompresses its own download" },
-  { id = "RUSTSEC-2026-0403", reason = "test-only embedded Postgres; decompresses its own download" },
-]

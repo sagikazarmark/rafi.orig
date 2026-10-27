@@ -13,7 +13,8 @@ everything CI runs except the Workers checks.
 | `just test` | The rules, the app's use cases, drand, the store, the engine conformance suite (local runner, and the `Raffle` object on `restate-server`); then the app, with the in-process raffle engine and end to end with `rafi-restate` and `restate-server` |
 | `just verify` | The independent verifier against the shared vectors (`tools/verify.py`) |
 | `just doc` | `cargo doc` with warnings refused, so a broken link fails: natively with every feature, and the Workers crates on `wasm32` |
-| `just deny` | `cargo deny check`: advisories, licenses, bans, sources ([`deny.toml`](../../deny.toml)) |
+| `just audit` | `cargo audit`: `Cargo.lock` against the RustSec advisory database. Advisories are checked here alone; an accepted one is ignored, with its reason, in [`.cargo/audit.toml`](../../.cargo/audit.toml) |
+| `just deny` | `cargo deny check bans licenses sources` ([`deny.toml`](../../deny.toml)) |
 | `just workers` | [`./scripts/workers-check.sh`](#workers): everything under `wrangler dev`. Long, and it needs a Chromium, so `just ci` leaves it out |
 
 The end-to-end tests run the shell's `restate-server` (`RESTATE_SERVER_BIN`). Without it (outside the devenv shell,

@@ -95,7 +95,12 @@ in
 
       packages = with pkgs; [
         just
+
+        cargo-audit
         cargo-deny
+        cargo-watch
+
+        lld
 
         # Rafi
         python3 # tools/verify.py

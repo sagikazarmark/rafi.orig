@@ -1,0 +1,26 @@
+# cargo-audit (`just audit`): Cargo.lock against the RustSec advisory database.
+# Advisories are checked here alone; `just deny` checks licenses, bans and
+# sources (deny.toml). Cargo.lock holds every dependency whatever the features,
+# dev-dependencies included, so test-only ones are listed too.
+
+[advisories]
+ignore = [
+  # Marvin timing attack in `rsa` (via dioxus-clerk -> jwt-simple). It affects
+  # private-key decryption/signing; Rafi only verifies Clerk JWT signatures with
+  # public keys. No fixed `rsa` release exists yet.
+  "RUSTSEC-2023-0071",
+  # crypto-bigint 0.5 (timing variability in constant-time operations) comes
+  # through jsonwebtoken 10's ECDSA (p256/p384) via restate-sdk-shared-core.
+  # Restate signs its requests with Ed25519 (`publickeyv1_…`); the ECDSA path
+  # isn't exercised, and verification holds no secret to leak. Fixed in
+  # crypto-bigint 0.7, which jsonwebtoken 10 can't take; goes with its update.
+  "RUSTSEC-2026-0387",
+  # zstd 0.13 / zstd-safe 7 (stream decoder and Seekable bugs) come through
+  # liboliphaunt-native-bindings: the embedded PostgreSQL rafi-store's tests
+  # run (a dev-dependency behind `embedded-postgres`). It decompresses the
+  # bundled Postgres download it fetched itself, in a test process, never
+  # input from anyone.
+  "RUSTSEC-2026-0391",
+  "RUSTSEC-2026-0398",
+  "RUSTSEC-2026-0403",
+]
