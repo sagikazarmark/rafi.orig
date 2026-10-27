@@ -123,7 +123,7 @@ pub fn CreateRaffleForm(on_created: EventHandler<String>) -> Element {
 
     rsx! {
         form {
-            class: "flex flex-col gap-3 sm:flex-row sm:items-end",
+            class: "grid gap-x-3 sm:grid-cols-[1fr_auto_auto] sm:items-start",
             novalidate: true,
             onsubmit: move |event| {
                 let reset = reset.clone();
@@ -143,18 +143,15 @@ pub fn CreateRaffleForm(on_created: EventHandler<String>) -> Element {
                     }
                 });
             },
-            div { class: "min-w-0 flex-1",
-                InputField {
-                    context: form.text(fields.title()),
-                    label: "New raffle",
-                    size: InputSize::Lg,
-                    required: true,
-                    maxlength: "{MAX_TITLE_CHARS}",
-                    placeholder: "e.g. “Cloud Native Budapest — October”",
-                    prefix: rsx! { Sparkles { class: "size-5 text-secondary" } },
-                    wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
-                }
-                FormErrors { errors: form_errors }
+            InputField {
+                context: form.text(fields.title()),
+                label: "New raffle",
+                size: InputSize::Lg,
+                required: true,
+                maxlength: "{MAX_TITLE_CHARS}",
+                placeholder: "e.g. “Cloud Native Budapest — October”",
+                prefix: rsx! { Sparkles { class: "size-5 text-secondary" } },
+                wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
             }
             InputField {
                 context: form.text(fields.event_date()),
@@ -164,10 +161,14 @@ pub fn CreateRaffleForm(on_created: EventHandler<String>) -> Element {
                 required: true,
                 title: "The day of the draw. Entrants' data is erased a set number of days after it.",
             }
-            Button { color: ButtonColor::Primary, size: ButtonSize::Lg, class: "hover-wiggle sm:mb-6", r#type: "submit", disabled: busy,
-                if busy { span { class: "loading loading-spinner loading-sm" } } else { Plus { class: "size-5" } }
-                "Create"
+            // The label (1.5rem line) and the Field's gap-2 sit above the input.
+            div { class: "sm:pt-8",
+                Button { color: ButtonColor::Primary, size: ButtonSize::Lg, class: "hover-wiggle", r#type: "submit", disabled: busy,
+                    if busy { span { class: "loading loading-spinner loading-sm" } } else { Plus { class: "size-5" } }
+                    "Create"
+                }
             }
+            div { class: "sm:col-span-3", FormErrors { errors: form_errors } }
         }
     }
 }
@@ -293,7 +294,7 @@ pub fn PrizeForm(
                 inputmode: "numeric",
                 class: "w-full",
             }
-            div { class: "flex gap-2 sm:pt-[1.85rem]",
+            div { class: "flex gap-2 sm:pt-8",
                 Button { color: if editing { ButtonColor::Primary } else { ButtonColor::Secondary }, r#type: "submit", disabled: busy,
                     if editing { Check { class: "size-5" } "Save" } else { Gift { class: "size-5" } "Add prize" }
                 }
@@ -387,7 +388,7 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
                 placeholder: "optional, to deliver the prize",
                 class: "w-full",
             }
-            div { class: "sm:pt-[1.85rem]",
+            div { class: "sm:pt-8",
                 Button { color: ButtonColor::Secondary, r#type: "submit", disabled: busy,
                     Plus { class: "size-5" }
                     "Add entrant"
