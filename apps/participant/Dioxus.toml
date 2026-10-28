@@ -1,5 +1,4 @@
-# The participant page's WebAssembly, built by `./scripts/participant.sh`
-# (`dx bundle`). What is served and where is decided here; the page's loader,
+# The participant page's WebAssembly, built by `just build` (`dx bundle`). What is served and where is decided here; the page's loader,
 # index.html, gets the names filled in.
 
 [application]

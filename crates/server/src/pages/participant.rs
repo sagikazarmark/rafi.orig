@@ -88,7 +88,7 @@ const HEAD_SCRIPT: &str = r#"window.__rafiT0=Date.now();try{var t=localStorage.g
 /// before the module reported ready, that means it isn't coming), or it
 /// isn't ready within 8 s (the module's panic hook also calls
 /// `rafiFallback`). Its source is `apps/participant/index.html`; this is the
-/// copy `./scripts/participant.sh` left in the build, with the glue's hashed
+/// copy the build left (`just build` in `apps/participant`), with the glue's hashed
 /// name filled in. Compiled in, so a server is built against one participant
 /// build and links that one; natively, `Dirs::check_participant` checks the
 /// directory served is that build.

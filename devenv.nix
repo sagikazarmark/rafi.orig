@@ -69,6 +69,7 @@ let
     "apps/participant/index.html"
     "apps/participant/Cargo.toml"
     "apps/participant/Dioxus.toml"
+    "apps/worker/_headers"
     "deploy/cloudflare/legal"
     "crates"
     "Cargo.lock"
@@ -170,11 +171,12 @@ in
     }
 
     (lib.mkIf (cfg.stack == "native") {
-      # The participant build (apps/participant/dist/public), rebuilt when its
-      # sources change. The server serves the directory as it is, and compiles
-      # its loader in, so it starts after the build and restarts on a new one.
+      # The participant build (apps/participant/dist/public; `just check`
+      # there: built, and held to its budget), rebuilt when its sources change.
+      # The server serves the directory as it is, and compiles its loader in,
+      # so it starts after the build and restarts on a new one.
       processes.participant = {
-        exec = "${root}/scripts/participant.sh";
+        exec = "just apps/participant/ check";
         cwd = root;
         # Not apps/participant itself: the build writes apps/participant/dist.
         watch.paths = [
@@ -283,11 +285,11 @@ in
       };
 
       tasks = {
-        # The web app bundle, the participant scripts and the template legal
-        # documents -> apps/worker/worker-assets.
+        # The web app bundle, the participant build and the template legal
+        # documents -> apps/worker/worker-assets (`just assets` there).
         "rafi:app-assets" = {
           exec = ''
-            ./scripts/app-assets.sh
+            just apps/worker/ assets
             mkdir -p "$(dirname ${appAssetsStamp})"
             touch ${appAssetsStamp}
           '';

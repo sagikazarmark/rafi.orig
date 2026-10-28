@@ -149,7 +149,7 @@ pub fn frameable(path: &str) -> bool {
 ///   so the admin can't be clickjacked.
 ///
 /// On Workers, the web app's files are served by Workers Assets with the
-/// same headers from `_headers` (`scripts/app-assets.sh`). HSTS is the
+/// same headers from `_headers` (`apps/worker/_headers`). HSTS is the
 /// edge's: Cloudflare's, or the reverse proxy's natively.
 pub async fn security_headers(
     req: axum::extract::Request,
@@ -188,7 +188,7 @@ pub fn spawn_background(app: &AppState) {
 pub struct Dirs {
     /// The web app (admin, projector, verification page): `dx bundle`'s output.
     pub public: PathBuf,
-    /// The participant build: `./scripts/participant.sh`'s output,
+    /// The participant build: `just build` in `apps/participant`, its output
     /// `apps/participant/dist/public`. Served at `/participant/`: `assets/`
     /// (the module and its glue, named by their hash) and `fallback.js`, with
     /// `.br` and `.gz` next to each where the script could make them. Its
@@ -209,13 +209,13 @@ impl Dirs {
         let path = self.participant.join("index.html");
         let loader = std::fs::read_to_string(&path).with_context(|| {
             format!(
-                "reading {}: RAFI_PARTICIPANT_DIR is the participant build's dist/public (./scripts/participant.sh)",
+                "reading {}: RAFI_PARTICIPANT_DIR is the participant build's dist/public (just apps/participant/ build)",
                 path.display()
             )
         })?;
         anyhow::ensure!(
             loader == pages::LOADER,
-            "{} is not the participant build this server was built with: run ./scripts/participant.sh and build the server again, or point RAFI_PARTICIPANT_DIR at that build",
+            "{} is not the participant build this server was built with: run `just apps/participant/ build` and build the server again, or point RAFI_PARTICIPANT_DIR at that build",
             path.display()
         );
         Ok(())
@@ -236,7 +236,7 @@ const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// fallback keeps a fixed name, so a phone must revalidate it (`no-cache`,
 /// with the `ETag` `ServeDir` derives from the file). Either header goes on
 /// a file that was found, never on a 404, which a browser could otherwise
-/// keep. The files are served precompressed where `participant.sh` left a
+/// keep. The files are served precompressed where the build left a
 /// `.br` or `.gz`: the module crosses venue wifi, where the uncompressed
 /// size would be felt.
 #[cfg(not(target_arch = "wasm32"))]

@@ -63,7 +63,7 @@ Change `RAFI_VERSION` at the top of [`deploy.sh`](deploy.sh) and deploy. The rel
 
 ## From source
 
-In the Rafi repository, `./scripts/cloudflare-artifact.sh /path/to/your/copy/rafi` builds what a release holds,
+In the Rafi repository, `just cloudflare-artifact /path/to/your/copy/rafi` builds what a release holds,
 into this directory's `rafi/`; then `./deploy.sh deploy` here.
 
 The full operations guide, with what to check after the first deploy:

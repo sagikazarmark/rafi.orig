@@ -9,7 +9,7 @@ Notes for working on the browser side: `apps/web` (admin, projector, verificatio
   the same origin: `POST /api/admin/<function>` for the admin, and the public views. Both sides of the admin API come
   from one declaration in `rafi-api` (`admin_functions!`), so a function is added in one place.
 - **The participant page** is server-rendered by `rafi-server` (`/j/<CODE>`), so it works on poor venue wifi. A small
-  WebAssembly module (`apps/participant`, a Dioxus binary `dx` builds through `./scripts/participant.sh`) keeps it
+  WebAssembly module (`apps/participant`, a Dioxus binary `dx` builds through its `justfile`) keeps it
   live, with a JavaScript fallback (`public/fallback.js`). The build names the module and its glue by their hash,
   so phones keep them for good, and fills them into `index.html`, the page's loader, which `rafi-server` compiles
   in: a server is built against one participant build. What a phone shows is a pure function of the participant

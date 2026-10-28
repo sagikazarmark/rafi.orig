@@ -69,7 +69,7 @@ This shows the main dependencies only.
 | [`tools/verify.py`](../../tools/verify.py) | The independent verifier (Python standard library only) |
 | [`testdata`](../../testdata) | Shared test vectors (real quicknet beacons) |
 | [`deploy/cloudflare`](../../deploy/cloudflare) | One installation on Cloudflare Workers: the Deploy to Cloudflare template, which fetches a release and deploys it with the installation's configuration and legal documents (see [Cloudflare Workers](../operations/cloudflare.md)) |
-| [`scripts`](../../scripts) | Build and check scripts: `participant.sh`, `app-assets.sh`, `cloudflare-artifact.sh` (what a release ships), `cloudflare-release.sh` (the release, proven), `workers-check.sh` |
+| [`scripts`](../../scripts) | Check and release scripts: `workers-check.sh`, `cloudflare-release.sh` (the release, proven). The apps build with their own `justfile`s (`apps/web`, `apps/participant`, `apps/worker`, whose `artifact` is what a release ships) |
 | [`justfile`](../../justfile) | The checks, one recipe each; CI runs one job per recipe (see [Testing](../development/testing.md)) |
 | [`devenv.nix`](../../devenv.nix) | The development shell and `devenv up` (see [Getting started](../development/getting-started.md)) |
 | [`docs/plans`](../plans) | Specs for work in progress or just done, with the reasoning |

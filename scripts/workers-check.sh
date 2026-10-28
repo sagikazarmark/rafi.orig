@@ -19,11 +19,11 @@
 #      can't run open. Needs dx too (the dry run uploads the assets);
 #   6. deploy/cloudflare, what an installation deploys: its wrangler.toml
 #      agrees with the Worker's on the paths and the required secrets, and it
-#      deploys (dry) what scripts/cloudflare-artifact.sh builds, the way a
+#      deploys (dry) what `just artifact` in apps/worker builds, the way a
 #      release's tarball is deployed.
 #
-# Needs: wrangler (WRANGLER overrides the command), worker-build, node, dx,
-# wasm-bindgen-cli at the lockfile's version and wasm-opt (for the participant page).
+# Needs: wrangler (WRANGLER overrides the command), worker-build, node, just,
+# dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the participant page).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -64,7 +64,7 @@ migrate() {
 
 step "build"
 # The participant build first: the testbed and the Worker compile its loader in.
-"$ROOT/scripts/participant.sh"
+just "$ROOT/apps/participant/" check
 site="$ROOT/testbeds/cloudflare/site/participant"
 rm -rf "${site:?}" && mkdir -p "$site"
 cp -R "$ROOT/apps/participant/dist/public/assets" "$site/assets"
@@ -95,7 +95,7 @@ fi
 
 if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev/null; then
   step "an evening on the Worker"
-  "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
+  just "$ROOT/apps/worker/" assets >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
   assets_built=1
   (cd "$ROOT/apps/worker" && worker-build --release --features dev) >"$LOGS/build-app.log" 2>&1
   (cd "$ROOT/apps/worker" && $WRANGLER d1 migrations apply rafi --local --env dev --persist-to "$STATE/wrangler") >/dev/null
@@ -142,7 +142,7 @@ fi
 if command -v dx >/dev/null; then
   step "the production shape: a dry deploy within budget, and fail-closed without secrets"
   # The static files of this run's participant build, not an earlier one's.
-  [ -n "${assets_built:-}" ] || "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
+  [ -n "${assets_built:-}" ] || just "$ROOT/apps/worker/" assets >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
   # The top level of wrangler.toml, built as `wrangler deploy` builds it (no
   # `dev` feature). The dry run validates every binding and uploads nothing.
   dry="$(cd "$ROOT/apps/worker" && $WRANGLER deploy --dry-run --outdir "$STATE/dry" 2>&1)" \
@@ -186,7 +186,7 @@ if command -v dx >/dev/null; then
     exit 1
   fi
   echo "ok   the template's shape is the Worker's"
-  "$ROOT/scripts/cloudflare-artifact.sh" "$STATE/artifact" >"$LOGS/artifact.log" 2>&1 || { tail -20 "$LOGS/artifact.log" >&2; exit 1; }
+  just "$ROOT/apps/worker/" artifact "$STATE/artifact" >"$LOGS/artifact.log" 2>&1 || { tail -20 "$LOGS/artifact.log" >&2; exit 1; }
   # A copy, as an installation has it: the template's files plus the artifact as rafi/.
   mkdir -p "$STATE/installation"
   (cd "$ROOT/deploy/cloudflare" && tar -c --exclude ./rafi --exclude ./node_modules --exclude ./.wrangler .) \

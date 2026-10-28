@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Builds a release of Rafi for Cloudflare and proves it deploys, the way an
-# installation deploys it: the artifact (scripts/cloudflare-artifact.sh),
-# packed as rafi-cloudflare-<version>.tar.gz with its SHA256SUMS; then a copy
-# of deploy/cloudflare fetches that tarball from a local server with its own
-# `deploy.sh fetch`, exactly as it fetches a GitHub release (the checksum, the
-# version), and `deploy.sh deploy --dry-run` puts the documents in place and
-# validates every binding. .github/workflows/release.yaml runs this on a tag
-# and attaches what is left in <out dir>; running it by hand rehearses a
-# release.
+# installation deploys it: the release as apps/worker packages it (`just
+# release`: the artifact as rafi-cloudflare-<version>.tar.gz with its
+# SHA256SUMS); then a copy of deploy/cloudflare fetches that tarball from a
+# local server with its own `deploy.sh fetch`, exactly as it fetches a GitHub
+# release (the checksum, the version), and `deploy.sh deploy --dry-run` puts
+# the documents in place and validates every binding. .github/workflows/release.yaml
+# runs this on a tag and attaches what is left in <out dir>; running it by
+# hand rehearses a release.
 #
 #   ./scripts/cloudflare-release.sh <version> [<out dir>]    # default out dir: target/cloudflare
 #   ./scripts/cloudflare-release.sh 0.2.0
 #
-# Needs what cloudflare-artifact.sh needs, plus python3 (the local server), curl and wrangler.
+# Needs what the release needs (just, dx, worker-build), plus python3 (the local server), curl and wrangler.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,17 +38,8 @@ if [ "$pinned" != "$VERSION" ]; then
   exit 1
 fi
 
-step "the artifact"
-RAFI_VERSION="$VERSION" "$ROOT/scripts/cloudflare-artifact.sh" "$OUT/rafi"
-
-step "the tarball and its checksums"
-rm -f "$OUT/$TARBALL" "$OUT/SHA256SUMS"
-(cd "$OUT" && tar -czf "$TARBALL" rafi)
-if command -v sha256sum >/dev/null; then
-  (cd "$OUT" && sha256sum "$TARBALL" >SHA256SUMS)
-else
-  (cd "$OUT" && shasum -a 256 "$TARBALL" >SHA256SUMS)
-fi
+step "the release: the artifact, its tarball and checksums"
+just "$ROOT/apps/worker/" release "$VERSION" "$OUT"
 cat "$OUT/SHA256SUMS"
 
 step "deploy/cloudflare fetches and deploys it (dry run)"

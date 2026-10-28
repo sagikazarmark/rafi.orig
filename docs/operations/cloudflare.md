@@ -32,7 +32,7 @@ deploys the same shape from [`deploy/cloudflare/`](../../deploy/cloudflare/), be
 
 Nothing of an installation's is compiled in: one build of the Worker and the web app serves every installation.
 The build is a release's tarball (`rafi-cloudflare-<version>.tar.gz`, with `SHA256SUMS`, built by
-`.github/workflows/release.yaml` from `scripts/cloudflare-artifact.sh`): the Worker, the static files and the D1
+`.github/workflows/release.yaml` from `just cloudflare-artifact`): the Worker, the static files and the D1
 migrations. The installation is [`deploy/cloudflare/`](../../deploy/cloudflare/), a directory of yours:
 
 - `wrangler.toml`, the Worker's shape with your database ID and domain;
@@ -157,11 +157,11 @@ What only a real deploy can check, so check it on the first one:
 Instead of a release, build the artifact here and point your copy of `deploy/cloudflare` at it:
 
 ```sh
-./scripts/cloudflare-artifact.sh /path/to/your/installation/rafi    # the Worker, the static files, the migrations
+just cloudflare-artifact /path/to/your/installation/rafi            # the Worker, the static files, the migrations
 (cd /path/to/your/installation && ./deploy.sh deploy)
 ```
 
-`cloudflare-artifact.sh` is what the release workflow runs; `deploy.sh deploy` alone skips the fetch.
+`just cloudflare-artifact` is what the release workflow runs; `deploy.sh deploy` alone skips the fetch.
 
 ## Data residency
 

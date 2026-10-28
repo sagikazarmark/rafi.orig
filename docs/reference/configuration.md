@@ -24,7 +24,7 @@ var and a secret of the same name).
 |---|---|---|
 | `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address (native only) |
 | `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app, relative to the working directory (native only) |
-| `RAFI_PARTICIPANT_DIR` | `apps/participant/dist/public` | The participant build, from `./scripts/participant.sh`: the one the binary was compiled against (native only) |
+| `RAFI_PARTICIPANT_DIR` | `apps/participant/dist/public` | The participant build (`just apps/participant/ build`): the one the binary was compiled against (native only) |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL, used for QR codes and links |
 | `RAFI_COOKIE_SECURE` | on when `RAFI_PUBLIC_URL` is `https://` | Marks the participant cookie `Secure` (`1`/`true` or `0`/`false`). Set it when TLS ends at a proxy in front of a plain `http://` URL. |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate` (native only; Workers use D1). Either SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`; the database must exist). The app applies the migrations on start. |
@@ -44,7 +44,7 @@ var and a secret of the same name).
 | `RAFI_RETENTION_WINNERS_DAYS` | `90` | How long a winner's data is held past the erasure date unless their prize is marked delivered: the hard ceiling, after which everyone is erased and a finished raffle is purged. At most 365. |
 | `RAFI_MIN_AGE` | `16` | The youngest an entrant may be. Rendered in the rules and on the join form; entrants confirm it by entering. Organizers raise it in their additional rules. At most 30. |
 | `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | required | Who runs this installation: named as the processor in every raffle's privacy notice. Under `RAFI_DEV_AUTH`, placeholders. |
-| `RAFI_DOCS_DIR` | required (native) | The directory with the installation's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown. On Workers they are `legal/terms.md` and `legal/privacy.md` among the static files (`deploy/cloudflare`'s `legal/`; `scripts/app-assets.sh` copies them in from this variable), read through the assets binding. Under `RAFI_DEV_AUTH`, placeholders marked as such. |
+| `RAFI_DOCS_DIR` | required (native) | The directory with the installation's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown. On Workers they are `legal/terms.md` and `legal/privacy.md` among the static files (`deploy/cloudflare`'s `legal/`; `just assets` in `apps/worker` copies them in from this variable), read through the assets binding. Under `RAFI_DEV_AUTH`, placeholders marked as such. |
 | `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION` | required | The documents' versions, e.g. `2026-10`, shown with them at `/terms` and `/privacy` and named in every raffle's notice. Under `RAFI_DEV_AUTH`, `dev`. |
 | `RUST_LOG` | `info` | Log level, in [`tracing-subscriber` filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) (native only) |
 

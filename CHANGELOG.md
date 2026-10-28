@@ -44,7 +44,7 @@ ran a development build before.
 - The participant page's WebAssembly is a quarter smaller (200 KB gzipped, was 265: built as a binary by `dx`,
   not as a `cdylib`), and its module and glue are named by their hash and served `Cache-Control: immutable`, so a
   phone fetches them once, not five revalidations per page load. The server compiles the build's loader in:
-  `./scripts/participant.sh` runs before `cargo build`, `RAFI_PARTICIPANT_DIR` is the build's `dist/public`,
+  `just apps/participant/ build` runs before `cargo build`, `RAFI_PARTICIPANT_DIR` is the build's `dist/public`,
   and `rafi` refuses to start without it, or on a build other than the one it was compiled against. `dx` builds
   the web app with the release profile too (`opt-level = "z"`, as the binaries).
 

@@ -12,14 +12,13 @@ ci: fmt clippy test verify doc audit deny
 fmt:
     cargo fmt --all --check
 
-# Build the web app's stylesheet (Tailwind CSS + daisyUI); rafi-web's asset!() needs it.
-[working-directory: 'apps/web']
+# Build the web app's stylesheet (apps/web); rafi-web's asset!() needs it.
 css:
-    tailwindcss -i tailwind.css -o assets/tailwind.css --minify
+    {{ just_executable() }} apps/web/ css
 
-# Build the participant page (scripts/participant.sh); rafi-server compiles its loader in.
+# Build and check the participant page (apps/participant); rafi-server compiles its loader in.
 participant:
-    ./scripts/participant.sh
+    {{ just_executable() }} apps/participant/ check
 
 # Run clippy, natively and on wasm32.
 clippy: clippy-native clippy-wasm
@@ -71,9 +70,9 @@ deny:
 workers:
     ./scripts/workers-check.sh
 
-# Build what a Cloudflare deployment deploys (scripts/cloudflare-artifact.sh): what a release ships.
+# Build what a Cloudflare deployment deploys (apps/worker): what a release ships.
 cloudflare-artifact out="target/cloudflare/rafi":
-    ./scripts/cloudflare-artifact.sh {{ out }}
+    {{ just_executable() }} apps/worker/ artifact {{ absolute_path(out) }}
 
 # Build and prove a Cloudflare release (scripts/cloudflare-release.sh): the tarball, its checksums, a dry deploy through deploy/cloudflare.
 cloudflare-release version:

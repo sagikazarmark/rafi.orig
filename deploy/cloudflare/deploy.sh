@@ -10,7 +10,7 @@
 # the same for every installation. What is yours is this directory:
 # wrangler.toml, legal/ and the secrets (.dev.vars.example). Upgrading is
 # changing the version below. A build from source (the Rafi repository's
-# scripts/cloudflare-artifact.sh, into rafi/) is deployed with `deploy` alone.
+# `just cloudflare-artifact`, into rafi/) is deployed with `deploy` alone.
 #
 # Needs curl, tar, sha256sum (or shasum) and wrangler (WRANGLER names another
 # command; npx fetches it when none is installed).

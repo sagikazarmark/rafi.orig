@@ -1,7 +1,7 @@
 //! The installation's legal documents, from the Worker's static files.
 //!
 //! `legal/terms.md` and `legal/privacy.md` sit among the static files
-//! (`worker-assets/legal/`, where `scripts/app-assets.sh` copies them from
+//! (`worker-assets/legal/`, where `just assets` in `apps/worker` copies them from
 //! `RAFI_DOCS_DIR`), and the Worker reads them through the assets binding
 //! when an isolate builds its app, the way the native server reads
 //! `RAFI_DOCS_DIR`. Nothing of an installation's is compiled in: one build
@@ -29,7 +29,7 @@ pub async fn documents(env: &Env, dev_auth: bool) -> anyhow::Result<Documents> {
         (Some(terms), Some(privacy)) => Ok(Documents::new(terms, privacy)),
         _ if dev_auth => Ok(Documents::placeholders()),
         _ => anyhow::bail!(
-            "{TERMS} and {PRIVACY} are missing from the Worker's static files: the installation's terms.md and privacy.md go into its deploy/cloudflare legal/ (deploy.sh copies them in), or into RAFI_DOCS_DIR for scripts/app-assets.sh"
+            "{TERMS} and {PRIVACY} are missing from the Worker's static files: the installation's terms.md and privacy.md go into its deploy/cloudflare legal/ (deploy.sh copies them in), or into RAFI_DOCS_DIR for `just assets` in apps/worker"
         ),
     }
 }

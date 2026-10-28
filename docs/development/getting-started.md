@@ -43,7 +43,7 @@ This runs everything natively, with dev auth (no Clerk) and live reload:
 | `engine` | The raffle engine (`rafi-restate`) on `:9080`, registered with Restate once it's up |
 | `rafi` | The server on `:8788`, behind `dx serve` (`apps/web/Dioxus.toml` proxies to it) |
 | `dioxus` | `dx serve`: the web app on `:8787`, with hot reload |
-| `participant` | Builds the participant page (`./scripts/participant.sh`), and again when it changes; `rafi` starts after it, and restarts on a new build (it compiles the build's loader in) |
+| `participant` | Builds and checks the participant page (`just apps/participant/ check`), and again when it changes; `rafi` starts after it, and restarts on a new build (it compiles the build's loader in) |
 
 Then open <http://localhost:8787/admin>. Draws use real drand, so they need internet.
 
@@ -77,7 +77,7 @@ local Workers state. Pass the same `--profile` flags to `devenv down` and `deven
 - **`workers`** runs the Worker (`wrangler-app`, <http://127.0.0.1:8787>; the raffle engine is in it, under
   `/restate`, registered with Restate over HTTP/1.1 once the Worker answers `/healthz`) with
   `wrangler dev --env dev`: dev auth and the mock chain. Before starting it, it applies the D1 migrations
-  (devenv-extras' `wrangler.dev.app.d1.migrate`), and builds the static files (`./scripts/app-assets.sh`) when
+  (devenv-extras' `wrangler.dev.app.d1.migrate`), and builds the static files (`just apps/worker/ assets`) when
   their sources changed, when something else built them, or for the other auth. The first build takes a few
   minutes. The Worker's local data (D1, Durable Objects) lives in the profile's `state/wrangler/state/app` and is
   kept across restarts.
@@ -94,11 +94,11 @@ local Workers state. Pass the same `--profile` flags to `devenv down` and `deven
 A fresh checkout needs two generated things before everything compiles and runs:
 
 ```sh
-# the web app's stylesheet (dx builds it too; plain cargo build/clippy of rafi-web needs it to exist; `just css`)
-(cd apps/web && tailwindcss -i tailwind.css -o assets/tailwind.css)
+# the web app's stylesheet (dx builds it too; plain cargo build/clippy of rafi-web needs it to exist)
+just apps/web/ css
 
 # the participant page's WebAssembly and fallback -> apps/participant/dist/public
-./scripts/participant.sh
+just apps/participant/ build
 ```
 
 The server compiles the participant build's loader in (`dist/public/index.html`, with the hashed names of that
@@ -158,7 +158,7 @@ RAFI_RESTATE_DRAND__MOCK=true … cargo run -p rafi-restate --features mock-dran
 across restarts:
 
 ```sh
-./scripts/app-assets.sh                                   # web app bundle + participant build + template legal documents -> apps/worker/worker-assets
+just apps/worker/ assets                                  # web app bundle + participant build + template legal documents -> apps/worker/worker-assets
 (cd apps/worker && wrangler d1 migrations apply rafi --local --env dev --persist-to ../../.wrangler-state)
 (cd apps/worker && wrangler dev --env dev --persist-to ../../.wrangler-state)   # http://127.0.0.1:8787, dev auth, mock drand
 # Restate with its ingress on :18080 (the dev Worker's RAFI_ENGINE_INGRESS_URL), then register the engine, which is
@@ -179,7 +179,7 @@ Once the web app is bundled, `rafi` serves everything itself:
 
 ```sh
 (cd apps/web && dx bundle --platform web --release)   # -> target/dx/rafi-web/release/web/public
-./scripts/participant.sh                                 # -> apps/participant/dist/public
+just apps/participant/ build                             # -> apps/participant/dist/public
 RAFI_DEV_AUTH=1 cargo run --release -p rafi --features dev   # http://localhost:8080
 ```
 

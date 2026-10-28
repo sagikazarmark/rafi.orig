@@ -1020,7 +1020,7 @@ async fn admin_requires_clerk_session() {
     )
     .unwrap();
     // And for the participant build: a hashed asset and the fallback, as
-    // participant.sh leaves them, a precompressed variant next to the asset,
+    // the build leaves them, a precompressed variant next to the asset,
     // and the loader this server compiled in.
     let participant = public.join("participant-dist");
     std::fs::create_dir_all(participant.join("assets")).unwrap();

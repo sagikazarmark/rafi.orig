@@ -1,0 +1,36 @@
+# Workers Assets' headers on the static files
+# (https://developers.cloudflare.com/workers/static-assets/headers/):
+# `just assets` copies this file into worker-assets/.
+# Rules here don't apply to the Worker's own responses, which carry the same
+# headers from security_headers in crates/server/src/lib.rs.
+#
+# Every file: no sniffing, the origin only as referrer. The web app's shell
+# may be framed only as the projector (/s/) and the verification page (/v/):
+# later rules add to earlier ones, and the first rule denies framing
+# everywhere, so the two frameable paths can't be matched by it; they are
+# listed as the exception instead.
+#
+# The participant's assets are named by their hash (apps/participant),
+# so phones keep them for good; its fallback keeps a fixed name, so phones
+# revalidate it, which Assets does by default (max-age=0, must-revalidate,
+# with an ETag): this says so.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+
+/s/*
+  ! Content-Security-Policy
+  ! X-Frame-Options
+
+/v/*
+  ! Content-Security-Policy
+  ! X-Frame-Options
+
+/participant/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/participant/fallback.js
+  Cache-Control: no-cache

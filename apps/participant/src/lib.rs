@@ -16,7 +16,7 @@
 //! hook calls `window.rafiFallback()`. Nothing here unwraps page or network
 //! data.
 //!
-//! `./scripts/participant.sh` builds it with dx (`Dioxus.toml`) into
+//! `just build` here has dx build it (`Dioxus.toml`, the `justfile`) into
 //! `dist/public/`: the module and its glue under `assets/`, named by their
 //! hash, so phones keep them for good; `fallback.js` from `public/`, as it
 //! is; and `index.html`, the page's loader (the file here, with the glue's

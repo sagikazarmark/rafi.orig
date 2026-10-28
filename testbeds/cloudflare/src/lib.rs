@@ -97,7 +97,7 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
 }
 
 /// The page's loader, from the participant build, as rafi-server compiles it
-/// in (`scripts/workers-check.sh` runs `participant.sh` first, and puts the
+/// in (`scripts/workers-check.sh` builds it first, and puts the
 /// build's assets and fallback under `site/participant/`).
 const LOADER: &str = include_str!("../../../apps/participant/dist/public/index.html");
 

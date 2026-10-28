@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
             "no web app in RAFI_PUBLIC_DIR: only the participant pages and APIs are served"
         );
     }
-    // The participant build (`./scripts/participant.sh`): the one this binary
+    // The participant build (`just apps/participant/ build`): the one this binary
     // was compiled against, or it doesn't start.
     let dirs = server::Dirs {
         public: public_dir,

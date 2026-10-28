@@ -1,0 +1,34 @@
+# The web app (admin, projector, verification page), a Dioxus app dx builds.
+# `just build` bundles it into target/dx/rafi-web/release/web/public, which
+# the native server serves (RAFI_PUBLIC_DIR) and apps/worker copies into its
+# static files; `just serve` runs it with hot reload against the server on
+# :8788 (Dioxus.toml proxies the server's paths to it). The stylesheet is
+# Tailwind with daisyUI from npm: dx compiles it itself, and `just css` does
+# for a plain cargo build or clippy, whose asset!() needs it to exist.
+
+public := "../../target/dx/rafi-web/release/web/public"
+
+# List the recipes.
+[private]
+default:
+    @just --list --unsorted
+
+# Install daisyUI (package.json), which tailwind.css loads.
+install:
+    npm ci --no-fund --no-audit
+
+# Compile the stylesheet, for a plain cargo build or clippy (dx compiles it itself).
+css: install
+    tailwindcss -i tailwind.css -o assets/tailwind.css --minify
+
+# Bundle the web app into target/dx/rafi-web/release/web/public.
+build: install clean
+    dx bundle --platform web --release
+
+# Serve the web app with hot reload at http://127.0.0.1:8787 (`just serve 0.0.0.0` for phones on the LAN), with the server on :8788.
+serve addr="127.0.0.1": install
+    dx serve --port 8787 --addr {{ addr }}
+
+# Remove the bundle, and the earlier bundles dx leaves in its output (other hashes).
+clean:
+    rm -rf {{ public }}

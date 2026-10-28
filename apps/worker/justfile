@@ -1,0 +1,92 @@
+# Rafi on Cloudflare Workers. Locally (`just dev`): the static files, the D1
+# migrations, then `wrangler dev --env dev` (dev auth, the mock chain, the
+# raffle engine in the same Worker under /restate), with the Worker's local
+# state (D1, Durable Objects) in .wrangler-state at the repository root, as
+# docs/development/getting-started.md has it. For a deployment: `just
+# artifact` is what a release ships and `just release` packages it, which
+# scripts/cloudflare-release.sh proves; the checks under wrangler dev are
+# `just workers`.
+
+state := "../../.wrangler-state"
+
+# List the recipes.
+[private]
+default:
+    @just --list --unsorted
+
+# Assemble the static files Workers Assets serves (worker-assets/): the web app bundle, the participant build and the legal documents from RAFI_DOCS_DIR (absolute; the templates when unset, which a production Worker refuses).
+assets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    public=../../target/dx/rafi-web/release/web/public
+    docs="${RAFI_DOCS_DIR:-../../deploy/cloudflare/legal}"
+    {{ just_executable() }} ../web/ build
+    {{ just_executable() }} ../participant/ build
+    rm -rf worker-assets
+    mkdir -p worker-assets/legal worker-assets/participant
+    cp -R "$public/." worker-assets/
+    # The participant's hashed assets and its fallback; not its index.html,
+    # the page's loader, which the Worker has compiled in.
+    cp -R ../participant/dist/public/assets worker-assets/participant/assets
+    cp ../participant/dist/public/fallback.js worker-assets/participant/
+    cp "$docs/terms.md" "$docs/privacy.md" worker-assets/legal/
+    # Cloudflare compresses at the edge; the precompressed variants are for
+    # the native server and would only be served as files here.
+    find worker-assets/participant -type f \( -name '*.gz' -o -name '*.br' \) -delete
+    cp _headers worker-assets/
+
+# Build the Worker as `wrangler deploy` builds it (`just build dev` as `wrangler dev --env dev` does).
+build features="":
+    worker-build --release {{ if features == "" { "" } else { "--features " + features } }}
+
+# Apply the D1 migrations to the local database.
+migrate:
+    wrangler d1 migrations apply rafi --local --env dev --persist-to {{ state }}
+
+# Run the Worker at http://127.0.0.1:8787: the static files when there are none yet (`just assets` after a change), the migrations, then wrangler dev.
+dev: migrate
+    test -d worker-assets || {{ just_executable() }} assets
+    wrangler dev --env dev --persist-to {{ state }}
+
+# Validate the production shape without deploying: the configuration, every binding, the bundle and the static files.
+dry-run:
+    wrangler deploy --dry-run
+
+# Build what a Cloudflare deployment is made of, into one directory: build/ (the Worker), worker-assets/ (the static files, without legal/), migrations/sqlite/ (D1) and VERSION (RAFI_VERSION, or git describe).
+artifact out="../../target/cloudflare/rafi": assets build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Nothing of an installation's is in it: its legal documents go into
+    # worker-assets/legal/ and its values into secrets at deploy time, which is
+    # deploy/cloudflare's job (its wrangler.toml points into this layout as
+    # rafi/). A release's tarball is this directory (scripts/cloudflare-release.sh,
+    # which .github/workflows/release.yaml runs); building from source is this
+    # and pointing deploy/cloudflare at the result (docs/operations/cloudflare.md).
+    out="{{ out }}"
+    version="${RAFI_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo unknown)}"
+    rm -rf "${out:?}"
+    mkdir -p "$out/migrations"
+    cp -R build "$out/build"
+    rm -f "$out/build/.gitignore"
+    cp -R worker-assets "$out/worker-assets"
+    # The documents are the installation's, not Rafi's.
+    rm -rf "$out/worker-assets/legal"
+    cp -R ../../migrations/sqlite "$out/migrations/sqlite"
+    echo "$version" >"$out/VERSION"
+    echo "rafi-cloudflare: Rafi $version, $(du -sh "$out" | cut -f1) in $out"
+
+# Package a release of `version`: the artifact as rafi-cloudflare-<version>.tar.gz with its SHA256SUMS, in `out` (what scripts/cloudflare-release.sh then proves, and .github/workflows/release.yaml publishes).
+release version out="../../target/cloudflare":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="{{ out }}"
+    tarball="rafi-cloudflare-{{ version }}.tar.gz"
+    RAFI_VERSION="{{ version }}" {{ just_executable() }} artifact "$out/rafi"
+    rm -f "$out/$tarball" "$out/SHA256SUMS"
+    (cd "$out" && tar -czf "$tarball" rafi)
+    if command -v sha256sum >/dev/null; then
+        (cd "$out" && sha256sum "$tarball" >SHA256SUMS)
+    else
+        (cd "$out" && shasum -a 256 "$tarball" >SHA256SUMS)
+    fi
+    echo "rafi-cloudflare: release {{ version }}: $out/$tarball, $(cut -d' ' -f1 "$out/SHA256SUMS")"
