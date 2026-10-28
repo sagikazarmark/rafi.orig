@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*", "testbeds/*"]
 
 [workspace.package]
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-only"
 repository = "https://github.com/sagikazarmark/rafi"
 rust-version = "1.94"
 
