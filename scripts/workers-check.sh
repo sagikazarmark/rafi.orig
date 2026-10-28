@@ -185,8 +185,7 @@ if command -v dx >/dev/null; then
   (cd "$ROOT/deploy/cloudflare" && tar -c --exclude ./rafi --exclude ./node_modules --exclude ./.wrangler .) \
     | tar -x -C "$STATE/installation"
   cp -R "$STATE/artifact" "$STATE/installation/rafi"
-  (cd "$STATE/installation" && node build.mjs --local) >"$LOGS/template-build.log" 2>&1 || { cat "$LOGS/template-build.log" >&2; exit 1; }
-  template="$(cd "$STATE/installation" && $WRANGLER deploy --dry-run --outdir "$STATE/dry-template" 2>&1)" \
+  template="$(cd "$STATE/installation" && WRANGLER="$WRANGLER" ./deploy.sh deploy --dry-run 2>&1)" \
     || { echo "$template" | tail -30 >&2; exit 1; }
   echo "$template" | grep -q "env.ASSETS" || { echo "the template's dry deploy lists no assets binding:" >&2; echo "$template" | tail -20 >&2; exit 1; }
   echo "ok   deploy/cloudflare deploys the artifact (dry run)"

@@ -112,4 +112,5 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from CI: a deploy is the operator's,
 from their copy of `deploy/cloudflare` ([Cloudflare](../operations/cloudflare.md)), and the dry runs above are
 its gate. A tag `v<version>` runs `just cloudflare-release` and publishes the release with the tarball and its
-checksums (`.github/workflows/release.yaml`); `deploy/cloudflare/package.json` must pin that version first.
+checksums (`.github/workflows/release.yaml`); `RAFI_VERSION` in `deploy/cloudflare/deploy.sh` must be that version
+first.

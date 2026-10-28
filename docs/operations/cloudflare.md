@@ -36,7 +36,8 @@ The build is a release's tarball (`rafi-cloudflare-<version>.tar.gz`, with `SHA2
 migrations. The installation is [`deploy/cloudflare/`](../../deploy/cloudflare/), a directory of yours:
 
 - `wrangler.toml`, the Worker's shape with your database ID and domain;
-- `package.json`, naming the release you deploy (`rafi.version`), with the `build` and `deploy` scripts;
+- `deploy.sh`, naming the release you deploy (`RAFI_VERSION`): it fetches it, checked against its checksums, puts
+  `legal/` in place, applies the D1 migrations and deploys;
 - `legal/terms.md` and `legal/privacy.md`, your legal documents, which the Worker reads from its static files;
 - your secrets (`.dev.vars.example` lists them), set on the Worker, never in a file you track.
 
@@ -52,17 +53,17 @@ button, or the same by hand. What follows is the longer one.
 
 ### 1. The installation
 
-Click the button, or copy `deploy/cloudflare/` into a repository of yours (private is fine). The button creates
-the database and the Durable Object, asks for the secrets, and builds and deploys from your new repository on
-every push ([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)). By hand, in your copy:
+Copy `deploy/cloudflare/` into a repository of yours (private is fine), and in it:
 
 ```sh
-npm ci                                          # wrangler
-npx wrangler d1 create rafi --jurisdiction eu   # note the database_id it prints
+wrangler d1 create rafi --jurisdiction eu   # note the database_id it prints
 ```
 
-and put the ID into `wrangler.toml`. The button's database has no jurisdiction; if personal data must stay in the
-EU, create one as above afterwards, put its ID in, redeploy, and delete the button's.
+and put the ID into `wrangler.toml`. The quick way is the button, which copies the directory into a repository of
+yours, creates the database and the Durable Object, asks for the secrets, and deploys from that repository on every
+push ([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), running `deploy.sh fetch` as the
+build and `deploy.sh deploy` as the deploy). Its database has no jurisdiction; if personal data must stay in the EU,
+create one as above afterwards, put its ID in, push, and delete the button's.
 
 ### 2. The legal documents and the operator
 
@@ -80,8 +81,8 @@ change them.
 ### 3. The Worker
 
 The installation's values are secrets. `wrangler.toml` lists them under `[secrets] required`, and a deploy
-refuses to go out while one is missing; `package.json` (under `cloudflare.bindings`) says what each is. The
-button asks for them; by hand, one file, kept out of your repository (`.dev.vars` is ignored):
+refuses to go out while one is missing; `.dev.vars.example` says what each is. The button asks for them; by
+hand, one file, kept out of your repository (`.dev.vars` is ignored):
 
 ```ini
 RAFI_PUBLIC_URL=https://raffle.example.org
@@ -101,15 +102,16 @@ RAFI_PRIVACY_VERSION=2026-10
 installation's, so it travels with the others. Then:
 
 ```sh
-npm run build                      # fetches the release into rafi/, checks SHA256SUMS, copies legal/ in
-npx wrangler deploy                # the first time: creates the Worker and stops at the missing secrets
-npx wrangler secret bulk .dev.vars
-npm run deploy                     # the D1 migrations, then the deploy
+./deploy.sh fetch                  # the release into rafi/, checked against SHA256SUMS
+wrangler deploy                    # the first time: creates the Worker and stops at the missing secrets
+wrangler secret bulk .dev.vars
+./deploy.sh deploy                 # legal/ into place, the D1 migrations, then the deploy
 ```
 
 The very first `deploy` creates the Worker and stops at the missing secrets (there is no Worker to hold them yet);
 `secret bulk` then sets them, and the deploy is run again. From then on, a deploy that is missing one refuses, and
-`npm run deploy` is every deploy: it applies the migrations first. Never rotate `RAFI_ALTCHA_KEY` during an event.
+`./deploy.sh` is every deploy: the release, the migrations, the Worker. Never rotate `RAFI_ALTCHA_KEY` during an
+event.
 
 The Worker refuses every request without its documents, `RAFI_ALTCHA_KEY`, `RAFI_ENGINE_INGRESS_URL`,
 `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, the operator and the document
@@ -134,7 +136,7 @@ Open `/healthz`, `/terms` and `/privacy`, then run a test-mode raffle end to end
 documents; it does not check the database's schema against the build (apply the migrations first, as above).
 
 Nothing in this repository's CI holds a Cloudflare token: deploys are yours (Workers Builds from your repository,
-or `npm run deploy`). CI does run the production shape through `wrangler deploy --dry-run`, serves it without
+or `./deploy.sh`). CI does run the production shape through `wrangler deploy --dry-run`, serves it without
 secrets, and deploys (dry) the artifact through `deploy/cloudflare` ([Testing](../development/testing.md#workers)),
 so what a release ships has been built and validated the way `wrangler deploy` builds and validates it.
 
@@ -156,10 +158,10 @@ Instead of a release, build the artifact here and point your copy of `deploy/clo
 
 ```sh
 ./scripts/cloudflare-artifact.sh /path/to/your/installation/rafi    # the Worker, the static files, the migrations
-(cd /path/to/your/installation && node build.mjs --local && npm run deploy)
+(cd /path/to/your/installation && ./deploy.sh deploy)
 ```
 
-`cloudflare-artifact.sh` is what the release workflow runs; `build.mjs --local` only copies `legal/` into place.
+`cloudflare-artifact.sh` is what the release workflow runs; `deploy.sh deploy` alone skips the fetch.
 
 ## Data residency
 

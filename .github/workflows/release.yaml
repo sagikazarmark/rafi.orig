@@ -5,7 +5,7 @@ name: Release
 # through deploy/cloudflare, fetched the way an installation fetches it. The
 # release is published with generated notes; what operators need to know is
 # CHANGELOG.md's, which calls out any change to deploy/cloudflare's shape.
-# deploy/cloudflare pins the version it fetches (package.json, "rafi.version"),
+# deploy/cloudflare pins the version it fetches (RAFI_VERSION in deploy.sh),
 # and the script refuses a release it doesn't pin, so the template on main
 # always names a release that exists.
 on:

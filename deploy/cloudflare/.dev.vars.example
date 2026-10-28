@@ -1,15 +1,35 @@
-# The secrets this installation sets (`wrangler secret bulk` or `wrangler secret
-# put`; Deploy to Cloudflare asks for them from this file). What each is:
-# package.json, under "cloudflare.bindings", and
+# This installation's secrets. Copy to .dev.vars (ignored by git), fill it in,
+# `wrangler secret bulk .dev.vars`. Deploy to Cloudflare asks for them from
+# this file. The reference, with the optional settings and their defaults:
 # https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
+
+# The public origin, no trailing slash: https://raffle.example.org. QR codes
+# and links use it; Clerk must allow it.
 RAFI_PUBLIC_URL=
+
+# Your Restate Cloud environment: its ingress URL
+# (https://<env>.env.eu.restate.cloud:8080), an API key with ingress access,
+# and its public key(s) (publickeyv1_…, comma separated), which the Worker
+# checks the engine's requests against.
 RAFI_ENGINE_INGRESS_URL=
 RAFI_ENGINE_API_KEY=
 RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS=
+
+# The proof-of-work key: random, 32 characters or more (openssl rand -hex 32).
+# Never rotate it during an event.
 RAFI_ALTCHA_KEY=
+
+# Your Clerk application's keys (sk_live_…, pk_live_…). The publishable key
+# isn't secret, but it is yours: the web app signs organizers in with it.
 CLERK_SECRET_KEY=
 CLERK_PUBLISHABLE_KEY=
+
+# Who runs this installation (a legal name), named as the processor in every
+# raffle's privacy notice, and the contact for privacy matters.
 RAFI_OPERATOR_NAME=
 RAFI_OPERATOR_EMAIL=
+
+# The versions of legal/terms.md and legal/privacy.md, e.g. 2026-10. A changed
+# document is a new version.
 RAFI_TERMS_VERSION=
 RAFI_PRIVACY_VERSION=

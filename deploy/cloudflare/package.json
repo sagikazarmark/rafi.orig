@@ -1,55 +1,7 @@
 {
-  "name": "rafi-cloudflare",
   "private": true,
-  "description": "Rafi on Cloudflare Workers: one installation's deployment",
-  "type": "module",
-  "rafi": {
-    "version": "0.1.0",
-    "repository": "sagikazarmark/rafi"
-  },
   "scripts": {
-    "build": "node build.mjs",
-    "migrate": "wrangler d1 migrations apply DB --remote",
-    "deploy": "npm run migrate && wrangler deploy"
-  },
-  "devDependencies": {
-    "wrangler": "4.154.0"
-  },
-  "cloudflare": {
-    "bindings": {
-      "RAFI_PUBLIC_URL": {
-        "description": "The public origin of this installation, without a trailing slash: `https://raffle.example.org`. QR codes and links use it; Clerk must allow it."
-      },
-      "RAFI_ENGINE_INGRESS_URL": {
-        "description": "Your [Restate Cloud](https://cloud.restate.dev) environment's ingress URL: `https://<env>.env.eu.restate.cloud:8080`."
-      },
-      "RAFI_ENGINE_API_KEY": {
-        "description": "A Restate Cloud API key for that environment with ingress access."
-      },
-      "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS": {
-        "description": "The Restate environment's public key(s), `publickeyv1_…`, comma separated: the Worker verifies that the engine's requests are Restate's."
-      },
-      "RAFI_ALTCHA_KEY": {
-        "description": "The proof-of-work key, random and at least 32 characters: `openssl rand -hex 32`. Never rotate it during an event."
-      },
-      "CLERK_SECRET_KEY": {
-        "description": "Your [Clerk](https://dashboard.clerk.com) application's secret key, `sk_live_…`."
-      },
-      "CLERK_PUBLISHABLE_KEY": {
-        "description": "Your Clerk application's publishable key, `pk_live_…`. Not a secret: the web app signs organizers in with it."
-      },
-      "RAFI_OPERATOR_NAME": {
-        "description": "Who runs this installation (a legal name), named as the processor in every raffle's privacy notice."
-      },
-      "RAFI_OPERATOR_EMAIL": {
-        "description": "The operator's contact for privacy matters."
-      },
-      "RAFI_TERMS_VERSION": {
-        "description": "The version of `legal/terms.md`, e.g. `2026-10`. A changed document is a new version."
-      },
-      "RAFI_PRIVACY_VERSION": {
-        "description": "The version of `legal/privacy.md`, e.g. `2026-10`."
-      }
-    }
+    "build": "./deploy.sh fetch",
+    "deploy": "./deploy.sh deploy"
   }
 }

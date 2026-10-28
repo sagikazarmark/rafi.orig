@@ -1,6 +1,6 @@
 # Rafi on Cloudflare Workers: one installation's configuration. This is the
 # Worker's shape as the Rafi repository ships it (apps/worker/wrangler.toml),
-# pointed at a release's files in rafi/ (build.mjs puts them there), with
+# pointed at a release's files in rafi/ (deploy.sh puts them there), with
 # your database and domain in place of the placeholders. Everything else of
 # yours is a secret (.dev.vars.example lists them) or a file in legal/.
 #
@@ -17,7 +17,7 @@ preview_urls = false
 # routes = [{ pattern = "raffle.example.org", custom_domain = true }]
 
 # The web app, the participant scripts and your legal documents (legal/,
-# copied in by build.mjs). Paths the Worker answers go to it first; anything
+# copied in by deploy.sh). Paths the Worker answers go to it first; anything
 # else is a file, or the web app's index.html (single-page routing). The
 # binding is how the Worker reads the legal documents. (/__scheduled is how
 # `wrangler dev --test-scheduled` fires the Cron Trigger; deployed, the
@@ -30,7 +30,7 @@ run_worker_first = ["/api/*", "/config.js", "/j/*", "/rules/*", "/privacy", "/pr
 
 # Your database. Deploy to Cloudflare creates it and fills the ID in; by
 # hand: `wrangler d1 create rafi --jurisdiction eu`, and paste the ID here.
-# The migrations run before each deploy (`npm run deploy`).
+# The migrations run before each deploy (deploy.sh).
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"

@@ -1,5 +1,4 @@
-# What build.mjs fetches or copies in: a release of Rafi, or a build from source.
+# What deploy.sh fetches (a release of Rafi) or a build from source puts here.
 rafi/
-node_modules/
-.wrangler/
 .dev.vars
+.wrangler/

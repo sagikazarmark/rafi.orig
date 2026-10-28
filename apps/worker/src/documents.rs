@@ -29,7 +29,7 @@ pub async fn documents(env: &Env, dev_auth: bool) -> anyhow::Result<Documents> {
         (Some(terms), Some(privacy)) => Ok(Documents::new(terms, privacy)),
         _ if dev_auth => Ok(Documents::placeholders()),
         _ => anyhow::bail!(
-            "{TERMS} and {PRIVACY} are missing from the Worker's static files: the installation's terms.md and privacy.md go into its deploy/cloudflare legal/ (npm run build copies them in), or into RAFI_DOCS_DIR for scripts/app-assets.sh"
+            "{TERMS} and {PRIVACY} are missing from the Worker's static files: the installation's terms.md and privacy.md go into its deploy/cloudflare legal/ (deploy.sh copies them in), or into RAFI_DOCS_DIR for scripts/app-assets.sh"
         ),
     }
 }

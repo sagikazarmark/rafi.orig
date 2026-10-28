@@ -1,11 +1,16 @@
 # Rafi on Cloudflare Workers
 
 One installation of [Rafi](https://github.com/sagikazarmark/rafi), the verifiable raffle for in-person events,
-on your own Cloudflare account: one Worker, one D1 database, with [Restate Cloud](https://cloud.restate.dev)
-running the raffle engine and [Clerk](https://clerk.com) signing organizers in. Nothing here needs a Rust
-toolchain: this directory fetches a release of Rafi and deploys it with your configuration.
+on your own Cloudflare account: one Worker and one D1 database, with [Restate Cloud](https://cloud.restate.dev)
+running the raffle engine and [Clerk](https://clerk.com) signing organizers in. Nothing here is built: `deploy.sh`
+fetches a release of Rafi and deploys it with your configuration.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sagikazarmark/rafi/tree/main/deploy/cloudflare)
+```
+wrangler.toml       the Worker's shape, with your database ID and domain
+legal/              your terms and privacy notice
+.dev.vars.example   your secrets: what each is, and how to set them
+deploy.sh           fetch the release it names, put legal/ in place, migrate, deploy
+```
 
 ## You'll need
 
@@ -13,40 +18,33 @@ toolchain: this directory fetches a release of Rafi and deploys it with your con
   rendering the participant page don't fit the free plan's CPU time;
 - a Restate Cloud environment: its ingress URL, an API key with ingress access, and its public identity key;
 - a Clerk application: its publishable and secret keys. In Clerk, allow the origin your installation will have;
-- your legal documents (below), reviewed, and the name and email of the operator.
+- your legal documents (below), reviewed, and the name and email of the operator;
+- `wrangler` ([install](https://developers.cloudflare.com/workers/wrangler/install-and-update/)), `curl`, `tar`.
 
 ## Deploy
 
-**With the button.** Cloudflare copies this directory into a repository of yours, creates the database and the
-Durable Object, asks for the values in [`.dev.vars.example`](.dev.vars.example) (what each is: `package.json`,
-under `cloudflare.bindings`), then builds and deploys, and again on every push. The build command is
-`npm run build`: it fetches the release `package.json` names (`rafi.version`) and checks it against the release's
-checksums. The deploy command must be `npm run deploy` (the database migrations, then the deploy): the setup page
-takes it from `package.json`; check it there, and under **Settings > Build** afterwards.
-
-The first deploy serves the template documents, which the Worker refuses to run with: replace them (next
-section), push, and Cloudflare deploys again. Then give the Worker your domain: `routes` in
-[`wrangler.toml`](wrangler.toml) (or **Settings > Domains & Routes**). It must be the origin `RAFI_PUBLIC_URL`
-names and Clerk allows.
-
-**By hand.** Copy this directory, and in it:
+Copy this directory into a repository of yours (private is fine), then:
 
 ```sh
-npm ci                                          # wrangler
-npx wrangler d1 create rafi --jurisdiction eu   # note the database_id; paste it into wrangler.toml
-npm run build                                   # fetches the release into rafi/, puts legal/ in place
-npx wrangler deploy                             # creates the Worker; stops at the missing secrets
-cp .dev.vars.example .dev.vars                  # fill it in (it is ignored by git)
-npx wrangler secret bulk .dev.vars
-npm run deploy                                  # the D1 migrations, then the deploy
+wrangler d1 create rafi --jurisdiction eu   # paste the database_id it prints into wrangler.toml
+./deploy.sh fetch                           # the release -> rafi/, checked against its checksums
+wrangler deploy                             # creates the Worker; stops at the missing secrets
+cp .dev.vars.example .dev.vars              # fill it in (.dev.vars is ignored by git)
+wrangler secret bulk .dev.vars
+./deploy.sh deploy                          # legal/ into place, the D1 migrations, the deploy
 ```
 
-`npm run deploy` is every later deploy too: it applies the database migrations first.
+Then give the Worker your domain: `routes` in [`wrangler.toml`](wrangler.toml), or **Settings > Domains &
+Routes**. It must be the origin `RAFI_PUBLIC_URL` names and Clerk allows. Every later deploy is `./deploy.sh`.
 
-**EU data residency.** The button creates the database without a jurisdiction. If personal data must stay in
-the EU, create it yourself with `--jurisdiction eu` (as above), put its ID in `wrangler.toml`, push (or
-`npm run deploy`); then delete the one the button made. The live channels' Durable Objects are in the EU
-either way (`RAFI_DO_JURISDICTION` in `wrangler.toml`).
+**The quick way.** The button copies this directory into a repository of yours, creates the database and the
+Durable Object, asks for the secrets, and deploys from that repository on every push
+([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)); `package.json` is there so it picks
+`./deploy.sh fetch` as the build command and `./deploy.sh deploy` as the deploy command (check them on the setup
+page). Its database has no jurisdiction: if personal data must stay in the EU, create one with `--jurisdiction eu`
+as above, put its ID in `wrangler.toml`, push, and delete the button's.
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sagikazarmark/rafi/tree/main/deploy/cloudflare)
 
 ## Your legal documents
 
@@ -59,31 +57,14 @@ still carries it makes the Worker refuse every request. Their versions are the `
 
 ## Upgrading
 
-Change `rafi.version` in [`package.json`](package.json) to the new release and deploy (push, or
-`npm run build && npm run deploy`). The release notes say when `wrangler.toml` or `.dev.vars.example` changed
-shape; compare yours with
+Change `RAFI_VERSION` at the top of [`deploy.sh`](deploy.sh) and deploy. The release notes say when
+`wrangler.toml` or `.dev.vars.example` changed shape; compare yours with
 [the template's](https://github.com/sagikazarmark/rafi/tree/main/deploy/cloudflare) then.
 
 ## From source
 
-Build the Rafi repository's artifact and point this directory at it, instead of fetching a release:
+In the Rafi repository, `./scripts/cloudflare-artifact.sh /path/to/your/copy/rafi` builds what a release holds,
+into this directory's `rafi/`; then `./deploy.sh deploy` here.
 
-```sh
-./scripts/cloudflare-artifact.sh /path/to/your/copy/rafi     # in the Rafi repository
-node build.mjs --local                                        # in your copy: the documents into place
-npm run deploy
-```
-
-## What's in here
-
-| File | |
-|---|---|
-| `wrangler.toml` | The Worker's shape, pointed at `rafi/`; your database ID and domain |
-| `package.json` | The release this installation deploys (`rafi.version`); the `build` and `deploy` scripts; what each secret is |
-| `build.mjs` | Fetches and verifies the release into `rafi/`; copies `legal/` among its static files |
-| `.dev.vars.example` | The secrets, which Deploy to Cloudflare asks for |
-| `legal/` | Your terms and privacy notice |
-| `rafi/` | Not tracked: the release, as fetched |
-
-The full operations guide, including what to check after the first deploy and how to run it locally:
+The full operations guide, with what to check after the first deploy:
 [docs/operations/cloudflare.md](https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md).
