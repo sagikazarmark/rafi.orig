@@ -833,7 +833,6 @@ the `room` feature; `cargo build` and `cargo clippy` are warning-free natively a
 | CLN-21 | CSV export has no UTF-8 BOM (Excel on Windows mangles accented names); the formula guard rewrites a name starting with `-` | `crates/app/src/reads.rs:151-181` | prepend `\u{FEFF}`; document the format in `routes.md` |
 | CLN-22 | `rafi_store::legal::list` has no production caller | `crates/store/src/legal.rs:64` | goes with SCH-3 |
 | CLN-23 | Local artefacts: `testbeds/cloudflare/site/attendee/` (ignored, untracked); stale Dependabot PR #11 (old `/crates/web` path) | local, GitHub | `rm -rf`; close |
-| CLN-24 | No `CHANGELOG.md` | repo root | add before the first tag (small) |
 
 ## Order of work
 

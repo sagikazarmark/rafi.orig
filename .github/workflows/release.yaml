@@ -3,8 +3,7 @@ name: Release
 # A tag v<version> builds the Cloudflare release (scripts/cloudflare-release.sh):
 # the artifact, its tarball and checksums, and a dry deploy of that tarball
 # through deploy/cloudflare, fetched the way an installation fetches it. The
-# release is published with generated notes; what operators need to know is
-# CHANGELOG.md's, which calls out any change to deploy/cloudflare's shape.
+# release is published with generated notes.
 # deploy/cloudflare pins the version it fetches (RAFI_VERSION in deploy.sh),
 # and the script refuses a release it doesn't pin, so the template on main
 # always names a release that exists. Once published, the tarball's digest as
