@@ -29,6 +29,11 @@ ran a development build before.
   secrets and documents, by a Deploy to Cloudflare button or by hand; `scripts/worker-config.sh` and
   `wrangler.<site>.toml` are gone. The first deploy is in
   [docs/operations/cloudflare.md](docs/operations/cloudflare.md).
+- An installation pins the release it deploys by content: `RAFI_SHA256` in `deploy.sh`, next to `RAFI_VERSION`,
+  the tarball's SHA256 as the release page shows it. Pinned, `deploy.sh fetch` checks the download against it, so
+  the installation's repository says which bytes it deploys and a release asset that changed under its version is
+  refused; empty (as the template ships it), the download is checked against the release's `SHA256SUMS` as before.
+  The release workflow checks the published tarball's digest, as GitHub computed it on upload, against the build's.
 - Fail closed: `RAFI_ENGINE_API_KEY` is required on Workers; `RAFI_DEV_AUTH` needs a build with `--features dev`
   (native too); the native engine listens on `127.0.0.1:9080` and needs `identity_keys` or
   `endpoint.insecure = true`; `RAFI_ALTCHA_KEY` is at least 32 characters.

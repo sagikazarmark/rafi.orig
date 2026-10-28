@@ -107,11 +107,13 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   Worker served with no secret at all answering 500 `misconfigured` to everything, so a deploy can't run open
 - `deploy/cloudflare`, what an installation deploys: its `wrangler.toml` agrees with the Worker's on the paths and
   the required secrets, and the release of the version it pins is rehearsed the way a tag releases it
-  (`scripts/cloudflare-release.sh`): packaged, fetched by a copy of the template with its own `deploy.sh`
-  (the checksum, the version), and deployed (dry)
+  (`scripts/cloudflare-release.sh`): packaged, fetched by a copy of the template with its own `deploy.sh` each
+  way it checks a download (the release's `SHA256SUMS` with the template's empty pin, `RAFI_SHA256` pinned to the
+  tarball's hash, a wrong pin refused), and deployed (dry)
 
 CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from CI: a deploy is the operator's,
 from their copy of `deploy/cloudflare` ([Cloudflare](../operations/cloudflare.md)), and the dry runs above are
 its gate. A tag `v<version>` runs `just cloudflare-release` and publishes the release with the tarball and its
-checksums (`.github/workflows/release.yaml`); `RAFI_VERSION` in `deploy/cloudflare/deploy.sh` must be that version
-first.
+checksums, then checks the tarball's digest as GitHub computed it on upload against the build's
+(`.github/workflows/release.yaml`); `RAFI_VERSION` in `deploy/cloudflare/deploy.sh` must be that version first,
+and `RAFI_SHA256` there stays empty (the template can't know the hash of a release built from it).

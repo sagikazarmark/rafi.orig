@@ -2,20 +2,28 @@
 # Deploys this installation of Rafi to Cloudflare Workers.
 #
 #   ./deploy.sh                      # fetch the release named below, then deploy
-#   ./deploy.sh fetch                # only fetch it: into rafi/, checked against its SHA256SUMS
+#   ./deploy.sh fetch                # only fetch it: into rafi/, checked against RAFI_SHA256 (or its SHA256SUMS)
 #   ./deploy.sh deploy [--dry-run]   # only deploy rafi/: legal/ into place, the D1 migrations,
 #                                    # wrangler deploy (--dry-run: validate, touch nothing)
 #
 # The release is Rafi's build (the Worker, the static files, the D1 migrations),
 # the same for every installation. What is yours is this directory:
 # wrangler.toml, legal/ and the secrets (.dev.vars.example). Upgrading is
-# changing the version below. A build from source (the Rafi repository's
-# `just cloudflare-artifact`, into rafi/) is deployed with `deploy` alone.
+# changing the two lines below: the version, and the tarball's SHA256 as the
+# release page shows it (GitHub computes one for every asset at upload).
+# Set, RAFI_SHA256 is what the download is checked against, so this file
+# says which bytes the installation deploys and an asset that changed under
+# its version is refused. Empty (as the template ships it: the template
+# can't know the hash of a release not yet built), the download is checked
+# against the release's own SHA256SUMS, which catches a corrupt download and
+# nothing else. A build from source (the Rafi repository's `just
+# cloudflare-artifact`, into rafi/) is deployed with `deploy` alone.
 #
 # Needs curl, tar, sha256sum (or shasum) and wrangler (WRANGLER names another
 # command; npx fetches it when none is installed).
 
 RAFI_VERSION=0.1.0
+RAFI_SHA256=
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -31,11 +39,23 @@ fetch() {
   echo "deploy: Rafi $RAFI_VERSION from $RELEASE"
   tmp="$(mktemp -d)"
   curl -fsSL -o "$tmp/$TARBALL" "$RELEASE/$TARBALL"
-  curl -fsSL -o "$tmp/SHA256SUMS" "$RELEASE/SHA256SUMS"
-  # The checksums travel with the release: this catches a corrupt download,
-  # not a hostile host.
-  line="$(grep " $TARBALL\$" "$tmp/SHA256SUMS")" || { echo "deploy: SHA256SUMS has no line for $TARBALL" >&2; exit 1; }
-  (cd "$tmp" && echo "$line" | $SHA256 -c - >/dev/null)
+  # The release page shows the digest as sha256:<hex>; either form pins.
+  pinned="${RAFI_SHA256#sha256:}"
+  if [ -n "$pinned" ]; then
+    # Against the pin above: the bytes this file names, whatever the
+    # release serves today.
+    got="$($SHA256 "$tmp/$TARBALL" | cut -d' ' -f1)"
+    [ "$got" = "$pinned" ] || {
+      echo "deploy: $TARBALL is sha256:$got, RAFI_SHA256 pins $pinned: not the release this file names (upgrading? set RAFI_SHA256 from the release page)" >&2
+      exit 1
+    }
+  else
+    # Against the checksums that travel with the release: this catches a
+    # corrupt download, not a changed release. Pin RAFI_SHA256 for that.
+    curl -fsSL -o "$tmp/SHA256SUMS" "$RELEASE/SHA256SUMS"
+    line="$(grep " $TARBALL\$" "$tmp/SHA256SUMS")" || { echo "deploy: SHA256SUMS has no line for $TARBALL" >&2; exit 1; }
+    (cd "$tmp" && echo "$line" | $SHA256 -c - >/dev/null)
+  fi
   rm -rf rafi
   mkdir rafi
   tar -xzf "$tmp/$TARBALL" -C rafi --strip-components=1

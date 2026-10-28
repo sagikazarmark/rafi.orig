@@ -9,7 +9,7 @@ fetches a release of Rafi and deploys it with your configuration.
 wrangler.toml       the Worker's shape, with your database ID and domain
 legal/              your terms and privacy notice
 .dev.vars.example   your secrets: what each is, and how to set them
-deploy.sh           fetch the release it names, put legal/ in place, migrate, deploy
+deploy.sh           fetch the release it names (and pins), put legal/ in place, migrate, deploy
 ```
 
 ## You'll need
@@ -57,8 +57,13 @@ still carries it makes the Worker refuse every request. Their versions are the `
 
 ## Upgrading
 
-Change `RAFI_VERSION` at the top of [`deploy.sh`](deploy.sh) and deploy. The release notes say when
-`wrangler.toml` or `.dev.vars.example` changed shape; compare yours with
+Change the two lines at the top of [`deploy.sh`](deploy.sh), `RAFI_VERSION` and `RAFI_SHA256`, and deploy. The
+hash is the tarball's SHA256 as the release page shows it next to the asset (GitHub computes one for every upload;
+the release workflow checks it is the one the build produced). Pinned, it is what `deploy.sh fetch` checks the
+download against, so your repository says which bytes you deploy, and a release asset that changed under its
+version is refused; the template ships it empty (it can't know the hash of a release not yet built), and until you
+pin one the download is checked against the release's own `SHA256SUMS`, which catches a corrupt download and
+nothing else. The release notes say when `wrangler.toml` or `.dev.vars.example` changed shape; compare yours with
 [the template's](https://github.com/sagikazarmark/rafi/tree/main/deploy/cloudflare) then.
 
 ## From source

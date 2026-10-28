@@ -36,8 +36,9 @@ The build is a release's tarball (`rafi-cloudflare-<version>.tar.gz`, with `SHA2
 migrations. The installation is [`deploy/cloudflare/`](../../deploy/cloudflare/), a directory of yours:
 
 - `wrangler.toml`, the Worker's shape with your database ID and domain;
-- `deploy.sh`, naming the release you deploy (`RAFI_VERSION`): it fetches it, checked against its checksums, puts
-  `legal/` in place, applies the D1 migrations and deploys;
+- `deploy.sh`, naming the release you deploy (`RAFI_VERSION`, and `RAFI_SHA256`, the tarball's hash as the release
+  page shows it, once you pin one): it fetches it, checked against that hash (or, unpinned, against the release's
+  own checksums), puts `legal/` in place, applies the D1 migrations and deploys;
 - `legal/terms.md` and `legal/privacy.md`, your legal documents, which the Worker reads from its static files;
 - your secrets (`.dev.vars.example` lists them), set on the Worker, never in a file you track.
 
@@ -102,7 +103,7 @@ RAFI_PRIVACY_VERSION=2026-10
 installation's, so it travels with the others. Then:
 
 ```sh
-./deploy.sh fetch                  # the release into rafi/, checked against SHA256SUMS
+./deploy.sh fetch                  # the release into rafi/, checked against RAFI_SHA256 (unpinned: its SHA256SUMS)
 wrangler deploy                    # the first time: creates the Worker and stops at the missing secrets
 wrangler secret bulk .dev.vars
 ./deploy.sh deploy                 # legal/ into place, the D1 migrations, then the deploy
@@ -112,6 +113,13 @@ The very first `deploy` creates the Worker and stops at the missing secrets (the
 `secret bulk` then sets them, and the deploy is run again. From then on, a deploy that is missing one refuses, and
 `./deploy.sh` is every deploy: the release, the migrations, the Worker. Never rotate `RAFI_ALTCHA_KEY` during an
 event.
+
+Pin the release while you are at it: `RAFI_SHA256` in `deploy.sh`, the tarball's SHA256 as the release page shows
+it next to the asset (GitHub computes one for every upload, and the release workflow checks it is the build's).
+Pinned, `fetch` checks the download against your copy's hash, not against checksums served next to the tarball,
+so your repository says which bytes you deploy and an asset that changed under its version is refused. The
+template ships the pin empty, because it can't know the hash of a release that hasn't been built yet; an upgrade
+is then the two lines, version and hash ([Upgrades](upgrades.md#database-migrations)).
 
 The Worker refuses every request without its documents, `RAFI_ALTCHA_KEY`, `RAFI_ENGINE_INGRESS_URL`,
 `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, the operator and the document

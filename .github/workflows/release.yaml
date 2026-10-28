@@ -7,7 +7,10 @@ name: Release
 # CHANGELOG.md's, which calls out any change to deploy/cloudflare's shape.
 # deploy/cloudflare pins the version it fetches (RAFI_VERSION in deploy.sh),
 # and the script refuses a release it doesn't pin, so the template on main
-# always names a release that exists.
+# always names a release that exists. Once published, the tarball's digest as
+# GitHub computed it on upload must be the one the build computed: that is
+# what an installation pins as RAFI_SHA256, and an upload gone wrong would
+# otherwise be found by the first installation to upgrade.
 on:
   push:
     tags: ["v*"]
@@ -49,3 +52,18 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
             --title "$GITHUB_REF_NAME" \
             target/cloudflare/rafi-cloudflare-*.tar.gz target/cloudflare/SHA256SUMS
+
+      - name: Check the published tarball against the build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tarball="rafi-cloudflare-${GITHUB_REF_NAME#v}.tar.gz"
+          built="$(grep " $tarball\$" target/cloudflare/SHA256SUMS | cut -d' ' -f1)"
+          published="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+            --jq ".assets[] | select(.name == \"$tarball\") | .digest")"
+          if [ "$published" != "sha256:$built" ]; then
+            echo "GitHub says $tarball is '$published'; the build says sha256:$built" >&2
+            exit 1
+          fi
+          echo "RAFI_VERSION=${GITHUB_REF_NAME#v}"
+          echo "RAFI_SHA256=$built"
