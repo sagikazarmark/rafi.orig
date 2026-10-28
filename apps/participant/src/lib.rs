@@ -15,6 +15,13 @@
 //! doesn't report ready (`window.__rafiReady`) in time, or panics: the panic
 //! hook calls `window.rafiFallback()`. Nothing here unwraps page or network
 //! data.
+//!
+//! `./scripts/participant.sh` builds it with dx (`Dioxus.toml`) into
+//! `dist/public/`: the module and its glue under `assets/`, named by their
+//! hash, so phones keep them for good; `fallback.js` from `public/`, as it
+//! is; and `index.html`, the page's loader (the file here, with the glue's
+//! hashed name filled in), which rafi-server compiles in: a server is built
+//! against one participant build, and links that one.
 
 #![cfg(target_arch = "wasm32")]
 
@@ -42,7 +49,8 @@ pub(crate) fn fallback() {
     window_call("rafiFallback");
 }
 
-#[wasm_bindgen(start)]
+/// Starts the module: `main`, which dx's glue calls once the module is
+/// instantiated.
 pub fn start() {
     // A fixed message: formatting the panic info costs kilobytes on the phone.
     std::panic::set_hook(Box::new(|_| {

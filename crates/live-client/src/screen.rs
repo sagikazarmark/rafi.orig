@@ -1,5 +1,5 @@
 //! Which card a phone shows: a port of `render` in
-//! `apps/participant/fallback.js`, as a pure function.
+//! `apps/participant/public/fallback.js`, as a pure function.
 
 use crate::view::{LastDraw, ParticipantView, Phase};
 

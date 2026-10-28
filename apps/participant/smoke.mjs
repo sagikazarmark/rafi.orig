@@ -2,7 +2,7 @@
 // protocol (trusted clicks, console capture) against testbeds/cloudflare,
 // which serves a stand-in participant page and the live channel.
 //
-//   ./scripts/participant.sh testbeds/cloudflare/site/participant
+//   ./scripts/participant.sh   # then its dist/public/{assets,fallback.js} into testbeds/cloudflare/site/participant
 //   (cd testbeds/cloudflare && wrangler dev --port 8790) &
 //   CHROMIUM=$(which chromium) node apps/participant/smoke.mjs "$(mktemp -d)"
 

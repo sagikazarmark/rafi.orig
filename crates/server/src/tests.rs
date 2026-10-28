@@ -294,6 +294,16 @@ async fn full_raffle_flow() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("name=\"email\""));
+    // The page ends with the loader of the participant build this server
+    // was compiled against, which links the build's hashed glue and its
+    // fallback under /participant/, where build_router serves them.
+    assert!(page.contains(super::pages::LOADER), "{page}");
+    assert!(
+        super::pages::LOADER.contains("import(\"/participant/assets/rafi-participant-dxh")
+            && super::pages::LOADER.contains("\"/participant/fallback.js\""),
+        "{}",
+        super::pages::LOADER
+    );
     // Typed as the projector shows it, in groups and in any case: the
     // canonical code is redirected to.
     let grouped = format!("{}-{}", &code[..3], code[3..].to_lowercase());
@@ -1009,54 +1019,77 @@ async fn admin_requires_clerk_session() {
         "<!doctype html><html><head></head><body><div id=\"main\"></div></body></html>",
     )
     .unwrap();
-    // And for the participant scripts.
+    // And for the participant build: a hashed asset and the fallback, as
+    // participant.sh leaves them, a precompressed variant next to the asset,
+    // and the loader this server compiled in.
     let participant = public.join("participant-dist");
-    std::fs::create_dir_all(&participant).unwrap();
+    std::fs::create_dir_all(participant.join("assets")).unwrap();
+    let glue = "assets/rafi-participant-dxh0123456789abcdef.js";
+    std::fs::write(participant.join(glue), "// glue").unwrap();
+    std::fs::write(participant.join(format!("{glue}.gz")), "gzipped bytes").unwrap();
     std::fs::write(participant.join("fallback.js"), "// fallback").unwrap();
-    // A precompressed variant, as participant.sh leaves next to each file.
-    std::fs::write(participant.join("fallback.js.gz"), "gzipped bytes").unwrap();
+    std::fs::write(participant.join("index.html"), super::pages::LOADER).unwrap();
+    let dirs = super::Dirs {
+        public: public.clone(),
+        participant,
+    };
+    // The directory holds the build this server was compiled against;
+    // another build's loader (other names) is refused.
+    dirs.check_participant().unwrap();
+    std::fs::write(
+        dirs.participant.join("index.html"),
+        "<script>other</script>",
+    )
+    .unwrap();
+    let err = dirs.check_participant().unwrap_err().to_string();
+    assert!(err.contains("not the participant build"), "{err}");
     // Clerk's layer as both hosts build it: the public origin is the one
     // authorized party.
     let router = super::build_router(
         app.clone(),
         Some(super::auth::clerk_layer(&app.cfg, clerk.config().unwrap()).unwrap()),
-        &super::Dirs {
-            public: public.clone(),
-            participant,
-        },
+        &dirs,
     );
-    let (status, headers, body) = send(
-        &router,
-        Request::get("/participant/fallback.js")
-            .body(Body::empty())
-            .unwrap(),
-    )
-    .await;
-    assert_eq!((status, body.as_str()), (StatusCode::OK, "// fallback"));
-    // Fixed names, so phones revalidate: no-cache with an ETag, and a 304
-    // when nothing changed.
-    assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+    let get = |path: &str| Request::get(path).body(Body::empty()).unwrap();
+    let asset = format!("/participant/{glue}");
+    let (status, headers, body) = send(&router, get(&asset)).await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "// glue"));
+    // Named by its hash, so a phone keeps it for good; still with an ETag,
+    // and a 304 for a phone that revalidates anyway.
+    assert_eq!(
+        headers[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
+    );
     let etag = headers[header::ETAG].clone();
-    let (status, _, body) = send(
-        &router,
-        Request::get("/participant/fallback.js")
-            .header(header::IF_NONE_MATCH, &etag)
-            .body(Body::empty())
-            .unwrap(),
-    )
-    .await;
+    let mut req = get(&asset);
+    req.headers_mut().insert(header::IF_NONE_MATCH, etag);
+    let (status, headers, body) = send(&router, req).await;
     assert_eq!((status, body.as_str()), (StatusCode::NOT_MODIFIED, ""));
-    let (status, headers, body) = send(
-        &router,
-        Request::get("/participant/fallback.js")
-            .header(header::ACCEPT_ENCODING, "gzip, br")
-            .body(Body::empty())
-            .unwrap(),
-    )
-    .await;
+    assert_eq!(
+        headers[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
+    );
+    let mut req = get(&asset);
+    req.headers_mut()
+        .insert(header::ACCEPT_ENCODING, "gzip, br".parse().unwrap());
+    let (status, headers, body) = send(&router, req).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[header::CONTENT_ENCODING], "gzip");
     assert_eq!(body, "gzipped bytes", "the precompressed file is served");
+    // Another build's name (a page rendered before a deploy) is a plain 404:
+    // nothing a browser would keep.
+    let (status, headers, _) = send(
+        &router,
+        get("/participant/assets/rafi-participant-dxhfedcba9876543210.js"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(headers.get(header::CACHE_CONTROL).is_none(), "{headers:?}");
+    // The fallback keeps its name, so phones revalidate it.
+    let (status, headers, body) = send(&router, get("/participant/fallback.js")).await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "// fallback"));
+    assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+    assert!(headers.contains_key(header::ETAG));
 
     let (status, _, body) = send(&router, admin_call("whoami", "{}")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");

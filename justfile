@@ -17,11 +17,15 @@ fmt:
 css:
     tailwindcss -i tailwind.css -o assets/tailwind.css --minify
 
+# Build the participant page (scripts/participant.sh); rafi-server compiles its loader in.
+participant:
+    ./scripts/participant.sh
+
 # Run clippy, natively and on wasm32.
 clippy: clippy-native clippy-wasm
 
 # Run clippy natively, with and without the development features.
-clippy-native:
+clippy-native: participant
     cargo clippy --workspace --exclude rafi-server --exclude rafi --exclude rafi-web --all-targets --locked -- --deny warnings
     cargo clippy -p rafi-server --all-targets --locked -- --deny warnings
     cargo clippy -p rafi-server --features mock-drand --all-targets --locked -- --deny warnings
@@ -30,7 +34,7 @@ clippy-native:
     cargo clippy -p rafi-restate --features mock-drand --all-targets --locked -- --deny warnings
 
 # Run clippy on wasm32: the web app, the Workers crates and the Worker.
-clippy-wasm: css
+clippy-wasm: css participant
     cargo clippy --target {{ wasm }} -p rafi-web --locked -- --deny warnings
     cargo clippy --target {{ wasm }} \
         -p rafi-lifecycle -p rafi-raffle -p rafi-api -p rafi-app \
@@ -41,7 +45,7 @@ clippy-wasm: css
     cargo clippy --target {{ wasm }} -p rafi-worker --features dev --locked -- --deny warnings
 
 # Run tests: the libraries and the engine (end to end against restate-server), then the app.
-test:
+test: participant
     cargo test --workspace --exclude rafi-server --exclude rafi-web --locked -- --include-ignored
     cargo test -p rafi-server --locked -- --include-ignored
 
@@ -51,7 +55,7 @@ verify:
 
 # Run rustdoc: natively with every feature, and the wasm32-only crates (empty elsewhere) on wasm32.
 [env("RUSTDOCFLAGS", "--deny warnings")]
-doc:
+doc: participant
     cargo doc --workspace --exclude rafi-web --exclude rafi-cloudflare --exclude rafi-participant --exclude rafi-worker --all-features --no-deps --locked
     cargo doc --target {{ wasm }} -p rafi-cloudflare -p rafi-participant -p rafi-worker --no-deps --locked
 

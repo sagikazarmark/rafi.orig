@@ -34,16 +34,19 @@ fi
 # dx bundle leaves earlier bundles (other hashes) in its output: start empty.
 rm -rf "${PUBLIC:?}"
 (cd "$ROOT/apps/web" && npm ci --no-fund --no-audit && dx bundle --platform web --release)
-"$ROOT/scripts/participant.sh" "$OUT.participant.tmp"
+"$ROOT/scripts/participant.sh"
 
 rm -rf "${OUT:?}"
-mkdir -p "$OUT/legal"
+mkdir -p "$OUT/legal" "$OUT/participant"
 cp -R "$PUBLIC/." "$OUT/"
-mv "$OUT.participant.tmp" "$OUT/participant"
+# The participant's hashed assets and its fallback; not its index.html, the
+# page's loader, which the Worker has compiled in.
+cp -R "$ROOT/apps/participant/dist/public/assets" "$OUT/participant/assets"
+cp "$ROOT/apps/participant/dist/public/fallback.js" "$OUT/participant/"
 cp "$DOCS/terms.md" "$DOCS/privacy.md" "$OUT/legal/"
 # Cloudflare compresses at the edge; the precompressed variants are for the
 # native server and would only be served as files here.
-rm -f "$OUT"/participant/*.gz "$OUT"/participant/*.br
+find "$OUT/participant" -type f \( -name '*.gz' -o -name '*.br' \) -delete
 
 # Workers Assets' headers (https://developers.cloudflare.com/workers/static-assets/headers/),
 # the same ones rafi-server puts on what it answers itself (security_headers
@@ -52,9 +55,10 @@ rm -f "$OUT"/participant/*.gz "$OUT"/participant/*.br
 # app's shell may be framed only as the projector (/s/) and the verification
 # page (/v/): later rules add to earlier ones, and the first two rules below
 # deny framing everywhere, so the two frameable paths can't be matched by
-# them; they are listed as the exception instead. The participant scripts
-# keep fixed names, so phones must revalidate them: Assets does that by
-# default (max-age=0, must-revalidate, with an ETag); this says so.
+# them; they are listed as the exception instead. The participant's assets
+# are named by their hash (scripts/participant.sh), so phones keep them for
+# good; its fallback keeps a fixed name, so phones revalidate it, which Assets
+# does by default (max-age=0, must-revalidate, with an ETag): this says so.
 cat >"$OUT/_headers" <<'HEADERS'
 /*
   X-Content-Type-Options: nosniff
@@ -70,7 +74,10 @@ cat >"$OUT/_headers" <<'HEADERS'
   ! Content-Security-Policy
   ! X-Frame-Options
 
-/participant/*
+/participant/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/participant/fallback.js
   Cache-Control: no-cache
 HEADERS
 echo "assets: $(du -sh "$OUT" | cut -f1) in $OUT"

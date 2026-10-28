@@ -1,0 +1,4 @@
+<script>window.rafiFallback=function(){if(window.__rafiFallback)return;window.__rafiFallback=1;var s=document.createElement("script");s.src="/{base_path}/fallback.js";document.body.appendChild(s)};
+setTimeout(function(){if(!window.__rafiReady)window.rafiFallback()},8000);
+window.addEventListener("unhandledrejection",function(e){if(!window.__rafiReady){console.error(e.reason);window.rafiFallback()}});
+if(typeof WebAssembly!=="object"){window.rafiFallback()}else{import("/{base_path}/{js_path}").catch(function(e){console.error(e);window.rafiFallback()})}</script>

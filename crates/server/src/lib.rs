@@ -188,52 +188,109 @@ pub fn spawn_background(app: &AppState) {
 pub struct Dirs {
     /// The web app (admin, projector, verification page): `dx bundle`'s output.
     pub public: PathBuf,
-    /// The participant page's WebAssembly and fallback: `./scripts/participant.sh`'s
-    /// output, served at `/participant/` (with `.br` and `.gz` next to each
-    /// file when the script could make them). The proof-of-work solver
-    /// there, `altcha-worker.js`, is a route in [`routes`].
+    /// The participant build: `./scripts/participant.sh`'s output,
+    /// `apps/participant/dist/public`. Served at `/participant/`: `assets/`
+    /// (the module and its glue, named by their hash) and `fallback.js`, with
+    /// `.br` and `.gz` next to each where the script could make them. Its
+    /// `index.html`, the page's loader, isn't served: this server has it
+    /// compiled in ([`check_participant`](Self::check_participant)). The
+    /// proof-of-work solver there, `altcha-worker.js`, is a route in [`routes`].
     pub participant: PathBuf,
 }
 
-/// The complete HTTP router: [`routes`], the participant scripts at
+#[cfg(not(target_arch = "wasm32"))]
+impl Dirs {
+    /// Checks that [`participant`](Self::participant) holds the build this
+    /// server was compiled against: its `index.html` is the loader the page
+    /// carries. Another build's files have other names, which the page
+    /// wouldn't link; a server doesn't start on one.
+    pub fn check_participant(&self) -> anyhow::Result<()> {
+        use anyhow::Context as _;
+        let path = self.participant.join("index.html");
+        let loader = std::fs::read_to_string(&path).with_context(|| {
+            format!(
+                "reading {}: RAFI_PARTICIPANT_DIR is the participant build's dist/public (./scripts/participant.sh)",
+                path.display()
+            )
+        })?;
+        anyhow::ensure!(
+            loader == pages::LOADER,
+            "{} is not the participant build this server was built with: run ./scripts/participant.sh and build the server again, or point RAFI_PARTICIPANT_DIR at that build",
+            path.display()
+        );
+        Ok(())
+    }
+}
+
+/// `Cache-Control` for the participant's hashed assets: kept for good.
+#[cfg(not(target_arch = "wasm32"))]
+const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+
+/// The complete HTTP router: [`routes`], the participant build's files at
 /// `/participant/`, then the web app from [`Dirs::public`] with a single-page
 /// fallback to its `index.html`, all behind the Clerk auth layer unless dev
 /// auth is on. On Workers, Workers Assets serves the files instead.
 ///
-/// The participant scripts keep fixed names, so a phone must revalidate
-/// them: `Cache-Control: no-cache` with the `ETag` `ServeDir` derives from the
-/// file, which is what Workers Assets does by default, and what a deploy
-/// needs so no phone keeps an old module. They are served precompressed
-/// where `participant.sh` left a `.br` or `.gz`: the module crosses venue
-/// wifi, where the uncompressed size would be felt.
+/// The participant's assets are named by their hash, so a phone keeps them
+/// for good (`Cache-Control: immutable`; a deploy links new names). Its
+/// fallback keeps a fixed name, so a phone must revalidate it (`no-cache`,
+/// with the `ETag` `ServeDir` derives from the file). Either header goes on
+/// a file that was found, never on a 404, which a browser could otherwise
+/// keep. The files are served precompressed where `participant.sh` left a
+/// `.br` or `.gz`: the module crosses venue wifi, where the uncompressed
+/// size would be felt.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn build_router(
     app: AppState,
     auth: Option<dioxus_clerk::server::ClerkAuthLayer>,
     dirs: &Dirs,
 ) -> Router {
+    use axum::{
+        http::{HeaderValue, StatusCode, header::CACHE_CONTROL},
+        response::Response,
+    };
     use tower_http::{
         services::{ServeDir, ServeFile},
         set_header::SetResponseHeaderLayer,
     };
+
+    /// `value` as the `Cache-Control` of a response that found its file.
+    fn cache_control(value: &'static str) -> impl Fn(&Response) -> Option<HeaderValue> + Clone {
+        move |resp| {
+            (resp.status().is_success() || resp.status() == StatusCode::NOT_MODIFIED)
+                .then(|| HeaderValue::from_static(value))
+        }
+    }
 
     let web_app = Router::new()
         .fallback_service(
             ServeDir::new(&dirs.public).fallback(ServeFile::new(dirs.public.join("index.html"))),
         )
         .layer(axum::middleware::from_fn(security_headers));
-    let participant = Router::new()
+    let assets = Router::new()
         .fallback_service(
-            ServeDir::new(&dirs.participant)
+            ServeDir::new(dirs.participant.join("assets"))
                 .precompressed_br()
                 .precompressed_gzip(),
         )
         .layer(SetResponseHeaderLayer::if_not_present(
-            axum::http::header::CACHE_CONTROL,
-            axum::http::HeaderValue::from_static("no-cache"),
+            CACHE_CONTROL,
+            cache_control(IMMUTABLE),
+        ));
+    let fallback = Router::new()
+        .route_service(
+            "/participant/fallback.js",
+            ServeFile::new(dirs.participant.join("fallback.js"))
+                .precompressed_br()
+                .precompressed_gzip(),
+        )
+        .layer(SetResponseHeaderLayer::if_not_present(
+            CACHE_CONTROL,
+            cache_control("no-cache"),
         ));
     let router = routes(app)
-        .nest("/participant", participant)
+        .nest("/participant/assets", assets)
+        .merge(fallback)
         .fallback_service(web_app);
     match auth {
         Some(layer) => router.layer(layer),

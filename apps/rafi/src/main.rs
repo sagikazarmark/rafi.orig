@@ -67,22 +67,15 @@ async fn main() -> anyhow::Result<()> {
             "no web app in RAFI_PUBLIC_DIR: only the participant pages and APIs are served"
         );
     }
-    // The participant page's WebAssembly and fallback: `./scripts/participant.sh` writes them here.
-    let participant_dir = dir("RAFI_PARTICIPANT_DIR", "apps/participant/dist");
-    if !participant_dir.join("fallback.js").is_file() {
-        tracing::warn!(
-            dir = %participant_dir.display(),
-            "no participant scripts in RAFI_PARTICIPANT_DIR (./scripts/participant.sh): phones can't join or follow the draw"
-        );
-    }
-    let router = server::build_router(
-        app,
-        auth,
-        &server::Dirs {
-            public: public_dir,
-            participant: participant_dir,
-        },
-    );
+    // The participant build (`./scripts/participant.sh`): the one this binary
+    // was compiled against, or it doesn't start.
+    let dirs = server::Dirs {
+        public: public_dir,
+        participant: dir("RAFI_PARTICIPANT_DIR", "apps/participant/dist/public"),
+    };
+    dirs.check_participant()
+        .context("the participant build in RAFI_PARTICIPANT_DIR")?;
+    let router = server::build_router(app, auth, &dirs);
 
     // `IP` and `PORT`, as the Dioxus CLI sets them.
     let ip = std::env::var("IP").unwrap_or_else(|_| "127.0.0.1".into());

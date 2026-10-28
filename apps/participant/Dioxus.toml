@@ -1,0 +1,26 @@
+# The participant page's WebAssembly, built by `./scripts/participant.sh`
+# (`dx bundle`). What is served and where is decided here; the page's loader,
+# index.html, gets the names filled in.
+
+[application]
+name = "rafi-participant"
+default_platform = "web"
+# Served as it is, next to the hashed assets: the JavaScript fallback.
+public_dir = "public"
+
+# Everything is served under /participant/ (rafi-server natively, Workers
+# Assets on Cloudflare): the glue fetches the module from there, and
+# index.html links the glue there.
+[web.app]
+base_path = "participant"
+
+# Brotli next to the hashed assets; the script adds gzip (tower-http serves
+# whichever the browser accepts; Cloudflare compresses at the edge).
+[web]
+pre_compress = true
+
+# As the hand build did: -Oz, and only the features rustc emits by default
+# (dx would enable threads, which older Safari can't compile).
+[web.wasm_opt]
+level = "z"
+extra_features = ["--disable-threads"]

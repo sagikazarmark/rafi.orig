@@ -7,9 +7,6 @@ rust-version.workspace = true
 description = "The participant phone page's WebAssembly: the live card, its partyline subscription, the proof-of-work and the browser extras"
 publish = false
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "hooks", "launch", "web"] }
 dioxus-altcha = { workspace = true }

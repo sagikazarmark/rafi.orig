@@ -10,7 +10,7 @@ use crate::{
     view::{ParticipantView, Phase},
 };
 
-/// The card's classes (daisyUI), as in `apps/participant/fallback.js`.
+/// The card's classes (daisyUI), as in `apps/participant/public/fallback.js`.
 pub const CARD: &str = "card bg-base-100 shadow-sm ring-1 ring-base-300 min-h-28 items-center justify-center gap-1 p-6 text-center";
 
 /// The winning card's classes. `fallback.js` also adds `animate-pop`; here

@@ -43,7 +43,7 @@ This runs everything natively, with dev auth (no Clerk) and live reload:
 | `engine` | The raffle engine (`rafi-restate`) on `:9080`, registered with Restate once it's up |
 | `rafi` | The server on `:8788`, behind `dx serve` (`apps/web/Dioxus.toml` proxies to it) |
 | `dioxus` | `dx serve`: the web app on `:8787`, with hot reload |
-| `participant` | Builds the participant page (`./scripts/participant.sh`), and again when it changes |
+| `participant` | Builds the participant page (`./scripts/participant.sh`), and again when it changes; `rafi` starts after it, and restarts on a new build (it compiles the build's loader in) |
 
 Then open <http://localhost:8787/admin>. Draws use real drand, so they need internet.
 
@@ -97,12 +97,14 @@ A fresh checkout needs two generated things before everything compiles and runs:
 # the web app's stylesheet (dx builds it too; plain cargo build/clippy of rafi-web needs it to exist; `just css`)
 (cd apps/web && tailwindcss -i tailwind.css -o assets/tailwind.css)
 
-# the participant page's WebAssembly and fallback -> apps/participant/dist
+# the participant page's WebAssembly and fallback -> apps/participant/dist/public
 ./scripts/participant.sh
 ```
 
-Rebuild the participant page whenever `apps/participant` or `crates/live-client` change. Without it, the
-participant page still renders, but phones can't join or follow the draw.
+The server compiles the participant build's loader in (`dist/public/index.html`, with the hashed names of that
+build), so `rafi-server`, `rafi` and the Worker don't build without it: run it first, and again whenever
+`apps/participant` or `crates/live-client` change, then build the server again (`cargo run` does, and
+`devenv up` restarts it). The `just` recipes that build the server run it first.
 
 ### The admin and the pages, without draws
 
@@ -156,7 +158,7 @@ RAFI_RESTATE_DRAND__MOCK=true … cargo run -p rafi-restate --features mock-dran
 across restarts:
 
 ```sh
-./scripts/app-assets.sh                                   # web app bundle + participant scripts + template legal documents -> apps/worker/worker-assets
+./scripts/app-assets.sh                                   # web app bundle + participant build + template legal documents -> apps/worker/worker-assets
 (cd apps/worker && wrangler d1 migrations apply rafi --local --env dev --persist-to ../../.wrangler-state)
 (cd apps/worker && wrangler dev --env dev --persist-to ../../.wrangler-state)   # http://127.0.0.1:8787, dev auth, mock drand
 # Restate with its ingress on :18080 (the dev Worker's RAFI_ENGINE_INGRESS_URL), then register the engine, which is
@@ -177,13 +179,14 @@ Once the web app is bundled, `rafi` serves everything itself:
 
 ```sh
 (cd apps/web && dx bundle --platform web --release)   # -> target/dx/rafi-web/release/web/public
-./scripts/participant.sh                                 # -> apps/participant/dist
+./scripts/participant.sh                                 # -> apps/participant/dist/public
 RAFI_DEV_AUTH=1 cargo run --release -p rafi --features dev   # http://localhost:8080
 ```
 
-It listens on `IP`:`PORT` (default `127.0.0.1:8080`). It serves the participant scripts at `/participant/` from
-`RAFI_PARTICIPANT_DIR` and the web app from `RAFI_PUBLIC_DIR`, both relative to the working directory, falling
-back to the web app's `index.html` for its own routes.
+It listens on `IP`:`PORT` (default `127.0.0.1:8080`). It serves the participant build at `/participant/` from
+`RAFI_PARTICIPANT_DIR` (which must be the build it was compiled against, or it doesn't start) and the web app from
+`RAFI_PUBLIC_DIR`, both relative to the working directory, falling back to the web app's `index.html` for its own
+routes.
 
 ## Testing with phones
 

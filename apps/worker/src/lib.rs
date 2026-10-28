@@ -10,7 +10,7 @@
 //!     [`RaffleRoom`];
 //!   - everything else: the same axum routes as the native server
 //!     ([`rafi_server::routes`]) behind Clerk. Workers Assets serves the web app
-//!     and the participant scripts before the Worker is called
+//!     and the participant build's files before the Worker is called
 //!     (`run_worker_first` in `wrangler.toml` lists the Worker's paths).
 //! - `scheduled`: the Cron Trigger runs housekeeping (`rafi_app::housekeeping::run`).
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.

@@ -96,6 +96,11 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
     save(db, &state).await
 }
 
+/// The page's loader, from the participant build, as rafi-server compiles it
+/// in (`scripts/workers-check.sh` runs `participant.sh` first, and puts the
+/// build's assets and fallback under `site/participant/`).
+const LOADER: &str = include_str!("../../../apps/participant/dist/public/index.html");
+
 /// A stand-in for the participant page: the server-rendered card, the embedded
 /// config, the inline loader with its fallback, and the WASM. `me` picks the
 /// entrant (`anna`, `bence`, or none for a visitor); `nowasm=1` removes
@@ -169,11 +174,7 @@ async fn page(
 <button id="wake" type="button">Keep the screen on</button>
 <script type="application/json" id="rafi-config">{config}</script>
 {nowasm}
-<script>
-window.rafiFallback=function(){{if(window.__rafiFallback)return;window.__rafiFallback=1;var s=document.createElement("script");s.src="/participant/fallback.js";document.body.appendChild(s)}};
-setTimeout(function(){{if(!window.__rafiReady)window.rafiFallback()}},8000);
-if(typeof WebAssembly!=="object"){{window.rafiFallback()}}else{{import("/participant/rafi_participant.js").then(function(m){{return m.default()}}).catch(function(e){{console.error(e);window.rafiFallback()}})}}
-</script></body></html>"#
+{LOADER}</body></html>"#
     );
     Response::from_html(html)
 }

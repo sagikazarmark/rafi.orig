@@ -9,4 +9,7 @@ mod style;
 mod text;
 
 pub use participant::{Entrant, Notice, Page, Raffle, not_found, page};
+// Natively, `Dirs::check_participant` compares the directory served with it.
+#[cfg(not(target_arch = "wasm32"))]
+pub use participant::LOADER;
 pub use text::{Operator, Organizer, Privacy, PrizeLine, Rules, legal, privacy, rules};

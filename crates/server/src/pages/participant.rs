@@ -3,8 +3,8 @@
 //! The whole page is rendered here, including the live card
 //! ([`rafi_live_client::Card`], the same component the phone's WebAssembly
 //! mounts), with the page's state embedded as JSON in `#rafi-config` (see
-//! [`PageConfig`]). An inline loader then starts the WebAssembly from
-//! `/participant/` (`./scripts/participant.sh`), or the JavaScript fallback
+//! [`PageConfig`]). The participant build's loader ([`LOADER`]) then starts
+//! the WebAssembly from `/participant/assets/`, or the JavaScript fallback
 //! when it can't run. They keep the card current, solve the join form's
 //! proof-of-work and enable its button.
 
@@ -80,12 +80,19 @@ pub struct Page<'a> {
 /// scheme (shared with the Dioxus app).
 const HEAD_SCRIPT: &str = r#"window.__rafiT0=Date.now();try{var t=localStorage.getItem("rafi-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}"#;
 
-/// Starts the participant WebAssembly, or the JavaScript fallback when there is
-/// no WebAssembly, the module fails to load, or it isn't ready within 8 s
-/// (the module's panic hook also calls `rafiFallback`).
-const LOADER: &str = r#"window.rafiFallback=function(){if(window.__rafiFallback)return;window.__rafiFallback=1;var s=document.createElement("script");s.src="/participant/fallback.js";document.body.appendChild(s)};
-setTimeout(function(){if(!window.__rafiReady)window.rafiFallback()},8000);
-if(typeof WebAssembly!=="object"){window.rafiFallback()}else{import("/participant/rafi_participant.js").then(function(m){return m.default()}).catch(function(e){console.error(e);window.rafiFallback()})}"#;
+/// The page's loader, a `<script>`: imports the participant glue, which
+/// fetches the module by its hashed name and calls `main`; or starts the
+/// JavaScript fallback when there is no WebAssembly, the glue fails to
+/// load, the module fails to load or compile (dx's glue starts that itself,
+/// not chained to the `import()`, so it surfaces as an unhandled rejection:
+/// before the module reported ready, that means it isn't coming), or it
+/// isn't ready within 8 s (the module's panic hook also calls
+/// `rafiFallback`). Its source is `apps/participant/index.html`; this is the
+/// copy `./scripts/participant.sh` left in the build, with the glue's hashed
+/// name filled in. Compiled in, so a server is built against one participant
+/// build and links that one; natively, `Dirs::check_participant` checks the
+/// directory served is that build.
+pub const LOADER: &str = include_str!("../../../../apps/participant/dist/public/index.html");
 
 /// A whole document: `tail` is raw HTML appended to the body (scripts).
 pub(crate) fn document(title: &str, body: String, tail: Option<String>) -> String {
@@ -317,7 +324,7 @@ pub fn page(page: Page<'_>) -> String {
         },
     };
     let tail = format!(
-        "<script type=\"application/json\" id=\"rafi-config\">{}</script><script>{LOADER}</script>",
+        "<script type=\"application/json\" id=\"rafi-config\">{}</script>{LOADER}",
         script_json(&config)
     );
     document(raffle.title, body, Some(tail))

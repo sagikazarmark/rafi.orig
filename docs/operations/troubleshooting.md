@@ -7,8 +7,8 @@
   on HTTPS and `localhost`. On a LAN, use a tunnel or a certificate (see
   [Getting started](../development/getting-started.md#testing-with-phones)).
 - Registration must be **open**: the join code works only then.
-- Natively, check that the participant scripts are where the app expects (`RAFI_PARTICIPANT_DIR`). The app logs a
-  warning at startup if they're missing: "phones can't join or follow the draw".
+- Natively, the participant build is where the app expects (`RAFI_PARTICIPANT_DIR`), and is the build the binary
+  was compiled against: the app doesn't start otherwise, and says so.
 
 **"This email is already entered."** That's working as intended: one entry per email. The entry is safe, but it
 stays on the device it was made on.

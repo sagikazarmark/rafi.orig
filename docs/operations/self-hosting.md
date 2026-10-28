@@ -15,9 +15,9 @@ daisyUI).
 (cd apps/web && npm ci && dx bundle --platform web --release)
 #   -> target/dx/rafi-web/release/web/public
 
-# the participant page's WebAssembly and JavaScript fallback
+# the participant page's WebAssembly and JavaScript fallback; before the binaries, which compile its loader in
 ./scripts/participant.sh
-#   -> apps/participant/dist
+#   -> apps/participant/dist/public
 
 # the two binaries
 cargo build --release --locked -p rafi -p rafi-restate
@@ -120,14 +120,16 @@ IP=127.0.0.1 PORT=8081 \
 ```
 
 - Run it from the repository root, or set `RAFI_PUBLIC_DIR` and `RAFI_PARTICIPANT_DIR` to where you put the web
-  bundle and the participant scripts. The scripts are served with `Cache-Control: no-cache` and an `ETag`, so a
-  deploy never leaves a phone on an old module, and precompressed (`.gz`, and `.br` if `brotli` was installed
-  when `participant.sh` ran) when the browser accepts it: no compressing proxy is needed in front of them.
+  bundle and the participant build (`dist/public`, as it is). The build's module and glue are named by their
+  hash and served `Cache-Control: immutable`, so phones keep them and a deploy links new names; the fallback is
+  revalidated (`no-cache`, with an `ETag`). They are served precompressed (`.br` and `.gz`) when the browser
+  accepts it: no compressing proxy is needed in front of them. The binary was compiled against one participant
+  build, and refuses to start on another: ship the two together.
 - Set `RAFI_ALTCHA_KEY` to a fixed secret. Otherwise it is random per start, and a restart during registration
   invalidates the challenges phones are solving. Don't rotate it during an event.
 - Keep `RAFI_ENGINE_TIMEOUT_SECS` (90) above the engine's `lead_secs + timeout_secs` (66 by default).
 - At startup the app warns if dev auth is on, the chain is the mock one, the ingress URL is missing, or the web app
-  or participant scripts aren't where it expects.
+  isn't where it expects; it refuses to start if the participant build isn't.
 
 The app runs the hourly housekeeping itself: it erases personal data on the dates entrants were shown, forgets
 expired proof-of-work challenges and ends live updates a day after a raffle finishes. If no run has succeeded for

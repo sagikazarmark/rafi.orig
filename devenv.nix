@@ -65,8 +65,10 @@ let
     "apps/web/Cargo.toml"
     "apps/web/Dioxus.toml"
     "apps/participant/src"
-    "apps/participant/fallback.js"
+    "apps/participant/public"
+    "apps/participant/index.html"
     "apps/participant/Cargo.toml"
+    "apps/participant/Dioxus.toml"
     "deploy/cloudflare/legal"
     "crates"
     "Cargo.lock"
@@ -168,16 +170,19 @@ in
     }
 
     (lib.mkIf (cfg.stack == "native") {
-      # The participant page's WebAssembly and fallback (apps/participant/dist),
-      # rebuilt when they change. The server serves the directory as it is.
+      # The participant build (apps/participant/dist/public), rebuilt when its
+      # sources change. The server serves the directory as it is, and compiles
+      # its loader in, so it starts after the build and restarts on a new one.
       processes.participant = {
         exec = "${root}/scripts/participant.sh";
         cwd = root;
         # Not apps/participant itself: the build writes apps/participant/dist.
         watch.paths = [
           ./apps/participant/src
-          ./apps/participant/fallback.js
+          ./apps/participant/public
+          ./apps/participant/index.html
           ./apps/participant/Cargo.toml
+          ./apps/participant/Dioxus.toml
           ./crates/live-client
         ];
         restart.on = "never";
@@ -203,7 +208,18 @@ in
           RAFI_DRAND_CHAIN = "mock";
         };
         ready.exec = "curl -fsS -o /dev/null http://127.0.0.1:8788/healthz";
-        watch = rustWatch ./apps/rafi;
+        # After the participant build, whose loader `cargo run` compiles in;
+        # and again on a new one.
+        after = [ "devenv:processes:participant@completed" ];
+        watch =
+          let
+            rust = rustWatch ./apps/rafi;
+          in
+          rust
+          // {
+            paths = rust.paths ++ [ "${root}/apps/participant/dist" ];
+            extensions = rust.extensions ++ [ "html" ];
+          };
       };
 
       # The raffle engine.

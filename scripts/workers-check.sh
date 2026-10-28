@@ -22,7 +22,7 @@
 #      deploys (dry) what scripts/cloudflare-artifact.sh builds, the way a
 #      release's tarball is deployed.
 #
-# Needs: wrangler (WRANGLER overrides the command), worker-build, node,
+# Needs: wrangler (WRANGLER overrides the command), worker-build, node, dx,
 # wasm-bindgen-cli at the lockfile's version and wasm-opt (for the participant page).
 set -euo pipefail
 
@@ -63,7 +63,12 @@ migrate() {
 }
 
 step "build"
-"$ROOT/scripts/participant.sh" "$ROOT/testbeds/cloudflare/site/participant"
+# The participant build first: the testbed and the Worker compile its loader in.
+"$ROOT/scripts/participant.sh"
+site="$ROOT/testbeds/cloudflare/site/participant"
+rm -rf "${site:?}" && mkdir -p "$site"
+cp -R "$ROOT/apps/participant/dist/public/assets" "$site/assets"
+cp "$ROOT/apps/participant/dist/public/fallback.js" "$site/"
 for dir in testbeds/store-d1 testbeds/cloudflare; do
   (cd "$ROOT/$dir" && worker-build --release) >"$LOGS/build-${dir##*/}.log" 2>&1
 done
@@ -91,6 +96,7 @@ fi
 if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev/null; then
   step "an evening on the Worker"
   "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
+  assets_built=1
   (cd "$ROOT/apps/worker" && worker-build --release --features dev) >"$LOGS/build-app.log" 2>&1
   (cd "$ROOT/apps/worker" && $WRANGLER d1 migrations apply rafi --local --env dev --persist-to "$STATE/wrangler") >/dev/null
   (cd "$STATE" && RESTATE_BASE_DIR="$STATE/restate" RESTATE_NODE_NAME=workers-check \
@@ -135,7 +141,8 @@ fi
 
 if command -v dx >/dev/null; then
   step "the production shape: a dry deploy within budget, and fail-closed without secrets"
-  [ -d "$ROOT/apps/worker/worker-assets" ] || "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1
+  # The static files of this run's participant build, not an earlier one's.
+  [ -n "${assets_built:-}" ] || "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
   # The top level of wrangler.toml, built as `wrangler deploy` builds it (no
   # `dev` feature). The dry run validates every binding and uploads nothing.
   dry="$(cd "$ROOT/apps/worker" && $WRANGLER deploy --dry-run --outdir "$STATE/dry" 2>&1)" \

@@ -6,8 +6,9 @@ compatibility_date = "2026-05-01"
 [build]
 command = "worker-build --release"
 
-# The participant WASM (scripts/participant.sh site/participant), served at
-# /participant/; the Worker serves its altcha-worker.js.
+# The participant build's assets and fallback (scripts/workers-check.sh
+# copies them from apps/participant/dist/public), served at /participant/;
+# the Worker serves its altcha-worker.js.
 [assets]
 directory = "./site"
 

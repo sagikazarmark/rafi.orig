@@ -24,7 +24,7 @@ var and a secret of the same name).
 |---|---|---|
 | `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address (native only) |
 | `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app, relative to the working directory (native only) |
-| `RAFI_PARTICIPANT_DIR` | `apps/participant/dist` | The participant page's WebAssembly and fallback, from `./scripts/participant.sh` (native only) |
+| `RAFI_PARTICIPANT_DIR` | `apps/participant/dist/public` | The participant build, from `./scripts/participant.sh`: the one the binary was compiled against (native only) |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL, used for QR codes and links |
 | `RAFI_COOKIE_SECURE` | on when `RAFI_PUBLIC_URL` is `https://` | Marks the participant cookie `Secure` (`1`/`true` or `0`/`false`). Set it when TLS ends at a proxy in front of a plain `http://` URL. |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate` (native only; Workers use D1). Either SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`; the database must exist). The app applies the migrations on start. |

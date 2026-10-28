@@ -58,7 +58,8 @@ what kind of failure: 400 for a request that can never succeed, 401 without a se
 
 | Path | What |
 |---|---|
-| `/participant/` | The participant page's WebAssembly and its JavaScript fallback (`RAFI_PARTICIPANT_DIR` natively) |
+| `/participant/assets/` | The participant page's WebAssembly and its glue, named by their hash and served `immutable` (`RAFI_PARTICIPANT_DIR` natively) |
+| `/participant/fallback.js` | Its JavaScript fallback, revalidated |
 | `/participant/altcha-worker.js` | The proof-of-work solver, served from the `dioxus-altcha` version built into the server |
 
 ## Workers only
