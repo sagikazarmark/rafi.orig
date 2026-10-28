@@ -106,8 +106,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   feature, against a size budget (2.5 MiB gzipped; Workers allow 3 on the free plan, 10 paid), and the same
   Worker served with no secret at all answering 500 `misconfigured` to everything, so a deploy can't run open
 - `deploy/cloudflare`, what an installation deploys: its `wrangler.toml` agrees with the Worker's on the paths and
-  the required secrets, and it deploys (dry) what `just cloudflare-artifact` builds, the way a release's
-  tarball is deployed
+  the required secrets, and the release of the version it pins is rehearsed the way a tag releases it
+  (`scripts/cloudflare-release.sh`): packaged, fetched by a copy of the template with its own `deploy.sh`
+  (the checksum, the version), and deployed (dry)
 
 CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from CI: a deploy is the operator's,
 from their copy of `deploy/cloudflare` ([Cloudflare](../operations/cloudflare.md)), and the dry runs above are

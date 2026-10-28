@@ -6,8 +6,9 @@
 # local server with its own `deploy.sh fetch`, exactly as it fetches a GitHub
 # release (the checksum, the version), and `deploy.sh deploy --dry-run` puts
 # the documents in place and validates every binding. .github/workflows/release.yaml
-# runs this on a tag and attaches what is left in <out dir>; running it by
-# hand rehearses a release.
+# runs this on a tag and attaches what is left in <out dir>; scripts/workers-check.sh
+# runs it for the version deploy/cloudflare pins, so CI rehearses a release
+# on every push; running it by hand does too.
 #
 #   ./scripts/cloudflare-release.sh <version> [<out dir>]    # default out dir: target/cloudflare
 #   ./scripts/cloudflare-release.sh 0.2.0

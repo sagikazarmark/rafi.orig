@@ -18,12 +18,14 @@
 #      served without any secret answers 500 "misconfigured", so a deploy
 #      can't run open. Needs dx too (the dry run uploads the assets);
 #   6. deploy/cloudflare, what an installation deploys: its wrangler.toml
-#      agrees with the Worker's on the paths and the required secrets, and it
-#      deploys (dry) what `just artifact` in apps/worker builds, the way a
-#      release's tarball is deployed.
+#      agrees with the Worker's on the paths and the required secrets, and
+#      the release of the version it pins is rehearsed the way a tag releases
+#      it (scripts/cloudflare-release.sh): packaged, fetched by a copy of the
+#      template with its own deploy.sh, and deployed (dry).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node, just,
-# dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the participant page).
+# dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the
+# participant page), python3 and curl (the release rehearsal).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -168,7 +170,7 @@ if command -v dx >/dev/null; then
   fi
   echo "ok   without secrets the production Worker refuses every request (500 misconfigured)"
 
-  step "deploy/cloudflare: the installation's shape, over the artifact"
+  step "deploy/cloudflare: the installation's shape, and its release rehearsed"
   # The two wrangler.toml files share the Worker's shape: its paths, bindings,
   # limits, Cron and required secrets. A route or a secret added to one and
   # not the other would deploy a Worker that 404s or refuses; a limit or a
@@ -186,16 +188,13 @@ if command -v dx >/dev/null; then
     exit 1
   fi
   echo "ok   the template's shape is the Worker's"
-  just "$ROOT/apps/worker/" artifact "$STATE/artifact" >"$LOGS/artifact.log" 2>&1 || { tail -20 "$LOGS/artifact.log" >&2; exit 1; }
-  # A copy, as an installation has it: the template's files plus the artifact as rafi/.
-  mkdir -p "$STATE/installation"
-  (cd "$ROOT/deploy/cloudflare" && tar -c --exclude ./rafi --exclude ./node_modules --exclude ./.wrangler .) \
-    | tar -x -C "$STATE/installation"
-  cp -R "$STATE/artifact" "$STATE/installation/rafi"
-  template="$(cd "$STATE/installation" && WRANGLER="$WRANGLER" ./deploy.sh deploy --dry-run 2>&1)" \
-    || { echo "$template" | tail -30 >&2; exit 1; }
-  echo "$template" | grep -q "env.ASSETS" || { echo "the template's dry deploy lists no assets binding:" >&2; echo "$template" | tail -20 >&2; exit 1; }
-  echo "ok   deploy/cloudflare deploys the artifact (dry run)"
+  # The release of the version the template pins, as a tag releases it: the
+  # same script, so a broken fetch, checksum or tarball shows here, not on
+  # the tag.
+  pinned="$(sed -n 's/^RAFI_VERSION=//p' "$ROOT/deploy/cloudflare/deploy.sh")"
+  WRANGLER="$WRANGLER" "$ROOT/scripts/cloudflare-release.sh" "$pinned" "$STATE/release" >"$LOGS/release.log" 2>&1 \
+    || { tail -30 "$LOGS/release.log" >&2; exit 1; }
+  echo "ok   deploy/cloudflare fetches and deploys the release of $pinned (dry run)"
 else
   step "the production shape: skipped (needs dx for the assets)"
 fi
