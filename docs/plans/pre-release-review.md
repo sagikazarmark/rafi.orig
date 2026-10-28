@@ -133,7 +133,9 @@ day). **Why now**: what gets expensive after the release.
   `privacy-and-retention.md` gets a line that the acceptance record was removed before release.
 - **Keep** (used independently): `/terms`, `/privacy` and the `pages::legal` renderer, `Config.terms_version`/
   `privacy_version`, `Documents`, `RAFI_DOCS_DIR`, `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, the template
-  refusal (`config.rs:250-256`), `apps/worker/legal/` and its `include_str!`, the operator named in the notice,
+  refusal (`config.rs:250-256`), `apps/worker/legal/` and its `include_str!` (since moved: the Worker reads
+  `legal/terms.md` and `legal/privacy.md` from its static files at runtime, `apps/worker/src/documents.rs`; the
+  templates are `deploy/cloudflare/legal/`), the operator named in the notice,
   `sha2`/`hex` in `rafi-server` (used elsewhere).
 - **Size**: small. **Why now**: a decision taken; removing it later would be a migration that drops evidence.
 
@@ -405,7 +407,12 @@ day). **Why now**: what gets expensive after the release.
   never hand-edited, regenerated on every upgrade, in the same directory so relative paths hold; `wrangler deploy
   -c apps/worker/wrangler.<site>.toml`; `workers-check.sh` dry-runs the generator's output. (4) The legal
   documents: a `build.rs` reads `RAFI_LEGAL_DIR` (default `$CARGO_MANIFEST_DIR/legal`), canonicalises it, and
-  emits `cargo:rustc-env` plus `rerun-if-env-changed` and `rerun-if-changed` for both files.
+  emits `cargo:rustc-env` plus `rerun-if-env-changed` and `rerun-if-changed` for both files. *Superseded after
+  the review*: nothing of an installation's is compiled in any more. The documents are `legal/terms.md` and
+  `legal/privacy.md` among the Worker's static files, read through the assets binding when an isolate builds its
+  app (`apps/worker/src/documents.rs`; missing, placeholders under dev auth and a refusal otherwise), the
+  templates live in `deploy/cloudflare/legal/` and `deploy.sh` copies an installation's in; `wrangler.<site>.toml`
+  and its generator went the same way (the installation's `deploy/cloudflare` copy carries the database ID).
 - **Size**: small. **Why now**: the first real deployment's config is the one that gets merged forever.
 
 #### CFG-3 · The Worker's name — **done**

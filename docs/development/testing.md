@@ -104,7 +104,10 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   checked to have recorded its success, which is what the admin's staleness warning reads
 - the production shape: `wrangler deploy --dry-run` of the top level of `wrangler.toml`, built without the `dev`
   feature, against a size budget (2.5 MiB gzipped; Workers allow 3 on the free plan, 10 paid), and the same
-  Worker served with no secret at all answering 500 `misconfigured` to everything, so a deploy can't run open
+  Worker served with no secret at all answering 500 `misconfigured` to everything, so a deploy can't run open;
+  by then it has read `legal/terms.md` and `legal/privacy.md` through the assets binding (the refusal is a
+  secret's, not theirs), and served without `legal/` it refuses naming them, seeing through Workers Assets'
+  single-page fallback (a missing path is `index.html` with a 200), which only the real runtime can show
 - `deploy/cloudflare`, what an installation deploys: its `wrangler.toml` agrees with the Worker's on the paths and
   the required secrets, and the release of the version it pins is rehearsed the way a tag releases it
   (`scripts/cloudflare-release.sh`): packaged, fetched by a copy of the template with its own `deploy.sh` each

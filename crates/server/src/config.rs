@@ -442,6 +442,43 @@ mod tests {
     }
 
     #[test]
+    fn documents_come_from_the_directory_or_the_server_doesnt_start() {
+        let dir = std::env::temp_dir().join(format!("rafi-docs-{}", uuid::Uuid::new_v4()));
+        // No directory at all (RAFI_DOCS_DIR pointing nowhere).
+        let err = Documents::from_dir(&dir).unwrap_err();
+        assert!(
+            format!("{err:#}").contains(&dir.join("terms.md").display().to_string()),
+            "names the file it couldn't read: {err:#}"
+        );
+        // One of the two missing: refused, naming the missing one, never
+        // half a set with a placeholder for the other.
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("terms.md"), "# Terms\n").unwrap();
+        let err = format!("{:#}", Documents::from_dir(&dir).unwrap_err());
+        assert!(
+            err.contains(&dir.join("privacy.md").display().to_string()),
+            "{err}"
+        );
+        // Both present: the documents, an unedited template still a placeholder.
+        std::fs::write(
+            dir.join("privacy.md"),
+            "# Privacy\n\n> **Template.** Review me.\n",
+        )
+        .unwrap();
+        let docs = Documents::from_dir(&dir).unwrap();
+        assert_eq!(docs.terms, "# Terms\n");
+        assert!(
+            docs.placeholder,
+            "the template marker is seen through a file too"
+        );
+        std::fs::write(dir.join("privacy.md"), "# Privacy\n").unwrap();
+        let docs = Documents::from_dir(&dir).unwrap();
+        assert!(!docs.placeholder);
+        assert_eq!(docs.privacy, "# Privacy\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn retention_and_age_come_from_the_environment() {
         let cfg = Config::from_lookup(|name| match name {
             "RAFI_RETENTION_DAYS" => Some("3".into()),

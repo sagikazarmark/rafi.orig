@@ -16,7 +16,10 @@
 #      the `dev` feature): `wrangler deploy --dry-run` validates the
 #      configuration and the bundle against a size budget, and the Worker
 #      served without any secret answers 500 "misconfigured", so a deploy
-#      can't run open. Needs dx too (the dry run uploads the assets);
+#      can't run open; it has read the legal documents through the assets
+#      binding by then, and served without legal/ it refuses naming them
+#      (seeing through Assets' single-page fallback). Needs dx too (the dry
+#      run uploads the assets);
 #   6. deploy/cloudflare, what an installation deploys: its wrangler.toml
 #      agrees with the Worker's on the paths and the required secrets, and
 #      the release of the version it pins is rehearsed the way a tag releases
@@ -34,10 +37,13 @@ STATE="$(mktemp -d)"
 LOGS="$STATE/logs"
 mkdir -p "$LOGS"
 PIDS=()
+# Where the Worker's legal/ is while the production shape is served without it (below); restored on exit.
+LEGAL_ASIDE=
 
 cleanup() {
   for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
   wait 2>/dev/null || true
+  [ -z "$LEGAL_ASIDE" ] || [ ! -d "$LEGAL_ASIDE" ] || mv "$LEGAL_ASIDE" "$ROOT/apps/worker/worker-assets/legal"
   rm -rf "$STATE"
 }
 trap cleanup EXIT
@@ -62,6 +68,15 @@ serve() {
 
 migrate() {
   (cd "$ROOT/$1" && $WRANGLER d1 migrations apply "$2" --local --persist-to "$STATE/wrangler") >/dev/null
+}
+
+# Waits for a line matching $2 in the log $1: wrangler relays the Worker's console a moment after the response.
+logged() {
+  for _ in $(seq 1 20); do
+    if grep -q -- "$2" "$1"; then return 0; fi
+    sleep 1
+  done
+  return 1
 }
 
 step "build"
@@ -169,6 +184,43 @@ if command -v dx >/dev/null; then
     exit 1
   fi
   echo "ok   without secrets the production Worker refuses every request (500 misconfigured)"
+  # The legal documents are read through the assets binding before anything
+  # else is checked, so that refusal was for a secret, not for them: a
+  # Markdown file served by Workers Assets was taken for a document, not for
+  # the single-page fallback.
+  missing_docs="missing from the Worker's static files"
+  if ! logged "$LOGS/worker.log" "rafi: "; then
+    echo "the production Worker logged no reason for refusing; log:" >&2
+    tail -20 "$LOGS/worker.log" >&2
+    exit 1
+  fi
+  if grep -q "$missing_docs" "$LOGS/worker.log"; then
+    echo "the production Worker didn't find legal/ among its static files:" >&2
+    grep "$missing_docs" "$LOGS/worker.log" | head -1 >&2
+    exit 1
+  fi
+  echo "ok   the Worker read legal/terms.md and legal/privacy.md through the assets binding"
+  # And without them, the refusal is theirs, with the message that says what
+  # to do. Workers Assets answers a missing path with the web app's index.html
+  # and a 200 (not_found_handling = "single-page-application"), which the
+  # Worker has to see through; this is the one place that is checked against
+  # the real thing. legal/ is moved aside while this Worker starts and answers,
+  # and put back right after (by cleanup too, should this run die in between).
+  kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
+  LEGAL_ASIDE="$STATE/legal-aside"
+  mv "$ROOT/apps/worker/worker-assets/legal" "$LEGAL_ASIDE"
+  serve apps/worker 8792 /healthz
+  closed="$(curl -s -m 10 -w '\n%{http_code}' http://127.0.0.1:8792/healthz)"
+  named=
+  if logged "$LOGS/worker.log" "$missing_docs"; then named=1; fi
+  mv "$LEGAL_ASIDE" "$ROOT/apps/worker/worker-assets/legal"
+  LEGAL_ASIDE=
+  if [ "$(echo "$closed" | tail -1)" != "500" ] || [ -z "$named" ]; then
+    echo "the production Worker without legal/ answered: $closed" >&2
+    tail -20 "$LOGS/worker.log" >&2
+    exit 1
+  fi
+  echo "ok   without legal/ the production Worker refuses every request, naming the documents"
 
   step "deploy/cloudflare: the installation's shape, and its release rehearsed"
   # The two wrangler.toml files share the Worker's shape: its paths, bindings,
