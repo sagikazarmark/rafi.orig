@@ -15,6 +15,9 @@ watch_path = ["src", "assets"]
 backend = "http://127.0.0.1:8788/api/"
 
 [[web.proxy]]
+backend = "http://127.0.0.1:8788/config.js"
+
+[[web.proxy]]
 backend = "http://127.0.0.1:8788/terms"
 
 [[web.proxy]]

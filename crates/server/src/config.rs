@@ -23,7 +23,7 @@ pub struct Operator {
 /// (with the data processing agreement, which organizers accept by using the
 /// service), as Markdown, each with the version the deployment gives it
 /// (`RAFI_PRIVACY_VERSION`, `RAFI_TERMS_VERSION`). Natively they are `privacy.md` and `terms.md` in
-/// `RAFI_DOCS_DIR`; on Workers they are bundled into the Worker.
+/// `RAFI_DOCS_DIR`; on Workers, `legal/privacy.md` and `legal/terms.md` among the Worker's static files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Documents {
     pub terms: String,
@@ -33,8 +33,8 @@ pub struct Documents {
 }
 
 impl Documents {
-    /// The line the repository's templates (`apps/worker/legal/`) carry until
-    /// an operator has reviewed them. A document that still has it is a
+    /// The line the repository's templates (`deploy/cloudflare/legal/`) carry
+    /// until an operator has reviewed them. A document that still has it is a
     /// placeholder, which a production server refuses.
     pub const TEMPLATE_MARKER: &str = "**Template.**";
 
@@ -75,12 +75,12 @@ impl Documents {
 
 const PLACEHOLDER_TERMS: &str = "# Terms (placeholder)\n\n**This is a development placeholder, not a legal document.** \
 A deployment supplies its own terms, with the data processing agreement, as `terms.md` in `RAFI_DOCS_DIR` \
-(natively) or bundled into the Worker.\n";
+(natively) or `legal/terms.md` among the Worker's static files.\n";
 
 const PLACEHOLDER_PRIVACY: &str = "# Privacy notice (placeholder)\n\n**This is a development placeholder, not a legal document.** \
 A deployment supplies the installation's own privacy notice (the operator, its subprocessors: hosting, \
 organizer sign-in, the raffle engine, the randomness network) as `privacy.md` in `RAFI_DOCS_DIR` (natively) or \
-bundled into the Worker.\n";
+`legal/privacy.md` among the Worker's static files.\n";
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -89,6 +89,12 @@ pub struct Config {
     pub public_url: String,
     /// Skip Clerk and treat every admin request as user `dev`. Never use in production.
     pub dev_auth: bool,
+    /// Clerk's publishable key (`CLERK_PUBLISHABLE_KEY`): what the web app
+    /// signs organizers in with. The server hands it to the web app at
+    /// runtime (`/config.js`), so one web app bundle serves every
+    /// installation; the server's own check is `CLERK_SECRET_KEY`, the hosts'.
+    /// Not a secret, but an installation's: required unless dev auth is on.
+    pub clerk_publishable_key: Option<String>,
     /// The raffle engine: the `Raffle` virtual object of the `rafi-restate`
     /// service. Without an ingress URL, draws can't start.
     pub restate: RestateConfig,
@@ -170,6 +176,7 @@ impl Config {
                 .unwrap_or_else(|| public_url.starts_with("https://")),
             public_url,
             dev_auth,
+            clerk_publishable_key: var("CLERK_PUBLISHABLE_KEY"),
             restate: RestateConfig {
                 ingress_url: var("RAFI_ENGINE_INGRESS_URL")
                     .unwrap_or_default()
@@ -249,12 +256,17 @@ impl Config {
                 "RAFI_OPERATOR_NAME and RAFI_OPERATOR_EMAIL are required: the privacy notices name the operator"
             );
         }
+        // Without it the web app has no sign-in to show, while every admin
+        // call is refused: an admin nobody can enter.
+        if self.clerk_publishable_key.is_none() {
+            bail!("CLERK_PUBLISHABLE_KEY is required: the web app signs organizers in with it");
+        }
         if self.terms_version.is_empty() || self.privacy_version.is_empty() {
             bail!("RAFI_TERMS_VERSION and RAFI_PRIVACY_VERSION are required");
         }
         if self.documents.placeholder {
             bail!(
-                "the legal documents are placeholders or unreviewed templates (they still say {:?}): supply reviewed terms.md and privacy.md (RAFI_DOCS_DIR natively; apps/worker/legal/ on Workers)",
+                "the legal documents are placeholders or unreviewed templates (they still say {:?}): supply reviewed terms.md and privacy.md (RAFI_DOCS_DIR natively; legal/ of the installation's deploy/cloudflare on Workers)",
                 Documents::TEMPLATE_MARKER
             );
         }
@@ -276,6 +288,7 @@ impl Config {
             database_url: "sqlite::memory:".into(),
             public_url: "http://localhost:8080".into(),
             dev_auth: false,
+            clerk_publishable_key: Some("pk_test_rafi".into()),
             restate: RestateConfig {
                 ingress_url: String::new(),
                 api_key: String::new(),
@@ -401,6 +414,7 @@ mod tests {
             "RAFI_OPERATOR_NAME" => Some("Op".into()),
             "RAFI_OPERATOR_EMAIL" => Some("p@op.example".into()),
             "RAFI_TERMS_VERSION" | "RAFI_PRIVACY_VERSION" => Some("2026-10".into()),
+            "CLERK_PUBLISHABLE_KEY" => Some("pk_test_op".into()),
             _ => None,
         });
         assert!(full.validate().is_err(), "placeholder documents");
@@ -408,6 +422,12 @@ mod tests {
         assert!(full.validate().is_err(), "an unedited template");
         full.documents = Documents::new("# T", "# P");
         assert!(full.validate().is_ok(), "a random key is long enough");
+        // Without Clerk's publishable key the admin has no sign-in to offer,
+        // while the server expects one: refused, like a missing operator.
+        let key = full.clerk_publishable_key.take();
+        let err = full.validate().unwrap_err().to_string();
+        assert!(err.contains("CLERK_PUBLISHABLE_KEY"), "{err}");
+        full.clerk_publishable_key = key;
         full.altcha_key = "short".into();
         let err = full.validate().unwrap_err().to_string();
         assert!(

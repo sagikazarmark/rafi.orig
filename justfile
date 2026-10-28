@@ -66,3 +66,11 @@ deny:
 # Run the Workers checks under `wrangler dev` (scripts/workers-check.sh).
 workers:
     ./scripts/workers-check.sh
+
+# Build what a Cloudflare deployment deploys (scripts/cloudflare-artifact.sh): what a release ships.
+cloudflare-artifact out="target/cloudflare/rafi":
+    ./scripts/cloudflare-artifact.sh {{ out }}
+
+# Build and prove a Cloudflare release (scripts/cloudflare-release.sh): the tarball, its checksums, a dry deploy through deploy/cloudflare.
+cloudflare-release version:
+    ./scripts/cloudflare-release.sh {{ version }}

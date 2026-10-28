@@ -16,7 +16,11 @@
 #      the `dev` feature): `wrangler deploy --dry-run` validates the
 #      configuration and the bundle against a size budget, and the Worker
 #      served without any secret answers 500 "misconfigured", so a deploy
-#      can't run open. Needs dx too (the dry run uploads the assets).
+#      can't run open. Needs dx too (the dry run uploads the assets);
+#   6. deploy/cloudflare, what an installation deploys: its wrangler.toml
+#      agrees with the Worker's on the paths and the required secrets, and it
+#      deploys (dry) what scripts/cloudflare-artifact.sh builds, the way a
+#      release's tarball is deployed.
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node,
 # wasm-bindgen-cli at the lockfile's version and wasm-opt (for the participant page).
@@ -86,7 +90,7 @@ fi
 
 if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev/null; then
   step "an evening on the Worker"
-  "$ROOT/scripts/app-assets.sh" --dev >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
+  "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1 || { tail -20 "$LOGS/app-assets.log" >&2; exit 1; }
   (cd "$ROOT/apps/worker" && worker-build --release --features dev) >"$LOGS/build-app.log" 2>&1
   (cd "$ROOT/apps/worker" && $WRANGLER d1 migrations apply rafi --local --env dev --persist-to "$STATE/wrangler") >/dev/null
   (cd "$STATE" && RESTATE_BASE_DIR="$STATE/restate" RESTATE_NODE_NAME=workers-check \
@@ -131,7 +135,7 @@ fi
 
 if command -v dx >/dev/null; then
   step "the production shape: a dry deploy within budget, and fail-closed without secrets"
-  [ -d "$ROOT/apps/worker/worker-assets" ] || "$ROOT/scripts/app-assets.sh" --dev >"$LOGS/app-assets.log" 2>&1
+  [ -d "$ROOT/apps/worker/worker-assets" ] || "$ROOT/scripts/app-assets.sh" >"$LOGS/app-assets.log" 2>&1
   # The top level of wrangler.toml, built as `wrangler deploy` builds it (no
   # `dev` feature). The dry run validates every binding and uploads nothing.
   dry="$(cd "$ROOT/apps/worker" && $WRANGLER deploy --dry-run --outdir "$STATE/dry" 2>&1)" \
@@ -156,6 +160,36 @@ if command -v dx >/dev/null; then
     exit 1
   fi
   echo "ok   without secrets the production Worker refuses every request (500 misconfigured)"
+
+  step "deploy/cloudflare: the installation's shape, over the artifact"
+  # The two wrangler.toml files share the Worker's shape: its paths, bindings,
+  # limits, Cron and required secrets. A route or a secret added to one and
+  # not the other would deploy a Worker that 404s or refuses; a limit or a
+  # class name changed in one alone would deploy a different Worker. The
+  # Worker's file is compared up to [env.dev], which repeats the bindings.
+  shape() {
+    sed '/^\[env\.dev\]/q' "$1" | sed -n \
+      -e '/^compatibility_date/p' -e '/^run_worker_first/p' -e '/^not_found_handling/p' -e '/^binding = /p' \
+      -e '/^database_name/p' -e '/^name = "/p' -e '/^class_name/p' -e '/^new_sqlite_classes/p' -e '/^tag = /p' \
+      -e '/^namespace_id/p' -e '/^simple = /p' -e '/^crons/p' -e '/^invocation_logs/p' -e '/^RAFI_/p' \
+      -e '/^required = \[$/,/^\]/p'
+  }
+  if ! diff <(shape "$ROOT/apps/worker/wrangler.toml") <(shape "$ROOT/deploy/cloudflare/wrangler.toml"); then
+    echo "deploy/cloudflare/wrangler.toml disagrees with apps/worker/wrangler.toml (above)" >&2
+    exit 1
+  fi
+  echo "ok   the template's shape is the Worker's"
+  "$ROOT/scripts/cloudflare-artifact.sh" "$STATE/artifact" >"$LOGS/artifact.log" 2>&1 || { tail -20 "$LOGS/artifact.log" >&2; exit 1; }
+  # A copy, as an installation has it: the template's files plus the artifact as rafi/.
+  mkdir -p "$STATE/installation"
+  (cd "$ROOT/deploy/cloudflare" && tar -c --exclude ./rafi --exclude ./node_modules --exclude ./.wrangler .) \
+    | tar -x -C "$STATE/installation"
+  cp -R "$STATE/artifact" "$STATE/installation/rafi"
+  (cd "$STATE/installation" && node build.mjs --local) >"$LOGS/template-build.log" 2>&1 || { cat "$LOGS/template-build.log" >&2; exit 1; }
+  template="$(cd "$STATE/installation" && $WRANGLER deploy --dry-run --outdir "$STATE/dry-template" 2>&1)" \
+    || { echo "$template" | tail -30 >&2; exit 1; }
+  echo "$template" | grep -q "env.ASSETS" || { echo "the template's dry deploy lists no assets binding:" >&2; echo "$template" | tail -20 >&2; exit 1; }
+  echo "ok   deploy/cloudflare deploys the artifact (dry run)"
 else
   step "the production shape: skipped (needs dx for the assets)"
 fi

@@ -15,11 +15,12 @@
 //! - `scheduled`: the Cron Trigger runs housekeeping (`rafi_app::housekeeping::run`).
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
-//! The installation's legal documents (its privacy notice, its terms with
-//! the processing agreement) are bundled at build time, from `legal/` or
-//! from the directory `RAFI_LEGAL_DIR` names (`build.rs`), so an
-//! installation's reviewed documents live outside the tree; their versions
-//! are the `RAFI_TERMS_VERSION` and `RAFI_PRIVACY_VERSION` secrets.
+//! Nothing of an installation's is compiled in, so one build of the Worker
+//! serves every installation: its values are the Worker's secrets and vars
+//! (`wrangler.toml` lists the required ones), and its legal documents (the
+//! privacy notice, the terms with the processing agreement) are files among
+//! the static files, read through the assets binding (`documents`); their
+//! versions are the `RAFI_TERMS_VERSION` and `RAFI_PRIVACY_VERSION` secrets.
 //!
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
 //! raffles' Durable Objects (the engine's observer, too) and configuration
@@ -31,10 +32,10 @@
 //!
 //! The app and the endpoint are built once per isolate (`cached`): the
 //! bindings and vars are the isolate's, Clerk's layer keeps its verified
-//! signing keys (JWKS) between requests instead of fetching them for each, and
-//! the drand client keeps its verified chain. The `tracing` subscriber is
-//! installed with them (`log`), so the application's warnings and errors
-//! reach the console.
+//! signing keys (JWKS) between requests instead of fetching them for each,
+//! the drand client keeps its verified chain, and the documents are read
+//! once. The `tracing` subscriber is installed with them (`log`), so the
+//! application's warnings and errors reach the console.
 
 #![cfg(target_arch = "wasm32")]
 
@@ -48,11 +49,9 @@ use restate_sdk::endpoint::Endpoint;
 use tower_service::Service;
 use worker::{Context, Env, HttpRequest, ScheduleContext, ScheduledEvent, event};
 
-use rafi_server::{
-    self as server, AppState,
-    config::{Config, Documents},
-};
+use rafi_server::{self as server, AppState, config::Config};
 
+mod documents;
 mod engine;
 mod log;
 mod ratelimit;
@@ -69,30 +68,27 @@ struct App {
 }
 
 thread_local! {
-    /// The app, built on the isolate's first request. A failed build isn't
-    /// kept: a fixed secret takes effect on the next request.
+    /// The app, built on the isolate's first request (concurrent first
+    /// requests may each build one; the first to finish is kept). A failed
+    /// build isn't kept: a fixed secret takes effect on the next request.
     static APP: OnceCell<App> = const { OnceCell::new() };
 }
 
-/// The isolate's app, built on first use.
-fn cached(env: &Env) -> anyhow::Result<App> {
-    APP.with(|cell| {
-        if let Some(app) = cell.get() {
-            return Ok(app.clone());
-        }
-        log::install();
-        let app = app(env)?;
-        Ok(cell.get_or_init(|| app).clone())
-    })
+/// The isolate's app, built on first use: the configuration from the vars
+/// and secrets, the documents from the static files, then everything else.
+async fn cached(env: &Env) -> anyhow::Result<App> {
+    if let Some(app) = APP.with(|cell| cell.get().cloned()) {
+        return Ok(app);
+    }
+    log::install();
+    let mut cfg = Config::from_lookup(|name| lookup(env, name));
+    cfg.documents = documents::documents(env, cfg.dev_auth).await?;
+    let app = app(env, cfg)?;
+    Ok(APP.with(|cell| cell.get_or_init(|| app).clone()))
 }
 
 /// The app over the Worker's bindings. Fails closed on missing secrets.
-fn app(env: &Env) -> anyhow::Result<App> {
-    let mut cfg = Config::from_lookup(|name| lookup(env, name));
-    cfg.documents = Documents::new(
-        include_str!(env!("RAFI_LEGAL_TERMS")),
-        include_str!(env!("RAFI_LEGAL_PRIVACY")),
-    );
+fn app(env: &Env, cfg: Config) -> anyhow::Result<App> {
     let dev = cfg!(feature = "dev");
     if cfg.dev_auth && !dev {
         anyhow::bail!("RAFI_DEV_AUTH is set, but this build has no `dev` feature");
@@ -149,7 +145,7 @@ fn misconfigured(e: anyhow::Error) -> http::Response<Body> {
 async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> worker::Result<http::Response<Body>> {
     let path = req.uri().path();
     if engine::owns(path) {
-        let App { endpoint, .. } = match cached(&env) {
+        let App { endpoint, .. } = match cached(&env).await {
             Ok(app) => app,
             Err(e) => return Ok(misconfigured(e)),
         };
@@ -162,7 +158,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> worker::Result<http
             .await?
             .into());
     }
-    let App { state, auth, .. } = match cached(&env) {
+    let App { state, auth, .. } = match cached(&env).await {
         Ok(app) => app,
         Err(e) => return Ok(misconfigured(e)),
     };
@@ -179,7 +175,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> worker::Result<http
 
 #[event(scheduled)]
 async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    let App { state, .. } = match cached(&env) {
+    let App { state, .. } = match cached(&env).await {
         Ok(app) => app,
         Err(e) => {
             worker::console_error!("rafi: housekeeping not run: {e:#}");

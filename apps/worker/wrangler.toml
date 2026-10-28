@@ -2,16 +2,19 @@
 # top level is production's shape; `[env.dev]` is local development
 # (`wrangler dev --env dev`).
 #
-# Nothing of one installation's is in this file, so an upgrade is a plain
-# pull. The one value that has to be (the D1 database's ID) goes into a
-# generated, untracked copy: `./scripts/worker-config.sh <site> <database id>`
-# writes wrangler.<site>.toml next to this file, and the deploy is
-# `wrangler deploy -c wrangler.<site>.toml`. Everything else of the
-# installation's is a secret (`wrangler secret bulk`; the Worker reads vars
-# and secrets alike), listed under [secrets] so a deploy refuses to go out
-# without them. The legal documents are read at build time from legal/, or
-# from RAFI_LEGAL_DIR (see build.rs). The full procedure:
-# docs/operations/cloudflare.md.
+# Nothing of one installation's is in this file: it is the Worker's shape,
+# for development (`[env.dev]`, under `wrangler dev`) and CI (a dry deploy).
+# An installation deploys the same shape from its copy of deploy/cloudflare/
+# (its wrangler.toml points at a release's files), with its database ID in
+# it; everything else of the installation's is a secret (`wrangler secret
+# bulk`; the Worker reads vars and secrets alike), listed under [secrets] so a
+# deploy refuses to go out without them, or a file among the static files:
+# the legal documents are `legal/terms.md` and `legal/privacy.md` there,
+# which scripts/app-assets.sh copies in from RAFI_DOCS_DIR, and the Worker
+# reads them through the assets binding when an isolate starts. Nothing of
+# an installation's is compiled in: one build serves every installation.
+# scripts/workers-check.sh checks that the two files agree on the Worker's
+# paths and required secrets. The full procedure: docs/operations/cloudflare.md.
 
 name = "rafi"
 main = "build/index.js"
@@ -24,22 +27,26 @@ preview_urls = false
 [build]
 command = "worker-build --release"
 
-# The web app (admin, projector, verification page) and the participant scripts.
-# Paths the Worker answers go to it first (Restate's requests under /restate/
-# included); anything else is a file, or the web app's index.html (single-page
-# routing). The Worker serves the participant page's proof-of-work solver
-# (dioxus-altcha's, as built in). /__scheduled is `wrangler dev
-# --test-scheduled`'s way of firing the Cron Trigger (scripts/workers-check.sh);
-# in production it is a path like any other, which the Worker answers 404.
+# The web app (admin, projector, verification page), the participant scripts
+# and the installation's legal documents (legal/). Paths the Worker answers go
+# to it first (Restate's requests under /restate/ included); anything else is
+# a file, or the web app's index.html (single-page routing). The Worker serves
+# the web app's configuration (/config.js) and the participant page's
+# proof-of-work solver (dioxus-altcha's, as built in). /__scheduled is
+# `wrangler dev --test-scheduled`'s way of firing the Cron Trigger
+# (scripts/workers-check.sh); in production it is a path like any other,
+# which the Worker answers 404. The binding is how the Worker reads the legal
+# documents.
 [assets]
 directory = "./worker-assets"
+binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js", "/__scheduled"]
+run_worker_first = ["/api/*", "/config.js", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js", "/__scheduled"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
-database_id = "00000000-0000-0000-0000-000000000000" # the placeholder worker-config.sh replaces
+database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: an installation's is in its deploy/cloudflare copy
 migrations_dir = "../../migrations/sqlite"
 
 # One live channel per raffle; IDs come from the EU jurisdiction (RAFI_DO_JURISDICTION).
@@ -100,6 +107,7 @@ RAFI_DO_JURISDICTION = "eu"
 #   RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS   the Restate environment's public key(s), comma separated
 #   RAFI_ALTCHA_KEY                        random, 32+ characters; never rotate during an event
 #   CLERK_SECRET_KEY
+#   CLERK_PUBLISHABLE_KEY                  not secret (the web app gets it from /config.js), but the installation's
 #   RAFI_OPERATOR_NAME, RAFI_OPERATOR_EMAIL   named as the processor in every raffle's notice
 #   RAFI_TERMS_VERSION, RAFI_PRIVACY_VERSION  the documents' versions, e.g. "2026-10"
 # A deploy refuses to go out while one is missing.
@@ -111,6 +119,7 @@ required = [
   "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS",
   "RAFI_ALTCHA_KEY",
   "CLERK_SECRET_KEY",
+  "CLERK_PUBLISHABLE_KEY",
   "RAFI_OPERATOR_NAME",
   "RAFI_OPERATOR_EMAIL",
   "RAFI_TERMS_VERSION",

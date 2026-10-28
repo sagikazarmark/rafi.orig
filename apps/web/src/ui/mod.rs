@@ -36,14 +36,6 @@ const _: Asset = asset!(
     AssetOptions::builder().with_hash_suffix(false)
 );
 
-/// Clerk publishable key, baked in at build time. Without it (unset or empty)
-/// the admin runs in development mode (the server must then run with
-/// `RAFI_DEV_AUTH=1`).
-pub const CLERK_PUBLISHABLE_KEY: Option<&str> = match option_env!("CLERK_PUBLISHABLE_KEY") {
-    Some(key) if !key.is_empty() => Some(key),
-    _ => None,
-};
-
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
 pub enum Route {
@@ -240,11 +232,15 @@ fn AdminShell(children: Element, #[props(default = VNode::empty())] trailing: El
     }
 }
 
+/// The admin behind sign-in, as the server configured it (`/config.js`,
+/// [`crate::config`]): Clerk with the server's publishable key, or dev auth,
+/// which the badge says out loud.
 #[component]
 fn AdminLayout() -> Element {
-    match CLERK_PUBLISHABLE_KEY {
+    let key = use_hook(crate::config::clerk_publishable_key);
+    match key {
         Some(key) => rsx! {
-            dioxus_clerk::ClerkProvider { publishable_key: key.to_owned(),
+            dioxus_clerk::ClerkProvider { publishable_key: key,
                 AdminShell {
                     trailing: rsx! {
                         dioxus_clerk::OrganizationSwitcher {}

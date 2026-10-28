@@ -8,6 +8,7 @@ mod api;
 // export is used.
 #[allow(unused_imports, dead_code)]
 mod components;
+mod config;
 mod ui;
 
 fn main() {

@@ -1,4 +1,4 @@
-//! Public JSON endpoints.
+//! Public JSON endpoints, and the web app's runtime configuration.
 
 use axum::{
     Extension, Json, Router,
@@ -17,7 +17,41 @@ pub fn routes() -> Router {
         .route("/api/r/{slug}/participant", get(participant))
         .route("/api/r/{slug}/verify.json", get(verify_json))
         .route("/api/altcha", get(challenge))
+        .route("/config.js", get(config_js))
         .route("/healthz", get(|| async { "ok" }))
+}
+
+/// What the web app needs from the server before it starts: `/config.js`
+/// sets it as `window.__RAFI_CONFIG__`, loaded by `index.html` ahead of the
+/// app's own script, so nothing of an installation's is compiled into the
+/// web app bundle.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebConfig {
+    /// Clerk's publishable key when the server verifies Clerk sessions;
+    /// `null` under dev auth, when the admin shows that instead of a sign-in.
+    clerk_publishable_key: Option<String>,
+}
+
+/// The web app's configuration ([`WebConfig`]), as a script. `no-cache`: a
+/// rotated key takes effect on the next page load.
+async fn config_js(Extension(app): Extension<AppState>) -> Response {
+    let cfg = WebConfig {
+        clerk_publishable_key: (!app.cfg.dev_auth)
+            .then(|| app.cfg.clerk_publishable_key.clone())
+            .flatten(),
+    };
+    // A JSON object is a JavaScript object literal; as an external script,
+    // nothing in it can close a tag.
+    let json = serde_json::to_string(&cfg).expect("a plain struct");
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        format!("window.__RAFI_CONFIG__ = {json};\n"),
+    )
+        .into_response()
 }
 
 async fn public_raffle(app: &AppState, slug: &str) -> Result<RaffleRow, StatusCode> {

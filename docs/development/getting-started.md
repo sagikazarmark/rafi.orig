@@ -56,8 +56,8 @@ Then open <http://localhost:8787/admin>. Draws use real drand, so they need inte
 - Ports other than the server's are allocated: if one is taken, devenv takes the next free one.
 - `devenv up -d` runs in the background: `devenv processes logs rafi`, then `devenv down`.
 
-The stacks use dev auth: the web app is built with an empty `CLERK_PUBLISHABLE_KEY`, even when `.env` sets one. The
-`clerk` profile uses Clerk instead.
+The stacks use dev auth: the server runs with `RAFI_DEV_AUTH`, and tells the web app so (`/config.js`). The `clerk`
+profile uses Clerk instead.
 
 ### Profiles
 
@@ -83,8 +83,9 @@ local Workers state. Pass the same `--profile` flags to `devenv down` and `deven
   kept across restarts.
 - **`clerk`** signs the organizer in with Clerk. It needs `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, from
   [Clerk's dashboard](https://dashboard.clerk.com) (API keys; a development instance accepts `localhost`), in `.env`
-  at the project root, which the shell loads. The web app is built with the publishable key, and the server (or the
-  app Worker, which reads `.env` with `--env-file`) runs without `RAFI_DEV_AUTH`.
+  at the project root, which the shell loads. Both keys are the server's (or the app Worker's, which reads `.env`
+  with `--env-file`): it runs without `RAFI_DEV_AUTH` and hands the publishable key to the web app at `/config.js`.
+  The web app is built the same way either way.
 
 ## Without devenv
 
@@ -155,7 +156,7 @@ RAFI_RESTATE_DRAND__MOCK=true … cargo run -p rafi-restate --features mock-dran
 across restarts:
 
 ```sh
-./scripts/app-assets.sh --dev                             # web app bundle (dev auth) + participant scripts -> apps/worker/worker-assets
+./scripts/app-assets.sh                                   # web app bundle + participant scripts + template legal documents -> apps/worker/worker-assets
 (cd apps/worker && wrangler d1 migrations apply rafi --local --env dev --persist-to ../../.wrangler-state)
 (cd apps/worker && wrangler dev --env dev --persist-to ../../.wrangler-state)   # http://127.0.0.1:8787, dev auth, mock drand
 # Restate with its ingress on :18080 (the dev Worker's RAFI_ENGINE_INGRESS_URL), then register the engine, which is
@@ -167,8 +168,8 @@ curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
 
 ## With Clerk
 
-Export `CLERK_PUBLISHABLE_KEY` when building the web app and `CLERK_SECRET_KEY` for the server, and leave
-`RAFI_DEV_AUTH` unset.
+Give the server (or the app Worker) `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, and leave `RAFI_DEV_AUTH`
+unset. The web app needs nothing: it reads the server's `/config.js`.
 
 ## The server alone
 

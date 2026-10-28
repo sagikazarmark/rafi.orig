@@ -38,11 +38,12 @@ anything else), not the freeze.
 ## Database migrations
 
 The app applies migrations on start: `migrations/sqlite` for SQLite, `migrations/postgres` for Postgres. On D1,
-apply them with wrangler before deploying the Worker:
+apply them with wrangler before deploying the Worker, which is what `deploy/cloudflare`'s `npm run deploy` does
+(the release's migrations come with its artifact, in `rafi/migrations/sqlite`):
 
 ```sh
-./scripts/worker-config.sh prod <database_id>     # the release's wrangler.toml, your ID
-(cd apps/worker && wrangler d1 migrations apply rafi --remote -c wrangler.prod.toml)
+npm run build      # the new release into rafi/
+npm run deploy     # wrangler d1 migrations apply DB --remote, then wrangler deploy
 ```
 
 Natively, deploy the app before (or together with) the engine. Until the schema is current, the engine's writes

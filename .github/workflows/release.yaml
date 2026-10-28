@@ -1,0 +1,51 @@
+name: Release
+
+# A tag v<version> builds the Cloudflare release (scripts/cloudflare-release.sh):
+# the artifact, its tarball and checksums, and a dry deploy of that tarball
+# through deploy/cloudflare, fetched the way an installation fetches it. The
+# release is published with generated notes; what operators need to know is
+# CHANGELOG.md's, which calls out any change to deploy/cloudflare's shape.
+# deploy/cloudflare pins the version it fetches (package.json, "rafi.version"),
+# and the script refuses a release it doesn't pin, so the template on main
+# always names a release that exists.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    # The devenv shell, with the toolchain at the versions used locally.
+    shell: devenv shell -- bash -e {0}
+
+jobs:
+  cloudflare:
+    name: Cloudflare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
+
+      - name: Build and check the release
+        run: just cloudflare-release "${GITHUB_REF_NAME#v}"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+            --title "$GITHUB_REF_NAME" \
+            target/cloudflare/rafi-cloudflare-*.tar.gz target/cloudflare/SHA256SUMS

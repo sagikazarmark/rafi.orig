@@ -1,36 +1,34 @@
 #!/usr/bin/env bash
 # Assembles the Worker's static files (apps/worker/worker-assets, served by
-# Workers Assets): the web app bundle (dx) and the participant scripts.
+# Workers Assets): the web app bundle (dx), the participant scripts and the
+# installation's legal documents.
 #
-#   CLERK_PUBLISHABLE_KEY=pk_live_… ./scripts/app-assets.sh    # a deployment
-#   ./scripts/app-assets.sh --dev                              # dev auth
+#   ./scripts/app-assets.sh                                    # the templates as documents
+#   RAFI_DOCS_DIR=/path/to/your/legal ./scripts/app-assets.sh  # reviewed documents (wrangler dev as an installation)
 #
-# Clerk's publishable key is compiled into the web app: without one the admin
-# has no sign-in at all (dev auth). That is what local development wants and
-# what a deployment must never ship by accident (every admin call would be
-# 401 with no sign-in button), so an empty key is refused unless --dev says
-# so. The mode built is printed.
+# Nothing of an installation's is compiled into the web app: the server tells
+# it how organizers sign in at runtime (/config.js), so one bundle serves
+# every installation. The legal documents (terms.md, privacy.md) are files
+# the Worker reads from legal/ among these: from RAFI_DOCS_DIR, the same
+# variable the native server reads them from, or the repository's templates
+# (deploy/cloudflare/legal), which carry the template marker, so a production
+# Worker refuses them. A deployment doesn't run this: its documents go in
+# through deploy/cloudflare (scripts/cloudflare-artifact.sh leaves legal/ out).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/apps/worker/worker-assets"
 PUBLIC="$ROOT/target/dx/rafi-web/release/web/public"
+DOCS="${RAFI_DOCS_DIR:-$ROOT/deploy/cloudflare/legal}"
 
-DEV=0
-case "${1:-}" in
-  --dev) DEV=1 ;;
-  "") ;;
-  *) echo "usage: app-assets.sh [--dev]" >&2; exit 2 ;;
-esac
-if [ "$DEV" = 1 ]; then
-  export CLERK_PUBLISHABLE_KEY=""
-  echo "app-assets: dev auth (no Clerk key compiled in): for local development only"
-elif [ -z "${CLERK_PUBLISHABLE_KEY:-}" ]; then
-  echo "app-assets: CLERK_PUBLISHABLE_KEY is not set: the admin would ship without sign-in." >&2
-  echo "  Set it (a deployment), or pass --dev (local development with RAFI_DEV_AUTH)." >&2
-  exit 1
+[ $# -eq 0 ] || { echo "usage: RAFI_DOCS_DIR=<dir> app-assets.sh" >&2; exit 2; }
+for doc in terms.md privacy.md; do
+  [ -f "$DOCS/$doc" ] || { echo "app-assets: $DOCS/$doc is missing (RAFI_DOCS_DIR)" >&2; exit 1; }
+done
+if grep -q '\*\*Template\.\*\*' "$DOCS/terms.md" "$DOCS/privacy.md"; then
+  echo "app-assets: legal documents from $DOCS: the templates (a production Worker refuses them)"
 else
-  echo "app-assets: Clerk sign-in with ${CLERK_PUBLISHABLE_KEY:0:12}…"
+  echo "app-assets: legal documents from $DOCS"
 fi
 
 # dx bundle leaves earlier bundles (other hashes) in its output: start empty.
@@ -39,9 +37,10 @@ rm -rf "${PUBLIC:?}"
 "$ROOT/scripts/participant.sh" "$OUT.participant.tmp"
 
 rm -rf "${OUT:?}"
-mkdir -p "$OUT"
+mkdir -p "$OUT/legal"
 cp -R "$PUBLIC/." "$OUT/"
 mv "$OUT.participant.tmp" "$OUT/participant"
+cp "$DOCS/terms.md" "$DOCS/privacy.md" "$OUT/legal/"
 # Cloudflare compresses at the edge; the precompressed variants are for the
 # native server and would only be served as files here.
 rm -f "$OUT"/participant/*.gz "$OUT"/participant/*.br

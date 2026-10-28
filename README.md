@@ -80,9 +80,11 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 
 ## Status
 
-- **Cloudflare Workers** is the production deployment: [the first deploy](docs/operations/cloudflare.md) is
-  documented step by step, and CI runs the production shape through a dry deploy, a whole evening under
-  `wrangler dev` and the hourly housekeeping.
+- **Cloudflare Workers** is the production deployment, and needs no toolchain: [`deploy/cloudflare`](deploy/cloudflare)
+  deploys a release to your own account (a Deploy to Cloudflare button, or the same by hand) with your
+  configuration and legal documents; [the first deploy](docs/operations/cloudflare.md) is documented step by
+  step. CI runs the production shape through a dry deploy, a whole evening under `wrangler dev` and the hourly
+  housekeeping.
 - **Self-hosting** (native `rafi` and `rafi-restate`) is supported. There are no packaged images yet: you build
   from source. Container images and native packages come later.
 - The UI is in English only.

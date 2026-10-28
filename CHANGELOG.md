@@ -2,7 +2,9 @@
 
 What changes between releases, for operators and organizers. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project is pre-1.0, so a minor version may change
-what an operator configures or what a client reads, and says so here.
+what an operator configures or what a client reads, and says so here. A change to the shape of
+[`deploy/cloudflare`](deploy/cloudflare) (its `wrangler.toml` or `.dev.vars.example`) is called out under
+Operators, so an installation knows to compare its copy with the release's.
 
 ## Unreleased
 
@@ -18,9 +20,14 @@ ran a development build before.
   `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`; the native engine's config file is `RAFI_RESTATE_CONFIG`;
   `RAFI_RETENTION_MAX_DAYS` (was `RAFI_RETENTION_DAYS_MAX`); `RAFI_DO_JURISDICTION` takes `none` instead of an
   empty string. Every numeric variable refuses a typo.
-- The Worker's `wrangler.toml` is the production shape; an installation's values are secrets (`[secrets]
-  required`), its D1 ID goes into a generated `wrangler.<site>.toml` (`scripts/worker-config.sh`), and its legal
-  documents are bundled from `RAFI_LEGAL_DIR`. The first deploy is in
+- Nothing of an installation's is compiled in, so one build serves every installation. Clerk's publishable key
+  is the server's (`CLERK_PUBLISHABLE_KEY`, required with `CLERK_SECRET_KEY`), handed to the web app at
+  `/config.js`; the Worker reads the legal documents from `legal/` among its static files (`RAFI_LEGAL_DIR` and
+  `build.rs` are gone), the way the native server reads `RAFI_DOCS_DIR`. A release ships
+  `rafi-cloudflare-<version>.tar.gz` (the Worker, the static files, the D1 migrations) with `SHA256SUMS`, and
+  [`deploy/cloudflare`](deploy/cloudflare) deploys it to an installation's account with its `wrangler.toml`,
+  secrets and documents, by a Deploy to Cloudflare button or by hand; `scripts/worker-config.sh` and
+  `wrangler.<site>.toml` are gone. The first deploy is in
   [docs/operations/cloudflare.md](docs/operations/cloudflare.md).
 - Fail closed: `RAFI_ENGINE_API_KEY` is required on Workers; `RAFI_DEV_AUTH` needs a build with `--features dev`
   (native too); the native engine listens on `127.0.0.1:9080` and needs `identity_keys` or

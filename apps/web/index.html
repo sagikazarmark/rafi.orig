@@ -10,6 +10,9 @@
             // Apply the saved theme before first paint (no flash). "system" = no attribute.
             try { var t = localStorage.getItem("rafi-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
         </script>
+        <!-- The server's configuration for the app (rafi-server's public::config_js): a plain script, so it
+             has run before the app's module starts. -->
+        <script src="/config.js"></script>
         <!-- Styled first paint, before the app loads (rafi-server's pages::style::STYLESHEET_URL). -->
         <link rel="stylesheet" href="/assets/tailwind.css">
     </head>

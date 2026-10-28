@@ -1,7 +1,8 @@
 # Self-hosting
 
 Running Rafi natively: the `rafi` app and the `rafi-restate` raffle engine, sharing one database, with Restate in
-front of the engine. There are no container images yet, so this guide builds from source.
+front of the engine. There are no container images yet, so this guide builds from source. (On Cloudflare Workers,
+nothing is built: see [Cloudflare Workers](cloudflare.md).)
 
 ## 1. Build
 
@@ -10,8 +11,8 @@ You need the toolchain from [Getting started](../development/getting-started.md#
 daisyUI).
 
 ```sh
-# the web app (admin, projector, verification page); CLERK_PUBLISHABLE_KEY is compiled in
-(cd apps/web && npm ci && CLERK_PUBLISHABLE_KEY=pk_live_… dx bundle --platform web --release)
+# the web app (admin, projector, verification page); nothing of an installation's is in it
+(cd apps/web && npm ci && dx bundle --platform web --release)
 #   -> target/dx/rafi-web/release/web/public
 
 # the participant page's WebAssembly and JavaScript fallback
@@ -89,8 +90,8 @@ installation's own privacy notice. Organizers accept your terms, with the data p
 service; the admin links them. The software can't write these for you:
 
 1. Put `terms.md` and `privacy.md` in a directory (`RAFI_DOCS_DIR`). Start from
-   [`apps/worker/legal/`](../../apps/worker/legal/), which are engineering drafts marked as templates, fill in the
-   bracketed parts and have a lawyer review them.
+   [`deploy/cloudflare/legal/`](../../deploy/cloudflare/legal/), which are engineering drafts marked as templates,
+   fill in the bracketed parts and have a lawyer review them.
 2. Give each a version (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`). Changing a document's text
    means a new version, shown with the document. Nothing records who read which version: a change to the data
    processing agreement has to be notified to organizers directly, not only published.
@@ -110,7 +111,7 @@ abuse](../explanation/privacy-and-abuse.md).
 RAFI_PUBLIC_URL=https://raffle.example.org \
 RAFI_DATABASE_URL=… \
 RAFI_ENGINE_INGRESS_URL=http://localhost:8080 \
-CLERK_SECRET_KEY=sk_live_… \
+CLERK_SECRET_KEY=sk_live_… CLERK_PUBLISHABLE_KEY=pk_live_… \
 RAFI_ALTCHA_KEY=$(openssl rand -hex 32) \
 RAFI_DOCS_DIR=/etc/rafi RAFI_TERMS_VERSION=2026-10 RAFI_PRIVACY_VERSION=2026-10 \
 RAFI_OPERATOR_NAME="Example Meetups e.V." RAFI_OPERATOR_EMAIL=privacy@example.org \

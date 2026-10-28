@@ -24,11 +24,9 @@ let
   # The app and the engine write the same SQLite file.
   databaseUrl = "sqlite://${state}/rafi.db";
 
-  # Dev auth, or Clerk (the clerk profile) with the keys from .env. The web app
-  # reads CLERK_PUBLISHABLE_KEY at build time: empty, it uses dev auth.
-  noClerk = {
-    CLERK_PUBLISHABLE_KEY = "";
-  };
+  # Dev auth, or Clerk (the clerk profile) with the keys from .env. Both keys
+  # are the server's: it tells the web app how to sign in at runtime
+  # (/config.js), so the web app is built the same way either way.
   requireClerkKeys = lib.optionalString cfg.clerk ''
     : "''${CLERK_PUBLISHABLE_KEY:?the clerk profile needs CLERK_PUBLISHABLE_KEY (in .env)}"
     : "''${CLERK_SECRET_KEY:?the clerk profile needs CLERK_SECRET_KEY (in .env)}"
@@ -55,20 +53,21 @@ let
   rafiFeatures = " --features dev" + lib.optionalString cfg.mockDrand ",mock-drand";
 
   # The Workers' static files (apps/worker/worker-assets) are rebuilt when their
-  # sources change, when something else rebuilt them (scripts/workers-check.sh),
-  # or for the other auth: the stamp records the build.
+  # sources change, or when something else rebuilt them (scripts/workers-check.sh):
+  # the stamp records the build.
   appAssets = "apps/worker/worker-assets";
-  appAssetsStamp = "target/app-assets.auth";
-  appAssetsAuth = if cfg.clerk then "clerk" else "dev";
+  appAssetsStamp = "target/app-assets.stamp";
   appAssetsSources = [
     "apps/web/src"
     "apps/web/assets"
+    "apps/web/index.html"
     "apps/web/tailwind.css"
     "apps/web/Cargo.toml"
     "apps/web/Dioxus.toml"
     "apps/participant/src"
     "apps/participant/fallback.js"
     "apps/participant/Cargo.toml"
+    "deploy/cloudflare/legal"
     "crates"
     "Cargo.lock"
   ];
@@ -229,13 +228,13 @@ in
         after = [ "devenv:processes:engine" ];
       };
 
-      # The web app, with hot reload.
+      # The web app, with hot reload. `/config.js` is proxied to the server
+      # (apps/web/Dioxus.toml), so sign-in follows the server's mode.
       dioxus.serve = {
         enable = true;
         directory = "apps/web";
         port = 8787;
       };
-      processes.dioxus.env = lib.mkIf (!cfg.clerk) noClerk;
     })
 
     (lib.mkIf (cfg.stack == "workers") {
@@ -268,21 +267,29 @@ in
       };
 
       tasks = {
-        # The web app bundle and the participant scripts -> apps/worker/worker-assets.
+        # The web app bundle, the participant scripts and the template legal
+        # documents -> apps/worker/worker-assets.
         "rafi:app-assets" = {
           exec = ''
-            ${requireClerkKeys}
-            ./scripts/app-assets.sh${lib.optionalString (!cfg.clerk) " --dev"}
+            ./scripts/app-assets.sh
             mkdir -p "$(dirname ${appAssetsStamp})"
-            echo ${appAssetsAuth} > ${appAssetsStamp}
+            touch ${appAssetsStamp}
           '';
           status = ''
-            [ "$(cat ${appAssetsStamp} 2>/dev/null)" = ${appAssetsAuth} ] \
+            [ -f ${appAssetsStamp} ] \
               && [ -f ${appAssets}/index.html ] \
               && [ -z "$(find ${appAssets}/index.html ${lib.concatStringsSep " " appAssetsSources} \
                 -newer ${appAssetsStamp} ! -path apps/web/assets/tailwind.css -print -quit)" ]
           '';
           cwd = root;
+          before = [ "devenv:processes:wrangler-app" ];
+        };
+      }
+      // lib.optionalAttrs cfg.clerk {
+        # With the clerk profile, the keys are checked every time, so `devenv
+        # up` fails before wrangler starts a Worker that would refuse everything.
+        "rafi:clerk-keys" = {
+          exec = requireClerkKeys;
           before = [ "devenv:processes:wrangler-app" ];
         };
       };

@@ -1,0 +1,5 @@
+# What build.mjs fetches or copies in: a release of Rafi, or a build from source.
+rafi/
+node_modules/
+.wrangler/
+.dev.vars

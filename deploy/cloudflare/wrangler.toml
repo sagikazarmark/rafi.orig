@@ -1,0 +1,106 @@
+# Rafi on Cloudflare Workers: one installation's configuration. This is the
+# Worker's shape as the Rafi repository ships it (apps/worker/wrangler.toml),
+# pointed at a release's files in rafi/ (build.mjs puts them there), with
+# your database and domain in place of the placeholders. Everything else of
+# yours is a secret (.dev.vars.example lists them) or a file in legal/.
+#
+# Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "rafi"
+main = "rafi/build/index.js"
+compatibility_date = "2026-05-01"
+# Only your domain: no *.workers.dev address, no preview URLs (a preview would
+# share production's database and objects). Add your domain once the Worker
+# exists; it must be the origin RAFI_PUBLIC_URL names and Clerk allows.
+workers_dev = false
+preview_urls = false
+# routes = [{ pattern = "raffle.example.org", custom_domain = true }]
+
+# The web app, the participant scripts and your legal documents (legal/,
+# copied in by build.mjs). Paths the Worker answers go to it first; anything
+# else is a file, or the web app's index.html (single-page routing). The
+# binding is how the Worker reads the legal documents. (/__scheduled is how
+# `wrangler dev --test-scheduled` fires the Cron Trigger; deployed, the
+# Worker answers it 404 like any other unknown path.)
+[assets]
+directory = "rafi/worker-assets"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/config.js", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js", "/__scheduled"]
+
+# Your database. Deploy to Cloudflare creates it and fills the ID in; by
+# hand: `wrangler d1 create rafi --jurisdiction eu`, and paste the ID here.
+# The migrations run before each deploy (`npm run deploy`).
+[[d1_databases]]
+binding = "DB"
+database_name = "rafi"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "rafi/migrations/sqlite"
+
+# One live channel per raffle, in the jurisdiction RAFI_DO_JURISDICTION names.
+[[durable_objects.bindings]]
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RaffleRoom"]
+
+# Soft limits on joining (approximate, per location). Keys are never IP
+# addresses: a venue shares one. The hard limit is the entrant cap
+# (RAFI_MAX_ENTRANTS).
+[[ratelimits]]
+name = "JOIN_PER_RAFFLE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 600, period = 60 }
+
+[[ratelimits]]
+name = "JOIN_PER_EMAIL_LIMITER"
+namespace_id = "1002"
+simple = { limit = 5, period = 60 }
+
+[[ratelimits]]
+name = "CONNECT_LIMITER"
+namespace_id = "1003"
+simple = { limit = 600, period = 60 }
+
+# Housekeeping, hourly: erasing personal data as raffles age, expired
+# proof-of-work challenges, stale live channels.
+[triggers]
+crons = ["0 * * * *"]
+
+# The application's own log lines (warnings and errors, raffle IDs and error
+# text, never personal data; the hourly housekeeping report) are kept in
+# Workers Logs. The automatic per-invocation records are not: they would
+# hold client IPs and cookies.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false
+
+# Where the live channels' Durable Objects live: "eu", "fedramp", or "none".
+[vars]
+RAFI_DO_JURISDICTION = "eu"
+
+# What this installation sets before its first deploy (`wrangler secret bulk
+# <file>` or `wrangler secret put <NAME>`; Deploy to Cloudflare asks for them,
+# from .dev.vars.example). A deploy refuses to go out while one is missing.
+# Optional settings with defaults (RAFI_RETENTION_DAYS, RAFI_RETENTION_MAX_DAYS,
+# RAFI_RETENTION_WINNERS_DAYS, RAFI_MIN_AGE, RAFI_DRAND_RELAYS,
+# RAFI_DRAND_LEAD_SECS, RAFI_DRAND_TIMEOUT_SECS) are secrets too when you
+# change them: https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
+[secrets]
+required = [
+  "RAFI_PUBLIC_URL",
+  "RAFI_ENGINE_INGRESS_URL",
+  "RAFI_ENGINE_API_KEY",
+  "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS",
+  "RAFI_ALTCHA_KEY",
+  "CLERK_SECRET_KEY",
+  "CLERK_PUBLISHABLE_KEY",
+  "RAFI_OPERATOR_NAME",
+  "RAFI_OPERATOR_EMAIL",
+  "RAFI_TERMS_VERSION",
+  "RAFI_PRIVACY_VERSION",
+]

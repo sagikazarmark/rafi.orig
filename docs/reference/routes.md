@@ -28,6 +28,7 @@ These never contain emails, tokens or claim codes.
 | `GET /api/r/<slug>/participant` | The participant view, which phones render: state, the current draw, winners by entrant ID, prizes left |
 | `GET /api/r/<slug>/verify.json` | The manifest, its hash, the event log and display names ([format](draw-algorithm.md#verifyjson)) |
 | `GET /api/altcha` | A proof-of-work challenge for the join form |
+| `GET /config.js` | The web app's configuration, as a script `index.html` loads first (`window.__RAFI_CONFIG__`): Clerk's publishable key, or `null` under dev auth. The server alone decides how organizers sign in; nothing of an installation's is in the web app bundle. |
 | `GET /healthz` | `ok` |
 
 ## Admin API

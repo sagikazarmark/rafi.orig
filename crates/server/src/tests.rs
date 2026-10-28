@@ -1219,6 +1219,45 @@ async fn altcha_worker_is_dioxus_altchas() {
     std::fs::remove_dir_all(&public).ok();
 }
 
+/// `/config.js` tells the web app how the server signs organizers in: the
+/// Clerk publishable key when it verifies Clerk sessions, none under dev
+/// auth. The server is the one authority, so the web app can't disagree
+/// with it, and one web app bundle serves every installation.
+#[tokio::test]
+async fn config_js_says_how_the_server_signs_in() {
+    let get = || Request::get("/config.js").body(Body::empty()).unwrap();
+
+    let router = routes(app().await);
+    let (status, headers, body) = send(&router, get()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers[header::CONTENT_TYPE],
+        "text/javascript; charset=utf-8"
+    );
+    // A rotated key or a switched mode takes effect on the next load.
+    assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+    assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+    assert_eq!(
+        body,
+        format!(
+            "window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":{:?}}};\n",
+            Config::for_tests().clerk_publishable_key.unwrap()
+        )
+    );
+
+    // Dev auth: no key, whatever is configured, so the admin shows its
+    // dev-auth badge instead of a sign-in nobody checks.
+    let mut cfg = Config::for_tests();
+    cfg.dev_auth = true;
+    let router = routes(app_with(cfg).await);
+    let (status, _, body) = send(&router, get()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        "window.__RAFI_CONFIG__ = {\"clerkPublishableKey\":null};\n"
+    );
+}
+
 #[tokio::test]
 async fn admin_api_needs_a_session_unless_dev_auth() {
     // No session and no dev auth: every admin function is refused.
