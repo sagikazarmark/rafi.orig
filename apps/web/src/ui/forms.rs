@@ -25,8 +25,13 @@ use crate::{
 };
 use rafi_api::{PrizeInput, RaffleDefaults, RaffleSettings, Retention};
 
+/// What the organizer reads for a failed call: its message, and for a
+/// server error the request's ID, which the operator finds in the log.
 pub fn err_text(e: ApiError) -> String {
-    e.message
+    match e.request_id {
+        Some(id) => format!("{} (reference: {id})", e.message),
+        None => e.message,
+    }
 }
 
 /// Form-level errors (e.g. the server rejected the submission).

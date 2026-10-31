@@ -52,4 +52,5 @@ rafi-raffle = { workspace = true, features = ["mock-chain"] }
 restate-e2e-harness = "0.3"
 restate-sdk = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 uuid = { version = "1", features = ["v4"] }

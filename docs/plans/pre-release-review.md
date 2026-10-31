@@ -969,7 +969,11 @@ the state is kept from here on.
   inline styles need nonces or hashes; a day's work with the Dioxus build.
 - **The `tracing`/`console` layer growing into request IDs** ([#24](https://github.com/sagikazarmark/rafi.orig/issues/24)). The router has one place for a `TraceLayer`
   (`crates/server/src/lib.rs:126-132`) and the admin API one error mapper (`admin.rs:51-69`), so nothing structural
-  is needed now.
+  is needed now. **Done**: not `TraceLayer` (its `Instant` aborts on wasm32) but a middleware of the server's own
+  (`crates/server/src/trace.rs`), outside Clerk's layer on both hosts (`trace::layer`): an ID per request
+  (Cloudflare's Ray ID on Workers, 16 random hex characters natively) in a span with the method and the route's
+  pattern, in the `x-request-id` header, and a warning for a 5xx; the admin shows a server error with the ID as its
+  reference.
 - **A `Clock` on `App`/`Policy`** ([#25](https://github.com/sagikazarmark/rafi.orig/issues/25)). `ids::now()` is called directly in ~15 places; tests shift data instead. Not a
   contract. **Done**: a `Clock` on `App` (not `Policy`: it is a capability, not a setting), read once per use case;
   the store's writes take `now` instead of reading the time, and `RaffleWriter` stamps the engine's by its own clock

@@ -9,7 +9,8 @@
 //!   - `/partyline/raffle/{id}`: phones' live-channel sockets go to the raffle's
 //!     [`RaffleRoom`];
 //!   - everything else: the same axum routes as the native server
-//!     ([`rafi_server::routes`]) behind Clerk. Workers Assets serves the web app
+//!     ([`rafi_server::routes`]) behind Clerk, with Cloudflare's Ray ID as
+//!     each request's ID (`rafi_server::trace`). Workers Assets serves the web app
 //!     and the participant build's files before the Worker is called
 //!     (`run_worker_first` in `wrangler.toml` lists the Worker's paths).
 //! - `scheduled`: the Cron Trigger runs housekeeping (`rafi_app::housekeeping::run`).
@@ -133,6 +134,8 @@ fn app(env: &Env, cfg: Config) -> anyhow::Result<App> {
         Some(layer) => router.layer(layer),
         None => router,
     };
+    // Around Clerk's layer, so its refusals have an ID too.
+    let router = server::trace::layer(router, server::trace::RequestIds::cloudflare());
     Ok(App {
         state,
         router,

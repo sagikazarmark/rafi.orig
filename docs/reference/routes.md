@@ -52,7 +52,16 @@ A failed call answers with a non-2xx status and `{"code": "…", "message": "…
 `snake_case` name a program can act on (a refusal's kind, such as `settings_fixed` or `forbidden`, or `not_found`,
 `invalid_arguments`, `unauthorized`, `unavailable`, `internal`), the `message` is for the organizer. The status says
 what kind of failure: 400 for a request that can never succeed, 401 without a session, 403 for the caller's tier,
-404 for what isn't theirs, 409 for what the raffle's state refuses, 503 for an engine out of reach.
+404 for what isn't theirs, 409 for what the raffle's state refuses, 503 for an engine out of reach. On a server error
+(5xx) the admin shows the organizer the request's ID as a reference (below).
+
+## Request IDs
+
+Every response from the server's routes carries an `x-request-id` header: natively 16 random hex characters, on
+Workers Cloudflare's Ray ID (`cf-ray`). Every line the server logs while handling the request carries the same ID,
+with the method and the route's pattern (`/j/{code}`, never the path itself), so an organizer's reference finds the
+lines ([Logs](../operations/troubleshooting.md#logs)). Natively the static files carry one too; on Workers, files
+Workers Assets serves, the live channel and the engine's endpoint don't pass the server's routes and have none.
 
 ## Static files
 

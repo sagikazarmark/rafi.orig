@@ -63,3 +63,19 @@ the hourly housekeeping report) go to the console, and Workers Logs keeps them. 
 records are deliberately off (`invocation_logs = false` in `wrangler.toml`): they would hold client IPs and
 cookies. `wrangler tail` shows the console lines live, and shows each request's details too while it runs,
 whatever the setting; use it while debugging, knowing that.
+
+### Finding an organizer's error
+
+When a call fails on the server's side, the admin shows the error with a reference, such as "internal error
+(reference: 3f9a1c2b7d004e51)": the request's ID, which every response carries in `x-request-id`
+([Request IDs](../reference/routes.md#request-ids)). Every line logged while that request ran carries it, with the
+method and the route's pattern, and a request that ended in a server error leaves a warning of its own with its
+status and latency:
+
+```text
+WARN request{id=3f9a1c2b7d004e51 method=POST route=/api/admin/{name}}: rafi_server::trace: request failed status=500 latency_ms=12
+```
+
+Natively, search the log for `id=<reference>`; the ID is on the lines at `info` and above (the default), so not under
+`RUST_LOG=warn`. Every other request leaves a line at `debug` (`RUST_LOG=info,rafi_server::trace=debug`). On
+Workers the reference is the request's Ray ID: search Workers Logs, or `wrangler tail --search <reference>`, for it.

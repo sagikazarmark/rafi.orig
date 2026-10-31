@@ -1096,9 +1096,12 @@ async fn admin_requires_clerk_session() {
     assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
     assert!(headers.contains_key(header::ETAG));
 
-    let (status, _, body) = send(&router, admin_call("whoami", "{}")).await;
+    let (status, headers, body) = send(&router, admin_call("whoami", "{}")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
     assert!(body.contains("Please sign in."), "{body}");
+    // Behind Clerk's layer, every response has an ID, refusals included.
+    let id = headers[super::trace::REQUEST_ID].to_str().unwrap();
+    assert_eq!(id.len(), 16, "{id}");
 
     let mut req = admin_call("whoami", "{}");
     req.headers_mut().insert(
@@ -1181,6 +1184,7 @@ async fn admin_requires_clerk_session() {
             !framed,
             "{path}"
         );
+        assert!(headers.contains_key(super::trace::REQUEST_ID), "{path}");
     }
     // And on what the server renders itself.
     let (_, headers, _) = send(

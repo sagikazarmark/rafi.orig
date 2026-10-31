@@ -21,6 +21,7 @@ pub mod housekeeping;
 mod pages;
 pub mod participant;
 pub mod public;
+pub mod trace;
 
 pub use rafi_app::{self as service, ids, view};
 
@@ -233,7 +234,8 @@ const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// The complete HTTP router: [`routes`], the participant build's files at
 /// `/participant/`, then the web app from [`Dirs::public`] with a single-page
 /// fallback to its `index.html`, all behind the Clerk auth layer unless dev
-/// auth is on. On Workers, Workers Assets serves the files instead.
+/// auth is on, and around that the [request IDs](trace), so a refusal of
+/// Clerk's has one too. On Workers, Workers Assets serves the files instead.
 ///
 /// The participant's assets are named by their hash, so a phone keeps them
 /// for good (`Cache-Control: immutable`; a deploy links new names). Its
@@ -296,10 +298,11 @@ pub fn build_router(
         .nest("/participant/assets", assets)
         .merge(fallback)
         .fallback_service(web_app);
-    match auth {
+    let router = match auth {
         Some(layer) => router.layer(layer),
         None => router,
-    }
+    };
+    trace::layer(router, trace::RequestIds::Generate)
 }
 
 #[cfg(test)]

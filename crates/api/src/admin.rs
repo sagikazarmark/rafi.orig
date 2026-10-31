@@ -98,6 +98,12 @@ pub struct ApiError {
     #[serde(default)]
     pub code: String,
     pub message: String,
+    /// The failed request's ID, for a server error (5xx): the reference
+    /// the organizer can give the operator, who finds it in the server's
+    /// log. Not in the body: the client takes it from the response's
+    /// `x-request-id` header, which every response carries.
+    #[serde(skip)]
+    pub request_id: Option<String>,
 }
 
 impl ApiError {
@@ -105,6 +111,15 @@ impl ApiError {
         Self {
             code: code.into(),
             message: message.into(),
+            request_id: None,
+        }
+    }
+
+    /// This error, for the request `id`.
+    pub fn with_request_id(self, id: impl Into<String>) -> Self {
+        Self {
+            request_id: Some(id.into()),
+            ..self
         }
     }
 }

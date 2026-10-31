@@ -150,6 +150,16 @@ if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev
     | node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(0, "utf8")).retention_stale))')"
   [ "$stale" = "false" ] || { echo "whoami.retention_stale is $stale after a run" >&2; exit 1; }
   echo "ok   the admin sees automatic erasure as running"
+  # Every response through the router has a request ID: the Ray ID that
+  # came with the request, or a fresh one where none came (wrangler dev).
+  request_id="$(curl -s -m 10 -o /dev/null -D - -X POST http://127.0.0.1:8787/api/admin/whoami \
+    -H 'content-type: application/json' -d '{}' \
+    | tr -d '\r' | awk -F': ' 'tolower($1) == "x-request-id" { print $2 }')"
+  if ! [[ "$request_id" =~ ^[A-Za-z0-9-]{1,64}$ ]]; then
+    echo "the Worker's response has no request ID (x-request-id: '$request_id')" >&2
+    exit 1
+  fi
+  echo "ok   the Worker's responses carry a request ID ($request_id)"
   # The dev Worker is done: the production shape takes the port's build dir.
   kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
 else

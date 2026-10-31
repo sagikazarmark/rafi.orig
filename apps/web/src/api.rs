@@ -66,6 +66,9 @@ mod client {
         ApiError::new(codes::CLIENT, format!("Could not reach the server: {e}"))
     }
 
+    /// The reply's value, or why there is none. A server error (5xx) carries
+    /// the request's ID (`x-request-id`), the reference the organizer is
+    /// shown; a refusal needs none.
     async fn reply<T: DeserializeOwned>(resp: Response) -> Result<T, ApiError> {
         let body = resp.text().await.map_err(network)?;
         if resp.ok() {
@@ -76,16 +79,24 @@ mod client {
                 )
             });
         }
-        if let Ok(e) = serde_json::from_str::<ApiError>(&body) {
-            return Err(e);
+        let error = failure(resp.status(), &body);
+        match resp.headers().get("x-request-id") {
+            Some(id) if resp.status() >= 500 => Err(error.with_request_id(id)),
+            _ => Err(error),
         }
-        Err(match resp.status() {
+    }
+
+    fn failure(status: u16, body: &str) -> ApiError {
+        if let Ok(e) = serde_json::from_str::<ApiError>(body) {
+            return e;
+        }
+        match status {
             401 => ApiError::new(codes::UNAUTHORIZED, "Please sign in."),
             404 => ApiError::new(codes::NOT_FOUND, "not found"),
             status if body.trim().is_empty() => {
                 ApiError::new(codes::CLIENT, format!("Request failed ({status})."))
             }
             _ => ApiError::new(codes::CLIENT, body),
-        })
+        }
     }
 }

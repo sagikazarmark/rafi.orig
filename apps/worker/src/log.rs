@@ -8,15 +8,18 @@
 //! `wasm32-unknown-unknown`; the console adds its own), no ANSI, `warn` and
 //! up only (a fixed filter: `EnvFilter` would pull a regex engine into the
 //! module), and each line once even while Restate replays a journal
-//! ([`ReplayAwareFilter`], as the native engine filters). The lines carry
-//! raffle IDs and error text, never personal data.
+//! ([`ReplayAwareFilter`], as the native engine filters). The level is the
+//! events' alone: spans pass at any level, so a line carries the spans it
+//! was logged in, the request's ID among them (`rafi_server::trace`). The
+//! lines carry raffle IDs, request IDs, routes' patterns and error text,
+//! never personal data.
 
 use std::io;
 
 use restate_sdk::filter::ReplayAwareFilter;
 use tracing::{Level, Metadata};
 use tracing_subscriber::{
-    Layer, filter::LevelFilter, fmt::MakeWriter, layer::SubscriberExt, util::SubscriberInitExt,
+    Layer, filter::filter_fn, fmt::MakeWriter, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
 /// Installs the subscriber, once; a second call (another request in the same
@@ -29,7 +32,9 @@ pub fn install() {
                 .with_ansi(false)
                 .without_time()
                 .with_target(false)
-                .with_filter(LevelFilter::WARN)
+                .with_filter(filter_fn(|meta| {
+                    meta.is_span() || *meta.level() <= Level::WARN
+                }))
                 .with_filter(ReplayAwareFilter),
         )
         .try_init();
