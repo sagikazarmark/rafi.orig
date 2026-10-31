@@ -7,6 +7,10 @@
 //
 // INGRESS (Restate's ingress, default http://127.0.0.1:18080) lets it read
 // the engine's own state back after the draw.
+//
+// Every tab reports what the pages' Content-Security-Policy refused (or, under
+// RAFI_CSP=report-only, would have): one is a failure, since a refusal means
+// a broken page and a report a policy about to break one.
 
 import { spawn } from "node:child_process";
 
@@ -63,9 +67,22 @@ await new Promise((r) => (ws.onopen = r));
 let seq = 0;
 const pending = new Map();
 const errors = [];
+const violations = [];
+// A page's violations reach DevTools as log entries (Log.enable) and, from a
+// listener every document gets before its own scripts run, as events.
+const VIOLATION = "rafi-csp-violation";
+const listenForViolations = `document.addEventListener("securitypolicyviolation", (e) =>
+  console.error("${VIOLATION}", e.disposition, e.effectiveDirective, e.blockedURI, (e.sample || "").slice(0, 80), location.pathname));`;
+function violation(msg) {
+  if (msg.method === "Log.entryAdded" && /Content Security Policy/i.test(msg.params.entry.text)) return msg.params.entry.text;
+  if (msg.method === "Runtime.consoleAPICalled" && msg.params.args[0]?.value === VIOLATION) return msg.params.args.slice(1).map((a) => a.value).join(" ");
+  return null;
+}
 ws.onmessage = (m) => {
   const msg = JSON.parse(m.data);
   if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
+  const v = violation(msg);
+  if (v) { violations.push(`phone: ${v}`); return; }
   if (msg.method === "Runtime.exceptionThrown") errors.push(msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text);
   if (msg.method === "Runtime.consoleAPICalled" && msg.params.type === "error") errors.push(msg.params.args.map((a) => a.value ?? a.description).join(" "));
   if (msg.method === "Page.backForwardCacheNotUsed") bfcacheNotUsed = msg.params.notRestoredExplanations.map((e) => e.reason);
@@ -76,9 +93,10 @@ const js = async (expr) => (await send("Runtime.evaluate", { expression: expr, a
 const until = async (pred, ms = 10000) => { for (let t = 0; t < ms; t += 100) { if (await pred()) return true; await sleep(100); } return false; };
 const card = () => js(`(document.getElementById("live")?.innerText ?? "").replace(/\\s+/g, " ").trim()`);
 
-// The projector: a second tab with its own DevTools connection.
-async function tab(url) {
-  const t = await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
+// The projector: a second tab with its own DevTools connection, listening
+// for violations before it loads `url`.
+async function tab(name, url, before = async () => {}) {
+  const t = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" })).json();
   const sock = new WebSocket(t.webSocketDebuggerUrl);
   await new Promise((r) => (sock.onopen = r));
   let n = 0;
@@ -86,8 +104,14 @@ async function tab(url) {
   sock.onmessage = (m) => {
     const msg = JSON.parse(m.data);
     if (msg.id && waiting.has(msg.id)) { waiting.get(msg.id)(msg); waiting.delete(msg.id); }
+    const v = violation(msg);
+    if (v) violations.push(`${name}: ${v}`);
   };
   const call = (method, params = {}) => new Promise((r) => { const i = ++n; waiting.set(i, r); sock.send(JSON.stringify({ id: i, method, params })); });
+  for (const domain of ["Runtime", "Page", "Log"]) await call(`${domain}.enable`);
+  await call("Page.addScriptToEvaluateOnNewDocument", { source: listenForViolations });
+  await before(call);
+  await call("Page.navigate", { url });
   return {
     call,
     js: async (expr) => (await call("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true })).result?.result?.value,
@@ -96,6 +120,26 @@ async function tab(url) {
 }
 await send("Runtime.enable");
 await send("Page.enable");
+await send("Log.enable");
+await send("Page.addScriptToEvaluateOnNewDocument", { source: listenForViolations });
+
+// The policies, as the Worker sends them: the pages' by hash, the web app's
+// with eval (Dioxus) and no Clerk (dev auth), the projector framable; and no
+// single-page fallback among the static files.
+const policyOf = async (path) => {
+  const res = await fetch(`${base}${path}`);
+  return { status: res.status, csp: res.headers.get("content-security-policy") ?? "", xfo: res.headers.get("x-frame-options") };
+};
+let p = await policyOf(`/j/${code}`);
+check(/script-src [^;]*'sha256-/.test(p.csp) && !p.csp.includes("'unsafe-eval'") && p.csp.includes("frame-ancestors 'none'"),
+  `the join page's policy allows its inline scripts by hash (${p.csp})`);
+p = await policyOf("/admin");
+check(p.status === 200 && p.csp.includes("'unsafe-eval'") && !/clerk/.test(p.csp) && p.csp.includes("frame-ancestors 'none'"),
+  `the Worker serves the web app's shell with its policy (${p.status}: ${p.csp})`);
+p = await policyOf(`/s/${slug}`);
+check(p.status === 200 && !p.csp.includes("frame-ancestors") && p.xfo === null, "the projector may be framed");
+p = await policyOf("/assets/rafi-web-dxh0000000000000000.js");
+check(p.status === 404, `a missing static file is a 404, not the shell (${p.status})`);
 
 await send("Page.navigate", { url: `${base}/j/${code}` });
 check(await until(() => js(`!!document.getElementById("submit") && !document.getElementById("submit").disabled`), 20000),
@@ -146,7 +190,7 @@ await api("start_draw", { id });
 check(await until(async () => /draw is starting|starting/i.test(await card()), 15000), "the freeze reaches the phone");
 admin = await api("get_raffle", { id });
 const item = admin.view.items[0].item;
-const screen = await tab(`${base}/s/${slug}`);
+const screen = await tab("projector", `${base}/s/${slug}`);
 // Read defensively: the projector loads the web app first (a large bundle).
 const screenText = async () => (await screen.js(`(document.body?.innerText ?? "").replace(/\\s+/g, " ")`)) ?? "";
 check(await until(async () => (await screenText()).includes("Rust in Action"), 45000), "the projector shows the raffle");
@@ -197,10 +241,8 @@ await api("save_prize", { id: other, prize: { id: null, name: "Sticker", sponsor
 await api("set_lifecycle", { id: other, action: "publish" });
 await api("set_lifecycle", { id: other, action: "open" });
 const otherCode = (await api("get_raffle", { id: other })).view.join_code;
-const nowasm = await tab("about:blank");
-await nowasm.call("Page.enable");
-await nowasm.call("Page.addScriptToEvaluateOnNewDocument", { source: "delete window.WebAssembly;" });
-await nowasm.call("Page.navigate", { url: `${base}/j/${otherCode}` });
+const nowasm = await tab("no-wasm phone", `${base}/j/${otherCode}`,
+  (call) => call("Page.addScriptToEvaluateOnNewDocument", { source: "delete window.WebAssembly;" }));
 check(await until(() => nowasm.js(`!!window.__rafiFallbackRunning && !!document.getElementById("submit") && !document.getElementById("submit").disabled && document.getElementById("proof").value.length > 0`), 30000),
   "no WebAssembly: the fallback solves the proof-of-work");
 const fallbackValue = await nowasm.js(`document.getElementById("proof").value`);
@@ -218,6 +260,7 @@ nowasm.close();
 
 const real = errors.filter((e) => !/WebSocket|4403|ERR_/i.test(e));
 check(real.length === 0, `no console errors${real.length ? ": " + real.join(" | ") : ""}`);
+check(violations.length === 0, `no Content-Security-Policy violations${violations.length ? ": " + violations.join(" | ") : ""}`);
 ws.close();
 chrome.kill();
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");

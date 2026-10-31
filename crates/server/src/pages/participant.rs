@@ -94,6 +94,15 @@ const HEAD_SCRIPT: &str = r#"window.__rafiT0=Date.now();try{var t=localStorage.g
 /// directory served is that build.
 pub const LOADER: &str = include_str!("../../../../apps/participant/dist/public/index.html");
 
+/// The scripts the pages carry inline: [`HEAD_SCRIPT`] on every page, and
+/// the [`LOADER`]'s on the participant page. The pages' policy allows these
+/// by their hashes (`crate::csp`) and no others.
+pub(crate) fn inline_scripts() -> Vec<&'static str> {
+    let mut scripts = vec![HEAD_SCRIPT];
+    scripts.extend(crate::csp::inline_scripts(LOADER));
+    scripts
+}
+
 /// A whole document: `tail` is raw HTML appended to the body (scripts).
 pub(crate) fn document(title: &str, body: String, tail: Option<String>) -> String {
     let title = escape(title);

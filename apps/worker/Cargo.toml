@@ -19,7 +19,7 @@ dev = ["rafi-server/mock-drand", "rafi-engine/mock-drand"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = "1"
 axum = { version = "0.8", default-features = false }
-dioxus-clerk = { version = "0.7", features = ["server", "worker"] }
+dioxus-clerk = { version = "0.8", features = ["server", "worker"] }
 # The drand client's relays, asked through the Workers `fetch` API.
 drand = { workspace = true, features = ["tower"] }
 http = "1"

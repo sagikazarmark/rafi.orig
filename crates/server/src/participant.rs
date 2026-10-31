@@ -19,7 +19,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use super::{
-    AppState,
+    AppState, csp,
     pages::{self, Entrant, Notice, Page, Raffle},
     service,
 };
@@ -356,25 +356,32 @@ async fn privacy(Extension(app): Extension<AppState>, Path(slug): Path<String>) 
 }
 
 /// The installation's own privacy notice: the operator's, naming its
-/// subprocessors.
+/// subprocessors. Under the documents' policy, which lets the operator's
+/// Markdown show images from elsewhere.
 async fn installation_privacy(Extension(app): Extension<AppState>) -> Response {
-    Html(pages::legal(
-        "Privacy notice",
-        &app.cfg.privacy_version,
-        &app.cfg.documents.privacy,
-    ))
-    .into_response()
+    (
+        Extension(csp::Page::Legal),
+        Html(pages::legal(
+            "Privacy notice",
+            &app.cfg.privacy_version,
+            &app.cfg.documents.privacy,
+        )),
+    )
+        .into_response()
 }
 
 /// The operator's terms, with the data processing agreement: what organizers
 /// accept in the admin.
 async fn installation_terms(Extension(app): Extension<AppState>) -> Response {
-    Html(pages::legal(
-        "Terms",
-        &app.cfg.terms_version,
-        &app.cfg.documents.terms,
-    ))
-    .into_response()
+    (
+        Extension(csp::Page::Legal),
+        Html(pages::legal(
+            "Terms",
+            &app.cfg.terms_version,
+            &app.cfg.documents.terms,
+        )),
+    )
+        .into_response()
 }
 
 /// [`pow_worker`]'s entity tag: a hash of the script, so it changes when
@@ -403,7 +410,7 @@ async fn pow_worker(headers: HeaderMap) -> Response {
 }
 
 /// Whether `If-None-Match` names `etag` (a weak comparison) or is `*`.
-fn not_modified(headers: &HeaderMap, etag: &str) -> bool {
+pub(crate) fn not_modified(headers: &HeaderMap, etag: &str) -> bool {
     headers
         .get_all(header::IF_NONE_MATCH)
         .iter()

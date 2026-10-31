@@ -1,14 +1,13 @@
 # Workers Assets' headers on the static files
 # (https://developers.cloudflare.com/workers/static-assets/headers/):
 # `just assets` copies this file into worker-assets/.
-# Rules here don't apply to the Worker's own responses, which carry the same
-# headers from security_headers in crates/server/src/lib.rs.
+# Rules here don't apply to the Worker's own responses, which carry theirs
+# from security_headers in crates/server/src/lib.rs: the web app's page
+# (index.html, which isn't among these files) included, with its
+# Content-Security-Policy.
 #
-# Every file: no sniffing, the origin only as referrer. The web app's shell
-# may be framed only as the projector (/s/) and the verification page (/v/):
-# later rules add to earlier ones, and the first rule denies framing
-# everywhere, so the two frameable paths can't be matched by it; they are
-# listed as the exception instead.
+# Every file: no sniffing, the origin only as referrer, and, as the Worker
+# sends on whatever isn't a page, no framing. None of these files is a page.
 #
 # The participant's assets are named by their hash (apps/participant),
 # so phones keep them for good; its fallback keeps a fixed name, so phones
@@ -20,14 +19,6 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Content-Security-Policy: frame-ancestors 'none'
   X-Frame-Options: DENY
-
-/s/*
-  ! Content-Security-Policy
-  ! X-Frame-Options
-
-/v/*
-  ! Content-Security-Policy
-  ! X-Frame-Options
 
 /participant/assets/*
   Cache-Control: public, max-age=31536000, immutable

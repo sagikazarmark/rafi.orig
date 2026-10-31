@@ -185,8 +185,10 @@ RAFI_DEV_AUTH=1 cargo run --release -p rafi --features dev   # http://localhost:
 
 It listens on `IP`:`PORT` (default `127.0.0.1:8080`). It serves the participant build at `/participant/` from
 `RAFI_PARTICIPANT_DIR` (which must be the build it was compiled against, or it doesn't start) and the web app from
-`RAFI_PUBLIC_DIR`, both relative to the working directory, falling back to the web app's `index.html` for its own
-routes.
+`RAFI_PUBLIC_DIR`, both relative to the working directory: its files at `/assets/`, and its `index.html`, read at
+startup, at every other path, under the web app's Content-Security-Policy. The Worker compiles that `index.html` in
+instead, so building `rafi-worker` (`worker-build`, `just clippy-wasm`, `just doc`) needs the web app bundled first
+(`just web`).
 
 ## Testing with phones
 

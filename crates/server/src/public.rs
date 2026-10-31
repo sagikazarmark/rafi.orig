@@ -33,8 +33,15 @@ struct WebConfig {
     clerk_publishable_key: Option<String>,
 }
 
-/// The web app's configuration ([`WebConfig`]), as a script. `no-cache`: a
-/// rotated key takes effect on the next page load.
+/// Applies the saved colour scheme (shared with the participant pages)
+/// before first paint: `index.html` loads `/config.js` as a plain script in
+/// its head, so this runs there. It lives here, not inline in the shell,
+/// which the web app's Content-Security-Policy allows no inline script in.
+const APPLY_THEME: &str = r#"try{var t=localStorage.getItem("rafi-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}"#;
+
+/// The web app's configuration ([`WebConfig`]), as a script, and the saved
+/// theme applied ([`APPLY_THEME`]). `no-cache`: a rotated key takes effect on
+/// the next page load.
 async fn config_js(Extension(app): Extension<AppState>) -> Response {
     let cfg = WebConfig {
         clerk_publishable_key: (!app.cfg.dev_auth)
@@ -49,7 +56,7 @@ async fn config_js(Extension(app): Extension<AppState>) -> Response {
             (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
             (header::CACHE_CONTROL, "no-cache"),
         ],
-        format!("window.__RAFI_CONFIG__ = {json};\n"),
+        format!("window.__RAFI_CONFIG__ = {json};\n{APPLY_THEME}\n"),
     )
         .into_response()
 }

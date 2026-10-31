@@ -23,14 +23,15 @@ var and a secret of the same name).
 | Variable | Default | |
 |---|---|---|
 | `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address (native only) |
-| `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app, relative to the working directory (native only) |
+| `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app, relative to the working directory: its `index.html` is read at start (and refused with an inline script), its `assets/` served (native only; the Worker compiles the `index.html` in) |
 | `RAFI_PARTICIPANT_DIR` | `apps/participant/dist/public` | The participant build (`just apps/participant/ build`): the one the binary was compiled against (native only) |
-| `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL, used for QR codes and links |
+| `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL, used for QR codes and links, and its host for the live channel's socket in the pages' Content-Security-Policy |
 | `RAFI_COOKIE_SECURE` | on when `RAFI_PUBLIC_URL` is `https://` | Marks the participant cookie `Secure` (`1`/`true` or `0`/`false`). Set it when TLS ends at a proxy in front of a plain `http://` URL. |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate` (native only; Workers use D1). Either SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`; the database must exist). The app applies the migrations on start. |
 | `RAFI_DEV_AUTH` | off | **Development only:** no login, and every admin is `dev`. Both `rafi` and the Worker refuse to start with it unless built with the `dev` feature ([below](#build-time)). |
 | `CLERK_SECRET_KEY` | | Clerk backend key. Required unless `RAFI_DEV_AUTH` is set. In a Clerk organization, the session's role decides what a member may do: `org:admin` everything; the custom role `org:manager` or permission `org:raffles:manage` (made in the Clerk dashboard) creates, configures and deletes raffles; any member runs them. |
-| `CLERK_PUBLISHABLE_KEY` | | Clerk's publishable key. Required unless `RAFI_DEV_AUTH` is set: the server hands it to the web app at `/config.js`, which signs organizers in with it. Not a secret, but the installation's: nothing of an installation's is compiled into the web app. |
+| `CLERK_PUBLISHABLE_KEY` | | Clerk's publishable key (`pk_live_…`, `pk_test_…`). Required unless `RAFI_DEV_AUTH` is set: the server hands it to the web app at `/config.js`, which signs organizers in with it, and names the Clerk host it encodes in the web app's Content-Security-Policy, so a key no host decodes from is refused. Not a secret, but the installation's: nothing of an installation's is compiled into the web app. |
+| `RAFI_CSP` | `enforce` | The pages' Content-Security-Policy ([routes](routes.md#security-headers)): `enforce`, or `report-only`, which sends it as `Content-Security-Policy-Report-Only`. Browsers then log what it would refuse in their consoles and refuse nothing; framing stays denied. An escape hatch for a policy that breaks the admin (Clerk loading from a host this release doesn't know, say) until an upgrade: the app logs a warning at start while it is on. |
 | `RAFI_ENGINE_INGRESS_URL` | | The raffle engine's Restate ingress. Without it, draws can't start (required on Workers). |
 | `RAFI_ENGINE_API_KEY` | | Restate Cloud: an API key with ingress access. Required on Workers (a `dev` build excepted). |
 | `RAFI_ENGINE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits. A command queued behind a draw that is waiting for its beacon may take the engine's drand lead plus its fetch timeout. Past this timeout the command is accepted and applies later. Keep it above the engine's `lead_secs + timeout_secs`. |
@@ -48,9 +49,9 @@ var and a secret of the same name).
 | `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION` | required | The documents' versions, e.g. `2026-10`, shown with them at `/terms` and `/privacy` and named in every raffle's notice. Under `RAFI_DEV_AUTH`, `dev`. |
 | `RUST_LOG` | `info` | Log level, in [`tracing-subscriber` filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) (native only) |
 
-The app refuses to start (natively) or every request (on Workers) when a numeric variable doesn't parse, the
-retention settings contradict each other, or the operator, the versions or the documents are missing (or still the
-unreviewed templates) without dev auth.
+The app refuses to start (natively) or every request (on Workers) when a numeric variable or `RAFI_CSP` doesn't
+parse, the retention settings contradict each other, or the operator, the versions, the documents or a decodable
+Clerk publishable key are missing (or the documents still the unreviewed templates) without dev auth.
 
 `rafi reapply-erasures` (native only) is the command for after a database restore: it takes the same environment,
 re-applies the erasure log, the purges and the organizers who left, runs housekeeping once, and exits.

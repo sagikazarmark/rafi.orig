@@ -15,6 +15,21 @@ Notes for working on the browser side: `apps/web` (admin, projector, verificatio
   in: a server is built against one participant build. What a phone shows is a pure function of the participant
   view and its own entrant ID (`rafi-live-client`).
 
+## Content-Security-Policy
+
+Every page is served with a Content-Security-Policy ([routes](../reference/routes.md#security-headers)), so a
+script has to come from the server's origin (or Clerk's), never inline:
+
+- `apps/web/index.html` has no inline script: the server refuses to serve one that does (`Shell::new`). What has to
+  run before first paint goes into `/config.js` (`rafi-server`'s `public::config_js`), as the saved theme does.
+- The server's pages carry two inline scripts, the head script and the participant build's loader, allowed by their
+  hashes, which the server computes from what it compiled in; `csp_by_page` checks every inline script a page has is
+  among them. A new inline script on a server page fails that test until it is in `pages::inline_scripts`.
+- The web app's policy allows `'unsafe-eval'`, which Dioxus's `document::eval` (and `document::Title`) need, and
+  inline styles. The participant page's allows neither: its module and `fallback.js` don't use them.
+- `just workers` runs the evening with every tab listening for violations; `RAFI_CSP=report-only` turns a policy
+  into reports in the browser's console while finding out what one would break.
+
 ## Styling
 
 The UI uses **Tailwind CSS v4 and daisyUI 5**, with custom light (`rafi`) and dark (`rafi-dark`) themes defined in

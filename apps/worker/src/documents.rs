@@ -34,19 +34,13 @@ pub async fn documents(env: &Env, dev_auth: bool) -> anyhow::Result<Documents> {
     }
 }
 
-/// A text file from the static files, `None` when there is none. Assets
-/// answers a missing path with the web app's `index.html`
-/// (`not_found_handling = "single-page-application"`, with a 200), so HTML
-/// counts as missing too.
+/// A text file from the static files, `None` when there is none (a 404:
+/// there is no single-page fallback among them, the Worker serves the web
+/// app's shell).
 async fn text(assets: &Fetcher, path: &str) -> anyhow::Result<Option<String>> {
     // The binding looks the path up; the host is anything.
     let resp = assets.fetch(format!("https://assets{path}"), None).await?;
-    let html = resp
-        .headers()
-        .get(http::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|t| t.starts_with("text/html"));
-    if resp.status() != http::StatusCode::OK || html {
+    if resp.status() != http::StatusCode::OK {
         return Ok(None);
     }
     let bytes = resp.into_body().collect().await?.to_bytes();

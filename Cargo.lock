@@ -1495,9 +1495,9 @@ dependencies = [
 
 [[package]]
 name = "dioxus-clerk"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cbae810c05aa7b03b14b61a9af49c12affe4957a370317ee796cd96fbde4667"
+checksum = "bf9789bd3893a0efec5626ac597ba618cf654a4cbd6d51871b13ee88b77b9cf4"
 dependencies = [
  "axum",
  "axum-extra",
@@ -5037,6 +5037,7 @@ dependencies = [
  "altcha-server",
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "dioxus",
  "dioxus-altcha",
  "dioxus-clerk",

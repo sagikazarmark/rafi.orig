@@ -93,8 +93,16 @@ pub struct Config {
     /// signs organizers in with. The server hands it to the web app at
     /// runtime (`/config.js`), so one web app bundle serves every
     /// installation; the server's own check is `CLERK_SECRET_KEY`, the hosts'.
-    /// Not a secret, but an installation's: required unless dev auth is on.
+    /// Not a secret, but an installation's: required unless dev auth is on,
+    /// and a key Clerk's Frontend API host decodes from, which the pages'
+    /// Content-Security-Policy names ([`crate::csp`]).
     pub clerk_publishable_key: Option<String>,
+    /// Whether the Content-Security-Policy is enforced (`RAFI_CSP=enforce`,
+    /// the default) or only reported (`report-only`): the escape hatch for an
+    /// installation whose sign-in a policy breaks, say when Clerk starts
+    /// loading from a host this build doesn't know yet. Framing stays denied
+    /// either way.
+    pub csp: CspMode,
     /// The raffle engine: the `Raffle` virtual object of the `rafi-restate`
     /// service. Without an ingress URL, draws can't start.
     pub restate: RestateConfig,
@@ -129,7 +137,8 @@ pub struct Config {
     pub privacy_version: String,
     /// Where `terms.md` and `privacy.md` are, natively (`RAFI_DOCS_DIR`).
     pub docs_dir: Option<String>,
-    /// Numeric variables that were set but didn't parse (`RAFI_RETENTION_DAYS=7d`):
+    /// Numeric variables that were set but didn't parse (`RAFI_RETENTION_DAYS=7d`),
+    /// and a `RAFI_CSP` that is neither mode:
     /// [`validate`](Self::validate) refuses them rather than run on a default.
     pub misparsed: Vec<String>,
 }
@@ -169,7 +178,17 @@ impl Config {
         // Hex: the key is a string, and raw random bytes aren't UTF-8.
         let pow_key =
             var("RAFI_POW_KEY").unwrap_or_else(|| hex::encode(crate::ids::random_bytes::<32>()));
+        let csp = match var("RAFI_CSP") {
+            None => CspMode::Enforce,
+            Some(v) => CspMode::parse(&v).unwrap_or_else(|| {
+                misparsed
+                    .borrow_mut()
+                    .push(format!("RAFI_CSP={v:?} (enforce or report-only)"));
+                CspMode::Enforce
+            }),
+        };
         Self {
+            csp,
             database_url: var("RAFI_DATABASE_URL").unwrap_or_else(|| "sqlite://rafi.db".into()),
             cookie_secure: var("RAFI_COOKIE_SECURE")
                 .map(|v| v == "1" || v == "true")
@@ -233,7 +252,7 @@ impl Config {
     /// and real documents.
     pub fn validate(&self) -> anyhow::Result<()> {
         if !self.misparsed.is_empty() {
-            bail!("not a number: {}", self.misparsed.join(", "));
+            bail!("not a valid value: {}", self.misparsed.join(", "));
         }
         self.retention
             .validate()
@@ -258,8 +277,16 @@ impl Config {
         }
         // Without it the web app has no sign-in to show, while every admin
         // call is refused: an admin nobody can enter.
-        if self.clerk_publishable_key.is_none() {
+        let Some(key) = &self.clerk_publishable_key else {
             bail!("CLERK_PUBLISHABLE_KEY is required: the web app signs organizers in with it");
+        };
+        // Clerk loads from, and talks to, the Frontend API host the key
+        // names; the policy allows that host, so a key it can't be read
+        // from is one Clerk couldn't sign anyone in with either.
+        if dioxus_clerk::csp::ClerkCsp::from_publishable_key(key).is_none() {
+            bail!(
+                "CLERK_PUBLISHABLE_KEY is not a Clerk publishable key (pk_live_… or pk_test_…, from the Clerk dashboard's API keys)"
+            );
         }
         if self.terms_version.is_empty() || self.privacy_version.is_empty() {
             bail!("RAFI_TERMS_VERSION and RAFI_PRIVACY_VERSION are required");
@@ -288,7 +315,8 @@ impl Config {
             database_url: "sqlite::memory:".into(),
             public_url: "http://localhost:8080".into(),
             dev_auth: false,
-            clerk_publishable_key: Some("pk_test_rafi".into()),
+            clerk_publishable_key: Some(TEST_CLERK_PUBLISHABLE_KEY.into()),
+            csp: CspMode::Enforce,
             restate: RestateConfig {
                 ingress_url: String::new(),
                 api_key: String::new(),
@@ -329,6 +357,35 @@ pub const DEFAULT_POW_COST: u32 = 1000;
 pub const MIN_POW_KEY_CHARS: usize = 32;
 /// The tests' key: long enough for a production server.
 pub const TEST_POW_KEY: &str = "test-key-test-key-test-key-test-key";
+/// The tests' Clerk publishable key: a development instance's, its Frontend
+/// API host [`TEST_CLERK_HOST`].
+#[cfg(test)]
+pub const TEST_CLERK_PUBLISHABLE_KEY: &str = "pk_test_cmFmaS10ZXN0LmNsZXJrLmFjY291bnRzLmRldiQ";
+/// The host [`TEST_CLERK_PUBLISHABLE_KEY`] names.
+#[cfg(test)]
+pub const TEST_CLERK_HOST: &str = "rafi-test.clerk.accounts.dev";
+
+/// Whether the Content-Security-Policy is enforced or only reported
+/// (`RAFI_CSP`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CspMode {
+    /// `Content-Security-Policy`: what the policy doesn't allow doesn't run.
+    #[default]
+    Enforce,
+    /// `Content-Security-Policy-Report-Only`: the browser runs it and says so
+    /// in its console.
+    ReportOnly,
+}
+
+impl CspMode {
+    fn parse(v: &str) -> Option<Self> {
+        match v.trim().to_ascii_lowercase().as_str() {
+            "enforce" => Some(Self::Enforce),
+            "report-only" => Some(Self::ReportOnly),
+            _ => None,
+        }
+    }
+}
 
 /// `RAFI_RETENTION_DAYS` when unset: a week after the event.
 pub const DEFAULT_RETENTION_DAYS: i64 = 7;
@@ -414,7 +471,7 @@ mod tests {
             "RAFI_OPERATOR_NAME" => Some("Op".into()),
             "RAFI_OPERATOR_EMAIL" => Some("p@op.example".into()),
             "RAFI_TERMS_VERSION" | "RAFI_PRIVACY_VERSION" => Some("2026-10".into()),
-            "CLERK_PUBLISHABLE_KEY" => Some("pk_test_op".into()),
+            "CLERK_PUBLISHABLE_KEY" => Some(TEST_CLERK_PUBLISHABLE_KEY.into()),
             _ => None,
         });
         assert!(full.validate().is_err(), "placeholder documents");
@@ -427,6 +484,15 @@ mod tests {
         let key = full.clerk_publishable_key.take();
         let err = full.validate().unwrap_err().to_string();
         assert!(err.contains("CLERK_PUBLISHABLE_KEY"), "{err}");
+        // Nor one no Frontend API host decodes from (the secret key, say).
+        for wrong in ["pk_test_rafi", "sk_test_abc", "pk_live_bm90IGEgaG9zdDsk"] {
+            full.clerk_publishable_key = Some(wrong.into());
+            let err = full.validate().unwrap_err().to_string();
+            assert!(
+                err.contains("not a Clerk publishable key"),
+                "{wrong}: {err}"
+            );
+        }
         full.clerk_publishable_key = key;
         full.pow_key = "short".into();
         let err = full.validate().unwrap_err().to_string();
@@ -523,6 +589,25 @@ mod tests {
             let set = Config::from_lookup(|n| (n == name).then(|| default.into()));
             assert!(set.misparsed.is_empty(), "{name}: {default} parses");
         }
+    }
+
+    #[test]
+    fn the_policy_is_enforced_unless_reporting_is_asked_for() {
+        let mode = |v: Option<&str>| {
+            let cfg = Config::from_lookup(|name| match name {
+                "RAFI_CSP" => v.map(Into::into),
+                "RAFI_DEV_AUTH" => Some("1".into()),
+                _ => None,
+            });
+            cfg.validate().map(|()| cfg.csp)
+        };
+        assert_eq!(mode(None).unwrap(), CspMode::Enforce);
+        assert_eq!(mode(Some("enforce")).unwrap(), CspMode::Enforce);
+        assert_eq!(mode(Some("report-only")).unwrap(), CspMode::ReportOnly);
+        assert_eq!(mode(Some(" Report-Only ")).unwrap(), CspMode::ReportOnly);
+        // A typo is refused, not taken for either.
+        let err = mode(Some("off")).unwrap_err().to_string();
+        assert!(err.contains("RAFI_CSP=\"off\""), "{err}");
     }
 
     #[test]

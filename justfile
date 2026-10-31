@@ -20,6 +20,10 @@ css:
 participant:
     {{ just_executable() }} apps/participant/ check
 
+# Bundle the web app (apps/web); rafi-worker compiles its index.html in.
+web:
+    {{ just_executable() }} apps/web/ build
+
 # Run clippy, natively and on wasm32.
 clippy: clippy-native clippy-wasm
 
@@ -33,7 +37,7 @@ clippy-native: participant
     cargo clippy -p rafi-restate --features mock-drand --all-targets --locked -- --deny warnings
 
 # Run clippy on wasm32: the web app, the Workers crates and the Worker.
-clippy-wasm: css participant
+clippy-wasm: css participant web
     cargo clippy --target {{ wasm }} -p rafi-web --locked -- --deny warnings
     cargo clippy --target {{ wasm }} \
         -p rafi-lifecycle -p rafi-raffle -p rafi-api -p rafi-app \
@@ -54,7 +58,7 @@ verify:
 
 # Run rustdoc: natively with every feature, and the wasm32-only crates (empty elsewhere) on wasm32.
 [env("RUSTDOCFLAGS", "--deny warnings")]
-doc: participant
+doc: participant web
     cargo doc --workspace --exclude rafi-web --exclude rafi-cloudflare --exclude rafi-participant --exclude rafi-worker --all-features --no-deps --locked
     cargo doc --target {{ wasm }} -p rafi-cloudflare -p rafi-participant -p rafi-worker --no-deps --locked
 
