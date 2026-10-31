@@ -48,7 +48,7 @@ pub use entrants::{
 pub use error::{Error, Refusal, Result, Unfinished};
 pub use owners::{reapply_erasures, remove_owner_data};
 pub use pow::ProofOfWork;
-pub use prizes::{delete_prize, upsert_prize};
+pub use prizes::{delete_prize, set_prize_delivery, upsert_prize};
 pub use raffles::{
     EventDate, JOIN_CODE_LEN, create, delete, duplicate, get_defaults, lifecycle, list,
     save_defaults, settings_of, update_settings,

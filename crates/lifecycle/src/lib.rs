@@ -1,7 +1,8 @@
 //! A raffle's lifecycle in the app and the rules that hang on it: how it
 //! starts ([`start`]) and follows the raffle as drawn ([`raffle`]), who its
-//! entrants are ([`entrant`]), what its settings may hold ([`settings`]) and
-//! what phones see of it ([`live`]).
+//! entrants are ([`entrant`]), how its prizes reach their winners
+//! ([`prize`]), what its settings may hold ([`settings`]) and what phones see
+//! of it ([`live`]).
 //! The raffle itself, from its manifest to its finish, is `rafi-raffle`'s,
 //! which knows nothing of the app.
 //!
@@ -11,6 +12,7 @@
 pub mod dates;
 pub mod entrant;
 pub mod live;
+pub mod prize;
 pub mod raffle;
 pub mod settings;
 pub mod start;
@@ -149,6 +151,15 @@ impl RaffleState {
         matches!(self, Self::Draft | Self::Ready | Self::Open | Self::Closed)
     }
 
+    /// Whether a prize's [`Delivery`](prize::Delivery) can change: until the
+    /// raffle is over, past the freeze too. It isn't in the manifest (it
+    /// changes nothing about who wins), and the organizer may only find out
+    /// during the draw how a prize is handed over. It applies to the claims
+    /// made after the change; once the raffle is over there are none left.
+    pub fn prize_delivery_editable(self) -> bool {
+        !self.is_over()
+    }
+
     /// Whether the organizer can add, remove or edit entrants. The same states
     /// as [`prizes_editable`](Self::prizes_editable) today: both end with the
     /// freeze, which fixes the entrants and the prizes alike.
@@ -266,6 +277,17 @@ mod tests {
         assert_eq!(S::Draft.apply(A::Freeze), None);
         assert!(!S::Frozen.prizes_editable());
         assert!(!S::Frozen.entrants_editable());
+    }
+
+    #[test]
+    fn a_prizes_delivery_changes_until_the_raffle_is_over() {
+        for s in S::ALL {
+            assert_eq!(s.prize_delivery_editable(), !s.is_over(), "{s:?}");
+            assert!(
+                !s.prizes_editable() || s.prize_delivery_editable(),
+                "{s:?}: whatever can edit a prize can edit its delivery"
+            );
+        }
     }
 
     #[test]

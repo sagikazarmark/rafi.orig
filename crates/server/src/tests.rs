@@ -3342,6 +3342,97 @@ async fn all_prizes_delivered() {
     );
 }
 
+/// A mixed evening: a book handed over on the spot, a voucher sent later.
+/// Claiming the book delivers it; the voucher's winner is held until it is
+/// marked delivered, and their phone says it will be sent.
+#[tokio::test]
+async fn a_prize_handed_over_on_the_spot_is_delivered_by_its_claim() {
+    use rafi_lifecycle::prize::Delivery;
+
+    let app = app().await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Book", 1), ("Voucher", 1)]).await;
+    let prize_ids: Vec<String> = prizes::list(&app.db, &raffle.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|p| p.id)
+        .collect();
+    service::set_prize_delivery(&app, ACTOR, &raffle.id, &prize_ids[0], Delivery::OnTheSpot)
+        .await
+        .unwrap();
+    for name in ["Anna", "Bence", "Csilla"] {
+        service::add_manual(&app, ACTOR, &raffle.id, name, None)
+            .await
+            .unwrap();
+    }
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
+    let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    let items: Vec<_> = r
+        .drawn
+        .as_ref()
+        .unwrap()
+        .items()
+        .iter()
+        .map(|u| u.id.clone())
+        .collect();
+    let book = draw_and_claim(&app, &raffle.id, &items[0]).await;
+    let voucher = draw_and_claim(&app, &raffle.id, &items[1]).await;
+
+    let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
+    let delivered = |id: &str| {
+        admin
+            .entrants
+            .iter()
+            .find(|e| e.id == id)
+            .unwrap()
+            .delivered
+    };
+    assert!(delivered(&book), "the book left with its winner");
+    assert!(!delivered(&voucher), "the voucher is still to be sent");
+    assert_eq!(admin.retention.held_winners, 1);
+    assert!(
+        audit_of(&app, &raffle.id)
+            .await
+            .contains(&("deliver".to_owned(), book.clone())),
+        "the log says the claim delivered it"
+    );
+
+    let (_, _, view) = get_json(&router, &format!("/api/r/{}/participant", raffle.slug)).await;
+    let sent_later: Vec<(String, bool)> = view["winners"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| {
+            (
+                w["entrant_id"].as_str().unwrap().to_owned(),
+                w["sent_later"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(sent_later, [(book, false), (voucher.clone(), true)]);
+
+    service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
+        .await
+        .unwrap();
+    assert_eq!(
+        service::deliver_all(&app, ACTOR, &raffle.id).await.unwrap(),
+        1,
+        "only the voucher was left"
+    );
+    let refused =
+        service::set_prize_delivery(&app, ACTOR, &raffle.id, &prize_ids[1], Delivery::OnTheSpot)
+            .await
+            .unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            service::Error::Refused(service::Refusal::PrizeDeliveryFixed)
+        ),
+        "{refused:?}"
+    );
+}
+
 /// Registration opens only once the notice can name the organizer and a
 /// way to reach them.
 #[tokio::test]

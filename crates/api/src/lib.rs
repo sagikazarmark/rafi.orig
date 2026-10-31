@@ -158,6 +158,10 @@ pub struct Prize {
     pub description: String,
     pub qty: u32,
     pub position: i64,
+    /// How it reaches its winner: handed over on the spot (claiming it marks
+    /// it delivered) or sent later (the organizer marks it delivered).
+    #[serde(default)]
+    pub delivery: rafi_lifecycle::prize::Delivery,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -169,6 +173,9 @@ pub struct PrizeInput {
     pub description: String,
     pub qty: u32,
     pub position: i64,
+    /// Sent later unless said otherwise.
+    #[serde(default)]
+    pub delivery: rafi_lifecycle::prize::Delivery,
 }
 
 /// An entrant as the organizer sees it (includes personal data).

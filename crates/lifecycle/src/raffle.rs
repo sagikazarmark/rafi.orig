@@ -6,7 +6,10 @@ use rafi_raffle::{
     BeaconSource, EntrantId, Event, ItemId, Manifest, ManifestItem, Outcome, Raffle, RaffleId,
 };
 
-use crate::RaffleState;
+use crate::{
+    RaffleState,
+    prize::{Delivery, OnClaim},
+};
 
 /// The raffle's item for the `n`th copy (from 1) of prize `prize_id`.
 pub fn item_id(prize_id: &str, n: u64) -> ItemId {
@@ -76,6 +79,35 @@ pub fn deliverable(raffle: Option<&Raffle>, entrant: &str) -> bool {
     })
 }
 
+/// What claiming draw `k` of `raffle` does to its winner's delivery, each
+/// prize delivered as `delivery` says (by prize ID; `None` for one that
+/// isn't known). The draw may be claimed already (the store, projecting the
+/// claim) or not yet (the app, sending it). Its winner's other claims count:
+/// they are delivered by this claim only if every prize they claimed is
+/// handed over on the spot.
+pub fn on_claim(raffle: &Raffle, k: u64, delivery: impl Fn(&str) -> Option<Delivery>) -> OnClaim {
+    let draws = raffle.draws();
+    let Some(claim) = draws.iter().find(|d| d.k == k) else {
+        return OnClaim::Nothing;
+    };
+    let of = |item: &ItemId| delivery(prize_id(item));
+    match of(&claim.item) {
+        None => OnClaim::Nothing,
+        Some(Delivery::Later) => OnClaim::Undeliver,
+        Some(Delivery::OnTheSpot) => {
+            let all_on_the_spot = draws
+                .iter()
+                .filter(|d| d.k != k && d.entrant == claim.entrant && d.outcome == Outcome::Claimed)
+                .all(|d| of(&d.item) == Some(Delivery::OnTheSpot));
+            if all_on_the_spot {
+                OnClaim::Deliver
+            } else {
+                OnClaim::Nothing
+            }
+        }
+    }
+}
+
 /// Whether a raffle drawn as `raffle` can be deleted: until its first draw
 /// is announced. From then on its record (the manifest hash on the
 /// verification page, the event log with every draw and abandon) is what
@@ -137,6 +169,88 @@ mod tests {
             .unwrap();
         raffle.decide(&Decision::Finish).unwrap();
         assert_eq!(lifecycle(&raffle), RaffleState::Finished);
+    }
+
+    /// One entrant, Anna, and more items than people: she claims a book
+    /// handed over on the spot, then in pass 2 a voucher sent later, then a
+    /// mug handed over.
+    #[test]
+    fn a_claim_delivers_when_every_prize_claimed_was_handed_over() {
+        use rafi_raffle::Resolution;
+
+        let anna = "aa".to_owned();
+        let manifest = manifest(
+            "r1",
+            BeaconSource::QUICKNET,
+            [anna.clone()],
+            items([
+                ("book", "Book", 1),
+                ("voucher", "Voucher", 1),
+                ("mug", "Mug", 1),
+            ]),
+        );
+        let drawn = |k: u64, item: &str| Event::Drawn {
+            k,
+            item: item.into(),
+            round: k,
+            signature: String::new(),
+            randomness: String::new(),
+            pass: if k == 1 { 1 } else { 2 },
+            pool_size: 1,
+            index: 0,
+            entrant: anna.clone().into(),
+        };
+        let claimed = |k| Event::Resolved {
+            k,
+            resolution: Resolution::Claimed,
+        };
+        let delivery = |prize: &str| match prize {
+            "book" | "mug" => Some(Delivery::OnTheSpot),
+            "voucher" => Some(Delivery::Later),
+            _ => None,
+        };
+        let at = |events: &[Event]| Raffle::restore(&manifest, events).unwrap();
+
+        // The app asks before the claim, the store after it: the same answer.
+        let events = [drawn(1, "book-1")];
+        assert_eq!(on_claim(&at(&events), 1, delivery), OnClaim::Deliver);
+        let events = [drawn(1, "book-1"), claimed(1)];
+        assert_eq!(on_claim(&at(&events), 1, delivery), OnClaim::Deliver);
+
+        let events = [
+            drawn(1, "book-1"),
+            claimed(1),
+            drawn(2, "voucher-1"),
+            claimed(2),
+        ];
+        assert_eq!(
+            on_claim(&at(&events), 2, delivery),
+            OnClaim::Undeliver,
+            "she is owed the voucher now"
+        );
+        let events = [
+            drawn(1, "book-1"),
+            claimed(1),
+            drawn(2, "voucher-1"),
+            claimed(2),
+            drawn(3, "mug-1"),
+            claimed(3),
+        ];
+        assert_eq!(
+            on_claim(&at(&events), 3, delivery),
+            OnClaim::Nothing,
+            "the mug is handed over, the voucher still isn't"
+        );
+        assert_eq!(
+            on_claim(&at(&events), 3, |_| None),
+            OnClaim::Nothing,
+            "unknown prizes"
+        );
+        assert_eq!(
+            on_claim(&at(&events), 9, delivery),
+            OnClaim::Nothing,
+            "no such draw"
+        );
     }
 
     fn opened() -> Raffle {

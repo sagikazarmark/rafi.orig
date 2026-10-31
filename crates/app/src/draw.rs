@@ -3,11 +3,12 @@
 use rafi_engine::EngineError;
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
+    prize::OnClaim,
     start::{self, Start},
 };
 use rafi_raffle::{
-    BeaconSource, Command, Decision, DrawRequest, Manifest, ManifestHash, ManifestItem, RaffleId,
-    Resolution,
+    BeaconSource, Command, Decision, DrawRequest, EntrantId, Manifest, ManifestHash, ManifestItem,
+    RaffleId, Resolution,
 };
 use rafi_store::{audit, entrants, prizes, raffles};
 
@@ -162,7 +163,55 @@ pub async fn command(
         .into(),
     })?;
 
-    send(app, actor, id, cmd, command_id).await
+    let delivery = delivery_on_claim(app, id, &state, &cmd).await?;
+    send(app, actor, id, cmd, command_id).await?;
+    // The store changes the winner's delivery with the claim, as it projects
+    // it; the log says that the organizer's claim did.
+    if let Some((action, winner)) = delivery {
+        let now = app.clock.now();
+        audit::record(&app.db, id, actor, action, winner.as_str(), now).await?;
+    }
+    Ok(())
+}
+
+/// What `cmd` does to a winner's delivery, if it is a claim that changes it
+/// ([`lifecycle::raffle::on_claim`]): `deliver` for a prize handed over on
+/// the spot, `undeliver` for one sent later to a winner marked delivered
+/// (with more items than people, one can claim two), and the winner, as
+/// `state` (the projection, which admitted it) has the item.
+async fn delivery_on_claim(
+    app: &App,
+    id: &str,
+    state: &rafi_raffle::Raffle,
+    cmd: &Command,
+) -> Result<Option<(&'static str, EntrantId)>> {
+    let Command::Decide(Decision::Resolve {
+        item,
+        resolution: Resolution::Claimed,
+    }) = cmd
+    else {
+        return Ok(None);
+    };
+    let Some((k, winner)) = state
+        .item(item)
+        .and_then(|i| Some((i.k()?, i.winner()?.clone())))
+    else {
+        return Ok(None);
+    };
+    let deliveries = prizes::deliveries(&app.db, id).await?;
+    let delivered = || async {
+        Ok::<_, Error>(
+            entrants::get(&app.db, id, winner.as_str())
+                .await?
+                .is_some_and(|e| e.delivered_at.is_some() && !e.erased),
+        )
+    };
+    let action = match lifecycle::raffle::on_claim(state, k, |p| deliveries.get(p).copied()) {
+        OnClaim::Deliver if !delivered().await? => "deliver",
+        OnClaim::Undeliver if delivered().await? => "undeliver",
+        _ => return Ok(None),
+    };
+    Ok(Some((action, winner)))
 }
 
 /// Hands a validated command to the raffle engine, which writes the new

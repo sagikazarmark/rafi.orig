@@ -1,6 +1,7 @@
 //! The draw console: drawing each prize and deciding its winner.
 
 use dioxus_icons::lucide::{Check, Dice5, Flag, Lock, TriangleAlert};
+use rafi_lifecycle::prize::Delivery;
 
 use super::*;
 
@@ -20,6 +21,11 @@ pub(super) fn DrawConsole(
         .entrants
         .iter()
         .map(|e| (e.id.clone(), e.clone()))
+        .collect();
+    let deliveries: HashMap<&str, Delivery> = admin
+        .prizes
+        .iter()
+        .map(|p| (p.id.as_str(), p.delivery))
         .collect();
     let pending = v.current.clone();
     let busy = pending.is_some();
@@ -176,6 +182,7 @@ pub(super) fn DrawConsole(
                             let uid = u.item.clone();
                             let winner_name = winner.map_or_else(|| "The winner".to_owned(), |w| w.display_name.clone());
                             let prize = u.prize_name.clone();
+                            let on_the_spot = deliveries.get(u.prize_id.as_str()).is_some_and(|d| d.delivered_on_claim());
                             let row = match u.status {
                                 ItemStatus::Drawn => "border-success/50 bg-success/10",
                                 ItemStatus::Claimed => "border-base-300 bg-base-200/60",
@@ -221,7 +228,11 @@ pub(super) fn DrawConsole(
                                             },
                                             ItemStatus::Drawn if drawable => rsx! {
                                                 button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Check { class: "size-5" } "Claimed" }
-                                                span { class: "text-xs text-base-content/60", title: "Claimed means present with a valid code. A prize sent later is marked delivered in the People tab.", "Delivered later? Mark it in People." }
+                                                if on_the_spot {
+                                                    span { class: "text-xs text-base-content/60", title: "Claimed means present with a valid code. This prize is handed over on the spot (Prizes tab), so claiming it also marks it delivered.", "Handed over now: claiming marks it delivered." }
+                                                } else {
+                                                    span { class: "text-xs text-base-content/60", title: "Claimed means present with a valid code. This prize is sent later (Prizes tab): mark it delivered in the People tab once it reached them.", "Sent later? Mark it delivered in People." }
+                                                }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::NotHere { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Not here" }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
                                             },

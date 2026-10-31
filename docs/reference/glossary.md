@@ -16,7 +16,8 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Retention period** | Days after the event date before non-winners are erased: the installation's default (7), the organizer's, or the raffle's, at most the installation's maximum (30). Fixed with the event date. |
 | **Erasure date** | The end of the event day plus the retention period, computed by the database. Shown to entrants ("at the end of 4 November"); the day non-winners are erased. |
 | **Winner hold** | How long a winner's data is kept past the erasure date (90 days) unless their prize is marked delivered: the ceiling |
-| **Prize** | What is given away: a name, a quantity, and optionally a sponsor. |
+| **Prize** | What is given away: a name, a quantity, optionally a sponsor, and its **delivery**. |
+| **Delivery** (of a prize) | How it reaches its winner, chosen per prize: **"On the spot"** (`on_the_spot`: handed over when the winner claims it, so "Claimed" also marks it delivered) or **"Sent later"** (`later`, the default: a voucher by email, say, marked delivered once it reached them). Not in the manifest: it can change until the raffle is over, and applies to the claims made from then on. A winner of more than one prize (more items than people) counts as delivered while every prize they claimed is: claiming one sent later marks them not delivered again. |
 | **Item** | One copy of a prize. Each item is drawn on its own, in any order the organizer picks live. |
 | **Entrant** | Someone in the raffle. They joined on their phone, were added by the organizer ("added by you"), or are a **fake** entrant in test mode. |
 | **Display name** | The name an entrant shows on the projector ("Name shown on the screen"). Optional when joining: left blank, it is a **generated name**. The organizer can hide or rename it. |
@@ -41,7 +42,7 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Data erased** (`Purged`) | Names, emails and claim codes are gone: "Erase personal data now", the winner hold passing, the organizer leaving, or an **expired** raffle. The anonymous raffle (manifest and log) stays. |
 | **Expire** | What happens to a raffle that was never frozen when its erasure date passes: its entrants are deleted outright and it becomes Data erased |
 | **Erase** (one entrant) | Once the raffle is finished or its erasure date has passed, clears one entrant's personal data, on request. Until then nobody leaves the list. |
-| **Mark delivered**, "All prizes delivered" | The prize reached its winner: their data goes on the non-winner clock instead of being held |
+| **Mark delivered**, "All prizes delivered" | The prize reached its winner: their data goes on the non-winner clock instead of being held. Claiming a prize delivered on the spot does it too. |
 | **Housekeeping** | The hourly run that erases personal data on the dates, expires never-frozen raffles, forgets expired proof-of-work challenges and ends live updates a day after a raffle finishes |
 | **End live updates** | Phones and the projector stop following the raffle live. This happens automatically a day after the finish. |
 
@@ -63,7 +64,7 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Retry**, "Retry round R" | Drawing a stalled item again fetches the same round |
 | **Abandon** | The organizer's explicit, logged way out of a stalled draw. The item goes back, and the next draw commits to a new round. |
 | **Pool** | Who can be drawn: in **pass 1**, everyone not yet drawn. In **pass 2** (more items than people), earlier winners who didn't forfeit. |
-| **Resolution** | What happened to a drawn winner: **"Claimed"** (`claimed`: present, their code checked; not necessarily delivered), **"Not here"** (`not_here`) or **"Declined"** (`declined`) |
+| **Resolution** | What happened to a drawn winner: **"Claimed"** (`claimed`: present, their code checked; delivered too only if the prize is delivered on the spot), **"Not here"** (`not_here`) or **"Declined"** (`declined`) |
 | **Forfeit** | "Not here" or "Declined": the person is out, and the item is drawn again |
 | **Withdraw** (`void`) | Taking an available item out of the raffle |
 | **Event log** | The raffle's append-only record: `announced`, `drawn`, `stalled`, `abandoned`, `resolved`, `voided`, `finished` |

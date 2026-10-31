@@ -46,7 +46,7 @@ promise a day gone by) and expires within the hour. The hourly housekeeping run 
 | Clock | When | What |
 |---|---|---|
 | **Non-winners** | the erasure date: the end of the event day plus the period (7 days unless the organizer chose otherwise, 0 to the installation's maximum, 30) | Everyone who didn't win, and winners whose prize was marked delivered, lose their name, email, claim code and token. In any state: a raffle nobody finished is erased all the same. |
-| **Winners** | the erasure date plus the **winner hold** (90 days) | Winners (the entrants of claimed draws) are kept so a prize can still reach them, until the organizer marks it delivered ("Mark delivered", or "All prizes delivered" from the menu), which puts them on the first clock. At the hold, everyone left is erased, a finished raffle becomes "Data erased", and a raffle still being drawn is asked to finish. |
+| **Winners** | the erasure date plus the **winner hold** (90 days) | Winners (the entrants of claimed draws) are kept so a prize can still reach them, until it is marked delivered ("Mark delivered", or "All prizes delivered" from the menu, or claiming a prize the organizer delivers on the spot), which puts them on the first clock. At the hold, everyone left is erased, a finished raffle becomes "Data erased", and a raffle still being drawn is asked to finish. |
 | **Expiry** | the erasure date | A raffle that was never frozen has no draw to keep verifiable: its entrants are deleted outright and it becomes "Data erased". |
 
 The organizer can always erase earlier, never later:
@@ -75,9 +75,10 @@ nothing to erase yet), every organizer's admin says so.
 Every action on a raffle is a row: who (the owner key, and the member who acted), when, what, and a detail that
 never holds personal data (a count, an ID, the names of the settings that changed). The organizer's: `create`,
 `settings` (which fields), `delete`, the lifecycle moves, `freeze`, `draw`, `resolve`, `void`, `abandon`,
-`finish`, `add_manual`, `add_fakes`, `remove_fakes`, `patch_entrant`, `deliver`, `undeliver`, `deliver_all`,
-`remove_entrant`, `erase_entrant`, `purge`, `end_live`, `export_csv`. Housekeeping's: `expire`, `auto_erase`,
-`auto_purge`, `auto_finish`. Leaving: `delete` and `purge` with "owner left". The log is the operator's record
+`finish`, `add_manual`, `add_fakes`, `remove_fakes`, `patch_entrant`, `deliver` and `undeliver` (by hand, or after
+a `resolve` that changed it: a claim of a prize delivered on the spot, or of one sent later to a winner already
+delivered), `deliver_all`, `set_prize_delivery`, `remove_entrant`, `erase_entrant`, `purge`, `end_live`,
+`export_csv`. Housekeeping's: `expire`, `auto_erase`, `auto_purge`, `auto_finish`. Leaving: `delete` and `purge` with "owner left". The log is the operator's record
 and stays after the organizer leaves.
 
 On Cloudflare D1, Time Travel keeps erased data for up to 30 more days. The installation's notice should say so (the

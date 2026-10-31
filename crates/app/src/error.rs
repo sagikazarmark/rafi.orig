@@ -100,6 +100,8 @@ pub enum Refusal {
     PrizeName,
     PrizeQty,
     PrizesFrozen,
+    /// How a prize reaches its winner can't change once the raffle is over.
+    PrizeDeliveryFixed,
     // Raffles.
     /// The raffle has drawn (or announced a draw): its record stays.
     Drawn,
@@ -211,6 +213,7 @@ impl Refusal {
             Self::PrizeName => "prize_name",
             Self::PrizeQty => "prize_qty",
             Self::PrizesFrozen => "prizes_frozen",
+            Self::PrizeDeliveryFixed => "prize_delivery_fixed",
             Self::Drawn => "drawn",
             Self::JoinCodes => "join_codes",
             Self::OrganizerMissing(_) => "organizer_missing",
@@ -301,6 +304,9 @@ impl fmt::Display for Refusal {
             Self::PrizesFrozen => {
                 f.write_str("Prizes cannot change after the entrant list is frozen.")
             }
+            Self::PrizeDeliveryFixed => f.write_str(
+                "The raffle is over, so how a prize is handed over no longer changes anything. Mark prizes delivered in the People tab.",
+            ),
             Self::Drawn => f.write_str(
                 "This raffle has drawn prizes, so its record stays verifiable and it can't be deleted. Finish it, then erase its personal data from the menu.",
             ),

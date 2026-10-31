@@ -51,7 +51,9 @@
       won.appendChild(el("p", "font-display text-5xl font-black tracking-tight", S.you_won));
       won.appendChild(el("p", "text-lg font-semibold", win.prize_name));
       if (cfg.claim_code) won.appendChild(el("span", "claim-code mt-1 rounded-2xl bg-base-100 px-5 py-2 text-4xl text-success shadow-sm", cfg.claim_code));
-      won.appendChild(el("p", "text-sm opacity-90", win.claimed || isOver(v.state) ? S.thanks_won : S.go_to_organizer));
+      won.appendChild(el("p", "text-sm opacity-90",
+        win.claimed && win.sent_later ? S.sent_later
+          : win.claimed || isOver(v.state) ? S.thanks_won : S.go_to_organizer));
       live.appendChild(won);
       return;
     }

@@ -10,6 +10,7 @@ use rafi_app::{
 };
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
+use rafi_lifecycle::prize::Delivery;
 use rafi_live_server::{LiveUpdates, Polling};
 use rafi_raffle::{Decision, DrawRequest, ItemStatus, Resolution};
 use rafi_store::{Db, RaffleWriter, entrants, raffles};
@@ -60,6 +61,11 @@ async fn app() -> App {
 /// An open raffle with one prize and `people` entered by hand, named so the
 /// notice can open registration; returns its ID and theirs.
 async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
+    open_raffle_with(app, people, Delivery::Later).await
+}
+
+/// [`open_raffle`], its prize reaching its winner by `delivery`.
+async fn open_raffle_with(app: &App, people: &[&str], delivery: Delivery) -> (String, Vec<String>) {
     let id = app::create(app, ACTOR, "Meetup", &EventDate::today(app))
         .await
         .unwrap();
@@ -80,6 +86,7 @@ async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
             description: String::new(),
             qty: 1,
             position: 0,
+            delivery,
         },
     )
     .await
@@ -184,9 +191,25 @@ async fn only_a_claimed_winner_is_delivered_to() {
     )
     .await
     .unwrap();
+    let delivered_at = |who: String| {
+        let (app, id) = (&app, &id);
+        async move {
+            entrants::get(&app.db, id, &who)
+                .await
+                .unwrap()
+                .unwrap()
+                .delivered_at
+        }
+    };
+    assert_eq!(
+        delivered_at(winner.clone()).await,
+        None,
+        "a prize sent later isn't delivered by its claim"
+    );
     app::patch_entrant(&app, ACTOR, &id, &winner, deliver())
         .await
         .unwrap();
+    assert!(delivered_at(winner.clone()).await.is_some());
     assert!(matches!(
         app::patch_entrant(&app, ACTOR, &id, &loser, deliver()).await,
         Err(Error::Refused(Refusal::NotDeliverable))
@@ -201,6 +224,100 @@ async fn only_a_claimed_winner_is_delivered_to() {
         flags.iter().all(|(won, deliverable)| won == deliverable),
         "the admin page offers delivery to the winner only: {flags:?}"
     );
+}
+
+#[tokio::test]
+async fn claiming_a_prize_handed_over_on_the_spot_delivers_it() {
+    let app = app().await;
+    let (id, _) = open_raffle_with(&app, &["Anna", "Bence"], Delivery::Later).await;
+    let prize = app::admin(&app, OWNER, &id).await.unwrap().prizes[0]
+        .id
+        .clone();
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    // Found out during the draw: past the freeze, the delivery still changes.
+    app::set_prize_delivery(&app, ACTOR, &id, &prize, Delivery::OnTheSpot)
+        .await
+        .unwrap();
+    let admin = app::admin(&app, OWNER, &id).await.unwrap();
+    assert_eq!(admin.prizes[0].delivery, Delivery::OnTheSpot);
+    let item = admin.view.items[0].item.clone();
+    app::command(&app, ACTOR, &id, DrawRequest { item: item.clone() }, "d1")
+        .await
+        .unwrap();
+    let winner = drawn(&app, &id).await;
+    let claim = Decision::Resolve {
+        item,
+        resolution: Resolution::Claimed,
+    };
+    app::command(&app, ACTOR, &id, claim, "c1").await.unwrap();
+
+    let winner_row = entrants::get(&app.db, &id, &winner).await.unwrap().unwrap();
+    assert_eq!(
+        winner_row.delivered_at,
+        Some(app.clock.now()),
+        "the claim delivered it"
+    );
+    let admin = app::admin(&app, OWNER, &id).await.unwrap();
+    let anna = admin.entrants.iter().find(|e| e.id == winner).unwrap();
+    assert!(anna.delivered && anna.deliverable && anna.held_until.is_none());
+    assert_eq!(admin.retention.held_winners, 0, "nobody's data is held");
+    let audit: Vec<(String, String)> = app
+        .db
+        .query("SELECT action, detail FROM audit WHERE raffle_id = ? ORDER BY id")
+        .bind(&id)
+        .all()
+        .await
+        .unwrap();
+    for row in [
+        (
+            "set_prize_delivery".to_owned(),
+            format!("{prize} on_the_spot"),
+        ),
+        ("deliver".to_owned(), winner.clone()),
+    ] {
+        assert!(audit.contains(&row), "{row:?} in {audit:?}");
+    }
+    // A mistake can be undone, as any delivery.
+    let undeliver = EntrantPatch {
+        delivered: Some(false),
+        ..Default::default()
+    };
+    app::patch_entrant(&app, ACTOR, &id, &winner, undeliver)
+        .await
+        .unwrap();
+
+    app::command(&app, ACTOR, &id, Decision::Finish, "f1")
+        .await
+        .unwrap();
+    assert!(matches!(
+        app::set_prize_delivery(&app, ACTOR, &id, &prize, Delivery::Later).await,
+        Err(Error::Refused(Refusal::PrizeDeliveryFixed))
+    ));
+    assert!(matches!(
+        app::set_prize_delivery(&app, ACTOR, &id, "nope", Delivery::Later).await,
+        Err(Error::Refused(Refusal::PrizeDeliveryFixed))
+    ));
+}
+
+#[tokio::test]
+async fn a_prizes_delivery_needs_the_prize() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &["Anna"]).await;
+    assert!(matches!(
+        app::set_prize_delivery(&app, ACTOR, &id, "nope", Delivery::OnTheSpot).await,
+        Err(Error::NotFound)
+    ));
+    assert!(matches!(
+        app::set_prize_delivery(
+            &app,
+            app::Actor::solo("someone"),
+            &id,
+            "nope",
+            Delivery::OnTheSpot
+        )
+        .await,
+        Err(Error::NotFound)
+    ));
 }
 
 #[tokio::test]

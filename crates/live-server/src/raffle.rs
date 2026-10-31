@@ -4,6 +4,7 @@
 
 use rafi_lifecycle::RaffleState;
 use rafi_lifecycle::live::Snapshot;
+use rafi_lifecycle::prize::Delivery;
 use rafi_raffle::{ItemId, Outcome};
 
 use rafi_live_client::{Current, DrawInput, DrawOutcome, ParticipantView, Phase, public_name};
@@ -48,6 +49,8 @@ pub fn view(snapshot: &Snapshot) -> ParticipantView {
             display_name,
             prize_name: item_name(&d.item),
             outcome: outcome(d.outcome),
+            // A prize no longer listed says nothing either way.
+            sent_later: snapshot.delivery(&d.item) == Some(Delivery::Later),
             entrant_id: d.entrant.into_string(),
         }
     });
@@ -111,6 +114,7 @@ mod tests {
             drawn,
             names,
             prize_qty: 2,
+            deliveries: HashMap::new(),
         }
     }
 
@@ -179,6 +183,26 @@ mod tests {
             v.last.unwrap().display_name,
             "Anna",
             "the no-show is skipped"
+        );
+    }
+
+    #[test]
+    fn a_winner_knows_whether_the_prize_is_sent_later() {
+        let (a, b) = ("a".repeat(32), "b".repeat(32));
+        let raffle =
+            Raffle::restore(&manifest(), &[drawn(1, &a, "u1"), drawn(2, &b, "u2")]).unwrap();
+        let mut snap = snapshot(Some(raffle), HashMap::new());
+        snap.deliveries = HashMap::from([
+            ("u1".to_owned(), Delivery::Later),
+            ("u2".to_owned(), Delivery::OnTheSpot),
+        ]);
+        let v = view(&snap);
+        assert!(v.winners[0].sent_later);
+        assert!(!v.winners[1].sent_later);
+        snap.deliveries.clear();
+        assert!(
+            view(&snap).winners.iter().all(|w| !w.sent_later),
+            "unknown prizes aren't said to be sent"
         );
     }
 

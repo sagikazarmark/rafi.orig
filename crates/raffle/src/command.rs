@@ -48,7 +48,10 @@ pub struct DrawRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Resolution {
-    /// The winner took the item.
+    /// The winner claimed the item: they were there, and the organizer
+    /// checked their claim code. The item is theirs; whether it is in their
+    /// hands yet (handed over, or sent later) is the app's business, not
+    /// the draw's.
     Claimed,
     /// The winner was not there. A forfeit: the item is drawn again, and the
     /// winner is out of pass 2.

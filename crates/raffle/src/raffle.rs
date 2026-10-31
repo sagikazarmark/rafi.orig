@@ -51,7 +51,8 @@ pub enum ItemState {
     Available,
     /// Draw `k` picked `winner`; the organizer has not resolved it yet.
     Drawn { k: u64, winner: EntrantId },
-    /// Draw `k`'s winner took it.
+    /// Draw `k`'s winner claimed it ([`Resolution::Claimed`]): it is
+    /// theirs, not necessarily in their hands yet.
     Claimed { k: u64, winner: EntrantId },
     /// Withdrawn: it will not be given away.
     Voided,

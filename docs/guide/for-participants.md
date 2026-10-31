@@ -37,7 +37,8 @@ Then, for each prize:
   and, on Android, a vibration. Everyone else sees **Not this time** and the prizes left.
 
 **If you win, go to the organizer and show your claim code.** You must be in the room: if you're not, the prize is
-drawn again and you're out.
+drawn again and you're out. Once the organizer has checked your code, your phone says whether you take the prize
+with you or the organizer sends it to you later.
 
 Each person can win at most one prize, unless there are more prizes than people.
 

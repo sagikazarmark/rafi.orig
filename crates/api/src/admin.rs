@@ -19,6 +19,7 @@
 
 use std::{fmt, future::Future};
 
+pub use rafi_lifecycle::prize::Delivery;
 pub use rafi_raffle::{ItemId, Resolution};
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +53,14 @@ macro_rules! admin_functions {
             /// Adds or edits a prize; returns its ID.
             fn save_prize(id: String, prize: $crate::PrizeInput) -> String;
             fn delete_prize(id: String, prize_id: String) -> ();
+            /// How a prize reaches its winner. Unlike the rest of a prize, it
+            /// can change after the freeze, until the raffle is over; it
+            /// applies to the claims made after the change.
+            fn set_prize_delivery(
+                id: String,
+                prize_id: String,
+                delivery: $crate::admin::Delivery,
+            ) -> ();
             /// Moves the raffle through its lifecycle (publish, open, close, …).
             fn set_lifecycle(id: String, action: $crate::LifecycleCommand) -> ();
             /// Freezes the entrants and hands the raffle to the engine.

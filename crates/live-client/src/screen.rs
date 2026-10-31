@@ -12,8 +12,10 @@ pub enum Screen {
     /// This phone's entrant holds a prize.
     Won {
         prize_name: String,
-        /// The organizer has handed the prize over.
+        /// The winner claimed the prize (present, their code checked).
         claimed: bool,
+        /// The prize is sent to them after the raffle.
+        sent_later: bool,
         /// The raffle is over.
         done: bool,
     },
@@ -52,6 +54,7 @@ pub fn screen(view: &ParticipantView, me: Option<&str>, page_state: Phase, now_m
         return Screen::Won {
             prize_name: w.prize_name.clone(),
             claimed: w.claimed,
+            sent_later: w.sent_later,
             done: view.state.is_over(),
         };
     }
@@ -96,6 +99,7 @@ mod tests {
             display_name: format!("Name {id}"),
             prize_name: prize.into(),
             outcome,
+            sent_later: false,
         }
     }
 
@@ -154,6 +158,10 @@ mod tests {
             vec![
                 draw("a", "Book", DrawOutcome::Drawn),
                 draw("b", "Mug", DrawOutcome::Claimed),
+                DrawInput {
+                    sent_later: true,
+                    ..draw("c", "Voucher", DrawOutcome::Claimed)
+                },
             ]
         };
         let v = view(Phase::Drawing, None, draws());
@@ -162,6 +170,7 @@ mod tests {
             Screen::Won {
                 prize_name: "Book".into(),
                 claimed: false,
+                sent_later: false,
                 done: false
             }
         );
@@ -170,9 +179,20 @@ mod tests {
             Screen::Won {
                 prize_name: "Mug".into(),
                 claimed: true,
+                sent_later: false,
                 done: false
             },
             "a claimed winner isn't sent to the organizer"
+        );
+        assert_eq!(
+            screen(&v, Some("c"), Phase::Drawing, 0),
+            Screen::Won {
+                prize_name: "Voucher".into(),
+                claimed: true,
+                sent_later: true,
+                done: false
+            },
+            "a prize sent later says so"
         );
         // A win outranks a draw in progress for someone else.
         let v = view(Phase::Drawing, current(), draws());
@@ -186,6 +206,7 @@ mod tests {
             Screen::Won {
                 prize_name: "Book".into(),
                 claimed: false,
+                sent_later: false,
                 done: true
             }
         );

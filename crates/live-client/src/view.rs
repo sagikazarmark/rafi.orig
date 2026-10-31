@@ -115,8 +115,14 @@ pub struct LastDraw {
 pub struct Winner {
     pub entrant_id: String,
     pub prize_name: String,
-    /// The organizer has handed the prize over.
+    /// The winner claimed the prize: they were there and the organizer
+    /// checked their code. Not necessarily in their hands
+    /// ([`sent_later`](Self::sent_later)).
     pub claimed: bool,
+    /// The prize is sent to the winner after the raffle instead of being
+    /// handed over on the spot. Absent from an older server's view.
+    #[serde(default)]
+    pub sent_later: bool,
 }
 
 /// How a drawn entrant's turn ended. Mirrors `rafi_raffle::Outcome` (mapped
@@ -146,13 +152,15 @@ pub struct DrawInput {
     pub display_name: String,
     pub prize_name: String,
     pub outcome: DrawOutcome,
+    /// The prize is sent to the winner after the raffle.
+    pub sent_later: bool,
 }
 
 impl ParticipantView {
     /// Builds the view. `draws` are the raffle's draws in chronological order.
     ///
     /// - `winners` are the draws that hold their prize, with `claimed` set for
-    ///   claimed ones;
+    ///   claimed ones and `sent_later` as the draw says;
     /// - `last` is the latest of those, so a no-show or a decline is never
     ///   celebrated on phones.
     pub fn new(
@@ -172,6 +180,7 @@ impl ParticipantView {
                 entrant_id: d.entrant_id,
                 prize_name: d.prize_name.clone(),
                 claimed: d.outcome == DrawOutcome::Claimed,
+                sent_later: d.sent_later,
             });
             last = Some(LastDraw {
                 display_name: d.display_name,
@@ -233,6 +242,7 @@ mod tests {
             display_name: format!("Name {id}"),
             prize_name: prize.into(),
             outcome,
+            sent_later: false,
         }
     }
 
@@ -270,7 +280,10 @@ mod tests {
             None,
             [
                 draw("a", "Book", DrawOutcome::Claimed),
-                draw("b", "Mug", DrawOutcome::Drawn),
+                DrawInput {
+                    sent_later: true,
+                    ..draw("b", "Mug", DrawOutcome::Drawn)
+                },
                 draw("c", "Shirt", DrawOutcome::NotHere),
                 draw("d", "Shirt", DrawOutcome::Declined),
             ],
@@ -282,12 +295,14 @@ mod tests {
                 Winner {
                     entrant_id: "a".into(),
                     prize_name: "Book".into(),
-                    claimed: true
+                    claimed: true,
+                    sent_later: false,
                 },
                 Winner {
                     entrant_id: "b".into(),
                     prize_name: "Mug".into(),
-                    claimed: false
+                    claimed: false,
+                    sent_later: true,
                 },
             ]
         );
@@ -329,11 +344,18 @@ mod tests {
             entrant_id: "x".into(),
             prize_name: "y".into(),
             claimed: false,
+            sent_later: false,
         });
         assert!(!a.same_content(&c));
         let mut d = c.clone();
         d.winners[0].claimed = true;
         assert!(!c.same_content(&d), "a claim is a change");
+        let mut e = d.clone();
+        e.winners[0].sent_later = true;
+        assert!(
+            !d.same_content(&e),
+            "how the prize is delivered is a change"
+        );
     }
 
     #[test]
@@ -357,11 +379,20 @@ mod tests {
                 "state": "drawing",
                 "current": { "prize_name": "Mug", "round": 42, "round_time": 1_700_000_000 },
                 "last": { "display_name": "Name a", "prize_name": "Book" },
-                "winners": [{ "entrant_id": "a", "prize_name": "Book", "claimed": true }],
+                "winners": [{ "entrant_id": "a", "prize_name": "Book", "claimed": true, "sent_later": false }],
                 "prizes_left": 1,
             })
         );
         let back: ParticipantView = serde_json::from_value(json).unwrap();
         assert_eq!(back, v);
+    }
+
+    #[test]
+    fn an_older_servers_winner_is_not_sent_later() {
+        let w: Winner = serde_json::from_value(serde_json::json!({
+            "entrant_id": "a", "prize_name": "Book", "claimed": true
+        }))
+        .unwrap();
+        assert!(w.claimed && !w.sent_later);
     }
 }

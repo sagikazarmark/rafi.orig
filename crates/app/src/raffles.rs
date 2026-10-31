@@ -369,6 +369,7 @@ pub async fn duplicate(app: &App, actor: Actor<'_>, id: &str, event: &EventDate)
                     description: &prize.description,
                     qty: prize.qty.max(0) as u32,
                     position: prize.position,
+                    delivery: prize.delivery,
                 },
             )
         })

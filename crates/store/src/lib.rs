@@ -74,25 +74,30 @@ pub use prizes::PrizeRow;
 pub use query::{Db, Query};
 pub use raffles::RaffleRow;
 use rafi_engine::BoxFuture;
-use rafi_raffle::{Event, Raffle};
+use rafi_lifecycle::{prize::OnClaim, raffle::on_claim};
+use rafi_raffle::{CompletedDraw, Event, Raffle, Resolution};
 use std::collections::BTreeSet;
 pub use value::{Row, Value};
 
 /// Stores a raffle as its engine drew it, after every change: the events it
 /// recorded since the last write (`raffle_events`), the draws they touched
-/// (`draws`), and the row (`raffles`: opened, the lifecycle, the finish).
+/// (`draws`), their winners' delivery where a claim changed it (`entrants`:
+/// a prize handed over on the spot is delivered by its claim, [`on_claim`]),
+/// and the row (`raffles`: opened, the lifecycle, the finish).
 ///
 /// Idempotent and safe to retry: a state is only written when it is newer than
 /// the stored one, and for the entrant list the raffle was frozen with. The
 /// lifecycle follows the raffle ([`rafi_lifecycle::raffle::lifecycle`]) to
 /// `drawing` and `finished`, and its finish is timed. Nothing here is policy:
-/// erasing personal data is the app's.
+/// erasing personal data is the app's. A delivery isn't either: it is a fact
+/// of the claim, as the organizer described the prize.
 ///
-/// It reads before it writes, to know which events are new; the write is one
-/// [`Db::batch`]. A stale save that passes the read (a newer one landed in
-/// between) carries the same events at the same positions, so its events
-/// are already stored, and the batch's guard (the stored log is exactly this
-/// state's) leaves the draws and the row alone.
+/// It reads before it writes, to know which events are new (and, for a
+/// claim, how the prizes are delivered); the write is one [`Db::batch`]. A
+/// stale save that passes the read (a newer one landed in between) carries
+/// the same events at the same positions, so its events are already stored,
+/// and the batch's guard (the stored log is exactly this state's) leaves the
+/// draws, the deliveries and the row alone.
 ///
 /// The rows are stamped `now`. Returns whether the state was written.
 pub async fn save_raffle(db: &Db, state: &Raffle, now: i64) -> Result<bool> {
@@ -142,9 +147,7 @@ pub(crate) async fn write_raffle(
     let id = state.id().as_str();
     let events = state.events();
     let new = events.get(stored_events..).unwrap_or_default();
-    // The stored log is exactly this state's: evaluated after the inserts, so
-    // a stale save touches no draw and leaves the row alone.
-    let guard = "(SELECT COALESCE(MAX(seq), 0) FROM raffle_events WHERE raffle_id = ?1) = ?2";
+    let guard = STORED_LOG_IS_THIS;
     let mut writes = Vec::new();
     for (chunk, rows) in new.chunks(EVENTS_PER_INSERT).enumerate() {
         let mut insert = db.query(format!(
@@ -170,6 +173,17 @@ pub(crate) async fn write_raffle(
             _ => None,
         })
         .collect();
+    // Draws claimed by these events, which may deliver their winner's prize.
+    let claimed: BTreeSet<u64> = new
+        .iter()
+        .filter_map(|event| match event {
+            Event::Resolved {
+                k,
+                resolution: Resolution::Claimed,
+            } => Some(*k),
+            _ => None,
+        })
+        .collect();
     for draw in state.draws().iter().filter(|d| touched.contains(&d.k)) {
         writes.push(
             db.query(format!(
@@ -184,6 +198,15 @@ pub(crate) async fn write_raffle(
             .bind(draw.entrant.as_str())
             .bind(draw.outcome.as_str()),
         );
+    }
+    if !claimed.is_empty() {
+        let deliveries = prizes::deliveries(db, id).await?;
+        for draw in state.draws().iter().filter(|d| claimed.contains(&d.k)) {
+            let effect = on_claim(state, draw.k, |prize| deliveries.get(prize).copied());
+            if let Some(write) = delivery_on_claim(db, id, events.len(), draw, effect, now) {
+                writes.push(write);
+            }
+        }
     }
     writes.push(
         db.query(format!(
@@ -205,6 +228,49 @@ pub(crate) async fn write_raffle(
     let changed = db.batch(writes).await?;
     Ok(changed.last().is_some_and(|&n| n > 0))
 }
+
+/// [`write_raffle`]'s write of what claiming `draw` did to its winner's
+/// delivery ([`on_claim`]): marked delivered at `now`, as "Mark delivered"
+/// would, when its prize (and every other one they claimed) was handed over
+/// on the spot; marked not delivered when it is sent later. Written here,
+/// with the claim's event, so it holds whichever engine applied the claim
+/// and however late: the app only hears that the engine took the command.
+/// The prizes' deliveries are read as they are now. An erased winner is
+/// left alone; so is everyone when the save is stale (the batch's guard, on
+/// `seq` = `?2`).
+fn delivery_on_claim<'a>(
+    db: &'a Db,
+    raffle_id: &str,
+    events: usize,
+    draw: &CompletedDraw,
+    effect: OnClaim,
+    now: i64,
+) -> Option<Query<'a>> {
+    let (set, unless) = match effect {
+        OnClaim::Deliver => ("?4", "delivered_at IS NULL"),
+        OnClaim::Undeliver => ("NULL", "delivered_at IS NOT NULL"),
+        OnClaim::Nothing => return None,
+    };
+    let query = db
+        .query(format!(
+            "UPDATE entrants SET delivered_at = {set}
+             WHERE raffle_id = ?1 AND id = ?3 AND {unless} AND erased = 0
+               AND {STORED_LOG_IS_THIS}"
+        ))
+        .bind(raffle_id)
+        .bind(events)
+        .bind(draw.entrant.as_str());
+    Some(match effect {
+        OnClaim::Deliver => query.bind(now),
+        _ => query,
+    })
+}
+
+/// [`write_raffle`]'s guard: the stored log is exactly this state's
+/// (raffle `?1`, `?2` events). Evaluated after the inserts, so a stale save
+/// touches no draw, delivers nothing and leaves the row alone.
+const STORED_LOG_IS_THIS: &str =
+    "(SELECT COALESCE(MAX(seq), 0) FROM raffle_events WHERE raffle_id = ?1) = ?2";
 
 /// Events per `INSERT`: five parameters each, and D1 binds at most 100 per
 /// statement.

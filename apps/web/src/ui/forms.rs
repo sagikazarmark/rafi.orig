@@ -9,6 +9,7 @@ use dioxus_icons::lucide::{
 };
 use rafi_lifecycle::{
     entrant::{self, MAX_NAME_CHARS},
+    prize::Delivery,
     settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
 };
 
@@ -219,15 +220,74 @@ fn prize_form(namespace: String, initial: Prize) -> FormHandle<Prize> {
     handle
 }
 
-/// Adds a prize, or edits an existing one when `prize_id` is set.
+/// How a prize reaches its winner, in the organizer's words.
+pub fn delivery_label(d: Delivery) -> &'static str {
+    match d {
+        Delivery::OnTheSpot => "🤝 On the spot",
+        Delivery::Later => "📨 Sent later",
+    }
+}
+
+/// What choosing `d` means for the claim, or what the choice decides.
+pub fn delivery_hint(d: Option<Delivery>) -> &'static str {
+    match d {
+        Some(Delivery::OnTheSpot) => {
+            "Handed over when the winner shows their code: “Claimed” also marks it delivered, and their data goes on the non-winners' erasure clock."
+        }
+        Some(Delivery::Later) => {
+            "Sent after the raffle, like a voucher by email: mark it delivered in People once it reached them. Their data is kept until then."
+        }
+        None => "Pick one: it decides whether “Claimed” also marks the prize delivered.",
+    }
+}
+
+/// The two ways a prize reaches its winner, as a pair of buttons, `value`
+/// pressed (if any).
+#[component]
+pub fn DeliveryPicker(
+    value: Option<Delivery>,
+    on_pick: EventHandler<Delivery>,
+    /// Buttons' size class (`btn-sm`, `btn-xs`).
+    #[props(default = "btn-sm")]
+    size: &'static str,
+    #[props(default)] disabled: bool,
+    /// What the group is about, for screen readers.
+    #[props(into, default = String::from("How the winner gets the prize"))]
+    label: String,
+) -> Element {
+    rsx! {
+        div { class: "join", role: "radiogroup", aria_label: label,
+            for d in [Delivery::OnTheSpot, Delivery::Later] {
+                button {
+                    key: "{d.as_str()}",
+                    r#type: "button",
+                    role: "radio",
+                    aria_checked: if value == Some(d) { "true" } else { "false" },
+                    class: if value == Some(d) { "btn join-item {size} btn-active btn-secondary" } else { "btn join-item {size}" },
+                    disabled,
+                    onclick: move |_| on_pick.call(d),
+                    "{delivery_label(d)}"
+                }
+            }
+        }
+    }
+}
+
+/// Adds a prize, or edits an existing one when `prize_id` is set. A new
+/// prize's delivery has to be picked: a prize said to be sent later tells
+/// its winner's phone so, which would be wrong for one handed over.
 #[component]
 pub fn PrizeForm(
     raffle_id: String,
     #[props(default)] prize_id: Option<String>,
     #[props(default)] name: String,
     #[props(default)] sponsor: String,
+    /// Not edited here, but kept: the server stores what it is sent.
+    #[props(default)]
+    description: String,
     #[props(default = 1)] qty: u32,
     #[props(default)] position: i64,
+    #[props(default)] delivery: Option<Delivery>,
     on_saved: EventHandler<()>,
     #[props(default)] on_cancel: Option<EventHandler<()>>,
 ) -> Element {
@@ -238,6 +298,7 @@ pub fn PrizeForm(
         qty,
     };
     let form = use_form_handle(move || prize_form(namespace, initial));
+    let mut picked = use_signal(|| delivery);
     let fields = Prize::fields();
     let qty_binding = use_number(&form, fields.qty());
     let submit = form.managed_submit();
@@ -253,20 +314,27 @@ pub fn PrizeForm(
             novalidate: true,
             onsubmit: move |event| {
                 let (raffle_id, prize_id, reset) = (raffle_id.clone(), prize_id.clone(), reset.clone());
+                let description = description.clone();
+                let delivery = picked();
                 let _ = submit.on_submit_async(event, move |s: SubmissionSnapshot<Prize>| async move {
+                    let Some(delivery) = delivery else {
+                        return SubmitError::form("How does the winner get it: on the spot, or sent later?".to_owned()).into();
+                    };
                     let v = s.value().clone();
                     let input = PrizeInput {
                         id: prize_id.clone(),
                         name: v.name.clone(),
                         sponsor: v.sponsor,
-                        description: String::new(),
+                        description,
                         qty: v.qty,
                         position,
+                        delivery,
                     };
                     match api::save_prize(raffle_id, input).await {
                         Ok(_) => {
                             if prize_id.is_none() {
                                 reset.reinitialize(Prize::default());
+                                picked.set(None);
                                 toast.success(format!("🎁 {} added", v.name), ToastOptions::new());
                             }
                             on_saved.call(());
@@ -298,6 +366,11 @@ pub fn PrizeForm(
                 max: "{MAX_PRIZE_QTY}",
                 inputmode: "numeric",
                 class: "w-full",
+            }
+            div { class: "flex flex-col gap-2 py-2 sm:col-span-3 sm:col-start-1",
+                span { class: "text-sm font-medium", "How does the winner get it?" }
+                DeliveryPicker { value: picked(), on_pick: move |d| picked.set(Some(d)) }
+                p { class: "text-xs text-base-content/60", "{delivery_hint(picked())}" }
             }
             div { class: "flex gap-2 sm:pt-8",
                 Button { color: if editing { ButtonColor::Primary } else { ButtonColor::Secondary }, r#type: "submit", disabled: busy,

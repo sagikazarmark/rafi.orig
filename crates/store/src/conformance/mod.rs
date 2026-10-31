@@ -20,6 +20,7 @@
 //!   and its log, housekeeping's clocks (expiry, the erasure date, the
 //!   winner hold, the purge at the ceiling, re-applying after a restore),
 //!   delivering every prize and the organizer leaving, the terms accepted,
+//!   prizes delivered by their claim,
 //!   ending live channels, proof-of-work replays, the full
 //!   view, the participant snapshot, and the raffle's log:
 //!   [`save_raffle`](crate::save_raffle), its events (append-only) and its
@@ -225,6 +226,7 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "domain.frozen_list" => domain::the_list_and_prizes_are_fixed_once_frozen,
     "domain.entrant_patch" => domain::patches_an_entrant_at_once,
     "domain.raffle_log" => domain::logs_a_whole_evening,
+    "domain.delivered_on_claim" => domain::delivers_on_the_spot_with_the_claim,
     "domain.raffle_opened" => domain::an_opened_raffle_may_have_no_events,
     "domain.raffle_saves" => domain::saves_only_newer_states,
     "domain.raffle_events_append_only" => domain::raffle_events_are_append_only,

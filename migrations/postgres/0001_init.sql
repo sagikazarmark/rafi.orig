@@ -71,7 +71,12 @@ CREATE TABLE prizes (
     sponsor TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     qty BIGINT NOT NULL DEFAULT 1,
-    position BIGINT NOT NULL DEFAULT 0
+    position BIGINT NOT NULL DEFAULT 0,
+    -- How the prize reaches its winner, rafi_lifecycle::prize::Delivery's
+    -- name: `later` (the organizer marks it delivered) or `on_the_spot`
+    -- (claiming it delivers it). Changes until the raffle is over; it isn't
+    -- in the manifest.
+    delivery TEXT NOT NULL DEFAULT 'later'
 );
 
 CREATE INDEX prizes_raffle ON prizes (raffle_id, position);

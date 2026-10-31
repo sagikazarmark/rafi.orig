@@ -86,7 +86,10 @@ deleted outright and it becomes Data erased.
    limit there (the service's minimum is in the standard rules, and the join form says the rules may ask for
    more). Save them as **your defaults** so the next raffle starts with them.
 3. **Prizes:** add each prize with a quantity and, optionally, a sponsor. Each copy is drawn on its own, in any
-   order you like during the draw.
+   order you like during the draw. Say how each one reaches its winner: **On the spot** (handed over when they
+   come up with their code: pressing **Claimed** marks it delivered too) or **Sent later** (a voucher you email
+   afterwards: you mark it delivered once it reached them, and the winner's phone says it will be sent). This
+   one setting can still change after the freeze, until the raffle is finished.
 4. **Rehearse.** Turn on **Test mode** in settings. A TEST badge shows on every screen, and the People tab offers
    **Add 25 fake entrants**, with generated names like "Brave Otter". Run through the draw on the projector.
 
@@ -123,7 +126,8 @@ Press **Freeze list & start the draw** when everyone is in. It asks first, becau
 - Registration closes for good. Latecomers can't be added.
 - The entrant list is frozen into the **manifest** and published as a hash and a list of anonymous IDs. The
   **Verification page** link appears.
-- Prizes are locked. From now on an item can only be **withdrawn**.
+- Prizes are locked. From now on an item can only be **withdrawn**; how a prize is delivered can still change (it
+  applies to the claims from then on).
 - Nobody leaves the list until the raffle is finished (or its erasure date passes): the People tab can still
   **hide** or **rename** a name, and a drawn winner who doesn't want their prize is **Declined**. Asked to erase
   someone's data during the event? Hide their name now, and erase their personal data once the raffle is finished.
@@ -141,8 +145,9 @@ Open the **Draw** tab. For each prize, in any order:
 2. The admin shows the winner's **claim code**. The winner's phone shows **YOU WON!** with the same code.
 3. When they come up and the codes match, press **Claimed**. If they're not in the room, press **Not here**. If
    they don't want it, press **Declined**. With either of those, they're out and the prize goes back to be drawn
-   again. Claimed means present with a valid code, not that the prize is in their hands: a voucher you email later
-   is **Mark delivered**, afterwards.
+   again. Claimed means present with a valid code. For a prize delivered **on the spot** it also marks the prize
+   delivered; one **sent later**, like a voucher you email, is **Mark delivered** (People tab) afterwards. The draw
+   console says which, next to the button.
 
 [The draw](the-draw.md) covers every case, including what happens when drand can't be reached.
 
@@ -160,8 +165,9 @@ and phones show **Thanks for playing!** with the winners and a link to the verif
 Personal data is erased on the dates entrants were shown, whatever you do; the raffle's page says which. You can
 only make it sooner:
 
-- **Mark delivered** (People tab) for each prize that reached its winner, or **All prizes delivered** (⋯ menu) once
-  nothing is still on its way. Winners' names and emails are kept until then so you can deliver, and at most for
+- **Mark delivered** (People tab) for each prize sent later that reached its winner, or **All prizes delivered**
+  (⋯ menu) once nothing is still on its way. Prizes delivered on the spot were marked delivered when claimed (a
+  mistake can be undone in the People tab). Winners' names and emails are kept until then so you can deliver, and at most for
   the winner hold (90 days past the erasure date: a prize you can't deliver by then needs the winner's address
   elsewhere, exported in time); everyone else's go at the end of the erasure date (7 days after the event unless
   you chose otherwise). Once the date has passed, marking delivered erases that winner on the next hourly run.
@@ -183,7 +189,7 @@ organization, an admin does this, for every co-host's raffles.
 
 ## Checklist
 
-- [ ] Prizes entered with the right quantities and sponsors
+- [ ] Prizes entered with the right quantities, sponsors and delivery (on the spot or sent later)
 - [ ] Event date right, organizer, contact email and additional rules filled in (registration won't open without
       an organizer and a contact)
 - [ ] Rehearsed on a duplicate in test mode, with the projector

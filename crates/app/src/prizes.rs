@@ -1,8 +1,9 @@
-//! A raffle's prizes, while they can change (until the freeze).
+//! A raffle's prizes, while they can change (until the freeze), and how
+//! each reaches its winner (until the raffle is over).
 
 use rafi_api::PrizeInput;
-use rafi_lifecycle::{settings, start};
-use rafi_store::prizes;
+use rafi_lifecycle::{prize::Delivery, settings, start};
+use rafi_store::{audit, prizes};
 
 use crate::{Actor, App, Error, Refusal, Result, ids, owned};
 
@@ -38,6 +39,7 @@ pub async fn upsert_prize(
         description: input.description.trim(),
         qty: input.qty,
         position: input.position,
+        delivery: input.delivery,
     };
     // The store writes only while prizes can change: a freeze that landed
     // since the read above refuses it.
@@ -77,6 +79,45 @@ pub async fn delete_prize(
             return Err(r.into());
         }
     }
+    app.live_updates.notify(raffle_id).await;
+    Ok(())
+}
+
+/// Changes how a prize reaches its winner, which it may until the raffle is
+/// over, past the freeze too. It applies to the claims made from then on:
+/// claiming an item of a prize handed over on the spot marks its winner's
+/// prize delivered (the raffle's store does, with the claim). Audited, as
+/// it decides which winners' data goes on the non-winners' clock.
+pub async fn set_prize_delivery(
+    app: &App,
+    actor: Actor<'_>,
+    raffle_id: &str,
+    prize_id: &str,
+    delivery: Delivery,
+) -> Result<()> {
+    let raffle = owned(app, actor.owner, raffle_id).await?;
+    if !raffle.state.prize_delivery_editable() {
+        return Err(Refusal::PrizeDeliveryFixed.into());
+    }
+    if !prizes::set_delivery(&app.db, prize_id, raffle_id, delivery).await? {
+        // Over since the read above, or no such prize.
+        return Err(match rafi_store::raffles::get(&app.db, raffle_id).await? {
+            Some(r) if !r.state.prize_delivery_editable() => Refusal::PrizeDeliveryFixed.into(),
+            _ => Error::NotFound,
+        });
+    }
+    let detail = format!("{prize_id} {}", delivery.as_str());
+    let now = app.clock.now();
+    audit::record(
+        &app.db,
+        raffle_id,
+        actor,
+        "set_prize_delivery",
+        &detail,
+        now,
+    )
+    .await?;
+    // A winner's phone says whether the prize is still to be sent.
     app.live_updates.notify(raffle_id).await;
     Ok(())
 }

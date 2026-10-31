@@ -12,6 +12,7 @@
 use crate::{Db, Result, raffles};
 use rafi_lifecycle::RaffleState;
 use rafi_lifecycle::live::Snapshot;
+use rafi_lifecycle::prize::Delivery;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -21,6 +22,12 @@ struct RaffleRow {
     live_ended_at: Option<i64>,
     manifest: Option<String>,
     opened_at: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct DeliveryRow {
+    id: String,
+    delivery: Delivery,
 }
 
 #[derive(Deserialize)]
@@ -48,10 +55,12 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
             .bind(raffle_id),
             db.query("SELECT COALESCE(SUM(qty), 0) FROM prizes WHERE raffle_id = ?1")
                 .bind(raffle_id),
+            db.query("SELECT id, delivery FROM prizes WHERE raffle_id = ?1").bind(raffle_id),
             raffles::events_query(db, raffle_id),
         ])
         .await?;
     let event_rows = sets.pop().unwrap_or_default();
+    let delivery_rows = sets.pop().unwrap_or_default();
     let qty_rows = sets.pop().unwrap_or_default();
     let name_rows = sets.pop().unwrap_or_default();
     let Some(raffle) = sets.pop().and_then(|rows| rows.into_iter().next()) else {
@@ -68,6 +77,10 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
         .map(|r| r.decode::<(i64,)>())
         .transpose()?
         .map_or(0, |(q,)| q.max(0) as u32);
+    let deliveries = delivery_rows
+        .into_iter()
+        .map(|r| r.decode::<DeliveryRow>().map(|d| (d.id, d.delivery)))
+        .collect::<Result<_>>()?;
     Ok(Some(Snapshot {
         state: raffle.state,
         version: raffle.version.max(0) as u64,
@@ -75,6 +88,7 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
         drawn: raffles::rebuild(raffle.opened_at, raffle.manifest.as_deref(), event_rows)?,
         names,
         prize_qty,
+        deliveries,
     }))
 }
 

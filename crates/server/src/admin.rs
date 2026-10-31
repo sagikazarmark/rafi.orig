@@ -15,7 +15,7 @@ use dioxus_clerk::server::ClerkAuth;
 use rafi_api::{
     Access, Caller, EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleDefaults,
     RaffleSettings, RaffleSummary,
-    admin::{self, Admin, ApiError, ItemId, Resolution, codes},
+    admin::{self, Admin, ApiError, Delivery, ItemId, Resolution, codes},
 };
 use rafi_raffle::{Decision, DrawRequest};
 
@@ -222,6 +222,16 @@ impl Admin for AppState {
 
     async fn delete_prize(&self, c: &Caller, id: String, prize_id: String) -> service::Result<()> {
         service::delete_prize(self, service::actor(c), &id, &prize_id).await
+    }
+
+    async fn set_prize_delivery(
+        &self,
+        c: &Caller,
+        id: String,
+        prize_id: String,
+        delivery: Delivery,
+    ) -> service::Result<()> {
+        service::set_prize_delivery(self, service::actor(c), &id, &prize_id, delivery).await
     }
 
     async fn set_lifecycle(

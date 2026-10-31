@@ -21,12 +21,14 @@ pub const WON: &str =
 /// The strings [`Card`] shows. The server embeds them in the page JSON, so
 /// the WebAssembly and `fallback.js` show the same text.
 ///
-/// The claimed winner's line reuses `thanks_won`.
+/// The claimed winner's line reuses `thanks_won`, or is `sent_later` when
+/// the prize is sent to them after the raffle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardStrings {
     pub you_won: String,
     pub go_to_organizer: String,
     pub thanks_won: String,
+    pub sent_later: String,
     pub thanks: String,
     pub drawing: String,
     pub not_this_time: String,
@@ -43,6 +45,7 @@ impl Default for CardStrings {
             you_won: "YOU WON!".into(),
             go_to_organizer: "Go to the organizer and show your claim code.".into(),
             thanks_won: "Congratulations again — enjoy your prize!".into(),
+            sent_later: "Congratulations again — the organizer will send you your prize.".into(),
             thanks: "Thanks for playing!".into(),
             drawing: "Drawing".into(),
             not_this_time: "Not this time".into(),
@@ -85,6 +88,7 @@ pub fn Card(
         Screen::Won {
             prize_name,
             claimed,
+            sent_later,
             done,
         } => {
             let class = if announce {
@@ -92,7 +96,9 @@ pub fn Card(
             } else {
                 WON.to_owned()
             };
-            let note = if claimed || done {
+            let note = if claimed && sent_later {
+                &s.sent_later
+            } else if claimed || done {
                 &s.thanks_won
             } else {
                 &s.go_to_organizer

@@ -1,6 +1,6 @@
 //! The `domain.*` scenarios: the domain functions, on every backend.
 
-use rafi_lifecycle::RaffleState;
+use rafi_lifecycle::{RaffleState, prize::Delivery};
 use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle, Resolution};
 
 use super::{Outcome, check, fail};
@@ -858,6 +858,7 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
         description: "",
         qty: 1,
         position,
+        delivery: Delivery::Later,
     };
     prizes::insert(db, "i2", "r1", &prize("Shirt", 1))
         .await
@@ -869,9 +870,17 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
         .await
         .map_err(fail)?;
     check(
-        prizes::update(db, "i2", "r1", &prize("T-shirt", 1))
-            .await
-            .map_err(fail)?,
+        prizes::update(
+            db,
+            "i2",
+            "r1",
+            &prizes::PrizeFields {
+                delivery: Delivery::OnTheSpot,
+                ..prize("T-shirt", 1)
+            },
+        )
+        .await
+        .map_err(fail)?,
         "updating a prize",
     )?;
     check(
@@ -903,6 +912,11 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
     check(
         prize_ids == ["i1", "i0", "i2"] && full.prizes[2].name == "T-shirt",
         &format!("prizes by position, then ID: {prize_ids:?}"),
+    )?;
+    let deliveries: Vec<_> = full.prizes.iter().map(|i| i.delivery).collect();
+    check(
+        deliveries == [Delivery::Later, Delivery::Later, Delivery::OnTheSpot],
+        &format!("how each prize is delivered: {deliveries:?}"),
     )?;
     let entrant_ids: Vec<_> = full.entrants.iter().map(|e| e.id.as_str()).collect();
     check(
@@ -1063,6 +1077,7 @@ pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcom
         description: "",
         qty,
         position: 0,
+        delivery: Delivery::Later,
     };
     let fake = |id: &str| entrants::Fake {
         id: id.into(),
@@ -1139,7 +1154,305 @@ pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcom
     check(
         prizes::list(db, "r1").await.map_err(fail)?.len() == 1,
         "the prizes as they were frozen",
+    )?;
+
+    // How a prize is delivered isn't in the manifest: it changes until the
+    // raffle is over.
+    for state in [RaffleState::Frozen, RaffleState::Drawing] {
+        force_state(db, "r1", state).await?;
+        check(
+            prizes::set_delivery(db, "i1", "r1", Delivery::OnTheSpot)
+                .await
+                .map_err(fail)?,
+            &format!("the delivery changes while {}", state.as_str()),
+        )?;
+    }
+    check(
+        prizes::set_delivery(db, "i1", "r1", Delivery::OnTheSpot)
+            .await
+            .map_err(fail)?,
+        "setting it again counts as a change",
+    )?;
+    check(
+        !prizes::set_delivery(db, "i9", "r1", Delivery::OnTheSpot)
+            .await
+            .map_err(fail)?,
+        "no such prize",
+    )?;
+    check(
+        !prizes::set_delivery(db, "i1", "r2", Delivery::OnTheSpot)
+            .await
+            .map_err(fail)?,
+        "not that raffle's prize",
+    )?;
+    for state in [RaffleState::Finished, RaffleState::Purged] {
+        force_state(db, "r1", state).await?;
+        check(
+            !prizes::set_delivery(db, "i1", "r1", Delivery::Later)
+                .await
+                .map_err(fail)?,
+            &format!("not once {}", state.as_str()),
+        )?;
+    }
+    check(
+        prizes::list(db, "r1").await.map_err(fail)?[0].delivery == Delivery::OnTheSpot,
+        "the delivery as last set",
     )
+}
+
+/// Claiming an item of a prize handed over on the spot delivers it, in the
+/// save that stores the claim: a book handed over, a voucher sent later.
+/// Only the claim does (not the draw, not a forfeit), only once, never for an
+/// erased winner, and a stale save delivers nothing.
+pub(super) async fn delivers_on_the_spot_with_the_claim(db: &Db) -> Outcome {
+    let (anna, bence, csilla) = ("a".repeat(32), "b".repeat(32), "c".repeat(32));
+    let manifest = Manifest::new(
+        "r1",
+        BeaconSource::QUICKNET,
+        vec![
+            anna.clone().into(),
+            bence.clone().into(),
+            csilla.clone().into(),
+        ],
+        vec![
+            ManifestItem {
+                id: "book-1".into(),
+                name: "Book".into(),
+            },
+            ManifestItem {
+                id: "voucher-1".into(),
+                name: "Voucher".into(),
+            },
+        ],
+    );
+    frozen_with(db, &manifest).await?;
+    force_state(db, "r1", RaffleState::Closed).await?;
+    for id in [&anna, &bence, &csilla] {
+        entrants::insert_manual(db, &manual("r1", id, None), NOW)
+            .await
+            .map_err(fail)?;
+    }
+    for (id, name, delivery) in [
+        ("book", "Book", Delivery::OnTheSpot),
+        ("voucher", "Voucher", Delivery::Later),
+    ] {
+        let fields = prizes::PrizeFields {
+            name,
+            sponsor: "",
+            description: "",
+            qty: 1,
+            position: 0,
+            delivery,
+        };
+        prizes::insert(db, id, "r1", &fields).await.map_err(fail)?;
+    }
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    let drawn = |k, item: &str, entrant: &str| Event::Drawn {
+        k,
+        item: item.into(),
+        round: k,
+        signature: String::new(),
+        randomness: String::new(),
+        pass: 1,
+        pool_size: 3,
+        index: 0,
+        entrant: entrant.to_owned().into(),
+    };
+    let resolved = |k, resolution| Event::Resolved { k, resolution };
+    let delivered_at = |id: String| async move {
+        entrants::get(db, "r1", &id)
+            .await
+            .map_err(fail)?
+            .ok_or_else(|| format!("entrant {id} is gone"))
+            .map(|e| e.delivered_at)
+    };
+    let save = |events: Vec<Event>, now: i64| {
+        let manifest = manifest.clone();
+        async move {
+            let state = Raffle::restore(&manifest, &events).map_err(fail)?;
+            save_raffle(db, &state, now).await.map_err(fail)
+        }
+    };
+
+    // Bence is drawn for the book and isn't here; Anna is drawn instead.
+    let mut events = vec![drawn(1, "book-1", &bence)];
+    check(save(events.clone(), NOW).await?, "the first draw")?;
+    check(
+        delivered_at(bence.clone()).await?.is_none(),
+        "a draw delivers nothing",
+    )?;
+    events.extend([resolved(1, Resolution::NotHere), drawn(2, "book-1", &anna)]);
+    check(
+        save(events.clone(), NOW).await?,
+        "the forfeit and the redraw",
+    )?;
+    check(
+        delivered_at(bence.clone()).await?.is_none(),
+        "a forfeit delivers nothing",
+    )?;
+
+    // Anna claims the book; Csilla, drawn for the voucher, claims it.
+    let stale = events.clone();
+    events.extend([
+        resolved(2, Resolution::Claimed),
+        drawn(3, "voucher-1", &csilla),
+        resolved(3, Resolution::Claimed),
+    ]);
+    check(save(events.clone(), NOW + 5).await?, "the claims")?;
+    check(
+        delivered_at(anna.clone()).await? == Some(NOW + 5),
+        "the book left with Anna when she claimed it",
+    )?;
+    check(
+        delivered_at(csilla.clone()).await?.is_none(),
+        "the voucher is still to be sent",
+    )?;
+    check(!save(stale, NOW + 9).await?, "a stale save is refused")?;
+
+    // Undelivered by hand, it stays so: the claim isn't stored again.
+    patch(
+        db,
+        "r1",
+        &anna,
+        entrants::Patch {
+            delivered_at: Some(None),
+            ..Default::default()
+        },
+    )
+    .await?;
+    events.push(Event::Finished);
+    check(save(events.clone(), NOW + 9).await?, "the finish")?;
+    check(
+        delivered_at(anna.clone()).await?.is_none(),
+        "a later save doesn't deliver again",
+    )?;
+
+    // The same evening in one save, the winner of the book erased first.
+    raffles::delete(db, "r1").await.map_err(fail)?;
+    frozen_with(db, &manifest).await?;
+    force_state(db, "r1", RaffleState::Closed).await?;
+    for id in [&anna, &bence, &csilla] {
+        entrants::insert_manual(db, &manual("r1", id, None), NOW)
+            .await
+            .map_err(fail)?;
+    }
+    let fields = prizes::PrizeFields {
+        name: "Book",
+        sponsor: "",
+        description: "",
+        qty: 1,
+        position: 0,
+        delivery: Delivery::OnTheSpot,
+    };
+    prizes::insert(db, "book", "r1", &fields)
+        .await
+        .map_err(fail)?;
+    force_state(db, "r1", RaffleState::Finished).await?;
+    entrants::erase(db, "r1", Some(&anna), NOW)
+        .await
+        .map_err(fail)?;
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    check(save(events, NOW).await?, "the evening at once")?;
+    check(
+        delivered_at(anna).await?.is_none(),
+        "an erased winner isn't delivered to",
+    )?;
+    delivers_once_every_claimed_prize_is(db).await
+}
+
+/// More items than people: Dora alone claims a book handed over on the
+/// spot, then in pass 2 a voucher sent later, then a mug handed over. She is
+/// delivered only while every prize she claimed is, saved claim by claim or
+/// at once.
+async fn delivers_once_every_claimed_prize_is(db: &Db) -> Outcome {
+    let dora = "d".repeat(32);
+    let manifest = Manifest::new(
+        "r2",
+        BeaconSource::QUICKNET,
+        vec![dora.clone().into()],
+        ["book", "voucher", "mug"]
+            .map(|p| ManifestItem {
+                id: format!("dora-{p}-1").into(),
+                name: p.into(),
+            })
+            .into(),
+    );
+    let setup = || async {
+        frozen_with(db, &manifest).await?;
+        force_state(db, "r2", RaffleState::Closed).await?;
+        entrants::insert_manual(db, &manual("r2", &dora, None), NOW)
+            .await
+            .map_err(fail)?;
+        for (id, delivery) in [
+            ("book", Delivery::OnTheSpot),
+            ("voucher", Delivery::Later),
+            ("mug", Delivery::OnTheSpot),
+        ] {
+            let fields = prizes::PrizeFields {
+                name: id,
+                sponsor: "",
+                description: "",
+                qty: 1,
+                position: 0,
+                delivery,
+            };
+            prizes::insert(db, &format!("dora-{id}"), "r2", &fields)
+                .await
+                .map_err(fail)?;
+        }
+        force_state(db, "r2", RaffleState::Frozen).await
+    };
+    let claim = |k: u64, item: &str| {
+        [
+            Event::Drawn {
+                k,
+                item: format!("dora-{item}-1").into(),
+                round: k,
+                signature: String::new(),
+                randomness: String::new(),
+                pass: if k == 1 { 1 } else { 2 },
+                pool_size: 1,
+                index: 0,
+                entrant: dora.clone().into(),
+            },
+            Event::Resolved {
+                k,
+                resolution: Resolution::Claimed,
+            },
+        ]
+    };
+    let delivered =
+        || async { Ok::<_, String>(entrant(db, "r2", &dora).await?.delivered_at.is_some()) };
+
+    setup().await?;
+    let mut events = Vec::new();
+    for (k, item, want, what) in [
+        (1, "book", true, "the book was handed over"),
+        (2, "voucher", false, "the voucher is still to be sent"),
+        (
+            3,
+            "mug",
+            false,
+            "the mug was handed over, the voucher still isn't",
+        ),
+    ] {
+        events.extend(claim(k, item));
+        let state = Raffle::restore(&manifest, &events).map_err(fail)?;
+        check(
+            save_raffle(db, &state, NOW).await.map_err(fail)?,
+            &format!("saving the {item}"),
+        )?;
+        check(delivered().await? == want, what)?;
+    }
+
+    raffles::delete(db, "r2").await.map_err(fail)?;
+    setup().await?;
+    let state = Raffle::restore(&manifest, &events).map_err(fail)?;
+    check(
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
+        "saving it at once",
+    )?;
+    check(!delivered().await?, "at once, the voucher still isn't")
 }
 
 pub(super) async fn patches_an_entrant_at_once(db: &Db) -> Outcome {

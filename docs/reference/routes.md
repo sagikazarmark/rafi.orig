@@ -48,7 +48,7 @@ These never contain emails, tokens or claim codes.
 | Path | What |
 |---|---|
 | `GET /api/r/<slug>/view` | The full view, which the projector and the admin poll: state, count, recent names, prizes, every draw, the server's time |
-| `GET /api/r/<slug>/participant` | The participant view, which phones render: state, the current draw, winners by entrant ID, prizes left |
+| `GET /api/r/<slug>/participant` | The participant view, which phones render: state, the current draw, winners by entrant ID (whether they claimed, and whether the prize is sent later), prizes left |
 | `GET /api/r/<slug>/verify.json` | The manifest, its hash, the event log and display names ([format](draw-algorithm.md#verifyjson)) |
 | `GET /api/challenge` | A proof-of-work challenge for the join form |
 | `GET /config.js` | The web app's configuration, as a script `index.html` loads first (`window.__RAFI_CONFIG__`): Clerk's publishable key, or `null` under dev auth. The server alone decides how organizers sign in; nothing of an installation's is in the web app bundle. It also applies the saved colour scheme before first paint, which `index.html` can't do inline under its policy. |
@@ -62,7 +62,8 @@ These never contain emails, tokens or claim codes.
 
 Both sides come from one declaration, `admin_functions!` in [`crates/api/src/admin.rs`](../../crates/api/src/admin.rs),
 which also says how the functions are named. Among them: `whoami` (who is signed in and what they may do, whether
-housekeeping looks stopped), `set_lifecycle` (publish, open, close), `deliver_all_prizes` ("All prizes delivered"),
+housekeeping looks stopped), `set_lifecycle` (publish, open, close), `set_prize_delivery` (on the spot or sent
+later, the one part of a prize that changes after the freeze), `deliver_all_prizes` ("All prizes delivered"),
 `remove_my_data` (the organizer leaving), and `export_winners_csv`, which is audited.
 
 `export_winners_csv` returns the drawn entrants as CSV text: UTF-8 with a byte order mark, a header line, every

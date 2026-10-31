@@ -15,6 +15,7 @@ fn strings() -> CardStrings {
         you_won: t("you_won"),
         go_to_organizer: t("go_to_organizer"),
         thanks_won: t("thanks_won"),
+        sent_later: t("sent_later"),
         thanks: t("thanks"),
         drawing: t("drawing"),
         not_this_time: t("not_this_time"),
@@ -32,6 +33,7 @@ fn draw(id: &str, prize: &str, outcome: DrawOutcome) -> DrawInput {
         display_name: format!("Name {id}"),
         prize_name: prize.into(),
         outcome,
+        sent_later: false,
     }
 }
 
@@ -235,6 +237,36 @@ fn won_claimed_or_done_says_thanks() {
         single_root(&html, WON);
         assert!(html.contains("[thanks_won]"), "{html}");
         assert!(!html.contains("[go_to_organizer]"), "{html}");
+        assert!(!html.contains("[sent_later]"), "{html}");
+    }
+}
+
+#[test]
+fn won_a_prize_sent_later() {
+    let later = |outcome| DrawInput {
+        sent_later: true,
+        ..draw("a", "Voucher", outcome)
+    };
+    let drawn = Case::new(Phase::Drawing, None, vec![later(DrawOutcome::Drawn)]).me("a");
+    let html = drawn.render();
+    assert!(
+        html.contains("[go_to_organizer]"),
+        "it is claimed with the code all the same: {html}"
+    );
+    for state in [Phase::Drawing, Phase::Finished] {
+        let claimed = Case::new(state, None, vec![later(DrawOutcome::Claimed)]).me("a");
+        assert!(matches!(
+            claimed.screen(),
+            Screen::Won {
+                claimed: true,
+                sent_later: true,
+                ..
+            }
+        ));
+        let html = claimed.render();
+        single_root(&html, WON);
+        assert!(html.contains("[sent_later]"), "{state:?}: {html}");
+        assert!(!html.contains("[thanks_won]"), "{state:?}: {html}");
     }
 }
 

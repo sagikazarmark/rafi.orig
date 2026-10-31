@@ -125,6 +125,7 @@ async fn page(
         you_won: "You won!".into(),
         go_to_organizer: "Go to the organizer".into(),
         thanks_won: "Thanks, enjoy!".into(),
+        sent_later: "It will be sent to you".into(),
         thanks: "Thanks for joining".into(),
         drawing: "Drawing".into(),
         not_this_time: "Not this time".into(),

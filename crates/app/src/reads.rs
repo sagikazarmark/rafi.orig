@@ -61,6 +61,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
                 description: i.description.clone(),
                 qty: i.qty.max(0) as u32,
                 position: i.position,
+                delivery: i.delivery,
             })
             .collect(),
         entrants,
