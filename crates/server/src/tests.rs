@@ -101,17 +101,17 @@ async fn send(router: &Router, req: Request<Body>) -> (StatusCode, header::Heade
     (status, headers, String::from_utf8_lossy(&body).into_owned())
 }
 
-async fn solved_altcha(router: &Router) -> String {
+async fn solved_pow(router: &Router) -> String {
     let (_, _, body) = send(
         router,
-        Request::get("/api/altcha").body(Body::empty()).unwrap(),
+        Request::get("/api/challenge").body(Body::empty()).unwrap(),
     )
     .await;
-    solve_altcha(serde_json::from_str(&body).expect("challenge json"))
+    solve_pow(serde_json::from_str(&body).expect("challenge json"))
 }
 
 /// The join form's value for `challenge`, solved from counter `from`.
-fn solve_altcha_from(challenge: altcha::Challenge, from: u32) -> altcha::Payload {
+fn solve_pow_from(challenge: altcha::Challenge, from: u32) -> altcha::Payload {
     let solution = altcha::solve_challenge(altcha::SolveChallengeOptions {
         counter_start: from,
         ..altcha::SolveChallengeOptions::new(&challenge)
@@ -124,8 +124,8 @@ fn solve_altcha_from(challenge: altcha::Challenge, from: u32) -> altcha::Payload
     }
 }
 
-fn solve_altcha(challenge: altcha::Challenge) -> String {
-    service::altcha::encode(&solve_altcha_from(challenge, 0))
+fn solve_pow(challenge: altcha::Challenge) -> String {
+    service::pow::encode(&solve_pow_from(challenge, 0))
 }
 
 fn form(fields: &[(&str, &str)]) -> String {
@@ -153,12 +153,12 @@ async fn join(
     name: &str,
     email: &str,
 ) -> (StatusCode, Option<String>, String) {
-    let altcha = solved_altcha(router).await;
+    let proof = solved_pow(router).await;
     let body = form(&[
         ("name", name),
         ("email", email),
         ("rules", "on"),
-        ("altcha", &altcha),
+        ("proof", &proof),
     ]);
     let (status, headers, text) = send(
         router,
@@ -920,26 +920,26 @@ async fn join_requires_proof_of_work_and_consent() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(page.contains("human"));
-    let altcha = solved_altcha(&router).await;
+    let proof = solved_pow(&router).await;
     let (status, _, page) = send(
         &router,
         post(form(&[
             ("name", "Ann"),
             ("email", "ann@example.com"),
-            ("altcha", &altcha),
+            ("proof", &proof),
         ])),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(page.contains("accept the rules"));
-    let altcha = solved_altcha(&router).await;
+    let proof = solved_pow(&router).await;
     let (status, _, _) = send(
         &router,
         post(form(&[
             ("name", "Porn King"),
             ("email", "x@example.com"),
             ("rules", "on"),
-            ("altcha", &altcha),
+            ("proof", &proof),
         ])),
     )
     .await;
@@ -1192,13 +1192,13 @@ async fn admin_requires_clerk_session() {
 }
 
 #[tokio::test]
-async fn altcha_worker_is_dioxus_altchas() {
+async fn pow_worker_is_dioxus_altchas() {
     let app = app().await;
     let public = std::env::temp_dir().join(format!("rafi-public-{}", uuid::Uuid::new_v4()));
     let participant = public.join("participant-dist");
     std::fs::create_dir_all(&participant).unwrap();
     // A participant directory built before the route: its copy is ignored.
-    std::fs::write(participant.join("altcha-worker.js"), "// stale").unwrap();
+    std::fs::write(participant.join("pow-worker.js"), "// stale").unwrap();
     let router = super::build_router(
         app,
         None,
@@ -1208,7 +1208,7 @@ async fn altcha_worker_is_dioxus_altchas() {
         },
     );
     let get = || {
-        Request::get("/participant/altcha-worker.js")
+        Request::get("/participant/pow-worker.js")
             .body(Body::empty())
             .unwrap()
     };
@@ -1882,14 +1882,14 @@ async fn joins_stop_at_the_entrant_cap() {
     assert!(page.contains("already entered"), "{page}");
 }
 
-/// A proof-of-work is redeemed once: the second use fails the `altcha_used`
+/// A proof-of-work is redeemed once: the second use fails the `pow_used`
 /// primary key. Expired rows leave with the housekeeping run.
 #[tokio::test]
 async fn proof_of_work_replays_are_refused() {
     let app = app().await;
     let router = routes(app.clone());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    let altcha = solved_altcha(&router).await;
+    let proof = solved_pow(&router).await;
     let post = |name: &str, email: &str| {
         Request::post(format!("/j/{}", raffle.join_code))
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
@@ -1897,7 +1897,7 @@ async fn proof_of_work_replays_are_refused() {
                 ("name", name),
                 ("email", email),
                 ("rules", "on"),
-                ("altcha", &altcha),
+                ("proof", &proof),
             ])))
             .unwrap()
     };
@@ -1908,10 +1908,10 @@ async fn proof_of_work_replays_are_refused() {
     assert!(page.contains("human"), "{page}");
     assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 1);
 
-    let payload = service::altcha::decode(&altcha).unwrap();
+    let payload = service::pow::decode(&proof).unwrap();
     let rows: Vec<(String, i64)> = app
         .db
-        .query("SELECT challenge, expires_at FROM altcha_used")
+        .query("SELECT challenge, expires_at FROM pow_used")
         .all()
         .await
         .unwrap();
@@ -1922,26 +1922,26 @@ async fn proof_of_work_replays_are_refused() {
             payload.challenge.parameters.expires_at.unwrap()
         )]
     );
-    assert!(!service::altcha::redeem(&app, &altcha).await.unwrap());
+    assert!(!service::pow::redeem(&app, &proof).await.unwrap());
 
     // A forged solution never reaches the table.
     let mut forged = payload.clone();
     forged.challenge.signature = Some("00".repeat(32));
     assert!(
-        !service::altcha::redeem(&app, &service::altcha::encode(&forged))
+        !service::pow::redeem(&app, &service::pow::encode(&forged))
             .await
             .unwrap()
     );
 
     app.db
-        .query("INSERT INTO altcha_used (challenge, expires_at) VALUES ('old', 1)")
+        .query("INSERT INTO pow_used (challenge, expires_at) VALUES ('old', 1)")
         .run()
         .await
         .unwrap();
     service::housekeeping::run(&app).await.unwrap();
     let (left,): (i64,) = app
         .db
-        .query("SELECT COUNT(*) FROM altcha_used")
+        .query("SELECT COUNT(*) FROM pow_used")
         .one()
         .await
         .unwrap();
@@ -1955,9 +1955,9 @@ async fn proof_of_work_forgeries_are_refused() {
     let app = app().await;
     let issue = |key: &str, expires_at: Option<i64>| {
         altcha::create_challenge(altcha::CreateChallengeOptions {
-            algorithm: service::altcha::ALGORITHM.into(),
+            algorithm: service::pow::ALGORITHM.into(),
             cost: 1,
-            key_prefix: service::altcha::KEY_PREFIX.into(),
+            key_prefix: service::pow::KEY_PREFIX.into(),
             expires_at,
             hmac_signature_secret: Some(key.into()),
             ..Default::default()
@@ -1966,25 +1966,22 @@ async fn proof_of_work_forgeries_are_refused() {
     };
     let soon = Some(service::ids::now() + 600);
     let refused = async |payload: &altcha::Payload| {
-        !service::altcha::redeem(&app, &service::altcha::encode(payload))
+        !service::pow::redeem(&app, &service::pow::encode(payload))
             .await
             .unwrap()
     };
 
-    let expired = solve_altcha_from(
-        issue(
-            super::config::TEST_ALTCHA_KEY,
-            Some(service::ids::now() - 1),
-        ),
+    let expired = solve_pow_from(
+        issue(super::config::TEST_POW_KEY, Some(service::ids::now() - 1)),
         0,
     );
     assert!(refused(&expired).await, "expired");
-    let foreign = solve_altcha_from(issue("another-key", soon), 0);
+    let foreign = solve_pow_from(issue("another-key", soon), 0);
     assert!(refused(&foreign).await, "signed with another key");
-    let eternal = solve_altcha_from(issue(super::config::TEST_ALTCHA_KEY, None), 0);
+    let eternal = solve_pow_from(issue(super::config::TEST_POW_KEY, None), 0);
     assert!(refused(&eternal).await, "no expiresAt");
 
-    let good = solve_altcha_from(issue(super::config::TEST_ALTCHA_KEY, soon), 0);
+    let good = solve_pow_from(issue(super::config::TEST_POW_KEY, soon), 0);
     let mut cheaper = good.clone();
     cheaper.challenge.parameters.cost = 0;
     assert!(refused(&cheaper).await, "a changed parameter");
@@ -1997,7 +1994,7 @@ async fn proof_of_work_forgeries_are_refused() {
 
     // Accepted once; another valid counter for the same challenge is a replay.
     assert!(!refused(&good).await, "the genuine solution");
-    let other = solve_altcha_from(good.challenge.clone(), good.solution.counter + 1);
+    let other = solve_pow_from(good.challenge.clone(), good.solution.counter + 1);
     assert_ne!(other.solution.counter, good.solution.counter);
     assert!(
         refused(&other).await,
@@ -2005,12 +2002,12 @@ async fn proof_of_work_forgeries_are_refused() {
     );
 
     assert!(
-        !service::altcha::redeem(&app, "not base64!").await.unwrap(),
+        !service::pow::redeem(&app, "not base64!").await.unwrap(),
         "junk"
     );
-    let long = "A".repeat(service::altcha::MAX_PAYLOAD_LEN + 4);
+    let long = "A".repeat(service::pow::MAX_PAYLOAD_LEN + 4);
     assert!(
-        !service::altcha::redeem(&app, &long).await.unwrap(),
+        !service::pow::redeem(&app, &long).await.unwrap(),
         "too long"
     );
 }

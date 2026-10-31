@@ -179,9 +179,9 @@ async fn page(
     Response::from_html(html)
 }
 
-fn altcha_challenge() -> altcha::Challenge {
+fn pow_challenge() -> altcha::Challenge {
     let now = (js_sys::Date::now() / 1000.0) as i64;
-    // As the app issues them (rafi-app's altcha), cheap.
+    // As the app issues them (rafi_app::pow), cheap.
     altcha::create_challenge(altcha::CreateChallengeOptions {
         algorithm: "PBKDF2/SHA-256".into(),
         cost: 100,
@@ -254,7 +254,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         return rafi_cloudflare::connect(&env, id, req).await;
     }
     // The participant page's proof-of-work solver, as rafi-server serves it.
-    if path == "/participant/altcha-worker.js" {
+    if path == "/participant/pow-worker.js" {
         let mut resp = Response::ok(dioxus_altcha::WORKER_JS)?;
         resp.headers_mut()
             .set("content-type", "text/javascript; charset=utf-8")?;
@@ -264,8 +264,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         return Response::error("missing ?r=<raffle id>", 400);
     };
     let raffle = raffle.as_str();
-    if path == "/api/altcha" {
-        return Response::from_json(&altcha_challenge());
+    if path == "/api/challenge" {
+        return Response::from_json(&pow_challenge());
     }
     if path == "/page" {
         let Some(raffle) = param("r") else {

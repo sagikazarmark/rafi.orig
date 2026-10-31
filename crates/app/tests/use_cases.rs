@@ -272,11 +272,11 @@ async fn joining_follows_the_raffle_rules() {
 
 /// A solved proof-of-work, as the join form posts it.
 fn solved(app: &App) -> String {
-    let challenge = app::altcha::challenge(app).unwrap();
+    let challenge = app::pow::challenge(app).unwrap();
     let solution = altcha::solve_challenge(altcha::SolveChallengeOptions::new(&challenge))
         .unwrap()
         .expect("solvable");
-    app::altcha::encode(&altcha::Payload {
+    app::pow::encode(&altcha::Payload {
         challenge,
         solution,
     })

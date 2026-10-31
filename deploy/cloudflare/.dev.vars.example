@@ -17,7 +17,7 @@ RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS=
 
 # The proof-of-work key: random, 32 characters or more (openssl rand -hex 32).
 # Never rotate it during an event.
-RAFI_ALTCHA_KEY=
+RAFI_POW_KEY=
 
 # Your Clerk application's keys (sk_live_…, pk_live_…). The publishable key
 # isn't secret, but it is yours: the web app signs organizers in with it.

@@ -10,7 +10,7 @@ use rafi_lifecycle::{
 use rafi_store::{RaffleRow, audit, entrants, raffles};
 
 use crate::{
-    Actor, App, Error, Limit, Refusal, Result, altcha, error::Unfinished, ids, owned,
+    Actor, App, Error, Limit, Refusal, Result, error::Unfinished, ids, owned, pow,
     view::NAME_DELAY_SECS,
 };
 
@@ -137,7 +137,7 @@ pub async fn join(
     if limited {
         return Err(JoinError::Limited);
     }
-    match altcha::redeem(app, req.proof).await {
+    match pow::redeem(app, req.proof).await {
         Ok(true) => {}
         Ok(false) => return Err(JoinError::Proof),
         Err(e) => {

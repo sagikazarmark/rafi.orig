@@ -16,7 +16,7 @@ pub fn routes() -> Router {
         .route("/api/r/{slug}/view", get(full_view))
         .route("/api/r/{slug}/participant", get(participant))
         .route("/api/r/{slug}/verify.json", get(verify_json))
-        .route("/api/altcha", get(challenge))
+        .route("/api/challenge", get(challenge))
         .route("/config.js", get(config_js))
         .route("/healthz", get(|| async { "ok" }))
 }

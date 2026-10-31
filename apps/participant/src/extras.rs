@@ -67,8 +67,8 @@ pub fn init(cfg: &PageConfig) {
         listen(&form, "submit", unlock_audio);
     }
     name_dice(cfg.name_ideas.clone());
-    if cfg.needs_altcha {
-        proof_of_work(cfg.altcha_url.clone());
+    if cfg.needs_pow {
+        proof_of_work(cfg.challenge_url.clone());
     }
 }
 
@@ -152,7 +152,7 @@ fn theme_toggle() {
 
 /// dioxus-altcha's solver, served by rafi-server (the version it was built
 /// with) for fallback.js too: one file, cached, instead of a copy in the wasm.
-const ALTCHA_WORKER: &str = "/participant/altcha-worker.js";
+const POW_WORKER: &str = "/participant/pow-worker.js";
 
 fn now_ms() -> f64 {
     web_sys::window()
@@ -166,7 +166,7 @@ fn now_ms() -> f64 {
 fn proof_of_work(url: String) {
     let (Some(form), Some(input), Some(submit)) = (
         by_id::<HtmlFormElement>("join"),
-        by_id::<HtmlInputElement>("altcha"),
+        by_id::<HtmlInputElement>("proof"),
         by_id::<HtmlButtonElement>("submit"),
     ) else {
         return;
@@ -174,12 +174,7 @@ fn proof_of_work(url: String) {
     let solve = {
         let (url, input, submit) = (url, input.clone(), submit);
         move |then: Option<HtmlFormElement>| {
-            spawn_local(solve_altcha(
-                url.clone(),
-                input.clone(),
-                submit.clone(),
-                then,
-            ));
+            spawn_local(solve_pow(url.clone(), input.clone(), submit.clone(), then));
         }
     };
     solve(None);
@@ -206,7 +201,7 @@ fn proof_of_work(url: String) {
 /// The Join button is rendered disabled; it's enabled once a solution is in
 /// the form (or the attempt failed: the server then asks to retry). With
 /// `then`, the form is posted once solved.
-async fn solve_altcha(
+async fn solve_pow(
     url: String,
     input: HtmlInputElement,
     submit: HtmlButtonElement,
@@ -219,7 +214,7 @@ async fn solve_altcha(
     submit.set_disabled(true);
     let solved = match dioxus_altcha::fetch_challenge(url).await {
         Ok(challenge) => {
-            dioxus_altcha::solve(&challenge, &SolveOptions::new().worker_url(ALTCHA_WORKER))
+            dioxus_altcha::solve(&challenge, &SolveOptions::new().worker_url(POW_WORKER))
                 .await
                 .ok()
                 .map(|solution| (dioxus_altcha::payload(&challenge, &solution), challenge))

@@ -20,7 +20,7 @@
 //!   and its log, housekeeping's clocks (expiry, the erasure date, the
 //!   winner hold, the purge at the ceiling, re-applying after a restore),
 //!   delivering every prize and the organizer leaving, the terms accepted,
-//!   ending live channels, ALTCHA replays, the full
+//!   ending live channels, proof-of-work replays, the full
 //!   view, the participant snapshot, and the raffle's log:
 //!   [`save_raffle`](crate::save_raffle), its events (append-only) and its
 //!   draws, read back by every reader.
@@ -219,7 +219,7 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
         => domain::racing_erasures_log_each_entrant_once,
     "domain.deliver_all_and_leave" => domain::delivers_all_and_removes_the_organizer,
     "domain.live_channels" => domain::live_channels_end_once,
-    "domain.altcha_replay" => domain::altcha_refuses_replays,
+    "domain.pow_replay" => domain::pow_refuses_replays,
     "domain.full_view" => domain::reads_the_full_view,
     "domain.participant_snapshot" => domain::phones_see_only_drawn_names,
     "domain.frozen_list" => domain::the_list_and_prizes_are_fixed_once_frozen,

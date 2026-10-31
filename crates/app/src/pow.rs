@@ -2,7 +2,7 @@
 //! ([`altcha_server`]); phones solve with `dioxus-altcha`.
 //!
 //! Each challenge is accepted once: a redeemed challenge's nonce is kept in
-//! the database ([`rafi_store::altcha`]) until it expires, so it holds across
+//! the database ([`rafi_store::pow`]) until it expires, so it holds across
 //! servers and on Workers. The housekeeping run forgets expired ones.
 
 pub use altcha_server::{MAX_PAYLOAD_LEN, decode, encode};
@@ -22,18 +22,18 @@ pub const ALGORITHM: &str = altcha_server::Verifier::DEFAULT_ALGORITHM;
 /// The derived key's required prefix, one byte.
 pub const KEY_PREFIX: &str = altcha_server::Verifier::DEFAULT_KEY_PREFIX;
 
-/// The database's `altcha_used` table, as the replay store.
+/// The database's `pow_used` table, as the replay store.
 struct UsedChallenges<'a>(&'a Db);
 
 impl ReplayStore for UsedChallenges<'_> {
     type Error = rafi_store::Error;
 
     async fn redeem(&self, nonce: &str, expires_at: i64) -> rafi_store::Result<bool> {
-        rafi_store::altcha::redeem(self.0, nonce, expires_at).await
+        rafi_store::pow::redeem(self.0, nonce, expires_at).await
     }
 
     async fn forget_expired(&self, now: i64) -> rafi_store::Result<()> {
-        rafi_store::altcha::purge_expired(self.0, now).await
+        rafi_store::pow::purge_expired(self.0, now).await
     }
 }
 

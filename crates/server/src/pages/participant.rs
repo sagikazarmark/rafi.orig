@@ -254,7 +254,7 @@ pub fn page(page: Page<'_>) -> String {
                             "{erasure} {age} "
                             a { class: "link link-primary", href: "{privacy_href}", target: "_blank", "Privacy notice" }
                         }
-                        input { r#type: "hidden", name: "altcha", id: "altcha" }
+                        input { r#type: "hidden", name: "proof", id: "proof" }
                         // Enabled by the WebAssembly (or the fallback) once the
                         // proof-of-work is solved; it then shows `data-label`.
                         button { class: "btn btn-primary btn-lg btn-block mt-4 rounded-full", r#type: "submit", id: "submit", disabled: true, "data-label": "Join 🎟️",
@@ -313,8 +313,8 @@ pub fn page(page: Page<'_>) -> String {
         participant_url: format!("/api/r/{}/participant", raffle.slug),
         server_now_ms: now_ms,
         follow,
-        needs_altcha: joining,
-        altcha_url: PageConfig::ALTCHA_URL.into(),
+        needs_pow: joining,
+        challenge_url: PageConfig::CHALLENGE_URL.into(),
         screen_on: "Screen will stay on".to_owned(),
         keep_screen_on: "Keep my screen on".to_owned(),
         name_ideas: if joining {

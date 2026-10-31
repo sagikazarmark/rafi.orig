@@ -104,7 +104,7 @@ impl AppState {
             policy: service::Policy {
                 public_url: cfg.public_url.clone(),
                 max_entrants: cfg.max_entrants,
-                proof_of_work: service::ProofOfWork::new(cfg.altcha_key.clone(), cfg.altcha_cost)?,
+                proof_of_work: service::ProofOfWork::new(cfg.pow_key.clone(), cfg.pow_cost)?,
                 retention: cfg.retention,
                 min_age: cfg.min_age,
             },
@@ -194,7 +194,7 @@ pub struct Dirs {
     /// `.br` and `.gz` next to each where the script could make them. Its
     /// `index.html`, the page's loader, isn't served: this server has it
     /// compiled in ([`check_participant`](Self::check_participant)). The
-    /// proof-of-work solver there, `altcha-worker.js`, is a route in [`routes`].
+    /// proof-of-work solver there, `pow-worker.js`, is a route in [`routes`].
     pub participant: PathBuf,
 }
 

@@ -93,8 +93,8 @@ fn app(env: &Env, cfg: Config) -> anyhow::Result<App> {
     if cfg.dev_auth && !dev {
         anyhow::bail!("RAFI_DEV_AUTH is set, but this build has no `dev` feature");
     }
-    if lookup(env, "RAFI_ALTCHA_KEY").is_none() {
-        anyhow::bail!("RAFI_ALTCHA_KEY is not set");
+    if lookup(env, "RAFI_POW_KEY").is_none() {
+        anyhow::bail!("RAFI_POW_KEY is not set");
     }
     if cfg.restate.ingress_url.is_empty() {
         anyhow::bail!("RAFI_ENGINE_INGRESS_URL is not set");

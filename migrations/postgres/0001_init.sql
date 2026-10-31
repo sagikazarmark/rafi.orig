@@ -223,12 +223,12 @@ CREATE TABLE erasures (
 
 -- Proof-of-work challenges already used to join. A replayed solution fails the
 -- primary key. Expired rows are deleted by the scheduled job.
-CREATE TABLE altcha_used (
+CREATE TABLE pow_used (
     challenge TEXT PRIMARY KEY NOT NULL,
     expires_at BIGINT NOT NULL
 );
 
-CREATE INDEX altcha_used_expiry ON altcha_used (expires_at);
+CREATE INDEX pow_used_expiry ON pow_used (expires_at);
 
 -- What an owner's new raffles start with: who organizes them (the data
 -- controller), their privacy contact and text, their additional rules and

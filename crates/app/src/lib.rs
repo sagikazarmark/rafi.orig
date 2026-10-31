@@ -13,7 +13,6 @@
 //! clients ([`App::live_updates`]). Joins don't: they never change it. The
 //! raffle engine notifies after its own writes.
 
-pub mod altcha;
 pub mod codes;
 mod draw;
 mod entrants;
@@ -21,6 +20,7 @@ mod error;
 pub mod housekeeping;
 pub mod ids;
 mod owners;
+pub mod pow;
 mod prizes;
 pub mod public;
 mod raffles;
@@ -35,7 +35,6 @@ use rafi_live_server::LiveUpdates;
 use rafi_raffle::drand::ChainHash;
 use rafi_store::{Db, RaffleRow, raffles as store};
 
-pub use altcha::ProofOfWork;
 pub use draw::{command, start_draw};
 pub use entrants::{
     CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_fakes, add_manual, deliver_all,
@@ -43,6 +42,7 @@ pub use entrants::{
 };
 pub use error::{Error, Refusal, Result, Unfinished};
 pub use owners::{reapply_erasures, remove_owner_data};
+pub use pow::ProofOfWork;
 pub use prizes::{delete_prize, upsert_prize};
 pub use raffles::{
     EventDate, JOIN_CODE_LEN, create, delete, duplicate, get_defaults, lifecycle, list,

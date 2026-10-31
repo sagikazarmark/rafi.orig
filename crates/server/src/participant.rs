@@ -36,7 +36,7 @@ pub fn routes() -> Router {
         .route("/privacy/{slug}", get(privacy))
         .route("/privacy", get(installation_privacy))
         .route("/terms", get(installation_terms))
-        .route("/participant/altcha-worker.js", get(altcha_worker))
+        .route("/participant/pow-worker.js", get(pow_worker))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -48,7 +48,7 @@ pub struct JoinForm {
     #[serde(default)]
     rules: Option<String>,
     #[serde(default)]
-    altcha: String,
+    proof: String,
 }
 
 fn cookie_name(raffle_id: &str) -> String {
@@ -282,7 +282,7 @@ async fn try_join(
         name: &form.name,
         email: &form.email,
         rules: form.rules.is_some(),
-        proof: &form.altcha,
+        proof: &form.proof,
     };
     match service::join(app, raffle, &req).await {
         Ok(service::JoinOutcome::Joined { token }) => Ok(token),
@@ -377,9 +377,9 @@ async fn installation_terms(Extension(app): Extension<AppState>) -> Response {
     .into_response()
 }
 
-/// [`altcha_worker`]'s entity tag: a hash of the script, so it changes when
+/// [`pow_worker`]'s entity tag: a hash of the script, so it changes when
 /// `dioxus-altcha` does.
-static ALTCHA_WORKER_ETAG: LazyLock<String> = LazyLock::new(|| {
+static POW_WORKER_ETAG: LazyLock<String> = LazyLock::new(|| {
     let hash = Sha256::digest(dioxus_altcha::WORKER_JS.as_bytes());
     format!("\"{}\"", hex::encode(&hash[..8]))
 });
@@ -388,8 +388,8 @@ static ALTCHA_WORKER_ETAG: LazyLock<String> = LazyLock::new(|| {
 /// server was built with. The participant page's WebAssembly and
 /// `fallback.js` start their workers from it, or load it into the page when
 /// workers fail. Its URL isn't versioned, so caches revalidate it each time.
-async fn altcha_worker(headers: HeaderMap) -> Response {
-    let etag = ALTCHA_WORKER_ETAG.as_str();
+async fn pow_worker(headers: HeaderMap) -> Response {
+    let etag = POW_WORKER_ETAG.as_str();
     let cache = [(header::ETAG, etag), (header::CACHE_CONTROL, "no-cache")];
     if not_modified(&headers, etag) {
         return (StatusCode::NOT_MODIFIED, cache).into_response();

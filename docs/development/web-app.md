@@ -51,7 +51,7 @@ Joining uses ALTCHA v2:
 
 - [dioxus-altcha](https://crates.io/crates/dioxus-altcha) solves it in the browser (Web Workers, WebCrypto)
 - [altcha-server](https://crates.io/crates/altcha-server) issues and redeems challenges on the server. Rafi's replay
-  store is the `altcha_used` table.
+  store is the `pow_used` table.
 
 Both are developed in [altcha-rs](https://github.com/sagikazarmark/altcha-rs). The server serves the solver at
-`/participant/altcha-worker.js` from `dioxus_altcha::WORKER_JS`, so it always matches the version built in.
+`/participant/pow-worker.js` from `dioxus_altcha::WORKER_JS`, so it always matches the version built in.

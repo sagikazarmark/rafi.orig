@@ -41,7 +41,7 @@ command = "worker-build --release"
 directory = "./worker-assets"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/config.js", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js", "/__scheduled"]
+run_worker_first = ["/api/*", "/config.js", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/pow-worker.js", "/__scheduled"]
 
 [[d1_databases]]
 binding = "DB"
@@ -105,7 +105,7 @@ RAFI_DO_JURISDICTION = "eu"
 #   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL (EU)
 #   RAFI_ENGINE_API_KEY                    a Restate Cloud API key with ingress access
 #   RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS   the Restate environment's public key(s), comma separated
-#   RAFI_ALTCHA_KEY                        random, 32+ characters; never rotate during an event
+#   RAFI_POW_KEY                           random, 32+ characters; never rotate during an event
 #   CLERK_SECRET_KEY
 #   CLERK_PUBLISHABLE_KEY                  not secret (the web app gets it from /config.js), but the installation's
 #   RAFI_OPERATOR_NAME, RAFI_OPERATOR_EMAIL   named as the processor in every raffle's notice
@@ -117,7 +117,7 @@ required = [
   "RAFI_ENGINE_INGRESS_URL",
   "RAFI_ENGINE_API_KEY",
   "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS",
-  "RAFI_ALTCHA_KEY",
+  "RAFI_POW_KEY",
   "CLERK_SECRET_KEY",
   "CLERK_PUBLISHABLE_KEY",
   "RAFI_OPERATOR_NAME",
@@ -170,4 +170,4 @@ RAFI_DO_JURISDICTION = "none" # workerd doesn't implement jurisdictions
 RAFI_DEV_AUTH = "1" # also stands in for the operator and the document versions
 RAFI_DRAND_MOCK = "1" # the mock chain, for the app and the engine alike
 RAFI_DRAND_LEAD_SECS = "3"
-RAFI_ALTCHA_KEY = "local-development-only"
+RAFI_POW_KEY = "local-development-only"

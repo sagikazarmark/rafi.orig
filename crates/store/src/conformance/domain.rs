@@ -5,8 +5,8 @@ use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle,
 
 use super::{Outcome, check, fail};
 use crate::{
-    Db, EntrantRow, RaffleRow, altcha, audit, defaults, entrants, housekeeping, live, prizes,
-    raffles, retention, save_raffle, view::Full,
+    Db, EntrantRow, RaffleRow, audit, defaults, entrants, housekeeping, live, pow, prizes, raffles,
+    retention, save_raffle, view::Full,
 };
 
 /// A frozen raffle `id` with two entrants and one prize, and its draw state.
@@ -818,15 +818,15 @@ pub(super) async fn live_channels_end_once(db: &Db) -> Outcome {
     )
 }
 
-pub(super) async fn altcha_refuses_replays(db: &Db) -> Outcome {
-    let redeem = |challenge, expires_at| altcha::redeem(db, challenge, expires_at);
+pub(super) async fn pow_refuses_replays(db: &Db) -> Outcome {
+    let redeem = |challenge, expires_at| pow::redeem(db, challenge, expires_at);
     check(
         redeem("c1", 100).await.map_err(fail)?,
         "the first redemption",
     )?;
     check(!redeem("c1", 100).await.map_err(fail)?, "a replay")?;
     check(redeem("c2", 50).await.map_err(fail)?, "another challenge")?;
-    altcha::purge_expired(db, 60).await.map_err(fail)?;
+    pow::purge_expired(db, 60).await.map_err(fail)?;
     check(
         !redeem("c1", 100).await.map_err(fail)?,
         "an unexpired challenge stays redeemed",

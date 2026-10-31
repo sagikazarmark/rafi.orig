@@ -960,7 +960,7 @@ the state is kept from here on.
   `import.meta.url`, which is why a `?v=` on the import alone can't work), hashes the JS and `fallback.js`,
   writes `manifest.json`; `rafi-server` reads it at startup natively (`Dirs::participant`) and the Worker fetches
   it once per isolate through the `ASSETS` binding; `LOADER` becomes a formatted string; `_headers` sets
-  `immutable` on the hashed names. `/participant/altcha-worker.js` stays a fixed route (a Web Worker URL).
+  `immutable` on the hashed names. `/participant/pow-worker.js` stays a fixed route (a Web Worker URL).
 - **Enforcing the audit identifiers' retention period** ([#22](https://github.com/sagikazarmark/rafi.orig/issues/22)). A housekeeping sweep that blanks `actor` and `user_id`
   on audit rows of raffles whose `organizer_left_at` is older than the period the operator's notice names, so the
   stated period is enforced rather than aspirational. Not on `remove_my_data` itself: the row is the operator's
@@ -984,7 +984,9 @@ the state is kept from here on.
 - **Clerk deletion webhook** ([#31](https://github.com/sagikazarmark/rafi.orig/issues/31); `user.deleted`, `organization.deleted` → `remove_my_data`): the terms and the admin
   say to remove data first; the webhook needs Svix verification and an ID mapping.
 - **`RAFI_ALTCHA_*`, `/api/altcha`, `altcha_used`, `/participant/altcha-worker.js`** ([#32](https://github.com/sagikazarmark/rafi.orig/issues/32)) bake a library's name into
-  env, route and table names. Renaming is cosmetic; not before release.
+  env, route and table names. Renaming is cosmetic; not before release. **Done** before the first release, so
+  `0001_init.sql` changed in place: `RAFI_POW_KEY` and `RAFI_POW_COST`, `/api/challenge`, `pow_used`,
+  `/participant/pow-worker.js`, and the join form's field is `proof`.
 - **Clerk on Workers (JWKS through `tower-worker-fetch`)** ([#33](https://github.com/sagikazarmark/rafi.orig/issues/33)) is checked only by hand with `--profile clerk`; CI runs
   dev auth. A CI secret for a test instance would close it.
 - **A notifier or live-channel conformance suite** ([#34](https://github.com/sagikazarmark/rafi.orig/issues/34)) comparable to the store's and the engine's. One real
@@ -1000,7 +1002,7 @@ So nobody re-audits them.
   checks `owner_id` after `Full::read`; prizes and entrants are keyed `(id, raffle_id)` in SQL; nothing is looked up
   by a sub-ID alone; tiers (`Admin`, `Manager`, member) gate what the plan says. The Clerk layer fails closed (401
   on none, 503 on an unavailable JWKS), RS256 only, `kid`-pinned, `typ=JWT`, `sid` required, 5 s skew, Bearer
-  preferred over the cookie. The Worker refuses to build without `CLERK_SECRET_KEY`, `RAFI_ALTCHA_KEY`,
+  preferred over the cookie. The Worker refuses to build without `CLERK_SECRET_KEY`, `RAFI_POW_KEY`,
   `RESTATE_INGRESS_URL`, `RESTATE_IDENTITY_KEYS` (non-dev), or with `RAFI_DEV_AUTH` without `dev`.
 - **The join**: ALTCHA signatures cover every parameter, 20-minute TTL, single redemption by primary-key insert
   (race-safe across instances), payload ≤ 8 KiB, rate limits before the proof-of-work; the cookie is `HttpOnly;
@@ -1044,7 +1046,7 @@ So nobody re-audits them.
   view cap under the 2 MB row limit; stale objects destroyed by housekeeping and the app paths; exercised by
   `testbeds/cloudflare/scenario.mjs` and `evening.mjs`.
 - **Cron parity**: `scheduled` runs the same `housekeeping::run` as native (expiry, erasure, finish at ceiling,
-  altcha purge, channel ending, `record_ok`); the retention statements are in the D1 conformance suite.
+  proof-of-work purge, channel ending, `record_ok`); the retention statements are in the D1 conformance suite.
 - **Housekeeping and the three clocks**: expire, erase non-winners, erase everyone at the ceiling, purge and end
   channels, ask the engine to finish, record success; the winner definition is the entrant of a `claimed` draw;
   delivered winners are on the non-winner clock; idempotent, set-based; `retention_stale` after two hours from the

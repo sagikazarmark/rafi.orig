@@ -157,7 +157,7 @@
   // The WebAssembly's solver, dioxus-altcha's worker.js, served by rafi-server
   // next to this file: workers splitting the counters, or this page if they
   // can't start.
-  var SOLVER = "/participant/altcha-worker.js";
+  var SOLVER = "/participant/pow-worker.js";
   var powDeadline = null, powRun = 0;
   function loadSolver() {
     return new Promise(function (resolve, reject) {
@@ -211,8 +211,8 @@
     if (!(left > 0 && left <= 864e5)) return null;
     return left - Math.min(30000, left / 2);
   }
-  async function solveAltcha(then) {
-    var input = document.getElementById("altcha");
+  async function solvePow(then) {
+    var input = document.getElementById("proof");
     var submit = document.getElementById("submit");
     if (!input || !submit) return;
     var run = ++powRun;
@@ -222,7 +222,7 @@
     var value = "", deadline = null;
     try {
       if (window.isSecureContext && window.crypto && crypto.subtle) {
-        var raw = await (await fetch(cfg.altcha_url || "/api/altcha", { cache: "no-store" })).text();
+        var raw = await (await fetch(cfg.challenge_url || "/api/challenge", { cache: "no-store" })).text();
         var challenge = JSON.parse(raw);
         var solution = await solveInWorkers(raw).catch(function (e) {
           if (e) throw e;
@@ -305,16 +305,16 @@
   }
   // A solution past its deadline (a phone left on the form) is solved again
   // before the form posts.
-  if (form && cfg.needs_altcha) form.addEventListener("submit", function (e) {
-    var input = document.getElementById("altcha");
+  if (form && cfg.needs_pow) form.addEventListener("submit", function (e) {
+    var input = document.getElementById("proof");
     if (powDeadline != null && performance.now() >= powDeadline && input && input.value) {
       e.preventDefault();
-      solveAltcha(form);
+      solvePow(form);
     }
   });
   // Back/forward cache: the restored solution is spent.
   window.addEventListener("pageshow", function (e) {
-    if (e.persisted && cfg.needs_altcha) solveAltcha(null);
+    if (e.persisted && cfg.needs_pow) solvePow(null);
   });
 
   function resume() { if (document.visibilityState === "visible") poll(); }
@@ -323,7 +323,7 @@
   window.addEventListener("online", resume);
   window.addEventListener("focus", resume);
 
-  if (cfg.needs_altcha) solveAltcha(null);
+  if (cfg.needs_pow) solvePow(null);
   if (view) render(view, false);
   if (view && isLive(view.state)) { poll(); schedule(); setInterval(schedule, 5000); }
 })();

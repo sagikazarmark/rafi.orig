@@ -26,7 +26,7 @@ preview_urls = false
 directory = "rafi/worker-assets"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/config.js", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/altcha-worker.js", "/__scheduled"]
+run_worker_first = ["/api/*", "/config.js", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/pow-worker.js", "/__scheduled"]
 
 # Your database. Deploy to Cloudflare creates it and fills the ID in; by
 # hand: `wrangler d1 create rafi --jurisdiction eu`, and paste the ID here.
@@ -96,7 +96,7 @@ required = [
   "RAFI_ENGINE_INGRESS_URL",
   "RAFI_ENGINE_API_KEY",
   "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS",
-  "RAFI_ALTCHA_KEY",
+  "RAFI_POW_KEY",
   "CLERK_SECRET_KEY",
   "CLERK_PUBLISHABLE_KEY",
   "RAFI_OPERATOR_NAME",

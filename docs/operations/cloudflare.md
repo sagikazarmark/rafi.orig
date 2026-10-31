@@ -90,7 +90,7 @@ RAFI_PUBLIC_URL=https://raffle.example.org
 RAFI_ENGINE_INGRESS_URL=https://<env>.env.eu.restate.cloud:8080
 RAFI_ENGINE_API_KEY=…
 RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS=publickeyv1_…
-RAFI_ALTCHA_KEY=<openssl rand -hex 32>
+RAFI_POW_KEY=<openssl rand -hex 32>
 CLERK_SECRET_KEY=sk_live_…
 CLERK_PUBLISHABLE_KEY=pk_live_…
 RAFI_OPERATOR_NAME=Example Meetups e.V.
@@ -111,7 +111,7 @@ wrangler secret bulk .dev.vars
 
 The very first `deploy` creates the Worker and stops at the missing secrets (there is no Worker to hold them yet);
 `secret bulk` then sets them, and the deploy is run again. From then on, a deploy that is missing one refuses, and
-`./deploy.sh` is every deploy: the release, the migrations, the Worker. Never rotate `RAFI_ALTCHA_KEY` during an
+`./deploy.sh` is every deploy: the release, the migrations, the Worker. Never rotate `RAFI_POW_KEY` during an
 event.
 
 Pin the release while you are at it: `RAFI_SHA256` in `deploy.sh`, the tarball's SHA256 as the release page shows
@@ -121,7 +121,7 @@ so your repository says which bytes you deploy and an asset that changed under i
 template ships the pin empty, because it can't know the hash of a release that hasn't been built yet; an upgrade
 is then the two lines, version and hash ([Upgrades](upgrades.md#database-migrations)).
 
-The Worker refuses every request without its documents, `RAFI_ALTCHA_KEY`, `RAFI_ENGINE_INGRESS_URL`,
+The Worker refuses every request without its documents, `RAFI_POW_KEY`, `RAFI_ENGINE_INGRESS_URL`,
 `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, the operator and the document
 versions. Release builds reject dev auth and the mock chain.
 

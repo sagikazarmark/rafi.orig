@@ -112,7 +112,7 @@ RAFI_PUBLIC_URL=https://raffle.example.org \
 RAFI_DATABASE_URL=… \
 RAFI_ENGINE_INGRESS_URL=http://localhost:8080 \
 CLERK_SECRET_KEY=sk_live_… CLERK_PUBLISHABLE_KEY=pk_live_… \
-RAFI_ALTCHA_KEY=$(openssl rand -hex 32) \
+RAFI_POW_KEY=$(openssl rand -hex 32) \
 RAFI_DOCS_DIR=/etc/rafi RAFI_TERMS_VERSION=2026-10 RAFI_PRIVACY_VERSION=2026-10 \
 RAFI_OPERATOR_NAME="Example Meetups e.V." RAFI_OPERATOR_EMAIL=privacy@example.org \
 IP=127.0.0.1 PORT=8081 \
@@ -125,7 +125,7 @@ IP=127.0.0.1 PORT=8081 \
   revalidated (`no-cache`, with an `ETag`). They are served precompressed (`.br` and `.gz`) when the browser
   accepts it: no compressing proxy is needed in front of them. The binary was compiled against one participant
   build, and refuses to start on another: ship the two together.
-- Set `RAFI_ALTCHA_KEY` to a fixed secret. Otherwise it is random per start, and a restart during registration
+- Set `RAFI_POW_KEY` to a fixed secret. Otherwise it is random per start, and a restart during registration
   invalidates the challenges phones are solving. Don't rotate it during an event.
 - Keep `RAFI_ENGINE_TIMEOUT_SECS` (90) above the engine's `lead_secs + timeout_secs` (66 by default).
 - At startup the app warns if dev auth is on, the chain is the mock one, the ingress URL is missing, or the web app

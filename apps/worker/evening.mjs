@@ -103,17 +103,17 @@ check(await until(() => js(`!!document.getElementById("submit") && !document.get
 
 // Back/forward cache: leave the join page and come back. Restored from the
 // cache, it holds a payload that may be spent, so it must solve again.
-const altchaValue = `document.getElementById("altcha")?.value ?? ""`;
-const before = await js(altchaValue);
+const proofValue = `document.getElementById("proof")?.value ?? ""`;
+const before = await js(proofValue);
 await js("window.__notReloaded = true");
 await send("Page.navigate", { url: `${base}/healthz` });
 await until(async () => (await js("location.pathname")) === "/healthz");
 const history = (await send("Page.getNavigationHistory")).result;
 await send("Page.navigateToHistoryEntry", { entryId: history.entries[history.currentIndex - 1].id });
 await until(async () => (await js("location.pathname")) === `/j/${code}`);
-const joinReady = `!!document.getElementById("submit") && !document.getElementById("submit").disabled && !!document.getElementById("altcha").value`;
+const joinReady = `!!document.getElementById("submit") && !document.getElementById("submit").disabled && !!document.getElementById("proof").value`;
 if (await js("window.__notReloaded === true")) {
-  check(await until(async () => { const v = await js(altchaValue); return !!v && v !== before; }, 20000),
+  check(await until(async () => { const v = await js(proofValue); return !!v && v !== before; }, 20000),
     "a join page restored from the back/forward cache solves again");
 } else {
   // Chrome doesn't cache the join page (it's no-store; the reasons are
@@ -121,9 +121,9 @@ if (await js("window.__notReloaded === true")) {
   // restore fires.
   console.log(`     (not restored from the back/forward cache: ${bfcacheNotUsed?.join(", ") ?? "unknown"}; simulating)`);
   check(await until(() => js(joinReady), 20000), "Join is enabled again after coming back");
-  const reloaded = await js(altchaValue);
+  const reloaded = await js(proofValue);
   await js(`window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))`);
-  check(await until(async () => { const v = await js(altchaValue); return !!v && v !== reloaded; }, 20000),
+  check(await until(async () => { const v = await js(proofValue); return !!v && v !== reloaded; }, 20000),
     "a pageshow from the back/forward cache solves again");
 }
 check(await until(() => js(joinReady), 20000), "Join is enabled after it");
@@ -190,7 +190,7 @@ const closed = await new Promise((r) => { late.onclose = (e) => r(e.code); setTi
 check(closed === 4403, `a socket after the end is refused (${closed})`);
 
 // A phone without WebAssembly joins through fallback.js, which solves with
-// the same worker script (/participant/altcha-worker.js). Its own raffle, so
+// the same worker script (/participant/pow-worker.js). Its own raffle, so
 // the draw above keeps one entrant.
 const other = await newRaffle(`Workers evening, no wasm ${Date.now()}`);
 await api("save_prize", { id: other, prize: { id: null, name: "Sticker", sponsor: "", description: "", qty: 1, position: 0 } });
@@ -201,11 +201,11 @@ const nowasm = await tab("about:blank");
 await nowasm.call("Page.enable");
 await nowasm.call("Page.addScriptToEvaluateOnNewDocument", { source: "delete window.WebAssembly;" });
 await nowasm.call("Page.navigate", { url: `${base}/j/${otherCode}` });
-check(await until(() => nowasm.js(`!!window.__rafiFallbackRunning && !!document.getElementById("submit") && !document.getElementById("submit").disabled && document.getElementById("altcha").value.length > 0`), 30000),
+check(await until(() => nowasm.js(`!!window.__rafiFallbackRunning && !!document.getElementById("submit") && !document.getElementById("submit").disabled && document.getElementById("proof").value.length > 0`), 30000),
   "no WebAssembly: the fallback solves the proof-of-work");
-const fallbackValue = await nowasm.js(`document.getElementById("altcha").value`);
+const fallbackValue = await nowasm.js(`document.getElementById("proof").value`);
 await nowasm.js(`window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))`);
-check(await until(async () => { const v = await nowasm.js(`document.getElementById("altcha").value`); return !!v && v !== fallbackValue; }, 20000),
+check(await until(async () => { const v = await nowasm.js(`document.getElementById("proof").value`); return !!v && v !== fallbackValue; }, 20000),
   "and solves again on a pageshow from the back/forward cache");
 await nowasm.js(`(() => {
   document.getElementById("name").value = "Bence";

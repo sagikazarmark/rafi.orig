@@ -1,4 +1,4 @@
-//! Redeemed proof-of-work challenges (`altcha_used`), so each is accepted once.
+//! Redeemed proof-of-work challenges (`pow_used`), so each is accepted once.
 
 use crate::{Db, Result};
 
@@ -6,7 +6,7 @@ use crate::{Db, Result};
 /// already was: a replay.
 pub async fn redeem(db: &Db, challenge: &str, expires_at: i64) -> Result<bool> {
     let inserted = db
-        .query("INSERT INTO altcha_used (challenge, expires_at) VALUES (?, ?)")
+        .query("INSERT INTO pow_used (challenge, expires_at) VALUES (?, ?)")
         .bind(challenge)
         .bind(expires_at)
         .run()
@@ -21,7 +21,7 @@ pub async fn redeem(db: &Db, challenge: &str, expires_at: i64) -> Result<bool> {
 /// Forgets the challenges that expired before `now` (they can't be redeemed
 /// anyway).
 pub async fn purge_expired(db: &Db, now: i64) -> Result<()> {
-    db.query("DELETE FROM altcha_used WHERE expires_at < ?")
+    db.query("DELETE FROM pow_used WHERE expires_at < ?")
         .bind(now)
         .run()
         .await

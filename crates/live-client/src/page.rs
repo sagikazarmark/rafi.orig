@@ -30,9 +30,9 @@ pub struct PageConfig {
     pub follow: Follow,
     /// The join form is on the page and needs a proof-of-work.
     #[serde(default)]
-    pub needs_altcha: bool,
-    #[serde(default = "altcha_url")]
-    pub altcha_url: String,
+    pub needs_pow: bool,
+    #[serde(default = "challenge_url")]
+    pub challenge_url: String,
     #[serde(default)]
     pub screen_on: String,
     #[serde(default)]
@@ -45,11 +45,11 @@ pub struct PageConfig {
 
 impl PageConfig {
     /// Where the proof-of-work challenge comes from.
-    pub const ALTCHA_URL: &str = "/api/altcha";
+    pub const CHALLENGE_URL: &str = "/api/challenge";
 }
 
-fn altcha_url() -> String {
-    PageConfig::ALTCHA_URL.into()
+fn challenge_url() -> String {
+    PageConfig::CHALLENGE_URL.into()
 }
 
 #[cfg(test)]
@@ -71,8 +71,8 @@ mod tests {
             participant_url: "/api/r/s/participant".into(),
             server_now_ms: 1,
             follow: Follow::poll(),
-            needs_altcha: true,
-            altcha_url: altcha_url(),
+            needs_pow: true,
+            challenge_url: challenge_url(),
             screen_on: "on".into(),
             keep_screen_on: "keep".into(),
             name_ideas: vec!["Brave Otter".into(), "Calm Koala".into()],

@@ -13,7 +13,7 @@ What a deploy during an event breaks:
 
 - On Workers, a deploy restarts the Durable Objects, which drops every phone's live connection. Phones reconnect
   and re-fetch, but the moment is lost.
-- Natively, restarting `rafi` interrupts requests, and a random `RAFI_ALTCHA_KEY` (if you didn't set one)
+- Natively, restarting `rafi` interrupts requests, and a random `RAFI_POW_KEY` (if you didn't set one)
   invalidates the challenges phones are solving.
 - Restarting the engine (`rafi-restate` natively; on Workers it's the same deploy) while a draw waits for its round
   makes Restate retry the draw. The committed round is journaled, so a retry **cannot** pick another round; but

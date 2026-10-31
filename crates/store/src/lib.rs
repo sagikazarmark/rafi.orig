@@ -15,7 +15,7 @@
 //! - [`raffles`], [`prizes`], [`entrants`]: the organizer's and participants'
 //!   reads and writes, the freeze's steps included; [`defaults`]: what an
 //!   owner's new raffles start with;
-//! - [`audit`], [`altcha`] (redeemed proof-of-work challenges),
+//! - [`audit`], [`pow`] (redeemed proof-of-work challenges),
 //!   [`housekeeping`] (ending live channels, when the run last succeeded) and
 //!   [`retention`] (its erasure writes);
 //! - [`view::Full`]: what the projector and the admin see, and
@@ -44,7 +44,6 @@
 //! `tests/conformance.rs` runs against SQLite and Postgres, and
 //! `testbeds/store-d1` against D1.
 
-pub mod altcha;
 pub mod audit;
 mod backend;
 pub mod defaults;
@@ -53,6 +52,7 @@ pub mod entrants;
 mod error;
 pub mod housekeeping;
 pub mod live;
+pub mod pow;
 pub mod prizes;
 mod query;
 pub mod raffles;

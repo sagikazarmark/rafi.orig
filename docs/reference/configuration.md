@@ -36,8 +36,8 @@ var and a secret of the same name).
 | `RAFI_ENGINE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits. A command queued behind a draw that is waiting for its beacon may take the engine's drand lead plus its fetch timeout. Past this timeout the command is accepted and applies later. Keep it above the engine's `lead_secs + timeout_secs`. |
 | `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to, as a chain hash. Release builds accept only public drand chains. `mock` (a public test chain, **not** verifiable) needs a `mock-drand` build. The raffle engine must draw from the same chain: the app checks this and refuses to start a draw otherwise. |
 | `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
-| `RAFI_ALTCHA_KEY` | random per start | HMAC key for the proof-of-work challenges: at least 32 characters outside dev auth (`openssl rand -hex 32`), since the challenges are public and a short key could be cracked offline. Required on Workers. Without it natively, challenges die with the process. Never rotate it during an event. |
-| `RAFI_ALTCHA_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve. At least 1. Provisional. |
+| `RAFI_POW_KEY` | random per start | HMAC key for the proof-of-work challenges: at least 32 characters outside dev auth (`openssl rand -hex 32`), since the challenges are public and a short key could be cracked offline. Required on Workers. Without it natively, challenges die with the process. Never rotate it during an event. |
+| `RAFI_POW_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve. At least 1. Provisional. |
 | `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes. This is the hard limit behind the soft rate limits. |
 | `RAFI_RETENTION_DAYS` | `7` | Days after the event date before non-winners' personal data is erased, for organizers who choose nothing. At most `RAFI_RETENTION_MAX_DAYS`. |
 | `RAFI_RETENTION_MAX_DAYS` | `30` | The longest period an organizer or a raffle may choose. At most 365. |

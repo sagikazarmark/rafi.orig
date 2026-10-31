@@ -582,8 +582,8 @@ pub(super) async fn unique_violation(db: &Db) -> Outcome {
     }
     let res = db
         .batch(vec![
-            db.query("INSERT INTO altcha_used (challenge, expires_at) VALUES ('c', 1)"),
-            db.query("INSERT INTO altcha_used (challenge, expires_at) VALUES ('c', 2)"),
+            db.query("INSERT INTO pow_used (challenge, expires_at) VALUES ('c', 1)"),
+            db.query("INSERT INTO pow_used (challenge, expires_at) VALUES ('c', 2)"),
         ])
         .await;
     check(
@@ -610,7 +610,7 @@ pub(super) async fn unique_violation(db: &Db) -> Outcome {
     }
     let res = db
         .query(
-            "INSERT INTO altcha_used (challenge, expires_at) VALUES ('c', 1)
+            "INSERT INTO pow_used (challenge, expires_at) VALUES ('c', 1)
              ON CONFLICT (challenge) DO NOTHING",
         )
         .run()
@@ -642,12 +642,12 @@ pub(super) async fn change_counts(db: &Db) -> Outcome {
             true,
         ),
         (
-            "INSERT INTO altcha_used (challenge, expires_at) VALUES ('c', 1)
+            "INSERT INTO pow_used (challenge, expires_at) VALUES ('c', 1)
              ON CONFLICT (challenge) DO NOTHING",
             true,
         ),
         (
-            "INSERT INTO altcha_used (challenge, expires_at) VALUES ('c', 1)
+            "INSERT INTO pow_used (challenge, expires_at) VALUES ('c', 1)
              ON CONFLICT (challenge) DO NOTHING",
             false,
         ),
@@ -661,7 +661,7 @@ pub(super) async fn change_counts(db: &Db) -> Outcome {
         .batch(vec![
             db.query("UPDATE prizes SET qty = 3 WHERE id = 'i'"),
             db.query("UPDATE prizes SET qty = 3 WHERE id = 'nope'"),
-            db.query("DELETE FROM altcha_used WHERE challenge = 'nope'"),
+            db.query("DELETE FROM pow_used WHERE challenge = 'nope'"),
             db.query("DELETE FROM prizes WHERE id = 'i'"),
         ])
         .await

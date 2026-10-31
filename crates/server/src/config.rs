@@ -103,12 +103,12 @@ pub struct Config {
     /// raffle engine only checks it. `mock` (or `RAFI_DRAND_MOCK=1`) is the mock
     /// chain, in development builds only.
     pub drand_chain: String,
-    /// The proof-of-work's HMAC key (`RAFI_ALTCHA_KEY`). Random when unset,
+    /// The proof-of-work's HMAC key (`RAFI_POW_KEY`). Random when unset,
     /// so challenges die with the process.
-    pub altcha_key: String,
-    /// The proof-of-work's difficulty (`RAFI_ALTCHA_COST`): PBKDF2 iterations
+    pub pow_key: String,
+    /// The proof-of-work's difficulty (`RAFI_POW_COST`): PBKDF2 iterations
     /// per attempt, about 256 attempts per solve.
-    pub altcha_cost: u32,
+    pub pow_cost: u32,
     pub cookie_secure: bool,
     /// The most entrants a raffle takes (`RAFI_MAX_ENTRANTS`): the hard limit
     /// behind the soft rate limits.
@@ -167,8 +167,8 @@ impl Config {
             .trim_end_matches('/')
             .to_owned();
         // Hex: the key is a string, and raw random bytes aren't UTF-8.
-        let altcha_key =
-            var("RAFI_ALTCHA_KEY").unwrap_or_else(|| hex::encode(crate::ids::random_bytes::<32>()));
+        let pow_key =
+            var("RAFI_POW_KEY").unwrap_or_else(|| hex::encode(crate::ids::random_bytes::<32>()));
         Self {
             database_url: var("RAFI_DATABASE_URL").unwrap_or_else(|| "sqlite://rafi.db".into()),
             cookie_secure: var("RAFI_COOKIE_SECURE")
@@ -193,9 +193,9 @@ impl Config {
             drand_chain: var("RAFI_DRAND_CHAIN")
                 .or_else(|| flag("RAFI_DRAND_MOCK").then(|| MOCK.to_owned()))
                 .unwrap_or_else(|| chains::QUICKNET_HASH.to_string()),
-            altcha_key,
-            altcha_cost: u32::try_from(int("RAFI_ALTCHA_COST", i64::from(DEFAULT_ALTCHA_COST)))
-                .unwrap_or(DEFAULT_ALTCHA_COST),
+            pow_key,
+            pow_cost: u32::try_from(int("RAFI_POW_COST", i64::from(DEFAULT_POW_COST)))
+                .unwrap_or(DEFAULT_POW_COST),
             max_entrants: int("RAFI_MAX_ENTRANTS", 2000),
             retention: RetentionPolicy {
                 days: int("RAFI_RETENTION_DAYS", DEFAULT_RETENTION_DAYS),
@@ -246,9 +246,9 @@ impl Config {
         }
         // The challenges are public and HMAC-signed with this key: a short
         // one is crackable offline, and a forged proof skips the work.
-        if self.altcha_key.len() < MIN_ALTCHA_KEY_CHARS {
+        if self.pow_key.len() < MIN_POW_KEY_CHARS {
             bail!(
-                "RAFI_ALTCHA_KEY must be at least {MIN_ALTCHA_KEY_CHARS} characters (openssl rand -hex 32)"
+                "RAFI_POW_KEY must be at least {MIN_POW_KEY_CHARS} characters (openssl rand -hex 32)"
             );
         }
         if self.operator.name.is_empty() || self.operator.email.is_empty() {
@@ -295,8 +295,8 @@ impl Config {
                 timeout_secs: RestateConfig::DEFAULT_TIMEOUT_SECS,
             },
             drand_chain: MOCK.into(),
-            altcha_key: TEST_ALTCHA_KEY.into(),
-            altcha_cost: 1,
+            pow_key: TEST_POW_KEY.into(),
+            pow_cost: 1,
             cookie_secure: false,
             max_entrants: 2000,
             retention: RetentionPolicy {
@@ -321,14 +321,14 @@ impl Config {
     }
 }
 
-/// `RAFI_ALTCHA_COST` when unset. Provisional: it should be tuned against
+/// `RAFI_POW_COST` when unset. Provisional: it should be tuned against
 /// solve times on slow phones.
-pub const DEFAULT_ALTCHA_COST: u32 = 1000;
-/// The shortest `RAFI_ALTCHA_KEY` a production server accepts. The key is
+pub const DEFAULT_POW_COST: u32 = 1000;
+/// The shortest `RAFI_POW_KEY` a production server accepts. The key is
 /// the HMAC secret behind every proof-of-work challenge, which is public.
-pub const MIN_ALTCHA_KEY_CHARS: usize = 32;
+pub const MIN_POW_KEY_CHARS: usize = 32;
 /// The tests' key: long enough for a production server.
-pub const TEST_ALTCHA_KEY: &str = "test-key-test-key-test-key-test-key";
+pub const TEST_POW_KEY: &str = "test-key-test-key-test-key-test-key";
 
 /// `RAFI_RETENTION_DAYS` when unset: a week after the event.
 pub const DEFAULT_RETENTION_DAYS: i64 = 7;
@@ -428,13 +428,13 @@ mod tests {
         let err = full.validate().unwrap_err().to_string();
         assert!(err.contains("CLERK_PUBLISHABLE_KEY"), "{err}");
         full.clerk_publishable_key = key;
-        full.altcha_key = "short".into();
+        full.pow_key = "short".into();
         let err = full.validate().unwrap_err().to_string();
         assert!(
-            err.contains("RAFI_ALTCHA_KEY"),
+            err.contains("RAFI_POW_KEY"),
             "a short key is refused: {err}"
         );
-        full.altcha_key = "x".repeat(MIN_ALTCHA_KEY_CHARS);
+        full.pow_key = "x".repeat(MIN_POW_KEY_CHARS);
         assert!(full.validate().is_ok());
         full.retention.days = 31;
         assert!(full.validate().is_err(), "default over the maximum");
@@ -510,7 +510,7 @@ mod tests {
         // quietly taking its default.
         for (name, default) in [
             ("RAFI_ENGINE_TIMEOUT_SECS", "90"),
-            ("RAFI_ALTCHA_COST", "1000"),
+            ("RAFI_POW_COST", "1000"),
             ("RAFI_MAX_ENTRANTS", "2000"),
         ] {
             let typo = Config::from_lookup(|n| match n {

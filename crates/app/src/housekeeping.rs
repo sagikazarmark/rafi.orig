@@ -29,7 +29,7 @@
 use rafi_raffle::{Decision, RaffleId};
 use rafi_store::{audit, housekeeping as store, retention};
 
-use crate::{App, altcha, ids};
+use crate::{App, ids, pow};
 
 /// The most raffles one housekeeping run asks the engine to finish
 /// ([`finish_at_ceiling`]).
@@ -78,7 +78,7 @@ pub async fn run_at(app: &App, now: i64) -> anyhow::Result<Report> {
         }
     }
     finish_at_ceiling(app, now, hold).await;
-    altcha::purge_expired(app).await?;
+    pow::purge_expired(app).await?;
     let channels_ended = end_channels(app, now).await;
     store::record_ok(&app.db, now).await?;
     Ok(Report {
