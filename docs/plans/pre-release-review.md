@@ -966,7 +966,17 @@ the state is kept from here on.
   stated period is enforced rather than aspirational. Not on `remove_my_data` itself: the row is the operator's
   defence record.
 - **A full Content-Security-Policy** ([#23](https://github.com/sagikazarmark/rafi.orig/issues/23)). Inline `HEAD_SCRIPT` and `LOADER`, Dioxus `document::eval` and the SPA's
-  inline styles need nonces or hashes; a day's work with the Dioxus build.
+  inline styles need nonces or hashes; a day's work with the Dioxus build. **Done**: a policy per kind of page
+  (`crates/server/src/csp.rs`), sent by `security_headers` on both hosts. The server's pages allow their two inline
+  scripts by SHA-256 hash, computed from what the server compiled in, and nothing else inline; the installation's
+  documents also `https:` images; the web app `'unsafe-eval'` (Dioxus's `eval`), inline styles and Clerk's sources,
+  from `dioxus_clerk::csp::ClerkCsp` (dioxus-clerk 0.8) for the publishable key, which config now refuses when no
+  host decodes from it. The web app's shell lost its inline theme script to `/config.js` and is served by the
+  server (`crates/server/src/shell.rs`), since its policy names the installation's Clerk host: read at startup
+  natively, compiled into the Worker, which serves every path that isn't a file (no single-page fallback and no
+  `run_worker_first` in `wrangler.toml` any more; `_headers` keeps the files' headers). `RAFI_CSP=report-only` is
+  the operators' escape hatch. The evening listens for violations in every tab; Clerk's part is checked by hand
+  (#33) and by the header test.
 - **The `tracing`/`console` layer growing into request IDs** ([#24](https://github.com/sagikazarmark/rafi.orig/issues/24)). The router has one place for a `TraceLayer`
   (`crates/server/src/lib.rs:126-132`) and the admin API one error mapper (`admin.rs:51-69`), so nothing structural
   is needed now. **Done**: not `TraceLayer` (its `Instant` aborts on wasm32) but a middleware of the server's own

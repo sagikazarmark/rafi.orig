@@ -14,7 +14,7 @@ state := "../../.wrangler-state"
 default:
     @just --list --unsorted
 
-# Assemble the static files Workers Assets serves (worker-assets/): the web app bundle, the participant build and the legal documents from RAFI_DOCS_DIR (absolute; the templates when unset, which a production Worker refuses).
+# Assemble the static files Workers Assets serves (worker-assets/): the web app bundle (but its index.html, which the Worker compiles in), the participant build and the legal documents from RAFI_DOCS_DIR (absolute; the templates when unset, which a production Worker refuses).
 assets:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -25,6 +25,10 @@ assets:
     rm -rf worker-assets
     mkdir -p worker-assets/legal worker-assets/participant
     cp -R "$public/." worker-assets/
+    # The web app's index.html is compiled into the Worker, which serves it
+    # with its Content-Security-Policy; among the files, Assets would serve
+    # it without one.
+    rm worker-assets/index.html
     # The participant's hashed assets and its fallback; not its index.html,
     # the page's loader, which the Worker has compiled in.
     cp -R ../participant/dist/public/assets worker-assets/participant/assets

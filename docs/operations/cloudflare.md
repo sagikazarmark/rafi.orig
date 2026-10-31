@@ -11,7 +11,9 @@ implements them over Workers bindings.
 
 The Worker, `rafi` (`apps/worker`), hosts:
 
-- the app's routes and the static files (Workers Assets);
+- the app's routes and the static files (Workers Assets), and the web app's page (its `index.html`, compiled into
+  the Worker): a path that isn't a file comes to the Worker, which serves the page with a Content-Security-Policy
+  naming your Clerk host, so each load of the admin or the projector is a Worker request;
 - the raffle engine (`Raffle`, `EngineInfo`) under `/restate/*`, called by Restate Cloud over HTTPS with signed
   requests. It writes to the same D1 and nudges `RaffleRoom` after every change;
 - the `RaffleRoom` Durable Object (one live channel per raffle), the join rate limiters and the hourly Cron.

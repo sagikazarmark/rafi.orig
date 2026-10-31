@@ -61,12 +61,6 @@ async fn main() -> anyhow::Result<()> {
     };
     // The web bundle: `dx bundle --platform web --release` writes it here.
     let public_dir = dir("RAFI_PUBLIC_DIR", "target/dx/rafi-web/release/web/public");
-    if !public_dir.join("index.html").is_file() {
-        tracing::warn!(
-            dir = %public_dir.display(),
-            "no web app in RAFI_PUBLIC_DIR: only the participant pages and APIs are served"
-        );
-    }
     // The participant build (`just apps/participant/ build`): the one this binary
     // was compiled against, or it doesn't start.
     let dirs = server::Dirs {
@@ -75,7 +69,16 @@ async fn main() -> anyhow::Result<()> {
     };
     dirs.check_participant()
         .context("the participant build in RAFI_PARTICIPANT_DIR")?;
-    let router = server::build_router(app, auth, &dirs);
+    let shell = dirs
+        .shell()
+        .context("the web app's shell in RAFI_PUBLIC_DIR")?;
+    if shell.is_none() {
+        tracing::warn!(
+            dir = %dirs.public.display(),
+            "no web app in RAFI_PUBLIC_DIR: only the participant pages and APIs are served"
+        );
+    }
+    let router = server::build_router(app, auth, &dirs, shell);
 
     // `IP` and `PORT`, as the Dioxus CLI sets them.
     let ip = std::env::var("IP").unwrap_or_else(|_| "127.0.0.1".into());

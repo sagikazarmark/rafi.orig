@@ -56,6 +56,9 @@ let
   # sources change, or when something else rebuilt them (scripts/workers-check.sh):
   # the stamp records the build.
   appAssets = "apps/worker/worker-assets";
+  # The web app's index.html, which the Worker compiles in (not among the
+  # static files); `just assets` copies _headers in last, so it marks a build.
+  webShell = "target/dx/rafi-web/release/web/public/index.html";
   appAssetsStamp = "target/app-assets.stamp";
   appAssetsSources = [
     "apps/web/src"
@@ -295,8 +298,9 @@ in
           '';
           status = ''
             [ -f ${appAssetsStamp} ] \
-              && [ -f ${appAssets}/index.html ] \
-              && [ -z "$(find ${appAssets}/index.html ${lib.concatStringsSep " " appAssetsSources} \
+              && [ -f ${appAssets}/_headers ] \
+              && [ -f ${webShell} ] \
+              && [ -z "$(find ${appAssets}/_headers ${lib.concatStringsSep " " appAssetsSources} \
                 -newer ${appAssetsStamp} ! -path apps/web/assets/tailwind.css -print -quit)" ]
           '';
           cwd = root;

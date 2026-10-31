@@ -27,21 +27,19 @@ preview_urls = false
 [build]
 command = "worker-build --release"
 
-# The web app (admin, projector, verification page), the participant scripts
-# and the installation's legal documents (legal/). Paths the Worker answers go
-# to it first (Restate's requests under /restate/ included); anything else is
-# a file, or the web app's index.html (single-page routing). The Worker serves
-# the web app's configuration (/config.js) and the participant page's
-# proof-of-work solver (dioxus-altcha's, as built in). /__scheduled is
+# The web app's files (admin, projector, verification page), the participant
+# scripts and the installation's legal documents (legal/). A path that isn't
+# a file goes to the Worker: its routes, the web app's shell (its index.html,
+# compiled into the Worker, not among the files: it carries a
+# Content-Security-Policy naming the installation's Clerk host, which
+# _headers can't know), Restate's requests under /restate/, and /__scheduled,
 # `wrangler dev --test-scheduled`'s way of firing the Cron Trigger
-# (scripts/workers-check.sh); in production it is a path like any other,
-# which the Worker answers 404. The binding is how the Worker reads the legal
-# documents.
+# (scripts/workers-check.sh; in production the Worker answers it with the
+# shell like any other path). No single-page fallback here, so a missing file
+# is a 404. The binding is how the Worker reads the legal documents.
 [assets]
 directory = "./worker-assets"
 binding = "ASSETS"
-not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/config.js", "/j/*", "/rules/*", "/privacy", "/privacy/*", "/terms", "/partyline/*", "/restate", "/restate/*", "/healthz", "/participant/pow-worker.js", "/__scheduled"]
 
 [[d1_databases]]
 binding = "DB"

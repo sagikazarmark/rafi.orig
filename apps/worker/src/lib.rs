@@ -9,10 +9,14 @@
 //!   - `/partyline/raffle/{id}`: phones' live-channel sockets go to the raffle's
 //!     [`RaffleRoom`];
 //!   - everything else: the same axum routes as the native server
-//!     ([`rafi_server::routes`]) behind Clerk, with Cloudflare's Ray ID as
-//!     each request's ID (`rafi_server::trace`). Workers Assets serves the web app
-//!     and the participant build's files before the Worker is called
-//!     (`run_worker_first` in `wrangler.toml` lists the Worker's paths).
+//!     ([`rafi_server::routes`]), with the web app's shell (`SHELL`) at
+//!     every path they don't answer, behind Clerk, with Cloudflare's Ray ID
+//!     as each request's ID (`rafi_server::trace`). Workers Assets serves the
+//!     web app's and the participant build's files before the Worker is
+//!     called; a path that isn't a file comes here (no single-page fallback
+//!     in `wrangler.toml`: the shell carries a Content-Security-Policy naming
+//!     the installation's Clerk host, which the static files' `_headers`
+//!     can't know).
 //! - `scheduled`: the Cron Trigger runs housekeeping (`rafi_app::housekeeping::run`).
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
@@ -59,6 +63,12 @@ mod log;
 mod ratelimit;
 
 use ratelimit::RateLimitBindings;
+
+/// The web app's `index.html`, as the build left it: compiled in, as it
+/// ships in one artifact with the files it links (`just artifact` builds the
+/// web app first), and isn't among the static files, so Workers Assets can't
+/// serve it without its policy.
+const SHELL: &str = include_str!("../../../target/dx/rafi-web/release/web/public/index.html");
 
 /// The isolate's state: the app (for the Cron), its routes behind Clerk's
 /// layer (no layer under dev auth) and the raffle engine's endpoint.
@@ -129,7 +139,9 @@ fn app(env: &Env, cfg: Config) -> anyhow::Result<App> {
         Arc::new(RateLimitBindings::new(env.clone())),
         rafi_app::Clock::system(),
     )?;
-    let router = server::routes(state.clone());
+    let shell = server::Shell::new(SHELL)?;
+    let router =
+        server::routes(state.clone()).fallback_service(server::shell_routes(&state, Some(shell)));
     let router = match auth {
         Some(layer) => router.layer(layer),
         None => router,

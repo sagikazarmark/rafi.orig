@@ -9,7 +9,7 @@ use axum::{
 };
 use rafi_store::RaffleRow;
 
-use super::{AppState, service, view};
+use super::{AppState, pages, service, view};
 
 pub fn routes() -> Router {
     Router::new()
@@ -33,7 +33,9 @@ struct WebConfig {
     clerk_publishable_key: Option<String>,
 }
 
-/// The web app's configuration ([`WebConfig`]), as a script. `no-cache`: a
+/// The web app's configuration ([`WebConfig`]), as a script, and the saved
+/// theme applied before first paint (`pages::APPLY_THEME`: `index.html` loads
+/// this in its head, and its policy lets it run nothing inline). `no-cache`: a
 /// rotated key takes effect on the next page load.
 async fn config_js(Extension(app): Extension<AppState>) -> Response {
     let cfg = WebConfig {
@@ -49,7 +51,7 @@ async fn config_js(Extension(app): Extension<AppState>) -> Response {
             (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
             (header::CACHE_CONTROL, "no-cache"),
         ],
-        format!("window.__RAFI_CONFIG__ = {json};\n"),
+        format!("window.__RAFI_CONFIG__ = {json};\n{}\n", pages::APPLY_THEME),
     )
         .into_response()
 }

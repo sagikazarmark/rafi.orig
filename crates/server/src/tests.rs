@@ -1024,6 +1024,9 @@ async fn admin_requires_clerk_session() {
         "<!doctype html><html><head></head><body><div id=\"main\"></div></body></html>",
     )
     .unwrap();
+    // Its files are under assets/.
+    std::fs::create_dir_all(public.join("assets")).unwrap();
+    std::fs::write(public.join("assets/rafi-web.js"), "// web").unwrap();
     // And for the participant build: a hashed asset and the fallback, as
     // the build leaves them, a precompressed variant next to the asset,
     // and the loader this server compiled in.
@@ -1054,6 +1057,7 @@ async fn admin_requires_clerk_session() {
         app.clone(),
         Some(super::auth::clerk_layer(&app.cfg, clerk.config().unwrap()).unwrap()),
         &dirs,
+        dirs.shell().unwrap(),
     );
     let get = |path: &str| Request::get(path).body(Body::empty()).unwrap();
     let asset = format!("/participant/{glue}");
@@ -1172,12 +1176,14 @@ async fn admin_requires_clerk_session() {
             "{path}"
         );
         let framed = path.starts_with("/s/") || path.starts_with("/v/");
+        // The web app's policy (`csp_by_page` has the rest), framing denied
+        // but where it may be framed.
+        let policy = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+        assert!(policy.starts_with("default-src 'self'"), "{path}: {policy}");
         assert_eq!(
-            headers
-                .get(header::CONTENT_SECURITY_POLICY)
-                .map(|v| v.to_str().unwrap()),
-            (!framed).then_some("frame-ancestors 'none'"),
-            "{path}"
+            policy.contains("frame-ancestors 'none'"),
+            !framed,
+            "{path}: {policy}"
         );
         assert_eq!(
             headers.contains_key(header::X_FRAME_OPTIONS),
@@ -1186,6 +1192,32 @@ async fn admin_requires_clerk_session() {
         );
         assert!(headers.contains_key(super::trace::REQUEST_ID), "{path}");
     }
+    // The web app's files, natively from its directory, with the headers
+    // too; a miss there is a 404, not the shell.
+    let (status, headers, body) = send(&router, get("/assets/rafi-web.js")).await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "// web"));
+    assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+    let (status, _, _) = send(&router, get("/assets/missing.js")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    // The shell at its own path too, under its policy.
+    let (status, headers, body) = send(&router, get("/index.html")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("<div id=\"main\">"), "{body}");
+    assert!(
+        headers[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap()
+            .contains("'unsafe-eval'")
+    );
+    // The participant build's files carry the headers too.
+    let (_, headers, _) = send(&router, get("/participant/fallback.js")).await;
+    assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+    assert_eq!(
+        headers[header::CONTENT_SECURITY_POLICY],
+        "frame-ancestors 'none'"
+    );
+    let (_, headers, _) = send(&router, get(&asset)).await;
+    assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
     // And on what the server renders itself.
     let (_, headers, _) = send(
         &router,
@@ -1198,6 +1230,259 @@ async fn admin_requires_clerk_session() {
     );
     assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
     std::fs::remove_dir_all(&public).ok();
+}
+
+/// The Content-Security-Policy tests' router, as the Worker composes it:
+/// the server's routes, and a shell at every other path.
+fn with_shell(app: &AppState) -> Router {
+    routes(app.clone()).fallback_service(super::shell_routes(
+        app,
+        Some(super::Shell::new(TEST_SHELL).unwrap()),
+    ))
+}
+
+/// A stand-in for the web app's `index.html`: no inline script.
+const TEST_SHELL: &str = "<!doctype html><html><head><script src=\"/config.js\"></script></head><body><div id=\"main\"></div></body></html>";
+
+fn get(path: &str) -> Request<Body> {
+    Request::get(path).body(Body::empty()).unwrap()
+}
+
+/// `name`'s value in `headers`, empty without one.
+fn header_str(headers: &header::HeaderMap, name: header::HeaderName) -> String {
+    headers
+        .get(name)
+        .map(|v| v.to_str().unwrap().to_owned())
+        .unwrap_or_default()
+}
+
+/// The enforced Content-Security-Policy in `headers`.
+fn policy(headers: &header::HeaderMap) -> String {
+    header_str(headers, header::CONTENT_SECURITY_POLICY)
+}
+
+/// The sources of `policy`'s `name` directive.
+fn directive(policy: &str, name: &str) -> Vec<String> {
+    policy
+        .split("; ")
+        .find_map(|d| d.strip_prefix(name)?.strip_prefix(' '))
+        .map(|sources| sources.split(' ').map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+/// The server's pages allow what they carry inline by its hash, and nothing
+/// else inline: no eval, no inline styles, no Clerk; they are never framed,
+/// and they connect to the live channel's socket by name.
+#[tokio::test]
+async fn server_pages_allow_their_inline_scripts_by_hash() {
+    let app = app().await;
+    let router = with_shell(&app);
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let join = format!("/j/{}", raffle.join_code);
+    for path in [
+        join.clone(),
+        format!("/rules/{}", raffle.slug),
+        format!("/privacy/{}", raffle.slug),
+        "/j/no-such-code".to_owned(),
+    ] {
+        let (_, headers, page) = send(&router, get(&path)).await;
+        let p = policy(&headers);
+        let scripts = directive(&p, "script-src");
+        let inline = super::csp::inline_scripts(&page);
+        assert!(!inline.is_empty(), "{path}: the head script at least");
+        for script in inline {
+            assert!(
+                scripts.contains(&super::csp::hash_source(script)),
+                "{path}: {script:?} isn't allowed by {p}"
+            );
+        }
+        for loose in ["'unsafe-eval'", "'unsafe-inline'"] {
+            assert!(!p.contains(loose), "{path}: {p}");
+        }
+        assert_eq!(directive(&p, "style-src"), ["'self'"], "{path}");
+        assert_eq!(directive(&p, "img-src"), ["'self'", "data:"], "{path}");
+        assert_eq!(
+            directive(&p, "connect-src"),
+            ["'self'", "ws://localhost:8080"],
+            "{path}"
+        );
+        assert_eq!(directive(&p, "form-action"), ["'self'"], "{path}");
+        assert_eq!(directive(&p, "frame-ancestors"), ["'none'"], "{path}");
+        assert!(!p.contains("clerk"), "{path}: {p}");
+        assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY", "{path}");
+    }
+    // The join page runs the participant build's loader, inline too.
+    let (_, _, page) = send(&router, get(&join)).await;
+    assert_eq!(super::csp::inline_scripts(&page).len(), 2);
+}
+
+/// The installation's documents: the server pages' policy, and images from
+/// any https: origin, which the operator's Markdown may show.
+#[tokio::test]
+async fn the_documents_also_show_images_from_elsewhere() {
+    let app = app().await;
+    let router = with_shell(&app);
+    let (_, headers, _) = send(&router, get("/j/no-such-code")).await;
+    let server_page = policy(&headers);
+    for path in ["/privacy", "/terms"] {
+        let (status, headers, _) = send(&router, get(path)).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        let p = policy(&headers);
+        assert_eq!(
+            directive(&p, "img-src"),
+            ["'self'", "data:", "https:"],
+            "{path}"
+        );
+        assert_eq!(
+            directive(&p, "script-src"),
+            directive(&server_page, "script-src"),
+            "{path}"
+        );
+    }
+}
+
+/// The web app's shell, at every path of its own: Dioxus's eval, inline
+/// styles and everything Clerk needs for the publishable key; nothing inline.
+#[tokio::test]
+async fn the_web_app_allows_eval_inline_styles_and_clerk() {
+    let app = app().await;
+    let router = with_shell(&app);
+    let clerk = dioxus_clerk::csp::ClerkCsp::from_publishable_key(
+        super::config::TEST_CLERK_PUBLISHABLE_KEY,
+    )
+    .unwrap();
+    for path in ["/", "/admin", "/admin/r/abc", "/index.html"] {
+        let (status, headers, body) = send(&router, get(path)).await;
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::OK, TEST_SHELL),
+            "{path}"
+        );
+        assert_eq!(headers[header::CACHE_CONTROL], "no-cache", "{path}");
+        let p = policy(&headers);
+        let scripts = directive(&p, "script-src");
+        for source in ["'self'", "'wasm-unsafe-eval'", "'unsafe-eval'"] {
+            assert!(
+                scripts.contains(&source.to_owned()),
+                "{path}: {source} in {p}"
+            );
+        }
+        for (name, sources) in clerk.directives() {
+            let allowed = directive(&p, name);
+            for source in sources {
+                assert!(
+                    allowed.contains(source),
+                    "{path}: Clerk's {name} {source} in {p}"
+                );
+            }
+        }
+        assert!(!p.contains("'sha256-"), "{path}: nothing inline: {p}");
+        assert!(directive(&p, "style-src").contains(&"'unsafe-inline'".to_owned()));
+        assert_eq!(directive(&p, "frame-ancestors"), ["'none'"], "{path}");
+    }
+}
+
+/// A revalidated shell keeps its policy: a browser keeps a 304's headers in
+/// place of the cached response's, so a 304 with less would strip it.
+#[tokio::test]
+async fn the_web_app_keeps_its_policy_when_revalidated() {
+    let app = app().await;
+    let router = with_shell(&app);
+    for path in ["/admin", "/s/some-slug"] {
+        let (_, fresh, _) = send(&router, get(path)).await;
+        let mut req = get(path);
+        req.headers_mut()
+            .insert(header::IF_NONE_MATCH, fresh[header::ETAG].clone());
+        let (status, revalidated, body) = send(&router, req).await;
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::NOT_MODIFIED, ""),
+            "{path}"
+        );
+        for name in [header::CONTENT_SECURITY_POLICY, header::X_FRAME_OPTIONS] {
+            assert_eq!(revalidated.get(&name), fresh.get(&name), "{path}: {name}");
+        }
+    }
+}
+
+/// The projector and the verification page may be framed (venues and
+/// meetup sites show them); nothing else of the web app's may.
+#[tokio::test]
+async fn only_the_projector_and_the_verification_page_may_be_framed() {
+    let app = app().await;
+    let router = with_shell(&app);
+    for path in ["/s/some-slug", "/v/some-slug"] {
+        let (_, headers, _) = send(&router, get(path)).await;
+        let p = policy(&headers);
+        assert!(p.contains("'unsafe-eval'"), "{path}: the web app's: {p}");
+        assert!(!p.contains("frame-ancestors"), "{path}: {p}");
+        assert!(!headers.contains_key(header::X_FRAME_OPTIONS), "{path}");
+    }
+}
+
+/// What isn't a page only denies framing; a miss among the server's files
+/// and APIs is a 404, not the shell; the shell is for reading.
+#[tokio::test]
+async fn what_isnt_a_page_only_denies_framing() {
+    let app = app().await;
+    let router = with_shell(&app);
+    let (_, headers, _) = send(&router, get("/healthz")).await;
+    assert_eq!(policy(&headers), super::csp::NO_FRAMING);
+    assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY");
+    for path in [
+        "/assets/rafi-web-dxh0.js",
+        "/participant/x.js",
+        "/api/nothing",
+        "/legal/terms.md",
+    ] {
+        let (status, headers, body) = send(&router, get(path)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}: {body}");
+        assert_eq!(policy(&headers), super::csp::NO_FRAMING, "{path}");
+    }
+    let (status, headers, _) = send(
+        &router,
+        Request::post("/admin").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+    assert!(headers.contains_key(header::ALLOW));
+}
+
+/// Dev auth loads no Clerk, so the web app's policy names none of it.
+#[tokio::test]
+async fn under_dev_auth_the_web_app_allows_nothing_of_clerks() {
+    let mut cfg = Config::for_tests();
+    cfg.dev_auth = true;
+    let app = app_with(cfg).await;
+    let (_, headers, _) = send(&with_shell(&app), get("/admin")).await;
+    let p = policy(&headers);
+    assert!(!p.contains("clerk") && !p.contains("cloudflare"), "{p}");
+    assert_eq!(directive(&p, "worker-src"), ["'self'"]);
+    assert_eq!(directive(&p, "frame-src"), Vec::<String>::new());
+}
+
+/// `RAFI_CSP=report-only`: every page's policy is reported, not enforced;
+/// framing stays denied where it was.
+#[tokio::test]
+async fn report_only_reports_the_policies_and_still_denies_framing() {
+    let mut cfg = Config::for_tests();
+    cfg.csp = super::config::CspMode::ReportOnly;
+    let app = app_with(cfg).await;
+    let router = with_shell(&app);
+    for path in ["/admin", "/terms", "/j/no-such-code"] {
+        let (_, headers, _) = send(&router, get(path)).await;
+        assert_eq!(policy(&headers), super::csp::NO_FRAMING, "{path}");
+        assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY", "{path}");
+        let reported = header_str(&headers, header::CONTENT_SECURITY_POLICY_REPORT_ONLY);
+        assert!(
+            reported.starts_with("default-src 'self'"),
+            "{path}: {reported}"
+        );
+    }
+    let (_, headers, _) = send(&router, get("/s/some-slug")).await;
+    assert!(!headers.contains_key(header::CONTENT_SECURITY_POLICY));
+    assert!(!headers.contains_key(header::X_FRAME_OPTIONS));
+    assert!(headers.contains_key(header::CONTENT_SECURITY_POLICY_REPORT_ONLY));
 }
 
 #[tokio::test]
@@ -1215,6 +1500,7 @@ async fn pow_worker_is_dioxus_altchas() {
             public: public.clone(),
             participant,
         },
+        None,
     );
     let get = || {
         Request::get("/participant/pow-worker.js")
@@ -1267,6 +1553,9 @@ async fn pow_worker_is_dioxus_altchas() {
 /// with it, and one web app bundle serves every installation.
 #[tokio::test]
 async fn config_js_says_how_the_server_signs_in() {
+    // And it applies the saved theme before first paint, which the web app's
+    // shell can't do inline under its policy.
+    const THEME: &str = super::pages::APPLY_THEME;
     let get = || Request::get("/config.js").body(Body::empty()).unwrap();
 
     let router = routes(app().await);
@@ -1282,7 +1571,7 @@ async fn config_js_says_how_the_server_signs_in() {
     assert_eq!(
         body,
         format!(
-            "window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":{:?}}};\n",
+            "window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":{:?}}};\n{THEME}\n",
             Config::for_tests().clerk_publishable_key.unwrap()
         )
     );
@@ -1296,7 +1585,7 @@ async fn config_js_says_how_the_server_signs_in() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        "window.__RAFI_CONFIG__ = {\"clerkPublishableKey\":null};\n"
+        format!("window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":null}};\n{THEME}\n")
     );
 }
 
@@ -3462,6 +3751,7 @@ async fn organization_tiers_gate_the_admin_api() {
             public: public.clone(),
             participant: public.join("participant-dist"),
         },
+        None,
     );
     let call = async |cookie: &str, name: &str, args: &str| -> (StatusCode, String) {
         let mut req = admin_call(name, args);

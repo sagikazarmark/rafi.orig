@@ -16,11 +16,14 @@
 pub mod admin;
 pub mod auth;
 pub mod config;
+pub mod csp;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod housekeeping;
 mod pages;
 pub mod participant;
 pub mod public;
+mod revalidate;
+pub mod shell;
 pub mod trace;
 
 pub use rafi_app::{self as service, ids, view};
@@ -36,13 +39,16 @@ use rafi_engine_restate::RestateClient;
 use rafi_live_server::LiveUpdates;
 use rafi_store::Db;
 
-use self::config::Config;
+use self::config::{Config, CspMode};
+pub use self::shell::Shell;
 
 #[derive(Clone)]
 pub struct AppState(Arc<Inner>);
 
 pub struct Inner {
     pub cfg: Config,
+    /// The Content-Security-Policies, from `cfg`.
+    pub(crate) csp: csp::Policies,
     /// What the use cases run against: the database, the drand chain
     /// ([`Config::chain`]), the raffle engine (`None` without
     /// `RAFI_ENGINE_INGRESS_URL`), the live updates and the join's rate limits.
@@ -99,6 +105,12 @@ impl AppState {
         clock: service::Clock,
     ) -> anyhow::Result<Self> {
         cfg.validate()?;
+        if cfg.csp == CspMode::ReportOnly {
+            tracing::warn!(
+                "RAFI_CSP is report-only: the Content-Security-Policy is NOT enforced, only reported in browsers' consoles"
+            );
+        }
+        let csp = csp::Policies::new(&cfg)?;
         let core = service::App {
             chain: cfg.chain()?,
             db,
@@ -114,7 +126,7 @@ impl AppState {
                 min_age: cfg.min_age,
             },
         };
-        Ok(Self(Arc::new(Inner { core, cfg })))
+        Ok(Self(Arc::new(Inner { core, cfg, csp })))
     }
 }
 
@@ -126,14 +138,33 @@ pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn Engine>> {
 }
 
 /// The server's own routes: participant pages, public JSON and the admin API,
-/// with the [security headers](security_headers) on every response.
+/// with the security headers (`security_headers`) on every response.
 pub fn routes(app: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .merge(participant::routes())
         .merge(public::routes())
-        .merge(admin::routes())
-        .layer(axum::middleware::from_fn(security_headers))
-        .layer(Extension(app))
+        .merge(admin::routes());
+    secured(router, &app).layer(Extension(app))
+}
+
+/// The web app's [`Shell`] at every path nothing else answers (none: a 404),
+/// with the security headers: the fallback of [`routes`] on both hosts.
+pub fn shell_routes(app: &AppState, shell: Option<Shell>) -> Router {
+    let router = match shell {
+        Some(shell) => Router::new()
+            .fallback(axum::routing::get(shell::serve))
+            .layer(Extension(shell)),
+        None => Router::new(),
+    };
+    secured(router, app)
+}
+
+/// `router` with [`security_headers`], by `app`'s policies.
+fn secured(router: Router, app: &AppState) -> Router {
+    router.layer(axum::middleware::from_fn_with_state(
+        app.clone(),
+        security_headers,
+    ))
 }
 
 /// The paths of the web app that may be shown inside another page: the
@@ -149,19 +180,20 @@ pub fn frameable(path: &str) -> bool {
 /// - `Referrer-Policy: strict-origin-when-cross-origin`: a link out of a
 ///   page (the organizer's own privacy notice, from a join page whose URL
 ///   holds the join code) carries the origin, not the path;
-/// - `Content-Security-Policy: frame-ancestors` (and `X-Frame-Options` for
-///   older browsers): no page is framed, except the ones [`frameable`] names,
-///   so the admin can't be clickjacked.
+/// - `Content-Security-Policy`: on a page, the policy of its kind ([`csp`]:
+///   what it may load and run, and that it isn't framed unless it is the web
+///   app at a path [`frameable`] names); on anything else,
+///   `frame-ancestors 'none'`, so nothing of the server's is framed (and
+///   `X-Frame-Options: DENY` for older browsers). Under `RAFI_CSP=report-only`
+///   a page's policy is only reported, its framing still denied.
 ///
-/// On Workers, the web app's files are served by Workers Assets with the
-/// same headers from `_headers` (`apps/worker/_headers`). HSTS is the
-/// edge's: Cloudflare's, or the reverse proxy's natively.
-pub async fn security_headers(
+/// HSTS is the edge's: Cloudflare's, or the reverse proxy's natively.
+async fn security_headers(
+    axum::extract::State(app): axum::extract::State<AppState>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::http::{HeaderValue, header};
-    let frameable = frameable(req.uri().path());
     let mut resp = next.run(req).await;
     let headers = resp.headers_mut();
     headers.insert(
@@ -172,13 +204,7 @@ pub async fn security_headers(
         header::REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
-    if !frameable {
-        headers.insert(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("frame-ancestors 'none'"),
-        );
-        headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-    }
+    app.csp.apply(&mut resp);
     resp
 }
 
@@ -225,6 +251,22 @@ impl Dirs {
         );
         Ok(())
     }
+
+    /// The web app's [`Shell`]: [`public`](Self::public)'s `index.html`, read
+    /// once, as the files next to it are the build it links. `None` without
+    /// one (no web app built: the participant pages and APIs are served
+    /// alone); refused when it can't be read or has an inline script.
+    pub fn shell(&self) -> anyhow::Result<Option<Shell>> {
+        use anyhow::Context as _;
+        let path = self.public.join("index.html");
+        match std::fs::read(&path) {
+            Ok(html) => Shell::new(html)
+                .map(Some)
+                .with_context(|| path.display().to_string()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+        }
+    }
 }
 
 /// `Cache-Control` for the participant's hashed assets: kept for good.
@@ -232,10 +274,11 @@ impl Dirs {
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
 /// The complete HTTP router: [`routes`], the participant build's files at
-/// `/participant/`, then the web app from [`Dirs::public`] with a single-page
-/// fallback to its `index.html`, all behind the Clerk auth layer unless dev
-/// auth is on, and around that the [request IDs](trace), so a refusal of
-/// Clerk's has one too. On Workers, Workers Assets serves the files instead.
+/// `/participant/`, the web app's files at `/assets/` (from [`Dirs::public`]),
+/// then its `shell` at every other path ([`shell_routes`]), all with the
+/// security headers, behind the Clerk auth layer unless dev auth is on, and
+/// around that the [request IDs](trace), so a refusal of Clerk's has one too.
+/// On Workers, Workers Assets serves the files instead.
 ///
 /// The participant's assets are named by their hash, so a phone keeps them
 /// for good (`Cache-Control: immutable`; a deploy links new names). Its
@@ -250,6 +293,7 @@ pub fn build_router(
     app: AppState,
     auth: Option<dioxus_clerk::server::ClerkAuthLayer>,
     dirs: &Dirs,
+    shell: Option<Shell>,
 ) -> Router {
     use axum::{
         http::{HeaderValue, StatusCode, header::CACHE_CONTROL},
@@ -269,10 +313,9 @@ pub fn build_router(
     }
 
     let web_app = Router::new()
-        .fallback_service(
-            ServeDir::new(&dirs.public).fallback(ServeFile::new(dirs.public.join("index.html"))),
-        )
-        .layer(axum::middleware::from_fn(security_headers));
+        .nest_service("/assets", ServeDir::new(dirs.public.join("assets")))
+        .fallback_service(shell_routes(&app, shell));
+    let web_app = secured(web_app, &app);
     let assets = Router::new()
         .fallback_service(
             ServeDir::new(dirs.participant.join("assets"))
@@ -283,6 +326,7 @@ pub fn build_router(
             CACHE_CONTROL,
             cache_control(IMMUTABLE),
         ));
+    let assets = secured(assets, &app);
     let fallback = Router::new()
         .route_service(
             "/participant/fallback.js",
@@ -294,6 +338,7 @@ pub fn build_router(
             CACHE_CONTROL,
             cache_control("no-cache"),
         ));
+    let fallback = secured(fallback, &app);
     let router = routes(app)
         .nest("/participant/assets", assets)
         .merge(fallback)

@@ -87,7 +87,8 @@ pub fn Brand(#[props(default = "text-xl".to_string())] size: String) -> Element 
 }
 
 /// Cycles the colour scheme: system → light → dark. The choice is stored in
-/// `localStorage` and applied before paint by `index.html`.
+/// `localStorage` and applied before paint by `/config.js`, which
+/// `index.html` loads in its head.
 #[component]
 pub fn ThemeToggle(#[props(default)] class: String) -> Element {
     let mut mode = use_signal(|| "system".to_owned());
