@@ -977,6 +977,8 @@ the state is kept from here on.
 - **Smart Placement** ([#27](https://github.com/sagikazarmark/rafi.orig/issues/27); `[placement] mode = "smart"`): D1 is EU-pinned and the participant page makes several
   round trips; measure first.
 - **Caching the axum `Router` in `App`** ([#28](https://github.com/sagikazarmark/rafi.orig/issues/28); `apps/worker/src/lib.rs:158-162` rebuilds it per request).
+  **Done**: `App` holds the routes behind Clerk's layer, built with the app once per isolate; each request clones
+  them (an `Arc`). Not measured: the change was smaller than the measurement.
 - **A Worker path for `reapply-erasures`** ([#29](https://github.com/sagikazarmark/rafi.orig/issues/29)), or generating `cloudflare.md`'s D1 SQL from `rafi_store`, so the two
   can't drift.
 - **`DrandClient::wait_for` uses `std::time::SystemTime`** ([#30](https://github.com/sagikazarmark/rafi.orig/issues/30); `crates/engine/src/drand.rs:256`); only `LocalEngine`

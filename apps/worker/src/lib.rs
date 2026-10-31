@@ -30,19 +30,20 @@
 //! a default, the engine's included. Dev auth, the mock drand chain and
 //! running without Restate identity keys need the `dev` feature.
 //!
-//! The app and the endpoint are built once per isolate (`cached`): the
-//! bindings and vars are the isolate's, Clerk's layer keeps its verified
-//! signing keys (JWKS) between requests instead of fetching them for each,
-//! the drand client keeps its verified chain, and the documents are read
-//! once. The `tracing` subscriber is installed with them (`log`), so the
+//! The app, its router and the endpoint are built once per isolate
+//! (`cached`): the bindings and vars are the isolate's, Clerk's layer keeps
+//! its verified signing keys (JWKS) between requests instead of fetching
+//! them for each, the drand client keeps its verified chain, the documents
+//! are read once, and each request clones the router (an `Arc`) instead of
+//! building its routes and layers again. The `tracing` subscriber is installed with them (`log`), so the
 //! application's warnings and errors reach the console.
 
 #![cfg(target_arch = "wasm32")]
 
 use std::{cell::OnceCell, sync::Arc};
 
-use axum::body::Body;
-use dioxus_clerk::server::{ClerkAuthLayer, ClerkAuthLayerConfig};
+use axum::{Router, body::Body};
+use dioxus_clerk::server::ClerkAuthLayerConfig;
 pub use rafi_cloudflare::RaffleRoom;
 use rafi_cloudflare::{DurableObjects, lookup};
 use restate_sdk::endpoint::Endpoint;
@@ -58,12 +59,12 @@ mod ratelimit;
 
 use ratelimit::RateLimitBindings;
 
-/// The isolate's state: the app, Clerk's layer (none under dev auth) and the
-/// raffle engine's endpoint.
+/// The isolate's state: the app (for the Cron), its routes behind Clerk's
+/// layer (no layer under dev auth) and the raffle engine's endpoint.
 #[derive(Clone)]
 struct App {
     state: AppState,
-    auth: Option<ClerkAuthLayer>,
+    router: Router,
     endpoint: Endpoint,
 }
 
@@ -126,9 +127,14 @@ fn app(env: &Env, cfg: Config) -> anyhow::Result<App> {
         ),
         Arc::new(RateLimitBindings::new(env.clone())),
     )?;
+    let router = server::routes(state.clone());
+    let router = match auth {
+        Some(layer) => router.layer(layer),
+        None => router,
+    };
     Ok(App {
         state,
-        auth,
+        router,
         endpoint,
     })
 }
@@ -158,14 +164,9 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> worker::Result<http
             .await?
             .into());
     }
-    let App { state, auth, .. } = match cached(&env).await {
+    let App { mut router, .. } = match cached(&env).await {
         Ok(app) => app,
         Err(e) => return Ok(misconfigured(e)),
-    };
-    let router = server::routes(state);
-    let mut router = match auth {
-        Some(layer) => router.layer(layer),
-        None => router,
     };
     Ok(router
         .call(req.map(Body::new))
