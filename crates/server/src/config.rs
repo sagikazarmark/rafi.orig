@@ -6,6 +6,8 @@ use std::env;
 
 use anyhow::{anyhow, bail};
 use rafi_app::RetentionPolicy;
+
+pub use crate::csp::CspMode;
 use rafi_raffle::drand::{ChainHash, chains};
 
 /// How the app reaches the `rafi-restate` service: through the Restate ingress.
@@ -358,35 +360,9 @@ pub const MIN_POW_KEY_CHARS: usize = 32;
 /// The tests' key: long enough for a production server.
 pub const TEST_POW_KEY: &str = "test-key-test-key-test-key-test-key";
 /// The tests' Clerk publishable key: a development instance's, its Frontend
-/// API host [`TEST_CLERK_HOST`].
+/// API host `rafi-test.clerk.accounts.dev`.
 #[cfg(test)]
 pub const TEST_CLERK_PUBLISHABLE_KEY: &str = "pk_test_cmFmaS10ZXN0LmNsZXJrLmFjY291bnRzLmRldiQ";
-/// The host [`TEST_CLERK_PUBLISHABLE_KEY`] names.
-#[cfg(test)]
-pub const TEST_CLERK_HOST: &str = "rafi-test.clerk.accounts.dev";
-
-/// Whether the Content-Security-Policy is enforced or only reported
-/// (`RAFI_CSP`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CspMode {
-    /// `Content-Security-Policy`: what the policy doesn't allow doesn't run.
-    #[default]
-    Enforce,
-    /// `Content-Security-Policy-Report-Only`: the browser runs it and says so
-    /// in its console.
-    ReportOnly,
-}
-
-impl CspMode {
-    fn parse(v: &str) -> Option<Self> {
-        match v.trim().to_ascii_lowercase().as_str() {
-            "enforce" => Some(Self::Enforce),
-            "report-only" => Some(Self::ReportOnly),
-            _ => None,
-        }
-    }
-}
-
 /// `RAFI_RETENTION_DAYS` when unset: a week after the event.
 pub const DEFAULT_RETENTION_DAYS: i64 = 7;
 /// `RAFI_RETENTION_MAX_DAYS` when unset.

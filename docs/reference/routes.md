@@ -27,14 +27,16 @@ every page a `Content-Security-Policy` of its kind (`crates/server/src/csp.rs`):
 | Pages | Scripts | Also |
 |---|---|---|
 | `/j/…`, `/rules/…`, `/privacy/…`, a 404 | This origin's, WebAssembly, and the two inline ones (the head script, the participant build's loader) by their SHA-256 hashes | Styles from this origin only; images from this origin and `data:` |
-| `/privacy`, `/terms` | As above | Images from any `https:` origin, which the operator's Markdown may link |
+| `/privacy`, `/terms` | As above | Images from any `https:` origin, which the operator's Markdown may link (its tables' columns aren't aligned: that takes `style` attributes) |
 | The web app | This origin's, WebAssembly, `'unsafe-eval'` (Dioxus runs `document::eval` through `new Function`), and Clerk's: the Frontend API host the publishable key names, Cloudflare Turnstile, Clerk's fraud protection | Inline styles (Dioxus's `style` attributes, Clerk's CSS-in-JS), Clerk's images, frames and workers; none of Clerk's under dev auth |
 
-All of them connect to this origin and the live channel's socket (`wss://` at `RAFI_PUBLIC_URL`'s host), post forms to
-this origin only, and allow no plugins and no `<base>`. None may be framed (`frame-ancestors 'none'`, and
-`X-Frame-Options: DENY`) but the projector (`/s/…`) and the verification page (`/v/…`), which venues and meetup sites
-embed. A response that isn't a page carries `frame-ancestors 'none'` alone. `RAFI_CSP=report-only` sends the policies
-as `Content-Security-Policy-Report-Only`, framing still denied ([configuration](configuration.md)).
+All of them connect to this origin and the live channel's socket at `RAFI_PUBLIC_URL`'s host (`wss://` for an
+`https://` URL, `ws://` for `http://`), post forms to this origin only, and allow no plugins and no `<base>`. None may be
+framed (`frame-ancestors 'none'`, and `X-Frame-Options: DENY`) but the projector (`/s/…`) and the verification page
+(`/v/…`), which venues and meetup sites embed. A response that isn't a page carries `frame-ancestors 'none'` alone.
+The web app's page is revalidated on every load (`no-cache`, an `ETag`), and its `304` carries the same policy: a
+browser keeps a `304`'s headers in place of the cached page's. `RAFI_CSP=report-only` sends the policies as
+`Content-Security-Policy-Report-Only`, framing still denied ([configuration](configuration.md)).
 
 ## Public JSON
 

@@ -22,6 +22,7 @@ pub mod housekeeping;
 mod pages;
 pub mod participant;
 pub mod public;
+mod revalidate;
 pub mod shell;
 pub mod trace;
 
@@ -47,7 +48,7 @@ pub struct AppState(Arc<Inner>);
 pub struct Inner {
     pub cfg: Config,
     /// The Content-Security-Policies, from `cfg`.
-    pub csp: csp::Policies,
+    pub(crate) csp: csp::Policies,
     /// What the use cases run against: the database, the drand chain
     /// ([`Config::chain`]), the raffle engine (`None` without
     /// `RAFI_ENGINE_INGRESS_URL`), the live updates and the join's rate limits.
@@ -109,7 +110,7 @@ impl AppState {
                 "RAFI_CSP is report-only: the Content-Security-Policy is NOT enforced, only reported in browsers' consoles"
             );
         }
-        let csp = csp::Policies::new(&cfg);
+        let csp = csp::Policies::new(&cfg)?;
         let core = service::App {
             chain: cfg.chain()?,
             db,
@@ -137,7 +138,7 @@ pub fn restate_engine(cfg: &Config) -> Option<Arc<dyn Engine>> {
 }
 
 /// The server's own routes: participant pages, public JSON and the admin API,
-/// with the [security headers](security_headers) on every response.
+/// with the security headers (`security_headers`) on every response.
 pub fn routes(app: AppState) -> Router {
     let router = Router::new()
         .merge(participant::routes())
@@ -150,7 +151,9 @@ pub fn routes(app: AppState) -> Router {
 /// with the security headers: the fallback of [`routes`] on both hosts.
 pub fn shell_routes(app: &AppState, shell: Option<Shell>) -> Router {
     let router = match shell {
-        Some(shell) => Router::new().fallback(shell::serve).layer(Extension(shell)),
+        Some(shell) => Router::new()
+            .fallback(axum::routing::get(shell::serve))
+            .layer(Extension(shell)),
         None => Router::new(),
     };
     secured(router, app)
@@ -177,33 +180,21 @@ pub fn frameable(path: &str) -> bool {
 /// - `Referrer-Policy: strict-origin-when-cross-origin`: a link out of a
 ///   page (the organizer's own privacy notice, from a join page whose URL
 ///   holds the join code) carries the origin, not the path;
-/// - `Content-Security-Policy`: on a page, the policy of its kind
-///   ([`csp`]: what it may load and run, and that it isn't framed unless
-///   [`frameable`]); on anything else, `frame-ancestors 'none'`, so nothing
-///   of the server's is framed (and `X-Frame-Options: DENY` for older
-///   browsers). Under `RAFI_CSP=report-only` a page's policy is only
-///   reported, its framing still denied.
+/// - `Content-Security-Policy`: on a page, the policy of its kind ([`csp`]:
+///   what it may load and run, and that it isn't framed unless it is the web
+///   app at a path [`frameable`] names); on anything else,
+///   `frame-ancestors 'none'`, so nothing of the server's is framed (and
+///   `X-Frame-Options: DENY` for older browsers). Under `RAFI_CSP=report-only`
+///   a page's policy is only reported, its framing still denied.
 ///
 /// HSTS is the edge's: Cloudflare's, or the reverse proxy's natively.
-pub async fn security_headers(
+async fn security_headers(
     axum::extract::State(app): axum::extract::State<AppState>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::http::{HeaderValue, header};
-    let frameable = frameable(req.uri().path());
     let mut resp = next.run(req).await;
-    let html = resp
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|t| t.starts_with("text/html"));
-    let page = resp
-        .extensions()
-        .get::<csp::Page>()
-        .copied()
-        .or(html.then_some(csp::Page::Server));
-    let framed = frameable && page.is_none_or(|p| p == csp::Page::App);
     let headers = resp.headers_mut();
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
@@ -213,22 +204,7 @@ pub async fn security_headers(
         header::REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
-    let enforced_framing = match page {
-        Some(page) => {
-            headers.insert(app.csp.header(), app.csp.policy(page, framed).clone());
-            app.csp.report_only()
-        }
-        None => true,
-    };
-    if !framed {
-        if enforced_framing {
-            headers.insert(
-                header::CONTENT_SECURITY_POLICY,
-                HeaderValue::from_static(csp::NO_FRAMING),
-            );
-        }
-        headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-    }
+    app.csp.apply(&mut resp);
     resp
 }
 

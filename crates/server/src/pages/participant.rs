@@ -75,10 +75,22 @@ pub struct Page<'a> {
     pub min_age: u32,
 }
 
+/// [`APPLY_THEME`]'s source, a macro so that [`HEAD_SCRIPT`] can `concat!` it.
+macro_rules! apply_theme {
+    () => {
+        r#"try{var t=localStorage.getItem("rafi-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}"#
+    };
+}
+
+/// Applies the saved colour scheme (`rafi-theme` in `localStorage`, which the
+/// pages and the web app share) before first paint: in [`HEAD_SCRIPT`] here,
+/// and in `/config.js` for the web app, whose shell runs nothing inline.
+pub(crate) const APPLY_THEME: &str = apply_theme!();
+
 /// Runs before first paint: records when the page started parsing (the
 /// phone's clock offset is measured from it) and applies the saved colour
-/// scheme (shared with the Dioxus app).
-const HEAD_SCRIPT: &str = r#"window.__rafiT0=Date.now();try{var t=localStorage.getItem("rafi-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}"#;
+/// scheme ([`APPLY_THEME`]).
+const HEAD_SCRIPT: &str = concat!("window.__rafiT0=Date.now();", apply_theme!());
 
 /// The page's loader, a `<script>`: imports the participant glue, which
 /// fetches the module by its hashed name and calls `main`; or starts the
@@ -94,10 +106,10 @@ const HEAD_SCRIPT: &str = r#"window.__rafiT0=Date.now();try{var t=localStorage.g
 /// directory served is that build.
 pub const LOADER: &str = include_str!("../../../../apps/participant/dist/public/index.html");
 
-/// The scripts the pages carry inline: [`HEAD_SCRIPT`] on every page, and
-/// the [`LOADER`]'s on the participant page. The pages' policy allows these
-/// by their hashes (`crate::csp`) and no others.
-pub(crate) fn inline_scripts() -> Vec<&'static str> {
+/// The scripts the pages embed: [`HEAD_SCRIPT`] in every page, and the
+/// [`LOADER`]'s in the participant page. The pages' policy allows these by
+/// their hashes (`crate::csp`), and no others.
+pub(crate) fn embedded_scripts() -> Vec<&'static str> {
     let mut scripts = vec![HEAD_SCRIPT];
     scripts.extend(crate::csp::inline_scripts(LOADER));
     scripts

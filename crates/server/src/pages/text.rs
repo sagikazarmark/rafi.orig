@@ -326,14 +326,19 @@ fn safe_link(dest: &str) -> bool {
 /// Markdown as HTML: CommonMark with tables, strikethrough and footnotes;
 /// raw HTML in the source is escaped, never passed through, and a link or
 /// image to anything but a web page, a mail address or this page is
-/// rendered as its text.
+/// rendered as its text. Tables' columns are left unaligned: pulldown-cmark
+/// aligns them with `style` attributes, which the pages' Content-Security-Policy
+/// doesn't apply (`crate::csp`), so the markup carries none.
 fn markdown(text: &str) -> String {
-    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
+    use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd, html};
     let options =
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_FOOTNOTES;
     let mut dropped: usize = 0;
     let parser = Parser::new_ext(text, options).filter_map(|event| match event {
         Event::Html(raw) | Event::InlineHtml(raw) => Some(Event::Text(raw)),
+        Event::Start(Tag::Table(columns)) => Some(Event::Start(Tag::Table(
+            columns.iter().map(|_| Alignment::None).collect(),
+        ))),
         Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. })
             if !safe_link(&dest_url) =>
         {
@@ -383,6 +388,16 @@ mod tests {
             html.contains("bad") && html.contains("data"),
             "the text stays: {html}"
         );
+    }
+
+    #[test]
+    fn markdown_tables_carry_no_style() {
+        let html = markdown("| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |\n");
+        assert!(
+            html.contains("<table>") && html.contains("<td>3</td>"),
+            "{html}"
+        );
+        assert!(!html.contains("style="), "{html}");
     }
 
     #[test]

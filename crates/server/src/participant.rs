@@ -16,12 +16,11 @@ use axum::{
 use rafi_lifecycle::{dates::Date, settings::ErasureDates};
 use rafi_store::{EntrantRow, RaffleRow};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 use super::{
     AppState, csp,
     pages::{self, Entrant, Notice, Page, Raffle},
-    service,
+    revalidate, service,
 };
 
 const COOKIE_MAX_AGE: i64 = 3 * 86_400;
@@ -384,38 +383,21 @@ async fn installation_terms(Extension(app): Extension<AppState>) -> Response {
         .into_response()
 }
 
-/// [`pow_worker`]'s entity tag: a hash of the script, so it changes when
-/// `dioxus-altcha` does.
-static POW_WORKER_ETAG: LazyLock<String> = LazyLock::new(|| {
-    let hash = Sha256::digest(dioxus_altcha::WORKER_JS.as_bytes());
-    format!("\"{}\"", hex::encode(&hash[..8]))
-});
+/// [`pow_worker`]'s entity tag: changes when `dioxus-altcha`'s script does.
+static POW_WORKER_ETAG: LazyLock<String> =
+    LazyLock::new(|| revalidate::etag(dioxus_altcha::WORKER_JS.as_bytes()));
 
 /// dioxus-altcha's solver ([`dioxus_altcha::WORKER_JS`]), always the one this
 /// server was built with. The participant page's WebAssembly and
 /// `fallback.js` start their workers from it, or load it into the page when
 /// workers fail. Its URL isn't versioned, so caches revalidate it each time.
 async fn pow_worker(headers: HeaderMap) -> Response {
-    let etag = POW_WORKER_ETAG.as_str();
-    let cache = [(header::ETAG, etag), (header::CACHE_CONTROL, "no-cache")];
-    if not_modified(&headers, etag) {
-        return (StatusCode::NOT_MODIFIED, cache).into_response();
-    }
-    (
-        cache,
-        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-        dioxus_altcha::WORKER_JS,
+    revalidate::no_cache(
+        &headers,
+        &POW_WORKER_ETAG,
+        (
+            [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+            dioxus_altcha::WORKER_JS,
+        ),
     )
-        .into_response()
-}
-
-/// Whether `If-None-Match` names `etag` (a weak comparison) or is `*`.
-pub(crate) fn not_modified(headers: &HeaderMap, etag: &str) -> bool {
-    headers
-        .get_all(header::IF_NONE_MATCH)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
-        .map(str::trim)
-        .any(|tag| tag == "*" || tag.strip_prefix("W/").unwrap_or(tag) == etag)
 }

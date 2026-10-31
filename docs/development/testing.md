@@ -109,10 +109,12 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 - the participant page in headless Chromium (devenv's on Linux, or `CHROMIUM=…`), the fallback included
 - a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
   through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), the live channel,
-  the end; every tab (the phone, the projector, a phone without WebAssembly) listens for Content-Security-Policy
-  violations, enforced or reported, and one fails the run. It runs under dev auth, so Clerk's part of the web
-  app's policy is checked by hand (`--profile clerk`, signing in and out, the organization switcher), and by
-  `csp_by_page` in `rafi-server`'s tests for what the header says
+  the end; the security headers of each kind of page and of a static file; and every tab (the phone, the
+  projector, the admin, the verification page, a phone without WebAssembly) listens for Content-Security-Policy
+  violations, enforced or reported, one of which fails the run. The admin is also reloaded, revalidating its page
+  (a 304), and must still refuse an inline script. It runs under dev auth, so Clerk's part of the web app's policy
+  is checked by hand (`--profile clerk`, signing in and out, the organization switcher), and by `rafi-server`'s
+  tests for what the header says (`the_web_app_allows_eval_inline_styles_and_clerk`)
 - the hourly housekeeping fired as the Cron Trigger fires it (`wrangler dev --test-scheduled`, `/__scheduled`),
   checked to have recorded its success, which is what the admin's staleness warning reads
 - the production shape: `wrangler deploy --dry-run` of the top level of `wrangler.toml`, built without the `dev`
