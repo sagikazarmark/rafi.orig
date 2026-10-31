@@ -13,17 +13,14 @@
 //! Natively that is `drand`'s `ReqwestTransport`; on Cloudflare Workers, its
 //! `TowerTransport` over `tower-worker-fetch`. This crate names neither.
 
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{sync::Arc, time::Duration};
 
 pub use ::drand::client::Error as FetchError;
 /// What the relays are asked through (`drand::client::HttpTransport`).
 pub use ::drand::client::HttpTransport;
 use ::drand::{
     ChainHash, ChainInfo, Schedule, UnixTime, VerifiedBeacon, chains,
-    client::{Client, Strategy},
+    client::{Client, Clock, Strategy, SystemClock},
     http::Relay,
 };
 use anyhow::{Context, anyhow, bail, ensure};
@@ -254,11 +251,13 @@ impl DrandClient {
 
     /// Waits until `round` is due, then fetches it for up to `timeout_secs`
     /// (the same budget the Restate engine retries for after its durable sleep).
+    /// The clock is drand's [`SystemClock`] (`Date.now()` on wasm, where
+    /// `std::time::SystemTime` panics).
     pub async fn wait_for(&self, round: u64) -> Result<VerifiedBeacon, FetchError> {
         let until_due = self
             .schedule()
             .round_time(round)
-            .map(|due| due.saturating_duration_since(UnixTime::from(SystemTime::now())))
+            .map(|due| due.saturating_duration_since(SystemClock.now()))
             .unwrap_or_default();
         let timeout = until_due + Duration::from_secs(self.cfg.timeout_secs);
         self.client.wait_for(round, timeout).await
