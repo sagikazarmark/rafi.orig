@@ -59,6 +59,7 @@ pub enum Route {
 
 #[component]
 pub fn App() -> Element {
+    use_context_provider(|| Framed(in_a_frame()));
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
         document::Link {
@@ -233,11 +234,60 @@ fn AdminShell(children: Element, #[props(default = VNode::empty())] trailing: El
     }
 }
 
+/// Whether the web app is shown inside another page's frame, which [`App`]
+/// reads once: a document stays in the frame it was loaded into.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Framed(bool);
+
+/// Whether this window isn't the top one (`window.top !== window.self`). A
+/// window this can't tell of counts as framed: the admin fails closed.
+fn in_a_frame() -> bool {
+    let Some(window) = web_sys::window() else {
+        return true;
+    };
+    !matches!(window.top(), Ok(Some(top)) if top == window)
+}
+
+/// The admin's layout, which doesn't render inside another page's frame.
+///
+/// The server sends `frame-ancestors 'none'` with the admin, but a browser
+/// checks that only when a document loads, and the router changes pages
+/// without loading one: a projector or a verification page framed elsewhere
+/// (which the server allows) that navigated to the admin would show it in the
+/// framer's page, under the framer's clicks. So the admin checks for itself,
+/// before Clerk loads, and offers a link that opens it at the top instead.
+#[component]
+fn AdminLayout() -> Element {
+    let Framed(framed) = use_context();
+    if framed {
+        rsx! { OpenAtTheTop {} }
+    } else {
+        rsx! { AdminBehindSignIn {} }
+    }
+}
+
+/// What a framed admin shows instead: a link that opens the page in the
+/// whole tab, where the server's `frame-ancestors 'none'` applies.
+#[component]
+fn OpenAtTheTop() -> Element {
+    let here = use_route::<Route>().to_string();
+    rsx! {
+        main { class: "grid min-h-screen place-items-center bg-base-100 bg-dots p-6",
+            div { class: "max-w-md space-y-4 text-center",
+                Brand {}
+                h1 { class: "text-3xl font-extrabold", "The organizer pages don't open inside another site" }
+                p { class: "text-base-content/70", "Open Rafi in its own tab to sign in and run raffles." }
+                a { class: "btn btn-primary", href: "{here}", target: "_top", "Open Rafi in its own tab" }
+            }
+        }
+    }
+}
+
 /// The admin behind sign-in, as the server configured it (`/config.js`,
 /// [`crate::config`]): Clerk with the server's publishable key, or dev auth,
 /// which the badge says out loud.
 #[component]
-fn AdminLayout() -> Element {
+fn AdminBehindSignIn() -> Element {
     let key = use_hook(crate::config::clerk_publishable_key);
     match key {
         Some(key) => rsx! {
@@ -294,4 +344,67 @@ pub fn command_id() -> String {
 /// The browser's clock, in unix milliseconds.
 pub fn now_ms() -> u64 {
     js_sys::Date::now() as u64
+}
+
+/// The router, server-rendered natively at a path, framed or not as a test
+/// says ([`App`] would ask the browser). Only pages that touch no browser API
+/// on their first render can be rendered so: the framed admin, the home page,
+/// the 404.
+#[cfg(test)]
+mod tests {
+    use std::{rc::Rc, str::FromStr};
+
+    use dioxus::history::{MemoryHistory, provide_history_context};
+
+    use super::*;
+
+    #[component]
+    fn At(path: String, framed: bool) -> Element {
+        use_context_provider(|| Framed(framed));
+        use_hook(|| provide_history_context(Rc::new(MemoryHistory::with_initial_path(&path))));
+        rsx! { Router::<Route> {} }
+    }
+
+    fn render(path: &str, framed: bool) -> String {
+        dioxus_ssr::render_element(rsx! { At { path, framed } })
+    }
+
+    const OPEN_AT_THE_TOP: &str = "Open Rafi in its own tab";
+
+    #[test]
+    fn the_admin_does_not_render_in_a_frame() {
+        for path in ["/admin", "/admin/", "/admin/r/some-id"] {
+            let route = Route::from_str(path).unwrap();
+            assert!(
+                matches!(route, Route::AdminHome {} | Route::RaffleAdmin { .. }),
+                "{path}: {route:?}"
+            );
+            let html = render(path, true);
+            assert!(html.contains(OPEN_AT_THE_TOP), "{path}: {html}");
+            assert!(
+                html.contains(&format!(r#"href="{route}" target="_top""#)),
+                "{path}: {html}"
+            );
+            assert!(
+                !html.contains("<header"),
+                "{path}: the admin's shell: {html}"
+            );
+        }
+    }
+
+    /// A way into the admin from a frame the server allows: `/s/` with one
+    /// segment too many is framed (the server goes by the prefix) but is the
+    /// router's 404, which links home, which links to the admin. Those pages
+    /// render in a frame; the admin is the one that won't.
+    #[test]
+    fn the_pages_on_the_way_to_the_admin_render_in_a_frame() {
+        let not_found = render("/s/some-slug/more", true);
+        assert!(not_found.contains("Nothing to win here"), "{not_found}");
+        assert!(not_found.contains(r#"href="/""#), "{not_found}");
+        assert!(!not_found.contains(OPEN_AT_THE_TOP), "{not_found}");
+
+        let home = render("/", true);
+        assert!(home.contains(r#"href="/admin/""#), "{home}");
+        assert!(!home.contains(OPEN_AT_THE_TOP), "{home}");
+    }
 }

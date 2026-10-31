@@ -9,8 +9,8 @@ everything CI runs except the Workers checks.
 | Recipe | What it runs |
 |---|---|
 | `just fmt` | `cargo fmt --check` |
-| `just clippy` | Clippy natively (`clippy-native`: the libraries, the engine and the app, with and without the development features) and on `wasm32-unknown-unknown` (`clippy-wasm`: the web app, the Workers crates and the Worker), warnings refused |
-| `just test` | The rules, the app's use cases, drand, the store, the engine conformance suite (local runner, and the `Raffle` object on `restate-server`); then the app, with the in-process raffle engine and end to end with `rafi-restate` and `restate-server` |
+| `just clippy` | Clippy natively (`clippy-native`: the libraries, the engine, the app and the web app's tests, with and without the development features) and on `wasm32-unknown-unknown` (`clippy-wasm`: the web app, the Workers crates and the Worker), warnings refused |
+| `just test` | The rules, the app's use cases, drand, the store, the engine conformance suite (local runner, and the `Raffle` object on `restate-server`); then the app, with the in-process raffle engine and end to end with `rafi-restate` and `restate-server`; then the web app's router, natively |
 | `just verify` | The independent verifier against the shared vectors (`tools/verify.py`) |
 | `just doc` | `cargo doc` with warnings refused, so a broken link fails: natively with every feature, and the Workers crates on `wasm32` |
 | `just audit` | `cargo audit`: `Cargo.lock` against the RustSec advisory database. Advisories are checked here alone; an accepted one is ignored, with its reason, in [`.cargo/audit.toml`](../../.cargo/audit.toml) |
@@ -26,6 +26,7 @@ The recipes are plain `cargo` commands, to run by hand when one is enough:
 ```sh
 cargo test --workspace --exclude rafi-server --exclude rafi-web -- --include-ignored
 cargo test -p rafi-server -- --include-ignored
+cargo test -p rafi-web # needs the stylesheet: just css
 python3 tools/verify.py --vectors testdata/draw-vectors.json
 ```
 
@@ -39,6 +40,7 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 | `rafi-engine`, `rafi-engine-restate` | The [engine conformance suite](#engine-conformance), on the local runner and on the `Raffle` object |
 | `rafi-app` | Use-case tests ([`crates/app/tests/use_cases.rs`](../../crates/app/tests/use_cases.rs)) |
 | `rafi-server` | HTTP tests, and an end-to-end test of the app, `rafi-restate` and `restate-server` on one database |
+| `rafi-web` | The router, server-rendered natively at a path (`dioxus-ssr`, a `MemoryHistory`): the admin refuses to render inside a frame. Only pages that touch no browser API on their first render can be rendered so; the rest are the evening's |
 | `tools/verify.py` | The same vectors as the Rust code ([`testdata/draw-vectors.json`](../../testdata/draw-vectors.json), from real quicknet beacons) |
 | Workers | [`./scripts/workers-check.sh`](#workers) |
 

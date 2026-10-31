@@ -28,13 +28,14 @@ web:
 clippy: clippy-native clippy-wasm
 
 # Run clippy natively, with and without the development features.
-clippy-native: participant
+clippy-native: css participant
     cargo clippy --workspace --exclude rafi-server --exclude rafi --exclude rafi-web --all-targets --locked -- --deny warnings
     cargo clippy -p rafi-server --all-targets --locked -- --deny warnings
     cargo clippy -p rafi-server --features mock-drand --all-targets --locked -- --deny warnings
     cargo clippy -p rafi --all-targets --locked -- --deny warnings
     cargo clippy -p rafi --features dev,mock-drand --all-targets --locked -- --deny warnings
     cargo clippy -p rafi-restate --features mock-drand --all-targets --locked -- --deny warnings
+    cargo clippy -p rafi-web --all-targets --locked -- --deny warnings
 
 # Run clippy on wasm32: the web app, the Workers crates and the Worker.
 clippy-wasm: css participant web
@@ -47,10 +48,11 @@ clippy-wasm: css participant web
     cargo clippy --target {{ wasm }} -p rafi-worker --locked -- --deny warnings
     cargo clippy --target {{ wasm }} -p rafi-worker --features dev --locked -- --deny warnings
 
-# Run tests: the libraries and the engine (end to end against restate-server), then the app.
-test: participant
+# Run tests: the libraries and the engine (end to end against restate-server), then the app, then the web app's router.
+test: css participant
     cargo test --workspace --exclude rafi-server --exclude rafi-web --locked -- --include-ignored
     cargo test -p rafi-server --locked -- --include-ignored
+    cargo test -p rafi-web --locked
 
 # Run the independent verifier on the shared test vectors.
 verify:

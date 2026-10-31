@@ -32,6 +32,10 @@ script has to come from the server's origin (or Clerk's), never inline:
   inline styles. The participant page's allows neither: its module and `fallback.js` don't use them.
 - `just workers` runs the evening with every tab listening for violations; `RAFI_CSP=report-only` turns a policy
   into reports in the browser's console while finding out what one would break.
+- `frame-ancestors` holds for the page a frame loaded, not for where the router takes it next, so the admin's layout
+  (`AdminLayout`) renders nothing of the admin inside a frame (`window.top !== window.self`), Clerk included, only a
+  link that opens it at the top. A new admin route goes under that layout.
+  `the_admin_does_not_render_in_a_frame` renders the router at the admin's paths, natively, as if framed.
 
 ## Styling
 

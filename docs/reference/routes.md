@@ -34,6 +34,9 @@ All of them connect to this origin and the live channel's socket at `RAFI_PUBLIC
 `https://` URL, `ws://` for `http://`), post forms to this origin only, and allow no plugins and no `<base>`. None may be
 framed (`frame-ancestors 'none'`, and `X-Frame-Options: DENY`) but the projector (`/s/…`) and the verification page
 (`/v/…`), which venues and meetup sites embed. A response that isn't a page carries `frame-ancestors 'none'` alone.
+A browser checks `frame-ancestors` only when a page loads, and the web app moves between its pages without loading
+one, so the admin (`/admin…`) also refuses itself: inside a frame it shows only a link that opens it at the top
+(`target="_top"`), where its own `frame-ancestors 'none'` applies.
 The web app's page is revalidated on every load (`no-cache`, an `ETag`), and its `304` carries the same policy: a
 browser keeps a `304`'s headers in place of the cached page's. `RAFI_CSP=report-only` sends the policies as
 `Content-Security-Policy-Report-Only`, framing still denied ([configuration](configuration.md)).
