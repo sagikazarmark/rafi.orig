@@ -33,6 +33,7 @@ fn confirmed(result: std::result::Result<(), EngineError>) -> Result<()> {
 /// from an engine outage at freeze time.
 pub async fn start_draw(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
     let raffle = owned(app, actor.owner, id).await?;
+    let now = app.clock.now();
     let engine = app.engine()?;
     let info = engine.info().await?;
     // The app decides the beacon source; the engine would refuse another
@@ -59,14 +60,14 @@ pub async fn start_draw(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
             start::genuine(raffle.test_mode, usize::try_from(fakes).unwrap_or(0))
                 .map_err(Refusal::Start)?;
             // Close registration first so no join can slip in while we read the list.
-            if !raffles::freeze(&app.db, id, from).await? {
+            if !raffles::freeze(&app.db, id, from, now).await? {
                 return Err(Refusal::Changed.into());
             }
             app.live_updates.notify(id).await;
-            write_manifest(app, actor, id, items, from).await?
+            write_manifest(app, actor, id, items, from, now).await?
         }
         Start::WriteManifest { unfreeze_to } => {
-            write_manifest(app, actor, id, items(app, id).await?, unfreeze_to).await?
+            write_manifest(app, actor, id, items(app, id).await?, unfreeze_to, now).await?
         }
         Start::Resend => {
             let json = raffle.manifest.as_deref().unwrap_or_default();
@@ -91,8 +92,8 @@ async fn items(app: &App, id: &str) -> Result<Vec<ManifestItem>> {
     })))
 }
 
-/// Writes the manifest of a frozen raffle: builds it from its entrants and
-/// stores it with its hash.
+/// Writes the manifest of a frozen raffle `now`: builds it from its entrants
+/// and stores it with its hash.
 ///
 /// The store has no interactive transactions, so freezing and writing the
 /// manifest are separate writes ([`rafi_store::raffles`]); this is the second,
@@ -105,13 +106,14 @@ async fn write_manifest(
     id: &str,
     items: Vec<ManifestItem>,
     unfreeze_to: RaffleState,
+    now: i64,
 ) -> Result<Manifest> {
     let entrant_ids = entrants::active_ids(&app.db, id).await?;
     if let Err(refusal) = start::ready(entrant_ids.len(), items.len()) {
         let to = RaffleState::Frozen
             .unfreeze(unfreeze_to)
             .ok_or_else(|| anyhow::anyhow!("cannot unfreeze to {}", unfreeze_to.as_str()))?;
-        raffles::unfreeze(&app.db, id, to).await?;
+        raffles::unfreeze(&app.db, id, to, now).await?;
         app.live_updates.notify(id).await;
         return Err(Refusal::Start(refusal).into());
     }
@@ -120,7 +122,7 @@ async fn write_manifest(
         lifecycle::raffle::manifest(id, BeaconSource::Drand(app.chain), entrant_ids, items);
     let json = manifest.canonical_json();
     let hash = ManifestHash::of(&json).to_string();
-    if !raffles::set_manifest(&app.db, id, &json, &hash).await? {
+    if !raffles::set_manifest(&app.db, id, &json, &hash, now).await? {
         // Another attempt wrote one first (or the raffle moved on).
         let stored = raffles::get(&app.db, id)
             .await?
@@ -128,7 +130,7 @@ async fn write_manifest(
             .ok_or(Refusal::Changed)?;
         return Ok(serde_json::from_str(&stored).map_err(anyhow::Error::from)?);
     }
-    audit::record(&app.db, id, actor, "freeze", &hash).await?;
+    audit::record(&app.db, id, actor, "freeze", &hash, now).await?;
     Ok(manifest)
 }
 
@@ -176,7 +178,7 @@ async fn send(app: &App, actor: Actor<'_>, id: &str, cmd: Command, command_id: &
         Command::Decide(decision) => engine.decide(&raffle, decision, command_id).await,
     })?;
     let (action, detail) = audited(&cmd);
-    audit::record(&app.db, id, actor, action, &detail).await?;
+    audit::record(&app.db, id, actor, action, &detail, app.clock.now()).await?;
     Ok(())
 }
 

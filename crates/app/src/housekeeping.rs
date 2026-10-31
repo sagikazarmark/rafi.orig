@@ -29,7 +29,7 @@
 use rafi_raffle::{Decision, RaffleId};
 use rafi_store::{audit, housekeeping as store, retention};
 
-use crate::{App, ids, pow};
+use crate::{App, pow};
 
 /// The most raffles one housekeeping run asks the engine to finish
 /// ([`finish_at_ceiling`]).
@@ -56,13 +56,9 @@ pub struct Report {
     pub channels_ended: u64,
 }
 
-/// One housekeeping pass, now.
+/// One housekeeping pass, as of now by the app's clock.
 pub async fn run(app: &App) -> anyhow::Result<Report> {
-    run_at(app, ids::now()).await
-}
-
-/// One housekeeping pass, as of `now`.
-pub async fn run_at(app: &App, now: i64) -> anyhow::Result<Report> {
+    let now = app.clock.now();
     let hold = app.policy.retention.winner_hold_secs();
     let expired = retention::expire_due(&app.db, now).await?;
     let erased = retention::erase_due(&app.db, now, hold).await?;
@@ -122,7 +118,7 @@ async fn finish_at_ceiling(app: &App, now: i64, hold: i64) {
         {
             Ok(_) => {
                 if let Err(e) =
-                    audit::record(&app.db, &id, audit::HOUSEKEEPING, "auto_finish", "").await
+                    audit::record(&app.db, &id, audit::HOUSEKEEPING, "auto_finish", "", now).await
                 {
                     tracing::warn!(raffle_id = id, error = %e, "auditing an automatic finish failed");
                 }
@@ -155,7 +151,7 @@ async fn finish_at_ceiling(app: &App, now: i64, hold: i64) {
 pub async fn stale(app: &App) -> anyhow::Result<bool> {
     let last_ok = store::last_ok(&app.db).await?;
     let since = store::oldest_raffle_at(&app.db).await?;
-    Ok(is_stale(last_ok, since, ids::now()))
+    Ok(is_stale(last_ok, since, app.clock.now()))
 }
 
 /// Whether a run that last succeeded at `last_ok` (if ever) counts as

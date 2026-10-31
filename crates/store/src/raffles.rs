@@ -10,7 +10,7 @@ use rafi_lifecycle::{RaffleState, entrant::Source};
 use rafi_raffle::{Event, Manifest, Raffle};
 use serde::Deserialize;
 
-use crate::{Db, Error, Query, Result, Row, audit::Actor, now, prizes::PrizeFields};
+use crate::{Db, Error, Query, Result, Row, audit::Actor, prizes::PrizeFields};
 
 /// The states `rule` holds for, as an SQL list of their names: SQL that
 /// guards on a state asks the raffle's rules ([`RaffleState`]) which.
@@ -230,14 +230,13 @@ pub async fn rows_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleRow>> {
         .await
 }
 
-/// Creates a draft raffle with `settings`. A taken slug or join code is an
-/// [`Error::Unique`].
-pub async fn insert(db: &Db, r: &NewRaffle<'_>, settings: &Settings<'_>) -> Result<()> {
-    insert_query(db, r, settings).run().await.map(|_| ())
+/// Creates a draft raffle with `settings`, `now`. A taken slug or join code
+/// is an [`Error::Unique`].
+pub async fn insert(db: &Db, r: &NewRaffle<'_>, settings: &Settings<'_>, now: i64) -> Result<()> {
+    insert_query(db, r, settings, now).run().await.map(|_| ())
 }
 
-fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>, s: &Settings<'_>) -> Query<'a> {
-    let now = now();
+fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>, s: &Settings<'_>, now: i64) -> Query<'a> {
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, description, organizer_name, contact_email,
                               privacy_email, privacy_text, privacy_url, rules, event_date, event_ends_at,
@@ -277,13 +276,18 @@ pub struct SettingsWrite {
     pub fakes_removed: bool,
 }
 
-/// Writes the settings and, in the same batch, removes the fake entrants of a
-/// raffle that is now out of test mode: there are never fakes outside a
-/// rehearsal.
-pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<SettingsWrite> {
+/// Writes the settings (`now`) and, in the same batch, removes the fake
+/// entrants of a raffle that is now out of test mode: there are never fakes
+/// outside a rehearsal.
+pub async fn update_settings(
+    db: &Db,
+    id: &str,
+    s: &Settings<'_>,
+    now: i64,
+) -> Result<SettingsWrite> {
     let counts = db
         .batch(vec![
-            settings_query(db, id, s),
+            settings_query(db, id, s, now),
             crate::entrants::delete_stray_fakes(db, id),
         ])
         .await?;
@@ -299,7 +303,7 @@ pub async fn update_settings(db: &Db, id: &str, s: &Settings<'_>) -> Result<Sett
 /// the privacy text and link) or test mode once the entrant list is frozen
 /// ([`RaffleState::test_mode_editable`]): the checks and the write are one
 /// statement, so no join or freeze slips in between.
-fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
+fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>, now: i64) -> Query<'a> {
     let accepted = Source::ALL
         .into_iter()
         .filter(|s| s.accepted_rules())
@@ -329,20 +333,21 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>) -> Query<'a> {
     .bind(s.event_ends_at)
     .bind(s.retention_days)
     .bind(s.test_mode)
-    .bind(now())
+    .bind(now)
     .bind(id)
 }
 
 /// Creates a draft raffle with `settings` and `prizes` (IDs and fields) in
-/// one batch: all of it or nothing. A taken slug or join code is an
+/// one batch, `now`: all of it or nothing. A taken slug or join code is an
 /// [`Error::Unique`].
 pub async fn insert_with(
     db: &Db,
     r: &NewRaffle<'_>,
     settings: &Settings<'_>,
     prizes: &[(String, PrizeFields<'_>)],
+    now: i64,
 ) -> Result<()> {
-    let mut queries = vec![insert_query(db, r, settings)];
+    let mut queries = vec![insert_query(db, r, settings, now)];
     queries.extend(
         prizes
             .iter()
@@ -360,13 +365,19 @@ pub async fn delete(db: &Db, id: &str) -> Result<()> {
         .map(|_| ())
 }
 
-/// Moves the raffle from `from` to `to`. Returns `false` (and changes
+/// Moves the raffle from `from` to `to`, `now`. Returns `false` (and changes
 /// nothing) if it isn't in `from` any more.
-pub async fn transition(db: &Db, id: &str, from: RaffleState, to: RaffleState) -> Result<bool> {
+pub async fn transition(
+    db: &Db,
+    id: &str,
+    from: RaffleState,
+    to: RaffleState,
+    now: i64,
+) -> Result<bool> {
     let changed = db
         .query("UPDATE raffles SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
         .bind(to.as_str())
-        .bind(now())
+        .bind(now)
         .bind(id)
         .bind(from.as_str())
         .run()
@@ -377,30 +388,37 @@ pub async fn transition(db: &Db, id: &str, from: RaffleState, to: RaffleState) -
 /// The freeze's first step: closes registration of a raffle in `from` (which
 /// the lifecycle allows to freeze, [`RaffleState::apply`]). Returns `false` if
 /// it isn't in `from` any more.
-pub async fn freeze(db: &Db, id: &str, from: RaffleState) -> Result<bool> {
-    transition(db, id, from, RaffleState::Frozen).await
+pub async fn freeze(db: &Db, id: &str, from: RaffleState, now: i64) -> Result<bool> {
+    transition(db, id, from, RaffleState::Frozen, now).await
 }
 
 /// Reverts a freeze that found nobody to draw from: a frozen raffle without a
 /// manifest goes back to `to` ([`RaffleState::unfreeze`]: the state it froze
 /// from). It undoes the freeze's first step, the store having no transaction
 /// to roll back.
-pub async fn unfreeze(db: &Db, id: &str, to: RaffleState) -> Result<()> {
+pub async fn unfreeze(db: &Db, id: &str, to: RaffleState, now: i64) -> Result<()> {
     db.query(
         "UPDATE raffles SET state = ?, updated_at = ?
          WHERE id = ? AND state = 'frozen' AND manifest IS NULL",
     )
     .bind(to.as_str())
-    .bind(now())
+    .bind(now)
     .bind(id)
     .run()
     .await
     .map(|_| ())
 }
 
-/// The freeze's last step: stores the manifest and its hash. Returns `false`
-/// if another attempt stored one first (or the raffle isn't frozen any more).
-pub async fn set_manifest(db: &Db, id: &str, manifest: &str, manifest_hash: &str) -> Result<bool> {
+/// The freeze's last step: stores the manifest and its hash, frozen `now`.
+/// Returns `false` if another attempt stored one first (or the raffle isn't
+/// frozen any more).
+pub async fn set_manifest(
+    db: &Db,
+    id: &str,
+    manifest: &str,
+    manifest_hash: &str,
+    now: i64,
+) -> Result<bool> {
     let changed = db
         .query(
             "UPDATE raffles SET manifest = ?, manifest_hash = ?, frozen_at = ?
@@ -408,22 +426,22 @@ pub async fn set_manifest(db: &Db, id: &str, manifest: &str, manifest_hash: &str
         )
         .bind(manifest)
         .bind(manifest_hash)
-        .bind(now())
+        .bind(now)
         .bind(id)
         .run()
         .await?;
     Ok(changed > 0)
 }
 
-/// Marks the raffle purged (its entrants already erased) and ends its live
-/// updates.
-pub async fn mark_purged(db: &Db, id: &str) -> Result<()> {
+/// Marks the raffle purged `now` (its entrants already erased) and ends its
+/// live updates.
+pub async fn mark_purged(db: &Db, id: &str, now: i64) -> Result<()> {
     db.query(format!(
         "UPDATE raffles SET state = '{}', purged_at = COALESCE(purged_at, ?1), updated_at = ?1,
          live_ended_at = COALESCE(live_ended_at, ?1) WHERE id = ?2",
         RaffleState::Purged.as_str()
     ))
-    .bind(now())
+    .bind(now)
     .bind(id)
     .run()
     .await
@@ -552,9 +570,8 @@ pub async fn reapply_organizer_left(db: &Db) -> Result<u64> {
     Ok(count.max(0) as u64)
 }
 
-/// Records that live updates ended, unless they already had.
-pub async fn end_live(db: &Db, id: &str) -> Result<()> {
-    let now = now();
+/// Records that live updates ended `now`, unless they already had.
+pub async fn end_live(db: &Db, id: &str, now: i64) -> Result<()> {
     db.query(
         "UPDATE raffles SET live_ended_at = COALESCE(live_ended_at, ?), updated_at = ?
          WHERE id = ?",

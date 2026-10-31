@@ -97,9 +97,14 @@ async fn app_and_rafi_restate_share_the_database() {
     );
     let app = AppState::new(cfg).await.unwrap();
 
-    let id = service::create(&app, ACTOR, "Shared database", &service::EventDate::today())
-        .await
-        .unwrap();
+    let id = service::create(
+        &app,
+        ACTOR,
+        "Shared database",
+        &service::EventDate::today(&app),
+    )
+    .await
+    .unwrap();
     // Registration opens only once the notice names an organizer.
     let mut settings = service::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
     settings.organizer_name = "E2E".into();

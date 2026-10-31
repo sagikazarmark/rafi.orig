@@ -80,11 +80,13 @@ impl AppState {
             engine,
             LiveUpdates::polling(),
             Arc::new(service::Limiter::default()),
+            service::Clock::system(),
         )
     }
 
-    /// The app over a database, a raffle engine and the platform's live
-    /// updates and rate limits. The configuration is checked
+    /// The app over a database, a raffle engine, the platform's live
+    /// updates and rate limits, and a clock (the system's, but in tests).
+    /// The configuration is checked
     /// ([`Config::validate`]): a production server with no operator or
     /// documents doesn't start.
     pub fn from_parts(
@@ -93,6 +95,7 @@ impl AppState {
         engine: Option<Arc<dyn Engine>>,
         live_updates: LiveUpdates,
         limiter: Arc<dyn RateLimit>,
+        clock: service::Clock,
     ) -> anyhow::Result<Self> {
         cfg.validate()?;
         let core = service::App {
@@ -101,6 +104,7 @@ impl AppState {
             engine,
             live_updates,
             limiter,
+            clock,
             policy: service::Policy {
                 public_url: cfg.public_url.clone(),
                 max_entrants: cfg.max_entrants,

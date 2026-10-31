@@ -126,6 +126,7 @@ fn app(env: &Env, cfg: Config) -> anyhow::Result<App> {
             DurableObjects::follow,
         ),
         Arc::new(RateLimitBindings::new(env.clone())),
+        rafi_app::Clock::system(),
     )?;
     let router = server::routes(state.clone());
     let router = match auth {

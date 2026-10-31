@@ -41,21 +41,26 @@ pub struct EventDate {
 }
 
 impl EventDate {
-    /// Today, in UTC: for callers with no organizer's browser to ask.
-    pub fn today() -> Self {
+    /// Today by `app`'s clock, in UTC: for callers with no organizer's
+    /// browser to ask.
+    pub fn today(app: &App) -> Self {
         Self {
-            date: Date::of_utc(ids::now()).iso(),
+            date: Date::of_utc(app.clock.now()).iso(),
             ends_at: None,
         }
     }
 }
 
-/// `settings` as they are stored, checked against the installation's
+/// `settings` as they are stored `now`, checked against the installation's
 /// retention policy.
-fn normalized<'a>(app: &App, settings: settings::Settings<'a>) -> Result<settings::Settings<'a>> {
+fn normalized<'a>(
+    app: &App,
+    settings: settings::Settings<'a>,
+    now: i64,
+) -> Result<settings::Settings<'a>> {
     let max = app.policy.retention.max_days;
     Ok(settings
-        .normalize(max, Date::of_utc(ids::now()))
+        .normalize(max, Date::of_utc(now))
         .map_err(|e| Refusal::settings(e, max))?)
 }
 
@@ -63,6 +68,7 @@ fn normalized<'a>(app: &App, settings: settings::Settings<'a>) -> Result<setting
 /// defaults; returns its ID.
 pub async fn create(app: &App, actor: Actor<'_>, title: &str, event: &EventDate) -> Result<String> {
     let title = settings::title(title).ok_or(Refusal::Title)?;
+    let now = app.clock.now();
     let d = defaults::get(&app.db, actor.owner)
         .await?
         .unwrap_or_default();
@@ -81,6 +87,7 @@ pub async fn create(app: &App, actor: Actor<'_>, title: &str, event: &EventDate)
             event_ends_at: event.ends_at,
             retention_days: d.retention_days.unwrap_or(app.policy.retention.days),
         },
+        now,
     )?;
     let settings = stored(normalized, false);
     let id = ids::id();
@@ -96,11 +103,12 @@ pub async fn create(app: &App, actor: Actor<'_>, title: &str, event: &EventDate)
             },
             &settings,
             &[],
+            now,
         )
         .await;
         match res {
             Ok(_) => {
-                audit::record(&app.db, &id, actor, "create", title).await?;
+                audit::record(&app.db, &id, actor, "create", title, now).await?;
                 return Ok(id);
             }
             Err(e) if e.is_unique_violation() => continue,
@@ -150,6 +158,7 @@ pub async fn save_defaults(app: &App, actor: Actor<'_>, d: RaffleDefaults) -> Re
             rules: d.rules.to_owned(),
             retention_days: d.retention_days,
         },
+        app.clock.now(),
     )
     .await?;
     Ok(())
@@ -194,6 +203,7 @@ pub async fn update_settings(
     s: RaffleSettings,
 ) -> Result<()> {
     let raffle = owned(app, actor.owner, id).await?;
+    let now = app.clock.now();
     let normalized = normalized(
         app,
         settings::Settings {
@@ -215,6 +225,7 @@ pub async fn update_settings(
             },
             retention_days: s.retention_days,
         },
+        now,
     )?;
     if raffle.test_mode != s.test_mode && !raffle.state.test_mode_editable() {
         return Err(Refusal::TestModeLocked.into());
@@ -225,7 +236,8 @@ pub async fn update_settings(
     } else {
         0
     };
-    let write = raffles::update_settings(&app.db, id, &stored(normalized, s.test_mode)).await?;
+    let write =
+        raffles::update_settings(&app.db, id, &stored(normalized, s.test_mode), now).await?;
     if !write.written {
         // Test mode changed after a freeze since the read above, or a fixed
         // setting after someone accepted the rules.
@@ -245,13 +257,13 @@ pub async fn update_settings(
         .into());
     }
     if write.fakes_removed {
-        audit::record(&app.db, id, actor, "remove_fakes", &fakes.to_string()).await?;
+        audit::record(&app.db, id, actor, "remove_fakes", &fakes.to_string(), now).await?;
     }
     // What changed, by field name (never the values: the organizer's name
     // and contacts are personal data; the log says who changed what, when).
     let changed = changed_fields(&raffle, &stored(normalized, s.test_mode));
     if !changed.is_empty() {
-        audit::record(&app.db, id, actor, "settings", &changed.join(",")).await?;
+        audit::record(&app.db, id, actor, "settings", &changed.join(","), now).await?;
     }
     // Nothing phones see: the participant view has no settings, and names
     // only of drawn entrants (fakes are never drawn outside test mode).
@@ -330,7 +342,7 @@ pub async fn delete(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
         }
     }
     raffles::delete(&app.db, id).await?;
-    audit::record(&app.db, id, actor, "delete", "").await?;
+    audit::record(&app.db, id, actor, "delete", "", app.clock.now()).await?;
     // Best effort: the raffle is gone either way, and its channel finds nothing to show.
     if let Err(e) = app.live_updates.end(id).await {
         tracing::warn!(raffle_id = id, error = %e, "ending the live channel of a deleted raffle failed");
@@ -343,6 +355,7 @@ pub async fn delete(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
 /// or not there.
 pub async fn duplicate(app: &App, actor: Actor<'_>, id: &str, event: &EventDate) -> Result<String> {
     let raffle = owned(app, actor.owner, id).await?;
+    let now = app.clock.now();
     let title = settings::copy_title(&raffle.title);
     let prizes = prizes::list(&app.db, id).await?;
     let copies: Vec<(String, prizes::PrizeFields)> = prizes
@@ -377,6 +390,7 @@ pub async fn duplicate(app: &App, actor: Actor<'_>, id: &str, event: &EventDate)
             event_ends_at: event.ends_at,
             retention_days: raffle.retention_days.min(app.policy.retention.max_days),
         },
+        now,
     )?;
     let settings = stored(normalized, raffle.test_mode);
     let new_id = ids::id();
@@ -392,11 +406,12 @@ pub async fn duplicate(app: &App, actor: Actor<'_>, id: &str, event: &EventDate)
             },
             &settings,
             &copies,
+            now,
         )
         .await;
         match res {
             Ok(()) => {
-                audit::record(&app.db, &new_id, actor, "create", &title).await?;
+                audit::record(&app.db, &new_id, actor, "create", &title, now).await?;
                 return Ok(new_id);
             }
             Err(e) if e.is_unique_violation() => continue,
@@ -416,6 +431,7 @@ pub async fn lifecycle(
     action: LifecycleCommand,
 ) -> Result<()> {
     let raffle = owned(app, actor.owner, id).await?;
+    let now = app.clock.now();
     let command = match action {
         LifecycleCommand::Publish => lifecycle::Command::Publish,
         LifecycleCommand::Unpublish => lifecycle::Command::Unpublish,
@@ -432,14 +448,14 @@ pub async fn lifecycle(
             return Err(Refusal::OrganizerMissing(missing).into());
         }
         // Nobody joins a raffle that expires within the hour.
-        if raffle.past_erase_date(ids::now()) {
+        if raffle.past_erase_date(now) {
             return Err(Refusal::ErasureDatePassed.into());
         }
     }
-    if !raffles::transition(&app.db, id, from, to).await? {
+    if !raffles::transition(&app.db, id, from, to, now).await? {
         return Err(Refusal::Changed.into());
     }
-    audit::record(&app.db, id, actor, to.as_str(), "").await?;
+    audit::record(&app.db, id, actor, to.as_str(), "", now).await?;
     app.live_updates.notify(id).await;
     Ok(())
 }

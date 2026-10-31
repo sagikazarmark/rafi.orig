@@ -42,6 +42,16 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 | `tools/verify.py` | The same vectors as the Rust code ([`testdata/draw-vectors.json`](../../testdata/draw-vectors.json), from real quicknet beacons) |
 | Workers | [`./scripts/workers-check.sh`](#workers) |
 
+## Time
+
+The use cases, housekeeping and every row the store stamps go by the app's clock (`App::clock`, a
+`rafi_store::Clock`), read once per use case; the store's domain functions take `now` from it. The use-case and HTTP
+tests run on a fixed clock that starts at the real time and moves only when the test moves it
+(`app.clock.advance(10 * DAY)`, `app.clock.set(raffle.erase_at + hold + 1)`), and the in-process engine writes by the
+same clock. A test of the erasure dates lets time pass instead of dating its raffles back. What is real time stays
+real time: drand's rounds, the screens' countdowns, the proof-of-work's expiry and the rate limits. The storage
+conformance suite passes `now` to the domain functions directly.
+
 ## Storage conformance
 
 `rafi_store::conformance` is the contract every database backend must pass. It has named scenarios for:

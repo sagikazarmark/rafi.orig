@@ -1,6 +1,8 @@
 //! Integration tests: in-memory SQLite (or, with `RAFI_TEST_POSTGRES_URL`
 //! set, a fresh Postgres schema per test), the in-process raffle engine
-//! (`rafi_engine::local`), mock drand.
+//! (`rafi_engine::local`), mock drand, and a test's clock: it says the time
+//! the test started until the test moves it (`app.clock`), and the engine's
+//! writes follow it too. Drand's rounds are real time all the same.
 
 use std::{sync::Arc, time::Duration};
 
@@ -50,8 +52,9 @@ async fn app_with_live(cfg: Config, live: LiveUpdates) -> AppState {
 }
 
 /// An app whose raffle engine is the in-process one (drawing with `drand`),
-/// writing into the same database. With `RAFI_TEST_POSTGRES_URL` set, the
-/// test database is a fresh schema there instead of in-memory SQLite.
+/// writing into the same database by the same (test's) clock. With
+/// `RAFI_TEST_POSTGRES_URL` set, the test database is a fresh schema there
+/// instead of in-memory SQLite.
 async fn app_with_engine(
     mut cfg: Config,
     drand: rafi_engine::drand::DrandConfig,
@@ -65,12 +68,13 @@ async fn app_with_engine(
     let db = rafi_store::Db::connect(&cfg.database_url)
         .await
         .expect("database");
+    let clock = service::Clock::fixed(service::Clock::system().now());
     let engine = rafi_engine::local::LocalEngine::new(
         rafi_engine::drand::DrandClient::builder(drand)
             .http_transport(drand::client::ReqwestTransport::default())
             .build()
             .expect("drand configuration"),
-        rafi_store::RaffleWriter::new(db.clone()),
+        rafi_store::RaffleWriter::with_clock(db.clone(), clock.clone()),
         rafi_live_server::Polling,
     );
     AppState::from_parts(
@@ -79,6 +83,7 @@ async fn app_with_engine(
         Some(Arc::new(engine)),
         live,
         Arc::new(Limiter::default()),
+        clock,
     )
     .expect("app state")
 }
@@ -181,7 +186,7 @@ async fn join(
 /// named, so registration can open.
 async fn create(app: &AppState, owner: &str, title: &str) -> String {
     let actor = service::Actor::solo(owner);
-    let id = service::create(app, actor, title, &service::EventDate::today())
+    let id = service::create(app, actor, title, &service::EventDate::today(app))
         .await
         .unwrap();
     name_organizer(app, actor, &id).await;
@@ -1435,7 +1440,7 @@ async fn lifecycle_guards() {
         service::add_fakes(&app, ACTOR, &id, 3).await.is_err(),
         "fakes need test mode"
     );
-    let dup = service::duplicate(&app, ACTOR, &id, &service::EventDate::today())
+    let dup = service::duplicate(&app, ACTOR, &id, &service::EventDate::today(&app))
         .await
         .unwrap();
     assert_eq!(prizes::list(&app.db, &dup).await.unwrap().len(), 1);
@@ -1964,17 +1969,16 @@ async fn proof_of_work_forgeries_are_refused() {
         })
         .unwrap()
     };
-    let soon = Some(service::ids::now() + 600);
+    // Challenges expire by real time (the library's clock), not the app's.
+    let now = service::Clock::system().now();
+    let soon = Some(now + 600);
     let refused = async |payload: &altcha::Payload| {
         !service::pow::redeem(&app, &service::pow::encode(payload))
             .await
             .unwrap()
     };
 
-    let expired = solve_pow_from(
-        issue(super::config::TEST_POW_KEY, Some(service::ids::now() - 1)),
-        0,
-    );
+    let expired = solve_pow_from(issue(super::config::TEST_POW_KEY, Some(now - 1)), 0);
     assert!(refused(&expired).await, "expired");
     let foreign = solve_pow_from(issue("another-key", soon), 0);
     assert!(refused(&foreign).await, "signed with another key");
@@ -2135,15 +2139,10 @@ async fn housekeeping_ends_stale_live_channels() {
     let (live, live_updates) = recording();
     let app = app_with_live(Config::for_tests(), live_updates).await;
     let old = finished_raffle(&app).await;
+    // A day and a minute later, another finishes.
+    app.clock
+        .advance(service::housekeeping::CHANNEL_GRACE_SECS + 60);
     let recent = finished_raffle(&app).await;
-    let now = super::ids::now();
-    app.db
-        .query("UPDATE raffles SET finished_at = ? WHERE id = ?")
-        .bind(now - service::housekeeping::CHANNEL_GRACE_SECS - 60)
-        .bind(&old.id)
-        .run()
-        .await
-        .unwrap();
 
     let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!(report.channels_ended, 1);
@@ -2482,35 +2481,13 @@ async fn fakes_stay_in_test_mode() {
 
 const DAY: i64 = 86_400;
 
-/// Dates raffle `id` `days_ago` days before today, with `retention_days`:
-/// before anyone joins, so the lock isn't engaged. Returns the row.
-async fn date_event(app: &AppState, id: &str, days_ago: i64, retention_days: i64) -> RaffleRow {
-    use rafi_lifecycle::dates::Date;
+/// Keeps raffle `id`'s personal data `days` past its event (today, as
+/// [`create`] dates it), before anyone joins, so the lock isn't engaged.
+/// Returns the row. Time then passes on `app.clock`.
+async fn retain(app: &AppState, id: &str, days: i64) -> RaffleRow {
     let mut settings = service::settings_of(&raffles::get(&app.db, id).await.unwrap().unwrap());
-    settings.event_date = Date::of_utc(service::ids::now() - days_ago * DAY).iso();
-    settings.event_ends_at = None;
-    settings.retention_days = retention_days;
+    settings.retention_days = days;
     service::update_settings(app, ACTOR, id, settings)
-        .await
-        .unwrap();
-    raffles::get(&app.db, id).await.unwrap().unwrap()
-}
-
-/// Moves a raffle's event date `days_ago` back with `retention_days`
-/// directly in the database, lock or no lock: the tests' clock, for a raffle
-/// that already has entrants (who couldn't join past the date).
-async fn shift_clock(app: &AppState, id: &str, days_ago: i64, retention_days: i64) -> RaffleRow {
-    use rafi_lifecycle::dates::Date;
-    let day = Date::of_utc(service::ids::now() - days_ago * DAY);
-    app.db
-        .query(
-            "UPDATE raffles SET event_date = ?, event_ends_at = ?, retention_days = ? WHERE id = ?",
-        )
-        .bind(day.iso())
-        .bind(day.ends_utc())
-        .bind(retention_days)
-        .bind(id)
-        .run()
         .await
         .unwrap();
     raffles::get(&app.db, id).await.unwrap().unwrap()
@@ -2703,12 +2680,10 @@ async fn the_join_page_and_the_notices_say_when_data_is_erased() {
 async fn housekeeping_erases_on_the_dates() {
     let (recording, live) = recording();
     let app = app_with_live(Config::for_tests(), live).await;
-    let now = service::ids::now();
     let hold = app.policy.retention.winner_hold_secs();
 
     // A finished raffle: two prizes, one winner delivered, one not, one
-    // drawn but not here. People join (nobody joins past the erasure date),
-    // then the clock is moved under them.
+    // drawn but not here. Today's, kept seven days.
     let finished = setup_open(&app, &[("Book", 1), ("Mug", 1)]).await;
     let router = routes(app.clone());
     for (name, email) in [
@@ -2720,11 +2695,6 @@ async fn housekeeping_erases_on_the_dates() {
         let (status, _, _) = join(&router, &finished.join_code, name, email).await;
         assert_eq!(status, StatusCode::SEE_OTHER);
     }
-    let finished = shift_clock(&app, &finished.id, 10, 7).await;
-    assert!(
-        finished.erase_at < now && finished.erase_at + hold > now,
-        "due, not at the ceiling"
-    );
     service::start_draw(&app, ACTOR, &finished.id)
         .await
         .unwrap();
@@ -2762,7 +2732,6 @@ async fn housekeeping_erases_on_the_dates() {
 
     // A drawing raffle, never finished: one claimed winner.
     let drawing = setup_open(&app, &[("Pen", 1)]).await;
-    let drawing = date_event(&app, &drawing.id, 10, 7).await;
     for name in ["Erik", "Fanni"] {
         service::add_manual(&app, ACTOR, &drawing.id, name, None)
             .await
@@ -2773,7 +2742,14 @@ async fn housekeeping_erases_on_the_dates() {
     let pen = r.drawn.as_ref().unwrap().items()[0].id.clone();
     let drawing_winner = draw_and_claim(&app, &drawing.id, &pen).await;
 
-    let report = service::housekeeping::run_at(&app, now).await.unwrap();
+    // Ten days on: due, not at the ceiling.
+    app.clock.advance(10 * DAY);
+    let now = app.clock.now();
+    assert!(
+        finished.erase_at < now && finished.erase_at + hold > now,
+        "due, not at the ceiling"
+    );
+    let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!(
         (report.expired, report.erased, report.purged),
         (0, 4, 0),
@@ -2825,7 +2801,7 @@ async fn housekeeping_erases_on_the_dates() {
     );
 
     // A second run changes nothing.
-    let again = service::housekeeping::run_at(&app, now).await.unwrap();
+    let again = service::housekeeping::run(&app).await.unwrap();
     assert_eq!((again.erased, again.purged), (0, 0));
     let (logged,): (i64,) = app
         .db
@@ -2842,8 +2818,8 @@ async fn housekeeping_erases_on_the_dates() {
 
     // The ceiling: the held winner goes, the finished raffle is purged, the
     // drawing one is finished by the engine and purged on the run after.
-    let later = finished.erase_at + hold + 1;
-    let report = service::housekeeping::run_at(&app, later).await.unwrap();
+    app.clock.set(finished.erase_at + hold + 1);
+    let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!(
         (report.erased, report.purged),
         (2, 1),
@@ -2882,9 +2858,8 @@ async fn housekeeping_erases_on_the_dates() {
         r.raffle.finished_at.is_some(),
         "the engine finished it, best effort"
     );
-    let report = service::housekeeping::run_at(&app, later + 1)
-        .await
-        .unwrap();
+    app.clock.advance(1);
+    let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!(report.purged, 1, "purged on the run after it finished");
     assert_eq!(
         raffles::get(&app.db, &drawing.id)
@@ -2913,15 +2888,8 @@ async fn housekeeping_erases_on_the_dates() {
 async fn erasure_on_request_follows_the_date() {
     use rafi_lifecycle::entrant::Removal;
     let app = app().await;
-    let now = service::ids::now();
-
-    let before = setup_open(&app, &[("Book", 1)]).await;
-    let before = date_event(&app, &before.id, 0, 7).await;
-    let past = setup_open(&app, &[("Book", 1)]).await;
-    let past = date_event(&app, &past.id, 10, 7).await;
-    assert!(before.erase_at > now && past.erase_at <= now);
-    let mut ids = Vec::new();
-    for r in [&before, &past] {
+    // Anna and Bence in a raffle frozen today; returns Anna's ID.
+    let frozen = async |r: &RaffleRow| {
         let id = service::add_manual(&app, ACTOR, &r.id, "Anna", Some("anna@x.org".into()))
             .await
             .unwrap();
@@ -2930,8 +2898,18 @@ async fn erasure_on_request_follows_the_date() {
             .unwrap();
         service::start_draw(&app, ACTOR, &r.id).await.unwrap();
         wait_for(&app, &r.id, |r| r.raffle.opened()).await;
-        ids.push(id);
-    }
+        id
+    };
+
+    // Ten days ago's raffle, and today's.
+    let past = setup_open(&app, &[("Book", 1)]).await;
+    let past_anna = frozen(&past).await;
+    app.clock.advance(10 * DAY);
+    let before = setup_open(&app, &[("Book", 1)]).await;
+    let before_anna = frozen(&before).await;
+    let now = app.clock.now();
+    assert!(before.erase_at > now && past.erase_at <= now);
+    let ids = [before_anna, past_anna];
 
     let refused = service::remove_entrant(&app, ACTOR, &before.id, &ids[0]).await;
     assert!(
@@ -3076,7 +3054,7 @@ async fn all_prizes_delivered() {
 #[tokio::test]
 async fn registration_needs_an_organizer() {
     let app = app().await;
-    let id = service::create(&app, ACTOR, "Nameless", &service::EventDate::today())
+    let id = service::create(&app, ACTOR, "Nameless", &service::EventDate::today(&app))
         .await
         .unwrap();
     service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
@@ -3418,30 +3396,21 @@ async fn a_stopped_run_is_reported() {
         serde_json::from_str(&body).unwrap()
     };
     assert!(!me(&router).await.retention_stale, "nothing to erase yet");
-    let id = create(&app, "dev", "First").await;
+    create(&app, "dev", "First").await;
+    app.clock.advance(service::housekeeping::STALE_AFTER_SECS);
     assert!(
         !me(&router).await.retention_stale,
-        "a raffle younger than two hours"
+        "a raffle no older than two hours"
     );
-    app.db
-        .query("UPDATE raffles SET created_at = ? WHERE id = ?")
-        .bind(service::ids::now() - service::housekeeping::STALE_AFTER_SECS - 1)
-        .bind(&id)
-        .run()
-        .await
-        .unwrap();
+    app.clock.advance(1);
     assert!(
         me(&router).await.retention_stale,
         "two hours with something to erase and no run"
     );
     service::housekeeping::run(&app).await.unwrap();
     assert!(!me(&router).await.retention_stale);
-    rafi_store::housekeeping::record_ok(
-        &app.db,
-        service::ids::now() - service::housekeeping::STALE_AFTER_SECS - 1,
-    )
-    .await
-    .unwrap();
+    app.clock
+        .advance(service::housekeeping::STALE_AFTER_SECS + 1);
     assert!(me(&router).await.retention_stale);
 }
 
@@ -3451,14 +3420,14 @@ async fn a_stopped_run_is_reported() {
 async fn a_past_event_date_is_warned_about() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 1)]).await;
-    let soon = date_event(&app, &raffle.id, 2, 7).await;
+    app.clock.advance(2 * DAY);
     let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
     assert!(admin.retention.past_event && !admin.retention.past_erase_date);
     assert!(admin.retention.expires_unfrozen, "{:?}", admin.retention);
     assert!(!admin.retention.unfinished_past_event);
-    assert!(soon.erase_at > service::ids::now());
+    assert!(raffle.erase_at > app.clock.now());
 
-    date_event(&app, &raffle.id, 10, 7).await;
+    app.clock.advance(8 * DAY);
     let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
     assert!(admin.retention.past_erase_date && admin.retention.expires_unfrozen);
     // The date can still move: nobody has joined.
@@ -3604,10 +3573,8 @@ async fn organization_tiers_gate_the_admin_api() {
 async fn a_frozen_raffle_is_erased_in_place_and_finished_at_the_ceiling() {
     let (recording, live) = recording();
     let app = app_with_live(Config::for_tests(), live).await;
-    let now = service::ids::now();
     let hold = app.policy.retention.winner_hold_secs();
     let raffle = setup_open(&app, &[("Book", 1)]).await;
-    let raffle = date_event(&app, &raffle.id, 10, 7).await;
     for name in ["Anna", "Bence"] {
         service::add_manual(&app, ACTOR, &raffle.id, name, Some(format!("{name}@x.org")))
             .await
@@ -3624,7 +3591,8 @@ async fn a_frozen_raffle_is_erased_in_place_and_finished_at_the_ceiling() {
         RaffleState::Frozen
     );
 
-    let report = service::housekeeping::run_at(&app, now).await.unwrap();
+    app.clock.advance(10 * DAY);
+    let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!((report.erased, report.purged), (2, 0), "{report:?}");
     let r = raffles::get(&app.db, &raffle.id).await.unwrap().unwrap();
     assert_eq!(r.state, RaffleState::Frozen, "erased where it stands");
@@ -3637,9 +3605,8 @@ async fn a_frozen_raffle_is_erased_in_place_and_finished_at_the_ceiling() {
     );
     assert!(recording.notified().contains(&RaffleId::new(&raffle.id)));
 
-    let report = service::housekeeping::run_at(&app, raffle.erase_at + hold + 1)
-        .await
-        .unwrap();
+    app.clock.set(raffle.erase_at + hold + 1);
+    let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!(
         (report.erased, report.purged),
         (0, 0),
@@ -3649,9 +3616,8 @@ async fn a_frozen_raffle_is_erased_in_place_and_finished_at_the_ceiling() {
         r.raffle.state == RaffleState::Finished
     })
     .await;
-    let report = service::housekeeping::run_at(&app, raffle.erase_at + hold + 2)
-        .await
-        .unwrap();
+    app.clock.advance(1);
+    let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!(report.purged, 1);
     assert_eq!(
         raffles::get(&app.db, &raffle.id)
@@ -3699,7 +3665,7 @@ async fn the_notice_without_the_optional_fields() {
     assert!(!notice.contains("has since left"));
 
     // Published but nameless: it can't open, but its notice is public.
-    let id = service::create(&app, ACTOR, "Nameless", &service::EventDate::today())
+    let id = service::create(&app, ACTOR, "Nameless", &service::EventDate::today(&app))
         .await
         .unwrap();
     service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
@@ -3787,13 +3753,7 @@ async fn settings_refusals_over_http() {
 
     // Past its erasure date, a never-frozen raffle can't open.
     let stale = create(&app, "dev", "Stale").await;
-    let mut s = service::settings_of(&raffles::get(&app.db, &stale).await.unwrap().unwrap());
-    s.event_date = rafi_lifecycle::dates::Date::of_utc(service::ids::now() - 10 * DAY).iso();
-    s.event_ends_at = None;
-    s.retention_days = 7;
-    service::update_settings(&app, service::Actor::solo("dev"), &stale, s)
-        .await
-        .unwrap();
+    app.clock.advance(10 * DAY);
     service::lifecycle(
         &app,
         service::Actor::solo("dev"),
@@ -3859,20 +3819,19 @@ async fn leaving_with_no_raffles() {
 async fn never_frozen_raffles_expire() {
     let (recording, live) = recording();
     let app = app_with_live(Config::for_tests(), live).await;
-    let now = service::ids::now();
     let open = setup_open(&app, &[("Cap", 1)]).await;
-    let open = date_event(&app, &open.id, 10, 7).await;
     service::add_manual(&app, ACTOR, &open.id, "Gabi", Some("gabi@x.org".into()))
         .await
         .unwrap();
     let draft = create(&app, OWNER, "Draft").await;
-    date_event(&app, &draft, 10, 7).await;
+    // Ten days on, a fresh one.
+    app.clock.advance(10 * DAY);
     let fresh = setup_open(&app, &[("Hat", 1)]).await;
     service::add_manual(&app, ACTOR, &fresh.id, "Hanna", None)
         .await
         .unwrap();
 
-    let report = service::housekeeping::run_at(&app, now).await.unwrap();
+    let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!((report.expired, report.erased), (2, 0), "{report:?}");
     assert!(
         recording.ended().contains(&RaffleId::new(&open.id)),
@@ -3911,7 +3870,7 @@ async fn never_frozen_raffles_expire() {
             .all(|e| !e.erased),
         "not due: untouched"
     );
-    let again = service::housekeeping::run_at(&app, now).await.unwrap();
+    let again = service::housekeeping::run(&app).await.unwrap();
     assert_eq!(again.expired, 0, "idempotent");
 
     // The admin of an expired raffle says so, and verify.json has nothing:
@@ -4033,9 +3992,10 @@ async fn nobody_joins_past_the_erasure_date() {
     let app = app().await;
     let router = routes(app.clone());
     let raffle = setup_open(&app, &[("Book", 1)]).await;
-    // Yesterday's event, a period of 0: erased at midnight, which has passed.
-    let raffle = date_event(&app, &raffle.id, 1, 0).await;
-    assert!(raffle.past_erase_date(service::ids::now()));
+    // A period of 0: erased at midnight, and a day passes.
+    let raffle = retain(&app, &raffle.id, 0).await;
+    app.clock.advance(DAY);
+    assert!(raffle.past_erase_date(app.clock.now()));
     assert_eq!(
         raffle.state,
         RaffleState::Open,
@@ -4065,7 +4025,7 @@ async fn nobody_joins_past_the_erasure_date() {
 
     // A day ahead, the admin is warned; past the date, told it has passed.
     let soon = setup_open(&app, &[("Book", 1)]).await;
-    let soon = date_event(&app, &soon.id, 0, 0).await;
+    retain(&app, &soon.id, 0).await;
     let r = service::admin(&app, OWNER, &soon.id)
         .await
         .unwrap()
@@ -4092,12 +4052,12 @@ async fn abandoned_freezes_leave_limbo() {
     // date, and at the ceiling the engine refuses to finish what it never
     // opened, which purges the raffle here.
     let orphan = setup_open(&app, &[("Book", 1)]).await;
-    let orphan = date_event(&app, &orphan.id, 10, 0).await;
+    let orphan = retain(&app, &orphan.id, 0).await;
     service::add_manual(&app, ACTOR, &orphan.id, "Anna", None)
         .await
         .unwrap();
     assert!(
-        raffles::freeze(&app.db, &orphan.id, RaffleState::Open)
+        raffles::freeze(&app.db, &orphan.id, RaffleState::Open, app.clock.now())
             .await
             .unwrap()
     );
@@ -4120,6 +4080,7 @@ async fn abandoned_freezes_leave_limbo() {
         &orphan.id,
         &manifest.canonical_json(),
         &manifest.hash().to_string(),
+        app.clock.now(),
     )
     .await
     .unwrap();
@@ -4128,15 +4089,17 @@ async fn abandoned_freezes_leave_limbo() {
 
     // Frozen without a manifest: the freeze stopped after closing registration.
     let stuck = setup_open(&app, &[("Book", 1)]).await;
-    let stuck = date_event(&app, &stuck.id, 10, 0).await;
+    let stuck = retain(&app, &stuck.id, 0).await;
     service::add_manual(&app, ACTOR, &stuck.id, "Bence", None)
         .await
         .unwrap();
     assert!(
-        raffles::freeze(&app.db, &stuck.id, RaffleState::Open)
+        raffles::freeze(&app.db, &stuck.id, RaffleState::Open, app.clock.now())
             .await
             .unwrap()
     );
+
+    app.clock.advance(10 * DAY);
     assert!(
         service::admin(&app, OWNER, &stuck.id)
             .await
@@ -4145,9 +4108,7 @@ async fn abandoned_freezes_leave_limbo() {
             .expires_unfrozen,
         "the admin says it expires"
     );
-
-    let now = service::ids::now();
-    let report = service::housekeeping::run_at(&app, now).await.unwrap();
+    let report = service::housekeeping::run(&app).await.unwrap();
     assert_eq!(report.expired, 1, "the manifest-less freeze expired");
     assert_eq!(
         raffles::get(&app.db, &stuck.id)
@@ -4175,9 +4136,8 @@ async fn abandoned_freezes_leave_limbo() {
             .all(|e| e.erased)
     );
 
-    service::housekeeping::run_at(&app, orphan.erase_at + hold + 1)
-        .await
-        .unwrap();
+    app.clock.set(orphan.erase_at + hold + 1);
+    service::housekeeping::run(&app).await.unwrap();
     let r = raffles::get(&app.db, &orphan.id).await.unwrap().unwrap();
     assert_eq!(
         r.state,
@@ -4189,8 +4149,7 @@ async fn abandoned_freezes_leave_limbo() {
         audit_of(&app, &orphan.id).await.last().unwrap(),
         &("auto_purge".to_owned(), "unfinished".to_owned())
     );
-    let again = service::housekeeping::run_at(&app, orphan.erase_at + hold + 2)
-        .await
-        .unwrap();
+    app.clock.advance(1);
+    let again = service::housekeeping::run(&app).await.unwrap();
     assert_eq!((again.expired, again.purged), (0, 0), "nothing left to do");
 }

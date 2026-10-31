@@ -3,7 +3,7 @@
 
 use rafi_store::{entrants, raffles, retention};
 
-use crate::{Actor, App, Refusal, Result, ids};
+use crate::{Actor, App, Refusal, Result};
 
 /// Removes `owner`'s own data from Rafi: their defaults go; their raffles
 /// that were never frozen are deleted; every other raffle loses its
@@ -18,7 +18,7 @@ pub async fn remove_owner_data(app: &App, actor: Actor<'_>) -> Result<()> {
     if rows.iter().any(|r| r.state.drawable()) {
         return Err(Refusal::EventLive.into());
     }
-    let left = raffles::owner_leaves(&app.db, actor, ids::now()).await?;
+    let left = raffles::owner_leaves(&app.db, actor, app.clock.now()).await?;
     if left.refused {
         // Frozen since the read above: nothing happened.
         return Err(Refusal::EventLive.into());
@@ -50,7 +50,7 @@ pub struct Reapplied {
 /// housekeeping once, so whatever was due is erased again too. Idempotent.
 pub async fn reapply_erasures(app: &App) -> Result<Reapplied> {
     let logged = entrants::reapply_erasures(&app.db).await?;
-    let (of_purged, raffles) = retention::reapply_purges(&app.db, ids::now()).await?;
+    let (of_purged, raffles) = retention::reapply_purges(&app.db, app.clock.now()).await?;
     let entrants = logged + of_purged;
     let organizers = raffles::reapply_organizer_left(&app.db).await?;
     crate::housekeeping::run(app).await?;

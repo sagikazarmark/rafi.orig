@@ -4,7 +4,7 @@ use rafi_lifecycle::{RaffleState, entrant::Source};
 use rafi_raffle::Outcome;
 use serde::Deserialize;
 
-use crate::{Db, Result, now};
+use crate::{Db, Result};
 
 /// A row of `entrants`.
 #[derive(Debug, Clone, Deserialize)]
@@ -149,9 +149,9 @@ pub struct Join<'a> {
 /// Returns `false` if registration isn't open or the raffle is full. An email
 /// that already entered is an [`Error::Unique`](crate::Error::Unique). Past
 /// the raffle's erasure date nobody joins: the raffle expires within the
-/// hour ([`crate::retention::expire_due`]).
-pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64) -> Result<bool> {
-    let now = now();
+/// hour ([`crate::retention::expire_due`]). The entry is made `now`, which is
+/// also what the erasure date is compared with.
+pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64, now: i64) -> Result<bool> {
     let inserted = db
         .query(format!(
             "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code, token_hash,
@@ -202,9 +202,8 @@ fn editable(param: u8) -> String {
 
 /// Adds an entrant by hand, only while the entrant list can change. Returns
 /// `false` if it can't. An email that already entered is an
-/// [`Error::Unique`](crate::Error::Unique).
-pub async fn insert_manual(db: &Db, m: &Manual<'_>) -> Result<bool> {
-    let now = now();
+/// [`Error::Unique`](crate::Error::Unique). The entry is made `now`.
+pub async fn insert_manual(db: &Db, m: &Manual<'_>, now: i64) -> Result<bool> {
     let inserted = db
         .query(format!(
             "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code,

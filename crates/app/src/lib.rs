@@ -5,9 +5,14 @@
 //!
 //! Each use case is a function over an [`App`]: the database, the raffle
 //! engine, the [`LiveUpdates`] and the join's [`RateLimit`] the deployment
-//! plugs in, and the deployment's [`Policy`]. The rules come from `rafi-lifecycle` and
-//! `rafi-raffle`; a use case sequences the reads and writes around them. A
-//! refusal is a typed [`Refusal`]; the HTTP layer only maps it.
+//! plugs in, its [`Clock`], and the deployment's [`Policy`]. The rules come
+//! from `rafi-lifecycle` and `rafi-raffle`; a use case sequences the reads
+//! and writes around them. A refusal is a typed [`Refusal`]; the HTTP layer
+//! only maps it.
+//!
+//! A use case reads the clock once and goes by that time throughout: its
+//! checks against the dates and every row it writes ([`rafi_store`] takes
+//! `now`). Tests set the clock rather than date the data back.
 //!
 //! Every write that changes what phones see (the participant view) notifies
 //! clients ([`App::live_updates`]). Joins don't: they never change it. The
@@ -49,6 +54,7 @@ pub use raffles::{
     save_defaults, settings_of, update_settings,
 };
 pub use rafi_lifecycle::settings::RetentionPolicy;
+pub use rafi_store::Clock;
 pub use rafi_store::audit::Actor;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ratelimit::Limiter;
@@ -67,6 +73,8 @@ pub struct App {
     pub live_updates: LiveUpdates,
     /// The join's rate limits.
     pub limiter: Arc<dyn RateLimit>,
+    /// What time it is, for the use cases: the system's, or a test's.
+    pub clock: Clock,
     pub policy: Policy,
 }
 

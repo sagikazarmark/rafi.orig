@@ -75,17 +75,6 @@ pub fn token_hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
-/// Unix seconds. `std::time` aborts on `wasm32-unknown-unknown`; the store's clock
-/// reads the JavaScript one there.
-pub fn now() -> i64 {
-    rafi_store::now()
-}
-
-/// Unix milliseconds, like [`now`].
-pub fn now_ms() -> u64 {
-    rafi_store::now_ms()
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

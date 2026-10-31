@@ -72,15 +72,18 @@ fn manifest<const N: usize>(id: &str, entrants: [String; N]) -> Manifest {
 
 pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
     let mut state = frozen(db, "r1").await?;
-    check(save_raffle(db, &state).await.map_err(fail)?, "first write")?;
     check(
-        !save_raffle(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
+        "first write",
+    )?;
+    check(
+        !save_raffle(db, &state, NOW).await.map_err(fail)?,
         "a retry is a no-op",
     )?;
 
     state.decide(&Decision::Finish).map_err(fail)?;
     check(
-        save_raffle(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
         "finished write",
     )?;
     let (lifecycle, finished_at): (String, Option<i64>) = db
@@ -101,7 +104,7 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
         "the other raffle is newer",
     )?;
     check(
-        !save_raffle(db, &other).await.map_err(fail)?,
+        !save_raffle(db, &other, NOW).await.map_err(fail)?,
         "a different entrant list",
     )
 }
@@ -109,6 +112,10 @@ pub(super) async fn keeps_the_newest_state(db: &Db) -> Outcome {
 /// A date no scenario reaches: fixtures' erasure dates, so nothing is ever
 /// due by accident.
 const FAR: i64 = 4_102_444_800;
+
+/// When the writes happen whose time a scenario doesn't test: after every
+/// date the scenarios move through, before [`FAR`].
+const NOW: i64 = 1_800_000_000;
 
 /// A new raffle, moved straight to `state` (the store doesn't check the
 /// lifecycle; the app does), with an erasure date far away.
@@ -126,12 +133,13 @@ async fn raffle_in(db: &Db, id: &str, state: RaffleState) -> Outcome {
             test_mode: false,
             ..settings_with("")
         },
+        NOW,
     )
     .await
     .map_err(fail)?;
     if state != RaffleState::Draft {
         check(
-            raffles::transition(db, id, RaffleState::Draft, state)
+            raffles::transition(db, id, RaffleState::Draft, state, NOW)
                 .await
                 .map_err(fail)?,
             "moving a new raffle",
@@ -155,7 +163,7 @@ fn joiner<'a>(raffle_id: &'a str, id: &'a str, email: &'a str) -> entrants::Join
 }
 
 async fn join(db: &Db, raffle_id: &str, id: &str, email: &str, cap: i64) -> Result<bool, String> {
-    entrants::join(db, &joiner(raffle_id, id, email), cap)
+    entrants::join(db, &joiner(raffle_id, id, email), cap, NOW)
         .await
         .map_err(fail)
 }
@@ -199,19 +207,19 @@ async fn test_mode_on(db: &Db, id: &str) -> Outcome {
 pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Draft).await?;
     check(
-        !raffles::freeze(db, "r1", RaffleState::Open)
+        !raffles::freeze(db, "r1", RaffleState::Open, NOW)
             .await
             .map_err(fail)?,
         "a raffle that isn't in the state it froze from",
     )?;
     check(
-        raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open)
+        raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open, NOW)
             .await
             .map_err(fail)?,
         "opening",
     )?;
     check(
-        !raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open)
+        !raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open, NOW)
             .await
             .map_err(fail)?,
         "a transition from a state the raffle has left",
@@ -231,13 +239,13 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     )?;
 
     check(
-        raffles::freeze(db, "r1", RaffleState::Open)
+        raffles::freeze(db, "r1", RaffleState::Open, NOW)
             .await
             .map_err(fail)?,
         "freezing",
     )?;
     check(
-        !raffles::freeze(db, "r1", RaffleState::Open)
+        !raffles::freeze(db, "r1", RaffleState::Open, NOW)
             .await
             .map_err(fail)?,
         "freezing twice",
@@ -254,18 +262,18 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     )?;
 
     check(
-        raffles::set_manifest(db, "r1", "{}", "h1")
+        raffles::set_manifest(db, "r1", "{}", "h1", NOW)
             .await
             .map_err(fail)?,
         "writing the manifest",
     )?;
     check(
-        !raffles::set_manifest(db, "r1", "{}", "h2")
+        !raffles::set_manifest(db, "r1", "{}", "h2", NOW)
             .await
             .map_err(fail)?,
         "writing the manifest again",
     )?;
-    raffles::unfreeze(db, "r1", RaffleState::Closed)
+    raffles::unfreeze(db, "r1", RaffleState::Closed, NOW)
         .await
         .map_err(fail)?;
     let r = raffle(db, "r1").await?;
@@ -280,12 +288,12 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     // A freeze that found nobody to draw from goes back.
     raffle_in(db, "r2", RaffleState::Closed).await?;
     check(
-        raffles::freeze(db, "r2", RaffleState::Closed)
+        raffles::freeze(db, "r2", RaffleState::Closed, NOW)
             .await
             .map_err(fail)?,
         "freezing a closed raffle",
     )?;
-    raffles::unfreeze(db, "r2", RaffleState::Closed)
+    raffles::unfreeze(db, "r2", RaffleState::Closed, NOW)
         .await
         .map_err(fail)?;
     check(
@@ -297,7 +305,7 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
 pub(super) async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
     check(join(db, "r1", "a", "a@x", 2).await?, "the first entry")?;
-    match entrants::join(db, &joiner("r1", "a2", "a@x"), 2).await {
+    match entrants::join(db, &joiner("r1", "a2", "a@x"), 2, NOW).await {
         Err(e) if e.is_unique_violation() => {}
         other => return Err(format!("the same email again: {other:?}")),
     }
@@ -314,11 +322,11 @@ pub(super) async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
 
     // The organizer can add people without an email, but not a taken one.
     for id in ["m1", "m2"] {
-        entrants::insert_manual(db, &manual("r1", id, None))
+        entrants::insert_manual(db, &manual("r1", id, None), NOW)
             .await
             .map_err(fail)?;
     }
-    let taken = entrants::insert_manual(db, &manual("r1", "m3", Some("b@x"))).await;
+    let taken = entrants::insert_manual(db, &manual("r1", "m3", Some("b@x")), NOW).await;
     check(
         taken.is_err_and(|e| e.is_unique_violation()),
         "a manual entry with a taken email",
@@ -363,7 +371,7 @@ pub(super) async fn racing_joins_respect_the_cap(db: &Db) -> Outcome {
         .iter()
         .map(|(id, email)| joiner("r1", id, email))
         .collect();
-    let joins = joiners.iter().map(|j| entrants::join(db, j, 5));
+    let joins = joiners.iter().map(|j| entrants::join(db, j, 5, NOW));
     let mut joined = 0;
     for result in futures_util::future::join_all(joins).await {
         joined += usize::from(result.map_err(fail)?);
@@ -399,7 +407,7 @@ fn settings_with(rules: &str) -> raffles::Settings<'_> {
 pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
     let save = async |s: &raffles::Settings<'_>| {
-        raffles::update_settings(db, "r1", s)
+        raffles::update_settings(db, "r1", s, NOW)
             .await
             .map(|w| w.written)
     };
@@ -420,7 +428,7 @@ pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
         "only fakes",
     )?;
     check(
-        entrants::insert_manual(db, &manual("r1", "m1", None))
+        entrants::insert_manual(db, &manual("r1", "m1", None), NOW)
             .await
             .map_err(fail)?,
         "adding someone",
@@ -505,6 +513,7 @@ pub(super) async fn fakes_go_with_test_mode(db: &Db) -> Outcome {
                 test_mode,
                 ..settings_with("")
             },
+            NOW,
         )
         .await
         .map_err(fail)
@@ -520,7 +529,7 @@ pub(super) async fn fakes_go_with_test_mode(db: &Db) -> Outcome {
             .map_err(fail)?,
         "fakes in test mode",
     )?;
-    entrants::insert_manual(db, &manual("r1", "m1", None))
+    entrants::insert_manual(db, &manual("r1", "m1", None), NOW)
         .await
         .map_err(fail)?;
     check(
@@ -590,13 +599,13 @@ pub(super) async fn saves_owner_defaults(db: &Db) -> Outcome {
         rules: "One.".into(),
         retention_days: Some(3),
     };
-    defaults::save(db, "o", &first).await.map_err(fail)?;
+    defaults::save(db, "o", &first, NOW).await.map_err(fail)?;
     let second = defaults::Defaults {
         rules: "Two.".into(),
         retention_days: None,
         ..first.clone()
     };
-    defaults::save(db, "o", &second).await.map_err(fail)?;
+    defaults::save(db, "o", &second, NOW).await.map_err(fail)?;
     check(
         defaults::get(db, "o").await.map_err(fail)? == Some(second),
         "the second save replaces the first, an unset period included",
@@ -923,7 +932,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
     let (anna, bence) = ("a".repeat(32), "b".repeat(32));
     force_state(db, "r1", RaffleState::Closed).await?;
     for id in [&anna, &bence] {
-        entrants::insert_manual(db, &manual("r1", id, None))
+        entrants::insert_manual(db, &manual("r1", id, None), NOW)
             .await
             .map_err(fail)?;
     }
@@ -960,7 +969,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         Raffle::restore(&manifest("r1", [anna.clone(), bence.clone()]), &[draw]).map_err(fail)?;
     check(state.version() == 2, "one event")?;
     check(
-        save_raffle(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
         "writing the draw",
     )?;
 
@@ -1011,7 +1020,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
     )
     .map_err(fail)?;
     check(
-        save_raffle(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
         "writing the forfeit and the redraw",
     )?;
     let snap = live::snapshot(db, "r1")
@@ -1061,7 +1070,7 @@ pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcom
         claim_code: id.to_uppercase(),
     };
     check(
-        entrants::insert_manual(db, &manual("r1", "m1", None))
+        entrants::insert_manual(db, &manual("r1", "m1", None), NOW)
             .await
             .map_err(fail)?,
         "added by hand while closed",
@@ -1085,7 +1094,7 @@ pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcom
 
     force_state(db, "r1", RaffleState::Frozen).await?;
     check(
-        !entrants::insert_manual(db, &manual("r1", "m2", None))
+        !entrants::insert_manual(db, &manual("r1", "m2", None), NOW)
             .await
             .map_err(fail)?,
         "nobody is added by hand once frozen",
@@ -1135,7 +1144,7 @@ pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcom
 
 pub(super) async fn patches_an_entrant_at_once(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
-    entrants::insert_manual(db, &manual("r1", "m1", None))
+    entrants::insert_manual(db, &manual("r1", "m1", None), NOW)
         .await
         .map_err(fail)?;
     let patch = entrants::Patch {
@@ -1301,7 +1310,7 @@ pub(super) async fn logs_a_whole_evening(db: &Db) -> Outcome {
     for n in 0..=events.len() {
         let state = Raffle::restore(&manifest, &events[..n]).map_err(fail)?;
         check(
-            save_raffle(db, &state).await.map_err(fail)?,
+            save_raffle(db, &state, NOW).await.map_err(fail)?,
             &format!("saving after {n} events"),
         )?;
         holds(db, &state, &format!("after {n} events")).await?;
@@ -1323,7 +1332,7 @@ pub(super) async fn logs_a_whole_evening(db: &Db) -> Outcome {
     frozen_with(db, &manifest).await?;
     let state = Raffle::restore(&manifest, &events).map_err(fail)?;
     check(
-        save_raffle(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
         "saving it at once",
     )?;
     holds(db, &state, "saved at once").await?;
@@ -1345,7 +1354,7 @@ pub(super) async fn logs_a_whole_evening(db: &Db) -> Outcome {
     }));
     let state = Raffle::restore(opened.manifest(), &events).map_err(fail)?;
     check(
-        save_raffle(db, &state).await.map_err(fail)?,
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
         "saving a long stall",
     )?;
     holds(db, &state, "a long stall").await
@@ -1358,7 +1367,10 @@ pub(super) async fn an_opened_raffle_may_have_no_events(db: &Db) -> Outcome {
         !row.opened() && raffles::drawn(db, &row).await.map_err(fail)?.is_none(),
         "not opened before the engine writes it",
     )?;
-    check(save_raffle(db, &state).await.map_err(fail)?, "opening it")?;
+    check(
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
+        "opening it",
+    )?;
     check(raffle(db, "r1").await?.opened(), "opened")?;
     holds(db, &state, "opened").await?;
 
@@ -1413,7 +1425,7 @@ pub(super) async fn saves_only_newer_states(db: &Db) -> Outcome {
         (&drawn, "drawn"),
         (&claimed, "claimed"),
     ] {
-        check(save_raffle(db, state).await.map_err(fail)?, what)?;
+        check(save_raffle(db, state, NOW).await.map_err(fail)?, what)?;
     }
     let unchanged = || async {
         let r = raffle(db, "r1").await?;
@@ -1421,12 +1433,12 @@ pub(super) async fn saves_only_newer_states(db: &Db) -> Outcome {
     };
     let before = unchanged().await?;
     check(
-        !save_raffle(db, &claimed).await.map_err(fail)?,
+        !save_raffle(db, &claimed, NOW).await.map_err(fail)?,
         "a repeated save",
     )?;
     for (state, what) in [(&drawn, "drawn"), (&opened, "opened")] {
         check(
-            !save_raffle(db, state).await.map_err(fail)?,
+            !save_raffle(db, state, NOW).await.map_err(fail)?,
             &format!("a stale save ({what})"),
         )?;
     }
@@ -1439,7 +1451,7 @@ pub(super) async fn saves_only_newer_states(db: &Db) -> Outcome {
     // events, the draws and the row alone.
     for (state, what) in [(&drawn, "drawn"), (&opened, "opened")] {
         check(
-            !crate::write_raffle(db, state, 0).await.map_err(fail)?,
+            !crate::write_raffle(db, state, 0, NOW).await.map_err(fail)?,
             &format!("a stale write ({what})"),
         )?;
         check(
@@ -1455,12 +1467,12 @@ pub(super) async fn saves_only_newer_states(db: &Db) -> Outcome {
         other.decide(&decision).map_err(fail)?;
     }
     check(
-        !save_raffle(db, &other).await.map_err(fail)?,
+        !save_raffle(db, &other, NOW).await.map_err(fail)?,
         "another entrant list",
     )?;
     let ghost = Raffle::open(&manifest("r9", ["a".repeat(32)])).map_err(fail)?;
     check(
-        !save_raffle(db, &ghost).await.map_err(fail)?,
+        !save_raffle(db, &ghost, NOW).await.map_err(fail)?,
         "a raffle that isn't there",
     )?;
     check(unchanged().await? == before, "nothing written for either")
@@ -1468,7 +1480,10 @@ pub(super) async fn saves_only_newer_states(db: &Db) -> Outcome {
 
 pub(super) async fn raffle_events_are_append_only(db: &Db) -> Outcome {
     let [_, _, claimed] = three_states(&frozen(db, "r1").await?)?;
-    check(save_raffle(db, &claimed).await.map_err(fail)?, "two events")?;
+    check(
+        save_raffle(db, &claimed, NOW).await.map_err(fail)?,
+        "two events",
+    )?;
     let refused = |result: crate::Result<u64>, why: &str, what: &str| match result {
         Err(e) if e.to_string().contains(why) => Ok(()),
         other => Err(format!("{what}: {other:?}")),
@@ -1637,7 +1652,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     raffle_in(db, "stuck", RaffleState::Open).await?;
     check(join(db, "stuck", "s", "s@x", 10).await?, "joining stuck")?;
     check(
-        raffles::freeze(db, "stuck", RaffleState::Open)
+        raffles::freeze(db, "stuck", RaffleState::Open, NOW)
             .await
             .map_err(fail)?,
         "closing stuck's registration",
@@ -1983,6 +1998,7 @@ pub(super) async fn delivers_all_and_removes_the_organizer(db: &Db) -> Outcome {
             title: "t",
         },
         &settings_with(""),
+        NOW,
     )
     .await
     .map_err(fail)?;
@@ -1993,6 +2009,7 @@ pub(super) async fn delivers_all_and_removes_the_organizer(db: &Db) -> Outcome {
             organizer_name: "Org".into(),
             ..Default::default()
         },
+        NOW,
     )
     .await
     .map_err(fail)?;

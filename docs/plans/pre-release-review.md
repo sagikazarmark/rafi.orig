@@ -971,7 +971,11 @@ the state is kept from here on.
   (`crates/server/src/lib.rs:126-132`) and the admin API one error mapper (`admin.rs:51-69`), so nothing structural
   is needed now.
 - **A `Clock` on `App`/`Policy`** ([#25](https://github.com/sagikazarmark/rafi.orig/issues/25)). `ids::now()` is called directly in ~15 places; tests shift data instead. Not a
-  contract.
+  contract. **Done**: a `Clock` on `App` (not `Policy`: it is a capability, not a setting), read once per use case;
+  the store's writes take `now` instead of reading the time, and `RaffleWriter` stamps the engine's by its own clock
+  (the system's, or in tests the app's). Tests set and advance the clock: `shift_clock`, `date_event` and
+  `housekeeping::run_at` are gone. Drand, the screens' countdowns, proof-of-work expiry and the rate limits stay on
+  real time.
 - **Rate-limit budgets in two places** ([#26](https://github.com/sagikazarmark/rafi.orig/issues/26); `crates/app/src/ratelimit.rs:25-30` and the `[[ratelimits]]` bindings).
   Document that `wrangler.toml` is authoritative on Workers, or move the native budgets into `Policy`.
 - **Smart Placement** ([#27](https://github.com/sagikazarmark/rafi.orig/issues/27); `[placement] mode = "smart"`): D1 is EU-pinned and the participant page makes several

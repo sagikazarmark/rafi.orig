@@ -5,7 +5,8 @@ use std::{sync::Arc, time::Duration};
 
 use rafi_api::{EntrantPatch, LifecycleCommand, PrizeInput, StartStep};
 use rafi_app::{
-    self as app, App, Error, EventDate, Limiter, Policy, ProofOfWork, Refusal, RetentionPolicy,
+    self as app, App, Clock, Error, EventDate, Limiter, Policy, ProofOfWork, Refusal,
+    RetentionPolicy,
 };
 use rafi_engine::drand::{DrandClient, DrandConfig};
 use rafi_engine::local::LocalEngine;
@@ -27,13 +28,21 @@ async fn app() -> App {
     })
     .expect("drand");
     let chain = drand.chain_hash();
-    let engine = LocalEngine::new(drand, RaffleWriter::new(db.clone()), Polling);
+    // A test's clock, which the engine's writes follow too: it says now
+    // until a test moves it.
+    let clock = Clock::fixed(Clock::system().now());
+    let engine = LocalEngine::new(
+        drand,
+        RaffleWriter::with_clock(db.clone(), clock.clone()),
+        Polling,
+    );
     App {
         db,
         chain,
         engine: Some(Arc::new(engine)),
         live_updates: LiveUpdates::polling(),
         limiter: Arc::new(Limiter::default()),
+        clock,
         policy: Policy {
             public_url: "http://localhost".into(),
             max_entrants: 100,
@@ -51,7 +60,7 @@ async fn app() -> App {
 /// An open raffle with one prize and `people` entered by hand, named so the
 /// notice can open registration; returns its ID and theirs.
 async fn open_raffle(app: &App, people: &[&str]) -> (String, Vec<String>) {
-    let id = app::create(app, ACTOR, "Meetup", &EventDate::today())
+    let id = app::create(app, ACTOR, "Meetup", &EventDate::today(app))
         .await
         .unwrap();
     let mut settings = app::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
@@ -204,9 +213,14 @@ async fn the_admin_page_offers_what_the_rules_allow() {
 
     // A freeze that stopped before its manifest was written.
     assert!(
-        raffles::freeze(&app.db, &id, rafi_lifecycle::RaffleState::Open)
-            .await
-            .unwrap()
+        raffles::freeze(
+            &app.db,
+            &id,
+            rafi_lifecycle::RaffleState::Open,
+            app.clock.now(),
+        )
+        .await
+        .unwrap()
     );
     let actions = app::admin(&app, OWNER, &id).await.unwrap().actions;
     assert_eq!(

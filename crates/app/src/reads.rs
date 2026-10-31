@@ -13,7 +13,7 @@ use rafi_raffle::{ItemId, Outcome, Raffle};
 use rafi_store::{RaffleRow, audit, raffles, view::Full};
 
 use crate::{
-    Actor, App, Error, Result, ids,
+    Actor, App, Error, Result,
     raffles::{missing_for_open, settings_of},
     view,
 };
@@ -24,8 +24,8 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     if full.raffle.owner_id != owner {
         return Err(Error::NotFound);
     }
-    let now = ids::now();
-    let view = view::of(app, &full)?;
+    let now = app.clock.now();
+    let view = view::of(app, &full, now)?;
     let raffle = &full.raffle;
     let retention = retention_of(app, raffle, now);
     let entrants = admin_entrants(&full, full.drawn.as_ref(), retention.winners_erase_at);
@@ -193,7 +193,15 @@ pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String>
         );
         out.push('\n');
     }
-    audit::record(&app.db, id, actor, "export_csv", &rows.to_string()).await?;
+    audit::record(
+        &app.db,
+        id,
+        actor,
+        "export_csv",
+        &rows.to_string(),
+        app.clock.now(),
+    )
+    .await?;
     Ok(out)
 }
 

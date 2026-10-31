@@ -101,8 +101,8 @@ async fn current_entrant(
         .flatten()
 }
 
-/// What the pages show of `raffle`.
-fn raffle_of(raffle: &RaffleRow) -> Raffle<'_> {
+/// What the pages show of `raffle`, by `app`'s clock.
+fn raffle_of<'a>(app: &AppState, raffle: &'a RaffleRow) -> Raffle<'a> {
     Raffle {
         id: &raffle.id,
         title: &raffle.title,
@@ -111,7 +111,7 @@ fn raffle_of(raffle: &RaffleRow) -> Raffle<'_> {
         test_mode: raffle.test_mode,
         joinable: rafi_lifecycle::entrant::may_join(
             raffle.state,
-            raffle.past_erase_date(service::ids::now()),
+            raffle.past_erase_date(app.clock.now()),
             true,
         )
         .is_ok(),
@@ -162,7 +162,7 @@ fn render_page(
     form: &JoinForm,
 ) -> String {
     pages::page(Page {
-        raffle: raffle_of(raffle),
+        raffle: raffle_of(app, raffle),
         view: &live.view,
         follow: live.follow.clone(),
         entrant: entrant.map(|e| Entrant {
@@ -174,7 +174,7 @@ fn render_page(
         name: &form.name,
         email: &form.email,
         name_ideas: &service::name_ideas(NAME_IDEAS),
-        now_ms: service::ids::now_ms(),
+        now_ms: rafi_store::now_ms(),
         retention: retention_of(app, raffle),
         min_age: app.cfg.min_age,
     })
@@ -326,7 +326,7 @@ async fn rules(Extension(app): Extension<AppState>, Path(slug): Path<String>) ->
         .await
         .unwrap_or_default();
     let rules = pages::Rules {
-        raffle: raffle_of(&r),
+        raffle: raffle_of(&app, &r),
         organizer: organizer_of(&r),
         prizes: prizes
             .iter()
@@ -347,7 +347,7 @@ async fn privacy(Extension(app): Extension<AppState>, Path(slug): Path<String>) 
         return not_found();
     };
     let notice = pages::Privacy {
-        raffle: raffle_of(&r),
+        raffle: raffle_of(&app, &r),
         organizer: organizer_of(&r),
         operator: operator_of(&app),
         retention: retention_of(&app, &r),

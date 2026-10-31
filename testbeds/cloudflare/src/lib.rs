@@ -204,7 +204,10 @@ async fn record(db: &Db, raffle: &str, event: Event) -> Result<()> {
 
 /// Writes `state` as the engine would; one that isn't written is an error.
 async fn save(db: &Db, state: &Raffle) -> Result<()> {
-    if rafi_store::save_raffle(db, state).await.map_err(err)? {
+    if rafi_store::save_raffle(db, state, rafi_store::Clock::system().now())
+        .await
+        .map_err(err)?
+    {
         Ok(())
     } else {
         Err(err("the raffle was not saved"))

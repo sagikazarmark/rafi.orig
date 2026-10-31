@@ -30,6 +30,11 @@
 //! draws are rows too (`draws`), for what SQL needs from them: which entrants
 //! were drawn, and which won.
 //!
+//! The domain functions don't read the time: a write that stamps a row, or a
+//! statement that compares with a date, takes `now` from its caller, which
+//! reads it from a [`Clock`] once per use case ([`RaffleWriter`] reads its
+//! own, for the engine). A test's clock then reaches every row.
+//!
 //! The SQL is written for SQLite (and D1) and Postgres alike: `?`/`?N`
 //! placeholders, no `rowid`, booleans stored as 0/1 and compared explicitly.
 //! None of it differs between them; a statement that had to would choose its
@@ -46,6 +51,7 @@
 
 pub mod audit;
 mod backend;
+mod clock;
 pub mod defaults;
 mod dialect;
 pub mod entrants;
@@ -60,6 +66,7 @@ pub mod retention;
 mod value;
 pub mod view;
 
+pub use clock::{Clock, now_ms};
 pub use dialect::Dialect;
 pub use entrants::EntrantRow;
 pub use error::{Error, Result};
@@ -70,35 +77,6 @@ use rafi_engine::BoxFuture;
 use rafi_raffle::{Event, Raffle};
 use std::collections::BTreeSet;
 pub use value::{Row, Value};
-
-/// The current time in unix seconds. `std::time` aborts on
-/// `wasm32-unknown-unknown`, so Workers read the JavaScript clock.
-pub fn now() -> i64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        (js_sys::Date::now() / 1000.0) as i64
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs() as i64)
-    }
-}
-
-/// The current time in unix milliseconds; see [`now`].
-pub fn now_ms() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        js_sys::Date::now() as u64
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64)
-    }
-}
 
 /// Stores a raffle as its engine drew it, after every change: the events it
 /// recorded since the last write (`raffle_events`), the draws they touched
@@ -116,8 +94,8 @@ pub fn now_ms() -> u64 {
 /// are already stored, and the batch's guard (the stored log is exactly this
 /// state's) leaves the draws and the row alone.
 ///
-/// Returns whether the state was written.
-pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
+/// The rows are stamped `now`. Returns whether the state was written.
+pub async fn save_raffle(db: &Db, state: &Raffle, now: i64) -> Result<bool> {
     #[derive(serde::Deserialize)]
     struct Stored {
         manifest_hash: Option<String>,
@@ -147,7 +125,7 @@ pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
     {
         return Ok(false);
     }
-    write_raffle(db, state, stored_events).await
+    write_raffle(db, state, stored_events, now).await
 }
 
 /// [`save_raffle`]'s write, once its read found `stored_events` events
@@ -155,11 +133,15 @@ pub async fn save_raffle(db: &Db, state: &Raffle) -> Result<bool> {
 /// upserts the draws they touch and updates the row, all guarded on the
 /// stored log being exactly `state`'s once the events are in. Returns whether
 /// the row was updated.
-pub(crate) async fn write_raffle(db: &Db, state: &Raffle, stored_events: usize) -> Result<bool> {
+pub(crate) async fn write_raffle(
+    db: &Db,
+    state: &Raffle,
+    stored_events: usize,
+    now: i64,
+) -> Result<bool> {
     let id = state.id().as_str();
     let events = state.events();
     let new = events.get(stored_events..).unwrap_or_default();
-    let now = now();
     // The stored log is exactly this state's: evaluated after the inserts, so
     // a stale save touches no draw and leaves the row alone.
     let guard = "(SELECT COALESCE(MAX(seq), 0) FROM raffle_events WHERE raffle_id = ?1) = ?2";
@@ -232,22 +214,30 @@ fn encode(value: &impl serde::Serialize) -> Result<String> {
     serde_json::to_string(value).map_err(|e| Error::Backend(e.to_string()))
 }
 
-/// The raffle engine's [`Store`](rafi_engine::Store) over this database: [`save_raffle`].
+/// The raffle engine's [`Store`](rafi_engine::Store) over this database: [`save_raffle`],
+/// stamped by its [`Clock`].
 #[derive(Clone)]
 pub struct RaffleWriter {
     db: Db,
+    clock: Clock,
 }
 
 impl RaffleWriter {
+    /// A writer on the system's clock, as the engine's hosts run it.
     pub fn new(db: Db) -> Self {
-        Self { db }
+        Self::with_clock(db, Clock::system())
+    }
+
+    /// A writer on `clock`: a test's in-process engine, on the app's.
+    pub fn with_clock(db: Db, clock: Clock) -> Self {
+        Self { db, clock }
     }
 }
 
 impl rafi_engine::Store for RaffleWriter {
     fn save_raffle<'a>(&'a self, state: &'a Raffle) -> BoxFuture<'a, anyhow::Result<bool>> {
         Box::pin(async move {
-            save_raffle(&self.db, state)
+            save_raffle(&self.db, state, self.clock.now())
                 .await
                 .map_err(|e| anyhow::anyhow!("writing the raffle: {e}"))
         })

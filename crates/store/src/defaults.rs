@@ -4,7 +4,7 @@
 
 use serde::Deserialize;
 
-use crate::{Db, Result, now};
+use crate::{Db, Result};
 
 /// An owner's defaults, already validated.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -30,8 +30,8 @@ pub async fn get(db: &Db, owner: &str) -> Result<Option<Defaults>> {
     .await
 }
 
-/// Saves `owner`'s defaults, replacing any they had.
-pub async fn save(db: &Db, owner: &str, d: &Defaults) -> Result<()> {
+/// Saves `owner`'s defaults at `now`, replacing any they had.
+pub async fn save(db: &Db, owner: &str, d: &Defaults, now: i64) -> Result<()> {
     db.query(
         "INSERT INTO owner_defaults (owner_id, organizer_name, contact_email, privacy_email, privacy_text,
                                      privacy_url, rules, retention_days, updated_at)
@@ -50,7 +50,7 @@ pub async fn save(db: &Db, owner: &str, d: &Defaults) -> Result<()> {
     .bind(&d.privacy_url)
     .bind(&d.rules)
     .bind(d.retention_days)
-    .bind(now())
+    .bind(now)
     .run()
     .await
     .map(|_| ())

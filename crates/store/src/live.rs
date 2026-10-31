@@ -182,7 +182,7 @@ mod tests {
             .run()
             .await
             .unwrap();
-        assert!(crate::save_raffle(db, &log.raffle()).await.unwrap());
+        assert!(crate::save_raffle(db, &log.raffle(), 1).await.unwrap());
     }
 
     #[tokio::test]

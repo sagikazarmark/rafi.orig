@@ -8,7 +8,7 @@ use rafi_lifecycle::RaffleState;
 use rafi_raffle::{BeaconSource, Event, ItemId, ItemStatus};
 use rafi_store::view::Full;
 
-use crate::{App, ids};
+use crate::App;
 
 /// How long a new entrant's name waits before appearing on the screen.
 pub const NAME_DELAY_SECS: i64 = 5;
@@ -21,20 +21,19 @@ pub fn join_url(app: &App, join_code: &str) -> String {
 /// raffle's version.
 pub async fn build(app: &App, raffle_id: &str) -> anyhow::Result<Option<RaffleView>> {
     match Full::read(&app.db, raffle_id).await? {
-        Some(full) => Ok(Some(of(app, &full)?)),
+        Some(full) => Ok(Some(of(app, &full, app.clock.now())?)),
         None => Ok(None),
     }
 }
 
-/// The full view of a raffle read as `full`.
-pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
+/// The full view of a raffle read as `full`, at `now`.
+pub fn of(app: &App, full: &Full, now: i64) -> anyhow::Result<RaffleView> {
     let Full {
         raffle,
         prizes,
         entrants,
         drawn,
     } = full;
-    let now = ids::now();
 
     // Erased entrants have no name left: screens show the start of their ID.
     let known: HashMap<&str, Option<&str>> = entrants
@@ -187,7 +186,7 @@ pub fn of(app: &App, full: &Full) -> anyhow::Result<RaffleView> {
         draws,
         last_failure,
         manifest_hash: raffle.manifest_hash.clone(),
-        server_now_ms: crate::ids::now_ms(),
+        server_now_ms: rafi_store::now_ms(),
         test_mode: raffle.test_mode,
         verifiable,
         state,
