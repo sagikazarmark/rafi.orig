@@ -77,9 +77,10 @@ parts, have a lawyer review them, and delete the marker. A document that still c
 the Worker refuse every request. Their versions (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`) and
 the operator's name and email (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`) are secrets, next. A changed document is
 a new version, shown with it; a change to the processing agreement is notified to organizers directly, since nothing
-records who read which version. The retention settings (`RAFI_RETENTION_DAYS` and the others, see the
-[configuration](../reference/configuration.md)) have defaults; `RAFI_MIN_AGE` too; set them as secrets if you
-change them.
+records who read which version. Your record of processing, and what changed in the templates, are in [the
+operator's records](overview.md#the-operators-records). The retention settings (`RAFI_RETENTION_DAYS` and the
+others, see the [configuration](../reference/configuration.md)) have defaults; `RAFI_MIN_AGE` too; set them as
+secrets if you change them.
 
 ### 3. The Worker
 

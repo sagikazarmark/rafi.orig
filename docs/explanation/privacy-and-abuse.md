@@ -7,7 +7,8 @@ installation's own notice is at `/privacy`, and the operator's terms, with the d
 
 > This page describes the software, not your legal obligations. As the organizer, you are the data controller; the
 > operator of the installation is your processor. The plan behind this design is
-> [docs/history/privacy-and-retention.md](../history/privacy-and-retention.md).
+> [docs/history/privacy-and-retention.md](../history/privacy-and-retention.md), and for the people the organizer
+> adds, [docs/history/entrant-import.md](../history/entrant-import.md).
 
 ## Data minimization
 
@@ -124,6 +125,13 @@ event's registration or guest list (parsed in the organizer's browser; only the 
 registration ID reach the service). They accepted nothing and saw no form, so nothing of a consent is recorded for
 them, and Rafi doesn't reach them: the organizer tells them, before the event.
 
+- **What the organizer answers for.** Adding people is the organizer's instruction to the operator, and the terms
+  (the processing agreement) have them warrant a lawful basis for sharing the list, that its people are told
+  about the draw before it, with the rules and the notice, and can object, that it reveals no special-category
+  data, and that its people meet the age limit (the rules say that too). Nothing records it per raffle: the list
+  tab says it in one line, and the freeze reminds them. Being on a list can say more than a name: don't add the
+  attendees of a support group or of a religious or political meeting, nor a youth club's members; let them join
+  with the QR code.
 - **The paragraph to send.** The raffle's settings show a paragraph to copy (and edit) onto the event page or into
   a confirmation email: that they are in the organizer's prize draw, that their name is shown on the event screen
   and the public results page and how (full name, or first name and initial), the rules and the privacy notice
@@ -169,7 +177,8 @@ them, and Rafi doesn't reach them: the organizer tells them, before the event.
 - **The operator** of the installation is the organizer's processor, named in every notice with a link to the
   installation's own, which lists its subprocessors (hosting, the raffle engine, organizer sign-in, drand).
   Organizers accept the operator's terms, with the data processing agreement, by using the service; the admin
-  links them, and each version is shown with its text. Nothing records who accepted which version, so a change to
+  links them, and each version is shown with its text. The agreement covers the people organizers add as well as
+  those who join ([above](#people-the-organizer-adds)). Nothing records who accepted which version, so a change to
   the processing agreement is for the operator to notify organizers of directly.
 - **Leaving:** "Remove my data" in the admin deletes the organizer's raffles that were never frozen, erases their
   other raffles' personal data and takes their name and contacts off them, and deletes their defaults, all in one

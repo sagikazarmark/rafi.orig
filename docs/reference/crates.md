@@ -43,7 +43,7 @@ This shows the main dependencies only.
 | [`store`](../../crates/store) | `rafi-store` | **All SQL**, over SQLite, Postgres and D1. It includes the engine's write (`save_raffle`), the snapshot phones are shown, and the storage conformance suite. |
 | [`live-client`](../../crates/live-client) | `rafi-live-client` | **What a phone sees and runs**: the participant view and channel, how clients follow, the page config. `card` is the Dioxus card. |
 | [`live-server`](../../crates/live-server) | `rafi-live-server` | **The servers' side of live updates**: the `Notifier` a deployment pushes through (also the engine's `Observer`), `LiveUpdates`, the view built from a raffle, and the publish rule. |
-| [`api`](../../crates/api) | `rafi-api` | **The contract between server and browser**: the views, and the admin API, declared once (`admin_functions!`). That declaration produces the server's `Admin` trait and `dispatch`, and the browser's client. |
+| [`api`](../../crates/api) | `rafi-api` | **The contract between server and browser**: the views, and the admin API, declared once (`admin_functions!`). That declaration produces the server's `Admin` trait and `dispatch`, and the browser's client. Also what the browser makes from a view, such as the paragraph an organizer sends the people they add (`paragraph_to_send`), natively tested. |
 | [`app`](../../crates/app) | `rafi-app` | **Every use case**: raffles, prizes, entrants, joining (rate limits, proof-of-work), the draw, the admin's reads, housekeeping. No HTTP. |
 | [`server`](../../crates/server) | `rafi-server` | **The HTTP side**: an axum router (participant pages, public JSON, the admin API, auth). Both app hosts serve it. |
 | [`cloudflare`](../../crates/cloudflare) | `rafi-cloudflare` | **The Cloudflare glue**: the `RaffleRoom` Durable Object, its notifier, configuration from vars and secrets |
@@ -55,7 +55,7 @@ This shows the main dependencies only.
 | [`rafi`](../../apps/rafi) | `rafi` | The native app server: `rafi-server` plus the web app's files. For self-hosting. |
 | [`worker`](../../apps/worker) | `rafi-worker` | Rafi on Cloudflare Workers, in one Worker: `rafi-server`'s routes, the raffle engine's Restate endpoint under `/restate`, the housekeeping Cron, `RaffleRoom`. The crate is `rafi-worker`; the Worker it deploys as is named `rafi` in Cloudflare (`wrangler tail rafi`). |
 | [`restate`](../../apps/restate) | `rafi-restate` | The native raffle engine: an endpoint serving `rafi-engine-restate`'s services to Restate. See its [README](../../apps/restate/README.md). |
-| [`web`](../../apps/web) | `rafi-web` | The Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx` |
+| [`web`](../../apps/web) | `rafi-web` | The Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx`. Its `import` module reads the organizer's lists in the browser (see [The web app](../development/web-app.md#adding-a-list)). |
 | [`participant`](../../apps/participant) | `rafi-participant` | The participant page's WebAssembly and its JavaScript fallback |
 
 ## Everything else

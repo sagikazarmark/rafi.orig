@@ -173,7 +173,8 @@ empty. `test_mode` is `true` for a rehearsal, whose entrants may be fakes.
 the organizer (one by one or from a list), and `fake`, made up for a rehearsal (test mode only). The verification
 page says it in words ("320 entrants: 8 joined on their phones, 312 added by the organizer"). It is the server's
 statement, outside the manifest: the hash doesn't commit to it, and a verifier ignores it (a server from before it
-leaves it out). It makes the list's provenance visible; why that matters is in
+leaves it out, and so does one whose rows don't account for every entrant of the manifest). It makes the list's
+provenance visible; why that matters is in
 [Why the draw is verifiable](../explanation/verifiability.md#threat-model-and-limits).
 
 ## Verification

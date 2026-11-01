@@ -100,8 +100,9 @@ pub enum Refusal {
     /// Registration can't be switched while it is open, or once the list is
     /// frozen ([`RaffleState::registration_editable`]).
     RegistrationLocked,
-    /// The named fixed settings can't change: someone accepted the rules
-    /// they were shown with.
+    /// The named fixed settings can't change: a real entrant is in under
+    /// them, who joined accepting them or was added by the organizer
+    /// ([`Source::locks_settings`](lifecycle::entrant::Source::locks_settings)).
     SettingsFixed(Vec<&'static str>),
     PrizeName,
     PrizeQty,
@@ -345,11 +346,11 @@ impl fmt::Display for Refusal {
                 "Joining with the QR code can't be switched on or off while registration is open (close it first), or once the list is frozen.",
             ),
             Self::SettingsFixed(fields) if fields.is_empty() => f.write_str(
-                "These settings cannot change: entrants have already accepted them.",
+                "These settings cannot change: entrants are already in the raffle under them.",
             ),
             Self::SettingsFixed(fields) => write!(
                 f,
-                "The {} cannot change: entrants have already accepted the rules they were shown with.",
+                "The {} cannot change: entrants are already in the raffle under what was set.",
                 fields.join(", ")
             ),
             Self::PrizeName => write!(

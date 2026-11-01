@@ -97,7 +97,9 @@ service; the admin links them. The software can't write these for you:
    processing agreement has to be notified to organizers directly, not only published.
 3. Name yourself: `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`.
 
-Without these, the app refuses to start (except under `RAFI_DEV_AUTH`, with placeholders marked as such).
+Without these, the app refuses to start (except under `RAFI_DEV_AUTH`, with placeholders marked as such). Your
+record of processing, and what changed in the templates, are in [the operator's
+records](overview.md#the-operators-records).
 
 The retention settings are yours too, within limits: `RAFI_RETENTION_DAYS` (7: days after the event date before
 non-winners are erased, for organizers who choose nothing), `RAFI_RETENTION_MAX_DAYS` (30: the most an organizer may

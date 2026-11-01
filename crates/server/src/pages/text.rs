@@ -177,7 +177,7 @@ pub fn rules(r: &Rules<'_>) -> String {
             format!("Entrants must be {} or older: by joining, you confirm you are; the organizer is responsible for the people it adds meeting the age limit.", r.min_age).into(),
         ]),
         ("How the draw works".to_owned(), vec![
-            "Registration closes when the draw starts and the list of entrants is frozen and published (as a hash and as a list of anonymous IDs).".into(),
+            "When the draw starts, the list of entrants is frozen and published (as a hash and as a list of anonymous IDs): nobody can join or be added after that.".into(),
             "Each prize is drawn separately. Every draw commits to a future public randomness round from drand (League of Entropy) before that round exists, so nobody — including the organizer — can know or influence the result. Anyone can re-run every draw on the verification page.".into(),
             "Each person can win at most one prize. If more prizes remain than people, previous winners can win again.".into(),
         ]),

@@ -1,7 +1,7 @@
 //! Raffles: their settings and lifecycle.
 //!
 //! The freeze is three steps, since D1 has no interactive transactions:
-//! [`freeze`] closes registration, the caller reads the now-fixed entrant list
+//! [`freeze`] fixes the list (closing registration, if open), the caller reads it
 //! ([`entrants::active_ids`](crate::entrants::active_ids)), then
 //! [`set_manifest`] stores the raffle's manifest (or [`unfreeze`] reverts when nobody is left).
 //! Each step is guarded by the state it expects, so retrying is safe.
@@ -48,8 +48,8 @@ pub struct RaffleRow {
     /// Days after the event date before non-winners are erased.
     pub retention_days: i64,
     /// When non-winners are erased: `event_ends_at` plus the period, computed
-    /// by the database from the two, and fixed with them once an entrant has
-    /// accepted the rules.
+    /// by the database from the two, and fixed with them once a real entrant
+    /// is in ([`Source::locks_settings`]).
     pub erase_at: i64,
     /// Decoding fails on a state rafi doesn't know: never guessed.
     pub state: RaffleState,
@@ -405,7 +405,7 @@ pub async fn transition(
     Ok(changed > 0)
 }
 
-/// The freeze's first step: closes registration of a raffle in `from` (which
+/// The freeze's first step: fixes the list of a raffle in `from` (which
 /// the lifecycle allows to freeze with `registration`,
 /// [`RaffleState::apply`]; without registration, from Published). Returns
 /// `false` if it isn't in `from` any more, or its registration changed.

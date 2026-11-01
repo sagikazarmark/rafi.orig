@@ -8,8 +8,8 @@ deploying it, see [Operations](../operations/overview.md).
 Rafi has three moving parts around one database:
 
 - **The app**: a stateless HTTP server plus a web app. It serves the organizer's admin, the projector screen, the
-  participant page and the verification page, and runs every use case: creating raffles, joining, starting the draw,
-  and so on.
+  participant page and the verification page, and runs every use case: creating raffles, joining, adding people,
+  starting the draw, and so on.
 - **The raffle engine**: owns each raffle from the moment its list is frozen until it finishes, and runs its draws.
   It is a [Restate](https://restate.dev) virtual object, `Raffle`, one per raffle. It only ever sees anonymous IDs.
 - **The database**: the record. The app writes raffles, prizes and entrants. The engine writes each raffle's event
@@ -147,6 +147,7 @@ If the fetch fails or times out, the engine records `stalled` instead and the dr
 | Data | Owner |
 |---|---|
 | Raffles, prizes, entrants (personal data), consents, claim codes, token hashes, the audit log | The database, written by the app. Personal data never leaves the app. |
+| An organizer's guest list | Their browser: the web app reads it there, and sends only the name, email and registration ID of each person to add, one all-or-nothing add (a batch) under the entrant cap. The rest of the list never reaches the server. |
 | The manifest and its hash | The database, written by the app when the list is frozen, before the raffle opens in the engine |
 | The raffle's event log, and its completed draws | The database, written by the engine after every change. The log is append-only, and triggers refuse updates, deletes and gaps. |
 | The live raffle | The engine (Restate object state), from opening to finish. Then it forgets it. |

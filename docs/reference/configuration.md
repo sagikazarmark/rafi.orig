@@ -39,7 +39,7 @@ var and a secret of the same name).
 | `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
 | `RAFI_POW_KEY` | random per start | HMAC key for the proof-of-work challenges: at least 32 characters outside dev auth (`openssl rand -hex 32`), since the challenges are public and a short key could be cracked offline. Required on Workers. Without it natively, challenges die with the process. Never rotate it during an event. |
 | `RAFI_POW_COST` | `1000` | Proof-of-work difficulty: PBKDF2 iterations per attempt, about 256 attempts per solve. At least 1. Provisional. |
-| `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes. This is the hard limit behind the soft rate limits. |
+| `RAFI_MAX_ENTRANTS` | `2000` | The most entrants a raffle takes, joined, added by the organizer or fake: enforced in the database, and an add that doesn't fit is refused whole. This is the hard limit behind the soft rate limits. |
 | `RAFI_RETENTION_DAYS` | `7` | Days after the event date before non-winners' personal data is erased, for organizers who choose nothing. At most `RAFI_RETENTION_MAX_DAYS`. |
 | `RAFI_RETENTION_MAX_DAYS` | `30` | The longest period an organizer or a raffle may choose. At most 365. |
 | `RAFI_RETENTION_WINNERS_DAYS` | `90` | How long a winner's data is held past the erasure date unless their prize is marked delivered: the hard ceiling, after which everyone is erased and a finished raffle is purged. At most 365. |

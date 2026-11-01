@@ -199,7 +199,7 @@ fn fixed_of(r: &RaffleRow) -> settings::Fixed<'_> {
 /// Saves a raffle's settings. Switching test mode off removes the raffle's
 /// fake entrants in the same write. A fixed setting (the rules, the event
 /// date, the retention period, the privacy text or link) can't change once
-/// an entrant accepted the rules: the refusal names which. Registration
+/// a real entrant is in, joined or added: the refusal names which. Registration
 /// switches before the freeze, but not while it is open
 /// ([`RaffleState::registration_editable`](lifecycle::RaffleState::registration_editable)).
 pub async fn update_settings(
@@ -250,7 +250,7 @@ pub async fn update_settings(
     if !write.written {
         // Test mode changed after a freeze since the read above,
         // registration after it opened or froze, or a fixed setting after
-        // someone accepted the rules.
+        // a real entrant came in.
         let current = raffles::get(&app.db, id).await?;
         let frozen = current
             .as_ref()

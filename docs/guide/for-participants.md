@@ -76,7 +76,7 @@ list of entrants lets anyone find their name. See [Verifying a draw](verifying-a
 ## Your data
 
 Your display name appears on the screen and in the verification page's list of entrants, until your data is
-erased. When you join yourself, it doesn't have to be your real name. Your email never appears. Your entry stays in the raffle until it is
-finished; your name and email are erased on the day the join form told you, automatically (a winner's once their
-prize is delivered), and the organizer can erase yours earlier on request once the draw is over. The **Privacy
-notice** link on the page has the details.
+erased. When you join yourself, it doesn't have to be your real name. Your email never appears. Your entry stays
+in the raffle until it is finished; your name and email are erased on the day the join form (or the privacy
+notice) told you, automatically (a winner's once their prize is delivered), and the organizer can erase yours
+earlier on request once the draw is over. The **Privacy notice** link on the page has the details.

@@ -1,6 +1,12 @@
 # Entrants from a list
 
-**Status: proposed, revision 5 (2026-11-01).** Issue #38: "Allow creating raffles where participants don't enter
+> **Historical document.** The spec entrants from a list were built from, kept for the reasoning behind its
+> decisions. What the software does is in [running a raffle](../guide/running-a-raffle.md),
+> [privacy and abuse](../explanation/privacy-and-abuse.md) and [why the draw is
+> verifiable](../explanation/verifiability.md), which are the source of truth; where this spec and the code
+> differ, §Implementation notes says how.
+
+**Status: implemented (2026-11-01), revision 5; moved to history (2026-11-01).** Issue #38: "Allow creating raffles where participants don't enter
 themselves, but are entered from the list. Example: import registered users for an event from the registration
 system."
 
@@ -488,7 +494,8 @@ Each is shippable and tested on its own.
    the setting, the freeze from Published and unfreezing to it, the lifecycle buttons from `AdminActions`, the
    projector and `/j/` without registration. Done: every lifecycle write guarded on the setting (§Registration as
    a setting).
-8. **Docs and terms.**
+8. **Docs and terms.** Done: the terms template's processing agreement (§4) and the operator's notice; the
+   operator's records (`docs/operations/overview.md`); the docs swept (§Implementation notes).
 
 ## Testing decisions
 
@@ -598,6 +605,49 @@ Sketched to keep phase 1's seams right; it gets its own plan.
   terms alone carry the organizer's warranties well enough, with no recorded statement per raffle; the
   processing agreement's coverage of data organizers bring; the objection mechanics after the freeze (Art. 21: the
   anonymous ID kept for verifiability); sensitive lists and minors, now only in the terms and the guide.
+
+## Implementation notes
+
+Built in nine commits, slices 0 to 8, on 2026-11-01. Where the text above differs, this is what was built:
+
+- **Removals at their request are forgotten when the manifest is written**, not on the erasure date: with the list
+  fixed for good no add can come, and the email keys serve nothing. Also with the raffle's expiry, a purge, the
+  owner leaving and deletion; housekeeping's `forget_removals` deletes any left for a raffle that is frozen, purged
+  or past its date, which `reapply-erasures` relies on after a restore.
+- **A list with more than 2000 people to add is refused, not split.** The list tab won't send it; the organizer
+  adds the list in parts, the people already in skipped by the next. Parts sent by the browser would make one list
+  several adds, of which **Undo last add** takes back only the last, and a part failing after others went in a
+  half-added list.
+- **`batch_row` is NULL for one person** (only a list has an order to keep; the list's order is `created_at,
+  COALESCE(batch_row, 0), id`). "Added from a list" (the view's `list_added`, for the projector's "Registered?
+  You're already in." and the freeze's reminder) is an entrant added with a row number, kept through erasure.
+- **Whom no phone tells is a rule of the source** (`Source::no_phone`): someone the organizer added. Fakes have no
+  `no_phone`: a fake stands in for a joiner, so a rehearsal plays the phone's path.
+- **The draw console shows no claim code for a winner with no phone** (they never saw one), and masks every
+  winner's email until **Show**, not only an added one's (consoles get mirrored).
+- **Every lifecycle write is guarded on the registration setting** the lifecycle decided with (`AND registration
+  = ?` in `raffles::transition` and `freeze`), not only opening and the freeze from Published: a move whose setting
+  changed since the read is refused. A raffle found frozen without a manifest doesn't record where it froze from:
+  it unfreezes to Closed with registration, to Published without.
+- **Objections** are refused for a winner who claimed a prize (the result stands; their data is erased on request
+  at the finish), can be undone until the finish (`unobject_entrant`, the name left hidden), and the server, not
+  only the console, refuses Claimed and Not here for an objected winner (`objected_winner`).
+- **Source counts** (`VerifyData.sources`) are counted at read time over the manifest's entrants and left out when
+  the rows don't account for every one; `verify.json`'s format stays 1, and `tools/verify.py` ignores them.
+- **The parser** is a module directory (`apps/web/src/import/`: decode, parse, detect, preview) with a
+  hand-written RFC 4180 reader rather than `csv-core`, and also reads UTF-16 with a byte order mark.
+- **`AdminActions`** gained `lifecycle`, `edit_registration`, `missing` (what the settings lack for the step
+  ahead), `add_list`, `add_list_refusal` and `undo`, not `add`, `import` and `undo_add`. The store's batch insert
+  is `insert_added` (`insert_manual` went), and undo is `delete_batch`.
+- **The projector without registration** says "The draw is coming up" where it would say that registration opens
+  or has closed.
+- **The join form's version** is 2026-11-01: the standard rules gained the sentences on both ways in and on the
+  age of the people the organizer adds.
+- **The terms and the operator's records** (slice 8): the template's §4 names the people organizers add as data
+  subjects, adding as the organizer's instruction, the organizer's warranties (a lawful basis, telling people
+  before the draw, no special-category lists, the age limit) and what the service receives from a list; the
+  operator's notice says it processes them. The record of processing and why ordinary meetups need no DPIA are a
+  section of `docs/operations/overview.md`, not a separate assessment.
 
 ## Review log
 

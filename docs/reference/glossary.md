@@ -40,7 +40,7 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Draft** | Being set up. Not public. |
 | **Published** (`Ready`) | The projector shows the intro screen, but nobody can join yet. Without registration, the list is frozen from here. |
 | **Registration open** / **closed** (`Open` / `Closed`) | Whether phones can join. Registration can be reopened until the freeze. |
-| **Freeze**, "Freeze list & start the draw" | Closes registration for good, fixes the entrant list, writes the manifest and opens the raffle in the engine. From Registration open or closed; without registration, from Published, after the checks opening would make (an organizer and a contact named, the erasure date not passed). A freeze that finds nobody goes back where it came from. |
+| **Freeze**, "Freeze list & start the draw" | Fixes the entrant list (closing registration for good, if the raffle has it), writes the manifest and opens the raffle in the engine. From Registration open or closed; without registration, from Published, after the checks opening would make (an organizer and a contact named, the erasure date not passed). A freeze that finds nobody goes back to Registration closed, or without registration to Published. |
 | **Ready to draw** (`Frozen`) | Frozen, before the first draw |
 | **Drawing** | At least one draw has started |
 | **Finished** | "Finish the raffle": nothing more can be drawn |
@@ -71,7 +71,7 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Retry**, "Retry round R" | Drawing a stalled item again fetches the same round |
 | **Abandon** | The organizer's explicit, logged way out of a stalled draw. The item goes back, and the next draw commits to a new round. |
 | **Pool** | Who can be drawn: in **pass 1**, everyone not yet drawn. In **pass 2** (more items than people), earlier winners who didn't forfeit. |
-| **Resolution** | What happened to a drawn winner: **"Claimed"** (`claimed`: present, their code checked; delivered too only if the prize is delivered on the spot), **"Not here"** (`not_here`) or **"Declined"** (`declined`) |
+| **Resolution** | What happened to a drawn winner: **"Claimed"** (`claimed`: present, their code checked, or for someone the organizer added, "Confirmed: it's them"; delivered too only if the prize is delivered on the spot), **"Not here"** (`not_here`) or **"Declined"** (`declined`) |
 | **Forfeit** | "Not here" or "Declined": the person is out, and the item is drawn again |
 | **Withdraw** (`void`) | Taking an available item out of the raffle |
 | **Event log** | The raffle's append-only record: `announced`, `drawn`, `stalled`, `abandoned`, `resolved`, `voided`, `finished` |

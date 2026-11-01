@@ -500,7 +500,7 @@ fn RetentionCard(admin: AdminData) -> Element {
                     p { class: "text-warning", "⚠ Not finished, and the event day has passed. Entrants' data is erased on the date regardless; finish the raffle so its data can be erased for good." }
                 }
                 if r.erasure_imminent {
-                    p { class: "text-warning", "⚠ Erasure is at the end of {erase}, less than a day away: registration closes then, and everyone who didn't win is erased on the hour after. An evening that runs past midnight needs the list frozen and the draws done before it." }
+                    p { class: "text-warning", "⚠ Erasure is at the end of {erase}, less than a day away: nobody can join or be added after it, and everyone who didn't win is erased on the hour after. An evening that runs past midnight needs the list frozen and the draws done before it." }
                 }
             }
         }

@@ -24,7 +24,7 @@ fn confirmed(result: std::result::Result<(), EngineError>) -> Result<()> {
     }
 }
 
-/// Closes registration, freezes the entrant list, writes the raffle's
+/// Freezes the entrant list (closing registration, if open), writes the raffle's
 /// manifest from it, and hands that to the raffle engine. A raffle without
 /// registration freezes from Published, after the checks opening would have
 /// made (a named controller and contact, the erasure date not passed); if

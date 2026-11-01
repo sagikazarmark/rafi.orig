@@ -6,7 +6,8 @@
 - The page must be served over **HTTPS**. Phones solve the proof-of-work with WebCrypto, which browsers only offer
   on HTTPS and `localhost`. On a LAN, use a tunnel or a certificate (see
   [Getting started](../development/getting-started.md#testing-with-phones)).
-- Registration must be **open**: the join code works only then.
+- Registration must be **open**: the join code works only then. A raffle with **Let people join with the QR code**
+  switched off has no registration at all: its page has no form, and the organizer adds the people taking part.
 - Natively, the participant build is where the app expects (`RAFI_PARTICIPANT_DIR`), and is the build the binary
   was compiled against: the app doesn't start otherwise, and says so.
 

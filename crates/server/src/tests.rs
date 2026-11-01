@@ -4501,7 +4501,7 @@ async fn settings_refusals_over_http() {
     assert_eq!(err.code, "settings_fixed");
     assert_eq!(
         err.message,
-        "The event date cannot change: entrants have already accepted the rules they were shown with."
+        "The event date cannot change: entrants are already in the raffle under what was set."
     );
 
     let fresh = create(&app, "dev", "Far").await;

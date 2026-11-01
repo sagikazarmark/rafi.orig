@@ -7,7 +7,7 @@ see [Operations](../operations/overview.md). For the draw itself in detail, see 
 
 ```mermaid
 flowchart LR
-    A["Before<br/>create the raffle,<br/>add prizes, rehearse"] --> B["Doors open<br/>publish, open registration,<br/>show the projector"]
+    A["Before<br/>create the raffle,<br/>add prizes, rehearse"] --> B["Doors open<br/>publish, show the projector,<br/>open registration or add your list"]
     B --> C["Start the draw<br/>freeze the list"]
     C --> D["Draw each prize<br/>Draw → Claimed<br/>or Not here / Declined"]
     D --> E["Finish<br/>thanks screen,<br/>export winners"]
@@ -96,7 +96,9 @@ opens: it goes from Published to the freeze.
      rules and privacy notice (and your own notice, if it is an `https://` link), and asks anyone who'd rather not
      take part to tell your privacy contact (or your contact email) before the draw. The links work once the raffle
      is published. You're responsible for being allowed to share the list, for telling its people, and for their
-     meeting the age limit: the rules say so.
+     meeting the age limit: the rules and the terms say so. Don't add a list that says something about people's
+     health, beliefs, politics or sexuality just by having them on it (a support group's, a religious or political
+     meeting's attendees): let them join with the QR code there.
 3. **Prizes:** add each prize with a quantity and, optionally, a sponsor. Each copy is drawn on its own, in any
    order you like during the draw. Say how each one reaches its winner: **On the spot** (handed over when they
    come up with their code: pressing **Claimed** marks it delivered too) or **Sent later** (a voucher you email
@@ -121,17 +123,18 @@ opens: it goes from Published to the freeze.
 2. **Open registration.** The projector now shows a QR code, the short join URL and code, a live entrant count and
    recent names, plus "No smartphone? Come to the organizer!". Once you have added people from a list, it says
    "Registered? You're already in. Not registered? Scan to join." instead of "Scan to join", so your registrants
-   don't join a second time.
+   don't join a second time. A raffle [without registration](#raffles-without-registration) has no such step.
 3. Attendees scan and join with their email and a display name, which is optional: whoever leaves it blank gets a
    generated one, like "Brave Otter" (see [For participants](for-participants.md)).
 4. While people join, use the **People** tab to:
-   - **Add people → One person**: someone without a smartphone, by name (email optional). They are in the draw like everyone
-     else, as "added by you"; an email already in is skipped. **Undo last add** takes your latest add off the list
-     again, until the freeze. A name you give may be a full name of up to 64 characters (people joining with the
-     QR code have 24): the projector fits it on screen. It can't be a name someone in the raffle is already shown
-     with ("Someone is already shown as “Anna K.”"): add a surname, an initial or a number, so the room can tell
-     who won. The word filter matches parts of words and refuses some real names (Nazir, Buzinkay): if it refuses
-     someone's real name, switch on **It's their real name** to add it anyway; nothing else is lifted.
+   - **Add people → One person**: by name (email optional), for someone without a phone or anyone you put in
+     yourself. They are in the draw like everyone else, as "added by you"; an email already in is skipped. **Undo
+     last add** takes your latest add off the list again, until the freeze. A name you give may be a full name of
+     up to 64 characters (people joining with the QR code have 24): the projector fits it on screen. It can't be a
+     name someone in the raffle is already shown with ("Someone is already shown as “Anna K.”"): add a surname, an
+     initial or a number, so the room can tell who won. The word filter matches parts of words and refuses some
+     real names (Nazir, Buzinkay): if it refuses someone's real name, switch on **It's their real name** to add it
+     anyway; nothing else is lifted.
    - **Add people → Paste or upload a list**: your guest list, in one go ([below](#adding-a-list)).
    - **hide** or **rename** a display name on screen with one tap (a troll, a typo), up to 64 characters. New names
      reach the projector after a 5 s delay.
@@ -214,7 +217,7 @@ the draw before it, with the paragraph shown there (also in the settings), in th
 Press **Freeze list & start the draw** when everyone is in (from Registration open or closed, or from Published in a
 raffle without registration). It asks first, because this step is final:
 
-- Registration closes for good. Latecomers can't be added.
+- The list is closed for good: registration, if it is open, closes, and nobody can join or be added afterwards.
 - If you added people from a list, the dialog reminds you: "People added from a list will be shown on the screen
   and the verification page. Make sure they were told about the draw." Nothing to tick, and nothing is recorded:
   telling them is yours to do (the paragraph in the settings), and the reminder is the last moment before their

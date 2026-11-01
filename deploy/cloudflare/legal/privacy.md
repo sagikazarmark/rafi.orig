@@ -12,9 +12,11 @@
 ## Two roles
 
 - **For the entrants of a raffle**, the organizer who runs it is the data controller, and we are their
-  processor: we store and process entries on their instructions, under a data processing agreement that is
-  part of our terms (`/terms`). The raffle's own privacy notice (`/privacy/<raffle>`) names the organizer,
-  their contact, and the dates on which personal data is erased.
+  processor: we store and process entries, and the people the organizer adds (one by one or from their event's
+  list: the name, the email address and a registration ID, nothing else from it), on their instructions, under a
+  data processing agreement that is part of our terms (`/terms`). The raffle's own privacy notice
+  (`/privacy/<raffle>`) names the organizer, their contact, where the data of people the organizer added comes
+  from, and the dates on which personal data is erased.
 - **For organizers' accounts and the operation of the service**, we are the controller. That is what the rest
   of this notice is about, along with the providers we rely on for both roles.
 
