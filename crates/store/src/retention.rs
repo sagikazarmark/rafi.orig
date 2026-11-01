@@ -87,7 +87,7 @@ fn due() -> String {
             WHERE r.id = entrants.raffle_id
               AND r.state IN ({frozen}) AND r.erase_at <= ?1
               AND (entrants.delivered_at IS NOT NULL
-                   OR r.erase_at + ?2 <= ?1
+                   OR r.erase_at <= ?1 - ?2
                    OR entrants.id NOT IN (
                        SELECT entrant_id FROM draws WHERE raffle_id = r.id AND outcome = '{claimed}')))",
         frozen = states(RaffleState::frozen_or_later),
@@ -100,7 +100,7 @@ fn due() -> String {
 /// the engine owns its state.
 fn at_ceiling() -> String {
     format!(
-        "state = '{finished}' AND purged_at IS NULL AND erase_at + ?2 <= ?1",
+        "state = '{finished}' AND purged_at IS NULL AND erase_at <= ?1 - ?2",
         finished = RaffleState::Finished.as_str(),
     )
 }
@@ -319,7 +319,7 @@ pub async fn unfinished_at_ceiling(
 ) -> Result<Vec<String>> {
     let ids: Vec<(String,)> = db
         .query(format!(
-            "SELECT id FROM raffles WHERE state IN ({}) AND erase_at + ?2 <= ?1
+            "SELECT id FROM raffles WHERE state IN ({}) AND purged_at IS NULL AND erase_at <= ?1 - ?2
              ORDER BY CASE WHEN id > ?3 THEN 0 ELSE 1 END, id",
             states(RaffleState::drawable)
         ))

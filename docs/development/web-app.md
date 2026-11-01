@@ -45,6 +45,23 @@ Tailwind CLI. daisyUI comes from npm (`apps/web/package.json`). A plain `cargo b
 needs the compiled stylesheet too: on a fresh checkout, run `dx build` once, or
 `tailwindcss -i tailwind.css -o assets/tailwind.css` in `apps/web`.
 
+Every colour and its `-content`, and `base-content` on each base, reads at 4.5:1 or more in both themes, and so do
+the stops of the light theme's `.gradient-text` (the winner's name): `theme_contrast` in `rafi-web` checks the
+stylesheet, so a colour that doesn't fails `cargo test -p rafi-web`.
+
+## Following a raffle live
+
+- **The projector and the admin** poll the full view (`ui/live.rs`, `LiveView`). A countdown reads the server's
+  time through `ServerClock`, the offset between the view's `server_now_ms` and the browser's clock taken when the
+  view arrived, not recomputed each render (which would pin it to the view's own time). Failed fetches are counted
+  (`Trouble`): before any view, the projector says there is no raffle at the address (a 404) or that the server
+  can't be reached; over one, a "Reconnecting…" badge after ten seconds. A reply the page can't read
+  (`codes::UNREADABLE`) is a page older than the server: the projector reloads, once a minute at most. The admin's
+  header shows "Offline" from `navigator.onLine` and the same count.
+- **Phones** follow the live channel; one the server refuses or closes for good (4403) polls the participant view
+  instead, and tries the channel again after 5 s, doubling to a minute. A WebAssembly module that arrives after the
+  loader started `fallback.js` doesn't start: the fallback has the page.
+
 ## Forms and components
 
 Organizer forms use [dioform](https://crates.io/crates/dioform) (typed fields, validation, managed async submit).

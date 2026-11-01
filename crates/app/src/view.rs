@@ -5,8 +5,12 @@ use std::collections::HashMap;
 
 use rafi_api::{CurrentDraw, DrawView, ItemView, PrizeView, RaffleView};
 use rafi_lifecycle::RaffleState;
-use rafi_raffle::{BeaconSource, Event, ItemId, ItemStatus};
-use rafi_store::view::Full;
+use rafi_raffle::{BeaconSource, Event, ItemId, ItemStatus, Raffle};
+use rafi_store::{
+    prizes::PrizeRow,
+    raffles::RaffleRow,
+    view::{Full, Lite, Summary},
+};
 
 use crate::App;
 
@@ -23,26 +27,69 @@ pub fn privacy_url(app: &App, slug: &str) -> String {
     format!("{}/privacy/{slug}", app.policy.public_url)
 }
 
+/// The raffle's verification page, absolute: where the projector's thank-you
+/// screen sends the room to check the draw.
+pub fn verify_url(app: &App, slug: &str) -> String {
+    format!("{}/v/{slug}", app.policy.public_url)
+}
+
 /// The full view of a raffle, or `None` if it doesn't exist. Its `v` is the
-/// raffle's version.
+/// raffle's version. Read without every entrant's row ([`Lite`]): the
+/// projector and the admin poll it all evening.
 pub async fn build(app: &App, raffle_id: &str) -> anyhow::Result<Option<RaffleView>> {
-    match Full::read(&app.db, raffle_id).await? {
-        Some(full) => Ok(Some(of(app, &full, app.clock.now())?)),
+    let now = app.clock.now();
+    match Lite::read(&app.db, raffle_id, now - NAME_DELAY_SECS).await? {
+        Some(lite) => Ok(Some(view(
+            app,
+            &lite.raffle,
+            &lite.prizes,
+            &lite.entrants,
+            lite.drawn.as_ref(),
+        )?)),
         None => Ok(None),
     }
 }
 
-/// The full view of a raffle read as `full`, at `now`.
+/// The full view of a raffle read as `full`, at `now`: the same as
+/// [`build`]'s, from every entrant's row.
 pub fn of(app: &App, full: &Full, now: i64) -> anyhow::Result<RaffleView> {
-    let Full {
-        raffle,
-        prizes,
-        entrants,
-        drawn,
-    } = full;
+    // The entrants in a draw: who the view names.
+    let entrant_ids: Vec<String> = full
+        .drawn
+        .as_ref()
+        .map(|s| {
+            s.draws()
+                .into_iter()
+                .map(|d| d.entrant.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let summary = Summary::of(
+        &full.entrants,
+        now - NAME_DELAY_SECS,
+        entrant_ids.iter().map(String::as_str),
+    );
+    view(
+        app,
+        &full.raffle,
+        &full.prizes,
+        &summary,
+        full.drawn.as_ref(),
+    )
+}
 
+/// The view of `raffle`, its `prizes`, its `entrants` and the raffle as
+/// `drawn`.
+fn view(
+    app: &App,
+    raffle: &RaffleRow,
+    prizes: &[PrizeRow],
+    entrants: &Summary,
+    drawn: Option<&Raffle>,
+) -> anyhow::Result<RaffleView> {
     // Erased entrants have no name left: screens show the start of their ID.
     let known: HashMap<&str, Option<&str>> = entrants
+        .drawn
         .iter()
         .filter(|e| !e.erased)
         .map(|e| {
@@ -54,17 +101,10 @@ pub fn of(app: &App, full: &Full, now: i64) -> anyhow::Result<RaffleView> {
     // Who has no phone to tell them they won, erased or not: the projector
     // calls them to the front.
     let no_phone: std::collections::HashSet<&str> = entrants
+        .drawn
         .iter()
         .filter(|e| e.source.no_phone())
         .map(|e| e.id.as_str())
-        .collect();
-
-    let recent_names = entrants
-        .iter()
-        .rev()
-        .filter(|e| !e.hidden && !e.erased && e.created_at <= now - NAME_DELAY_SECS)
-        .take(20)
-        .map(|e| e.display_name.clone())
         .collect();
 
     let prize_meta: HashMap<&str, (&str, &str)> = prizes
@@ -189,11 +229,13 @@ pub fn of(app: &App, full: &Full, now: i64) -> anyhow::Result<RaffleView> {
         description: raffle.description.clone(),
         join_url: join_url(app, &raffle.join_code),
         join_code: raffle.join_code.clone(),
-        entrant_count: entrants
-            .iter()
-            .filter(|e| !e.erased || state != RaffleState::Purged)
-            .count(),
-        recent_names,
+        // Once purged, the erased are gone from the count.
+        entrant_count: if state == RaffleState::Purged {
+            entrants.unerased
+        } else {
+            entrants.count
+        } as usize,
+        recent_names: entrants.recent_names.clone(),
         prizes: prize_views,
         items,
         current,
@@ -206,7 +248,8 @@ pub fn of(app: &App, full: &Full, now: i64) -> anyhow::Result<RaffleView> {
         registration: raffle.registration,
         organizer: raffle.organizer_name.trim().to_owned(),
         privacy_url: privacy_url(app, &raffle.slug),
-        list_added: entrants.iter().any(crate::entrants::from_list),
+        verify_url: verify_url(app, &raffle.slug),
+        list_added: entrants.list_added,
         state,
     })
 }

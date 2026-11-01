@@ -12,6 +12,8 @@ use super::*;
 #[component]
 pub(super) fn DrawConsole(
     admin: AdminData,
+    /// The server's clock, as of `admin`.
+    clock: ServerClock,
     error: Signal<Option<String>>,
     on_change: EventHandler<()>,
 ) -> Element {
@@ -176,20 +178,19 @@ pub(super) fn DrawConsole(
         .filter(|u| matches!(u.status, ItemStatus::Available | ItemStatus::Drawn))
         .count();
     let pending_item = pending.as_ref().map(|p| p.item.clone());
-    let offset = v.server_now_ms as i64 - crate::ui::now_ms() as i64;
     // A pending draw whose beacon could not be fetched (or whose fetch was lost,
     // e.g. a restart): it stays on its round; the organizer can retry or
     // abandon it.
     let overdue = pending
         .as_ref()
-        .is_some_and(|c| now() as i64 + offset > c.round_time as i64 * 1000 + 90_000);
+        .is_some_and(|c| clock.now(now()) > c.round_time as i64 * 1000 + 90_000);
     let stalled = pending.is_some() && (v.last_failure.is_some() || overdue);
 
     rsx! {
         div { class: "space-y-4",
             if let Some(cur) = &pending {
                 {
-                    let remaining_ms = (cur.round_time as i64 * 1000 - now() as i64 - offset).max(0);
+                    let remaining_ms = (cur.round_time as i64 * 1000 - clock.now(now())).max(0);
                     let secs = (remaining_ms + 999) / 1000;
                     let pct = (100 - (remaining_ms / 60).min(100)).max(5);
                     rsx! {

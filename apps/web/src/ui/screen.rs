@@ -9,7 +9,7 @@ use rafi_live_client::ParticipantView;
 
 use super::{
     Brand, ThemeToggle,
-    live::{use_clock, use_live_view},
+    live::{ServerClock, Trouble, TroubleKind, reload_once, use_clock, use_live_view},
 };
 use rafi_api::{DrawView, RaffleView};
 
@@ -23,29 +23,36 @@ pub fn Screen(slug: String) -> Element {
 #[component]
 fn ScreenInner(slug: String) -> Element {
     let live = use_live_view(slug.clone());
+    let trouble = *live.trouble.read();
+    // A view this page can't read: the server is newer, and so is its page.
+    use_effect(move || {
+        if live
+            .trouble
+            .read()
+            .is_some_and(|t| t.kind == TroubleKind::Newer)
+        {
+            reload_once();
+        }
+    });
     let guard = live.view.read();
     let Some(v) = guard.as_ref() else {
-        return rsx! {
-            main { class: "grid min-h-screen place-items-center bg-base-100 bg-dots",
-                div { class: "flex flex-col items-center gap-4",
-                    Brand { size: "text-4xl" }
-                    span { class: "loading loading-dots loading-lg text-primary" }
-                }
-            }
-        };
+        return rsx! { Waiting { trouble } };
     };
     let v = v.clone();
     drop(guard);
     let ahead = live.ahead_of(&v);
+    let clock = *live.clock.read();
 
     let body = match v.state {
         RaffleState::Draft => {
-            rsx! { p { class: "text-3xl font-bold text-base-content/60", "This raffle does not exist." } }
+            rsx! { p { class: "text-3xl font-bold text-base-content/60", "{NOT_FOUND}" } }
         }
         RaffleState::Ready | RaffleState::Open | RaffleState::Closed => {
             rsx! { Intro { view: v.clone() } }
         }
-        RaffleState::Frozen | RaffleState::Drawing => rsx! { Drawing { view: v.clone(), ahead } },
+        RaffleState::Frozen | RaffleState::Drawing => {
+            rsx! { Drawing { view: v.clone(), ahead, clock } }
+        }
         RaffleState::Finished | RaffleState::Purged => rsx! { Finished { view: v.clone() } },
     };
 
@@ -54,6 +61,7 @@ fn ScreenInner(slug: String) -> Element {
         main { class: "flex min-h-screen flex-col gap-[2vh] bg-base-100 bg-dots px-[3vw] py-[2.5vh] text-[clamp(16px,1.5vw,34px)]",
             header { class: "flex items-center gap-4",
                 h1 { class: "flex-1 text-[2.2em] font-extrabold leading-tight", "{v.title}" }
+                Connection { trouble }
                 if v.test_mode {
                     span { class: "badge badge-warning badge-lg font-bold", "🧪 TEST MODE" }
                 }
@@ -68,6 +76,59 @@ fn ScreenInner(slug: String) -> Element {
                 Brand { size: "text-[1.1em]" }
                 span { class: "inline-flex items-center gap-1", ShieldCheck { class: "size-[1.2em]" } "drand · provably fair" }
             }
+        }
+    }
+}
+
+/// What the screen says at a slug with no raffle to show (none, or not
+/// published yet).
+const NOT_FOUND: &str = "No raffle at this address, or it isn't published yet.";
+
+/// What the screen says when its page is older than the server.
+const RELOADING: &str = "This screen is older than the server: reloading…";
+
+/// Before the first view: loading, or why there is none yet. Fetching goes
+/// on, so a raffle published meanwhile comes up by itself.
+#[component]
+fn Waiting(trouble: Option<Trouble>) -> Element {
+    let kind = trouble.map(|t| t.kind);
+    rsx! {
+        main { class: "grid min-h-screen place-items-center bg-base-100 bg-dots p-6 text-[clamp(16px,1.5vw,34px)]",
+            div { class: "flex flex-col items-center gap-[1em] text-center", role: "status",
+                Brand { size: "text-4xl" }
+                match kind {
+                    Some(TroubleKind::NotFound) => rsx! {
+                        p { class: "max-w-[24em] text-[1.4em] font-bold", "{NOT_FOUND}" }
+                    },
+                    Some(TroubleKind::Newer) => rsx! {
+                        p { class: "text-[1.4em] font-bold", "{RELOADING}" }
+                    },
+                    _ => rsx! {
+                        span { class: "loading loading-dots loading-lg text-primary" }
+                        if trouble.is_some_and(|t| t.offline()) {
+                            p { class: "text-[1.2em] font-semibold text-base-content/70", "Can't reach the server. Retrying…" }
+                        }
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// A badge in the header while the view can't be refreshed: the screen goes
+/// on showing the last one, and the room shouldn't trust it blindly.
+#[component]
+fn Connection(trouble: Option<Trouble>) -> Element {
+    let label = match trouble {
+        Some(t) if t.kind == TroubleKind::Newer => RELOADING,
+        Some(t) if t.offline() => "Reconnecting…",
+        _ => return rsx! {},
+    };
+    rsx! {
+        span { class: "inline-flex items-center gap-[0.4em] rounded-full bg-warning px-[0.8em] py-[0.25em] text-[0.8em] font-bold text-warning-content",
+            role: "status",
+            span { class: "loading loading-spinner size-[1em]" }
+            "{label}"
         }
     }
 }
@@ -235,10 +296,9 @@ fn Intro(view: RaffleView) -> Element {
 }
 
 #[component]
-fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
+fn Drawing(view: RaffleView, ahead: Option<ParticipantView>, clock: ServerClock) -> Element {
     let now = use_clock(200);
     let left: u32 = view.prizes.iter().map(|p| p.left).sum();
-    let offset = view.server_now_ms as i64 - crate::ui::now_ms() as i64;
 
     // The draw in progress and the latest winner: from the live channel's
     // participant view while it's ahead (the reveal comes first), otherwise
@@ -272,7 +332,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
     };
 
     let stage = if let Some((prize_name, round, round_time)) = current {
-        let remaining_ms = (round_time as i64 * 1000) - (now() as i64 + offset);
+        let remaining_ms = (round_time as i64 * 1000) - clock.now(now());
         let secs = ((remaining_ms.max(0) + 999) / 1000).min(99);
         rsx! {
             div { class: "flex flex-col items-center gap-[0.8em] text-center", role: "status",
@@ -424,6 +484,15 @@ fn Finished(view: RaffleView) -> Element {
         .filter(|d| d.outcome == Outcome::Claimed)
         .cloned()
         .collect();
+    // From a server before `verify_url`: the path alone.
+    let (verify, qr) = if view.verify_url.is_empty() {
+        (format!("/v/{}", view.slug), String::new())
+    } else {
+        (
+            without_scheme(&view.verify_url).to_owned(),
+            qr_svg(&view.verify_url),
+        )
+    };
     rsx! {
         div { class: "relative flex flex-1 flex-col items-center justify-center gap-[1.2em] text-center",
             div { class: "confetti", aria_hidden: "true",
@@ -445,9 +514,15 @@ fn Finished(view: RaffleView) -> Element {
                     }
                 }
             }
-            p { class: "inline-flex items-center gap-2 text-[0.9em] text-base-content/60",
-                ShieldCheck { class: "size-[1.2em]" }
-                "Check the draw yourself: /v/{view.slug}"
+            div { class: "flex items-center gap-[0.8em]",
+                if !qr.is_empty() {
+                    div { class: "w-[5em] shrink-0 rounded-xl bg-white p-[0.3em] [&>svg]:h-auto [&>svg]:w-full", aria_hidden: "true", dangerous_inner_html: "{qr}" }
+                }
+                p { class: "inline-flex flex-wrap items-center justify-center gap-[0.4em] text-[1em] text-base-content/70",
+                    ShieldCheck { class: "size-[1.2em]" }
+                    "Check the draw yourself:"
+                    span { class: "rounded-lg bg-base-200 px-[0.4em] py-[0.1em] font-mono font-bold text-base-content", "{verify}" }
+                }
             }
         }
     }
@@ -465,9 +540,79 @@ mod tests {
             "recent_names": ["Anna Kovács", "Bea"], "prizes": [], "items": [], "current": null,
             "draws": [], "last_failure": null, "manifest_hash": null, "server_now_ms": 0,
             "test_mode": false, "verifiable": true, "registration": registration,
-            "organizer": "Cloud Native Budapest", "privacy_url": "https://rafi.example/privacy/meetup"
+            "organizer": "Cloud Native Budapest", "privacy_url": "https://rafi.example/privacy/meetup",
+            "verify_url": "https://rafi.example/v/meetup"
         }))
         .unwrap()
+    }
+
+    /// The thank-you screen names the verification page with its host, as
+    /// the intro does the join link, and shows its QR code.
+    #[test]
+    fn the_thanks_screen_says_where_to_check() {
+        let html = dioxus_ssr::render_element(rsx! { Finished { view: view("finished", true) } });
+        assert!(html.contains("rafi.example/v/meetup"), "{html}");
+        assert!(
+            !html.contains("https://rafi.example/v/"),
+            "shown short: {html}"
+        );
+        let qr = "rounded-xl bg-white";
+        assert!(html.contains(qr), "{html}");
+        // A view from a server before `verify_url`: the path, no code.
+        let mut old = view("finished", true);
+        old.verify_url = String::new();
+        let html = dioxus_ssr::render_element(rsx! { Finished { view: old } });
+        assert!(html.contains("/v/meetup") && !html.contains(qr), "{html}");
+    }
+
+    fn trouble(kind: TroubleKind, for_ms: u64) -> Option<Trouble> {
+        let first = Trouble::after(None, kind, 1_000);
+        Some(Trouble::after(Some(first), kind, 1_000 + for_ms))
+    }
+
+    /// Before any view: loading; nothing at the slug; a page older than
+    /// the server; the server out of reach for a while.
+    #[test]
+    fn what_the_screen_says_before_a_view() {
+        let html = dioxus_ssr::render_element(rsx! { Waiting { trouble: None } });
+        assert!(
+            html.contains("loading-dots") && !html.contains(NOT_FOUND),
+            "{html}"
+        );
+        let html = dioxus_ssr::render_element(
+            rsx! { Waiting { trouble: trouble(TroubleKind::NotFound, 0) } },
+        );
+        assert!(
+            html.contains("No raffle at this address, or it isn&#39;t published yet."),
+            "{html}"
+        );
+        let html = dioxus_ssr::render_element(
+            rsx! { Waiting { trouble: trouble(TroubleKind::Newer, 0) } },
+        );
+        assert!(html.contains("older than the server: reloading"), "{html}");
+        let html = dioxus_ssr::render_element(
+            rsx! { Waiting { trouble: trouble(TroubleKind::Unreachable, 0) } },
+        );
+        assert!(!html.contains("Retrying"), "not yet: {html}");
+        let html = dioxus_ssr::render_element(
+            rsx! { Waiting { trouble: trouble(TroubleKind::Unreachable, 10_000) } },
+        );
+        assert!(
+            html.contains("Can&#39;t reach the server. Retrying…"),
+            "{html}"
+        );
+    }
+
+    /// Over a view: a badge once the view can't be refreshed for a while,
+    /// or right away when the server is newer; none while all is well.
+    #[test]
+    fn the_screen_says_when_it_is_stale() {
+        let render = |trouble| dioxus_ssr::render_element(rsx! { Connection { trouble } });
+        assert!(!render(None).contains("<span"));
+        assert!(!render(trouble(TroubleKind::Unreachable, 2_500)).contains("Reconnecting"));
+        assert!(render(trouble(TroubleKind::Unreachable, 10_000)).contains("Reconnecting…"));
+        assert!(render(trouble(TroubleKind::NotFound, 10_000)).contains("Reconnecting…"));
+        assert!(render(trouble(TroubleKind::Newer, 0)).contains("reloading"));
     }
 
     /// Without registration the intro says whose list is in, how to stay

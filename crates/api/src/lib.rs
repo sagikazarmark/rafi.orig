@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 /// The public, live state of a raffle: the projector's and the admin's full
 /// view, which they poll (`/api/r/{slug}/view`).
 ///
+/// Not a contract: unversioned, read by the web app of the same deployment,
+/// and free to change in any release (a page older than the server reloads
+/// when it can't read it). Programs read [`VerifyData`], which has a format.
+///
 /// Must never contain emails, entrant tokens or claim codes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RaffleView {
@@ -62,6 +66,10 @@ pub struct RaffleView {
     /// never saw a join form.
     #[serde(default)]
     pub privacy_url: String,
+    /// The raffle's verification page, absolute (`/v/<slug>`): the
+    /// projector's thank-you screen tells the room where to check the draw.
+    #[serde(default)]
+    pub verify_url: String,
     /// Whether someone on the list was added from a list (an add from the
     /// list tab), rather than one by one or by joining: the projector tells
     /// registered people they are in already, and the admin's freeze

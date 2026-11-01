@@ -188,9 +188,12 @@ pub mod codes {
     pub const UNAVAILABLE: &str = "unavailable";
     /// The server failed; the details are in its log.
     pub const INTERNAL: &str = "internal";
-    /// The browser's client couldn't reach the server, or couldn't read
-    /// what it sent back (an older page under a newer server).
+    /// The browser's client couldn't reach the server, or got back something
+    /// other than the API's reply (a proxy's error page).
     pub const CLIENT: &str = "client";
+    /// The browser's client got a successful reply it can't read: a page
+    /// older than the server. Reloading gets the server's.
+    pub const UNREADABLE: &str = "unreadable";
 }
 
 impl fmt::Display for ApiError {

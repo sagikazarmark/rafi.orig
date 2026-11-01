@@ -104,13 +104,16 @@ const LOADER: &str = include_str!("../../../apps/participant/dist/public/index.h
 /// A stand-in for the participant page: the server-rendered card, the embedded
 /// config, the inline loader with its fallback, and the WASM. `me` picks the
 /// entrant (`anna`, `bence`, or none for a visitor); `nowasm=1` removes
-/// `WebAssembly` to exercise the fallback.
+/// `WebAssembly` to exercise the fallback; `late=1` starts the fallback
+/// before the WASM arrives, as the loader does when the WASM is slower than
+/// its timeout.
 async fn page(
     env: &Env,
     db: &Db,
     raffle: &str,
     me: Option<&str>,
     nowasm: bool,
+    late: bool,
 ) -> Result<Response> {
     use dioxus::prelude::*;
     use rafi_live_client::{Card, CardStrings};
@@ -163,6 +166,9 @@ async fn page(
     let config = config.to_string().replace("</", "<\\/");
     let nowasm = if nowasm {
         "<script>delete window.WebAssembly;</script>"
+    } else if late {
+        // What the loader's timeout does, before the loader runs.
+        r#"<script>window.__rafiFallback=1;var s=document.createElement("script");s.src="/participant/fallback.js";document.body.appendChild(s)</script>"#
     } else {
         ""
     };
@@ -281,6 +287,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             &raffle,
             param("me").as_deref(),
             param("nowasm").is_some(),
+            param("late").is_some(),
         )
         .await;
     }

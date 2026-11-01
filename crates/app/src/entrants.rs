@@ -526,15 +526,6 @@ pub(crate) fn added_at(e: &EntrantRow) -> Option<i64> {
     })
 }
 
-/// Whether entrant `e` came in with an add from a list (the list tab), not
-/// the one-person form or a join: their row number in it says so, and
-/// stays when they are erased. People on a list may never have heard of
-/// the raffle unless the organizer told them, which the projector and the
-/// freeze's reminder are about.
-pub(crate) fn from_list(e: &EntrantRow) -> bool {
-    e.source == rafi_lifecycle::entrant::Source::Manual && e.batch_row.is_some()
-}
-
 /// A row's index in an add, as the API numbers it (at most
 /// [`MAX_ADD_ROWS`]).
 fn row_index(row: usize) -> u32 {

@@ -10,7 +10,8 @@ use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle,
 use super::{Outcome, check, fail};
 use crate::{
     Db, EntrantRow, RaffleRow, audit, defaults, entrants, housekeeping, live, pow, prizes, raffles,
-    retention, save_raffle, view::Full,
+    retention, save_raffle,
+    view::{Full, Lite, Summary},
 };
 
 /// A frozen raffle `id` with two entrants and one prize, and its draw state.
@@ -1584,6 +1585,139 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
         live::snapshot(db, "nope").await.map_err(fail)?.is_none(),
         "no such raffle",
     )
+}
+
+/// What the screens poll ([`Lite`]) summarizes the entrants as the admin's
+/// read of every row does ([`Summary::of`]): the count, the latest names
+/// (newest first, an add's rows backwards, neither hidden, erased nor too
+/// new), the drawn entrants and whether a list was added.
+pub(super) async fn summarizes_the_entrants_as_the_rows_do(db: &Db) -> Outcome {
+    check(
+        Lite::read(db, "nope", NOW).await.map_err(fail)?.is_none(),
+        "no such raffle",
+    )?;
+    let (anna, bence) = ("a".repeat(32), "b".repeat(32));
+    frozen(db, "r1").await?;
+    force_state(db, "r1", RaffleState::Closed).await?;
+    let list = [
+        (anna.as_str(), None, None),
+        (bence.as_str(), None, None),
+        ("cecil", None, None),
+        ("dora", None, None),
+    ];
+    check(
+        add_at(db, "r1", "list", Origin::List, &list, CAP, NOW - 100)
+            .await
+            .map_err(fail)?,
+        "the list",
+    )?;
+    add_at(
+        db,
+        "r1",
+        "b-eve",
+        Origin::One,
+        &[("eve", None, None)],
+        CAP,
+        NOW - 50,
+    )
+    .await
+    .map_err(fail)?;
+    add_at(
+        db,
+        "r1",
+        "b-fay",
+        Origin::One,
+        &[("fay", None, None)],
+        CAP,
+        NOW,
+    )
+    .await
+    .map_err(fail)?;
+    patch(
+        db,
+        "r1",
+        "dora",
+        entrants::Patch {
+            hidden: Some(true),
+            ..Default::default()
+        },
+    )
+    .await?;
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    let draw = Event::Drawn {
+        k: 1,
+        item: "u1".into(),
+        round: 1,
+        signature: String::new(),
+        randomness: String::new(),
+        pass: 1,
+        pool_size: 2,
+        index: 0,
+        entrant: bence.clone().into(),
+    };
+    let state =
+        Raffle::restore(&manifest("r1", [anna.clone(), bence.clone()]), &[draw]).map_err(fail)?;
+    check(
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
+        "writing the draw",
+    )?;
+    force_state(db, "r1", RaffleState::Finished).await?;
+    entrants::erase(db, "r1", Some("cecil"), 0)
+        .await
+        .map_err(fail)?;
+
+    let names_before = NOW - 5;
+    let lite = Lite::read(db, "r1", names_before)
+        .await
+        .map_err(fail)?
+        .ok_or("the raffle is gone")?;
+    let full = Full::read(db, "r1")
+        .await
+        .map_err(fail)?
+        .ok_or("the raffle is gone")?;
+    let drawn: Vec<String> = full
+        .drawn
+        .as_ref()
+        .map(|s| {
+            s.draws()
+                .into_iter()
+                .map(|d| d.entrant.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let of_rows = Summary::of(
+        &full.entrants,
+        names_before,
+        drawn.iter().map(String::as_str),
+    );
+    check(
+        lite.entrants == of_rows,
+        &format!("read: {:?}\nof the rows: {of_rows:?}", lite.entrants),
+    )?;
+    let summary = lite.entrants;
+    check(
+        (summary.count, summary.unerased) == (6, 5),
+        &format!("counted: {} and {}", summary.count, summary.unerased),
+    )?;
+    check(
+        summary.recent_names == ["eve", bence.as_str(), anna.as_str()],
+        &format!(
+            "newest first, without the hidden, the erased and the too new: {:?}",
+            summary.recent_names
+        ),
+    )?;
+    check(
+        summary.drawn.len() == 1
+            && summary.drawn[0].id == bence
+            && summary.drawn[0].source == Source::Manual,
+        &format!("the drawn: {:?}", summary.drawn),
+    )?;
+    check(summary.list_added, "a list was added")?;
+    check(
+        lite.raffle.version == full.raffle.version && lite.drawn == full.drawn,
+        "the same raffle as drawn",
+    )?;
+    check(lite.prizes.len() == full.prizes.len(), "the same prizes")
 }
 
 pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcome {

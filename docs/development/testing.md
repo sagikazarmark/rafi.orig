@@ -40,7 +40,7 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 | `rafi-engine`, `rafi-engine-restate` | The [engine conformance suite](#engine-conformance), on the local runner and on the `Raffle` object |
 | `rafi-app` | Use-case tests ([`crates/app/tests/use_cases.rs`](../../crates/app/tests/use_cases.rs)) |
 | `rafi-server` | HTTP tests, and an end-to-end test of the app, `rafi-restate` and `restate-server` on one database |
-| `rafi-web` | The router, server-rendered natively at a path (`dioxus-ssr`, a `MemoryHistory`): the admin refuses to render inside a frame. Only pages that touch no browser API on their first render can be rendered so; the rest are the evening's. The list tab's parser, column detection and preview, on export fixtures (`apps/web/fixtures/import`), and the tab's static state; a person's row in the People tab; parts of the evening that need no browser: the projector's intro (with registration and without, a list added or not) and "Come to the front!" at the reveal, the draw console's winner (the masked email, "added by you", the check to make) and its "Confirmed: it's them", the freeze's reminder, the verification page's source counts |
+| `rafi-web` | The router, server-rendered natively at a path (`dioxus-ssr`, a `MemoryHistory`): the admin refuses to render inside a frame. Only pages that touch no browser API on their first render can be rendered so; the rest are the evening's. The list tab's parser, column detection and preview, on export fixtures (`apps/web/fixtures/import`), and the tab's static state; a person's row in the People tab; parts of the evening that need no browser: the projector's intro (with registration and without, a list added or not) and "Come to the front!" at the reveal, the draw console's winner (the masked email, "added by you", the check to make) and its "Confirmed: it's them", the freeze's reminder, the verification page's source counts; the projector before its first view (loading, no raffle there, older than the server), its "Reconnecting…", its thank-you screen's verification link, and the admin's "Offline"; the server clock behind the countdowns; every theme colour pair's contrast (`theme_contrast`, reading `tailwind.css`) |
 | `tools/verify.py` | The same vectors as the Rust code ([`testdata/draw-vectors.json`](../../testdata/draw-vectors.json), from real quicknet beacons) |
 | Workers | [`./scripts/workers-check.sh`](#workers) |
 
@@ -131,7 +131,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 
 - `rafi-store`'s conformance suite on D1 (`testbeds/store-d1`)
 - the live channel over WebSockets (`testbeds/cloudflare`)
-- the participant page in headless Chromium (devenv's on Linux, or `CHROMIUM=…`), the fallback included
+- the participant page in headless Chromium (devenv's on Linux, or `CHROMIUM=…`), the fallback included, a
+  module that arrives after the fallback started leaving the page to it, and a phone the live channel refuses
+  (4403) polling instead
 - a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
   through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), the live channel,
   the end; the verification page's counts by source; a 64-character name the organizer added from a list, in a
@@ -157,7 +159,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   way it checks a download (the release's `SHA256SUMS` with the template's empty pin, `RAFI_SHA256` pinned to the
   tarball's hash, a wrong pin refused), and deployed (dry)
 
-CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from CI: a deploy is the operator's,
+Each `wrangler dev` gets a fixed port (8789 to 8792, 8787 for the evening), and the script refuses one something
+already listens on: a developer's own `wrangler dev`, or one left over from an earlier run, would answer in its
+place. CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from CI: a deploy is the operator's,
 from their copy of `deploy/cloudflare` ([Cloudflare](../operations/cloudflare.md)), and the dry runs above are
 its gate. A tag `v<version>` runs `just cloudflare-release` and publishes the release with the tarball and its
 checksums, then checks the tarball's digest as GitHub computed it on upload against the build's

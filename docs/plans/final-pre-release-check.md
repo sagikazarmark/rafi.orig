@@ -1,21 +1,22 @@
 # Final pre-release check
 
-**Status: Tier 0 and T4-2 done (`cf56888`, 2026-11-02); Tiers 1–8 proposed.** Each finding below that is done says
-what shipped, under **Done**, where it differs from its **Change**. Next, per [Order of work](#order-of-work): Tier 1,
-then the schema and query shapes (T3-1, T3-7, T7-6's `erasures` index, T3-9's manifest-row measurement) while
-`0001_init.sql` is still edited in place.
+**Status: Tier 0 and T4-2 done (`cf56888`, 2026-11-02); Tier 1, the schema and query shapes, and the contract notes
+done (2026-11-02), their browser checks in `evening.mjs` still open; Tiers 2–8 otherwise proposed.** Each finding
+below that is done says what shipped, under **Done**, where it differs from its **Change**. Next, per
+[Order of work](#order-of-work): the launch mechanics (Tier 2), which need the repository renamed and a Cloudflare
+account; and `just workers` once port 8787 is free, with the `evening.mjs` checks Tier 1 left open.
 
 ### Progress
 
 | Step | State |
 |---|---|
 | 1. Tier 0 | **Done** (`cf56888`). `0001_init.sql` gained `draws.delivery` and `add_batches`. Verified: fmt, `just clippy` (native and wasm32), `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, the D1 conformance testbed (every scenario ok). **Not run:** `just workers` (port 8787 was taken), so `evening.mjs` hasn't exercised the changed admin API in a browser. |
-| 2. Tier 1 | Not started |
-| 3. Schema and query shapes | Not started |
-| 4. Contract notes | T0-8's `format` check and the retention-promise decision done; T7-1 open |
+| 2. Tier 1 | **Done**, but for the `evening.mjs` parts of the Accepts (the countdown read twice, `/view` blocked, a projector at an unknown slug): `just workers` not run, port 8787 taken. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`; the D1 conformance testbed, the live channel's scenario and the participant smoke (steps 1–3 of `workers-check.sh`), every check ok. |
+| 3. Schema and query shapes | **Done**: T3-1, T3-7, T7-6's `erasures` index, T3-9's manifest row measured (natively) and kept. The `rows_read` counter and the `EXPLAIN` gate (T3-11) not built. |
+| 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
 | 5. Launch mechanics | Not started |
 | 6. Design and UX | Not started |
-| 7. Tests | T4-2 done; the rest not started |
+| 7. Tests | T4-2 done; T4-11's occupied port done; the rest not started |
 | 8. Tiers 7 and 8 | Not started |
 
 Proposed (2026-11-01). The last review before the first version is tagged, after
@@ -245,6 +246,9 @@ sequential tests.
 - **Accept**: `evening.mjs` (with `RAFI_DRAND_LEAD_SECS=6` for the run) reads the projector's `.countdown` text
   and the console's `radial-progress` text twice, 1 s apart, with no `/view` version change in between, and
   asserts both decreased; a `rafi-web` unit test of the offset helper.
+- **Done**: `live::ServerClock`, the offset taken when a view arrives: `LiveView.clock` for the projector, and the
+  admin's `get_raffle` resource carries one with its reply for the console (the console reads `admin.view`, not the
+  live view). Test: `the_server_clock_runs_from_the_view`. Open: the `evening.mjs` check.
 
 #### T1-2 · A phone refused by the live channel goes dark
 
@@ -264,6 +268,12 @@ sequential tests.
 - **Accept**: `testbeds/cloudflare` sets `CONNECT_LIMITER` to `limit = 1` for the smoke run; `smoke.mjs` opens a
   second WebAssembly phone, asserts its channel reports `Stopped`, draws, and asserts that phone shows the win
   within 10 s; the same for the no-WebAssembly fallback is already covered.
+- **Done**: a stopped channel (any reason) polls at `DEFAULT_POLL_MS`; one closed by the server (`StopReason::Closed`,
+  4403 among them) is tried again after 5 s, doubling to a minute (remounted by key), and polling stops when it
+  opens; every poll interval on the phone is jittered ±20 %. The smoke test gets its 4403 from live updates ended
+  while the raffle is still drawing (the gate refuses it as it does the limiter), not from a limiter of 1: the
+  testbed has no `[[ratelimits]]` and the refusal is the same close code. Check: "refused by the live channel: the
+  phone polls and shows the win".
 
 #### T1-3 · A late WebAssembly module and `fallback.js` fight over the card
 
@@ -277,6 +287,9 @@ sequential tests.
 - **Size**: trivial.
 - **Accept**: the testbed delays `/participant/assets/*.wasm` by 9 s when `?slow=1`; `smoke.mjs` asserts `#live`
   has exactly one child after 12 s and shows the win once after a draw.
+- **Done**: `start()` returns first thing when `window.__rafiFallback` is set. The testbed's `?late=1` starts the
+  fallback before the loader runs, as the loader's timeout does, rather than delaying the module 9 s (the same state,
+  12 s quicker); `smoke.mjs` asserts the module doesn't start, one card, and the win shown with one card.
 
 #### T1-4 · The projector and the admin have no offline or stale state
 
@@ -298,6 +311,14 @@ sequential tests.
 - **Accept**: `rafi-web` SSR tests render the three states; `evening.mjs` stops `wrangler dev` (or blocks `/view`
   with a request interception) for 15 s during the intro and asserts the badge appears and disappears; a
   projector opened at `/s/does-not-exist` shows the message within 5 s.
+- **Done**: `LiveView.trouble` (`live::Trouble`: kind, failures in a row, since when); "Reconnecting…" after 10 s of
+  failures; the 404 message before any view (the fetches go on, so a raffle published meanwhile comes up); a reply
+  that doesn't decode is a new client code, `unreadable` (network failures stay `client`), on which the projector
+  reloads, at most once a minute (`sessionStorage`); the verification page's "newer version" card keys on it too, and
+  shows a connection message for a network failure rather than that card. The admin's header shows "Offline" from
+  `navigator.onLine` and the raffle's live view (`AdminConnection`, set by `LiveRefresh`). No `x-rafi-build` header.
+  Tests: `what_the_screen_says_before_a_view`, `the_screen_says_when_it_is_stale`, `the_admin_says_when_it_is_offline`,
+  `trouble_counts_failures_in_a_row`, `the_kind_of_a_failure`. Open: the `evening.mjs` checks.
 
 #### T1-5 · The thanks screen tells the room to visit a relative path
 
@@ -308,6 +329,8 @@ sequential tests.
 - **Size**: trivial.
 - **Accept**: the `Finished` SSR test asserts the host is in the text; `the-draw.md:149` ("a link to check the
   draw") holds.
+- **Done**: the view gains `verify_url` (absolute, `serde(default)`; a view without it shows the path as before, no
+  code). Test: `the_thanks_screen_says_where_to_check`.
 
 #### T1-6 · The light theme fails contrast on the win moment and the winner's name
 
@@ -326,6 +349,11 @@ sequential tests.
 - **Size**: small.
 - **Accept**: a script (or test) computing WCAG contrast for every `--color-X` / `--color-X-content` pair in both
   themes asserts ≥ 4.5:1; the smoke test's screenshot of the won card in the light theme is reviewed once by eye.
+- **Done**: as changed, with `--color-error-content: #2e0008` (4.95:1) and the light gradient's middle a deep coral,
+  `#c81d56` (5.0:1 on base-200), rather than the secondary (2.9:1); the dark theme's gradient as before, under
+  `[data-theme=rafi-dark]` and the dark `prefers-color-scheme` without a theme. The checker is `rafi-web`'s
+  `theme_contrast` (every pair, base-content on each base, the light gradient's stops). Open: the screenshot by eye;
+  the projector's dark default is T6-1's.
 
 ## Tier 2 · Launch mechanics
 
@@ -491,6 +519,14 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
   in `crates/store/src/backend/d1.rs:150-200`) is ≤ `50 + P + E`; a server test asserts `GET /api/r/{slug}/view`
   is ≤ 2 round trips and ≤ 6 statements at N = 200 via a counting `Db`; `view::of`'s output is byte-identical
   before and after (the existing view tests).
+- **Done**: `rafi_store::view::Lite` (one batch: the raffle, the prizes, the counts and whether a list was added in
+  one aggregate, the 20 latest names by `entrants_raffle` backwards, the drawn entrants from `draws` by key, the
+  events) and `view::Summary`, which `Summary::of` computes the same from every row for the admin's `reads::admin`;
+  `app::view::build` reads `Lite`, so `/view` decodes no entrant rows. The raffle row is still read twice (in
+  `public_raffle` and in the batch, where it keeps the version and the content one snapshot). The count still visits
+  each entrant row once (`COUNT` over `entrants_raffle`, with `erased` and `source` from the table): about N rows a
+  poll rather than 2N plus N decoded. Test: `domain.view_summary` (SQLite, embedded Postgres, D1). Open: the
+  `rows_read` counter and the per-request statement count (T3-11 2, 3).
 
 #### T3-2 · The admin re-downloads the full entrant list on every join
 
@@ -573,6 +609,8 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
 - **Size**: trivial.
 - **Accept**: an `EXPLAIN QUERY PLAN` gate (`just test` runs `sqlite3 :memory:` over the store's hot queries and
   fails on `SCAN entrants|raffles|raffle_events`) passes; the retention conformance scenarios still pass.
+- **Done**: as changed, and `due`'s winner-hold term rewritten the same way. Checked by hand: both now `SEARCH raffles
+  USING INDEX raffles_erase_at (erase_at<?)`. Open: the gate (T3-11 7).
 
 #### T3-8 · The verification page re-verifies every beacon on each keystroke
 
@@ -599,7 +637,9 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
   N = 2000, so a housekeeping `UPDATE entrants SET {ERASED}` over M entrants rewrites that row M times in one
   transaction. **Accept**: freeze a 2000-entrant raffle in the D1 testbed, erase all, read `rows_written` and
   `duration`; if > 1 s, move `manifest` to its own table (now, while `0001` is editable) or bump `version` once
-  per statement.
+  per statement. **Done** (measured natively, SQLite 3 on a file, 2026-11-02): erasing 2000 entrants of a raffle
+  whose manifest is 80 KB takes 18 ms, against 3 ms with no manifest; far under 1 s, so `manifest` stays on
+  `raffles`. D1's `rows_written` for it not read (it counts the 2000 trigger updates whatever the row's size).
 - **BLS verify CPU on the Worker.** 3.9–6.9 ms in V8 on a laptop; Workers' CPUs are slower. The paid plan is
   mandated (`cloudflare.md:164`) so 30 s is the ceiling. **Accept**: on T2-3's deploy, read the CPU time of a
   `/restate/…/draw` resume from Workers Logs and record it in `cloudflare.md`.
@@ -758,6 +798,8 @@ gaps below are where a bug would ruin an evening, leak personal data or break ve
   times in a row in parallel.
 - **`workers-check.sh` doesn't refuse an occupied port**: the second review's evening hit a developer's own
   `wrangler dev` on 8787. **Accept**: the script fails fast with "port 8787 in use" before any request.
+  **Done**: `serve` refuses a port something listens on. It bit again on 2026-11-02: a `wrangler dev` left over
+  from an earlier session held 8789, and the D1 suite answered from a stale build (44 scenarios, not 45).
 - **Silent green without `RESTATE_SERVER_BIN`**: the five `#[ignore]` tests return early as *passed* locally.
   **Accept**: they print `skipped: RESTATE_SERVER_BIN unset` and `just test` ends with a count of skipped tests.
 - **Likeliest CI flake**: `screenAt − phoneAt < 1500` on a 50 ms CDP polling loop (`evening.mjs:243-244`).
@@ -1028,6 +1070,7 @@ file. Nothing here blocks the release; each accrues a copy a week.
   deployment, may change without notice; use `verify.json`" — or give it `format` now. Decide before the first
   external reader exists.
 - **Size**: trivial. **Accept**: one or the other is in `routes.md` before the tag.
+- **Done**: the note, in `routes.md` and on `RaffleView`.
 
 #### T7-2 · Twelve hand-rolled "guarded write, then re-read to explain" blocks
 
@@ -1097,7 +1140,7 @@ file. Nothing here blocks the release; each accrues a copy a week.
 - **Postgres NULL parameters** cost a re-prepare per call (`backend/postgres.rs:198-210,342-377`). `CAST(?N AS
   …)` at the few sites; drop the retry. (low)
 - **`erasures` has no index**; `reapply_*` `EXISTS` into it per entrant. `(raffle_id, entrant_id)` in `0001`
-  while it's open. (trivial)
+  while it's open. (trivial) **Done**: `erasures_entrant`, both dialects; the `EXISTS` is a covering-index search.
 - **Workspace dependencies**: `tokio` (10 manifests), `anyhow` (10), `tracing` (7), `worker` (5), `dioxus` (5),
   `dioxus-clerk` (5), `js-sys` (5), `wasm-bindgen` (4), `tracing-subscriber` (4), `futures-util` (4), `axum` (4),
   `gloo-timers` (3) declared inline; move to `[workspace.dependencies]` like `serde`/`sha2`/`drand`. (trivial)
@@ -1163,7 +1206,8 @@ The tag is ready when every line is true.
       and `add_batches` (or the alternatives are recorded here with the reason). (`cf56888`)
 - [ ] Tier 1: the countdown decreases between polls on both screens; a 4403'd phone shows the win; a 9 s wasm
       doesn't double-render; the projector shows offline/404/newer-server states; the thanks screen names the
-      host; every theme pair ≥ 4.5:1.
+      host; every theme pair ≥ 4.5:1. (All built and tested natively or in the participant smoke; the countdown and
+      the offline states not yet checked in `evening.mjs`.)
 - [ ] `gh repo view sagikazarmark/rafi` resolves; `rg -o 'github.com/sagikazarmark/[a-z.]+' | sort -u` is one
       name.
 - [ ] One `workflow_dispatch` dry run and one `v0.1.0-rc.1` pre-release exist; the release job depends on CI.
@@ -1180,7 +1224,7 @@ The tag is ready when every line is true.
 - [ ] Web gzip budget, `rows_read` assertions, the query-count test and the `EXPLAIN` gate are in CI.
 - [ ] `tools/verify.py` fails every tampered vector; the evening's `verify.json` passes it.
 - [ ] `evening.mjs` clicks through a draw on the console, imports a list, and runs housekeeping with due rows.
-- [ ] The tracing test is in its own binary; `workers-check.sh` refuses an occupied port.
+- [ ] The tracing test is in its own binary; `workers-check.sh` refuses an occupied port (done).
 - [ ] README has a projector screenshot and badges; community profile 100 %; a ruleset on `main`;
       `compatibility_date` bumped; `wrangler` pinned.
 - [ ] `pre-release-review.md` moved to `docs/history/`; this plan's status line says what shipped and what was

@@ -20,7 +20,9 @@
   logs: false;
 }
 
-/* Light: warm paper, violet ink, a splash of coral and sunshine. */
+/* Light: warm paper, violet ink, a splash of coral and sunshine.
+ * Every colour and its -content, and base-content on each base, reads at
+ * 4.5:1 or more in both themes (rafi-web's `theme_contrast` test checks). */
 @plugin "daisyui/theme" {
   name: "rafi";
   default: true;
@@ -33,7 +35,7 @@
   --color-primary: #6a45ff;
   --color-primary-content: #ffffff;
   --color-secondary: #ff5b8a;
-  --color-secondary-content: #ffffff;
+  --color-secondary-content: #3b0617;
   --color-accent: #ffc83d;
   --color-accent-content: #2b2100;
   --color-neutral: #241e36;
@@ -41,11 +43,11 @@
   --color-info: #3aa8ff;
   --color-info-content: #00203b;
   --color-success: #16b583;
-  --color-success-content: #ffffff;
+  --color-success-content: #003524;
   --color-warning: #ff9f1c;
   --color-warning-content: #2b1600;
   --color-error: #ef4056;
-  --color-error-content: #ffffff;
+  --color-error-content: #2e0008;
   --radius-selector: 1rem;
   --radius-field: 0.85rem;
   --radius-box: 1.5rem;
@@ -182,11 +184,22 @@
     @apply font-mono font-extrabold tracking-[0.25em];
   }
 
+  /* The winner's name and the thank-you: on light paper, violet through a
+   * deep coral and back, each stop readable on the bases (the coral and the
+   * sunshine are too pale for text there); the dark theme ends in sunshine. */
   .gradient-text {
-    background: linear-gradient(100deg, var(--color-primary), var(--color-secondary) 60%, var(--color-accent));
+    background: linear-gradient(100deg, var(--color-primary), #c81d56 60%, var(--color-primary));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+  [data-theme="rafi-dark"] .gradient-text {
+    background-image: linear-gradient(100deg, var(--color-primary), var(--color-secondary) 60%, var(--color-accent));
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) .gradient-text {
+      background-image: linear-gradient(100deg, var(--color-primary), var(--color-secondary) 60%, var(--color-accent));
+    }
   }
 
   .hover-wiggle:hover {

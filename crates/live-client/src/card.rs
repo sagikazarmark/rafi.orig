@@ -109,7 +109,7 @@ pub fn Card(
                     p { class: "font-display text-5xl font-black tracking-tight", "{s.you_won}" }
                     p { class: "text-lg font-semibold", "{prize_name}" }
                     if let Some(code) = claim_code {
-                        span { class: "claim-code mt-1 rounded-2xl bg-base-100 px-5 py-2 text-4xl text-success shadow-sm",
+                        span { class: "claim-code mt-1 rounded-2xl bg-base-content px-5 py-2 text-4xl text-base-100 shadow-sm",
                             "{code}"
                         }
                     }

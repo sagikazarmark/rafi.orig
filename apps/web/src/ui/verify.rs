@@ -35,13 +35,19 @@ pub fn Verify(slug: String) -> Element {
         }
         // A reply this page can't read is a page older than the server (or
         // a record written by a newer one), not a missing raffle.
-        Some(Err(e)) if e.code == api::codes::CLIENT => rsx! {
+        Some(Err(e)) if e.code == api::codes::UNREADABLE => rsx! {
             Unreadable { detail: e.message.clone() }
         },
         // One this page reads but whose format it doesn't know: its rules
         // may differ, so it isn't checked by these.
         Some(Ok(d)) if unknown_format(d).is_some() => rsx! {
             Unreadable { detail: unknown_format(d).unwrap_or_default() }
+        },
+        Some(Err(e)) if e.code != api::codes::NOT_FOUND => rsx! {
+            div { role: "alert", class: "alert alert-warning alert-soft",
+                TriangleAlert { class: "size-5" }
+                span { "Couldn't load this raffle's record. Check your connection and reload the page." }
+            }
         },
         Some(Err(_)) => rsx! {
             div { class: "rounded-box border-2 border-dashed border-base-300 py-16 text-center",

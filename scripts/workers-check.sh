@@ -55,6 +55,12 @@ step() { printf '\n== %s\n' "$*"; }
 serve() {
   local dir="$1" port="$2" probe="$3" name="${1##*/}"
   shift 3
+  # Something else on the port (a developer's own `wrangler dev`, one left
+  # over from an earlier run) would answer the checks in this one's place.
+  if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+    echo "port $port in use: stop whatever listens there (lsof -nP -iTCP:$port -sTCP:LISTEN)" >&2
+    return 1
+  fi
   (cd "$ROOT/$dir" && exec $WRANGLER dev "$@" --port "$port" --ip 127.0.0.1 --local \
     --persist-to "$STATE/wrangler" --inspector-port "$((port + 1000))") >"$LOGS/$name.log" 2>&1 &
   PIDS+=($!)

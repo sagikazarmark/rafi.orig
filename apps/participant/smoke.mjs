@@ -117,6 +117,35 @@ await post("/draw/anna");
 check(await until(async () => (await card()).includes("You won!"), 8000), "the fallback shows Anna's win");
 check((await js(`!!document.querySelector("#live [role=alert].animate-pop")`)) === true, "and announces it");
 
+// A WASM that arrives after the loader gave up on it and started the
+// fallback leaves the page to the fallback: one renderer, one card.
+raffle = crypto.randomUUID().replaceAll("-", "");
+await post("/reset?nudge=0");
+await open(`/page?r=${raffle}&me=anna&late=1`);
+check(await until(() => js("window.__rafiFallbackRunning === true"), 3000), "late WASM: the fallback runs");
+await sleep(2000);
+check((await js("window.__rafiReady === true")) === false, "late WASM: the module doesn't start");
+check((await js(`document.querySelectorAll("#live > *").length`)) === 1, "late WASM: one card in #live");
+await post("/close");
+await post("/freeze");
+await post("/draw/anna");
+check(await until(async () => (await card()).includes("You won!"), 8000), "late WASM: the fallback shows the win");
+check((await js(`document.querySelectorAll("#live > *").length`)) === 1, "late WASM: still one card");
+
+// A phone the live channel refuses (4403: here, live updates ended while
+// the raffle is still drawing; at an event, too many phones reconnecting at
+// once) polls instead, and still sees the win.
+raffle = crypto.randomUUID().replaceAll("-", "");
+await post("/reset?nudge=0");
+await post("/close?nudge=0");
+await post("/freeze?nudge=0");
+await post("/end");
+await open(`/page?r=${raffle}&me=anna`);
+check(await until(() => js("window.__rafiReady === true")), "refused: the WASM is ready");
+await sleep(1500);
+await post("/draw/anna?nudge=0");
+check(await until(async () => (await card()).includes("You won!"), 10000), "refused by the live channel: the phone polls and shows the win");
+
 const real = errors.filter((e) => !/WebSocket|4403|ERR_|rafiFallback|fallback/i.test(e));
 check(real.length === 0, `no console errors${real.length ? ": " + real.join(" | ") : ""}`);
 

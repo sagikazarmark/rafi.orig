@@ -29,7 +29,8 @@
 //!   delivering every prize and the organizer leaving, the terms accepted,
 //!   prizes delivered by their claim,
 //!   ending live channels, proof-of-work replays, the full
-//!   view, the participant snapshot, and the raffle's log:
+//!   view and the screens' summary of it, the participant snapshot, and the
+//!   raffle's log:
 //!   [`save_raffle`](crate::save_raffle), its events (append-only) and its
 //!   draws, read back by every reader.
 //!
@@ -240,6 +241,7 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "domain.pow_replay" => domain::pow_refuses_replays,
     "domain.full_view" => domain::reads_the_full_view,
     "domain.participant_snapshot" => domain::phones_see_only_drawn_names,
+    "domain.view_summary" => domain::summarizes_the_entrants_as_the_rows_do,
     "domain.frozen_list" => domain::the_list_and_prizes_are_fixed_once_frozen,
     "domain.entrant_patch" => domain::patches_an_entrant_at_once,
     "domain.raffle_log" => domain::logs_a_whole_evening,

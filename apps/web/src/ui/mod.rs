@@ -9,7 +9,7 @@ mod verify;
 
 use dioxus::prelude::*;
 use dioxus_icons::lucide::{
-    Dice5, Monitor, Moon, QrCode, ShieldCheck, Sparkles, Sun, Ticket, Trophy,
+    Dice5, Monitor, Moon, QrCode, ShieldCheck, Sparkles, Sun, Ticket, Trophy, WifiOff,
 };
 
 use admin::{AdminHome, RaffleAdmin};
@@ -216,6 +216,8 @@ fn NotFound(segments: Vec<String>) -> Element {
 
 #[component]
 fn AdminShell(children: Element, #[props(default = VNode::empty())] trailing: Element) -> Element {
+    let connection = use_context_provider(|| live::AdminConnection(Signal::new(None)));
+    let online = live::use_online();
     rsx! {
         ToastProvider { block: ToastBlock::Top, class: "z-50 pt-16",
         div { class: "min-h-screen bg-base-200",
@@ -224,12 +226,30 @@ fn AdminShell(children: Element, #[props(default = VNode::empty())] trailing: El
                     Link { to: Route::AdminHome {}, Brand {} }
                     span { class: "badge badge-ghost badge-sm ml-1 hidden sm:inline-flex", "organizer" }
                     span { class: "flex-1" }
+                    OfflineBadge { online: online(), trouble: connection.0() }
                     ThemeToggle {}
                     {trailing}
                 }
             }
             {children}
         }
+        }
+    }
+}
+
+/// "Offline" in the admin's header, while the browser says it is or the
+/// raffle shown can't be fetched for a while: what the page shows may be
+/// out of date, and what is pressed may not arrive.
+#[component]
+fn OfflineBadge(online: bool, trouble: Option<live::Trouble>) -> Element {
+    if online && !trouble.is_some_and(|t| t.offline()) {
+        return rsx! {};
+    }
+    rsx! {
+        span { class: "badge badge-warning gap-1 font-semibold", role: "status",
+            title: "Can't reach Rafi: what this page shows may be out of date. It catches up by itself once the connection is back.",
+            WifiOff { class: "size-3.5" }
+            "Offline"
         }
     }
 }
@@ -346,6 +366,119 @@ pub fn now_ms() -> u64 {
     js_sys::Date::now() as u64
 }
 
+/// The themes' colours read: WCAG contrast of 4.5:1 or more for every colour
+/// and its `-content`, base-content on each base, and the light theme's
+/// gradient text on the bases.
+#[cfg(test)]
+mod theme_contrast {
+    const CSS: &str = include_str!("../../tailwind.css");
+
+    fn luminance(hex: &str) -> f64 {
+        let hex = hex.trim_start_matches('#');
+        let channel = |i: usize| {
+            let c = f64::from(u8::from_str_radix(&hex[i..i + 2], 16).unwrap()) / 255.0;
+            if c <= 0.039_28 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+    }
+
+    fn contrast(a: &str, b: &str) -> f64 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    /// Each theme's name and its `--color-*` hex values.
+    fn themes() -> Vec<(String, Vec<(String, String)>)> {
+        CSS.split("@plugin \"daisyui/theme\" {")
+            .skip(1)
+            .map(|block| {
+                let block = &block[..block.find('}').unwrap()];
+                let mut name = String::new();
+                let mut colours = Vec::new();
+                for line in block.lines().map(str::trim) {
+                    if let Some(n) = line.strip_prefix("name: ") {
+                        name = n.trim_matches(|c| c == '"' || c == ';').to_owned();
+                    } else if let Some(rest) = line.strip_prefix("--color-")
+                        && let Some((key, value)) = rest.split_once(':')
+                    {
+                        colours.push((
+                            key.to_owned(),
+                            value.trim().trim_end_matches(';').to_owned(),
+                        ));
+                    }
+                }
+                (name, colours)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_pair_reads() {
+        let themes = themes();
+        assert_eq!(themes.len(), 2, "{themes:?}");
+        let mut failures = Vec::new();
+        for (name, colours) in &themes {
+            let get = |k: &str| {
+                colours
+                    .iter()
+                    .find(|(key, _)| key == k)
+                    .map(|(_, v)| v.as_str())
+            };
+            let mut pairs: Vec<(String, String)> = colours
+                .iter()
+                .filter(|(k, _)| get(&format!("{k}-content")).is_some())
+                .map(|(k, _)| (k.clone(), format!("{k}-content")))
+                .collect();
+            assert!(pairs.len() >= 8, "{name}: {pairs:?}");
+            for base in ["base-100", "base-200", "base-300"] {
+                pairs.push((base.to_owned(), "base-content".to_owned()));
+            }
+            for (bg, fg) in pairs {
+                let ratio = contrast(get(&bg).unwrap(), get(&fg).unwrap());
+                if ratio < 4.5 {
+                    failures.push(format!("{name}: {fg} on {bg}: {ratio:.2}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// The light theme's `.gradient-text` (the winner's name, the thank-you):
+    /// each of its stops reads on the bases.
+    #[test]
+    fn the_gradient_text_reads() {
+        let themes = themes();
+        let (_, light) = themes.iter().find(|(n, _)| n == "rafi").unwrap();
+        let get = |k: &str| light.iter().find(|(key, _)| key == k).unwrap().1.clone();
+        let rule = CSS.split(".gradient-text {").nth(1).unwrap();
+        let rule = &rule[..rule.find('}').unwrap()];
+        let gradient = rule.split("linear-gradient(").nth(1).unwrap();
+        let gradient = &gradient[..gradient.find(");").unwrap()];
+        let stops: Vec<String> = gradient
+            .split(',')
+            .skip(1)
+            .map(|stop| {
+                let colour = stop.split_whitespace().next().unwrap();
+                match colour.strip_prefix("var(--color-") {
+                    Some(var) => get(var.trim_end_matches(')')),
+                    None => colour.to_owned(),
+                }
+            })
+            .collect();
+        assert_eq!(stops.len(), 3, "{gradient}");
+        for stop in &stops {
+            for base in ["base-100", "base-200"] {
+                let ratio = contrast(stop, &get(base));
+                assert!(ratio >= 4.5, "{stop} on {base}: {ratio:.2}");
+            }
+        }
+    }
+}
+
 /// The router, server-rendered natively at a path, framed or not as a test
 /// says ([`App`] would ask the browser). Only pages that touch no browser API
 /// on their first render can be rendered so: the framed admin, the home page,
@@ -370,6 +503,21 @@ mod tests {
     }
 
     const OPEN_AT_THE_TOP: &str = "Open Rafi in its own tab";
+
+    /// "Offline" when the browser says so, or when the raffle's view has
+    /// failed for a while; not for a poll or two lost.
+    #[test]
+    fn the_admin_says_when_it_is_offline() {
+        use live::{Trouble, TroubleKind};
+        let render =
+            |online, trouble| dioxus_ssr::render_element(rsx! { OfflineBadge { online, trouble } });
+        assert!(!render(true, None).contains("Offline"));
+        assert!(render(false, None).contains("Offline"));
+        let first = Trouble::after(None, TroubleKind::Unreachable, 0);
+        assert!(!render(true, Some(first)).contains("Offline"));
+        let later = Trouble::after(Some(first), TroubleKind::Unreachable, 10_000);
+        assert!(render(true, Some(later)).contains("Offline"));
+    }
 
     #[test]
     fn the_admin_does_not_render_in_a_frame() {

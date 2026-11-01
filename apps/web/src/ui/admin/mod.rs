@@ -20,7 +20,7 @@ use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
 use super::{
     Route, command_id, copy_to_clipboard, dates,
     forms::{AddPersonForm, CreateRaffleForm, PrizeForm, SettingsForm, err_text},
-    live::{use_clock, use_live_view},
+    live::{AdminConnection, ServerClock, use_clock, use_live_view},
 };
 use crate::{
     api,
@@ -318,9 +318,15 @@ fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
 #[component]
 pub fn RaffleAdmin(id: String) -> Element {
     let id_for_load = id.clone();
+    // With the server's clock as of the reply, for the draw's countdown.
     let mut data = use_resource(move || {
         let id = id_for_load.clone();
-        async move { api::get_raffle(id).await }
+        async move {
+            api::get_raffle(id).await.map(|admin| {
+                let clock = ServerClock::at(admin.view.server_now_ms, super::now_ms());
+                (admin, clock)
+            })
+        }
     });
     let me = use_resource(api::whoami);
     let access = match &*me.read() {
@@ -331,7 +337,7 @@ pub fn RaffleAdmin(id: String) -> Element {
     let mut tab = use_signal(|| None::<String>);
 
     let read = data.read();
-    let admin = match &*read {
+    let (admin, clock) = match &*read {
         None => {
             return rsx! { div { class: "grid place-items-center py-24", span { class: "loading loading-dots loading-lg text-primary" } } };
         }
@@ -344,7 +350,7 @@ pub fn RaffleAdmin(id: String) -> Element {
                 }
             };
         }
-        Some(Ok(a)) => a.clone(),
+        Some(Ok((a, clock))) => (a.clone(), *clock),
     };
     drop(read);
     let mut reload = move || data.restart();
@@ -392,7 +398,7 @@ pub fn RaffleAdmin(id: String) -> Element {
                     }
                     TabContent { value: value.to_owned(), index, appearance: TabContentAppearance::None, class: "w-full",
                         match value {
-                            "draw" => rsx! { DrawConsole { admin: admin.clone(), error, on_change: move |_| reload() } },
+                            "draw" => rsx! { DrawConsole { admin: admin.clone(), clock, error, on_change: move |_| reload() } },
                             "prizes" => rsx! { Prizes { admin: admin.clone(), error, on_change: move |_| reload() } },
                             "people" => rsx! { People { admin: admin.clone(), error, on_change: move |_| reload() } },
                             _ => rsx! {
@@ -421,6 +427,19 @@ pub fn RaffleAdmin(id: String) -> Element {
 #[component]
 fn LiveRefresh(slug: String, version: u64, on_change: EventHandler<()>) -> Element {
     let live = use_live_view(slug);
+    // The header's "Offline" goes by this view's fetches too.
+    let connection = try_use_context::<AdminConnection>();
+    use_effect(move || {
+        let trouble = *live.trouble.read();
+        if let Some(AdminConnection(mut c)) = connection {
+            c.set(trouble);
+        }
+    });
+    use_drop(move || {
+        if let Some(AdminConnection(mut c)) = connection {
+            c.set(None);
+        }
+    });
     use_effect(move || {
         if let Some(v) = live.view.read().as_ref()
             && v.v > version

@@ -74,7 +74,7 @@ mod client {
         if resp.ok() {
             return serde_json::from_str(&body).map_err(|e| {
                 ApiError::new(
-                    codes::CLIENT,
+                    codes::UNREADABLE,
                     format!("Unexpected reply from the server: {e}"),
                 )
             });

@@ -26,11 +26,99 @@ use rafi_api::RaffleView;
 /// server asks for polling at another interval.
 const POLL_MS: u32 = 2_500;
 
+/// How long fetches of the view fail before the page says it's offline: a
+/// poll or two lost on venue wifi is nothing to show.
+const OFFLINE_AFTER_MS: u64 = 10_000;
+
+/// The server's clock as the page sees it: how far it is from the browser's,
+/// taken when a view arrives (its `server_now_ms` against the browser's time
+/// then). A countdown reads [`now`](Self::now) every tick; recomputing the
+/// offset on each render instead would pin it to the view's own time.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ServerClock {
+    offset_ms: i64,
+}
+
+impl ServerClock {
+    /// The clock of a view whose `server_now_ms` arrived at `local_ms`.
+    pub fn at(server_now_ms: u64, local_ms: u64) -> Self {
+        Self {
+            offset_ms: server_now_ms as i64 - local_ms as i64,
+        }
+    }
+
+    /// The server's time (unix ms) when the browser's is `local_ms`.
+    pub fn now(self, local_ms: u64) -> i64 {
+        local_ms as i64 + self.offset_ms
+    }
+}
+
+/// What went wrong fetching the view, while it does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TroubleKind {
+    /// No published raffle at this address.
+    NotFound,
+    /// The server sent a view this page can't read: the server is newer.
+    Newer,
+    /// The server couldn't be reached, or failed.
+    Unreachable,
+}
+
+/// Fetches of the view failing in a row; gone with the first that succeeds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Trouble {
+    pub kind: TroubleKind,
+    /// How many failed in a row.
+    pub failures: u32,
+    /// When the first of them failed, and the latest (browser ms).
+    pub since_ms: u64,
+    pub last_ms: u64,
+}
+
+impl Trouble {
+    /// After `previous`, a fetch failing at `now_ms` as `kind`.
+    pub fn after(previous: Option<Self>, kind: TroubleKind, now_ms: u64) -> Self {
+        match previous {
+            Some(p) => Self {
+                kind,
+                failures: p.failures + 1,
+                since_ms: p.since_ms,
+                last_ms: now_ms,
+            },
+            None => Self {
+                kind,
+                failures: 1,
+                since_ms: now_ms,
+                last_ms: now_ms,
+            },
+        }
+    }
+
+    /// The kind of an error from fetching the view.
+    pub fn kind_of(e: &crate::api::ApiError) -> TroubleKind {
+        use crate::api::codes;
+        match e.code.as_str() {
+            codes::NOT_FOUND => TroubleKind::NotFound,
+            codes::UNREADABLE => TroubleKind::Newer,
+            _ => TroubleKind::Unreachable,
+        }
+    }
+
+    /// Whether fetches have failed for long enough to say so.
+    pub fn offline(&self) -> bool {
+        self.last_ms.saturating_sub(self.since_ms) >= OFFLINE_AFTER_MS
+    }
+}
+
 /// A raffle followed live.
 #[derive(Clone, Copy, PartialEq)]
 pub struct LiveView {
     /// The full view; `None` until the first fetch succeeds.
     pub view: Signal<Option<RaffleView>>,
+    /// The server's clock, as of the view.
+    pub clock: Signal<ServerClock>,
+    /// Why fetching the view fails, while it does.
+    pub trouble: Signal<Option<Trouble>>,
     /// The participant view from the live channel while it's ahead of
     /// [`view`](Self::view) (newer `v`).
     pub ahead: Signal<Option<ParticipantView>>,
@@ -65,6 +153,8 @@ impl LiveView {
 /// Follows the raffle `slug`.
 pub fn use_live_view(slug: String) -> LiveView {
     let mut view = use_signal(|| None::<RaffleView>);
+    let mut clock = use_signal(ServerClock::default);
+    let mut trouble = use_signal(|| None::<Trouble>);
     let mut ahead = use_signal(|| None::<ParticipantView>);
 
     let fetcher = use_coroutine(move |mut rx: UnboundedReceiver<()>| {
@@ -74,14 +164,27 @@ pub fn use_live_view(slug: String) -> LiveView {
             while rx.next().await.is_some() {
                 // Requests that queued up meanwhile are answered by this fetch.
                 while rx.try_recv().is_ok() {}
-                let Ok(fresh) = crate::api::get_view(slug.clone()).await else {
-                    continue;
+                let fresh = match crate::api::get_view(slug.clone()).await {
+                    Ok(fresh) => fresh,
+                    Err(e) => {
+                        let previous = *trouble.peek();
+                        trouble.set(Some(Trouble::after(
+                            previous,
+                            Trouble::kind_of(&e),
+                            crate::ui::now_ms(),
+                        )));
+                        continue;
+                    }
                 };
+                if trouble.peek().is_some() {
+                    trouble.set(None);
+                }
                 if ahead.peek().as_ref().is_some_and(|p| p.v <= fresh.v) {
                     ahead.set(None);
                 }
                 let take = view.peek().as_ref().is_none_or(|cur| fresh.v >= cur.v);
                 if take {
+                    clock.set(ServerClock::at(fresh.server_now_ms, crate::ui::now_ms()));
                     view.set(Some(fresh));
                 }
             }
@@ -107,9 +210,21 @@ pub fn use_live_view(slug: String) -> LiveView {
 
     LiveView {
         view,
+        clock,
+        trouble,
         ahead,
         refresh,
     }
+}
+
+/// Reloads the page, unless it did so in the last minute: a page older than
+/// the server gets the new one, and a server sending what no page reads
+/// doesn't make it reload forever.
+pub fn reload_once() {
+    document::eval(
+        "try { const k = 'rafi-reloaded-at', t = Number(sessionStorage.getItem(k)) || 0; \
+         if (Date.now() - t > 60000) { sessionStorage.setItem(k, String(Date.now())); location.reload(); } } catch (e) {}",
+    );
 }
 
 /// The raffle's participant channel. Mounted only while it's wanted:
@@ -160,6 +275,25 @@ pub fn use_clock(every_ms: u32) -> Signal<u64> {
     now
 }
 
+/// Whether the browser says it's online (`navigator.onLine`), following its
+/// `online` and `offline` events.
+pub fn use_online() -> Signal<bool> {
+    let on_line = || web_sys::window().is_none_or(|w| w.navigator().on_line());
+    let online = use_signal(on_line);
+    use_hook(move || {
+        Rc::new(wake::on(&["online", "offline"], move || {
+            let mut online = online;
+            online.set(on_line())
+        }))
+    });
+    online
+}
+
+/// How the admin's pages are connected, for the badge in their header: why
+/// the live view of the raffle shown can't be fetched, while it can't.
+#[derive(Clone, Copy, PartialEq)]
+pub struct AdminConnection(pub Signal<Option<Trouble>>);
+
 /// The page coming back: shown again, restored, focused or back online.
 mod wake {
     use std::rc::Rc;
@@ -183,14 +317,14 @@ mod wake {
         }
     }
 
-    /// Calls `f` whenever the page comes back.
-    pub fn listen(f: impl Fn() + 'static) -> Listeners {
+    /// Calls `f` on each of the window's `events`.
+    pub fn on(events: &[&'static str], f: impl Fn() + 'static) -> Listeners {
         let mut added = Vec::new();
         let Some(window) = web_sys::window() else {
             return Listeners { added };
         };
         let f = Rc::new(f);
-        for event in ["pageshow", "focus", "online"] {
+        for &event in events {
             let f = f.clone();
             let cb = Closure::<dyn Fn()>::new(move || f());
             let target: web_sys::EventTarget = window.clone().into();
@@ -201,21 +335,78 @@ mod wake {
                 added.push((target, event, cb));
             }
         }
-        if let Some(document) = window.document() {
-            let doc = document.clone();
-            let cb = Closure::<dyn Fn()>::new(move || {
-                if doc.visibility_state() == web_sys::VisibilityState::Visible {
-                    f();
-                }
-            });
-            let target: web_sys::EventTarget = document.into();
-            if target
-                .add_event_listener_with_callback("visibilitychange", cb.as_ref().unchecked_ref())
-                .is_ok()
-            {
-                added.push((target, "visibilitychange", cb));
-            }
-        }
         Listeners { added }
+    }
+
+    /// Calls `f` whenever the page comes back.
+    pub fn listen(f: impl Fn() + 'static) -> Listeners {
+        let f = Rc::new(f);
+        let mut listeners = {
+            let f = f.clone();
+            on(&["pageshow", "focus", "online"], move || f())
+        };
+        let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+            return listeners;
+        };
+        let doc = document.clone();
+        let cb = Closure::<dyn Fn()>::new(move || {
+            if doc.visibility_state() == web_sys::VisibilityState::Visible {
+                f();
+            }
+        });
+        let target: web_sys::EventTarget = document.into();
+        if target
+            .add_event_listener_with_callback("visibilitychange", cb.as_ref().unchecked_ref())
+            .is_ok()
+        {
+            listeners.added.push((target, "visibilitychange", cb));
+        }
+        listeners
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The server's time moves on with the browser's from the moment the
+    /// view arrived, whatever the two clocks say.
+    #[test]
+    fn the_server_clock_runs_from_the_view() {
+        let clock = ServerClock::at(1_000_000, 400_000);
+        assert_eq!(clock.now(400_000), 1_000_000);
+        assert_eq!(clock.now(401_000), 1_001_000);
+        // A browser ahead of the server.
+        let clock = ServerClock::at(1_000_000, 1_500_000);
+        assert_eq!(clock.now(1_502_500), 1_002_500);
+    }
+
+    /// Failures count up from the first; the page says it's offline only
+    /// after OFFLINE_AFTER_MS of them.
+    #[test]
+    fn trouble_counts_failures_in_a_row() {
+        let first = Trouble::after(None, TroubleKind::Unreachable, 1_000);
+        assert_eq!((first.failures, first.since_ms), (1, 1_000));
+        assert!(!first.offline());
+        let later = Trouble::after(
+            Some(first),
+            TroubleKind::Unreachable,
+            1_000 + OFFLINE_AFTER_MS - 1,
+        );
+        assert_eq!((later.failures, later.since_ms), (2, 1_000));
+        assert!(!later.offline());
+        let later = Trouble::after(Some(later), TroubleKind::NotFound, 1_000 + OFFLINE_AFTER_MS);
+        assert_eq!(later.kind, TroubleKind::NotFound);
+        assert!(later.offline());
+    }
+
+    #[test]
+    fn the_kind_of_a_failure() {
+        use crate::api::{ApiError, codes};
+        let kind = |code| Trouble::kind_of(&ApiError::new(code, ""));
+        assert_eq!(kind(codes::NOT_FOUND), TroubleKind::NotFound);
+        assert_eq!(kind(codes::UNREADABLE), TroubleKind::Newer);
+        assert_eq!(kind(codes::CLIENT), TroubleKind::Unreachable);
+        assert_eq!(kind(codes::INTERNAL), TroubleKind::Unreachable);
     }
 }

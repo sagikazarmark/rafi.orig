@@ -293,6 +293,9 @@ CREATE TABLE erasures (
     entrant_id TEXT NOT NULL,
     at INTEGER NOT NULL
 );
+-- Re-applying them after a restore, and housekeeping's sweeps, look an
+-- entrant up here.
+CREATE INDEX erasures_entrant ON erasures (raffle_id, entrant_id);
 
 -- Proof-of-work challenges already used to join. A replayed solution fails the
 -- primary key. Expired rows are deleted by the scheduled job.
