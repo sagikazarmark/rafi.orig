@@ -56,7 +56,8 @@ fn servers_own(path: &str) -> bool {
 /// The shell, for a `GET` (routed as one) of any of the web app's paths;
 /// revalidated on every load, so a deploy's new shell (linking new names) is
 /// picked up on the next. A 304 carries the shell's policy too: a browser
-/// keeps a 304's headers in place of the cached response's.
+/// keeps a 304's headers in place of the cached response's. The projector
+/// and the verification page aren't to be indexed (`crate::unindexed`).
 pub(crate) async fn serve(
     Extension(shell): Extension<Shell>,
     uri: Uri,
@@ -70,6 +71,9 @@ pub(crate) async fn serve(
     resp.extensions_mut().insert(csp::Page::App {
         frameable: crate::frameable(path),
     });
+    if crate::unindexed(path) {
+        crate::noindex(&mut resp);
+    }
     resp
 }
 

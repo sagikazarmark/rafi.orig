@@ -11,7 +11,8 @@
   was compiled against: the app doesn't start otherwise, and says so.
 
 **"This email is already entered."** That's working as intended: one entry per email. The entry is safe, but it
-stays on the device it was made on.
+is never moved to the device that typed the email: it stays on the device it was made on, or on none if the
+organizer added the person. Either way, a winner goes to the organizer, which the page says.
 
 **Phones don't update.** Natively they poll, so allow a few seconds. They also re-fetch when brought back to the
 foreground. On Workers, check that `RAFFLE_ROOM` is bound, and `wrangler tail` for "nudging … failed".

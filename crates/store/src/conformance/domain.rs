@@ -176,7 +176,6 @@ fn manual<'a>(raffle_id: &'a str, id: &'a str, email: Option<&'a str>) -> entran
         email_raw: email,
         email_norm: email,
         claim_code: "Q4M7",
-        consent_version: "v1",
     }
 }
 
@@ -326,6 +325,14 @@ pub(super) async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
             .await
             .map_err(fail)?;
     }
+    let m1 = entrant(db, "r1", "m1").await?;
+    check(
+        m1.source == rafi_lifecycle::entrant::Source::Manual
+            && m1.consent_version.is_none()
+            && m1.consent_rules_at.is_none()
+            && m1.token_hash.is_none(),
+        "someone added saw no form: no consent recorded, no device",
+    )?;
     let taken = entrants::insert_manual(db, &manual("r1", "m3", Some("b@x")), NOW).await;
     check(
         taken.is_err_and(|e| e.is_unique_violation()),

@@ -96,6 +96,8 @@ CREATE TABLE entrants (
     -- What the join form showed when the rules were accepted:
     -- `<form version>/age<minimum age>`, e.g. `2026-10-21.2/age16`; the form
     -- version is rafi_app::CONSENT_VERSION, bumped whenever its text changes.
+    -- Both NULL for whoever saw no join form: people the organizer added,
+    -- and fakes.
     consent_version TEXT,
     consent_rules_at INTEGER,
     delivered_at INTEGER,

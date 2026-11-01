@@ -543,7 +543,8 @@ pub fn SettingsForm(
     settings: RaffleSettings,
     /// Whether the fixed settings (the additional rules, the event date, the
     /// retention period, the privacy text and link) can still change: not
-    /// once an entrant accepted them.
+    /// once a real entrant is in
+    /// ([`locks_settings`](rafi_lifecycle::entrant::Source::locks_settings)).
     rules_editable: bool,
     /// The installation's periods, for the retention field.
     retention: Retention,
@@ -769,7 +770,7 @@ pub fn SettingsForm(
                     description: if rules_editable {
                         "One paragraph per line, appended to the standard rules. Put a higher age limit here. Fake entrants don't lock anything; a real one does."
                     } else {
-                        "Locked: entrants have accepted these rules. Remove them (People tab, before the freeze) to unlock."
+                        "Locked: real entrants are in under these rules. Remove them (People tab, before the freeze) to unlock."
                     },
                     placeholder: "e.g. Entrants must be 18 or older.",
                     readonly: !rules_editable,

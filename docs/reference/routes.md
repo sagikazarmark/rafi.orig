@@ -41,6 +41,13 @@ The web app's page is revalidated on every load (`no-cache`, an `ETag`), and its
 browser keeps a `304`'s headers in place of the cached page's. `RAFI_CSP=report-only` sends the policies as
 `Content-Security-Policy-Report-Only`, framing still denied ([configuration](configuration.md)).
 
+The projector (`/s/…`) and the verification page (`/v/…`), for every raffle, and the JSON with the names behind
+them (`/api/r/<slug>/view`, `/api/r/<slug>/verify.json`), carry `X-Robots-Tag: noindex`: they list entrants'
+names until erasure, for the room and for whoever follows a link to check a draw, not for a search on someone's
+name. A header, not a `<meta>` tag (the shell is one `index.html` for every path, and JSON has no place for one),
+and not `robots.txt`, which would keep crawlers from ever seeing it while a page linked from elsewhere could still
+be listed by its URL.
+
 ## Public JSON
 
 These never contain emails, tokens or claim codes.
@@ -67,8 +74,9 @@ later, the one part of a prize that changes after the freeze), `deliver_all_priz
 `remove_my_data` (the organizer leaving), and `export_winners_csv`, which is audited.
 
 `export_winners_csv` returns the drawn entrants as CSV text: UTF-8 with a byte order mark, a header line, every
-field double-quoted (`"` doubled), a field starting with `=`, `+`, `-` or `@` prefixed with `'` so a spreadsheet
-doesn't run it as a formula, columns `entrant_id,display_name,email,source,claim_code,outcome,prize,delivered`
+field double-quoted (`"` doubled), a field starting with `=`, `+`, `-`, `@`, a tab or a carriage return prefixed
+with `'` so a spreadsheet doesn't run it as a formula, columns
+`entrant_id,display_name,email,source,claim_code,outcome,prize,delivered`
 (`outcome` is `drawn`, `claimed`, `not_here` or `declined`; `delivered` is `yes` or `no`). Every export is
 audited with its row count.
 

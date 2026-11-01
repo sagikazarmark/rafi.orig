@@ -31,12 +31,18 @@ impl Source {
         }
     }
 
-    /// Whether an entrant from this source accepted the raffle's rules:
-    /// everyone but fakes (the organizer vouches for people added by hand).
-    /// Once anyone has, the rules are fixed
-    /// ([`rules_editable`](crate::settings::rules_editable)).
-    pub fn accepted_rules(self) -> bool {
-        !matches!(self, Self::Fake)
+    /// Whether an entrant from this source fixes the raffle's rules, event
+    /// date and retention ([`rules_editable`](crate::settings::rules_editable)):
+    /// what they entered under must stay what the raffle says. Someone who
+    /// joined accepted them on the form; someone the organizer added accepted
+    /// nothing (no consent is recorded for them), but was entered under them
+    /// on the organizer's word, and may have been told them. Fakes are a
+    /// rehearsal's and fix nothing. Exhaustive, so a new source has to decide.
+    pub fn locks_settings(self) -> bool {
+        match self {
+            Self::SelfService | Self::Manual => true,
+            Self::Fake => false,
+        }
     }
 }
 
@@ -264,15 +270,25 @@ pub struct Email {
 }
 
 impl Email {
-    /// Parses an address, or `None` if it is obviously malformed or longer
-    /// than [`MAX_EMAIL_CHARS`].
+    /// Parses an address, or `None` if it is obviously malformed, longer
+    /// than [`MAX_EMAIL_CHARS`], or has whitespace, control or invisible
+    /// characters ([`is_invisible`]) in it.
+    ///
+    /// The unseen ones are refused as in a display name: an address with a
+    /// zero-width space is another key for the same-looking mailbox (a second
+    /// entry), a bidirectional control makes it read differently in the admin
+    /// and the winners' export, and neither is in any address mail reaches.
     ///
     /// The key is lowercased, drops a `+tag`, and for Gmail drops dots and
     /// maps `googlemail.com` to `gmail.com`: the spellings of one mailbox
     /// make one entrant.
     pub fn parse(input: &str) -> Option<Self> {
         let raw = input.trim();
-        if raw.chars().count() > MAX_EMAIL_CHARS {
+        if raw.chars().count() > MAX_EMAIL_CHARS
+            || raw
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control() || is_invisible(c))
+        {
             return None;
         }
         Some(Self {
@@ -293,7 +309,7 @@ fn key(email: &str) -> Option<String> {
     {
         return None;
     }
-    if email.chars().any(char::is_whitespace) || local.contains('@') {
+    if local.contains('@') {
         return None;
     }
     let local = local.split('+').next().unwrap_or(local);
@@ -442,6 +458,45 @@ mod tests {
         }
         let long = format!("{}@example.com", "a".repeat(MAX_EMAIL_CHARS));
         assert_eq!(key(&long), None, "too long");
+    }
+
+    /// Nothing unseen in an address, as in a display name: a zero-width
+    /// space would make a second key for a mailbox that looks the same, a
+    /// bidirectional control would make it read differently.
+    #[test]
+    fn rejects_control_and_invisible_characters() {
+        for bad in [
+            "a\tb@x.com",
+            "a\u{0}b@x.com",
+            "a\u{7}b@x.com",
+            "ab@x.com\u{7f}",
+            "a\u{85}b@x.com",
+            "anna\u{200B}@x.com",
+            "anna@x\u{200D}.com",
+            "\u{202E}anna@x.com",
+            "anna@x.com\u{2066}",
+            "an\u{00AD}na@x.com",
+            "anna\u{FEFF}@x.com",
+            "anna@x.com\u{E0041}",
+            "a\u{3164}@x.com",
+            "a\u{00A0}b@x.com",
+        ] {
+            assert_eq!(Email::parse(bad), None, "{bad:?}");
+        }
+        // Around the address it is trimmed as before; letters beyond ASCII
+        // are fine.
+        assert_eq!(key("\tanna@x.com\n").as_deref(), Some("anna@x.com"));
+        assert_eq!(key("Árvíz@példa.hu").as_deref(), Some("árvíz@példa.hu"));
+    }
+
+    #[test]
+    fn what_locks_the_settings() {
+        assert!(Source::SelfService.locks_settings());
+        assert!(
+            Source::Manual.locks_settings(),
+            "accepted nothing, still entered under them"
+        );
+        assert!(!Source::Fake.locks_settings(), "a rehearsal's");
     }
 
     #[test]

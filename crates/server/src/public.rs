@@ -67,14 +67,20 @@ async fn public_raffle(app: &AppState, slug: &str) -> Result<RaffleRow, StatusCo
     }
 }
 
-/// The full view: what the projector and the admin show. They poll it.
+/// The full view: what the projector and the admin show. They poll it. Not
+/// to be indexed, as the projector isn't ([`crate::noindex`]): it has the
+/// recent names.
 async fn full_view(Extension(app): Extension<AppState>, Path(slug): Path<String>) -> Response {
     let raffle = match public_raffle(&app, &slug).await {
         Ok(r) => r,
         Err(status) => return status.into_response(),
     };
     match view::build(&app, &raffle.id).await {
-        Ok(Some(v)) => ([(header::CACHE_CONTROL, "no-store")], Json(v)).into_response(),
+        Ok(Some(v)) => {
+            let mut resp = ([(header::CACHE_CONTROL, "no-store")], Json(v)).into_response();
+            crate::noindex(&mut resp);
+            resp
+        }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!(error = %e, "building the view");
@@ -103,13 +109,21 @@ async fn participant(Extension(app): Extension<AppState>, Path(slug): Path<Strin
 /// What verifiers fetch. The raffle's version is the `ETag` (the same `v`,
 /// the same content: a name erased later bumps it), and `no-cache` makes
 /// browsers and tools revalidate rather than keep a copy, so an erased name
-/// is never served from a cache; a finished raffle costs them a 304.
+/// is never served from a cache; a finished raffle costs them a 304. Not to
+/// be indexed, as the verification page isn't ([`crate::noindex`]): it has
+/// every entrant's name.
 async fn verify_json(
     Extension(app): Extension<AppState>,
     Path(slug): Path<String>,
     headers: axum::http::HeaderMap,
 ) -> Response {
-    match service::verify_data(&app, &slug).await {
+    let mut resp = verify_response(&app, &slug, &headers).await;
+    crate::noindex(&mut resp);
+    resp
+}
+
+async fn verify_response(app: &AppState, slug: &str, headers: &axum::http::HeaderMap) -> Response {
+    match service::verify_data(app, slug).await {
         Ok(data) => {
             let etag = format!("\"v{}\"", data.v);
             if headers

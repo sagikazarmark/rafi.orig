@@ -1420,6 +1420,48 @@ async fn only_the_projector_and_the_verification_page_may_be_framed() {
     }
 }
 
+/// The public pages that list entrants' names, the projector and the
+/// verification page, and the JSON with the names behind them, ask search
+/// engines not to index them, revalidated too.
+#[tokio::test]
+async fn pages_with_names_are_not_indexed() {
+    let app = app().await;
+    let router = with_shell(&app);
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    service::add_manual(&app, ACTOR, &raffle.id, "Anna Kovács", None)
+        .await
+        .unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
+    wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    let robots = |headers: &header::HeaderMap| {
+        header_str(headers, header::HeaderName::from_static("x-robots-tag"))
+    };
+
+    for path in [
+        format!("/s/{}", raffle.slug),
+        format!("/v/{}", raffle.slug),
+        format!("/api/r/{}/view", raffle.slug),
+        format!("/api/r/{}/verify.json", raffle.slug),
+    ] {
+        let (status, headers, body) = send(&router, get(&path)).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+        assert_eq!(robots(&headers), "noindex", "{path}");
+        if !path.ends_with("/view") {
+            let mut req = get(&path);
+            req.headers_mut()
+                .insert(header::IF_NONE_MATCH, headers[header::ETAG].clone());
+            let (status, headers, _) = send(&router, req).await;
+            assert_eq!(status, StatusCode::NOT_MODIFIED, "{path}");
+            assert_eq!(robots(&headers), "noindex", "{path}: revalidated");
+        }
+    }
+    // By path: not the rest of the web app.
+    for path in ["/", "/admin"] {
+        let (_, headers, _) = send(&router, get(path)).await;
+        assert_eq!(robots(&headers), "", "{path}");
+    }
+}
+
 /// What isn't a page only denies framing; a miss among the server's files
 /// and APIs is a 404, not the shell; the shell is for reading.
 #[tokio::test]
@@ -2178,6 +2220,59 @@ async fn joins_stop_at_the_entrant_cap() {
     let (status, _, page) = join(&router, &raffle.join_code, "Again", "p0@example.com").await;
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("already entered"), "{page}");
+}
+
+/// Typing the email of someone the organizer added says the email is in,
+/// in the words used for everyone (no device has their claim code), and
+/// never attaches this device to the entry: no cookie, no token stored, the
+/// entry as it was.
+#[tokio::test]
+async fn an_added_entrants_email_doesnt_attach_a_device() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let added = service::add_manual(
+        &app,
+        ACTOR,
+        &raffle.id,
+        "Anna Kovács",
+        Some("anna@example.com".into()),
+    )
+    .await
+    .unwrap();
+    let before = entrants::get(&app.db, &raffle.id, &added)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let (status, cookie, page) =
+        join(&router, &raffle.join_code, "Anna", "Anna+phone@Example.com").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(cookie.is_none(), "no entry cookie");
+    assert!(
+        page.contains(
+            "This email is already entered. Your entry is safe. If you win, go to the organizer."
+        ),
+        "{page}"
+    );
+    assert!(!page.contains("Your claim code"), "no entry shown: {page}");
+    assert!(!page.contains("the device you entered on"), "{page}");
+    assert!(!page.contains("id=\"join\""), "no form to try again");
+
+    let all = entrants::list(&app.db, &raffle.id).await.unwrap();
+    assert_eq!(all.len(), 1, "no second entry");
+    let after = &all[0];
+    assert_eq!(after.id, added);
+    assert_eq!(after.token_hash, None, "no device attached");
+    assert_eq!(after.source, rafi_lifecycle::entrant::Source::Manual);
+    assert_eq!(after.display_name, before.display_name);
+    assert_eq!(after.email_raw, before.email_raw);
+    assert_eq!(after.claim_code, before.claim_code);
+    assert_eq!(
+        (&after.consent_version, after.consent_rules_at),
+        (&None, None),
+        "added by the organizer: no consent recorded"
+    );
 }
 
 /// A proof-of-work is redeemed once: the second use fails the `pow_used`

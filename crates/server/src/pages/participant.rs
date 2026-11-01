@@ -288,9 +288,14 @@ pub fn page(page: Page<'_>) -> String {
         }
         None => {
             let (emoji, msg) = match (notice, phase) {
+                // One wording whoever is in under that email: someone who
+                // joined on another device, or someone the organizer added,
+                // who has no device with a claim code. Typing an email never
+                // attaches this device to the entry (no cookie is set), or
+                // anyone could take over an entry with someone else's email.
                 (Notice::AlreadyIn, _) => (
                     "👋",
-                    "This email is already entered. Your entry is safe — watch the screen. If you win, go to the organizer; the device you entered on has your claim code.",
+                    "This email is already entered. Your entry is safe. If you win, go to the organizer.",
                 ),
                 (Notice::Error(why), _) => ("⚠️", why),
                 (_, Phase::Ready) => (

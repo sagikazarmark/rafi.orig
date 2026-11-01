@@ -178,7 +178,8 @@ pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64, now: i64) -> Result<
     Ok(inserted > 0)
 }
 
-/// An entrant the organizer adds by hand.
+/// An entrant the organizer adds by hand. They saw no join form and accepted
+/// nothing, so no consent is recorded for them ([`insert_manual`]).
 #[derive(Debug, Clone)]
 pub struct Manual<'a> {
     pub id: &'a str,
@@ -187,7 +188,6 @@ pub struct Manual<'a> {
     pub email_raw: Option<&'a str>,
     pub email_norm: Option<&'a str>,
     pub claim_code: &'a str,
-    pub consent_version: &'a str,
 }
 
 /// The SQL condition that raffle `?{param}`'s entrants can still change
@@ -202,13 +202,15 @@ fn editable(param: u8) -> String {
 
 /// Adds an entrant by hand, only while the entrant list can change. Returns
 /// `false` if it can't. An email that already entered is an
-/// [`Error::Unique`](crate::Error::Unique). The entry is made `now`.
+/// [`Error::Unique`](crate::Error::Unique). The entry is made `now`, with
+/// no consent (`consent_version` and `consent_rules_at` stay `NULL`): a
+/// record that they accepted the join form's text would be untrue.
 pub async fn insert_manual(db: &Db, m: &Manual<'_>, now: i64) -> Result<bool> {
     let inserted = db
         .query(format!(
             "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code,
-                                   consent_version, consent_rules_at, created_at)
-             SELECT ?1, ?2, ?3, ?4, ?5, '{}', ?6, ?7, ?8, ?9
+                                   created_at)
+             SELECT ?1, ?2, ?3, ?4, ?5, '{}', ?6, ?7
              WHERE {}",
             Source::Manual.as_str(),
             editable(2)
@@ -219,8 +221,6 @@ pub async fn insert_manual(db: &Db, m: &Manual<'_>, now: i64) -> Result<bool> {
         .bind(m.email_raw)
         .bind(m.email_norm)
         .bind(m.claim_code)
-        .bind(m.consent_version)
-        .bind(now)
         .bind(now)
         .run()
         .await?;

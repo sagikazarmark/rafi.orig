@@ -297,16 +297,16 @@ pub async fn update_settings(
     })
 }
 
-/// Writes the settings, unless they change a fixed setting after someone
-/// accepted the rules ([`rafi_lifecycle::settings::rules_editable`]: the
+/// Writes the settings, unless they change a fixed setting after a real
+/// entrant is in ([`rafi_lifecycle::settings::rules_editable`]: the
 /// rules, the event date and with it the erasure date, the retention period,
 /// the privacy text and link) or test mode once the entrant list is frozen
 /// ([`RaffleState::test_mode_editable`]): the checks and the write are one
 /// statement, so no join or freeze slips in between.
 fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>, now: i64) -> Query<'a> {
-    let accepted = Source::ALL
+    let locking = Source::ALL
         .into_iter()
-        .filter(|s| s.accepted_rules())
+        .filter(|s| s.locks_settings())
         .map(|s| format!("'{}'", s.as_str()))
         .collect::<Vec<_>>()
         .join(", ");
@@ -317,7 +317,7 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>, now: i64) -> Query
          WHERE id = ?14
            AND ((rules = ?8 AND event_date = ?9 AND privacy_text = ?6 AND privacy_url = ?7
                  AND event_ends_at = ?10 AND retention_days = ?11)
-                OR NOT EXISTS (SELECT 1 FROM entrants WHERE raffle_id = ?14 AND source IN ({accepted})))
+                OR NOT EXISTS (SELECT 1 FROM entrants WHERE raffle_id = ?14 AND source IN ({locking})))
            AND (test_mode = ?12 OR state IN ({test_mode_editable}))",
         test_mode_editable = states(RaffleState::test_mode_editable),
     ))

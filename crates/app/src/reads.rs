@@ -151,24 +151,16 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) ->
 /// The format (also in `docs/reference/routes.md`): UTF-8 with a byte order
 /// mark (Excel on Windows reads accented names wrong without one), one header
 /// line, every field double-quoted with `"` doubled, and a field that starts
-/// with `=`, `+`, `-` or `@` prefixed with `'` so a spreadsheet doesn't run it
-/// as a formula. Columns: `entrant_id,display_name,email,source,claim_code,
-/// outcome,prize,delivered`.
+/// with `=`, `+`, `-`, `@`, a tab or a carriage return prefixed with `'` so a
+/// spreadsheet doesn't run it as a formula (`csv_field`). Columns:
+/// `entrant_id,display_name,email,source,claim_code,outcome,prize,delivered`.
 pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String> {
     let full = Full::read(&app.db, id).await?.ok_or(Error::NotFound)?;
     if full.raffle.owner_id != actor.owner {
         return Err(Error::NotFound);
     }
     let hold = app.policy.retention.winners_erase_at(full.raffle.erase_at);
-    fn esc(s: &str) -> String {
-        // Quote, and neutralize spreadsheet formula injection.
-        let s = if s.starts_with(['=', '+', '-', '@']) {
-            format!("'{s}")
-        } else {
-            s.to_owned()
-        };
-        format!("\"{}\"", s.replace('"', "\"\""))
-    }
+    let esc = csv_field;
     let mut out = String::from(
         "\u{FEFF}entrant_id,display_name,email,source,claim_code,outcome,prize,delivered\n",
     );
@@ -204,6 +196,20 @@ pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String>
     )
     .await?;
     Ok(out)
+}
+
+/// One field of the winners' CSV ([`export_csv`]): quoted, with `"` doubled,
+/// and with a leading `'` if it starts with a character a spreadsheet would
+/// take for a formula: `=`, `+`, `-`, `@`, and the tab and carriage return
+/// some read past to one (OWASP's list). Names and prizes are typed by
+/// entrants and organizers, and the export is opened in a spreadsheet.
+fn csv_field(s: &str) -> String {
+    let s = if s.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        format!("'{s}")
+    } else {
+        s.to_owned()
+    };
+    format!("\"{}\"", s.replace('"', "\"\""))
 }
 
 /// Everything needed to verify the draws of raffle `slug`, once its
@@ -243,4 +249,29 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
         manifest_hash,
         names,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_fields_are_quoted_and_never_formulas() {
+        assert_eq!(csv_field("Anna"), "\"Anna\"");
+        assert_eq!(csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+        assert_eq!(csv_field(""), "\"\"");
+        for (input, cell) in [
+            ("=SUM(A1)", "'=SUM(A1)"),
+            ("+1", "'+1"),
+            ("-1", "'-1"),
+            ("@cmd", "'@cmd"),
+            ("\t=1+1", "'\t=1+1"),
+            ("\r=1+1", "'\r=1+1"),
+        ] {
+            assert_eq!(csv_field(input), format!("\"{cell}\""), "{input:?}");
+        }
+        // Only the first character counts.
+        assert_eq!(csv_field("a=b"), "\"a=b\"");
+        assert_eq!(csv_field(" =1"), "\" =1\"");
+    }
 }

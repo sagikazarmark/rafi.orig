@@ -34,6 +34,10 @@ Once the list is frozen, `/v/<slug>` and `/api/r/<slug>/verify.json` publish:
 - whether the raffle was a rehearsal in **test mode**, whose entrants may be fakes. Switching test mode off removes
   every fake entrant, and a raffle out of test mode never freezes with fakes in it.
 
+The verification page and the projector (`/s/<slug>`, with its recent names) ask search engines not to index them,
+nor the JSON behind them (`X-Robots-Tag: noindex`): they are public to whoever has the link, not to a search on
+someone's name. That is a request crawlers honour, not access control.
+
 ## Erasure
 
 Every raffle has an **event date** (at most a year ahead, so the bounded period counts from a bounded day), fixed
@@ -62,8 +66,9 @@ The organizer can always erase earlier, never later:
 Entrant IDs and the event log stay, so the draw remains verifiable. Every erasure is recorded (entrant ID and time
 only) and every automatic one audited per raffle, so they can be re-applied after a database restore
 (`rafi reapply-erasures`, see [Self-hosting](../operations/self-hosting.md#backups)). What remains of an erased
-entrant besides the ID: when they joined and accepted the rules, which version of the join form they were shown
-(`consent_version`, as `<form version>/age<minimum age>`, e.g. `2026-10-21.2/age16`), whether their prize was
+entrant besides the ID: when they entered, for someone who joined on their phone when they accepted the rules and
+which version of the join form they were shown (`consent_version`, as `<form version>/age<minimum age>`, e.g.
+`2026-10-21.2/age16`; someone the organizer added saw no form and has neither), whether their prize was
 delivered, how they got in, and whether their name was hidden. A winner's exported details are the organizer's
 copy, outside Rafi.
 
@@ -117,7 +122,7 @@ An entry has three parts:
 | Situation | What happens |
 |---|---|
 | The phone locks, the tab is closed, the QR code is scanned again | The cookie restores the entry, claim code included |
-| Another browser, private mode, cleared cookies | The same email finds the entry, and the page says it is safe. It is **not** moved to the new device: otherwise anyone could take over an entry by typing someone else's email. This does tell whoever types the email that it is entered. That can't be hidden by wording: a join is visible in the public entrant count and the recent names anyway, so anyone with the join code who solves a proof-of-work can learn it, five tries a minute per email, while registration is open. The page says so plainly rather than pretending otherwise. |
+| Another browser, private mode, cleared cookies | The same email finds the entry (one the organizer added too), and the page says, in the same words for either, that it is safe and that a winner goes to the organizer. It is **not** moved to the new device: otherwise anyone could take over an entry by typing someone else's email. This does tell whoever types the email that it is entered. That can't be hidden by wording: a join is visible in the public entrant count and the recent names anyway, so anyone with the join code who solves a proof-of-work can learn it, five tries a minute per email, while registration is open. The page says so plainly rather than pretending otherwise. |
 | No phone | The organizer adds the person in the admin and confirms them by name at the stage |
 
 The projector is the source of truth. A faked "you won" screen lacks the winner's private claim code.
@@ -156,8 +161,9 @@ The standard rules (`/rules/<slug>`) say:
 - how the draw works
 
 The organizer appends their own **additional rules**, which is where a higher age limit goes. The additional rules,
-the event date, the retention period and the organizer's privacy text and link lock once a real entrant has accepted
-them: they are what the entrant was shown.
+the event date, the retention period and the organizer's privacy text and link lock once a real entrant is in under
+them: someone who joined accepted them, and someone the organizer added was entered under them (no acceptance is
+recorded for them: they saw no form). Fake entrants lock nothing.
 
 Free entry matters: in many jurisdictions, selling entries or tying them to donations turns a prize draw into a
 regulated lottery. Prize tax treatment also varies. Check both for where you run your event.

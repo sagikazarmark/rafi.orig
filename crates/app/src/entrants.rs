@@ -239,7 +239,9 @@ async fn not_joined(
     Err(JoinError::Full)
 }
 
-/// Adds someone without a phone; returns their entrant ID.
+/// Adds someone without a phone; returns their entrant ID. They saw no join
+/// form, so no consent is recorded for them; they still fix the raffle's
+/// rules ([`Source::locks_settings`](entrant::Source::locks_settings)).
 pub async fn add_manual(
     app: &App,
     actor: Actor<'_>,
@@ -273,7 +275,6 @@ pub async fn add_manual(
             email_raw: email.as_ref().map(|e| e.raw.as_str()),
             email_norm: email.as_ref().map(|e| e.key.as_str()),
             claim_code: &claim,
-            consent_version: &app.policy.consent_version(),
         },
         now,
     )
