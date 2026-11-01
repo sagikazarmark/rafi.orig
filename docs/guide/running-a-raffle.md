@@ -113,9 +113,10 @@ deleted outright and it becomes Data erased.
 4. While people join, use the **People** tab to:
    - **Add people**: someone without a smartphone, by name (email optional). They are in the draw like everyone
      else, as "added by you"; an email already in is skipped. **Undo last add** takes your latest add off the list
-     again, until the freeze.
-   - **hide** or **rename** a display name on screen with one tap (a troll, a typo). New names reach the projector
-     after a 5 s delay.
+     again, until the freeze. A name you give may be a full name of up to 64 characters (people joining with the
+     QR code have 24): the projector fits it on screen.
+   - **hide** or **rename** a display name on screen with one tap (a troll, a typo), up to 64 characters. New names
+     reach the projector after a 5 s delay.
    - **remove** duplicates
    - search by name, email or claim code
 

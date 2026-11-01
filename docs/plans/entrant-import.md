@@ -280,8 +280,9 @@ re-checks are in `rafi_lifecycle::entrant`.
 - **Fitted on screen.** The projector's winner reveal scales the font down for long names, and the recent names and
   the thanks screen cut with "…" where they must; the verification page, the admin, the phones and the CSV show
   them in full.
-- NFC-normalized. One column ("Names are written family name first (Kovács Anna → Anna Kovács)", shown only then)
-  or first and last name columns.
+- NFC-normalized: every display name, joins included (`display_name`, `added_name`), so lengths count what a reader
+  sees and the uniqueness check compares one spelling. One column ("Names are written family name first (Kovács
+  Anna → Anna Kovács)", shown only then) or first and last name columns.
 - **`full`** (default): the full name. **`first_initial`**: "Anna K.", for large or more private events.
 - **Collisions**: display names are unique within the raffle, joined entrants included. Real namesakes get a
   number ("Anna Kovács (2)"); with `first_initial`, more letters of the family name first ("Anna Ko.", "Anna Ki."),

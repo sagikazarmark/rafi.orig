@@ -5,7 +5,7 @@ use std::fmt;
 use rafi_engine::EngineError;
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
-    entrant::{AddRefusal, FakesRefusal, MAX_ADD_ROWS, NameError, Origin},
+    entrant::{AddRefusal, FakesRefusal, MAX_ADD_ROWS, MAX_ADDED_NAME_CHARS, NameError, Origin},
     settings::{self, SettingsError},
     start,
 };
@@ -383,8 +383,11 @@ impl fmt::Display for Refusal {
             Self::Engine { message, .. } => f.write_str(message),
             Self::EntrantsFrozen => f.write_str("The entrant list is frozen."),
             Self::Full => f.write_str("The raffle is full: it has as many entrants as this installation allows."),
-            Self::Name(NameError::Invalid) => f.write_str(
-                "Please enter a name: 1–24 characters, with at least one letter or digit and nothing invisible.",
+            // Only the organizer's renames give this (a join has its own
+            // words): their limit.
+            Self::Name(NameError::Invalid) => write!(
+                f,
+                "Please enter a name: 1–{MAX_ADDED_NAME_CHARS} characters, with at least one letter or digit and nothing invisible.",
             ),
             Self::Name(NameError::Blocked) => f.write_str("Please choose a different name."),
             Self::BatchId => {

@@ -8,7 +8,7 @@ use dioxus_icons::lucide::{
     BookmarkCheck, BookmarkPlus, Check, Gift, Plus, Smartphone, Sparkles, TriangleAlert, Undo2,
 };
 use rafi_lifecycle::{
-    entrant::{self, MAX_NAME_CHARS, Origin},
+    entrant::{self, MAX_ADDED_NAME_CHARS, Origin},
     prize::Delivery,
     settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
 };
@@ -412,10 +412,10 @@ pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
             let f = Person::fields();
             core.register_sync_field_validator(f.name(), "required", required("Who is it?"));
             core.register_sync_field_validator(f.name(), "length", |v: &String, _| {
-                match entrant::display_name(v) {
+                match entrant::added_name(v) {
                     Err(entrant::NameError::Invalid) if !v.trim().is_empty() => {
                         vec![format!(
-                            "{MAX_NAME_CHARS} characters at most, no control characters."
+                            "{MAX_ADDED_NAME_CHARS} characters at most, no control characters."
                         )]
                     }
                     Err(entrant::NameError::Blocked) => {
@@ -475,8 +475,9 @@ pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
                 context: form.text(fields.name()),
                 label: "Name",
                 required: true,
-                maxlength: "{MAX_NAME_CHARS}",
+                maxlength: "{MAX_ADDED_NAME_CHARS}",
                 placeholder: "Shown on the screen",
+                description: format!("As they'd recognize it, a full name too: up to {MAX_ADDED_NAME_CHARS} characters."),
                 prefix: rsx! { Smartphone { class: "size-4 opacity-60" } },
                 wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
             }

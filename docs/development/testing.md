@@ -111,7 +111,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 - the participant page in headless Chromium (devenv's on Linux, or `CHROMIUM=…`), the fallback included
 - a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
   through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), the live channel,
-  the end; the security headers of each kind of page and of a static file; and every tab (the phone, the
+  the end; a 64-character name the organizer added, in a raffle of its own, fitting a projector-sized screen
+  without scrolling sideways in the recent names, at the reveal and on the thanks screen; the security headers of
+  each kind of page and of a static file; and every tab (the phone, the
   projector, the admin, the verification page, a phone without WebAssembly) listens for Content-Security-Policy
   violations, enforced or reported, one of which fails the run. The admin is also reloaded, revalidating its page
   (a 304), and must still refuse an inline script. It runs under dev auth, so Clerk's part of the web app's policy

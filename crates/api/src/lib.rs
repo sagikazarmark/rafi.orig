@@ -286,7 +286,7 @@ pub struct RowProblem {
 pub fn row_error_text(e: RowError) -> &'static str {
     match e {
         RowError::Name => {
-            "the name must be 1–24 characters, with at least one letter or digit and nothing invisible"
+            "the name must be 1–64 characters, with at least one letter or digit and nothing invisible"
         }
         RowError::BlockedName => "the name has a word that isn't allowed",
         RowError::Email => "not an email address",

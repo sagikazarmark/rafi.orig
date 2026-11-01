@@ -137,9 +137,9 @@ pub fn Verify(slug: String) -> Element {
                             span { class: "text-2xl", "🎟️" }
                             div {
                                 p { class: "font-semibold", "You're in." }
-                                p { class: "text-sm",
+                                p { class: "text-sm wrap-anywhere",
                                     "Your entry, "
-                                    if let Some(name) = name { strong { "{name} " } }
+                                    if let Some(name) = name { strong { bdi { "{name}" } " " } }
                                     span { class: "font-mono", "{short(id)}…" }
                                     ", is in the frozen entrant list that every draw below was made from."
                                 }
@@ -232,8 +232,11 @@ pub fn Verify(slug: String) -> Element {
                                             }
                                             td { "{c.pool_size}" }
                                             td {
-                                                span { class: "font-semibold", "{names.get(c.published_entrant.as_str()).copied().unwrap_or(\"\")} " }
-                                                span { class: "font-mono text-xs text-base-content/50", "{short(c.published_entrant.as_str())}" }
+                                                div { class: "max-w-64 wrap-break-word",
+                                                    bdi { class: "font-semibold", "{names.get(c.published_entrant.as_str()).copied().unwrap_or(\"\")}" }
+                                                    " "
+                                                    span { class: "font-mono text-xs text-base-content/50", "{short(c.published_entrant.as_str())}" }
+                                                }
                                             }
                                             td {
                                                 if c.ok {
@@ -269,9 +272,12 @@ pub fn Verify(slug: String) -> Element {
                         } else {
                             ul { class: "flex flex-wrap gap-2",
                                 for (id, name) in shown.iter() {
+                                    // A badge that grows to fit a long name (the
+                                    // organizer gives up to 64 characters): wrapped,
+                                    // in full.
                                     li { key: "{id}",
-                                        class: if me.as_deref() == Some(id.as_str()) { "badge badge-lg badge-success gap-2" } else { "badge badge-lg badge-ghost gap-2" },
-                                        if let Some(name) = name { span { class: "font-semibold", "{name}" } }
+                                        class: if me.as_deref() == Some(id.as_str()) { "badge badge-lg badge-success h-auto min-h-(--size) max-w-full flex-wrap gap-x-2 py-1" } else { "badge badge-lg badge-ghost h-auto min-h-(--size) max-w-full flex-wrap gap-x-2 py-1" },
+                                        if let Some(name) = name { bdi { class: "font-semibold wrap-anywhere", "{name}" } }
                                         span { class: "font-mono text-xs opacity-60", "{short(id)}" }
                                     }
                                 }
@@ -294,7 +300,15 @@ pub fn Verify(slug: String) -> Element {
                                     li { key: "{i}",
                                         if i > 0 { hr {} }
                                         div { class: "timeline-middle text-primary", {event_icon(e)} }
-                                        div { class: "timeline-end mb-2 text-sm", "{describe(e, &names, &item_names)}" }
+                                        {
+                                            let (text, name) = describe(e, &names, &item_names);
+                                            rsx! {
+                                                div { class: "timeline-end mb-2 text-sm wrap-anywhere",
+                                                    "{text}"
+                                                    if let Some(name) = name { bdi { "{name}" } }
+                                                }
+                                            }
+                                        }
                                         if i + 1 < d.events.len() { hr {} }
                                     }
                                 }
@@ -356,7 +370,14 @@ fn short(id: &str) -> &str {
     &id[..8.min(id.len())]
 }
 
-fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<ItemId, String>) -> String {
+/// What an event says, and the name of the entrant it is about, if any,
+/// which follows the text: apart, so it is rendered isolated from it (a
+/// right-to-left name would otherwise reorder the text around it).
+fn describe(
+    e: &Event,
+    names: &HashMap<&str, &str>,
+    items: &HashMap<ItemId, String>,
+) -> (String, Option<String>) {
     let name = |id: &EntrantId| {
         names
             .get(id.as_str())
@@ -364,7 +385,7 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<ItemId, Stri
             .unwrap_or_else(|| short(id.as_str()).to_owned())
     };
     let item_name = |id: &ItemId| items.get(id).cloned().unwrap_or_else(|| id.to_string());
-    match e {
+    let text = match e {
         Event::Announced { k, item, round, .. } => format!(
             "Draw {k}: {} committed to drand round {round}",
             item_name(item)
@@ -377,10 +398,10 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<ItemId, Stri
             pass,
             ..
         } => {
-            format!(
-                "Draw {k}: #{index} of {pool_size} (pass {pass}) → {}",
-                name(entrant)
-            )
+            return (
+                format!("Draw {k}: #{index} of {pool_size} (pass {pass}) → "),
+                Some(name(entrant)),
+            );
         }
         Event::Stalled {
             k, round, reason, ..
@@ -393,5 +414,6 @@ fn describe(e: &Event, names: &HashMap<&str, &str>, items: &HashMap<ItemId, Stri
         }
         Event::Voided { item } => format!("{} withdrawn", item_name(item)),
         Event::Finished => "Finished 🎉".into(),
-    }
+    };
+    (text, None)
 }

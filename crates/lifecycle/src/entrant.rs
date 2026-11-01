@@ -46,8 +46,18 @@ impl Source {
     }
 }
 
-/// The longest display name, in characters.
+/// The longest display name someone gives themselves when they join, in
+/// characters ([`display_name`]). It keeps a joiner from filling the
+/// projector: anyone with the QR code can type anything there.
 pub const MAX_NAME_CHARS: usize = 24;
+
+/// The longest display name the organizer gives, in characters
+/// ([`added_name`]): the people they add (one or a list) and any entrant
+/// they rename. A registration list holds full names, often longer than a
+/// joiner's limit, and a name shortened in the database would be less
+/// recognizable to the winner and lost for good; the organizer's own list
+/// is no troll's, and the screens fit long names instead.
+pub const MAX_ADDED_NAME_CHARS: usize = 64;
 
 /// The longest email address, in characters (RFC 5321's path limit).
 pub const MAX_EMAIL_CHARS: usize = 254;
@@ -62,8 +72,9 @@ const BLOCKED: &[&str] = &[
 /// Why a display name is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameError {
-    /// Empty, longer than [`MAX_NAME_CHARS`], with control or invisible
-    /// characters, or without a single letter or digit.
+    /// Empty, longer than its limit ([`MAX_NAME_CHARS`] for a joiner,
+    /// [`MAX_ADDED_NAME_CHARS`] for the organizer), with control or
+    /// invisible characters, or without a single letter or digit.
     Invalid,
     /// Contains a blocked word.
     Blocked,
@@ -112,11 +123,39 @@ pub fn legible(text: &str) -> bool {
         && text.chars().any(char::is_alphanumeric)
 }
 
-/// The display name `input` stands for, with its whitespace collapsed.
+/// The display name `input` stands for, as someone joining gives it: in
+/// Unicode's composed form (NFC), with its whitespace collapsed, at most
+/// [`MAX_NAME_CHARS`] characters, legible ([`legible`]) and without a
+/// blocked word.
+///
+/// Composed first, so the characters counted and the names compared are
+/// the ones a reader sees: "Á" typed as `A` and a combining acute (as some
+/// keyboards and exports write it) is one character, and the same name as
+/// the precomposed "Á", not a second, longer spelling of it.
 pub fn display_name(input: &str) -> Result<String, NameError> {
-    let name = input.split_whitespace().collect::<Vec<_>>().join(" ");
+    name_within(input, MAX_NAME_CHARS)
+}
+
+/// The display name `input` stands for, as the organizer gives it (adding
+/// someone, or renaming any entrant): at most [`MAX_ADDED_NAME_CHARS`]
+/// characters, every other rule [`display_name`]'s. The longer limit is the
+/// only difference: the blocklist and the invisible characters guard the
+/// screen against mistakes and pasted junk as much as against trolls.
+pub fn added_name(input: &str) -> Result<String, NameError> {
+    name_within(input, MAX_ADDED_NAME_CHARS)
+}
+
+/// [`display_name`]'s rules, with at most `max` characters.
+fn name_within(input: &str, max: usize) -> Result<String, NameError> {
+    use unicode_normalization::UnicodeNormalization;
+    let name = input
+        .nfc()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     let len = name.chars().count();
-    if len == 0 || len > MAX_NAME_CHARS || !legible(&name) {
+    if len == 0 || len > max || !legible(&name) {
         return Err(NameError::Invalid);
     }
     let lower = name.to_lowercase();
@@ -494,7 +533,8 @@ pub fn may_add(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RowError {
-    /// Not a display name ([`NameError::Invalid`]).
+    /// Not a display name the organizer may give ([`added_name`],
+    /// [`NameError::Invalid`]).
     Name,
     /// A display name with a blocked word ([`NameError::Blocked`]).
     BlockedName,
@@ -516,14 +556,15 @@ pub struct AddedRow {
     pub list_ref: Option<String>,
 }
 
-/// One row of an add, as the organizer sent it: a name, an email and a
-/// registration ID, either blank for none.
+/// One row of an add, as the organizer sent it: a name ([`added_name`]: up
+/// to [`MAX_ADDED_NAME_CHARS`] characters), an email and a registration ID,
+/// either blank for none.
 pub fn added_row(
     name: &str,
     email: Option<&str>,
     list_ref: Option<&str>,
 ) -> Result<AddedRow, RowError> {
-    let name = display_name(name).map_err(|e| match e {
+    let name = added_name(name).map_err(|e| match e {
         NameError::Invalid => RowError::Name,
         NameError::Blocked => RowError::BlockedName,
     })?;
@@ -694,6 +735,13 @@ mod tests {
         assert_eq!(row.name, "Anna K.");
         assert_eq!(row.email.map(|e| e.key).as_deref(), Some("anna@x.org"));
         assert_eq!(row.list_ref.as_deref(), Some("7"));
+        let long = "x".repeat(MAX_ADDED_NAME_CHARS);
+        assert_eq!(added_row(&long, None, None).map(|r| r.name), Ok(long));
+        assert_eq!(
+            added_row(&"x".repeat(MAX_ADDED_NAME_CHARS + 1), None, None),
+            Err(RowError::Name),
+            "the organizer's limit, not a joiner's"
+        );
         let blank = added_row("Bence", Some("  "), Some("")).unwrap();
         assert_eq!((blank.email, blank.list_ref), (None, None), "blank is none");
         assert_eq!(added_row("", None, None), Err(RowError::Name));
@@ -851,6 +899,65 @@ mod tests {
         assert_eq!(display_name("Bence 🎉").as_deref(), Ok("Bence 🎉"));
         assert_eq!(display_name("Árvíztűrő").as_deref(), Ok("Árvíztűrő"));
         assert_eq!(display_name("李雷").as_deref(), Ok("李雷"));
+    }
+
+    /// A joiner gives up to 24 characters, the organizer up to 64, by the
+    /// same rules otherwise; counted after whitespace is collapsed.
+    #[test]
+    fn name_lengths() {
+        let joiner = "é".repeat(MAX_NAME_CHARS);
+        assert_eq!(display_name(&joiner).as_ref(), Ok(&joiner), "24 is fine");
+        assert_eq!(
+            display_name(&format!("{joiner}x")),
+            Err(NameError::Invalid),
+            "25 isn't, for a joiner"
+        );
+        assert_eq!(
+            added_name(&format!("{joiner}x")).map(|n| n.chars().count()),
+            Ok(MAX_NAME_CHARS + 1),
+            "it is for the organizer"
+        );
+
+        // A full name of 64 characters, as a registration list has it.
+        let full = "Maria Fernanda de los Ángeles García-López y Hernández Rodríguez";
+        assert_eq!(full.chars().count(), MAX_ADDED_NAME_CHARS);
+        assert_eq!(added_name(full).as_deref(), Ok(full));
+        assert_eq!(
+            added_name(&format!("  {}  ", full.replace(' ', "   "))).as_deref(),
+            Ok(full),
+            "whitespace collapses before counting"
+        );
+        assert_eq!(added_name(&format!("{full}s")), Err(NameError::Invalid));
+        assert_eq!(display_name(full), Err(NameError::Invalid));
+
+        // Every other rule holds at any length.
+        assert_eq!(added_name(""), Err(NameError::Invalid));
+        assert_eq!(added_name("Anna\u{200B}"), Err(NameError::Invalid));
+        assert_eq!(added_name("★ ★ ★"), Err(NameError::Invalid));
+        assert_eq!(added_name("Kurva Anna"), Err(NameError::Blocked));
+    }
+
+    /// Names are composed (NFC): a decomposed "Á" is one character, the
+    /// same name as the precomposed one, for joiners and the organizer.
+    #[test]
+    fn names_are_composed() {
+        let decomposed = "A\u{301}rpa\u{301}d";
+        assert_eq!(decomposed.chars().count(), 7);
+        assert_eq!(display_name(decomposed).as_deref(), Ok("Árpád"));
+        assert_eq!(added_name(decomposed).as_deref(), Ok("Árpád"));
+        // 24 letters with a combining accent each: 48 code points, 24
+        // characters once composed.
+        let accented = "e\u{301}".repeat(MAX_NAME_CHARS);
+        assert_eq!(
+            display_name(&accented).map(|n| n.chars().count()),
+            Ok(MAX_NAME_CHARS)
+        );
+        // A combining mark with nothing to compose with stays, and counts.
+        assert_eq!(
+            display_name("Zoe\u{0308}\u{0323}").map(|n| n.chars().count()),
+            Ok(4),
+            "an e with two marks: one composes with it, the other stays"
+        );
     }
 
     #[test]

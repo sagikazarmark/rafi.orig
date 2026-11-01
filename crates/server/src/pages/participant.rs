@@ -224,7 +224,9 @@ pub fn page(page: Page<'_>) -> String {
             section { class: "ticket bg-primary text-primary-content shadow-lg animate-pop",
                 div { class: "space-y-1 px-7 pt-6",
                     p { class: "text-xs font-bold uppercase tracking-[0.2em] opacity-80", "🎟️ You're in!" }
-                    h2 { class: "break-words text-3xl font-extrabold", "{e.display_name}" }
+                    // Up to 64 characters once the organizer renames
+                    // them: wrapped, and isolated from the page's direction.
+                    h2 { class: "text-3xl font-extrabold wrap-anywhere", bdi { "{e.display_name}" } }
                     p { class: "text-sm opacity-80", "Your name on the screen." }
                 }
                 div { class: "mx-7 my-4 border-t-2 border-dashed border-primary-content/40" }

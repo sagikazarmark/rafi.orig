@@ -136,7 +136,7 @@ fn Intro(view: RaffleView) -> Element {
         .to_owned();
     rsx! {
         div { class: "grid flex-1 items-center gap-[3vw] lg:grid-cols-[1.15fr_1fr]",
-            div { class: "space-y-[1.4em]",
+            div { class: "min-w-0 space-y-[1.4em]",
                 if !view.description.is_empty() {
                     p { class: "max-w-[34em] text-[1.25em] text-base-content/75", "{view.description}" }
                 }
@@ -146,7 +146,7 @@ fn Intro(view: RaffleView) -> Element {
                     "No smartphone? Come to the organizer!"
                 }
             }
-            div { class: "flex flex-col items-center gap-[0.8em] text-center",
+            div { class: "flex min-w-0 flex-col items-center gap-[0.8em] text-center",
                 match view.state {
                     RaffleState::Open => rsx! {
                         div { class: "relative",
@@ -175,9 +175,13 @@ fn Intro(view: RaffleView) -> Element {
                     span { key: "{view.entrant_count}", class: "inline-block animate-pop font-display text-[2.6em] font-black leading-none text-primary", "{view.entrant_count}" }
                     span { class: "text-[1.2em] font-semibold text-base-content/60", "entrants" }
                 }
-                ul { class: "flex max-h-[11vh] flex-wrap justify-center gap-[0.4em] overflow-hidden", aria_hidden: "true",
+                // The latest names, a long one cut with "…" (the organizer
+                // gives up to 64 characters) so the others still fit.
+                ul { class: "flex max-h-[11vh] max-w-full flex-wrap justify-center gap-[0.4em] overflow-hidden", aria_hidden: "true",
                     for (i , name) in view.recent_names.iter().enumerate() {
-                        li { key: "{name}-{i}", class: "badge badge-lg animate-pop border-base-300 bg-base-200 font-semibold", "{name}" }
+                        li { key: "{name}-{i}", class: "badge badge-lg animate-pop max-w-[min(100%,18em)] border-base-300 bg-base-200 font-semibold",
+                            bdi { class: "truncate", "{name}" }
+                        }
                     }
                 }
             }
@@ -261,11 +265,13 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
     };
 
     rsx! {
+        // `min-w-0`: a long name wraps or is cut inside its column rather
+        // than widening it past the screen.
         div { class: "grid flex-1 gap-[3vw] lg:grid-cols-[2fr_1fr]",
-            div { class: "card grid place-items-center bg-base-200/60 p-[3vh] ring-1 ring-base-300",
-                div { class: "w-full", aria_live: "polite", {stage} }
+            div { class: "card grid min-w-0 place-items-center bg-base-200/60 p-[3vh] ring-1 ring-base-300",
+                div { class: "w-full min-w-0", aria_live: "polite", {stage} }
             }
-            aside { class: "space-y-[2em]",
+            aside { class: "min-w-0 space-y-[2em]",
                 PrizeList { view: view.clone() }
                 History { draws: view.draws.clone() }
             }
@@ -295,13 +301,31 @@ fn Winner(reveal: Reveal) -> Element {
                 }
             }
             span { class: "badge badge-secondary badge-lg gap-2 font-bold", Trophy { class: "size-[1.1em]" } "{reveal.prize_name}" }
-            h2 { class: "gradient-text animate-reveal py-[0.1em] text-[clamp(3rem,9vw,11rem)] font-black leading-none", "{reveal.display_name}" }
+            h2 { class: "gradient-text animate-reveal max-w-full py-[0.1em] font-black leading-[1.05] text-balance wrap-anywhere {reveal_size(&reveal.display_name)}",
+                bdi { "{reveal.display_name}" }
+            }
             if let Some(round) = reveal.round {
                 p { class: "text-[0.9em] text-base-content/60",
                     "drand round {round}"
                 }
             }
         }
+    }
+}
+
+/// The winner reveal's font size for `name`: smaller the longer it is, so
+/// a name the organizer added (up to 64 characters) takes about three lines
+/// on the projector, while a short one fills the screen as before. Sized by
+/// the viewport's width, as the screen is; the tiers keep roughly 10, 16, 22
+/// and 28 characters a line in the stage's column. What doesn't fit wraps,
+/// between words first. The classes are written out whole: Tailwind finds
+/// them only so.
+fn reveal_size(name: &str) -> &'static str {
+    match name.chars().count() {
+        0..=10 => "text-[clamp(3rem,9vw,11rem)]",
+        11..=18 => "text-[clamp(2.5rem,6vw,7.5rem)]",
+        19..=32 => "text-[clamp(2rem,4.5vw,5.5rem)]",
+        _ => "text-[clamp(1.75rem,3.5vw,4.25rem)]",
     }
 }
 
@@ -323,7 +347,7 @@ fn History(draws: Vec<DrawView>) -> Element {
                                 _ => "👻",
                             }
                         }
-                        span { class: if matches!(d.outcome, Outcome::NotHere | Outcome::Declined) { "font-bold line-through opacity-50" } else { "font-bold" }, "{d.display_name}" }
+                        bdi { class: if matches!(d.outcome, Outcome::NotHere | Outcome::Declined) { "min-w-0 truncate font-bold line-through opacity-50" } else { "min-w-0 truncate font-bold" }, "{d.display_name}" }
                         span { class: "truncate text-[0.85em] text-base-content/60", "{d.prize_name}" }
                         match d.outcome {
                             Outcome::NotHere => rsx! { span { class: "badge badge-ghost badge-sm", "not here" } },
@@ -357,9 +381,11 @@ fn Finished(view: RaffleView) -> Element {
             if !winners.is_empty() {
                 div { class: "flex max-w-[70vw] flex-wrap justify-center gap-[0.6em]",
                     for d in winners {
-                        div { key: "{d.k}", class: "card bg-base-200 px-[1em] py-[0.6em] ring-1 ring-base-300",
-                            p { class: "font-display text-[1.2em] font-extrabold", "🏆 {d.display_name}" }
-                            p { class: "text-[0.8em] text-base-content/60", "{d.prize_name}" }
+                        // A long name is cut with "…", so one winner doesn't
+                        // push the others off the screen.
+                        div { key: "{d.k}", class: "card max-w-[min(100%,24em)] bg-base-200 px-[1em] py-[0.6em] ring-1 ring-base-300",
+                            p { class: "truncate font-display text-[1.2em] font-extrabold", "🏆 " bdi { "{d.display_name}" } }
+                            p { class: "truncate text-[0.8em] text-base-content/60", "{d.prize_name}" }
                         }
                     }
                 }
@@ -369,5 +395,32 @@ fn Finished(view: RaffleView) -> Element {
                 "Check the draw yourself: /v/{view.slug}"
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reveal_size;
+
+    /// Longer names get smaller type, never larger; a joiner's short name
+    /// keeps the full size, the organizer's longest the smallest.
+    #[test]
+    fn long_names_are_revealed_smaller() {
+        let sizes: Vec<&str> = (1..=rafi_lifecycle::entrant::MAX_ADDED_NAME_CHARS)
+            .map(|n| reveal_size(&"é".repeat(n)))
+            .collect();
+        let mut tiers = sizes.clone();
+        tiers.dedup();
+        assert_eq!(tiers.len(), 4, "{tiers:?}");
+        assert_eq!(reveal_size("Anna"), "text-[clamp(3rem,9vw,11rem)]");
+        assert_eq!(
+            sizes.last().copied(),
+            Some("text-[clamp(1.75rem,3.5vw,4.25rem)]")
+        );
+        assert_eq!(
+            reveal_size(&"é".repeat(10)),
+            reveal_size("x"),
+            "counted in characters, not bytes"
+        );
     }
 }

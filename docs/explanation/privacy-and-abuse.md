@@ -13,7 +13,7 @@ installation's own notice is at `/privacy`, and the operator's terms, with the d
 
 | Data | Who sees it |
 |---|---|
-| **Display name** | The projector (after a 5 s delay, unless the organizer hides it), the verification page's list of entrants (until erasure), the admin. It is optional: an entrant who leaves it blank gets a generated one ("Brave Otter"), so nobody has to put their real name on a screen. The organizer can hide or rename it in one tap. Hidden names show as ★ ★ ★. |
+| **Display name** | The projector (after a 5 s delay, unless the organizer hides it), the verification page's list of entrants (until erasure), the admin. It is optional: an entrant who leaves it blank gets a generated one ("Brave Otter"), so nobody has to put their real name on a screen. Up to 24 characters when joining; up to 64 when the organizer adds someone or renames anyone, so a full name from a registration list is stored as written, never shortened (the projector fits it on screen, cutting it with "…" only in the recent names and on the thanks screen). The organizer can hide or rename it in one tap. Hidden names show as ★ ★ ★. |
 | **Email** | The admin only. It is never on the projector, in either public view, on the verification page, or in the raffle engine. |
 | **Registration ID** | For someone the organizer added with one (their ID in the organizer's registration system, to match them on a later add): the admin only, erased with their name and email |
 | **Claim code** | The entrant's own phone and the admin, until erasure |
@@ -140,7 +140,7 @@ The projector is the source of truth. A faked "you won" screen lacks the winner'
 | **Entrant cap** | `RAFI_MAX_ENTRANTS` (2000), enforced in the database (the hard limit) for joins and for everything the organizer adds, people and fakes: an add that doesn't fit is refused whole, in the same transaction as its rows. At most 1000 items (prize copies) in one raffle |
 | **Registration window** | The join code lets people in only while registration is open. The code is six characters out of 31 (887 million), and there is no per-IP limit, so codes can be guessed at a cost; a hit shows the raffle's public pages. Once the raffle is purged, its code answers nothing, so guessing finds only raffles inside their hold period. |
 | **Presence** | The rules require winners to be present to claim. Remote entries forfeit ("Not here"), and the prize is drawn again. |
-| **Display names** | Nothing invisible (bidirectional controls, zero-width characters, soft hyphens, blank fillers) and at least one letter or digit, so no name can look like another or like nothing; a blocklist; a 5 s delay before a name reaches the projector; one-tap hide or rename |
+| **Display names** | Nothing invisible (bidirectional controls, zero-width characters, soft hyphens, blank fillers) and at least one letter or digit, so no name can look like another or like nothing; composed (Unicode NFC), so two spellings of one name are one; a blocklist; at most 24 characters when joining, so nobody fills the projector (64 for the organizer's own); rendered isolated from the text around it (`<bdi>`), so a right-to-left name can't reorder it; a 5 s delay before a name reaches the projector; one-tap hide or rename |
 | **Before the freeze** | The organizer can remove duplicates and trolls |
 
 Edge protection by IP (DDoS and similar) is the platform's job: Cloudflare, or your reverse proxy.

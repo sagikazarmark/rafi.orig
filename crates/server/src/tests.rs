@@ -2901,9 +2901,19 @@ async fn retain(app: &AppState, id: &str, days: i64) -> RaffleRow {
 
 /// Draws `item` and claims it; returns the winner.
 async fn draw_and_claim(app: &AppState, raffle_id: &str, item: &rafi_raffle::ItemId) -> String {
+    draw_and_claim_as(app, ACTOR, raffle_id, item).await
+}
+
+/// [`draw_and_claim`], as `actor`.
+async fn draw_and_claim_as(
+    app: &AppState,
+    actor: service::Actor<'_>,
+    raffle_id: &str,
+    item: &rafi_raffle::ItemId,
+) -> String {
     service::command(
         app,
-        ACTOR,
+        actor,
         raffle_id,
         DrawRequest { item: item.clone() },
         &format!("draw-{item}"),
@@ -2927,7 +2937,7 @@ async fn draw_and_claim(app: &AppState, raffle_id: &str, item: &rafi_raffle::Ite
         .unwrap();
     service::command(
         app,
-        ACTOR,
+        actor,
         raffle_id,
         Decision::Resolve {
             item: item.clone(),
@@ -4646,11 +4656,16 @@ async fn abandoned_freezes_leave_limbo() {
 
 /// An open raffle of `dev`'s (the organizer under dev auth), and the routes.
 async fn dev_raffle(cfg: Config) -> (AppState, Router, RaffleRow) {
+    dev_raffle_with(cfg, &[("Book", 1)]).await
+}
+
+/// [`dev_raffle`], with `prizes`.
+async fn dev_raffle_with(cfg: Config, prizes: &[(&str, u32)]) -> (AppState, Router, RaffleRow) {
     let mut cfg = cfg;
     cfg.dev_auth = true;
     let app = app_with(cfg).await;
     let router = routes(app.clone());
-    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    let raffle = setup_open(&app, prizes).await;
     app.db
         .query("UPDATE raffles SET owner_id = 'dev' WHERE id = ?")
         .bind(&raffle.id)
@@ -4903,4 +4918,139 @@ async fn adding_people_is_bounded_over_http() {
         entrants::list(&app.db, id).await.unwrap().len(),
         budget as usize
     );
+}
+
+/// Names the organizer gives are stored whole up to 64 characters, joiners'
+/// up to 24: an add of 64 goes in and one of 65 is refused with its row, a
+/// rename of anyone to 64 goes in, a join of 25 is still refused. The long
+/// names reach the projector, the phones, the verification page and the
+/// winners' export whole.
+#[tokio::test]
+async fn names_the_organizer_gives_are_up_to_64_characters() {
+    use rafi_lifecycle::entrant::{MAX_ADDED_NAME_CHARS, MAX_NAME_CHARS};
+    let (app, router, raffle) = dev_raffle_with(Config::for_tests(), &[("Book", 2)]).await;
+    let id = raffle.id.as_str();
+    let dev = service::Actor::solo("dev");
+
+    // 64 characters once composed: the "Á" is sent decomposed, as some
+    // exports write it, 65 code points.
+    let maria = "Maria Fernanda de los Ángeles García-López y Hernández Rodríguez";
+    assert_eq!(maria.chars().count(), MAX_ADDED_NAME_CHARS);
+    let decomposed = maria.replace('Á', "A\u{301}");
+    let add = add_args(
+        id,
+        "b-long",
+        "list",
+        serde_json::json!([{ "name": decomposed }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    let maria_id = result.added[0].id.clone();
+    let stored = entrants::get(&app.db, id, &maria_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.display_name, maria, "stored whole, composed");
+
+    let too_long = add_args(
+        id,
+        "b-too-long",
+        "one",
+        serde_json::json!([{ "name": format!("{maria}s") }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &too_long)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    let rows: Vec<(u32, rafi_api::RowError)> =
+        err.rows.iter().map(|r| (r.row, r.problem)).collect();
+    assert_eq!(rows, [(0, rafi_api::RowError::Name)]);
+    assert!(err.message.contains("1–64 characters"), "{}", err.message);
+
+    // A joiner keeps 24.
+    let (status, _, page) = join(
+        &router,
+        &raffle.join_code,
+        &"x".repeat(MAX_NAME_CHARS + 1),
+        "long@example.com",
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(page.contains("at most 24 characters"), "{page}");
+    assert!(
+        page.contains(&format!("maxlength=\"{MAX_NAME_CHARS}\"")),
+        "the form says so too"
+    );
+    let (status, _, _) = join(&router, &raffle.join_code, "Bea", "bea@example.com").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let bea_id = entrants::list(&app.db, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|e| e.display_name == "Bea")
+        .unwrap()
+        .id;
+
+    // The organizer renames anyone up to 64, a joiner too.
+    let beatrix = "Beatrix Kovácsné Szabó-Nagy, Budapesti Műszaki Egyetem, Budapest";
+    assert_eq!(beatrix.chars().count(), MAX_ADDED_NAME_CHARS);
+    let rename = |name: &str| {
+        admin_call(
+            "patch_entrant",
+            &serde_json::json!({ "id": id, "entrant_id": bea_id, "patch": { "display_name": name } })
+                .to_string(),
+        )
+    };
+    let (status, _, body) = send(&router, rename(&format!("{beatrix}!"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("1–64 characters"), "{body}");
+    let (status, _, body) = send(&router, rename(beatrix)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // On the projector, before the freeze: whole.
+    let (_, _, view) = get_json(&router, &format!("/api/r/{}/view", raffle.slug)).await;
+    assert_eq!(view["recent_names"][0], maria, "{view}");
+
+    // Both win; every public and exported place has them whole.
+    service::start_draw(&app, dev, id).await.unwrap();
+    let r = wait_for(&app, id, |r| r.raffle.opened()).await;
+    let items: Vec<_> = r
+        .drawn
+        .as_ref()
+        .unwrap()
+        .items()
+        .iter()
+        .map(|u| u.id.clone())
+        .collect();
+    let mut won = Vec::new();
+    for item in &items {
+        won.push(draw_and_claim_as(&app, dev, id, item).await);
+    }
+    let name_of = |entrant: &str| if entrant == maria_id { maria } else { beatrix };
+    let latest = won.last().unwrap().clone();
+    won.sort();
+    let mut both = vec![maria_id.clone(), bea_id.clone()];
+    both.sort();
+    assert_eq!(won, both);
+
+    let (_, _, phone) = get_json(&router, &format!("/api/r/{}/participant", raffle.slug)).await;
+    assert_eq!(
+        phone["last"]["display_name"],
+        name_of(&latest),
+        "the phones: {phone}"
+    );
+
+    let (_, _, verify) = get_json(&router, &format!("/api/r/{}/verify.json", raffle.slug)).await;
+    let names: Vec<(String, String)> = serde_json::from_value(verify["names"].clone()).unwrap();
+    for entrant in [&maria_id, &bea_id] {
+        assert!(
+            names.contains(&(entrant.clone(), name_of(entrant).to_owned())),
+            "verify.json: {names:?}"
+        );
+    }
+
+    let csv = service::export_csv(&app, dev, id).await.unwrap();
+    for name in [maria, beatrix] {
+        assert!(csv.contains(&format!("\"{name}\"")), "{csv}");
+    }
 }

@@ -205,9 +205,10 @@ pub(super) fn DrawConsole(
                                         p { class: "text-sm text-base-content/60", "{status_label(u.status)}" }
                                     }
                                     if let Some(w) = winner {
-                                        div { class: "flex items-center gap-3",
-                                            div { class: "text-right",
-                                                p { class: "font-display text-lg font-bold", "{w.display_name}" }
+                                        // The name in full, wrapped, however long.
+                                        div { class: "flex min-w-0 max-w-full items-center gap-3",
+                                            div { class: "min-w-0 text-right",
+                                                p { class: "font-display text-lg font-bold wrap-break-word", bdi { "{w.display_name}" } }
                                                 if let Some(email) = &w.email { p { class: "text-xs text-base-content/60", "{email}" } }
                                                 if w.source == Source::Manual { p { class: "text-xs text-base-content/60", "added by you" } }
                                             }

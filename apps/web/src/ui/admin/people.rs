@@ -2,7 +2,7 @@
 
 use dioxus_icons::lucide::{Check, Eye, EyeOff, Pencil, Trash, Undo2, UserPlus, Users};
 use rafi_api::UndoBatch;
-use rafi_lifecycle::entrant::Removal;
+use rafi_lifecycle::entrant::{MAX_ADDED_NAME_CHARS, Removal};
 
 use super::*;
 
@@ -232,9 +232,14 @@ fn EntrantRow(
             td {
                 match renaming() {
                     Some(val) => rsx! {
-                        form { class: "join", onsubmit: { let patch = patch.clone(); move |ev: FormEvent| { ev.prevent_default(); let name = renaming().unwrap_or_default(); renaming.set(None); patch(EntrantPatch { display_name: Some(name), ..Default::default() }) } },
-                            input { class: "input input-sm join-item", value: "{val}", maxlength: "{rafi_lifecycle::entrant::MAX_NAME_CHARS}", oninput: move |ev| renaming.set(Some(ev.value())) }
-                            button { class: "btn btn-sm btn-primary join-item", r#type: "submit", Check { class: "size-4" } }
+                        // The organizer's limit for anyone they rename, a joiner
+                        // too: the server checks the same.
+                        form { class: "flex flex-col gap-1", onsubmit: { let patch = patch.clone(); move |ev: FormEvent| { ev.prevent_default(); let name = renaming().unwrap_or_default(); renaming.set(None); patch(EntrantPatch { display_name: Some(name), ..Default::default() }) } },
+                            div { class: "join",
+                                input { class: "input input-sm join-item", value: "{val}", maxlength: "{MAX_ADDED_NAME_CHARS}", aria_label: "Name", aria_describedby: "rename-hint-{e.id}", oninput: move |ev| renaming.set(Some(ev.value())) }
+                                button { class: "btn btn-sm btn-primary join-item", r#type: "submit", aria_label: "Save name", Check { class: "size-4" } }
+                            }
+                            p { id: "rename-hint-{e.id}", class: "text-xs text-base-content/60", "Up to {MAX_ADDED_NAME_CHARS} characters." }
                         }
                     },
                     None => rsx! {
@@ -243,7 +248,9 @@ fn EntrantRow(
                                 div { class: "w-9 rounded-full {avatar}", span { class: "text-xs font-bold", "{initials(&e.display_name)}" } }
                             }
                             div {
-                                p { class: "font-semibold", "{e.display_name}" }
+                                // In full, however long (the organizer gives up to 64
+                                // characters), isolated from the text around it.
+                                p { class: "max-w-64 font-semibold wrap-break-word", bdi { "{e.display_name}" } }
                                 div { class: "flex gap-1",
                                     if e.hidden { span { class: "badge badge-ghost badge-xs", "hidden on screen" } }
                                     if e.source == Source::Manual { span { class: "badge badge-secondary badge-soft badge-xs", "no phone" } }

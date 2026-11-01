@@ -322,6 +322,42 @@ await nowasm.js(`(() => {
 check(await until(() => nowasm.js(`!!document.querySelector(".claim-code")`), 15000), "and Bence joins with it");
 nowasm.close();
 
+// Long names: the organizer adds someone from a list with a full name of 64
+// characters, the longest they may give, and a projector-sized screen fits it
+// without scrolling sideways in the recent names, at the reveal and on the
+// thanks screen. Its own raffle, where they are the only entrant, so the
+// winner is known.
+const longName = "Maria Fernanda de los Ángeles García-López y Hernández Rodríguez";
+const long = await newRaffle(`Workers evening, long names ${Date.now()}`);
+await api("save_prize", { id: long, prize: { id: null, name: "Mug", sponsor: "", description: "", qty: 1, position: 0 } });
+await api("set_lifecycle", { id: long, action: "publish" });
+await api("set_lifecycle", { id: long, action: "open" });
+const added = await api("add_entrants", { id: long, add: { batch_id: `long-${Date.now()}`, origin: "list", rows: [{ name: longName }] } });
+check(added.added.length === 1, `the organizer adds a ${[...longName].length}-character name`);
+const longSlug = (await api("get_raffle", { id: long })).view.slug;
+const projectorSize = (call, width, height) => call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+const projector = await tab("projector, long names", `${base}/s/${longSlug}`, { before: (call) => projectorSize(call, 1280, 720) });
+const fits = () => projector.js(`document.documentElement.scrollWidth <= document.documentElement.clientWidth`);
+const shows = (selector) => projector.js(`[...document.querySelectorAll(${JSON.stringify(selector)})].some((e) => e.textContent.includes(${JSON.stringify(longName)}))`);
+check(await until(() => shows("li bdi"), 45000), "the projector has it in the recent names");
+check(await fits(), "in the recent names, it fits a 1280×720 projector");
+await projectorSize(projector.call, 1920, 1080);
+check(await until(fits, 2000), "and a 1920×1080 one");
+await projectorSize(projector.call, 1280, 720);
+await api("set_lifecycle", { id: long, action: "close" });
+await api("start_draw", { id: long });
+let longItem = null;
+await until(async () => { const v = (await api("get_raffle", { id: long })).view; longItem = v.manifest_hash ? v.items[0]?.item : null; return !!longItem; }, 15000);
+await api("draw_item", { id: long, item: longItem, command_id: commandId() });
+check(await until(() => shows("h2 bdi"), 30000), "the projector reveals the long name");
+check(await fits(), "revealed, it fits the projector");
+await api("resolve_item", { id: long, item: longItem, resolution: "claimed", command_id: commandId() });
+await api("finish_raffle", { id: long, command_id: commandId() });
+check(await until(async () => (await projector.text()).includes("Thanks for playing") && (await shows(".card bdi")), 15000),
+  "the thanks screen lists the winner");
+check(await fits(), "and fits the projector");
+projector.close();
+
 const real = errors.filter((e) => !/WebSocket|4403|ERR_/i.test(e));
 check(real.length === 0, `no console errors${real.length ? ": " + real.join(" | ") : ""}`);
 const seen = violations.length ? violations : logged;

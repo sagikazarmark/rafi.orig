@@ -632,8 +632,11 @@ pub async fn patch_entrant(
     if entrant.erased {
         return Err(Refusal::Erased.into());
     }
+    // The organizer's name for anyone, up to their limit, whoever chose the
+    // one before: a joiner's limit keeps trolls off the screen, which the
+    // organizer isn't.
     let name = match &patch.display_name {
-        Some(name) => Some(entrant::display_name(name).map_err(Refusal::Name)?),
+        Some(name) => Some(entrant::added_name(name).map_err(Refusal::Name)?),
         None => None,
     };
     if patch.delivered.is_some()

@@ -775,7 +775,7 @@ async fn invalid_adds_are_refused_whole_with_their_rows() {
     let refused = refusal(app::add_entrants(&app, ACTOR, &id, one(" ", None)).await);
     assert_eq!(
         refused.to_string(),
-        "The name must be 1–24 characters, with at least one letter or digit and nothing invisible."
+        "The name must be 1–64 characters, with at least one letter or digit and nothing invisible."
     );
     assert!(names(&app, &id).await.is_empty(), "nothing was added");
 
