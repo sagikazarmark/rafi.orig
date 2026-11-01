@@ -26,9 +26,10 @@ fn expiring() -> String {
 
 /// Expires every raffle that was never frozen (or frozen without a manifest)
 /// and whose erasure date has passed at `now`: its entrants are deleted
-/// outright (there is no manifest to keep verifiable), an audit row counts
-/// them, and the raffle becomes purged with its live updates ended. Returns
-/// the raffles expired.
+/// outright (there is no manifest to keep verifiable), and so are the people
+/// removed from it at their request (`add_removals`), an audit row counts
+/// the entrants, and the raffle becomes purged with its live updates ended.
+/// Returns the raffles expired.
 pub async fn expire_due(db: &Db, now: i64) -> Result<Vec<String>> {
     let due = expiring();
     let ids: Vec<(String,)> = db
@@ -49,6 +50,10 @@ pub async fn expire_due(db: &Db, now: i64) -> Result<Vec<String>> {
         .bind(now),
         db.query(format!(
             "DELETE FROM entrants WHERE raffle_id IN (SELECT id FROM raffles WHERE {due})"
+        ))
+        .bind(now),
+        db.query(format!(
+            "DELETE FROM add_removals WHERE raffle_id IN (SELECT id FROM raffles WHERE {due})"
         ))
         .bind(now),
         db.query(format!(
@@ -180,6 +185,88 @@ pub async fn erase_due(db: &Db, now: i64, winner_hold_secs: i64) -> Result<Erase
         raffles: raffles.into_iter().map(|(id,)| id).collect(),
         purged: purged.into_iter().map(|(id,)| id).collect(),
     })
+}
+
+/// The entrants who took themselves off ([`entrants::object`](crate::entrants::object))
+/// of a raffle that is over, not erased yet: due at once, not on the
+/// erasure date. Purged raffles stay in the set, as in [`due`]: a restored
+/// backup can bring their entrants back.
+fn objected_due() -> String {
+    format!(
+        "entrants.raffle_id IN (SELECT id FROM raffles WHERE state IN ({over}))
+         AND entrants.erased = 0 AND entrants.objected_at IS NOT NULL",
+        over = states(RaffleState::is_over),
+    )
+}
+
+/// Erases, at `now`, every entrant who took themselves off a raffle that is
+/// over: what they were told is that their data goes when the raffle does,
+/// not on the date everyone else's does. Each erasure is logged, and each
+/// raffle gets an audit row `auto_erase` whose detail counts them as
+/// objected (`2 objected`); one batch, all or nothing, idempotent. Nobody
+/// is purged ([`Erased::purged`] is empty).
+pub async fn erase_objected(db: &Db, now: i64) -> Result<Erased> {
+    let due = objected_due();
+    let raffles: Vec<(String, i64)> = db
+        .query(format!(
+            "SELECT raffle_id, COUNT(*) FROM entrants WHERE {due} GROUP BY raffle_id ORDER BY raffle_id"
+        ))
+        .all()
+        .await?;
+    if raffles.is_empty() {
+        return Ok(Erased::default());
+    }
+    db.batch(vec![
+        db.query(format!(
+            "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
+             SELECT raffle_id, ?1, '{ACTOR}', '{ACTOR}', 'auto_erase', CAST(COUNT(*) AS TEXT) || ' objected'
+             FROM entrants WHERE {due} GROUP BY raffle_id"
+        ))
+        .bind(now),
+        db.query(format!(
+            "INSERT INTO erasures (raffle_id, entrant_id, at)
+             SELECT raffle_id, id, ?1 FROM entrants WHERE {due}"
+        ))
+        .bind(now),
+        db.query(format!("UPDATE entrants SET {ERASED} WHERE {due}")),
+    ])
+    .await?;
+    Ok(Erased {
+        entrants: raffles.iter().map(|(_, n)| n.max(&0).unsigned_abs()).sum(),
+        raffles: raffles.into_iter().map(|(id, _)| id).collect(),
+        purged: Vec::new(),
+    })
+}
+
+/// The raffles whose removals at their request (`add_removals`) serve
+/// nothing at `?1`: no add will come, since the list is frozen for good
+/// (a manifest), the raffle is purged, or its erasure date has passed.
+const REMOVALS_DONE: &str = "raffle_id IN (SELECT id FROM raffles
+    WHERE manifest IS NOT NULL OR purged_at IS NOT NULL OR erase_at <= ?1)";
+
+/// Forgets, at `now`, who was removed at their request from every raffle
+/// that can't take an add any more: its list frozen for good (a manifest),
+/// purged, or past its erasure date. The freeze and the
+/// expiry forget them as they happen; this is the sweep that keeps it so
+/// whatever happened in between, a restored backup included. Returns how
+/// many rows went (counted in the same transaction as the delete).
+pub async fn forget_removals(db: &Db, now: i64) -> Result<u64> {
+    let mut sets = db
+        .batch_rows(vec![
+            db.query(format!(
+                "SELECT COUNT(*) FROM add_removals WHERE {REMOVALS_DONE}"
+            ))
+            .bind(now),
+            db.query(format!("DELETE FROM add_removals WHERE {REMOVALS_DONE}"))
+                .bind(now),
+        ])
+        .await?
+        .into_iter();
+    let count = match sets.next().and_then(|rows| rows.into_iter().next()) {
+        Some(row) => row.decode::<(i64,)>()?.0,
+        None => 0,
+    };
+    Ok(count.max(0).unsigned_abs())
 }
 
 /// Purges a frozen or drawing raffle the engine doesn't hold any more (it

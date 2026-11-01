@@ -17,6 +17,8 @@ pub fn spawn(app: AppState) {
                 Ok(r) => tracing::info!(
                     expired = r.expired,
                     erased = r.erased,
+                    objected = r.objected,
+                    removals_forgotten = r.removals_forgotten,
                     purged = r.purged,
                     channels_ended = r.channels_ended,
                     "housekeeping run"

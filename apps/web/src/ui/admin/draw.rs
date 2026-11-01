@@ -179,6 +179,9 @@ pub(super) fn DrawConsole(
                     for u in v.items.iter() {
                         {
                             let winner = u.entrant.as_ref().and_then(|id| by_id.get(id.as_str()));
+                            // Took themselves off: declined only (the server
+                            // refuses the rest).
+                            let objected = winner.is_some_and(|w| w.objected);
                             let uid = u.item.clone();
                             let winner_name = winner.map_or_else(|| "The winner".to_owned(), |w| w.display_name.clone());
                             let prize = u.prize_name.clone();
@@ -211,6 +214,7 @@ pub(super) fn DrawConsole(
                                                 p { class: "font-display text-lg font-bold wrap-break-word", bdi { "{w.display_name}" } }
                                                 if let Some(email) = &w.email { p { class: "text-xs text-base-content/60", "{email}" } }
                                                 if w.source == Source::Manual { p { class: "text-xs text-base-content/60", "added by you" } }
+                                                if w.objected { p { class: "text-xs font-semibold text-warning", "Took themselves off: decline" } }
                                             }
                                             if let Some(code) = &w.claim_code {
                                                 span { class: "ticket bg-accent px-5 py-2 text-accent-content",
@@ -226,6 +230,9 @@ pub(super) fn DrawConsole(
                                                     Dice5 { class: "size-5" } "Draw"
                                                 }
                                                 button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let item = uid.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Withdraw { item: item.clone(), prize: prize.clone() }) }, "Withdraw" }
+                                            },
+                                            ItemStatus::Drawn if drawable && objected => rsx! {
+                                                button { class: "btn btn-warning", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "They took themselves off the raffle: the prize is drawn again" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
                                             },
                                             ItemStatus::Drawn if drawable => rsx! {
                                                 button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Check { class: "size-5" } "Claimed" }

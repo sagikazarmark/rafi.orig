@@ -505,7 +505,7 @@ fn list(rows: &[(&str, Option<&str>, Option<&str>)]) -> AddRequest {
                 name: (*name).into(),
                 email: email.map(Into::into),
                 list_ref: list_ref.map(Into::into),
-                approved: false,
+                ..AddRow::default()
             })
             .collect(),
         name_format: None,
@@ -615,10 +615,10 @@ async fn adding_one_person_is_a_batch_of_one() {
     assert_eq!(adds.len(), 5, "{adds:?}");
     assert_eq!(
         adds[0],
-        format!("batch={batch} origin=one added=1 skipped=0 approved=0")
+        format!("batch={batch} origin=one added=1 skipped=0 approved=0 lifted=0")
     );
     assert!(
-        adds[4].ends_with(" origin=one added=0 skipped=1 approved=0"),
+        adds[4].ends_with(" origin=one added=0 skipped=1 approved=0 lifted=0"),
         "{adds:?}"
     );
     assert!(
@@ -688,7 +688,7 @@ async fn adding_a_list_keeps_its_order_and_skips_who_is_in() {
     assert_eq!(bence.batch_id.as_deref(), Some(batch.as_str()));
     assert_eq!(
         audited(&app, &id, "add").await.last().unwrap(),
-        &format!("batch={batch} origin=list added=3 skipped=1 approved=0")
+        &format!("batch={batch} origin=list added=3 skipped=1 approved=0 lifted=0")
     );
 
     // An updated list adds only who is new, by email or registration ID.
@@ -1175,7 +1175,7 @@ async fn blocked_names_go_in_when_approved() {
     );
     assert_eq!(
         audited(&app, &id, "add").await.last().unwrap(),
-        &format!("batch={batch} origin=list added=3 skipped=0 approved=2 format=full"),
+        &format!("batch={batch} origin=list added=3 skipped=0 approved=2 lifted=0 format=full"),
         "an approval of a name the blocklist takes approves nothing"
     );
 
@@ -1192,7 +1192,7 @@ async fn blocked_names_go_in_when_approved() {
             .await
             .last()
             .unwrap()
-            .ends_with(" origin=one added=1 skipped=0 approved=1"),
+            .ends_with(" origin=one added=1 skipped=0 approved=1 lifted=0"),
         "no format for one person"
     );
 }
@@ -1210,7 +1210,334 @@ async fn the_name_format_is_audited() {
     assert_eq!(
         audited(&app, &id, "add").await,
         [format!(
-            "batch={batch} origin=list added=2 skipped=0 approved=0 format=first_initial"
+            "batch={batch} origin=list added=2 skipped=0 approved=0 lifted=0 format=first_initial"
         )]
+    );
+}
+
+/// The entrant of raffle `id` who is `name`, as the admin page has them.
+async fn admin_entrant(app: &App, id: &str, name: &str) -> rafi_api::AdminEntrant {
+    app::admin(app, OWNER, id)
+        .await
+        .unwrap()
+        .entrants
+        .into_iter()
+        .find(|e| e.display_name == name)
+        .unwrap_or_else(|| panic!("no {name}"))
+}
+
+/// Someone removed at their request before the freeze stays out of later
+/// adds, by email key or registration ID, the one-person form's too, until
+/// the organizer lifts it for their row; the removal is forgotten with the
+/// freeze. A plain removal remembers nothing.
+#[tokio::test]
+async fn removed_at_their_request_they_stay_out_until_lifted() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &[]).await;
+    app::add_entrants(
+        &app,
+        ACTOR,
+        &id,
+        list(&[
+            ("Anna", Some("anna@x.org"), Some("1")),
+            ("Bea", Some("bea@x.org"), None),
+            ("Cili", None, Some("3")),
+        ]),
+    )
+    .await
+    .unwrap();
+    let (anna, bea, cili) = (
+        admin_entrant(&app, &id, "Anna").await.id,
+        admin_entrant(&app, &id, "Bea").await.id,
+        admin_entrant(&app, &id, "Cili").await.id,
+    );
+    app.clock.advance(1);
+    app::remove_entrant(&app, ACTOR, &id, &anna, true)
+        .await
+        .unwrap();
+    app::remove_entrant(&app, ACTOR, &id, &bea, false)
+        .await
+        .unwrap();
+    app.clock.advance(1);
+    app::remove_entrant(&app, ACTOR, &id, &cili, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        audited(&app, &id, "remove_entrant").await,
+        [
+            format!("{anna} at_request"),
+            bea.clone(),
+            format!("{cili} at_request")
+        ],
+        "the reason, never who"
+    );
+    let removed = app::admin(&app, OWNER, &id).await.unwrap().removed;
+    let now = app.clock.now();
+    assert_eq!(
+        removed,
+        [
+            rafi_api::RemovedAtRequest {
+                email_key: Some("anna@x.org".into()),
+                list_ref: Some("1".into()),
+                removed_at: now - 1,
+            },
+            rafi_api::RemovedAtRequest {
+                email_key: None,
+                list_ref: Some("3".into()),
+                removed_at: now,
+            },
+        ]
+    );
+
+    // The list again: Anna (by her email, written otherwise) and Cili (by
+    // her ID) stay out; Bea, removed without asking, is back.
+    let again = list(&[
+        ("Anna", Some("ANNA+meetup@x.org"), None),
+        ("Bea", Some("bea@x.org"), None),
+        ("Cili", None, Some("3")),
+    ]);
+    let batch = again.batch_id.clone();
+    let result = app::add_entrants(&app, ACTOR, &id, again.clone())
+        .await
+        .unwrap();
+    assert_eq!(result.added.len(), 1);
+    assert_eq!(
+        result.skipped,
+        [
+            rafi_api::SkippedRow {
+                row: 0,
+                reason: SkipReason::RemovedAtRequest
+            },
+            rafi_api::SkippedRow {
+                row: 2,
+                reason: SkipReason::RemovedAtRequest
+            },
+        ]
+    );
+    assert_eq!(names(&app, &id).await, ["Bea"]);
+    assert_eq!(
+        app::add_entrants(&app, ACTOR, &id, again)
+            .await
+            .unwrap()
+            .skipped,
+        result.skipped,
+        "a retry answers the same"
+    );
+    assert_eq!(
+        audited(&app, &id, "add").await.last().unwrap(),
+        &format!("batch={batch} origin=list added=1 skipped=2 approved=0 lifted=0")
+    );
+    // The one-person form too.
+    let one = app::add_entrants(&app, ACTOR, &id, one("Anna K.", Some("anna@x.org")))
+        .await
+        .unwrap();
+    assert!(one.added.is_empty());
+    assert_eq!(one.skipped[0].reason, SkipReason::RemovedAtRequest);
+
+    // Lifted for Anna's row: she is added, her removal goes, the add
+    // counts it; Cili's stays.
+    let mut lifting = list(&[
+        ("Anna", Some("anna@x.org"), None),
+        ("Cili", None, Some("3")),
+    ]);
+    lifting.rows[0].lift_removal = true;
+    let batch = lifting.batch_id.clone();
+    let result = app::add_entrants(&app, ACTOR, &id, lifting).await.unwrap();
+    assert_eq!(result.added.len(), 1);
+    assert_eq!(result.skipped[0].reason, SkipReason::RemovedAtRequest);
+    assert_eq!(
+        audited(&app, &id, "add").await.last().unwrap(),
+        &format!("batch={batch} origin=list added=1 skipped=1 approved=0 lifted=1")
+    );
+    let removed = app::admin(&app, OWNER, &id).await.unwrap().removed;
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0].list_ref.as_deref(), Some("3"));
+    assert!(!removed[0].matches(Some("anna@x.org"), None));
+
+    // The freeze fixes the list for good: nobody is removed now, and the
+    // removals serve nothing any more.
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    let anna = admin_entrant(&app, &id, "Anna").await.id;
+    assert_eq!(
+        refusal(app::remove_entrant(&app, ACTOR, &id, &anna, true).await),
+        Refusal::NotRemovable
+    );
+    assert!(
+        app::admin(&app, OWNER, &id)
+            .await
+            .unwrap()
+            .removed
+            .is_empty()
+    );
+}
+
+/// Waits until raffle `id` is finished.
+async fn finished(app: &App, id: &str) {
+    for _ in 0..200 {
+        let raffle = raffles::get(&app.db, id).await.unwrap().unwrap();
+        if raffle.state == rafi_lifecycle::RaffleState::Finished {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("never finished");
+}
+
+/// After the freeze, someone the organizer added can take themselves off:
+/// their name is hidden and stays so, the admin page offers it and its
+/// undo per entrant, it is audited, and once the raffle is over
+/// housekeeping erases them, not a non-winner who didn't object. Someone
+/// who joined can't, and neither before the freeze.
+#[tokio::test]
+async fn added_people_take_themselves_off_after_the_freeze() {
+    let app = app().await;
+    let (id, people) = open_raffle(&app, &["Anna"]).await;
+    let anna = people[0].clone();
+    join_as(&app, &id, "Jo", "jo@x.org").await;
+    let jo = admin_entrant(&app, &id, "Jo").await;
+    assert_eq!(
+        refusal(app::object_entrant(&app, ACTOR, &id, &anna).await),
+        Refusal::Objection(rafi_lifecycle::entrant::ObjectionRefusal::State),
+        "before the freeze, they're removed at their request"
+    );
+    assert!(!admin_entrant(&app, &id, "Anna").await.actions.object);
+
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    let a = admin_entrant(&app, &id, "Anna").await;
+    assert!(a.actions.object && !a.actions.unobject && !a.objected);
+    assert!(!admin_entrant(&app, &id, "Jo").await.actions.object);
+    assert_eq!(
+        refusal(app::object_entrant(&app, ACTOR, &id, &jo.id).await),
+        Refusal::Objection(rafi_lifecycle::entrant::ObjectionRefusal::Source),
+        "a joiner accepted the rules"
+    );
+    app::object_entrant(&app, ACTOR, &id, &anna).await.unwrap();
+    app::object_entrant(&app, ACTOR, &id, &anna)
+        .await
+        .expect("again: nothing to do");
+    let a = admin_entrant(&app, &id, "Anna").await;
+    assert!(a.objected && a.hidden && a.actions.unobject && !a.actions.object);
+    let show = EntrantPatch {
+        hidden: Some(false),
+        ..Default::default()
+    };
+    assert_eq!(
+        refusal(app::patch_entrant(&app, ACTOR, &id, &anna, show.clone()).await),
+        Refusal::ObjectedHidden
+    );
+    // A mistake undone: no longer objected, still hidden until shown.
+    app::unobject_entrant(&app, ACTOR, &id, &anna)
+        .await
+        .unwrap();
+    let a = admin_entrant(&app, &id, "Anna").await;
+    assert!(!a.objected && a.hidden && a.actions.object);
+    app::object_entrant(&app, ACTOR, &id, &anna).await.unwrap();
+    assert_eq!(
+        audited(&app, &id, "object").await,
+        [anna.clone(), anna.clone()]
+    );
+    assert_eq!(
+        audited(&app, &id, "unobject").await,
+        std::slice::from_ref(&anna)
+    );
+    let view = app::admin(&app, OWNER, &id).await.unwrap().view;
+    assert_eq!(view.state, rafi_lifecycle::RaffleState::Frozen);
+
+    // The raffle is over: housekeeping erases Anna, not Jo, whose data waits
+    // for the erasure date.
+    app::command(&app, ACTOR, &id, Decision::Finish, "f1")
+        .await
+        .unwrap();
+    finished(&app, &id).await;
+    assert_eq!(
+        refusal(app::unobject_entrant(&app, ACTOR, &id, &anna).await),
+        Refusal::Objection(rafi_lifecycle::entrant::ObjectionRefusal::State)
+    );
+    let report = app::housekeeping::run(&app).await.unwrap();
+    assert_eq!((report.objected, report.erased), (1, 1));
+    let a = admin_entrant(&app, &id, &format!("#{}", &anna[..6])).await;
+    assert!(a.erased && a.objected && a.email.is_none());
+    assert!(!admin_entrant(&app, &id, "Jo").await.erased);
+    assert_eq!(audited(&app, &id, "auto_erase").await, ["1 objected"]);
+    assert_eq!(
+        app::housekeeping::run(&app).await.unwrap().objected,
+        0,
+        "once"
+    );
+}
+
+/// A winner who took themselves off can only be declined: the server
+/// refuses "Claimed" and "Not here" before the engine is asked. A winner
+/// who claimed can't take themselves off: the result stands.
+#[tokio::test]
+async fn a_winner_who_took_themselves_off_is_declined() {
+    let app = app().await;
+    let (id, people) = open_raffle(&app, &["Zoe"]).await;
+    let zoe = people[0].clone();
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    let item = app::admin(&app, OWNER, &id).await.unwrap().view.items[0]
+        .item
+        .clone();
+    app::command(&app, ACTOR, &id, DrawRequest { item: item.clone() }, "d1")
+        .await
+        .unwrap();
+    assert_eq!(drawn(&app, &id).await, zoe);
+    app::object_entrant(&app, ACTOR, &id, &zoe).await.unwrap();
+    for (resolution, command_id) in [(Resolution::Claimed, "c1"), (Resolution::NotHere, "n1")] {
+        let decide = Decision::Resolve {
+            item: item.clone(),
+            resolution,
+        };
+        assert_eq!(
+            refusal(app::command(&app, ACTOR, &id, decide, command_id).await),
+            Refusal::ObjectedWinner,
+            "{resolution:?}"
+        );
+    }
+    assert!(audited(&app, &id, "resolve").await.is_empty());
+    let decline = Decision::Resolve {
+        item: item.clone(),
+        resolution: Resolution::Declined,
+    };
+    app::command(&app, ACTOR, &id, decline, "x1").await.unwrap();
+    assert_eq!(
+        audited(&app, &id, "resolve").await,
+        [format!("{item} declined")]
+    );
+
+    // A claimed winner's result stands.
+    let (other, people) = open_raffle(&app, &["Kim"]).await;
+    let kim = people[0].clone();
+    app::start_draw(&app, ACTOR, &other).await.unwrap();
+    let item = app::admin(&app, OWNER, &other).await.unwrap().view.items[0]
+        .item
+        .clone();
+    app::command(
+        &app,
+        ACTOR,
+        &other,
+        DrawRequest { item: item.clone() },
+        "d2",
+    )
+    .await
+    .unwrap();
+    assert_eq!(drawn(&app, &other).await, kim);
+    let claim = Decision::Resolve {
+        item,
+        resolution: Resolution::Claimed,
+    };
+    app::command(&app, ACTOR, &other, claim, "c2")
+        .await
+        .unwrap();
+    for _ in 0..200 {
+        if !admin_entrant(&app, &other, "Kim").await.actions.object {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(!admin_entrant(&app, &other, "Kim").await.actions.object);
+    assert_eq!(
+        refusal(app::object_entrant(&app, ACTOR, &other, &kim).await),
+        Refusal::Objection(rafi_lifecycle::entrant::ObjectionRefusal::Claimed)
     );
 }

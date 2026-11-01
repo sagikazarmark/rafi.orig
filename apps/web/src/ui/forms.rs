@@ -24,7 +24,10 @@ use crate::{
     },
     ui::{command_id, dates},
 };
-use rafi_api::{AddRequest, AddRow, PrizeInput, RaffleDefaults, RaffleSettings, Retention};
+use rafi_api::{
+    AddRequest, AddRow, PrizeInput, RaffleDefaults, RaffleSettings, RemovedAtRequest, Retention,
+    SkipReason,
+};
 
 /// What the organizer reads for a failed call: its message, and for a
 /// server error the request's ID, which the operator finds in the log.
@@ -396,15 +399,26 @@ struct Person {
     /// The organizer approved a name the blocklist refuses: it is someone's
     /// real name. Offered only for such a name.
     approved: bool,
+    /// The organizer adds them though they were removed at their request:
+    /// offered only for an email that was.
+    lift_removal: bool,
 }
 
 /// One person the organizer adds (the Add people dialog's first tab): an
 /// add of one row. Its batch ID is made with the form and again after each
 /// add that went in, so a submission whose reply was lost (a network error)
 /// is sent again with the same ID, and the server answers the first add
-/// instead of adding the person twice.
+/// instead of adding the person twice. An email of someone `removed` at
+/// their request is said so, and they are added only if the organizer adds
+/// them anyway.
 #[component]
-pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
+pub fn AddPersonForm(
+    raffle_id: String,
+    /// Who was removed at their request, as the admin's data has them.
+    #[props(default)]
+    removed: Vec<RemovedAtRequest>,
+    on_added: EventHandler<()>,
+) -> Element {
     let form = use_form_handle(|| {
         let handle = FormHandle::<Person>::from_config(
             FormConfig::new(Person::default())
@@ -443,6 +457,10 @@ pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
     // alone.
     let blocked =
         entrant::added_name(&form.text(fields.name()).value()) == Err(entrant::NameError::Blocked);
+    // Removed at their request, by this email: the server leaves them out
+    // unless lifted.
+    let was_removed = entrant::Email::parse(&form.text(fields.email()).value())
+        .is_some_and(|e| removed.iter().any(|r| r.matches(Some(&e.key), None)));
     let submit = form.managed_submit();
     let busy = form.is_submitting();
     let form_err = messages(form.visible_form_validation_errors());
@@ -467,13 +485,21 @@ pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
                             email: Some(v.email.trim().to_owned()).filter(|e| !e.is_empty()),
                             list_ref: None,
                             approved: v.approved,
+                            lift_removal: v.lift_removal,
                         }],
                         name_format: None,
                     };
                     match api::add_entrants(raffle_id, add).await {
-                        // Skipped: someone with this email is in already.
+                        // Skipped: someone with this email is in already, or
+                        // was removed at their request.
                         Ok(result) if result.added.is_empty() => {
-                            SubmitError::form("This email is already entered.".to_owned()).into()
+                            let removed = result.skipped.iter().any(|s| s.reason == SkipReason::RemovedAtRequest);
+                            SubmitError::form(if removed {
+                                "They were removed at their request. Add them anyway only if they told you they changed their mind.".to_owned()
+                            } else {
+                                "This email is already entered.".to_owned()
+                            })
+                            .into()
                         }
                         Ok(_) => {
                             reset.reinitialize(Person::default());
@@ -507,6 +533,16 @@ pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
                 Button { color: ButtonColor::Secondary, r#type: "submit", disabled: busy,
                     Plus { class: "size-5" }
                     "Add"
+                }
+            }
+            if was_removed {
+                div { class: "sm:col-span-3",
+                    SwitchField {
+                        context: form.field(fields.lift_removal()),
+                        label: "They were removed at their request: add them anyway",
+                        description: "They asked to be taken off this raffle. Add them again only if they told you they changed their mind.",
+                        color: SwitchColor::Warning,
+                    }
                 }
             }
             if blocked {

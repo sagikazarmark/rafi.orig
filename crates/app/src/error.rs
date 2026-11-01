@@ -5,7 +5,10 @@ use std::fmt;
 use rafi_engine::EngineError;
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
-    entrant::{AddRefusal, FakesRefusal, MAX_ADD_ROWS, MAX_ADDED_NAME_CHARS, NameError, Origin},
+    entrant::{
+        AddRefusal, FakesRefusal, MAX_ADD_ROWS, MAX_ADDED_NAME_CHARS, NameError, ObjectionRefusal,
+        Origin,
+    },
     settings::{self, SettingsError},
     start,
 };
@@ -173,6 +176,14 @@ pub enum Refusal {
     Erased,
     /// From the freeze until the raffle finishes, nobody leaves the list.
     NotRemovable,
+    /// "Took themselves off" doesn't apply to this entrant now (or undoing
+    /// it).
+    Objection(ObjectionRefusal),
+    /// Someone who took themselves off is drawn: they can only be declined
+    /// ([`objected_may_be`](lifecycle::entrant::objected_may_be)).
+    ObjectedWinner,
+    /// The name of someone who took themselves off stays hidden.
+    ObjectedHidden,
     NotDeliverable,
     /// The raffle hasn't finished, which what was asked needs.
     NotOver(Unfinished),
@@ -265,6 +276,11 @@ impl Refusal {
             Self::Limited => "limited",
             Self::Erased => "erased",
             Self::NotRemovable => "not_removable",
+            Self::Objection(ObjectionRefusal::State) => "objection_state",
+            Self::Objection(ObjectionRefusal::Source) => "objection_source",
+            Self::Objection(ObjectionRefusal::Claimed) => "objection_claimed",
+            Self::ObjectedWinner => "objected_winner",
+            Self::ObjectedHidden => "objected_hidden",
             Self::NotDeliverable => "not_deliverable",
             Self::NotOver(_) => "not_over",
         }
@@ -424,7 +440,22 @@ impl fmt::Display for Refusal {
             Self::Fakes(FakesRefusal::Frozen) => f.write_str("The entrant list is frozen."),
             Self::Erased => f.write_str("This entrant's data has been erased."),
             Self::NotRemovable => f.write_str(
-                "Entrants stay on the list until the raffle has finished or its erasure date has passed; then their personal data can be erased. You can hide or rename them now.",
+                "Entrants stay on the list until the raffle has finished or its erasure date has passed; then their personal data can be erased. You can hide or rename them now, and someone you added can take themselves off.",
+            ),
+            Self::Objection(ObjectionRefusal::State) => f.write_str(
+                "Taking someone off this way is for the time from the freeze until the raffle is over. Before the freeze, remove them at their request; once it is over, erase their data.",
+            ),
+            Self::Objection(ObjectionRefusal::Source) => f.write_str(
+                "Only someone you added can take themselves off: people who joined accepted the rules. Hide their name now, and erase their data once the raffle has finished.",
+            ),
+            Self::Objection(ObjectionRefusal::Claimed) => f.write_str(
+                "They already claimed a prize, so the result stands. Hide their name now, and erase their data once the raffle has finished.",
+            ),
+            Self::ObjectedWinner => f.write_str(
+                "They took themselves off the raffle: decline the prize for them, and it is drawn again.",
+            ),
+            Self::ObjectedHidden => f.write_str(
+                "They took themselves off the raffle, so their name stays hidden. Undo “Took themselves off” first if it was a mistake.",
             ),
             Self::NotDeliverable => {
                 f.write_str("Only a winner who claimed their prize can get it delivered.")

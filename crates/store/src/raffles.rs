@@ -412,6 +412,11 @@ pub async fn unfreeze(db: &Db, id: &str, to: RaffleState, now: i64) -> Result<()
 /// The freeze's last step: stores the manifest and its hash, frozen `now`.
 /// Returns `false` if another attempt stored one first (or the raffle isn't
 /// frozen any more).
+///
+/// In the same batch, the people removed at their request are forgotten
+/// (`add_removals`): with the manifest the list is fixed for good, no add
+/// will come that they must be kept out of, and their email keys serve
+/// nothing any more.
 pub async fn set_manifest(
     db: &Db,
     id: &str,
@@ -420,17 +425,23 @@ pub async fn set_manifest(
     now: i64,
 ) -> Result<bool> {
     let changed = db
-        .query(
-            "UPDATE raffles SET manifest = ?, manifest_hash = ?, frozen_at = ?
-             WHERE id = ? AND state = 'frozen' AND manifest IS NULL",
-        )
-        .bind(manifest)
-        .bind(manifest_hash)
-        .bind(now)
-        .bind(id)
-        .run()
+        .batch(vec![
+            db.query(
+                "UPDATE raffles SET manifest = ?1, manifest_hash = ?2, frozen_at = ?3
+                 WHERE id = ?4 AND state = 'frozen' AND manifest IS NULL",
+            )
+            .bind(manifest)
+            .bind(manifest_hash)
+            .bind(now)
+            .bind(id),
+            db.query(
+                "DELETE FROM add_removals
+                 WHERE raffle_id = ?1 AND EXISTS (SELECT 1 FROM raffles WHERE id = ?1 AND manifest IS NOT NULL)",
+            )
+            .bind(id),
+        ])
         .await?;
-    Ok(changed > 0)
+    Ok(changed.first().is_some_and(|&n| n > 0))
 }
 
 /// Marks the raffle purged `now` (its entrants already erased) and ends its
@@ -461,10 +472,11 @@ pub struct Left {
 }
 
 /// The owner's data goes: every raffle of theirs that was never frozen
-/// ([`RaffleState::expires`]) is deleted, every one that is over
-/// ([`RaffleState::is_over`]) loses its entrants' personal data (logged in
-/// `erasures`, audited as a purge) and the organizer's name and contacts,
-/// and is purged with its live updates ended; their defaults go. One batch,
+/// ([`RaffleState::expires`]) is deleted (who was removed at their request
+/// with it), every one that is over ([`RaffleState::is_over`]) loses its
+/// entrants' personal data (logged in `erasures`, audited as a purge) and
+/// the organizer's name and contacts, and is purged with its live updates
+/// ended; their defaults go. One batch,
 /// all or nothing: every statement is also guarded on none of the owner's
 /// raffles being drawn ([`RaffleState::drawable`]) at that moment, so a
 /// raffle frozen since the caller looked leaves everything as it was
@@ -507,6 +519,13 @@ pub async fn owner_leaves(db: &Db, actor: Actor<'_>, now: i64) -> Result<Left> {
         db.query(format!(
             "UPDATE entrants SET {} WHERE erased = 0 AND {over_raffle} AND {none_drawing}",
             crate::entrants::ERASED
+        ))
+        .bind(owner),
+        // Gone with the manifest already, unless a restore brought them back.
+        db.query(format!(
+            "DELETE FROM add_removals
+             WHERE raffle_id IN (SELECT id FROM raffles WHERE owner_id = ?1 AND state IN ({over}))
+               AND {none_drawing}"
         ))
         .bind(owner),
         db.query(format!(

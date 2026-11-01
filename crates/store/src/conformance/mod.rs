@@ -18,7 +18,10 @@
 //!   cap, one entry per email, racing joins), the organizer's adds (one
 //!   guarded batch across statements, all or nothing under the cap, in the
 //!   list's order, once per batch ID, racing adds, the states that take
-//!   them, undoing one), fake entrants across statements, under the cap and
+//!   them, undoing one), removals at their request (remembered, left out
+//!   of later adds until lifted, forgotten when no add can come), people
+//!   who took themselves off after the freeze (hidden, erased at the end),
+//!   fake entrants across statements, under the cap and
 //!   with test mode, erasure (only once the raffle is over)
 //!   and its log, housekeeping's clocks (expiry, the erasure date, the
 //!   winner hold, the purge at the ceiling, re-applying after a restore),
@@ -219,6 +222,8 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
         => domain::racing_adds_respect_the_cap,
     "domain.add_states" => domain::adds_where_the_raffle_takes_them,
     "domain.add_undo" => domain::deletes_a_batch,
+    "domain.removals" => domain::removals_keep_people_out_until_lifted,
+    "domain.objections" => domain::objections_hide_and_erase_at_the_end,
     "domain.rules_fixed" => domain::rules_are_fixed_once_accepted,
     "domain.test_mode_fakes" => domain::fakes_go_with_test_mode,
     "domain.owner_defaults" => domain::saves_owner_defaults,

@@ -40,7 +40,7 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 | `rafi-engine`, `rafi-engine-restate` | The [engine conformance suite](#engine-conformance), on the local runner and on the `Raffle` object |
 | `rafi-app` | Use-case tests ([`crates/app/tests/use_cases.rs`](../../crates/app/tests/use_cases.rs)) |
 | `rafi-server` | HTTP tests, and an end-to-end test of the app, `rafi-restate` and `restate-server` on one database |
-| `rafi-web` | The router, server-rendered natively at a path (`dioxus-ssr`, a `MemoryHistory`): the admin refuses to render inside a frame. Only pages that touch no browser API on their first render can be rendered so; the rest are the evening's. The list tab's parser, column detection and preview, on export fixtures (`apps/web/fixtures/import`), and the tab's static state |
+| `rafi-web` | The router, server-rendered natively at a path (`dioxus-ssr`, a `MemoryHistory`): the admin refuses to render inside a frame. Only pages that touch no browser API on their first render can be rendered so; the rest are the evening's. The list tab's parser, column detection and preview, on export fixtures (`apps/web/fixtures/import`), and the tab's static state; a person's row in the People tab |
 | `tools/verify.py` | The same vectors as the Rust code ([`testdata/draw-vectors.json`](../../testdata/draw-vectors.json), from real quicknet beacons) |
 | Workers | [`./scripts/workers-check.sh`](#workers) |
 

@@ -212,6 +212,51 @@ pub struct AdminEntrant {
     /// one. `None` once erased.
     #[serde(default)]
     pub list_ref: Option<String>,
+    /// They took themselves off after the freeze ("Took themselves off"):
+    /// their name is hidden, a draw that picks them can only be declined,
+    /// and their data is erased once the raffle is over.
+    #[serde(default)]
+    pub objected: bool,
+    /// What the organizer can do with this entrant now, besides what
+    /// [`AdminActions`] says for everyone.
+    #[serde(default)]
+    pub actions: EntrantActions,
+}
+
+/// What the organizer can do with one entrant now: the server's rules say
+/// ([`rafi_lifecycle::entrant::may_object`]), the page derives none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct EntrantActions {
+    /// "Took themselves off": someone the organizer added, between the
+    /// freeze and the end, who hasn't claimed a prize.
+    #[serde(default)]
+    pub object: bool,
+    /// Undoing it, until the raffle is over.
+    #[serde(default)]
+    pub unobject: bool,
+}
+
+/// Someone removed before the freeze at their request, as a later add
+/// matches them: their email key ([`Email::key`](rafi_lifecycle::entrant::Email::key)),
+/// their registration ID, or both. Admin only: an email key is personal
+/// data, kept only while the raffle can take an add.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemovedAtRequest {
+    #[serde(default)]
+    pub email_key: Option<String>,
+    #[serde(default)]
+    pub list_ref: Option<String>,
+    /// When (unix seconds).
+    pub removed_at: i64,
+}
+
+impl RemovedAtRequest {
+    /// Whether a row with this email key or registration ID is the one
+    /// removed.
+    pub fn matches(&self, email_key: Option<&str>, list_ref: Option<&str>) -> bool {
+        (email_key.is_some() && self.email_key.as_deref() == email_key)
+            || (list_ref.is_some() && self.list_ref.as_deref() == list_ref)
+    }
 }
 
 /// One person to add ([`AddRequest`]): the name shown on the screen, and
@@ -231,6 +276,11 @@ pub struct AddRow {
     /// characters a name may hold.
     #[serde(default)]
     pub approved: bool,
+    /// The organizer adds them though they were removed at their request
+    /// ([`SkipReason::RemovedAtRequest`]): the removal is deleted with the
+    /// add, in the same all-or-nothing write, and counted in its audit row.
+    #[serde(default)]
+    pub lift_removal: bool,
 }
 
 /// An add: people the organizer puts in at once, all of them or none
@@ -282,6 +332,10 @@ pub enum SkipReason {
     /// Someone with this email or registration ID is in the raffle already
     /// (they joined, or an earlier add has them).
     AlreadyIn,
+    /// Someone with this email or registration ID was removed at their
+    /// request: added only if the organizer lifts it
+    /// ([`AddRow::lift_removal`]).
+    RemovedAtRequest,
 }
 
 /// A row of an add that refused it, and what is wrong with it.
@@ -369,6 +423,11 @@ pub struct RaffleAdmin {
     /// empty when it may.
     #[serde(default)]
     pub missing_for_open: Vec<String>,
+    /// Who was removed at their request, oldest first: a later add leaves
+    /// them out unless the organizer lifts it. Empty once the list is
+    /// frozen for good.
+    #[serde(default)]
+    pub removed: Vec<RemovedAtRequest>,
 }
 
 impl RaffleAdmin {

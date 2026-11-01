@@ -181,7 +181,9 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
   own lines (warnings and errors, with raffle IDs and error text) are kept.
 - D1 Time Travel keeps erased data for up to 30 more days. Say so in your privacy notice (the template does). After
   restoring with Time Travel, re-apply the erasures. The hourly housekeeping erases again whatever is past its date
-  on its own (the dates are in the raffles themselves). What it can't know is what organizers erased before the
+  on its own (the dates are in the raffles themselves), and whoever took themselves off a raffle that is over, and
+  forgets the removals at their request of raffles that are frozen, purged or past their date (the last statement
+  below does the same at once). What it can't know is what organizers erased before the
   date, or who removed their data: for those, carry the live `erasures` table and the `organizer_left_at` values
   over if you can, and run the restore tool's statements against D1 (the same SQL `rafi reapply-erasures` runs
   natively, see [Self-hosting](self-hosting.md#backups)):
@@ -190,7 +192,7 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
   wrangler d1 execute rafi --remote --command "
     -- Entrants the log names (if the log came along).
     UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL,
-      token_hash = NULL, claim_code = NULL, erased = 1
+      list_ref = NULL, token_hash = NULL, claim_code = NULL, erased = 1
     WHERE erased = 0 AND EXISTS (SELECT 1 FROM erasures
       WHERE erasures.raffle_id = entrants.raffle_id AND erasures.entrant_id = entrants.id);
     -- Entrants of a purged raffle, or one whose organizer left: nobody in it is
@@ -202,12 +204,15 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
                       AND (r.purged_at IS NOT NULL OR r.organizer_left_at IS NOT NULL))
         AND NOT EXISTS (SELECT 1 FROM erasures e WHERE e.raffle_id = entrants.raffle_id AND e.entrant_id = entrants.id);
     UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL,
-      token_hash = NULL, claim_code = NULL, erased = 1
+      list_ref = NULL, token_hash = NULL, claim_code = NULL, erased = 1
     WHERE erased = 0 AND EXISTS (SELECT 1 FROM raffles r WHERE r.id = entrants.raffle_id
       AND (r.purged_at IS NOT NULL OR r.organizer_left_at IS NOT NULL));
     UPDATE raffles SET state = 'purged' WHERE purged_at IS NOT NULL AND state <> 'purged';
     UPDATE raffles SET organizer_name = '', contact_email = '', privacy_email = '', privacy_text = '',
-      privacy_url = '' WHERE organizer_left_at IS NOT NULL;"
+      privacy_url = '' WHERE organizer_left_at IS NOT NULL;
+    -- Removals at their request no add can need any more.
+    DELETE FROM add_removals WHERE raffle_id IN (SELECT id FROM raffles
+      WHERE manifest IS NOT NULL OR purged_at IS NOT NULL OR erase_at <= unixepoch());"
   ```
 
 ## Limits

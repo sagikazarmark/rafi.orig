@@ -9,7 +9,7 @@ use rafi_api::{RaffleView, VerifyData};
 macro_rules! client_side {
     ($(
         $(#[$meta:meta])*
-        fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty;
+        fn $name:ident($($(#[$arg_meta:meta])* $arg:ident: $ty:ty),* $(,)?) -> $ret:ty;
     )*) => {
         $(
             $(#[$meta])*

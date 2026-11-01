@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use rafi_api::{AddRow, AdminEntrant};
+use rafi_api::{AddRow, AdminEntrant, RemovedAtRequest};
 use rafi_lifecycle::{
     entrant::{self, Email, MAX_ADD_ROWS, NameError, RowError, Source},
     names::{NameFormat, NameParts, name_key, unique_names},
@@ -16,13 +16,17 @@ use super::{
 
 /// Who is in the raffle already, as the admin's entrant list has them: what
 /// a row is matched against (email keys and registration IDs), and the
-/// display names nobody new may take.
+/// display names nobody new may take; and who was removed at their request
+/// ([`with_removed`](Self::with_removed)).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Existing {
     /// By email key: the name they are shown as, and how they came in.
     emails: HashMap<String, (String, Source)>,
     list_refs: HashSet<String>,
     names: Vec<String>,
+    /// The keys of the people removed at their request.
+    removed_emails: HashSet<String>,
+    removed_list_refs: HashSet<String>,
 }
 
 impl Existing {
@@ -40,6 +44,19 @@ impl Existing {
         }
         existing
     }
+
+    /// These entrants, and `removed` as the admin's data has them: the
+    /// people removed at their request, whom a row is matched against too.
+    pub fn with_removed<'a>(
+        mut self,
+        removed: impl IntoIterator<Item = &'a RemovedAtRequest>,
+    ) -> Self {
+        for r in removed {
+            self.removed_emails.extend(r.email_key.clone());
+            self.removed_list_refs.extend(r.list_ref.clone());
+        }
+        self
+    }
 }
 
 /// The organizer's decisions on the rows that need one, by the rows' line
@@ -52,6 +69,9 @@ pub struct Decisions {
     /// Groups (one email, different names) of which only the first row is
     /// added: "Keep first only". The others keep all.
     pub first_only: BTreeSet<String>,
+    /// Rows of people removed at their request, added anyway: the organizer
+    /// lifts the removal ("Add anyway").
+    pub lifted: BTreeSet<usize>,
 }
 
 /// A row to add.
@@ -68,6 +88,8 @@ pub struct NewRow {
     pub list_ref: Option<String>,
     /// Its name is in because the organizer approved it.
     pub approved: bool,
+    /// It was removed at their request, and the organizer adds it anyway.
+    pub lift_removal: bool,
 }
 
 /// What matched a row with someone in the raffle.
@@ -87,6 +109,18 @@ pub struct AlreadyIn {
     /// They joined with their phone under another name: someone may have
     /// used the registrant's email first.
     pub joined_as: Option<String>,
+}
+
+/// A row someone removed at their request is: left out, unless the
+/// organizer adds it anyway ([`Decisions::lifted`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Removed {
+    pub line: usize,
+    /// The row's name, in the chosen format.
+    pub name: String,
+    pub by: MatchedBy,
+    /// Added anyway: the removal is lifted with the add.
+    pub lifted: bool,
 }
 
 /// A row an earlier row of the list already is: left out.
@@ -136,6 +170,8 @@ pub struct Preview {
     /// In the list's order.
     pub to_add: Vec<NewRow>,
     pub already_in: Vec<AlreadyIn>,
+    /// Removed at their request, added anyway or not.
+    pub removed: Vec<Removed>,
     pub duplicates: Vec<Duplicate>,
     pub groups: Vec<Group>,
     pub blocked: Vec<Blocked>,
@@ -170,8 +206,14 @@ impl Preview {
                 email: r.email.clone(),
                 list_ref: r.list_ref.clone(),
                 approved: r.approved,
+                lift_removal: r.lift_removal,
             })
             .collect()
+    }
+
+    /// The rows removed at their request and left out: not lifted.
+    pub fn left_out_at_request(&self) -> usize {
+        self.removed.iter().filter(|r| !r.lifted).count()
     }
 }
 
@@ -191,6 +233,8 @@ struct Candidate {
     email: Option<Email>,
     list_ref: Option<String>,
     blocked: bool,
+    /// Removed at their request, added anyway.
+    lift: bool,
 }
 
 /// What adding `table`'s rows, mapped by `mapping`, with names in `format`,
@@ -200,13 +244,16 @@ struct Candidate {
 /// 1. left out silently if what is mapped of it is blank;
 /// 2. **already in** if its email (by key) or registration ID is someone's
 ///    in the raffle: skipped, as the server would;
-/// 3. **invalid** if its email, registration ID or name can't be added
+/// 3. **removed at their request** if its email or registration ID is a
+///    removed person's: skipped, as the server would, unless the organizer
+///    adds it anyway ([`Decisions::lifted`]), and then checked as any row;
+/// 4. **invalid** if its email, registration ID or name can't be added
 ///    (the shared rules, [`entrant::added_row`]'s), except a name only the
 ///    blocklist refuses, which is **blocked**: added if approved;
-/// 4. a **duplicate** if an earlier row has its registration ID, or its
+/// 5. a **duplicate** if an earlier row has its registration ID, or its
 ///    email and the same full name (one person, twice);
-/// 5. in a **group** if an earlier row has its email with another name;
-/// 6. **to add** otherwise, with a display name made unique among the
+/// 6. in a **group** if an earlier row has its email with another name;
+/// 7. **to add** otherwise, with a display name made unique among the
 ///    raffle's and the other new rows' ([`unique_names`]).
 pub fn preview(
     table: &Table,
@@ -271,6 +318,30 @@ pub fn preview(
                 joined_as: None,
             });
             continue;
+        }
+
+        // Removed at their request, by what can be matched: left out
+        // unless added anyway.
+        let removed_by = match (&email, &list_ref) {
+            (Some(Some(e)), _) if existing.removed_emails.contains(&e.key) => {
+                Some(MatchedBy::Email)
+            }
+            (_, Some(Some(r))) if existing.removed_list_refs.contains(r) => {
+                Some(MatchedBy::ListRef)
+            }
+            _ => None,
+        };
+        let lift = removed_by.is_some() && decisions.lifted.contains(&record.line);
+        if let Some(by) = removed_by {
+            p.removed.push(Removed {
+                line: record.line,
+                name: name.clone(),
+                by,
+                lifted: lift,
+            });
+            if !lift {
+                continue;
+            }
         }
 
         let invalid = |problem| Invalid {
@@ -354,6 +425,7 @@ pub fn preview(
             email,
             list_ref,
             blocked,
+            lift,
         });
     }
 
@@ -439,6 +511,7 @@ pub fn preview(
                 .map(|e| e.raw.clone()),
             list_ref: candidate.list_ref.clone(),
             approved: candidate.blocked,
+            lift_removal: candidate.lift,
         });
     }
     p.invalid.sort_by_key(|i| i.line);

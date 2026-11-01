@@ -90,13 +90,21 @@ stateDiagram-v2
 |---|---|---|
 | **Claimed** | The winner came up and showed the matching claim code | The item is theirs. Works even while another draw is counting down. A prize delivered **on the spot** is marked delivered with it; one **sent later** is **Mark delivered** in the People tab, once it reached them. The prize's delivery is set in the Prizes tab, and the console says which it is. |
 | **Not here** | Nobody answers to the name | The winner is out of the raffle, and the item goes back to be drawn again with a new round |
-| **Declined** | The winner doesn't want it | Same as Not here |
+| **Declined** | The winner doesn't want it, or [took themselves off](#someone-who-took-themselves-off) | Same as Not here |
 | **Withdraw** | An item that won't be given away (it broke, the sponsor didn't show) | The item is withdrawn. Only an item that is still to be drawn can be withdrawn. |
 
 **Not here** and **Declined** ask for confirmation, can't be undone, and are recorded in the public log. They're
 disabled while another draw is counting down, because they would change who that draw can pick.
 
 People you added by hand (no phone) have no phone to show a code on, so confirm them by name.
+
+### Someone who took themselves off
+
+Someone you added who asked, after the freeze, not to take part ("Took themselves off" in the People tab) is
+still in the draw by their anonymous ID: removing it would break the verification. If they are drawn, the console
+says **"Took themselves off: decline"** and offers **Declined** only: they claim nothing, and "Not here" would
+record an absence that isn't what happened (the server refuses both). The prize goes back to be drawn again, as
+for any decline, and the projector shows their name hidden.
 
 ## When drand can't be reached
 

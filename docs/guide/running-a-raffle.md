@@ -129,7 +129,11 @@ deleted outright and it becomes Data erased.
    - **Add people → Paste or upload a list**: your guest list, in one go ([below](#adding-a-list)).
    - **hide** or **rename** a display name on screen with one tap (a troll, a typo), up to 64 characters. New names
      reach the projector after a 5 s delay.
-   - **remove** duplicates
+   - **remove** duplicates, or someone who asked to be taken off: switch on **They asked to be taken off**, and
+     adding your list again leaves them out (by their email or registration ID, kept for this until the freeze;
+     someone with neither can't be recognized, so leave them off the list). The list tab shows them as **Removed
+     at their request**, and the one-person form says so for their email; **add anyway** only if they told you
+     they changed their mind.
    - search by name, email or claim code
 
 You can close and reopen registration as often as you like before the draw.
@@ -160,6 +164,8 @@ people are added).
    - **Already in**: someone in the raffle has the row's email or ID; skipped. "Joined by phone as *Batman*" means
      someone joined with the QR code using that email under another name: if it isn't them, remove that entry and
      add the list again.
+   - **Removed at their request**: someone you removed because they asked; left out. Switch on **add anyway**
+     for a row only if they told you they changed their mind.
    - **Same email, different names**: a group order, one buyer's email on several tickets. **Keep all** (the
      default) adds each of them, the email with the first; **Keep first only** adds the first. The same email with
      the same name twice is one person, added once; the same ID twice, the first row.
@@ -187,6 +193,13 @@ Press **Freeze list & start the draw** when everyone is in. It asks first, becau
 - Nobody leaves the list until the raffle is finished (or its erasure date passes): the People tab can still
   **hide** or **rename** a name, and a drawn winner who doesn't want their prize is **Declined**. Asked to erase
   someone's data during the event? Hide their name now, and erase their personal data once the raffle is finished.
+- Someone **you added** who asks to be taken off now (they accepted no rules, so they may object): press **Took
+  themselves off** by their name in the People tab. Their name is hidden at once and stays hidden; if they are
+  drawn, the console offers **Declined** only, and the prize is drawn again; their name and email are erased
+  within the hour after the raffle is finished, not on the erasure date. Their anonymous ID stays in the draw, so
+  it can still be verified. Not for a winner who already claimed a prize: that result stands (erase their data
+  once the raffle is finished). Pressed by mistake? **Undo** puts them back until the raffle is finished; show
+  their name again yourself.
 - The raffle is handed to the raffle engine.
 
 If handing over fails (for example, the engine is briefly unreachable), the admin offers **Retry handing the list

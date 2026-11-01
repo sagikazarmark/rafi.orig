@@ -163,6 +163,7 @@ pub async fn command(
         .into(),
     })?;
 
+    objected_winner(app, id, &state, &cmd).await?;
     let delivery = delivery_on_claim(app, id, &state, &cmd).await?;
     send(app, actor, id, cmd, command_id).await?;
     // The store changes the winner's delivery with the claim, as it projects
@@ -172,6 +173,37 @@ pub async fn command(
         audit::record(&app.db, id, actor, action, winner.as_str(), now).await?;
     }
     Ok(())
+}
+
+/// Refuses `cmd` if it resolves a draw whose winner took themselves off
+/// ([`object_entrant`](crate::object_entrant)) any other way than declined
+/// ([`objected_may_be`](lifecycle::entrant::objected_may_be)): they said
+/// they don't take part, so they claim nothing, and "Not here" would
+/// record an absence. Checked before the engine is asked, against the
+/// projection (`state`, which admitted it) and the entrant as stored.
+async fn objected_winner(
+    app: &App,
+    id: &str,
+    state: &rafi_raffle::Raffle,
+    cmd: &Command,
+) -> Result<()> {
+    let Command::Decide(Decision::Resolve { item, resolution }) = cmd else {
+        return Ok(());
+    };
+    if lifecycle::entrant::objected_may_be(*resolution) {
+        return Ok(());
+    }
+    let Some(winner) = state.item(item).and_then(|i| i.winner().cloned()) else {
+        return Ok(());
+    };
+    let objected = entrants::get(&app.db, id, winner.as_str())
+        .await?
+        .is_some_and(|e| e.objected_at.is_some());
+    if objected {
+        Err(Refusal::ObjectedWinner.into())
+    } else {
+        Ok(())
+    }
 }
 
 /// What `cmd` does to a winner's delivery, if it is a claim that changes it

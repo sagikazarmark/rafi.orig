@@ -264,6 +264,10 @@ async fn limit_adds(app: &App, actor: Actor<'_>) -> Result<()> {
 ///   blocklist refuses goes in only if the organizer approved it;
 /// - a row whose email or registration ID is already in the raffle is
 ///   skipped, not refused: adding an updated list adds only who is new;
+/// - so is a row whose email or registration ID was removed at their
+///   request ([`remove_entrant`]), unless the organizer lifts it for that
+///   row ([`AddRow::lift_removal`](rafi_api::AddRow::lift_removal)): the
+///   removal is then deleted in the add's own batch, all or nothing;
 /// - every display name added must be nobody else's, by
 ///   [`name_key`](names::name_key): not someone's in the raffle, nor
 ///   another added row's ([`names::name_clashes`]), or the add is refused
@@ -274,8 +278,9 @@ async fn limit_adds(app: &App, actor: Actor<'_>) -> Result<()> {
 ///
 /// A retry (the same batch ID, whose add went in) answers as the add did and
 /// adds nothing. The add is audited (`add`: its batch ID, origin and counts,
-/// the approvals among them, and the name format the browser used, never
-/// who). They saw no join form, so no consent is recorded for them;
+/// the approvals and lifted removals among them, and the name format the
+/// browser used, never who). They saw no join form, so no consent is
+/// recorded for them;
 /// they still fix the raffle's rules
 /// ([`Source::locks_settings`](entrant::Source::locks_settings)). Nothing on
 /// a phone changes, so nothing is notified; screens poll.
@@ -303,7 +308,7 @@ pub async fn add_entrants(
     if !sized {
         return Err(Refusal::RowCount(origin).into());
     }
-    if let Some(earlier) = earlier_add(app, raffle_id, &batch_id, rows.len()).await? {
+    if let Some(earlier) = earlier_add(app, raffle_id, &batch_id, &rows).await? {
         return Ok(earlier);
     }
     let now = app.clock.now();
@@ -335,20 +340,28 @@ pub async fn add_entrants(
     let mut taken = entrants::taken(&app.db, raffle_id).await?;
     let mut skipped = Vec::new();
     let mut fresh = Vec::new();
+    // The removals the organizer lifts, by key, and the rows that lift one.
+    let (mut lifted_emails, mut lifted_refs) = (Vec::new(), Vec::new());
+    let mut lifting = HashSet::new();
     for (row, person) in checked.iter().enumerate() {
-        let already = person
-            .email
-            .as_ref()
-            .is_some_and(|e| taken.emails.contains(&e.key))
-            || person
-                .list_ref
-                .as_ref()
-                .is_some_and(|r| taken.list_refs.contains(r));
+        let email = person.email.as_ref().map(|e| e.key.as_str());
+        let list_ref = person.list_ref.as_deref();
+        let already = email.is_some_and(|e| taken.emails.contains(e))
+            || list_ref.is_some_and(|r| taken.list_refs.contains(r));
         if already {
-            skipped.push(row);
-        } else {
-            fresh.push((row, person, ids::id()));
+            skipped.push((row, SkipReason::AlreadyIn));
+            continue;
         }
+        if taken.removed(email, list_ref) {
+            if !rows[row].lift_removal {
+                skipped.push((row, SkipReason::RemovedAtRequest));
+                continue;
+            }
+            lifted_emails.extend(email.filter(|e| taken.removed_emails.contains(*e)));
+            lifted_refs.extend(list_ref.filter(|r| taken.removed_list_refs.contains(*r)));
+            lifting.insert(row);
+        }
+        fresh.push((row, person, ids::id()));
     }
     // Nobody added is shown with a name someone else has: the organizer
     // gives a surname, an initial or a number instead (the list tab does it
@@ -405,29 +418,23 @@ pub async fn add_entrants(
             origin,
             created_at: entered_at(origin, now),
             rows: &added,
+            lifted_emails: &lifted_emails,
+            lifted_list_refs: &lifted_refs,
             max_entrants: app.policy.max_entrants,
             now,
         };
         match entrants::insert_added(&app.db, &batch).await {
             Ok(true) => {}
             Ok(false) => {
-                return not_added(
-                    app,
-                    raffle_id,
-                    &batch_id,
-                    origin,
-                    rows.len(),
-                    added.len(),
-                    now,
-                )
-                .await;
+                return not_added(app, raffle_id, &batch_id, origin, &rows, added.len(), now).await;
             }
             // A registration ID taken since the read above.
             Err(e) if e.is_unique_violation() => return Err(Refusal::Changed.into()),
             Err(e) => return Err(e.into()),
         }
     }
-    // Read back: a row whose email a join took meanwhile was left out.
+    // Read back: a row whose email a join took meanwhile was left out, and
+    // one whose removal at their request came meanwhile.
     let stored: HashSet<String> = entrants::of_batch(&app.db, raffle_id, &batch_id)
         .await?
         .into_iter()
@@ -438,28 +445,47 @@ pub async fn add_entrants(
         added: Vec::new(),
         skipped: Vec::new(),
     };
-    let mut approved = 0;
+    let (mut approved, mut lifted) = (0, 0);
+    let mut late = Vec::new();
     for (row, person, id) in fresh {
         if stored.contains(&id) {
             approved += usize::from(person.approved);
+            lifted += usize::from(lifting.contains(&row));
             result.added.push(AddedEntrant {
                 row: row_index(row),
                 id,
             });
         } else {
-            skipped.push(row);
+            late.push((row, person));
         }
     }
-    skipped.sort_unstable();
+    if !late.is_empty() {
+        let now_taken = entrants::taken(&app.db, raffle_id).await?;
+        for (row, person) in late {
+            let removed = now_taken.removed(
+                person.email.as_ref().map(|e| e.key.as_str()),
+                person.list_ref.as_deref(),
+            );
+            skipped.push((
+                row,
+                if removed {
+                    SkipReason::RemovedAtRequest
+                } else {
+                    SkipReason::AlreadyIn
+                },
+            ));
+        }
+    }
+    skipped.sort_unstable_by_key(|(row, _)| *row);
     result.skipped = skipped
         .into_iter()
-        .map(|row| SkippedRow {
+        .map(|(row, reason)| SkippedRow {
             row: row_index(row),
-            reason: SkipReason::AlreadyIn,
+            reason,
         })
         .collect();
     let mut detail = format!(
-        "batch={} origin={} added={} skipped={} approved={approved}",
+        "batch={} origin={} added={} skipped={} approved={approved} lifted={lifted}",
         result.batch_id,
         origin.as_str(),
         result.added.len(),
@@ -501,25 +527,33 @@ fn row_index(row: usize) -> u32 {
     u32::try_from(row).unwrap_or(u32::MAX)
 }
 
-/// What add `batch_id` of `rows` rows did, if it went in before: a retry is
+/// What add `batch_id` of `rows` did, if it went in before: a retry is
 /// answered with it. Its entrants were added, by their row (one person's
-/// is row 0); every other row was skipped (already in, then). `None` if no
-/// entrant of it is there.
+/// is row 0); every other row was skipped: removed at their request if
+/// its email or registration ID still is, already in otherwise. `None` if
+/// no entrant of it is there.
 async fn earlier_add(
     app: &App,
     raffle_id: &str,
     batch_id: &str,
-    rows: usize,
+    rows: &[rafi_api::AddRow],
 ) -> Result<Option<AddResult>> {
     let stored = entrants::of_batch(&app.db, raffle_id, batch_id).await?;
     if stored.is_empty() {
         return Ok(None);
     }
-    Ok(Some(answer(batch_id, &stored, rows)))
+    let taken = entrants::taken(&app.db, raffle_id).await?;
+    Ok(Some(answer(batch_id, &stored, rows, &taken)))
 }
 
-/// An add's result from its stored entrants.
-fn answer(batch_id: &str, stored: &[EntrantRow], rows: usize) -> AddResult {
+/// An add's result from its stored entrants, its rows and the raffle's
+/// removals at their request.
+fn answer(
+    batch_id: &str,
+    stored: &[EntrantRow],
+    rows: &[rafi_api::AddRow],
+    taken: &entrants::Taken,
+) -> AddResult {
     let added: Vec<AddedEntrant> = stored
         .iter()
         .map(|e| AddedEntrant {
@@ -528,14 +562,24 @@ fn answer(batch_id: &str, stored: &[EntrantRow], rows: usize) -> AddResult {
         })
         .collect();
     let in_batch: HashSet<u32> = added.iter().map(|a| a.row).collect();
+    let reason = |row: &rafi_api::AddRow| {
+        let email = row.email.as_deref().and_then(Email::parse).map(|e| e.key);
+        let list_ref = row.list_ref.as_deref().and_then(entrant::list_ref);
+        if taken.removed(email.as_deref(), list_ref.as_deref()) {
+            SkipReason::RemovedAtRequest
+        } else {
+            SkipReason::AlreadyIn
+        }
+    };
     AddResult {
         batch_id: batch_id.to_owned(),
-        skipped: (0..rows)
-            .map(row_index)
-            .filter(|row| !in_batch.contains(row))
-            .map(|row| SkippedRow {
-                row,
-                reason: SkipReason::AlreadyIn,
+        skipped: rows
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !in_batch.contains(&row_index(*i)))
+            .map(|(i, row)| SkippedRow {
+                row: row_index(i),
+                reason: reason(row),
             })
             .collect(),
         added,
@@ -550,7 +594,7 @@ async fn not_added(
     raffle_id: &str,
     batch_id: &str,
     origin: Origin,
-    rows: usize,
+    rows: &[rafi_api::AddRow],
     adding: usize,
     now: i64,
 ) -> Result<AddResult> {
@@ -678,6 +722,9 @@ pub async fn patch_entrant(
     if entrant.erased {
         return Err(Refusal::Erased.into());
     }
+    if patch.hidden == Some(false) && entrant.objected_at.is_some() {
+        return Err(Refusal::ObjectedHidden.into());
+    }
     // The organizer's name for anyone, up to their limit, whoever chose the
     // one before: a joiner's limit keeps trolls off the screen, which the
     // organizer isn't.
@@ -705,8 +752,16 @@ pub async fn patch_entrant(
     )
     .await?;
     if !written {
-        // Erased since the read above.
-        return Err(Refusal::Erased.into());
+        // Erased since the read above, or took themselves off.
+        let now_objected = entrants::get(&app.db, raffle_id, entrant_id)
+            .await?
+            .is_some_and(|e| !e.erased && e.objected_at.is_some());
+        return Err(if now_objected {
+            Refusal::ObjectedHidden
+        } else {
+            Refusal::Erased
+        }
+        .into());
     }
     // The action names what changed: delivery moves a winner onto the
     // erasure clock, which the log should say outright.
@@ -726,17 +781,29 @@ pub async fn patch_entrant(
 /// Removes an entrant before the freeze; once the raffle is over, or its
 /// erasure date has passed, erases their personal data (the anonymous ID
 /// must stay in the published list). In between, nobody is removed
-/// ([`RaffleState::removal`](lifecycle::RaffleState::removal)).
+/// ([`RaffleState::removal`](lifecycle::RaffleState::removal)); someone the
+/// organizer added takes themselves off instead ([`object_entrant`]).
+///
+/// `at_request`: they asked. Before the freeze that is remembered, in the
+/// same write as the delete, by their email key and registration ID
+/// ([`entrants::delete`]), so a later add leaves them out unless the
+/// organizer lifts it; anyone real, a joiner who asks too. The audit row
+/// (`remove_entrant` or `erase_entrant`, with the entrant's ID) says
+/// `at_request` after the ID, never who they are.
 pub async fn remove_entrant(
     app: &App,
     actor: Actor<'_>,
     raffle_id: &str,
     entrant_id: &str,
+    at_request: bool,
 ) -> Result<()> {
     let raffle = owned(app, actor.owner, raffle_id).await?;
     let now = app.clock.now();
     let removal = match raffle.state.removal(raffle.past_erase_date(now)) {
-        Some(Removal::Delete) if entrants::delete(&app.db, raffle_id, entrant_id).await? => {
+        Some(Removal::Delete)
+            if entrants::delete(&app.db, raffle_id, entrant_id, at_request.then_some(now))
+                .await? =>
+        {
             Some(Removal::Delete)
         }
         // Nothing deleted: frozen since the read above (then refused), or no
@@ -752,16 +819,122 @@ pub async fn remove_entrant(
             .then_some(Removal::Erase),
         None => return Err(Refusal::NotRemovable.into()),
     };
+    let detail = if at_request {
+        format!("{entrant_id} at_request")
+    } else {
+        entrant_id.to_owned()
+    };
     match removal {
         Some(Removal::Delete) => {
-            audit::record(&app.db, raffle_id, actor, "remove_entrant", entrant_id, now).await?;
+            audit::record(&app.db, raffle_id, actor, "remove_entrant", &detail, now).await?;
         }
         Some(Removal::Erase) => {
-            audit::record(&app.db, raffle_id, actor, "erase_entrant", entrant_id, now).await?;
+            audit::record(&app.db, raffle_id, actor, "erase_entrant", &detail, now).await?;
         }
         None => return Ok(()),
     }
     app.live_updates.notify(raffle_id).await;
+    Ok(())
+}
+
+/// Someone the organizer added takes themselves off, between the freeze and
+/// the end ([`entrant::may_object`]: not someone who joined, who accepted
+/// the rules, nor a winner who claimed a prize): their name is hidden at
+/// once and the objection recorded, in one write guarded by the same rule
+/// ([`entrants::object`]). Their anonymous ID stays in the manifest, so the
+/// draw stays verifiable; if drawn, they can only be declined
+/// ([`command`](crate::command)); their personal data is erased once the
+/// raffle is over (housekeeping), not on the erasure date. Audited
+/// (`object`, with the entrant's ID). Taking off someone who already is
+/// does nothing.
+pub async fn object_entrant(
+    app: &App,
+    actor: Actor<'_>,
+    raffle_id: &str,
+    entrant_id: &str,
+) -> Result<()> {
+    let raffle = owned(app, actor.owner, raffle_id).await?;
+    let entrant = entrants::get(&app.db, raffle_id, entrant_id)
+        .await?
+        .ok_or(Error::NotFound)?;
+    if entrant.erased {
+        return Err(Refusal::Erased.into());
+    }
+    if entrant.objected_at.is_some() {
+        return Ok(());
+    }
+    let claimed = claimed_a_prize(app, &raffle, entrant_id).await?;
+    entrant::may_object(raffle.state, entrant.source, claimed).map_err(Refusal::Objection)?;
+    let now = app.clock.now();
+    if !entrants::object(&app.db, raffle_id, entrant_id, now).await? {
+        // Something changed since the read above: say what the rules say
+        // now, or that it changed.
+        let raffle = raffles::get(&app.db, raffle_id)
+            .await?
+            .ok_or(Error::NotFound)?;
+        let entrant = entrants::get(&app.db, raffle_id, entrant_id)
+            .await?
+            .ok_or(Error::NotFound)?;
+        if entrant.erased {
+            return Err(Refusal::Erased.into());
+        }
+        if entrant.objected_at.is_some() {
+            return Ok(());
+        }
+        let claimed = claimed_a_prize(app, &raffle, entrant_id).await?;
+        entrant::may_object(raffle.state, entrant.source, claimed).map_err(Refusal::Objection)?;
+        return Err(Refusal::Changed.into());
+    }
+    audit::record(&app.db, raffle_id, actor, "object", entrant_id, now).await?;
+    // A drawn entrant's name is on the screens and the phones.
+    app.live_updates.notify(raffle_id).await;
+    Ok(())
+}
+
+/// Whether `entrant_id` claimed a prize in `raffle`, as drawn.
+async fn claimed_a_prize(app: &App, raffle: &RaffleRow, entrant_id: &str) -> Result<bool> {
+    Ok(lifecycle::raffle::deliverable(
+        raffles::drawn(&app.db, raffle).await?.as_ref(),
+        entrant_id,
+    ))
+}
+
+/// Undoes [`object_entrant`] (the organizer's mistake), until the raffle is
+/// over ([`entrant::may_unobject`]). Their name stays hidden: the organizer
+/// shows it again, so nothing reappears on a screen by itself. Audited
+/// (`unobject`, with the entrant's ID). Undoing what isn't there does
+/// nothing.
+pub async fn unobject_entrant(
+    app: &App,
+    actor: Actor<'_>,
+    raffle_id: &str,
+    entrant_id: &str,
+) -> Result<()> {
+    let raffle = owned(app, actor.owner, raffle_id).await?;
+    let entrant = entrants::get(&app.db, raffle_id, entrant_id)
+        .await?
+        .ok_or(Error::NotFound)?;
+    if entrant.erased {
+        return Err(Refusal::Erased.into());
+    }
+    entrant::may_unobject(raffle.state).map_err(Refusal::Objection)?;
+    if entrant.objected_at.is_none() {
+        return Ok(());
+    }
+    if !entrants::unobject(&app.db, raffle_id, entrant_id).await? {
+        // Over, or erased, since the read above.
+        let over = raffles::get(&app.db, raffle_id)
+            .await?
+            .is_none_or(|r| entrant::may_unobject(r.state).is_err());
+        return Err(if over {
+            Refusal::Objection(lifecycle::entrant::ObjectionRefusal::State)
+        } else {
+            Refusal::Changed
+        }
+        .into());
+    }
+    let now = app.clock.now();
+    audit::record(&app.db, raffle_id, actor, "unobject", entrant_id, now).await?;
     Ok(())
 }
 

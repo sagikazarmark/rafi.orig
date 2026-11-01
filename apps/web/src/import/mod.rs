@@ -13,8 +13,9 @@
 //!    server applies again ([`rafi_lifecycle::entrant`]), matched against
 //!    the raffle's entrants and the list's earlier rows, given a unique
 //!    display name ([`rafi_lifecycle::names`]); the organizer's decisions
-//!    ([`Decisions`]) approve blocked names and keep group orders whole or
-//!    not. Its [`rows`](Preview::rows) are the request.
+//!    ([`Decisions`]) approve blocked names, keep group orders whole or
+//!    not, and add people removed at their request anyway. Its
+//!    [`rows`](Preview::rows) are the request.
 //!
 //! The list stays in the page's memory: nothing of it is stored or logged,
 //! and only the mapped fields of the rows to add are sent.

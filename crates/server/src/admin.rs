@@ -381,8 +381,27 @@ impl Admin for AppState {
         c: &Caller,
         id: String,
         entrant_id: String,
+        at_request: bool,
     ) -> service::Result<()> {
-        service::remove_entrant(self, service::actor(c), &id, &entrant_id).await
+        service::remove_entrant(self, service::actor(c), &id, &entrant_id, at_request).await
+    }
+
+    async fn object_entrant(
+        &self,
+        c: &Caller,
+        id: String,
+        entrant_id: String,
+    ) -> service::Result<()> {
+        service::object_entrant(self, service::actor(c), &id, &entrant_id).await
+    }
+
+    async fn unobject_entrant(
+        &self,
+        c: &Caller,
+        id: String,
+        entrant_id: String,
+    ) -> service::Result<()> {
+        service::unobject_entrant(self, service::actor(c), &id, &entrant_id).await
     }
 
     async fn export_winners_csv(&self, c: &Caller, id: String) -> service::Result<String> {

@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 
 use rafi_api::{
-    AdminActions, AdminEntrant, Prize, RaffleAdmin, Retention, StartStep, UndoBatch, VerifyData,
+    AdminActions, AdminEntrant, EntrantActions, Prize, RaffleAdmin, RemovedAtRequest, Retention,
+    StartStep, UndoBatch, VerifyData,
 };
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
@@ -12,7 +13,7 @@ use rafi_lifecycle::{
     start::{self, Start},
 };
 use rafi_raffle::{ItemId, Outcome, Raffle};
-use rafi_store::{EntrantRow, RaffleRow, audit, raffles, view::Full};
+use rafi_store::{EntrantRow, RaffleRow, audit, entrants, raffles, view::Full};
 
 use crate::{
     Actor, App, Error, Result,
@@ -31,6 +32,17 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     let raffle = &full.raffle;
     let retention = retention_of(app, raffle, now);
     let entrants = admin_entrants(&full, full.drawn.as_ref(), retention.winners_erase_at);
+    // Read apart from the snapshot: only the list tab's preview and the
+    // one-person form match against them, and an add checks them again.
+    let removed = entrants::removals(&app.db, id)
+        .await?
+        .into_iter()
+        .map(|r| RemovedAtRequest {
+            email_key: r.email_norm,
+            list_ref: r.list_ref,
+            removed_at: r.removed_at,
+        })
+        .collect();
     let held_winners = entrants.iter().filter(|e| e.held_until.is_some()).count();
     let personal_data_left = full.entrants.iter().any(|e| !e.erased);
     let add_list = lifecycle::entrant::may_add(
@@ -91,6 +103,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
             .into_iter()
             .map(str::to_owned)
             .collect(),
+        removed,
     })
 }
 
@@ -144,8 +157,8 @@ fn retention_of(app: &App, raffle: &RaffleRow, now: i64) -> Retention {
 }
 
 /// The entrants as the organizer sees them, with what the raffle made of
-/// each. A claimed winner whose prize isn't delivered is held until
-/// `winners_erase_at`.
+/// each and what the organizer can do with each. A claimed winner whose
+/// prize isn't delivered is held until `winners_erase_at`.
 fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) -> Vec<AdminEntrant> {
     let outcomes = drawn.map(Raffle::entrant_outcomes).unwrap_or_default();
     let item_names: HashMap<ItemId, String> = drawn
@@ -161,6 +174,15 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) ->
         .map(|e| {
             let outcome = outcomes.get(e.id.as_str());
             let deliverable = lifecycle::raffle::deliverable(drawn, &e.id);
+            let state = full.raffle.state;
+            let actions = EntrantActions {
+                object: !e.erased
+                    && e.objected_at.is_none()
+                    && lifecycle::entrant::may_object(state, e.source, deliverable).is_ok(),
+                unobject: !e.erased
+                    && e.objected_at.is_some()
+                    && lifecycle::entrant::may_unobject(state).is_ok(),
+            };
             AdminEntrant {
                 outcome: outcome.map(|o| o.0),
                 prize: outcome.and_then(|o| item_names.get(&o.1).cloned()),
@@ -178,6 +200,8 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) ->
                 erased: e.erased,
                 batch_id: e.batch_id.clone(),
                 list_ref: e.list_ref.clone(),
+                objected: e.objected_at.is_some(),
+                actions,
             }
         })
         .collect()

@@ -114,6 +114,11 @@ CREATE TABLE entrants (
     -- gave one: it matches them on a later add. Admin only; erased with the
     -- rest of their personal data.
     list_ref TEXT,
+    -- When someone the organizer added took themselves off after the freeze
+    -- (they object, and accepted no rules): their name is hidden, they can
+    -- only be declined if drawn, and their personal data is erased once the
+    -- raffle is over. The anonymous ID stays in the manifest. NULL otherwise.
+    objected_at INTEGER,
     UNIQUE (raffle_id, email_norm),
     UNIQUE (raffle_id, list_ref)
 );
@@ -131,6 +136,24 @@ CREATE INDEX entrants_batch ON entrants (raffle_id, batch_id) WHERE batch_id IS 
 -- the key. No trigger may touch it: its change count is the decision.
 CREATE TABLE batch_guards (
     key TEXT PRIMARY KEY NOT NULL
+);
+
+-- Entrants removed before the freeze at their own request, by the keys a
+-- later add matches people with (the email key, the registration ID; one row
+-- may hold both): such an add leaves them out unless the organizer lifts the
+-- removal for that row, which deletes it. Personal data (an email key in
+-- clear, as in `entrants`: a hash without a secret would hide nothing), kept
+-- only while the raffle can still take an add: deleted when its list is
+-- frozen for good (the manifest is written), when it expires, is purged or
+-- is deleted, and by housekeeping for any raffle past that.
+CREATE TABLE add_removals (
+    raffle_id TEXT NOT NULL REFERENCES raffles (id) ON DELETE CASCADE,
+    email_norm TEXT,
+    list_ref TEXT,
+    removed_at INTEGER NOT NULL,
+    UNIQUE (raffle_id, email_norm),
+    UNIQUE (raffle_id, list_ref),
+    CHECK (email_norm IS NOT NULL OR list_ref IS NOT NULL)
 );
 
 -- A write that already moves the version (`SET version = ...`) is left alone,

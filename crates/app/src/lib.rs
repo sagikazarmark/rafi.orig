@@ -43,7 +43,8 @@ use rafi_store::{Db, RaffleRow, raffles as store};
 pub use draw::{command, start_draw};
 pub use entrants::{
     CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_entrants, add_fakes, deliver_all,
-    end_live, join, name_ideas, patch_entrant, purge, remove_entrant, undo_add,
+    end_live, join, name_ideas, object_entrant, patch_entrant, purge, remove_entrant, undo_add,
+    unobject_entrant,
 };
 pub use error::{Error, Refusal, Result, Unfinished};
 pub use owners::{reapply_erasures, remove_owner_data};

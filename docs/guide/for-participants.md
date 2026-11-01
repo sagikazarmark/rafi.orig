@@ -38,8 +38,9 @@ without scanning anything. The organizer should have told you, with links to the
 - **If you win**, nothing appears on a phone: watch the screen for your name, and go to the organizer, who checks
   it's you (for example, by the email you registered with). You must be in the room, as everyone must.
 - **Rather not take part?** Tell the organizer (the privacy notice names whom to ask). Before the list is frozen
-  for the draw, they take you off. After that, your name is hidden and your data erased when the raffle is over;
-  your anonymous ID stays in the draw so it can still be verified.
+  for the draw, they take you off, and you stay off if they add their list again. After that, your name is hidden
+  at once, if you're drawn the prize is declined for you and drawn again, and your data is erased when the raffle
+  is over; your anonymous ID stays in the draw so it can still be verified.
 
 ## The draw
 

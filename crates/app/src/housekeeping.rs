@@ -4,6 +4,13 @@
 //! - **Expiry:** a raffle that was never frozen and whose erasure date has
 //!   passed loses its entrants outright (there is no draw to keep
 //!   verifiable) and becomes purged ([`RaffleState::expire`](rafi_lifecycle::RaffleState::expire)).
+//! - **Objections:** whoever took themselves off a raffle that is over
+//!   (someone the organizer added, after the freeze) is erased at once,
+//!   not on the erasure date ([`retention::erase_objected`]).
+//! - **Removals at their request** of a raffle that can't take an add any
+//!   more (its list frozen for good, purged, or past its erasure date) are
+//!   forgotten ([`retention::forget_removals`]): the freeze and the expiry
+//!   do it as they happen; the run keeps it so, after a restore too.
 //! - **Erasure:** once a frozen raffle's erasure date passes, in any state,
 //!   the personal data of everyone but the winners is erased; winners (the
 //!   entrants of claimed draws) are held [`RetentionPolicy::winner_hold_days`](crate::RetentionPolicy::winner_hold_days)
@@ -48,8 +55,13 @@ pub const STALE_AFTER_SECS: i64 = 2 * 3600;
 pub struct Report {
     /// Raffles that were never frozen and expired: their entrants deleted.
     pub expired: u64,
-    /// Entrants whose personal data was erased.
+    /// Entrants whose personal data was erased, those who took themselves
+    /// off included.
     pub erased: u64,
+    /// Of them, entrants who took themselves off a raffle that is over.
+    pub objected: u64,
+    /// Removals at their request forgotten.
+    pub removals_forgotten: u64,
     /// Finished raffles that became purged: the winner hold passed.
     pub purged: u64,
     /// Live channels destroyed.
@@ -61,11 +73,13 @@ pub async fn run(app: &App) -> anyhow::Result<Report> {
     let now = app.clock.now();
     let hold = app.policy.retention.winner_hold_secs();
     let expired = retention::expire_due(&app.db, now).await?;
+    let objected = retention::erase_objected(&app.db, now).await?;
     let erased = retention::erase_due(&app.db, now, hold).await?;
+    let removals_forgotten = retention::forget_removals(&app.db, now).await?;
     // Screens of raffles whose names just went: best effort, a failed nudge
     // is a stale screen until its next poll. Expired and purged raffles are
     // over: their channels go too (on Workers, the object is destroyed).
-    for id in &erased.raffles {
+    for id in objected.raffles.iter().chain(&erased.raffles) {
         app.live_updates.notify(id).await;
     }
     for id in expired.iter().chain(&erased.purged) {
@@ -79,7 +93,9 @@ pub async fn run(app: &App) -> anyhow::Result<Report> {
     store::record_ok(&app.db, now).await?;
     Ok(Report {
         expired: expired.len() as u64,
-        erased: erased.entrants,
+        erased: objected.entrants + erased.entrants,
+        objected: objected.entrants,
+        removals_forgotten,
         purged: erased.purged.len() as u64,
         channels_ended,
     })

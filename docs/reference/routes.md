@@ -81,10 +81,19 @@ organizer approved a name the blocklist refuses: it lifts the blocklist only); a
 made its names (`"name_format": "full"` or `"first_initial"`), for the audit log. Every name added must be nobody
 else's in the raffle (compared composed, lowercase, whitespace collapsed), joined or added, nor another row's. The
 result names each row by its index: `added` with its entrant ID, or `skipped` (`already_in`, an email or
-registration ID already in the raffle). `undo_add` takes an add's entrants off the list again before
+registration ID already in the raffle; `removed_at_request`, one of someone removed at their request, unless the
+row says `"lift_removal": true`, which deletes that removal with the add). `undo_add` takes an add's entrants off the list again before
 the freeze and returns how many; the admin's view offers the latest add (`actions.undo`), and says whether a list
 can be added now (`actions.add_list`) and why not (`actions.add_list_refusal`: `unpublished`, `test_mode`, `frozen`,
 `erasure_date_passed`), so the list tab derives nothing.
+
+`remove_entrant` takes `"at_request": true` (optional, `false` when left out) for someone who asked: before the
+freeze, a later add leaves them out by their email key and registration ID, which the admin's view lists
+(`removed`, until the freeze) so the list tab and the one-person form can say so. `object_entrant` is "Took
+themselves off", for someone the organizer added, from the freeze until the raffle is over (not for a winner who
+claimed a prize), and `unobject_entrant` its undo; each entrant of the admin's view says whether it `objected` and
+which of the two its `actions` allow. `resolve_item` refuses `claimed` and `not_here` for a winner who took
+themselves off (409 `objected_winner`).
 
 `export_winners_csv` returns the drawn entrants as CSV text: UTF-8 with a byte order mark, a header line, every
 field double-quoted (`"` doubled), a field starting with `=`, `+`, `-`, `@`, a tab or a carriage return prefixed

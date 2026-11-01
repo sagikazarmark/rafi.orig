@@ -680,7 +680,7 @@ async fn public_view_has_no_personal_data() {
     assert_eq!(headers[header::ETAG], etag);
     // Erasing a name moves the version, so the ETag changes with the content.
     let hidden = &entrants::list(&app.db, &raffle.id).await.unwrap()[0];
-    service::remove_entrant(&app, ACTOR, &raffle.id, &hidden.id)
+    service::remove_entrant(&app, ACTOR, &raffle.id, &hidden.id, false)
         .await
         .unwrap_err();
     service::patch_entrant(
@@ -2716,7 +2716,7 @@ async fn entrants_are_erased_only_once_the_raffle_is_over() {
     }
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
-    let refused = service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0]).await;
+    let refused = service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0], false).await;
     assert!(
         matches!(
             refused,
@@ -2748,7 +2748,7 @@ async fn entrants_are_erased_only_once_the_raffle_is_over() {
     service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
-    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0])
+    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0], false)
         .await
         .unwrap();
     let anna = entrants::get(&app.db, &raffle.id, &ids[0])
@@ -3379,7 +3379,7 @@ async fn erasure_on_request_follows_the_date() {
     assert!(before.erase_at > now && past.erase_at <= now);
     let ids = [before_anna, past_anna];
 
-    let refused = service::remove_entrant(&app, ACTOR, &before.id, &ids[0]).await;
+    let refused = service::remove_entrant(&app, ACTOR, &before.id, &ids[0], false).await;
     assert!(
         matches!(
             refused,
@@ -3411,7 +3411,7 @@ async fn erasure_on_request_follows_the_date() {
             .removal,
         Some(Removal::Erase)
     );
-    service::remove_entrant(&app, ACTOR, &past.id, &ids[1])
+    service::remove_entrant(&app, ACTOR, &past.id, &ids[1], false)
         .await
         .unwrap();
     let anna = entrants::get(&app.db, &past.id, &ids[1])
@@ -3874,7 +3874,8 @@ async fn an_organizer_can_remove_their_data() {
 }
 
 /// After a restore, the erasure log, the purges and the organizers who left
-/// are re-applied, and whatever is due is erased again.
+/// are re-applied, and whatever is due is erased again, removals at their
+/// request past their use forgotten again.
 #[tokio::test]
 async fn erasures_are_reapplied_after_a_restore() {
     let app = app().await;
@@ -3885,7 +3886,7 @@ async fn erasures_are_reapplied_after_a_restore() {
         .into_iter()
         .map(|e| e.id)
         .collect();
-    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0])
+    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0], false)
         .await
         .unwrap();
     service::purge(&app, ACTOR, &raffle.id).await.unwrap();
@@ -3914,8 +3915,24 @@ async fn erasures_are_reapplied_after_a_restore() {
         .run()
         .await
         .unwrap();
+    // A removal at their request from before the freeze, back too.
+    app.db
+        .query(
+            "INSERT INTO add_removals (raffle_id, email_norm, removed_at) VALUES (?, 'back@x.org', 1)",
+        )
+        .bind(&raffle.id)
+        .run()
+        .await
+        .unwrap();
 
     let done = service::reapply_erasures(&app).await.unwrap();
+    assert!(
+        entrants::removals(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a frozen raffle's removals serve nothing: forgotten again"
+    );
     assert_eq!((done.entrants, done.raffles, done.organizers), (3, 1, 1));
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert!(
@@ -4926,11 +4943,11 @@ async fn adding_people_over_http() {
         [
             (
                 "add".into(),
-                "batch=b-one origin=one added=1 skipped=0 approved=0".into()
+                "batch=b-one origin=one added=1 skipped=0 approved=0 lifted=0".into()
             ),
             (
                 "add".into(),
-                "batch=b-list origin=list added=3 skipped=1 approved=0".into()
+                "batch=b-list origin=list added=3 skipped=1 approved=0 lifted=0".into()
             ),
             ("undo_add".into(), "batch=b-list removed=3".into()),
         ]
@@ -5104,7 +5121,7 @@ async fn added_names_are_unique_and_approved_over_http() {
         .unwrap();
     assert_eq!(
         detail,
-        "batch=b-approved origin=list added=2 skipped=0 approved=1 format=full"
+        "batch=b-approved origin=list added=2 skipped=0 approved=1 lifted=0 format=full"
     );
 
     // An unknown format is a bad request, not a guess.
@@ -5254,4 +5271,137 @@ async fn names_the_organizer_gives_are_up_to_64_characters() {
     for name in [maria, beatrix] {
         assert!(csv.contains(&format!("\"{name}\"")), "{csv}");
     }
+}
+
+/// Removing someone at their request and someone taking themselves off,
+/// over the admin API: `at_request` is optional, a later add says who it
+/// left out and why, a row can lift it; after the freeze, "Took themselves
+/// off" and its undo, with what the admin page is told and the refusals'
+/// statuses.
+#[tokio::test]
+async fn removals_and_objections_over_http() {
+    let (app, router, raffle) = dev_raffle(Config::for_tests()).await;
+    let id = raffle.id.as_str();
+    let list = add_args(
+        id,
+        "b-1",
+        "list",
+        serde_json::json!([
+            { "name": "Anna", "email": "anna@example.com", "list_ref": "A1" },
+            { "name": "Bence", "email": "bence@example.com" },
+            { "name": "Csilla" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &list)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    let (anna, bence, csilla) = (
+        result.added[0].id.clone(),
+        result.added[1].id.clone(),
+        result.added[2].id.clone(),
+    );
+    let remove = |entrant: &str, extra: &str| {
+        admin_call(
+            "remove_entrant",
+            &format!(r#"{{"id":"{id}","entrant_id":"{entrant}"{extra}}}"#),
+        )
+    };
+    let (status, _, body) = send(&router, remove(&anna, r#","at_request":true"#)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, _, body) = send(&router, remove(&bence, "")).await;
+    assert_eq!(status, StatusCode::OK, "without at_request: {body}");
+    let get = || admin_call("get_raffle", &format!(r#"{{"id":"{id}"}}"#));
+    let (_, _, body) = send(&router, get()).await;
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(json["removed"].as_array().map(Vec::len), Some(1), "{body}");
+    assert_eq!(json["removed"][0]["email_key"], "anna@example.com");
+    assert_eq!(json["removed"][0]["list_ref"], "A1");
+
+    // The list again: Anna is left out, and says why; lifted, she's in.
+    let again = add_args(
+        id,
+        "b-2",
+        "list",
+        serde_json::json!([
+            { "name": "Anna", "email": "anna@example.com" },
+            { "name": "Bence", "email": "bence@example.com" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &again)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["skipped"],
+        serde_json::json!([{ "row": 0, "reason": "removed_at_request" }]),
+        "{body}"
+    );
+    let lifted = add_args(
+        id,
+        "b-3",
+        "list",
+        serde_json::json!([{ "name": "Anna", "list_ref": "A1", "lift_removal": true }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &lifted)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    let removed_anna = anna;
+    let anna = result.added[0].id.clone();
+    let (_, _, body) = send(&router, get()).await;
+    let admin: rafi_api::RaffleAdmin = serde_json::from_str(&body).unwrap();
+    assert!(admin.removed.is_empty(), "lifted");
+
+    // After the freeze: Csilla takes herself off.
+    service::start_draw(&app, service::Actor::solo("dev"), id)
+        .await
+        .unwrap();
+    let object = |name: &str, entrant: &str| {
+        admin_call(
+            name,
+            &format!(r#"{{"id":"{id}","entrant_id":"{entrant}"}}"#),
+        )
+    };
+    let (status, _, body) = send(&router, object("object_entrant", &csilla)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, _, body) = send(&router, get()).await;
+    let admin: rafi_api::RaffleAdmin = serde_json::from_str(&body).unwrap();
+    let c = admin.entrants.iter().find(|e| e.id == csilla).unwrap();
+    assert!(c.objected && c.hidden && c.actions.unobject && !c.actions.object);
+    let a = admin.entrants.iter().find(|e| e.id == anna).unwrap();
+    assert!(!a.objected && a.actions.object && !a.actions.unobject);
+    let show = format!(
+        r#"{{"id":"{id}","entrant_id":"{csilla}","patch":{{"display_name":null,"hidden":false,"delivered":null}}}}"#
+    );
+    let (status, _, body) = send(&router, admin_call("patch_entrant", &show)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("objected_hidden"), "{body}");
+    let (status, _, body) = send(&router, remove(&anna, r#","at_request":true"#)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("not_removable"), "{body}");
+    let (status, _, body) = send(&router, object("object_entrant", "nobody")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let (status, _, body) = send(&router, object("unobject_entrant", &csilla)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let audit: Vec<(String, String)> = app
+        .db
+        .query(
+            "SELECT action, detail FROM audit WHERE raffle_id = ?
+             AND action IN ('remove_entrant', 'object', 'unobject') ORDER BY id",
+        )
+        .bind(id)
+        .all()
+        .await
+        .unwrap();
+    assert_eq!(
+        audit,
+        [
+            (
+                "remove_entrant".into(),
+                format!("{removed_anna} at_request")
+            ),
+            ("remove_entrant".into(), bence.clone()),
+            ("object".into(), csilla.clone()),
+            ("unobject".into(), csilla.clone()),
+        ]
+    );
 }

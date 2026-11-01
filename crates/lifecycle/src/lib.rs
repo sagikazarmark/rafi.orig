@@ -178,9 +178,11 @@ impl RaffleState {
     /// change; once the raffle is over, or its erasure date has passed
     /// (`past_erase_date`), their ID stays in the published list and only
     /// their personal data is erased. In between (from the freeze until the
-    /// raffle finishes or the date passes) nobody is removed: sharing their
-    /// entry is part of the rules they accepted. The organizer can still hide
-    /// or rename them.
+    /// raffle finishes or the date passes) nobody is removed: for someone who
+    /// joined, sharing their entry is part of the rules they accepted, and
+    /// someone the organizer added takes themselves off instead
+    /// ([`objections_allowed`](Self::objections_allowed)). The organizer can
+    /// still hide or rename anyone.
     pub fn removal(self, past_erase_date: bool) -> Option<entrant::Removal> {
         if self.entrants_editable() {
             Some(entrant::Removal::Delete)
@@ -189,6 +191,15 @@ impl RaffleState {
         } else {
             None
         }
+    }
+
+    /// Whether someone the organizer added can take themselves off
+    /// ([`entrant::may_object`]): from the freeze until the raffle is over,
+    /// when nobody can be removed ([`removal`](Self::removal)). Before it
+    /// they are removed at their request (and stay out of later adds); once
+    /// it is over, their data is erased on request like anyone's.
+    pub fn objections_allowed(self) -> bool {
+        self.drawable()
     }
 
     /// Whether entrants' personal data can be erased, one entrant at a time:
@@ -306,6 +317,22 @@ mod tests {
                 S::Frozen | S::Drawing | S::Finished | S::Purged => Some(Removal::Erase),
             };
             assert_eq!(s.removal(true), want_past, "{s:?} past the erasure date");
+        }
+    }
+
+    /// Taking oneself off fills the gap removal leaves: from the freeze
+    /// until the raffle is over, where (before the erasure date) nobody can
+    /// be removed or erased.
+    #[test]
+    fn objections_between_the_freeze_and_the_end() {
+        for s in S::ALL {
+            let want = matches!(s, S::Frozen | S::Drawing);
+            assert_eq!(s.objections_allowed(), want, "{s:?}");
+            assert_eq!(
+                s.objections_allowed(),
+                s.removal(false).is_none(),
+                "{s:?}: exactly where nobody is removed"
+            );
         }
     }
 

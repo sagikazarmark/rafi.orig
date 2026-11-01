@@ -1,7 +1,7 @@
 //! The people tab: entrants, adding and editing them.
 
 use dioxus_icons::lucide::{
-    Check, ClipboardList, Eye, EyeOff, Pencil, Trash, Undo2, UserPlus, Users,
+    Check, ClipboardList, Eye, EyeOff, Pencil, Trash, Undo2, UserMinus, UserPlus, Users,
 };
 use rafi_api::UndoBatch;
 use rafi_lifecycle::entrant::{MAX_ADDED_NAME_CHARS, Removal};
@@ -116,7 +116,7 @@ fn AddPeople(open: Signal<bool>, admin: AdminData, on_added: EventHandler<()>) -
             Tabs { appearance: TabsAppearance::Border, default_value: "one", class: "w-full",
                 TabTrigger { value: "one", index: 0usize, class: "gap-2", UserPlus { class: "size-4" } "One person" }
                 TabContent { value: "one", index: 0usize, appearance: TabContentAppearance::None, class: "w-full pt-4",
-                    AddPersonForm { raffle_id, on_added }
+                    AddPersonForm { raffle_id, removed: admin.removed.clone(), on_added }
                 }
                 TabTrigger { value: "list", index: 1usize, class: "gap-2", ClipboardList { class: "size-4" } "Paste or upload a list" }
                 TabContent { value: "list", index: 1usize, appearance: TabContentAppearance::None, class: "w-full pt-4",
@@ -219,12 +219,32 @@ fn EntrantRow(
             }
         }
     };
+    let mut confirm_object = use_signal(|| false);
+    let mut confirm_unobject = use_signal(|| false);
     let remove = {
         let (rid, eid) = (raffle_id.clone(), e.id.clone());
-        move || {
+        move |at_request: bool| {
             let (rid, eid) = (rid.clone(), eid.clone());
             async move {
-                match api::remove_entrant(rid, eid).await {
+                match api::remove_entrant(rid, eid, at_request).await {
+                    Ok(()) => on_change.call(()),
+                    Err(e) => error.set(Some(err_text(e))),
+                }
+            }
+        }
+    };
+    // "Took themselves off", and its undo.
+    let objection = {
+        let (rid, eid) = (raffle_id.clone(), e.id.clone());
+        move |object: bool| {
+            let (rid, eid) = (rid.clone(), eid.clone());
+            async move {
+                let done = if object {
+                    api::object_entrant(rid, eid).await
+                } else {
+                    api::unobject_entrant(rid, eid).await
+                };
+                match done {
                     Ok(()) => on_change.call(()),
                     Err(e) => error.set(Some(err_text(e))),
                 }
@@ -271,6 +291,7 @@ fn EntrantRow(
                                 // characters), isolated from the text around it.
                                 p { class: "max-w-64 font-semibold wrap-break-word", bdi { "{e.display_name}" } }
                                 div { class: "flex gap-1",
+                                    if e.objected { span { class: "badge badge-warning badge-soft badge-xs", "took themselves off" } }
                                     if e.hidden { span { class: "badge badge-ghost badge-xs", "hidden on screen" } }
                                     if e.source == Source::Manual { span { class: "badge badge-secondary badge-soft badge-xs", "no phone" } }
                                     if e.source == Source::Fake { span { class: "badge badge-warning badge-soft badge-xs", "fake" } }
@@ -287,11 +308,15 @@ fn EntrantRow(
             td {
                 if !e.erased {
                     div { class: "flex justify-end gap-1",
-                        button {
-                            class: "btn btn-ghost btn-xs btn-square tooltip",
-                            "data-tip": if e.hidden { "Show name on screen" } else { "Hide name on screen" },
-                            onclick: { let patch = patch.clone(); let hidden = !e.hidden; move |_| patch(EntrantPatch { hidden: Some(hidden), ..Default::default() }) },
-                            if e.hidden { Eye { class: "size-4" } } else { EyeOff { class: "size-4" } }
+                        // Someone who took themselves off stays hidden: the
+                        // server refuses to show them.
+                        if !e.objected {
+                            button {
+                                class: "btn btn-ghost btn-xs btn-square tooltip",
+                                "data-tip": if e.hidden { "Show name on screen" } else { "Hide name on screen" },
+                                onclick: { let patch = patch.clone(); let hidden = !e.hidden; move |_| patch(EntrantPatch { hidden: Some(hidden), ..Default::default() }) },
+                                if e.hidden { Eye { class: "size-4" } } else { EyeOff { class: "size-4" } }
+                            }
                         }
                         button { class: "btn btn-ghost btn-xs btn-square tooltip", "data-tip": "Rename", onclick: { let n = e.display_name.clone(); move |_| renaming.set(Some(n.clone())) }, Pencil { class: "size-4" } }
                         if won {
@@ -300,6 +325,24 @@ fn EntrantRow(
                                 "data-tip": if e.held_until.is_some() { format!("Their name and email are kept until {}, or until you mark the prize delivered", winners_erase_date) } else { String::new() },
                                 onclick: { let patch = patch.clone(); let d = !e.delivered; move |_| patch(EntrantPatch { delivered: Some(d), ..Default::default() }) },
                                 if e.delivered { "✓ delivered" } else { "Mark delivered" }
+                            }
+                        }
+                        if e.actions.object {
+                            button {
+                                class: "btn btn-ghost btn-xs tooltip",
+                                "data-tip": "They asked not to take part",
+                                onclick: move |_| confirm_object.set(true),
+                                UserMinus { class: "size-4" }
+                                "Took themselves off"
+                            }
+                        }
+                        if e.actions.unobject {
+                            button {
+                                class: "btn btn-ghost btn-xs tooltip",
+                                "data-tip": "Undo “Took themselves off”",
+                                onclick: move |_| confirm_unobject.set(true),
+                                Undo2 { class: "size-4" }
+                                "Undo"
                             }
                         }
                         if let Some(removal) = removal {
@@ -311,24 +354,146 @@ fn EntrantRow(
                             }
                         }
                     }
-                    if let Some(removal) = removal {
+                    match removal {
+                        Some(Removal::Delete) => rsx! {
+                            RemoveDialog { open: confirm, entrant: e.clone(), on_confirm: { let remove = remove.clone(); move |at_request| { spawn(remove(at_request)); } } }
+                        },
+                        Some(Removal::Erase) => rsx! {
+                            Confirm {
+                                open: confirm,
+                                title: format!("Erase {}'s personal data?", e.display_name),
+                                body: "The anonymous entry stays (the draw must remain verifiable), but the name, email and claim code are erased for good.",
+                                action: "Erase",
+                                danger: true,
+                                on_confirm: { let remove = remove.clone(); move |_| { spawn(remove(false)); } },
+                            }
+                        },
+                        None => rsx! {},
+                    }
+                    if e.actions.object {
                         Confirm {
-                            open: confirm,
-                            title: match removal {
-                                Removal::Delete => format!("Remove {}?", e.display_name),
-                                Removal::Erase => format!("Erase {}'s personal data?", e.display_name),
-                            },
-                            body: match removal {
-                                Removal::Delete => "They are taken off the entrant list. They can join again while registration is open.".to_owned(),
-                                Removal::Erase => "The anonymous entry stays (the draw must remain verifiable), but the name, email and claim code are erased for good.".to_owned(),
-                            },
-                            action: match removal { Removal::Delete => "Remove", Removal::Erase => "Erase" },
+                            open: confirm_object,
+                            title: format!("{} took themselves off?", e.display_name),
+                            body: OBJECT_BODY,
+                            action: "Took themselves off",
                             danger: true,
-                            on_confirm: { let remove = remove.clone(); move |_| { spawn(remove()); } },
+                            on_confirm: { let objection = objection.clone(); move |_| { spawn(objection(true)); } },
+                        }
+                    }
+                    if e.actions.unobject {
+                        Confirm {
+                            open: confirm_unobject,
+                            title: format!("Put {} back?", e.display_name),
+                            body: "For a mistake: they are in the draw as before and erased on the usual dates. Their name stays hidden until you show it.",
+                            action: "Put back",
+                            on_confirm: { let objection = objection.clone(); move |_| { spawn(objection(false)); } },
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// What "Took themselves off" does, for the organizer to confirm.
+const OBJECT_BODY: &str = "For someone you added who asks, after the freeze, not to take part. Their name is hidden on the screen and the verification page from now on. If they are drawn, the prize can only be declined, and it is drawn again. Their name and email are erased when the raffle is over, not on the erasure date. Their anonymous ID stays in the draw, so it can still be verified.";
+
+/// Removing an entrant before the freeze: plainly (a duplicate, a troll),
+/// or at their request, which a later add remembers. Offered for anyone
+/// real; it says when a later add can't recognize them.
+#[component]
+fn RemoveDialog(
+    open: Signal<bool>,
+    entrant: AdminEntrant,
+    on_confirm: EventHandler<bool>,
+) -> Element {
+    let mut at_request = use_signal(|| false);
+    let real = entrant.source != Source::Fake;
+    let keyed = entrant.email.is_some() || entrant.list_ref.is_some();
+    rsx! {
+        AlertDialog {
+            open: Some(open()),
+            on_open_change: move |next: bool| {
+                if !next {
+                    at_request.set(false);
+                }
+                open.set(next)
+            },
+            AlertDialogTitle { "Remove {entrant.display_name}?" }
+            AlertDialogDescription { "They are taken off the entrant list. They can join again while registration is open." }
+            if real {
+                label { class: "flex items-start gap-3 text-sm",
+                    Switch { value: Some(at_request()), on_change: move |on| at_request.set(on) }
+                    span { class: "space-y-1",
+                        span { class: "block font-medium", "They asked to be taken off" }
+                        span { class: "block text-xs text-base-content/60",
+                            if keyed {
+                                "Adding your list again leaves them out; you can still add them if they change their mind. Their email or registration ID is kept for this until the freeze."
+                            } else {
+                                "They have no email or registration ID, so adding your list again can't recognize them: leave them off the list."
+                            }
+                        }
+                    }
+                }
+            }
+            AlertDialogActions {
+                AlertDialogCancel { "Cancel" }
+                AlertDialogAction {
+                    color: AlertDialogButtonColor::Error,
+                    on_click: move |_| on_confirm.call(at_request()),
+                    "Remove"
+                }
+            }
+        }
+    }
+}
+
+/// A person's row, server-rendered natively: what it offers someone the
+/// organizer added after the freeze, and what it shows once they took
+/// themselves off.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entrant(objected: bool) -> AdminEntrant {
+        serde_json::from_value(serde_json::json!({
+            "id": "e1", "display_name": "Anna Kovács", "email": "anna@example.com",
+            "source": "manual", "hidden": objected, "claim_code": "K2P9", "created_at": 0,
+            "delivered": false, "erased": false, "outcome": null, "prize": null,
+            "objected": objected,
+            "actions": { "object": !objected, "unobject": objected }
+        }))
+        .unwrap()
+    }
+
+    #[component]
+    fn Row(entrant: AdminEntrant) -> Element {
+        let error = use_signal(|| None::<String>);
+        rsx! {
+            table { tbody {
+                EntrantRow { raffle_id: "r1", entrant, removal: None, winners_erase_date: String::new(), error, on_change: |_| {} }
+            } }
+        }
+    }
+
+    #[test]
+    fn taking_oneself_off() {
+        let html = dioxus_ssr::render_element(rsx! { Row { entrant: entrant(false) } });
+        assert!(html.contains("Took themselves off"), "{html}");
+        assert!(html.contains("Hide name on screen"), "{html}");
+        assert!(
+            !html.contains("took themselves off"),
+            "no badge yet: {html}"
+        );
+
+        let html = dioxus_ssr::render_element(rsx! { Row { entrant: entrant(true) } });
+        for expected in ["took themselves off", "hidden on screen", "Undo"] {
+            assert!(html.contains(expected), "{expected}: {html}");
+        }
+        assert!(
+            !html.contains("Show name on screen"),
+            "their name stays hidden: {html}"
+        );
+        assert!(!html.contains(">Took themselves off<"), "{html}");
     }
 }

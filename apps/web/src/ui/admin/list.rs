@@ -4,7 +4,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use dioxus_icons::lucide::{FileUp, ListChecks, TriangleAlert, Upload, X};
-use rafi_api::{AddRequest, NameFormat, row_error_text};
+use rafi_api::{AddRequest, NameFormat, SkipReason, row_error_text};
 use rafi_lifecycle::entrant::{AddRefusal, MAX_ADD_ROWS, Origin};
 
 use super::*;
@@ -178,7 +178,8 @@ pub(super) fn AddList(
             .entrants
             .iter()
             .filter(|e| pending.is_none() || e.batch_id != pending),
-    );
+    )
+    .with_removed(&admin.removed);
     let shown_table = table();
     // Made again only when what it depends on changed: a long list takes a
     // moment, and the dialog renders on every click.
@@ -245,6 +246,7 @@ pub(super) fn AddList(
         }));
         let lines: Vec<usize> = p.to_add.iter().map(|r| r.line).collect();
         let already = p.already_in.len();
+        let at_request = p.left_out_at_request();
         let add = AddRequest {
             batch_id,
             origin: Origin::List,
@@ -261,10 +263,21 @@ pub(super) fn AddList(
             match result {
                 Ok(result) => {
                     attempt.set(None);
-                    let skipped = already + result.skipped.len();
+                    // Removed at their request since the preview: left out
+                    // by the server, and counted with the preview's.
+                    let late = result
+                        .skipped
+                        .iter()
+                        .filter(|s| s.reason == SkipReason::RemovedAtRequest)
+                        .count();
+                    let skipped = already + result.skipped.len() - late;
+                    let removed = match at_request + late {
+                        0 => String::new(),
+                        n => format!(", {n} left out at their request"),
+                    };
                     toast.success(
                         format!(
-                            "🙋 Added {} ({skipped} already in)",
+                            "🙋 Added {} ({skipped} already in{removed})",
                             people(result.added.len())
                         ),
                         ToastOptions::new(),
@@ -546,6 +559,9 @@ fn PreviewView(
             div { class: "flex flex-wrap gap-2", aria_live: "polite",
                 span { class: "badge badge-lg badge-success badge-soft", "{p.to_add.len()} to add" }
                 span { class: "badge badge-lg badge-ghost", "{p.already_in.len()} already in" }
+                if !p.removed.is_empty() {
+                    span { class: "badge badge-lg badge-ghost", "{p.removed.len()} removed at their request" }
+                }
                 span { class: if p.to_check() > 0 { "badge badge-lg badge-warning badge-soft" } else { "badge badge-lg badge-ghost" }, "{p.to_check()} to check" }
             }
             if p.too_many() {
@@ -646,6 +662,35 @@ fn PreviewView(
                         }
                     }
                     if let Some(more) = more(p.blocked.len()) { p { class: "text-base-content/60", "{more}" } }
+                }
+            }
+            if !p.removed.is_empty() {
+                div { class: "space-y-1 rounded-box border border-base-300 p-3 text-sm",
+                    p { class: "font-semibold", "Removed at their request" }
+                    p { class: "text-xs text-base-content/60", "They asked to be taken off this raffle, so they're left out. Add someone anyway only if they told you they changed their mind." }
+                    for r in p.removed.iter().take(SHOWN) {
+                        label { key: "{r.line}", class: "flex items-center gap-2",
+                            Switch {
+                                value: Some(r.lifted),
+                                on_change: {
+                                    let line = r.line;
+                                    move |on: bool| {
+                                        let mut decisions = decisions;
+                                        let mut d = decisions.write();
+                                        if on { d.lifted.insert(line); } else { d.lifted.remove(&line); }
+                                    }
+                                },
+                            }
+                            span {
+                                "Line {r.line}: " bdi { "{r.name}" }
+                                match r.by {
+                                    MatchedBy::Email => rsx! { " (by their email): add anyway" },
+                                    MatchedBy::ListRef => rsx! { " (by their registration ID): add anyway" },
+                                }
+                            }
+                        }
+                    }
+                    if let Some(more) = more(p.removed.len()) { p { class: "text-base-content/60", "{more}" } }
                 }
             }
             if !p.invalid.is_empty() {
@@ -802,6 +847,51 @@ mod tests {
             "2 rows repeat an earlier one and are left out",
             "Line 7: <bdi>Dóra Molnár (again)</bdi>, the same registration ID as line 6",
             "To be added:",
+        ] {
+            assert!(html.contains(expected), "{expected}: {html}");
+        }
+    }
+
+    #[component]
+    fn RemovedPreview() -> Element {
+        let decisions = use_signal(|| Decisions {
+            lifted: [3].into(),
+            ..Decisions::default()
+        });
+        let t =
+            import::parse("name,email,id\nAnna,anna@x.org,\nBea,,B2\nCili,cili@x.org,").unwrap();
+        let mapping = Mapping {
+            list_ref: Some(2),
+            ..import::detect(&t)
+        };
+        let removed = [
+            rafi_api::RemovedAtRequest {
+                email_key: Some("anna@x.org".into()),
+                list_ref: None,
+                removed_at: 1,
+            },
+            rafi_api::RemovedAtRequest {
+                email_key: None,
+                list_ref: Some("B2".into()),
+                removed_at: 2,
+            },
+        ];
+        let existing = Existing::default().with_removed(&removed);
+        let p = import::preview(&t, &mapping, NameFormat::Full, &existing, &decisions()).unwrap();
+        rsx! { PreviewView { preview: Rc::new(p), decisions, problems: vec![] } }
+    }
+
+    /// People removed at their request are a category of their own, left
+    /// out unless added anyway, row by row.
+    #[test]
+    fn a_preview_with_removals() {
+        let html = dioxus_ssr::render_element(rsx! { RemovedPreview {} });
+        for expected in [
+            "2 to add",
+            "2 removed at their request",
+            "Removed at their request",
+            "Line 2: <bdi>Anna</bdi> (by their email): add anyway",
+            "Line 3: <bdi>Bea</bdi> (by their registration ID): add anyway",
         ] {
             assert!(html.contains(expected), "{expected}: {html}");
         }

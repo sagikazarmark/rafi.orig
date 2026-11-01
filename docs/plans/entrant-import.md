@@ -127,7 +127,8 @@ stays out when the list is added again.
 | **Registration** (setting) | Whether people may join with the QR code. On by default. Off: no registration states, no join form. |
 | **Name format** | How a list's name becomes a display name: `full` (default) or `first_initial`. |
 | **Registration ID** (`list_ref`) | The source system's ID for a row, optional, admin only: matches people on a later add, especially without emails. |
-| **Removed at their request** | An added entrant taken off on request, remembered so a later add skips them (`add_removals`). |
+| **Removed at their request** | An entrant taken off on request before the freeze (anyone real, a joiner too), remembered so a later add skips them (`add_removals`) unless lifted for a row. |
+| **Took themselves off** | An added entrant who objects after the freeze (`objected_at`): hidden, declined if drawn, erased at the finish. |
 
 ### Feasibility
 
@@ -269,7 +270,8 @@ re-checks are in `rafi_lifecycle::entrant`.
   - An email or registration ID **removed at their request** earlier: skipped; the organizer can lift it per row.
   - Rows with neither email nor registration ID can't be matched again: the preview says so ("Without emails or
     IDs, adding this list again may add people twice").
-- **Sent.** For each row to add: the display name, the email, the registration ID, approvals; plus the batch ID
+- **Sent.** For each row to add: the display name, the email, the registration ID, approvals, lifted removals
+  (`lift_removal`); plus the batch ID
   (random, made for the rows sent: the same rows sent again, a retry, send the same one; while an add's reply is
   unknown, its entrants are left out of the preview so it stays the same). Nothing else.
 
@@ -311,10 +313,18 @@ re-checks are in `rafi_lifecycle::entrant`.
   raffle to say why. A retried batch (same ID) is refused by the guard and answered with the first one's result.
 - `insert_manual` goes: the one-person add is this batch. The same guard gives `insert_fakes` the cap.
   `ids::code_besides(&mut HashSet)` gives unique claim codes to adds and fakes.
-- `delete_batch(raffle_id, batch_id)` while editable; `remove_entrant` of an added entrant "at their request" also
-  writes `add_removals (raffle_id, email_norm, list_ref, removed_at)`. Those rows are deleted when the raffle's
-  entrants are erased or expire (the same housekeeping writes), and by `reapply-erasures` after a restore. They
-  hold an email key in clear, as `entrants` does: a hash without a secret would hide nothing.
+- `delete_batch(raffle_id, batch_id)` while editable; `remove_entrant` "at their request" (any real entrant, a
+  joiner who asks too: the next list may have them) also writes `add_removals (raffle_id, email_norm, list_ref,
+  removed_at)`, in the delete's batch and under its condition: one row with both keys (`UNIQUE` per raffle on
+  each), and a row of its own for a key the first couldn't take because the other was remembered already. An
+  add's rows go in only where no removal matches (`NOT EXISTS` on the `VALUES`' `column5` and `column11`, the same
+  on every backend), and the removals the organizer lifts are deleted under the guard first, so lifting is all or
+  nothing with the add. **Decided in slice 5:** the rows are deleted when the manifest is written (with the list
+  fixed for good, no add can come and the email keys serve nothing), not on the erasure date; also in
+  `expire_due`'s batch, with an erasure of everyone (a purge), with the owner leaving, and by the raffle's
+  deletion (cascade). Housekeeping's `forget_removals` deletes any left for a raffle that is frozen, purged or
+  past its erasure date, which is what `reapply-erasures` (through housekeeping) needs after a restore. They hold
+  an email key in clear, as `entrants` does: a hash without a secret would hide nothing.
 - Conformance on SQLite, Postgres and D1: several chunks; the cap refusing the whole batch (no rows, no guard row
   left); a frozen raffle; an email clash with a joined entrant; a race with joins; a race with the freeze (every
   inserted entrant is in the manifest, or the add is refused); a retried batch ID; undo; removals; a 64-character
@@ -331,7 +341,8 @@ re-checks are in `rafi_lifecycle::entrant`.
   reported. No live notification: nothing on a phone changes.
 - `undo_add(caller, raffle, batch_id)`: while editable, audited `undo_add` with the count. The UI offers the last
   batch; the API takes any.
-- `remove_entrant` gains "at their request" for added entrants.
+- `remove_entrant` gains "at their request" (`at_request`), audited as the entrant's ID and `at_request`; an add
+  reports a row left out for it as `removed_at_request`, and counts lifts (`lifted=<k>`).
 - These use cases are what phase 2 calls.
 
 ### Objections
@@ -341,6 +352,14 @@ re-checks are in `rafi_lifecycle::entrant`.
   People tab hides the name at once and sets `objected_at`; if they are drawn, the console says so and offers
   **Declined** only; they are erased when the raffle finishes, not on the erasure date. The anonymous ID stays in
   the manifest: removing it would break the verification. Audited `object`.
+- **Decided in slice 5:** the rule is `entrant::may_object` (`RaffleState::objections_allowed`, Frozen or Drawing;
+  `Source::may_object`, manual only; not a winner who claimed a prize: the claim is the draw's result and stands,
+  and their data is erased on request at the finish), and the same in the write's SQL. The server refuses
+  "Claimed" and "Not here" for an objected winner before the engine is asked (`objected_may_be`): they claim
+  nothing, and "Not here" would record an absence. An objected name can't be shown again (`patch_entrant`
+  refuses, in SQL too). `unobject_entrant` undoes a mistake until the finish, audited `unobject`; the name stays
+  hidden until the organizer shows it. Housekeeping erases objected entrants of a raffle that is over within the
+  hour (`erase_objected`: logged, audited `auto_erase` with `<n> objected`), before `erase_due`.
 - `privacy-and-abuse.md`'s "sharing their entry is part of the rules entrants accept" is reworded: it holds for
   people who joined, not for people the organizer added.
 
@@ -384,7 +403,9 @@ re-checks are in `rafi_lifecycle::entrant`.
 ### Erasure and retention
 
 Unchanged clocks. Added entrants and their registration IDs are erased like everyone's data; objected ones at the
-finish; `add_removals` with the raffle's entrants. Erasures are recorded and re-applied after a restore as today.
+finish; `add_removals` when the manifest is written (or the raffle expires, is purged or deleted). Erasures are
+recorded and re-applied after a restore as today; `reapply-erasures` runs housekeeping, which erases objected
+entrants of raffles that are over and forgets removals no add can need.
 
 ### Terms, the processing agreement and the operator's records
 
@@ -400,9 +421,12 @@ finish; `add_removals` with the raffle's entrants. Erasures are recorded and re-
 
 - `add_entrant` is replaced by `fn add_entrants(id: String, add: AddRequest) -> AddResult;`
 - `fn undo_add(id: String, batch_id: String) -> u32;`
-- `fn object_entrant(id: String, entrant: String) -> ();`, and `remove_entrant` gains `at_request: bool`.
-- `registration` in `RaffleSettings`, `RaffleDefaults` and `RaffleView`; `list_ref`, `batch_id`, `objected` in
-  `AdminEntrant`; the source counts in `VerifyData`; the lifecycle commands and the new actions in `AdminActions`.
+- `fn object_entrant(id: String, entrant_id: String) -> ();` and `fn unobject_entrant(id: String, entrant_id:
+  String) -> ();`, and `remove_entrant` gains `at_request: bool` (`#[serde(default)]`: the macro takes `serde`
+  attributes on arguments).
+- `registration` in `RaffleSettings`, `RaffleDefaults` and `RaffleView`; `list_ref`, `batch_id`, `objected` and
+  per-entrant `actions` (`object`, `unobject`) in `AdminEntrant`; `removed` (the removals at their request, email
+  key and registration ID) in `RaffleAdmin`; `lift_removal` in `AddRow`; the source counts in `VerifyData`; the lifecycle commands and the new actions in `AdminActions`.
 - No tier gate: like `add_entrant` today, open to any member.
 
 ### Docs
@@ -437,7 +461,8 @@ Each is shippable and tested on its own.
    approvals per row, retries by batch ID, names made with `names::unique_names`, the paragraph and the
    responsibility line.
 5. **Removals and objections.** Removal at their request with `add_removals` and its erasure; objections after the
-   freeze.
+   freeze. Done: removals forgotten with the manifest (§Store), objections refused for a claimed winner and
+   undoable until the finish (§Objections).
 6. **The evening.** The console's prompt and "Confirmed: it's them", "Come to the front!", the reminder at the
    freeze, source counts on `/v/`, the projector's lines.
 7. **Registration as a setting.** Schema, settings, defaults, duplicate, the SQL guards, `apply` and `next` with

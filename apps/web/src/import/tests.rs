@@ -52,6 +52,8 @@ fn entrant(
         prize: None,
         batch_id: None,
         list_ref: list_ref.map(Into::into),
+        objected: false,
+        actions: Default::default(),
     }
 }
 
@@ -836,4 +838,71 @@ fn the_largest_list() {
             .map(|(i, r)| (i, r.name.as_str())),
     );
     assert!(clashes.is_empty());
+}
+
+/// Someone removed at their request is left out by their email key or
+/// registration ID, before any other check but "already in", unless the
+/// organizer adds them anyway: then the row goes through every check, and
+/// is sent lifting the removal.
+#[test]
+fn people_removed_at_their_request_are_left_out_unless_added_anyway() {
+    let removed = [
+        rafi_api::RemovedAtRequest {
+            email_key: Some("anna@example.com".into()),
+            list_ref: None,
+            removed_at: 1,
+        },
+        rafi_api::RemovedAtRequest {
+            email_key: None,
+            list_ref: Some("T-2".into()),
+            removed_at: 2,
+        },
+    ];
+    let existing = Existing::new(&[entrant(
+        "Dóra",
+        Some("dora@example.com"),
+        None,
+        Source::SelfService,
+    )])
+    .with_removed(&removed);
+    let t = parse(
+        "name,email,id\nAnna Kovács,Anna+x@Example.com,\nBence,,T-2\nCsilla,c@example.com,\nDóra,dora@example.com,T-2",
+    )
+    .unwrap();
+    let m = Mapping {
+        list_ref: Some(2),
+        ..detect(&t)
+    };
+    let p = preview(&t, &m, NameFormat::Full, &existing, &Decisions::default()).unwrap();
+    assert_eq!(
+        p.removed,
+        [
+            Removed {
+                line: 2,
+                name: "Anna Kovács".into(),
+                by: MatchedBy::Email,
+                lifted: false,
+            },
+            Removed {
+                line: 3,
+                name: "Bence".into(),
+                by: MatchedBy::ListRef,
+                lifted: false,
+            },
+        ],
+        "Dóra is in already: that comes first"
+    );
+    assert_eq!(names(&p), ["Csilla"]);
+    assert_eq!(p.left_out_at_request(), 2);
+    assert!(p.rows().iter().all(|r| !r.lift_removal));
+
+    let decisions = Decisions {
+        lifted: [3].into(),
+        ..Decisions::default()
+    };
+    let p = preview(&t, &m, NameFormat::Full, &existing, &decisions).unwrap();
+    assert_eq!(names(&p), ["Bence", "Csilla"]);
+    assert_eq!(p.left_out_at_request(), 1);
+    let lifts: Vec<bool> = p.rows().iter().map(|r| r.lift_removal).collect();
+    assert_eq!(lifts, [true, false], "sent lifting Bence's removal");
 }

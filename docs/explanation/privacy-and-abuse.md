@@ -16,6 +16,7 @@ installation's own notice is at `/privacy`, and the operator's terms, with the d
 | **Display name** | The projector (after a 5 s delay, unless the organizer hides it), the verification page's list of entrants (until erasure), the admin. It is optional: an entrant who leaves it blank gets a generated one ("Brave Otter"), so nobody has to put their real name on a screen. Up to 24 characters when joining; up to 64 when the organizer adds someone or renames anyone, so a full name from a registration list is stored as written, never shortened (the projector fits it on screen, cutting it with "…" only in the recent names and on the thanks screen). A list's names are its full names, or first name and initial ("Anna K.") if the organizer chooses. The organizer can hide or rename it in one tap. Hidden names show as ★ ★ ★. |
 | **Email** | The admin only. It is never on the projector, in either public view, on the verification page, or in the raffle engine. |
 | **Registration ID** | For someone the organizer added with one (their ID in the organizer's registration system, to match them on a later add): the admin only, erased with their name and email |
+| **Removed at their request** | The email key and registration ID of someone removed before the freeze because they asked, so that a later add leaves them out: the admin only, kept only until the list is frozen for good |
 | **Claim code** | The entrant's own phone and the admin, until erasure |
 | **Entrant ID** | Public. It is random, and is what the manifest and the event log contain. |
 
@@ -52,7 +53,8 @@ promise a day gone by) and expires within the hour. The hourly housekeeping run 
 |---|---|---|
 | **Non-winners** | the erasure date: the end of the event day plus the period (7 days unless the organizer chose otherwise, 0 to the installation's maximum, 30) | Everyone who didn't win, and winners whose prize was marked delivered, lose their name, email, registration ID, claim code and token. In any state: a raffle nobody finished is erased all the same. |
 | **Winners** | the erasure date plus the **winner hold** (90 days) | Winners (the entrants of claimed draws) are kept so a prize can still reach them, until it is marked delivered ("Mark delivered", or "All prizes delivered" from the menu, or claiming a prize the organizer delivers on the spot), which puts them on the first clock. At the hold, everyone left is erased, a finished raffle becomes "Data erased", and a raffle still being drawn is asked to finish. |
-| **Expiry** | the erasure date | A raffle that was never frozen has no draw to keep verifiable: its entrants are deleted outright and it becomes "Data erased". |
+| **Expiry** | the erasure date | A raffle that was never frozen has no draw to keep verifiable: its entrants are deleted outright (and who was removed at their request) and it becomes "Data erased". |
+| **Took themselves off** | the finish | Someone the organizer added who took themselves off after the freeze (below) is erased once the raffle is over, within the hour, not on the erasure date: what they were told is that their data goes when the raffle does. |
 
 The organizer can always erase earlier, never later:
 
@@ -61,18 +63,32 @@ The organizer can always erase earlier, never later:
   example on request.
 - **Before the freeze**, removing an entrant deletes them outright; so does deleting the raffle, which is
   possible until its first draw is announced (from then on the record stays, and the raffle is purged instead).
-- **From the freeze until the finish or the date**, nobody leaves the list: sharing their entry with the event is
-  part of the rules entrants accept. The organizer can hide or rename a name meanwhile. Someone the organizer added
-  accepted no rules: the notice tells them they can object (below).
+  Removed **at their request** (anyone real, someone who joined too), they stay out of the organizer's later adds:
+  their email key and registration ID are kept for that alone, in `add_removals`, in the same write as the
+  delete, and a later add skips a row with either unless the organizer lifts it for that row ("add anyway", which
+  deletes it). They are deleted when the list is frozen for good (the manifest is written: no add can come), with
+  the raffle's expiry, purge or deletion, and with its owner leaving; housekeeping deletes any left for a raffle
+  that is frozen, purged or past its erasure date (after a restore, say). They hold the email key in clear, as
+  `entrants` does: a hash without a secret would hide nothing.
+- **From the freeze until the finish or the date**, nobody who **joined** leaves the list: sharing their entry
+  with the event is part of the rules they accepted. The organizer can hide or rename a name meanwhile. Someone the
+  organizer **added** accepted no rules and may object (GDPR Art. 21): **Took themselves off** hides their name
+  for good and records it (`entrants.objected_at`) in one write; a draw that picks them can only be declined (the
+  server refuses "Claimed" and "Not here"); their data is erased once the raffle is over (the clock above). Their
+  anonymous ID stays in the manifest, which removing it would break. It is refused for a winner who already
+  claimed a prize: the draw's result stands, and their data can be erased on request once the raffle is over.
+  The organizer can undo it, a mistake, until the finish; the name stays hidden until they show it.
 
 Entrant IDs and the event log stay, so the draw remains verifiable. Every erasure is recorded (entrant ID and time
 only) and every automatic one audited per raffle, so they can be re-applied after a database restore
-(`rafi reapply-erasures`, see [Self-hosting](../operations/self-hosting.md#backups)). What remains of an erased
+(`rafi reapply-erasures`, see [Self-hosting](../operations/self-hosting.md#backups)), which then runs housekeeping:
+whoever took themselves off a raffle that is over is erased again, and removals at their request that no add can
+need are deleted again. What remains of an erased
 entrant besides the ID: when they entered, for someone who joined on their phone when they accepted the rules and
 which version of the join form and the standard rules they were shown (`consent_version`, as `<form
 version>/age<minimum age>`, e.g. `2026-11-01/age16`; someone the organizer added saw no form and has neither),
 whether their prize was
-delivered, how they got in, and whether their name was hidden. A winner's exported details are the organizer's
+delivered, how they got in, whether their name was hidden, and whether they took themselves off. A winner's exported details are the organizer's
 copy, outside Rafi.
 
 If no housekeeping run has succeeded for two hours (counting from the first raffle: a fresh installation has
@@ -83,13 +99,16 @@ nothing to erase yet), every organizer's admin says so.
 Every action on a raffle is a row: who (the owner key, and the member who acted), when, what, and a detail that
 never holds personal data (a count, an ID, the names of the settings that changed). The organizer's: `create`,
 `settings` (which fields), `delete`, the lifecycle moves, `freeze`, `draw`, `resolve`, `void`, `abandon`,
-`finish`, `add` (one person or a list: `batch=<ID> origin=<one|list> added=<n> skipped=<m> approved=<k>`, and
-`format=<full|first_initial>` when the browser made a list's names: how many were added and skipped, how many of
-them only because the organizer approved a name the blocklist refuses, never who), `undo_add` (the batch ID and how many were removed), `add_fakes`, `remove_fakes`, `patch_entrant`,
+`finish`, `add` (one person or a list: `batch=<ID> origin=<one|list> added=<n> skipped=<m> approved=<k>
+lifted=<l>`, and `format=<full|first_initial>` when the browser made a list's names: how many were added and
+skipped, how many of them only because the organizer approved a name the blocklist refuses, and how many though
+they were removed at their request, never who), `undo_add` (the batch ID and how many were removed), `add_fakes`, `remove_fakes`, `patch_entrant`,
 `deliver` and `undeliver` (by hand, or after
 a `resolve` that changed it: a claim of a prize delivered on the spot, or of one sent later to a winner already
-delivered), `deliver_all`, `set_prize_delivery`, `remove_entrant`, `erase_entrant`, `purge`, `end_live`,
-`export_csv`. Housekeeping's: `expire`, `auto_erase`, `auto_purge`, `auto_finish`. Leaving: `delete` and `purge` with "owner left". The log is the operator's record
+delivered), `deliver_all`, `set_prize_delivery`, `remove_entrant` and `erase_entrant` (the entrant's ID, and
+`at_request` after it when they asked), `object` and `unobject` (the entrant's ID: "Took themselves off" and its
+undo), `purge`, `end_live`, `export_csv`. Housekeeping's: `expire`, `auto_erase` (the count, as `3 objected` for
+the people who took themselves off, erased at the finish), `auto_purge`, `auto_finish`. Leaving: `delete` and `purge` with "owner left". The log is the operator's record
 and stays after the organizer leaves.
 
 On Cloudflare D1, Time Travel keeps erased data for up to 30 more days. The installation's notice should say so (the
@@ -115,9 +134,10 @@ them, and Rafi doesn't reach them: the organizer tells them, before the event.
   adds the list again; after it their name is hidden and their data erased when the raffle is over, the anonymous
   ID staying in the draw so it can be verified. Their name is public like everyone's, and erased on the same dates.
   The paragraphs about the email being required and the entry cookie say they are about joining with the QR code.
-  (The removal that a later add respects, and the hiding after the freeze, are being built:
-  [the plan](../plans/entrant-import.md#objections). Until then the organizer removes them before the freeze, and
-  hides their name after it.)
+- **Objections**, as the notice describes them (the mechanics are under [Erasure](#erasure)): before the freeze,
+  **remove** them with **They asked to be taken off**, and the list tab's preview shows them as **Removed at their
+  request**, left out unless added anyway, as does the one-person form for their email; from the freeze until the
+  finish, **Took themselves off**: hidden, declined if drawn, erased at the finish.
 - **Names are unique.** Nobody the organizer adds is shown with a name someone in the raffle already has (compared
   composed, lowercase, with whitespace collapsed), whether that someone joined or was added, nor with another row's:
   the add is refused whole, naming the rows and whom they clash with. Two "Anna K."s on the screen couldn't tell

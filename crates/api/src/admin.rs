@@ -27,7 +27,10 @@ use serde::{Deserialize, Serialize};
 pub const PATH: &str = "/api/admin/";
 
 /// Calls `$callback!` with every admin function, as
-/// `fn name(arg: Type, ...) -> Result;`, each with its doc comment.
+/// `fn name(arg: Type, ...) -> Result;`, each with its doc comment. An
+/// argument may carry `serde` attributes (`#[serde(default)]`, so a client
+/// that doesn't send it still calls the function), which apply where the
+/// arguments are decoded.
 #[macro_export]
 macro_rules! admin_functions {
     ($callback:ident) => {
@@ -87,8 +90,21 @@ macro_rules! admin_functions {
             fn patch_entrant(id: String, entrant_id: String, patch: $crate::EntrantPatch) -> ();
             /// Takes an entrant off the list: deleted before the freeze, their
             /// personal data erased after it (once the raffle is over or its
-            /// erasure date has passed).
-            fn remove_entrant(id: String, entrant_id: String) -> ();
+            /// erasure date has passed). `at_request`: they asked; before the
+            /// freeze a later add leaves them out unless the organizer lifts it.
+            fn remove_entrant(
+                id: String,
+                entrant_id: String,
+                #[serde(default)] at_request: bool,
+            ) -> ();
+            /// Someone the organizer added takes themselves off, from the freeze
+            /// until the raffle is over: their name is hidden, a draw that picks
+            /// them can only be declined, and their data is erased once the
+            /// raffle is over. Not for a winner who claimed a prize.
+            fn object_entrant(id: String, entrant_id: String) -> ();
+            /// Undoes `object_entrant` (a mistake), until the raffle is over.
+            /// Their name stays hidden until shown again.
+            fn unobject_entrant(id: String, entrant_id: String) -> ();
             /// The winners as CSV; every export is audited.
             fn export_winners_csv(id: String) -> String;
             /// Erases the raffle's personal data now.
@@ -197,7 +213,7 @@ pub enum DispatchError<E> {
 macro_rules! server_side {
     ($(
         $(#[$meta:meta])*
-        fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty;
+        fn $name:ident($($(#[$arg_meta:meta])* $arg:ident: $ty:ty),* $(,)?) -> $ret:ty;
     )*) => {
         /// The server's side of the admin API: every function, for the
         /// signed-in `caller` (the owner key raffles belong to, and the user).
@@ -227,7 +243,7 @@ macro_rules! server_side {
                 $(
                     stringify!($name) => {
                         #[derive(Deserialize)]
-                        struct Args { $($arg: $ty),* }
+                        struct Args { $($(#[$arg_meta])* $arg: $ty),* }
                         let Args { $($arg),* } = serde_json::from_slice(args)
                             .map_err(|e| DispatchError::Arguments(e.to_string()))?;
                         let result = api.$name(caller, $($arg),*).await.map_err(DispatchError::App)?;
