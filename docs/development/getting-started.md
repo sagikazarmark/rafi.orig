@@ -178,7 +178,7 @@ unset. The web app needs nothing: it reads the server's `/config.js`.
 Once the web app is bundled, `rafi` serves everything itself:
 
 ```sh
-(cd apps/web && dx bundle --platform web --release)   # -> target/dx/rafi-web/release/web/public
+just apps/web/ build                                     # -> target/dx/rafi-web/release/web/public
 just apps/participant/ build                             # -> apps/participant/dist/public
 RAFI_DEV_AUTH=1 cargo run --release -p rafi --features dev   # http://localhost:8080
 ```

@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| default.into())
     };
-    // The web bundle: `dx bundle --platform web --release` writes it here.
+    // The web bundle: `just apps/web/ build` writes it here.
     let public_dir = dir("RAFI_PUBLIC_DIR", "target/dx/rafi-web/release/web/public");
     // The participant build (`just apps/participant/ build`): the one this binary
     // was compiled against, or it doesn't start.

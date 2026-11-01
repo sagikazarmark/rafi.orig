@@ -12,7 +12,7 @@ daisyUI).
 
 ```sh
 # the web app (admin, projector, verification page); nothing of an installation's is in it
-(cd apps/web && npm ci && dx bundle --platform web --release)
+just apps/web/ build
 #   -> target/dx/rafi-web/release/web/public
 
 # the participant page's WebAssembly and JavaScript fallback; before the binaries, which compile its loader in

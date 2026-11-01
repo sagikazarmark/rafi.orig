@@ -21,9 +21,9 @@ install:
 css: install
     tailwindcss -i tailwind.css -o assets/tailwind.css --minify
 
-# Bundle the web app into target/dx/rafi-web/release/web/public.
+# Bundle the web app into target/dx/rafi-web/release/web/public (without the DWARF sections dx's release defaults keep in).
 build: install clean
-    dx bundle --platform web --release
+    dx bundle --platform web --release --debug-symbols false
 
 # Serve the web app with hot reload at http://127.0.0.1:8787 (`just serve 0.0.0.0` for phones on the LAN), with the server on :8788.
 serve addr="127.0.0.1": install
