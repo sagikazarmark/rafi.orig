@@ -3,7 +3,7 @@
 //! (`rafi_store::live::snapshot`); the servers that show phones a raffle
 //! build the participant view from it (`rafi_live_server::raffle::view`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rafi_raffle::{ItemId, Raffle};
 
@@ -22,6 +22,11 @@ pub struct Snapshot {
     /// leaves the database. `None` for one the organizer hid: that name isn't
     /// read either.
     pub names: HashMap<String, Option<String>>,
+    /// The drawn entrants with no phone to tell them they won
+    /// ([`Source::no_phone`](crate::entrant::Source::no_phone)), by ID:
+    /// the projector calls them to the front. Whether a winner was added
+    /// by the organizer is public: the verification page counts them.
+    pub no_phone: HashSet<String>,
     /// The prizes' total quantity (what is left before the raffle opens).
     pub prize_qty: u32,
     /// How each prize reaches its winner, by prize ID: a winner's phone says
@@ -58,6 +63,7 @@ mod tests {
             live_ended_at,
             drawn: None,
             names: HashMap::new(),
+            no_phone: HashSet::new(),
             prize_qty: 0,
             deliveries: HashMap::new(),
         }

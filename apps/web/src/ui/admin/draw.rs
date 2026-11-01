@@ -179,6 +179,12 @@ pub(super) fn DrawConsole(
                     for u in v.items.iter() {
                         {
                             let winner = u.entrant.as_ref().and_then(|id| by_id.get(id.as_str()));
+                            // Took themselves off: declined only (the server
+                            // refuses the rest).
+                            let objected = winner.is_some_and(|w| w.objected);
+                            // No phone tells them, and no code to show: the
+                            // organizer checks it is them.
+                            let no_phone = winner.is_some_and(|w| w.no_phone);
                             let uid = u.item.clone();
                             let winner_name = winner.map_or_else(|| "The winner".to_owned(), |w| w.display_name.clone());
                             let prize = u.prize_name.clone();
@@ -205,18 +211,7 @@ pub(super) fn DrawConsole(
                                         p { class: "text-sm text-base-content/60", "{status_label(u.status)}" }
                                     }
                                     if let Some(w) = winner {
-                                        div { class: "flex items-center gap-3",
-                                            div { class: "text-right",
-                                                p { class: "font-display text-lg font-bold", "{w.display_name}" }
-                                                if let Some(email) = &w.email { p { class: "text-xs text-base-content/60", "{email}" } }
-                                                if w.source == Source::Manual { p { class: "text-xs text-base-content/60", "added by you" } }
-                                            }
-                                            if let Some(code) = &w.claim_code {
-                                                span { class: "ticket bg-accent px-5 py-2 text-accent-content",
-                                                    span { class: "claim-code text-lg", "{code}" }
-                                                }
-                                            }
-                                        }
+                                        WinnerCard { key: "{w.id}", winner: w.clone(), to_check: u.status == ItemStatus::Drawn }
                                     }
                                     div { class: "flex flex-wrap gap-2",
                                         match u.status {
@@ -226,12 +221,17 @@ pub(super) fn DrawConsole(
                                                 }
                                                 button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let item = uid.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Withdraw { item: item.clone(), prize: prize.clone() }) }, "Withdraw" }
                                             },
+                                            ItemStatus::Drawn if drawable && objected => rsx! {
+                                                button { class: "btn btn-warning", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "They took themselves off the raffle: the prize is drawn again" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
+                                            },
                                             ItemStatus::Drawn if drawable => rsx! {
-                                                button { class: "btn btn-success", onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| r(uid.clone(), Resolution::Claimed) }, Check { class: "size-5" } "Claimed" }
+                                                // The resolution is "claimed" either way: with no
+                                                // phone, the organizer's check stands for the code.
+                                                ClaimButton { no_phone, onclick: { let r = resolve.clone(); let uid = uid.clone(); move |_| { spawn(r(uid.clone(), Resolution::Claimed)); } } }
                                                 if on_the_spot {
-                                                    span { class: "text-xs text-base-content/60", title: "Claimed means present with a valid code. This prize is handed over on the spot (Prizes tab), so claiming it also marks it delivered.", "Handed over now: claiming marks it delivered." }
+                                                    span { class: "text-xs text-base-content/60", title: "{claimed_means(no_phone)} This prize is handed over on the spot (Prizes tab), so claiming it also marks it delivered.", "Handed over now: claiming marks it delivered." }
                                                 } else {
-                                                    span { class: "text-xs text-base-content/60", title: "Claimed means present with a valid code. This prize is sent later (Prizes tab): mark it delivered in the People tab once it reached them.", "Sent later? Mark it delivered in People." }
+                                                    span { class: "text-xs text-base-content/60", title: "{claimed_means(no_phone)} This prize is sent later (Prizes tab): mark it delivered in the People tab once it reached them.", "Sent later? Mark it delivered in People." }
                                                 }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::NotHere { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Not here" }
                                                 button { class: "btn btn-ghost", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
@@ -262,16 +262,16 @@ pub(super) fn DrawConsole(
             }
             Confirm {
                 open: ask_finish,
-                title: if items_left == 0 { "Finish the raffle?".to_owned() } else { format!("Finish with {items_left} prize(s) left?") },
-                body: "The thank-you screen goes up and nothing more can be drawn. Personal data is erased on the dates entrants were shown; mark prizes delivered as they reach their winners, or erase earlier from the raffle's menu.",
+                title: rsx! { if items_left == 0 { "Finish the raffle?" } else { "Finish with {items_left} prize(s) left?" } },
+                body: rsx! { "The thank-you screen goes up and nothing more can be drawn. Personal data is erased on the dates entrants were shown; mark prizes delivered as they reach their winners, or erase earlier from the raffle's menu." },
                 action: "🎉 Finish",
                 on_confirm: move |_| { spawn(finish()); },
             }
             if let Some(cur) = &pending {
                 Confirm {
                     open: ask_abandon,
-                    title: format!("Abandon the draw on round {}?", cur.round),
-                    body: "The prize goes back to “to be drawn” and a new draw commits to a new round. The verification page lists the abandoned round so anyone can see whom it would have picked.",
+                    title: rsx! { "Abandon the draw on round {cur.round}?" },
+                    body: rsx! { "The prize goes back to “to be drawn” and a new draw commits to a new round. The verification page lists the abandoned round so anyone can see whom it would have picked." },
                     action: "Abandon",
                     danger: true,
                     on_confirm: { let abandon = abandon.clone(); let u = cur.item.clone(); move |_| { spawn(abandon(u.clone())); } },
@@ -321,22 +321,22 @@ enum Irreversible {
 }
 
 impl Irreversible {
-    fn title(&self) -> String {
+    /// The confirmation's title, the winner's name isolated (`bdi`).
+    fn title(&self) -> Element {
         match self {
-            Self::NotHere { winner, .. } => format!("{winner} isn't here?"),
-            Self::Declined { winner, .. } => format!("{winner} declined?"),
-            Self::Withdraw { prize, .. } => format!("Withdraw the {prize}?"),
+            Self::NotHere { winner, .. } => rsx! { bdi { "{winner}" } " isn't here?" },
+            Self::Declined { winner, .. } => rsx! { bdi { "{winner}" } " declined?" },
+            Self::Withdraw { prize, .. } => rsx! { "Withdraw the {prize}?" },
         }
     }
 
-    fn body(&self) -> String {
+    fn body(&self) -> Element {
         match self {
-            Self::NotHere { winner, prize, .. } | Self::Declined { winner, prize, .. } => {
-                format!(
-                    "{winner} is out of the raffle, and the {prize} goes back to be drawn again."
-                )
-            }
-            Self::Withdraw { .. } => "It won't be drawn.".to_owned(),
+            Self::NotHere { winner, prize, .. } | Self::Declined { winner, prize, .. } => rsx! {
+                bdi { "{winner}" }
+                " is out of the raffle, and the {prize} goes back to be drawn again."
+            },
+            Self::Withdraw { .. } => rsx! { "It won't be drawn." },
         }
     }
 
@@ -350,11 +350,167 @@ impl Irreversible {
     }
 }
 
+/// A drawn winner as the console shows them: the name in full, wrapped
+/// however long; the email masked until tapped; "added by you"; and what to
+/// check. A joiner shows the claim code on their phone, matched against the
+/// one here; someone the organizer added has no phone and never saw a code,
+/// so the organizer checks it is them instead (`to_check`: while the item
+/// waits for a decision).
+#[component]
+fn WinnerCard(winner: AdminEntrant, to_check: bool) -> Element {
+    let w = winner;
+    rsx! {
+        div { class: "flex min-w-0 max-w-full items-center gap-3",
+            div { class: "min-w-0 text-right",
+                p { class: "font-display text-lg font-bold wrap-break-word", bdi { "{w.display_name}" } }
+                if let Some(email) = &w.email { MaskedEmail { email: email.clone() } }
+                if w.source == Source::Manual { p { class: "text-xs text-base-content/60", "added by you" } }
+                if w.objected {
+                    p { class: "text-xs font-semibold text-warning", "Took themselves off: decline" }
+                } else if w.no_phone && to_check {
+                    p { class: "max-w-72 text-xs font-semibold text-info", "Check it's them: ask for the email they registered with, or their badge." }
+                }
+            }
+            if let (Some(code), false) = (&w.claim_code, w.no_phone) {
+                span { class: "ticket bg-accent px-5 py-2 text-accent-content",
+                    span { class: "claim-code text-lg", "{code}" }
+                }
+            }
+        }
+    }
+}
+
+/// The button that resolves a winner as claimed: "Claimed" for a joiner,
+/// who showed their code, "Confirmed: it's them" for someone with no phone,
+/// whom the organizer checked. The resolution is `claimed` either way.
+#[component]
+fn ClaimButton(no_phone: bool, onclick: EventHandler<()>) -> Element {
+    rsx! {
+        button { class: "btn btn-success", onclick: move |_| onclick.call(()),
+            Check { class: "size-5" }
+            if no_phone { "Confirmed: it's them" } else { "Claimed" }
+        }
+    }
+}
+
+/// What "Claimed" stands for, for the tooltip by it: a code checked, or,
+/// for someone with no phone, the organizer's own check.
+fn claimed_means(no_phone: bool) -> &'static str {
+    if no_phone {
+        "Confirmed means present, and you checked it's them: they have no claim code."
+    } else {
+        "Claimed means present with a valid code."
+    }
+}
+
+/// An email as the console shows it until tapped: the first character and
+/// the domain ("a•••@example.com"). Consoles get mirrored onto projectors,
+/// and the email is how the organizer checks a winner they added, by asking
+/// for it: shown in full, it would give the answer away.
+fn masked_email(email: &str) -> String {
+    let (local, domain) = email.rsplit_once('@').unwrap_or((email, ""));
+    let first: String = local.chars().take(1).collect();
+    if domain.is_empty() {
+        format!("{first}•••")
+    } else {
+        format!("{first}•••@{domain}")
+    }
+}
+
+/// A winner's email, masked until "Show" is tapped.
+#[component]
+fn MaskedEmail(email: String) -> Element {
+    let mut shown = use_signal(|| false);
+    rsx! {
+        p { class: "flex items-center justify-end gap-1 text-xs text-base-content/60",
+            span { class: "break-all", if shown() { "{email}" } else { "{masked_email(&email)}" } }
+            button {
+                class: "btn btn-ghost btn-xs",
+                aria_pressed: if shown() { "true" } else { "false" },
+                onclick: move |_| shown.toggle(),
+                if shown() { "Hide" } else { "Show" }
+            }
+        }
+    }
+}
+
 fn status_label(s: ItemStatus) -> &'static str {
     match s {
         ItemStatus::Available => "to be drawn",
         ItemStatus::Drawn => "drawn: waiting for the winner",
         ItemStatus::Claimed => "claimed",
         ItemStatus::Voided => "withdrawn",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn winner(source: &str, no_phone: bool) -> AdminEntrant {
+        serde_json::from_value(serde_json::json!({
+            "id": "e1", "display_name": "Anna Kovács", "email": "anna@example.com",
+            "source": source, "hidden": false, "claim_code": "K2P9", "created_at": 0,
+            "delivered": false, "erased": false, "outcome": "drawn", "prize": "Book",
+            "no_phone": no_phone
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn emails_are_masked() {
+        assert_eq!(masked_email("anna@example.com"), "a•••@example.com");
+        assert_eq!(masked_email("ágnes@példa.hu"), "á•••@példa.hu");
+        assert_eq!(masked_email("a@b"), "a•••@b");
+        assert_eq!(masked_email("nobody"), "n•••");
+    }
+
+    /// Someone the organizer added: masked email, "added by you", the
+    /// check to make, no code to compare. A joiner: their code.
+    #[test]
+    fn a_winner_to_check() {
+        let html = dioxus_ssr::render_element(
+            rsx! { WinnerCard { winner: winner("manual", true), to_check: true } },
+        );
+        for present in [
+            "<bdi>Anna Kovács</bdi>",
+            "a•••@example.com",
+            "Show",
+            "added by you",
+            "Check it&#39;s them: ask for the email they registered with, or their badge.",
+        ] {
+            assert!(html.contains(present), "{present}: {html}");
+        }
+        for absent in ["anna@example.com", "K2P9"] {
+            assert!(!html.contains(absent), "{absent}: {html}");
+        }
+
+        let html = dioxus_ssr::render_element(
+            rsx! { WinnerCard { winner: winner("self", false), to_check: true } },
+        );
+        assert!(
+            html.contains("K2P9") && html.contains("a•••@example.com"),
+            "{html}"
+        );
+        for absent in ["anna@example.com", "added by you", "Check it"] {
+            assert!(!html.contains(absent), "{absent}: {html}");
+        }
+    }
+
+    /// The button, its handler made inside the runtime.
+    #[component]
+    fn Claim(no_phone: bool) -> Element {
+        rsx! { ClaimButton { no_phone, onclick: |_| {} } }
+    }
+
+    #[test]
+    fn the_claim_button_says_what_was_checked() {
+        let html = dioxus_ssr::render_element(rsx! { Claim { no_phone: true } });
+        assert!(html.contains("Confirmed: it&#39;s them"), "{html}");
+        let html = dioxus_ssr::render_element(rsx! { Claim { no_phone: false } });
+        assert!(
+            html.contains("Claimed") && !html.contains("Confirmed"),
+            "{html}"
+        );
     }
 }

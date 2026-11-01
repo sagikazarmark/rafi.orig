@@ -29,13 +29,15 @@ It also shows:
 
 - **You're in**, when you open it from your phone's "Check the draw yourself": your entry is in the frozen list.
   (The link carries your entrant ID after `#me=`, which stays in your browser.)
-- **Entrants**, **Prizes** and the **Manifest hash**
+- **Entrants**, **Prizes** and the **Manifest hash**, and how the entrants got in: "320 entrants: 8 joined on their
+  phones, 312 added by the organizer"
 - every draw: the prize, its **drand round** (linked to the beacon on `api.drand.sh`), the pool size and the winner
 - any **abandoned** draws: a warning naming the round and the pool. See below.
 - the **entrants**: everyone in the frozen list, by display name (hidden names masked) and the start of their ID,
   with **Find your name**. Once the organizer erases personal data, only the IDs remain.
 - the event log and the raw manifest
-- a link to download the published data (`verify.json`): the manifest, the log and the display names
+- a link to download the published data (`verify.json`): the manifest, the log, the display names and the counts
+  by source
 
 ## With `tools/verify.py`
 
@@ -80,7 +82,9 @@ are worth a human look:
 - **The timing.** The log can't prove *when* a round was committed. That is what the live countdown on the
   projector is for. If you want to be thorough, note the manifest hash on the verification page before the first
   draw, and the round number of each draw as it's announced, then check that the log matches.
-- **The list.** Check that your name is in it, and that the entrant count matches what the projector showed.
+- **The list.** Check that your name is in it, and that the entrant count matches what the projector showed. The
+  people the organizer added are the organizer's word: the counts by source say how many, and winning still needs
+  someone to walk up ([People the organizer added](../explanation/verifiability.md#people-the-organizer-added)).
 
 [Why the draw is verifiable](../explanation/verifiability.md) explains what this proves and where it stops.
 

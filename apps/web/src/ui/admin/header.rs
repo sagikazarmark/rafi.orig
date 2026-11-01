@@ -155,8 +155,23 @@ pub(super) fn Header(
     let can_export = admin.actions.export;
     let can_purge = admin.actions.purge;
     let can_deliver = admin.actions.deliver_all;
-    let missing = admin.missing_for_open.clone();
+    // What the settings lack for opening (or, without registration, the
+    // freeze from Published), while that step is ahead: the server says.
+    let missing = admin.actions.missing.clone();
     let can_open = missing.is_empty();
+    // The lifecycle's buttons: the commands the server says the raffle
+    // takes now, with its registration setting, and the freeze when the
+    // draw can start.
+    let offers = {
+        let lifecycle = admin.actions.lifecycle.clone();
+        move |c: LifecycleCommand| lifecycle.contains(&c)
+    };
+    let can_freeze = admin.actions.start == Some(StartStep::Freeze);
+    // From Published (no registration), the freeze checks what opening
+    // would have: the alert below says what is missing. From Open or
+    // Closed nothing is.
+    let freeze_blocked = !can_open;
+    let registration = v.registration;
 
     let (dup, exp) = (duplicate.clone(), export.clone());
     let on_menu = use_callback(move |value: String| match value.as_str() {
@@ -234,57 +249,66 @@ pub(super) fn Header(
                         }
                     }
                 }
-                Steps { state: v.state }
-                if !can_open && matches!(v.state, RaffleState::Draft | RaffleState::Ready) {
+                Steps { state: v.state, registration }
+                if !can_open {
                     div { role: "alert", class: "alert alert-warning alert-soft text-sm",
                         TriangleAlert { class: "size-5" }
-                        span { "Before registration can open, fill in {missing.join(\" and \")} in the settings: the privacy notice must name the data controller and how to reach them." }
+                        span {
+                            if registration { "Before registration can open" } else { "Before the list can be frozen" }
+                            ", fill in {missing.join(\" and \")} in the settings: the privacy notice must name the data controller and how to reach them."
+                        }
                     }
                 }
                 if v.state.is_public() {
                     div { class: "flex flex-wrap items-center gap-2",
                         a { class: "btn btn-neutral btn-sm", href: "{screen_url}", target: "_blank", Monitor { class: "size-4" } "Projector screen" }
-                        div { class: "join",
-                            span { class: "join-item inline-flex h-8 items-center gap-1.5 border border-base-300 bg-base-200 px-3 font-mono text-sm",
-                                QrCode { class: "size-4 opacity-60" }
-                                "{v.join_url}"
+                        // Without registration nobody joins: no link or code to share.
+                        if registration {
+                            div { class: "join",
+                                span { class: "join-item inline-flex h-8 items-center gap-1.5 border border-base-300 bg-base-200 px-3 font-mono text-sm",
+                                    QrCode { class: "size-4 opacity-60" }
+                                    "{v.join_url}"
+                                }
+                                Button {
+                                    size: ButtonSize::Sm,
+                                    class: "join-item",
+                                    title: "Copy the join link",
+                                    onclick: move |_| {
+                                        copy_to_clipboard(join_url.clone());
+                                        toast.info("📋 Join link copied".to_owned(), ToastOptions::new());
+                                    },
+                                    Copy { class: "size-4" }
+                                }
                             }
-                            Button {
-                                size: ButtonSize::Sm,
-                                class: "join-item",
-                                title: "Copy the join link",
-                                onclick: move |_| {
-                                    copy_to_clipboard(join_url.clone());
-                                    toast.info("📋 Join link copied".to_owned(), ToastOptions::new());
-                                },
-                                Copy { class: "size-4" }
-                            }
+                            span { class: "badge badge-lg badge-accent font-mono font-bold tracking-widest", title: "The join code: typed instead of scanning", "{join_code}" }
                         }
-                        span { class: "badge badge-lg badge-accent font-mono font-bold tracking-widest", title: "The join code: typed instead of scanning", "{join_code}" }
                         if v.manifest_hash.is_some() {
                             a { class: "btn btn-ghost btn-sm", href: "{verify_url}", target: "_blank", ShieldCheck { class: "size-4" } "Verification page" }
                         }
                     }
                 }
                 div { class: "flex flex-wrap items-center gap-2",
+                    if offers(LifecycleCommand::Publish) {
+                        Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Publish)); } },
+                            Play { class: "size-5" } "Publish the intro screen"
+                        }
+                    }
+                    if offers(LifecycleCommand::Open) && v.state == RaffleState::Ready {
+                        Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy() || !can_open, title: if can_open { "" } else { "Fill in the organizer and a contact first" }, onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, Ticket { class: "size-5" } "Open registration" }
+                    }
+                    if can_freeze {
+                        Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy() || freeze_blocked, title: if freeze_blocked { "Fill in the organizer and a contact first" } else { "" }, onclick: move |_| ask_freeze.set(true), Lock { class: "size-5" } "Freeze list & start the draw" }
+                    }
+                    if offers(LifecycleCommand::Close) {
+                        Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Close)); } }, "Close registration" }
+                    }
+                    if offers(LifecycleCommand::Open) && v.state != RaffleState::Ready {
+                        Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, "Reopen registration" }
+                    }
+                    if offers(LifecycleCommand::Unpublish) {
+                        Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } }, Undo2 { class: "size-5" } "Unpublish" }
+                    }
                     match v.state {
-                        RaffleState::Draft => rsx! {
-                            Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Publish)); } },
-                                Play { class: "size-5" } "Publish the intro screen"
-                            }
-                        },
-                        RaffleState::Ready => rsx! {
-                            Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy() || !can_open, title: if can_open { "" } else { "Fill in the organizer and a contact first" }, onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, Ticket { class: "size-5" } "Open registration" }
-                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } }, Undo2 { class: "size-5" } "Unpublish" }
-                        },
-                        RaffleState::Open => rsx! {
-                            Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: move |_| ask_freeze.set(true), Lock { class: "size-5" } "Freeze list & start the draw" }
-                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Close)); } }, "Close registration" }
-                        },
-                        RaffleState::Closed => rsx! {
-                            Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: move |_| ask_freeze.set(true), Lock { class: "size-5" } "Freeze list & start the draw" }
-                            Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, "Reopen registration" }
-                        },
                         RaffleState::Frozen if unconfirmed => rsx! {
                             Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Undo2 { class: "size-5" } "Retry handing the list to the raffle engine" }
                         },
@@ -300,48 +324,83 @@ pub(super) fn Header(
                 }
             }
         }
-        Confirm {
-            open: ask_freeze,
-            title: "Freeze the list and start the draw?",
-            body: format!(
-                "Registration closes for good and the list of {} entrants is published. Latecomers can't be added afterwards.",
-                v.entrant_count
-            ),
-            action: "🔒 Freeze & start",
-            on_confirm: move |_| { spawn(start()); },
-        }
+        FreezeDialog { open: ask_freeze, view: v.clone(), on_confirm: move |_| { spawn(start()); } }
         Confirm {
             open: ask_end,
-            title: "End live updates for this raffle?",
-            body: "Phones and the projector stop following the raffle live. The results stay on the pages and the verification page.",
+            title: rsx! { "End live updates for this raffle?" },
+            body: rsx! { "Phones and the projector stop following the raffle live. The results stay on the pages and the verification page." },
             action: "End live updates",
             on_confirm: move |_| { spawn(end_live()); },
         }
         Confirm {
             open: ask_deliver,
-            title: "Mark every prize delivered?",
-            body: format!(
-                "{} winner(s) still have their name and email kept so you can deliver their prize. Once marked delivered, their data is erased with everyone else's. Only do this when no prize is still on its way.",
-                admin.retention.held_winners
-            ),
+            title: rsx! { "Mark every prize delivered?" },
+            body: rsx! { "{admin.retention.held_winners} winner(s) still have their name and email kept so you can deliver their prize. Once marked delivered, their data is erased with everyone else's. Only do this when no prize is still on its way." },
             action: "All prizes delivered",
             on_confirm: move |_| { spawn(deliver_all()); },
         }
         Confirm {
             open: ask_purge,
-            title: "Erase all personal data now?",
-            body: "Names, emails and claim codes of every entrant are erased. The anonymous draw log stays verifiable. This cannot be undone.",
+            title: rsx! { "Erase all personal data now?" },
+            body: rsx! { "Names, emails and claim codes of every entrant are erased. The anonymous draw log stays verifiable. This cannot be undone." },
             action: "Erase personal data",
             danger: true,
             on_confirm: move |_| { spawn(purge()); },
         }
         Confirm {
             open: ask_delete,
-            title: "Delete this raffle?",
-            body: format!("“{}”, its prizes, entrants and draw log are deleted for good.", v.title),
+            title: rsx! { "Delete this raffle?" },
+            body: rsx! { "“{v.title}”, its prizes, entrants and draw log are deleted for good." },
             action: "Delete raffle",
             danger: true,
             on_confirm: move |_| { spawn(delete()); },
+        }
+    }
+}
+
+/// Freezing the list: what it publishes, and, when people were added from
+/// a list, the reminder that they must have been told (no checkbox, nothing
+/// recorded: the organizer owes them the notice, and the terms say so).
+#[component]
+fn FreezeDialog(open: Signal<bool>, view: RaffleView, on_confirm: EventHandler<()>) -> Element {
+    rsx! {
+        Confirm {
+            open,
+            title: rsx! { "Freeze the list and start the draw?" },
+            body: rsx! { FreezeBody { registration: view.registration, count: view.entrant_count } },
+            note: rsx! { FreezeReminder { list_added: view.list_added } },
+            action: "🔒 Freeze & start",
+            on_confirm: move |_| on_confirm.call(()),
+        }
+    }
+}
+
+/// What freezing does.
+#[component]
+fn FreezeBody(registration: bool, count: usize) -> Element {
+    let entrants = if count == 1 {
+        "1 entrant".to_owned()
+    } else {
+        format!("{count} entrants")
+    };
+    rsx! {
+        if registration {
+            "Registration closes for good and the list of {entrants} is published. Latecomers can't be added afterwards."
+        } else {
+            "The list of {entrants} is published. Nobody can be added afterwards."
+        }
+    }
+}
+
+/// The reminder, when people were added from a list
+/// ([`RaffleView::list_added`]).
+#[component]
+fn FreezeReminder(list_added: bool) -> Element {
+    rsx! {
+        if list_added {
+            p { class: "alert alert-info alert-soft text-sm", role: "note",
+                "People added from a list will be shown on the screen and the verification page. Make sure they were told about the draw."
+            }
         }
     }
 }
@@ -365,4 +424,35 @@ fn download(name: &str, content: &str) {
         serde_json::to_string(name).unwrap_or_default()
     );
     document::eval(&js);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// With people added from a list, the freeze reminds the organizer
+    /// they must have been told: one line, nothing to tick. (The dialog
+    /// itself opens only in a browser.)
+    #[test]
+    fn the_freeze_reminds_of_the_people_on_a_list() {
+        let html = dioxus_ssr::render_element(rsx! { FreezeReminder { list_added: true } });
+        assert_eq!(
+            html,
+            "<p class=\"alert alert-info alert-soft text-sm\" role=\"note\">People added from a list will be shown on the screen and the verification page. Make sure they were told about the draw.</p>"
+        );
+        let html = dioxus_ssr::render_element(rsx! { FreezeReminder { list_added: false } });
+        assert!(html.is_empty(), "{html}");
+        let html =
+            dioxus_ssr::render_element(rsx! { FreezeBody { registration: false, count: 12 } });
+        assert!(
+            html.contains("The list of 12 entrants is published."),
+            "{html}"
+        );
+        let html =
+            dioxus_ssr::render_element(rsx! { FreezeBody { registration: false, count: 1 } });
+        assert!(
+            html.contains("The list of 1 entrant is published."),
+            "{html}"
+        );
+    }
 }

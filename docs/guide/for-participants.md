@@ -26,9 +26,33 @@ to watch the draw on your phone.
 
 No smartphone? Go to the organizer: they can add you by name.
 
+## If the organizer added you
+
+Some organizers enter the people on their guest list or check-in list themselves, so you may be in the raffle
+without scanning anything. The organizer should have told you, with links to the rules and the privacy notice. Some
+raffles have no QR code at all: only the people the organizer adds take part, and the raffle's page (`/j/…`, if
+you have its address) has no form, only the rules, the privacy notice and, once the list is frozen, the
+verification page.
+
+- **What Rafi has of you:** your name, and your email if the organizer gave it. Nothing else from their list.
+- **Your name is shown** on the event screen and the verification page, like everyone's, as the organizer chose:
+  your full name, or your first name and initial. Two people are never shown with the same name: a namesake gets a
+  number ("Anna Kovács (2)").
+- **If you win**, nothing appears on a phone: watch the screen for your name. When it comes up, with **"Come to the
+  front!"** under it, go to the front: the organizer checks it's you (they may ask for the email you registered
+  with, or to see your badge). You must be in the room, as everyone must.
+- **On the screen before the draw**, a raffle without a QR code says "Everyone on *organizer*'s list is in the
+  draw", how to stay out and where the privacy notice is; one with a QR code says "Registered? You're already in":
+  no need to scan.
+- **Rather not take part?** Tell the organizer (the privacy notice names whom to ask). Before the list is frozen
+  for the draw, they take you off, and you stay off if they add their list again. After that, your name is hidden
+  at once, if you're drawn the prize is declined for you and drawn again, and your data is erased when the raffle
+  is over; your anonymous ID stays in the draw so it can still be verified.
+
 ## The draw
 
-When the organizer starts the draw, registration closes and the list of entrants is published as anonymous IDs.
+When the organizer starts the draw, registration (if there was any) closes and the list of entrants is published as
+anonymous IDs.
 Then, for each prize:
 
 - Everyone sees **"Locking in public randomness · drand round …"** and a short countdown. The result will come
@@ -52,7 +76,7 @@ list of entrants lets anyone find their name. See [Verifying a draw](verifying-a
 ## Your data
 
 Your display name appears on the screen and in the verification page's list of entrants, until your data is
-erased. It doesn't have to be your real name. Your email never appears. Your entry stays in the raffle until it is
-finished; your name and email are erased on the day the join form told you, automatically (a winner's once their
-prize is delivered), and the organizer can erase yours earlier on request once the draw is over. The **Privacy
-notice** link on the page has the details.
+erased. When you join yourself, it doesn't have to be your real name. Your email never appears. Your entry stays
+in the raffle until it is finished; your name and email are erased on the day the join form (or the privacy
+notice) told you, automatically (a winner's once their prize is delivered), and the organizer can erase yours
+earlier on request once the draw is over. The **Privacy notice** link on the page has the details.

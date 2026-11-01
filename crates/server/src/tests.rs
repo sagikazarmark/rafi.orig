@@ -362,7 +362,7 @@ async fn full_raffle_flow() {
     assert!(page.contains("already entered"));
 
     // A person without a phone.
-    service::add_manual(&app, ACTOR, &raffle.id, "No Phone", None)
+    add_one(&app, ACTOR, &raffle.id, "No Phone", None)
         .await
         .unwrap();
     assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 6);
@@ -375,7 +375,7 @@ async fn full_raffle_flow() {
     assert_ne!(status, StatusCode::SEE_OTHER);
     assert!(cookie.is_none());
     assert!(
-        service::add_manual(&app, ACTOR, &raffle.id, "Late", None)
+        add_one(&app, ACTOR, &raffle.id, "Late", None)
             .await
             .is_err()
     );
@@ -680,7 +680,7 @@ async fn public_view_has_no_personal_data() {
     assert_eq!(headers[header::ETAG], etag);
     // Erasing a name moves the version, so the ETag changes with the content.
     let hidden = &entrants::list(&app.db, &raffle.id).await.unwrap()[0];
-    service::remove_entrant(&app, ACTOR, &raffle.id, &hidden.id)
+    service::remove_entrant(&app, ACTOR, &raffle.id, &hidden.id, false)
         .await
         .unwrap_err();
     service::patch_entrant(
@@ -750,7 +750,7 @@ async fn full_view_v_is_the_version_column() {
     let (_, _, again) = get_json(&router, &url).await;
     assert_eq!(again["v"].as_u64().unwrap(), v0);
 
-    service::add_manual(&app, ACTOR, &raffle.id, "Anna", None)
+    add_one(&app, ACTOR, &raffle.id, "Anna", None)
         .await
         .unwrap();
     let (_, _, view) = get_json(&router, &url).await;
@@ -965,7 +965,7 @@ async fn an_engine_on_another_chain_is_refused_before_freezing() {
     cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
     let app = app_with_engine(cfg, mock_drand(), LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, ACTOR, &raffle.id, "Anna", None)
+    add_one(&app, ACTOR, &raffle.id, "Anna", None)
         .await
         .unwrap();
     let err = service::start_draw(&app, ACTOR, &raffle.id)
@@ -985,7 +985,7 @@ async fn draws_need_restate() {
     let app = AppState::new(cfg).await.unwrap();
     assert!(app.engine.is_none());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, ACTOR, &raffle.id, "Anna", None)
+    add_one(&app, ACTOR, &raffle.id, "Anna", None)
         .await
         .unwrap();
     let err = service::start_draw(&app, ACTOR, &raffle.id)
@@ -1001,6 +1001,33 @@ async fn draws_need_restate() {
         RaffleState::Open,
         "nothing was frozen"
     );
+}
+
+/// Adds `name` (and `email`) as `actor` with the one-person form, in a
+/// batch of its own; returns their entrant ID.
+pub(crate) async fn add_one(
+    app: &service::App,
+    actor: service::Actor<'_>,
+    raffle_id: &str,
+    name: &str,
+    email: Option<String>,
+) -> service::Result<String> {
+    let add = rafi_api::AddRequest {
+        batch_id: service::ids::id(),
+        origin: rafi_api::Origin::One,
+        rows: vec![rafi_api::AddRow {
+            name: name.into(),
+            email,
+            ..rafi_api::AddRow::default()
+        }],
+        name_format: None,
+    };
+    let result = service::add_entrants(app, actor, raffle_id, add).await?;
+    Ok(result
+        .added
+        .first()
+        .map(|a| a.id.clone())
+        .unwrap_or_default())
 }
 
 /// POSTs `args` (JSON) to the admin function `name`.
@@ -1420,6 +1447,48 @@ async fn only_the_projector_and_the_verification_page_may_be_framed() {
     }
 }
 
+/// The public pages that list entrants' names, the projector and the
+/// verification page, and the JSON with the names behind them, ask search
+/// engines not to index them, revalidated too.
+#[tokio::test]
+async fn pages_with_names_are_not_indexed() {
+    let app = app().await;
+    let router = with_shell(&app);
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    add_one(&app, ACTOR, &raffle.id, "Anna Kovács", None)
+        .await
+        .unwrap();
+    service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
+    wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
+    let robots = |headers: &header::HeaderMap| {
+        header_str(headers, header::HeaderName::from_static("x-robots-tag"))
+    };
+
+    for path in [
+        format!("/s/{}", raffle.slug),
+        format!("/v/{}", raffle.slug),
+        format!("/api/r/{}/view", raffle.slug),
+        format!("/api/r/{}/verify.json", raffle.slug),
+    ] {
+        let (status, headers, body) = send(&router, get(&path)).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+        assert_eq!(robots(&headers), "noindex", "{path}");
+        if !path.ends_with("/view") {
+            let mut req = get(&path);
+            req.headers_mut()
+                .insert(header::IF_NONE_MATCH, headers[header::ETAG].clone());
+            let (status, headers, _) = send(&router, req).await;
+            assert_eq!(status, StatusCode::NOT_MODIFIED, "{path}");
+            assert_eq!(robots(&headers), "noindex", "{path}: revalidated");
+        }
+    }
+    // By path: not the rest of the web app.
+    for path in ["/", "/admin"] {
+        let (_, headers, _) = send(&router, get(path)).await;
+        assert_eq!(robots(&headers), "", "{path}");
+    }
+}
+
 /// What isn't a page only denies framing; a miss among the server's files
 /// and APIs is a 404, not the shell; the shell is for reading.
 #[tokio::test]
@@ -1744,9 +1813,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 2)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(&app, ACTOR, &raffle.id, name, None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &raffle.id, name, None).await.unwrap();
     }
     // The freeze's first write landed, the manifest's did not.
     app.db
@@ -1801,7 +1868,7 @@ async fn rules_are_fixed_once_accepted() {
     let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
     assert!(admin.actions.edit_rules);
 
-    service::add_manual(&app, ACTOR, &raffle.id, "No Phone", None)
+    add_one(&app, ACTOR, &raffle.id, "No Phone", None)
         .await
         .unwrap();
     let refused = save("Changed after someone accepted.", true).await;
@@ -1863,10 +1930,12 @@ async fn new_raffles_start_with_the_owners_defaults() {
         privacy_url: "https://example.com/privacy".into(),
         rules: "Entrants must be 18 or older.".into(),
         retention_days: Some(3),
+        registration: false,
     };
     service::save_defaults(&app, ACTOR, defaults).await.unwrap();
     let saved = service::get_defaults(&app, OWNER).await.unwrap();
     assert_eq!(saved.organizer_name, "Cloud Native Budapest", "trimmed");
+    assert!(!saved.registration);
 
     let event = service::EventDate {
         date: "2026-10-28".into(),
@@ -1885,6 +1954,7 @@ async fn new_raffles_start_with_the_owners_defaults() {
             r.privacy_url.as_str(),
             r.rules.as_str(),
             r.retention_days,
+            r.registration,
         ),
         (
             "Cloud Native Budapest",
@@ -1894,6 +1964,7 @@ async fn new_raffles_start_with_the_owners_defaults() {
             "https://example.com/privacy",
             "Entrants must be 18 or older.",
             3,
+            false,
         )
     );
     assert_eq!(r.event_date, "2026-10-28");
@@ -1913,6 +1984,14 @@ async fn new_raffles_start_with_the_owners_defaults() {
         .unwrap();
     let r = raffles::get(&app.db, &other).await.unwrap().unwrap();
     assert!(r.organizer_name.is_empty() && r.rules.is_empty());
+    assert!(r.registration, "registration on without defaults");
+    assert!(
+        service::get_defaults(&app, "someone-else")
+            .await
+            .unwrap()
+            .registration,
+        "none saved: on"
+    );
     assert_eq!(
         r.retention_days, app.policy.retention.days,
         "the installation's period without defaults"
@@ -1966,7 +2045,7 @@ async fn stalled_draw_keeps_its_round() {
     let app = unreachable_drand_app().await;
     let raffle = setup_open(&app, &[("Prize", 3)]).await;
     for i in 0..4 {
-        service::add_manual(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
+        add_one(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
             .await
             .unwrap();
     }
@@ -2074,7 +2153,7 @@ async fn only_claiming_passes_a_waiting_draw() {
     let app = app_with_engine(Config::for_tests(), drand, LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 2)]).await;
     for i in 0..3 {
-        service::add_manual(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
+        add_one(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
             .await
             .unwrap();
     }
@@ -2139,7 +2218,7 @@ async fn only_claiming_passes_a_waiting_draw() {
 async fn mock_raffles_are_not_publicly_verified() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, ACTOR, &raffle.id, "Person", None)
+    add_one(&app, ACTOR, &raffle.id, "Person", None)
         .await
         .unwrap();
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
@@ -2178,6 +2257,59 @@ async fn joins_stop_at_the_entrant_cap() {
     let (status, _, page) = join(&router, &raffle.join_code, "Again", "p0@example.com").await;
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("already entered"), "{page}");
+}
+
+/// Typing the email of someone the organizer added says the email is in,
+/// in the words used for everyone (no device has their claim code), and
+/// never attaches this device to the entry: no cookie, no token stored, the
+/// entry as it was.
+#[tokio::test]
+async fn an_added_entrants_email_doesnt_attach_a_device() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let added = add_one(
+        &app,
+        ACTOR,
+        &raffle.id,
+        "Anna Kovács",
+        Some("anna@example.com".into()),
+    )
+    .await
+    .unwrap();
+    let before = entrants::get(&app.db, &raffle.id, &added)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let (status, cookie, page) =
+        join(&router, &raffle.join_code, "Anna", "Anna+phone@Example.com").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(cookie.is_none(), "no entry cookie");
+    assert!(
+        page.contains(
+            "This email is already entered. Your entry is safe. If you win, go to the organizer."
+        ),
+        "{page}"
+    );
+    assert!(!page.contains("Your claim code"), "no entry shown: {page}");
+    assert!(!page.contains("the device you entered on"), "{page}");
+    assert!(!page.contains("id=\"join\""), "no form to try again");
+
+    let all = entrants::list(&app.db, &raffle.id).await.unwrap();
+    assert_eq!(all.len(), 1, "no second entry");
+    let after = &all[0];
+    assert_eq!(after.id, added);
+    assert_eq!(after.token_hash, None, "no device attached");
+    assert_eq!(after.source, rafi_lifecycle::entrant::Source::Manual);
+    assert_eq!(after.display_name, before.display_name);
+    assert_eq!(after.email_raw, before.email_raw);
+    assert_eq!(after.claim_code, before.claim_code);
+    assert_eq!(
+        (&after.consent_version, after.consent_rules_at),
+        (&None, None),
+        "added by the organizer: no consent recorded"
+    );
 }
 
 /// A proof-of-work is redeemed once: the second use fails the `pow_used`
@@ -2313,9 +2445,7 @@ async fn proof_of_work_forgeries_are_refused() {
 async fn finished_raffle(app: &AppState) -> RaffleRow {
     let raffle = setup_open(app, &[("Prize", 1)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(app, ACTOR, &raffle.id, name, None)
-            .await
-            .unwrap();
+        add_one(app, ACTOR, &raffle.id, name, None).await.unwrap();
     }
     service::start_draw(app, ACTOR, &raffle.id).await.unwrap();
     service::command(app, ACTOR, &raffle.id, Decision::Finish, "fin")
@@ -2379,7 +2509,7 @@ async fn writes_nudge_and_destroy_the_channel() {
 
     let before = nudges();
     join(&router, &raffle.join_code, "Anna", "anna@example.com").await;
-    service::add_manual(&app, ACTOR, &raffle.id, "Bence", None)
+    add_one(&app, ACTOR, &raffle.id, "Bence", None)
         .await
         .unwrap();
     assert_eq!(nudges(), before, "joins don't nudge");
@@ -2594,15 +2724,11 @@ async fn entrants_are_erased_only_once_the_raffle_is_over() {
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     let mut ids = Vec::new();
     for name in ["Anna", "Bence", "Csilla"] {
-        ids.push(
-            service::add_manual(&app, ACTOR, &raffle.id, name, None)
-                .await
-                .unwrap(),
-        );
+        ids.push(add_one(&app, ACTOR, &raffle.id, name, None).await.unwrap());
     }
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
-    let refused = service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0]).await;
+    let refused = service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0], false).await;
     assert!(
         matches!(
             refused,
@@ -2634,7 +2760,7 @@ async fn entrants_are_erased_only_once_the_raffle_is_over() {
     service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
         .unwrap();
-    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0])
+    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0], false)
         .await
         .unwrap();
     let anna = entrants::get(&app.db, &raffle.id, &ids[0])
@@ -2678,7 +2804,7 @@ async fn fakes_stay_in_test_mode() {
     service::add_fakes(&app, ACTOR, &raffle.id, 5)
         .await
         .unwrap();
-    service::add_manual(&app, ACTOR, &raffle.id, "Real Person", None)
+    add_one(&app, ACTOR, &raffle.id, "Real Person", None)
         .await
         .unwrap();
     let listed = entrants::list(&app.db, &raffle.id).await.unwrap();
@@ -2788,9 +2914,19 @@ async fn retain(app: &AppState, id: &str, days: i64) -> RaffleRow {
 
 /// Draws `item` and claims it; returns the winner.
 async fn draw_and_claim(app: &AppState, raffle_id: &str, item: &rafi_raffle::ItemId) -> String {
+    draw_and_claim_as(app, ACTOR, raffle_id, item).await
+}
+
+/// [`draw_and_claim`], as `actor`.
+async fn draw_and_claim_as(
+    app: &AppState,
+    actor: service::Actor<'_>,
+    raffle_id: &str,
+    item: &rafi_raffle::ItemId,
+) -> String {
     service::command(
         app,
-        ACTOR,
+        actor,
         raffle_id,
         DrawRequest { item: item.clone() },
         &format!("draw-{item}"),
@@ -2814,7 +2950,7 @@ async fn draw_and_claim(app: &AppState, raffle_id: &str, item: &rafi_raffle::Ite
         .unwrap();
     service::command(
         app,
-        ACTOR,
+        actor,
         raffle_id,
         Decision::Resolve {
             item: item.clone(),
@@ -2927,6 +3063,50 @@ async fn the_join_page_and_the_notices_say_when_data_is_erased() {
     assert!(notice.contains("We never sell anything."));
     assert!(notice.contains("href=\"https://example.com/privacy\""));
 
+    // Whoever the organizer adds is told what of theirs is held, where it
+    // came from, why and on what basis, and, on its own, how to object.
+    let added = notice
+        .find("If the organizer added you")
+        .expect("the section for people the organizer adds");
+    assert!(added < notice.find("What is public").unwrap());
+    let section = &notice[added..notice.find("What is public").unwrap()];
+    for said in [
+        "your name and, if the organizer gives it, your email address: nothing else",
+        "from you, at the event, or from the organizer&#39;s records about the event, such as its registration or guest list",
+        "for this prize draw only",
+        "the organizer&#39;s legitimate interest in rewarding the attendees of “",
+        "with a prize draw (GDPR Art. 6(1)(f))",
+        "on the event screen and on the verification page, as everyone&#39;s is",
+    ] {
+        assert!(section.contains(said), "{said}: {section}");
+    }
+    let object = section
+        .split("<p")
+        .find(|p| p.contains("You can object"))
+        .expect("the right to object, in a paragraph of its own");
+    assert!(
+        !object.contains("Art. 6(1)(f)"),
+        "apart from the basis: {object}"
+    );
+    for said in [
+        "ask Cloud Native Budapest (dpo@example.com) to take you off",
+        "Before the list of entrants is frozen for the draw, you are removed, and stay out if the organizer adds the list again.",
+        "After that, your name is hidden and your data is erased when the raffle is over",
+        "only your anonymous ID stays in the draw, so it can still be verified",
+    ] {
+        assert!(object.contains(said), "{said}: {object}");
+    }
+    // What is about joining says so.
+    for said in [
+        "If you join with the QR code: your display name and email address",
+        "To join with the QR code, your email address is required",
+        "When you join with the QR code, we set one strictly necessary cookie",
+        "If you join with the QR code, it doesn&#39;t have to be your real name",
+    ] {
+        assert!(notice.contains(said), "{said}: {notice}");
+    }
+    assert!(!notice.contains("Your email address is required to enter"));
+
     let (status, _, rules) = send(
         &router,
         Request::get(format!("/rules/{}", raffle.slug))
@@ -2936,6 +3116,17 @@ async fn the_join_page_and_the_notices_say_when_data_is_erased() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(rules.contains("Entrants must be 16 or older:"), "{rules}");
+    // Both ways in, for every raffle, so switching registration changes
+    // nothing anyone accepted; and who answers for the age of whom.
+    for said in [
+        "The raffle is for the people attending the event in person.",
+        "Entrants are the people who join with the QR code while registration is open, and the people the organizer adds (for example, from the event&#39;s guest list). If the organizer added you, you can ask them to take you off.",
+        "Organizers and volunteers cannot win.",
+        "by joining, you confirm you are; the organizer is responsible for the people it adds meeting the age limit.",
+        "Winners must be present",
+    ] {
+        assert!(rules.contains(said), "{said}: {rules}");
+    }
 
     // The installation's own documents, with their versions.
     for (path, text) in [
@@ -3026,9 +3217,7 @@ async fn housekeeping_erases_on_the_dates() {
     // A drawing raffle, never finished: one claimed winner.
     let drawing = setup_open(&app, &[("Pen", 1)]).await;
     for name in ["Erik", "Fanni"] {
-        service::add_manual(&app, ACTOR, &drawing.id, name, None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &drawing.id, name, None).await.unwrap();
     }
     service::start_draw(&app, ACTOR, &drawing.id).await.unwrap();
     let r = wait_for(&app, &drawing.id, |r| r.raffle.opened()).await;
@@ -3183,12 +3372,10 @@ async fn erasure_on_request_follows_the_date() {
     let app = app().await;
     // Anna and Bence in a raffle frozen today; returns Anna's ID.
     let frozen = async |r: &RaffleRow| {
-        let id = service::add_manual(&app, ACTOR, &r.id, "Anna", Some("anna@x.org".into()))
+        let id = add_one(&app, ACTOR, &r.id, "Anna", Some("anna@x.org".into()))
             .await
             .unwrap();
-        service::add_manual(&app, ACTOR, &r.id, "Bence", None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &r.id, "Bence", None).await.unwrap();
         service::start_draw(&app, ACTOR, &r.id).await.unwrap();
         wait_for(&app, &r.id, |r| r.raffle.opened()).await;
         id
@@ -3204,7 +3391,7 @@ async fn erasure_on_request_follows_the_date() {
     assert!(before.erase_at > now && past.erase_at <= now);
     let ids = [before_anna, past_anna];
 
-    let refused = service::remove_entrant(&app, ACTOR, &before.id, &ids[0]).await;
+    let refused = service::remove_entrant(&app, ACTOR, &before.id, &ids[0], false).await;
     assert!(
         matches!(
             refused,
@@ -3236,7 +3423,7 @@ async fn erasure_on_request_follows_the_date() {
             .removal,
         Some(Removal::Erase)
     );
-    service::remove_entrant(&app, ACTOR, &past.id, &ids[1])
+    service::remove_entrant(&app, ACTOR, &past.id, &ids[1], false)
         .await
         .unwrap();
     let anna = entrants::get(&app.db, &past.id, &ids[1])
@@ -3275,9 +3462,7 @@ async fn all_prizes_delivered() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 1), ("Mug", 1)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(&app, ACTOR, &raffle.id, name, None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &raffle.id, name, None).await.unwrap();
     }
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
@@ -3362,9 +3547,7 @@ async fn a_prize_handed_over_on_the_spot_is_delivered_by_its_claim() {
         .await
         .unwrap();
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(&app, ACTOR, &raffle.id, name, None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &raffle.id, name, None).await.unwrap();
     }
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
@@ -3449,11 +3632,15 @@ async fn registration_needs_an_organizer() {
         admin.missing_for_open,
         ["the organizer's name", "a contact or privacy email"]
     );
+    assert_eq!(
+        admin.actions.missing, admin.missing_for_open,
+        "the header goes by the actions"
+    );
     let refused = service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open).await;
     assert!(
         matches!(
             &refused,
-            Err(service::Error::Refused(service::Refusal::OrganizerMissing(fields)))
+            Err(service::Error::Refused(service::Refusal::OrganizerMissing { fields, registration: true }))
                 if fields == &["the organizer's name", "a contact or privacy email"]
         ),
         "{refused:?}"
@@ -3486,6 +3673,177 @@ async fn registration_needs_an_organizer() {
     );
 }
 
+/// Switches raffle `id`'s registration (joining with the QR code) as
+/// `actor`.
+async fn set_registration(app: &AppState, id: &str, registration: bool) -> service::Result<()> {
+    let mut settings = service::settings_of(&raffles::get(&app.db, id).await.unwrap().unwrap());
+    settings.registration = registration;
+    service::update_settings(app, ACTOR, id, settings).await
+}
+
+/// Without registration, the projector's view says so, and `/j/` has no
+/// form and takes no join: the organizer adds the people taking part, and
+/// the page links the rules, the notice and, once frozen, the verification
+/// page.
+#[tokio::test]
+async fn without_registration_nobody_joins() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let id = create(&app, OWNER, "Gala").await;
+    set_registration(&app, &id, false).await.unwrap();
+    service::upsert_prize(
+        &app,
+        ACTOR,
+        &id,
+        PrizeInput {
+            name: "Book".into(),
+            qty: 1,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
+        .await
+        .unwrap();
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    let get = |url: String| {
+        let router = router.clone();
+        async move { send(&router, Request::get(url).body(Body::empty()).unwrap()).await }
+    };
+
+    let (status, _, body) = get(format!("/api/r/{}/view", raffle.slug)).await;
+    assert_eq!(status, StatusCode::OK);
+    let view: rafi_api::RaffleView = serde_json::from_str(&body).unwrap();
+    assert!(!view.registration);
+    assert_eq!(view.state, RaffleState::Ready);
+
+    let no_registration =
+        "This raffle has no registration: the organizer adds the people taking part.";
+    let (status, _, page) = get(format!("/j/{}", raffle.join_code)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains(no_registration), "{page}");
+    assert!(!page.contains("name=\"email\""), "no form: {page}");
+    assert!(!page.contains("not open yet"), "{page}");
+    for link in [
+        format!("href=\"/rules/{}\"", raffle.slug),
+        format!("href=\"/privacy/{}\"", raffle.slug),
+    ] {
+        assert!(page.contains(&link), "{link}: {page}");
+    }
+    assert!(
+        !page.contains(">Verification page<"),
+        "nothing frozen yet: {page}"
+    );
+
+    let (status, cookie, body) = join(&router, &raffle.join_code, "Anna", "anna@example.com").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(cookie.is_none());
+    assert!(body.contains(no_registration), "{body}");
+    assert!(!body.contains("name=\"email\""), "{body}");
+    assert!(entrants::list(&app.db, &id).await.unwrap().is_empty());
+
+    // The organizer's list is who takes part.
+    add_one(&app, ACTOR, &id, "Anna", None).await.unwrap();
+    service::start_draw(&app, ACTOR, &id).await.unwrap();
+    let (_, _, page) = get(format!("/j/{}", raffle.join_code)).await;
+    assert!(page.contains(no_registration), "{page}");
+    assert!(
+        page.contains(&format!("href=\"/v/{}\"", raffle.slug))
+            && page.contains(">Verification page<"),
+        "{page}"
+    );
+    assert_eq!(
+        set_registration(&app, &id, true)
+            .await
+            .unwrap_err()
+            .to_string(),
+        "Joining with the QR code can't be switched on or off while registration is open (close it first), or once the list is frozen."
+    );
+}
+
+/// A raffle without registration freezes from Published only after the
+/// checks opening would have made: a named controller and contact, and an
+/// erasure date not passed.
+#[tokio::test]
+async fn a_freeze_from_published_checks_what_opening_would() {
+    let app = app().await;
+    let id = service::create(&app, ACTOR, "Nameless", &service::EventDate::today(&app))
+        .await
+        .unwrap();
+    set_registration(&app, &id, false).await.unwrap();
+    // Erased at the end of today.
+    retain(&app, &id, 0).await;
+    service::upsert_prize(
+        &app,
+        ACTOR,
+        &id,
+        PrizeInput {
+            name: "Book".into(),
+            qty: 1,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
+        .await
+        .unwrap();
+    add_one(&app, ACTOR, &id, "Anna", None).await.unwrap();
+
+    let refused = service::start_draw(&app, ACTOR, &id).await;
+    assert!(
+        matches!(
+            &refused,
+            Err(service::Error::Refused(service::Refusal::OrganizerMissing { fields, registration: false }))
+                if fields == &["the organizer's name", "a contact or privacy email"]
+        ),
+        "{refused:?}"
+    );
+    name_organizer(&app, ACTOR, &id).await;
+    app.clock.advance(DAY);
+    let refused = service::start_draw(&app, ACTOR, &id).await;
+    assert!(
+        matches!(
+            refused,
+            Err(service::Error::Refused(service::Refusal::ErasureDatePassed))
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        raffles::get(&app.db, &id).await.unwrap().unwrap().state,
+        RaffleState::Ready,
+        "nothing frozen"
+    );
+}
+
+/// Registration can't be switched off while it is open: phones in the
+/// middle of the form would be cut off. Switched on (the default), the
+/// raffle opens as ever.
+#[tokio::test]
+async fn registration_stays_while_open() {
+    let app = app().await;
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    assert!(raffle.registration);
+    let refused = set_registration(&app, &raffle.id, false).await;
+    assert!(
+        matches!(
+            refused,
+            Err(service::Error::Refused(
+                service::Refusal::RegistrationLocked
+            ))
+        ),
+        "{refused:?}"
+    );
+    assert!(
+        raffles::get(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .registration
+    );
+}
+
 /// The export has the winners with their details, the delivered flag and
 /// formula-safe cells, and every export is audited: who, which raffle, how
 /// many rows.
@@ -3494,7 +3852,7 @@ async fn exports_have_the_winners_and_are_audited() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 1), ("Mug", 1)]).await;
     // A name that a spreadsheet would run as a formula.
-    let formula = service::add_manual(
+    let formula = add_one(
         &app,
         ACTOR,
         &raffle.id,
@@ -3503,10 +3861,10 @@ async fn exports_have_the_winners_and_are_audited() {
     )
     .await
     .unwrap();
-    service::add_manual(&app, ACTOR, &raffle.id, "Bence", Some("bence@x.org".into()))
+    add_one(&app, ACTOR, &raffle.id, "Bence", Some("bence@x.org".into()))
         .await
         .unwrap();
-    service::add_manual(&app, ACTOR, &raffle.id, "Csilla", None)
+    add_one(&app, ACTOR, &raffle.id, "Csilla", None)
         .await
         .unwrap();
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
@@ -3600,7 +3958,7 @@ async fn an_organizer_can_remove_their_data() {
     let finished = finished_raffle(&app).await;
     let draft = create(&app, OWNER, "Draft").await;
     let drawing = setup_open(&app, &[("Book", 1)]).await;
-    service::add_manual(&app, ACTOR, &drawing.id, "Anna", None)
+    add_one(&app, ACTOR, &drawing.id, "Anna", None)
         .await
         .unwrap();
     service::start_draw(&app, ACTOR, &drawing.id).await.unwrap();
@@ -3696,10 +4054,15 @@ async fn an_organizer_can_remove_their_data() {
         "{notice}"
     );
     assert!(!notice.contains("hello@example.com"));
+    assert!(
+        notice.contains("ask the organizer to take you off"),
+        "nobody named: {notice}"
+    );
 }
 
 /// After a restore, the erasure log, the purges and the organizers who left
-/// are re-applied, and whatever is due is erased again.
+/// are re-applied, and whatever is due is erased again, removals at their
+/// request past their use forgotten again.
 #[tokio::test]
 async fn erasures_are_reapplied_after_a_restore() {
     let app = app().await;
@@ -3710,7 +4073,7 @@ async fn erasures_are_reapplied_after_a_restore() {
         .into_iter()
         .map(|e| e.id)
         .collect();
-    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0])
+    service::remove_entrant(&app, ACTOR, &raffle.id, &ids[0], false)
         .await
         .unwrap();
     service::purge(&app, ACTOR, &raffle.id).await.unwrap();
@@ -3739,8 +4102,24 @@ async fn erasures_are_reapplied_after_a_restore() {
         .run()
         .await
         .unwrap();
+    // A removal at their request from before the freeze, back too.
+    app.db
+        .query(
+            "INSERT INTO add_removals (raffle_id, email_norm, removed_at) VALUES (?, 'back@x.org', 1)",
+        )
+        .bind(&raffle.id)
+        .run()
+        .await
+        .unwrap();
 
     let done = service::reapply_erasures(&app).await.unwrap();
+    assert!(
+        entrants::removals(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a frozen raffle's removals serve nothing: forgotten again"
+    );
     assert_eq!((done.entrants, done.raffles, done.organizers), (3, 1, 1));
     let entrants = entrants::list(&app.db, &raffle.id).await.unwrap();
     assert!(
@@ -3961,7 +4340,7 @@ async fn a_frozen_raffle_is_erased_in_place_and_finished_at_the_ceiling() {
     let hold = app.policy.retention.winner_hold_secs();
     let raffle = setup_open(&app, &[("Book", 1)]).await;
     for name in ["Anna", "Bence"] {
-        service::add_manual(&app, ACTOR, &raffle.id, name, Some(format!("{name}@x.org")))
+        add_one(&app, ACTOR, &raffle.id, name, Some(format!("{name}@x.org")))
             .await
             .unwrap();
     }
@@ -4046,6 +4425,10 @@ async fn the_notice_without_the_optional_fields() {
         notice.contains("Privacy requests: hello@example.com"),
         "{notice}"
     );
+    assert!(
+        notice.contains("ask Cloud Native Budapest (hello@example.com) to take you off"),
+        "the contact email, without a privacy contact: {notice}"
+    );
     assert!(!notice.contains("From the organizer"), "{notice}");
     assert!(!notice.contains("has since left"));
 
@@ -4070,6 +4453,10 @@ async fn the_notice_without_the_optional_fields() {
         "{notice}"
     );
     assert!(!notice.contains("Privacy requests:"));
+    assert!(
+        notice.contains("You can object to this at any time: ask the organizer to take you off."),
+        "nobody to name yet: {notice}"
+    );
 }
 
 /// Over HTTP: a locked setting is a 409 that names the field; an event date
@@ -4089,7 +4476,7 @@ async fn settings_refusals_over_http() {
         .run()
         .await
         .unwrap();
-    service::add_manual(&app, service::Actor::solo("dev"), &raffle.id, "Anna", None)
+    add_one(&app, service::Actor::solo("dev"), &raffle.id, "Anna", None)
         .await
         .unwrap();
 
@@ -4114,7 +4501,7 @@ async fn settings_refusals_over_http() {
     assert_eq!(err.code, "settings_fixed");
     assert_eq!(
         err.message,
-        "The event date cannot change: entrants have already accepted the rules they were shown with."
+        "The event date cannot change: entrants are already in the raffle under what was set."
     );
 
     let fresh = create(&app, "dev", "Far").await;
@@ -4205,14 +4592,14 @@ async fn never_frozen_raffles_expire() {
     let (recording, live) = recording();
     let app = app_with_live(Config::for_tests(), live).await;
     let open = setup_open(&app, &[("Cap", 1)]).await;
-    service::add_manual(&app, ACTOR, &open.id, "Gabi", Some("gabi@x.org".into()))
+    add_one(&app, ACTOR, &open.id, "Gabi", Some("gabi@x.org".into()))
         .await
         .unwrap();
     let draft = create(&app, OWNER, "Draft").await;
     // Ten days on, a fresh one.
     app.clock.advance(10 * DAY);
     let fresh = setup_open(&app, &[("Hat", 1)]).await;
-    service::add_manual(&app, ACTOR, &fresh.id, "Hanna", None)
+    add_one(&app, ACTOR, &fresh.id, "Hanna", None)
         .await
         .unwrap();
 
@@ -4438,13 +4825,19 @@ async fn abandoned_freezes_leave_limbo() {
     // opened, which purges the raffle here.
     let orphan = setup_open(&app, &[("Book", 1)]).await;
     let orphan = retain(&app, &orphan.id, 0).await;
-    service::add_manual(&app, ACTOR, &orphan.id, "Anna", None)
+    add_one(&app, ACTOR, &orphan.id, "Anna", None)
         .await
         .unwrap();
     assert!(
-        raffles::freeze(&app.db, &orphan.id, RaffleState::Open, app.clock.now())
-            .await
-            .unwrap()
+        raffles::freeze(
+            &app.db,
+            &orphan.id,
+            RaffleState::Open,
+            true,
+            app.clock.now()
+        )
+        .await
+        .unwrap()
     );
     let manifest = rafi_raffle::Manifest::new(
         orphan.id.as_str(),
@@ -4475,11 +4868,11 @@ async fn abandoned_freezes_leave_limbo() {
     // Frozen without a manifest: the freeze stopped after closing registration.
     let stuck = setup_open(&app, &[("Book", 1)]).await;
     let stuck = retain(&app, &stuck.id, 0).await;
-    service::add_manual(&app, ACTOR, &stuck.id, "Bence", None)
+    add_one(&app, ACTOR, &stuck.id, "Bence", None)
         .await
         .unwrap();
     assert!(
-        raffles::freeze(&app.db, &stuck.id, RaffleState::Open, app.clock.now())
+        raffles::freeze(&app.db, &stuck.id, RaffleState::Open, true, app.clock.now())
             .await
             .unwrap()
     );
@@ -4537,4 +4930,749 @@ async fn abandoned_freezes_leave_limbo() {
     app.clock.advance(1);
     let again = service::housekeeping::run(&app).await.unwrap();
     assert_eq!((again.expired, again.purged), (0, 0), "nothing left to do");
+}
+
+/// An open raffle of `dev`'s (the organizer under dev auth), and the routes.
+async fn dev_raffle(cfg: Config) -> (AppState, Router, RaffleRow) {
+    dev_raffle_with(cfg, &[("Book", 1)]).await
+}
+
+/// [`dev_raffle`], with `prizes`.
+async fn dev_raffle_with(cfg: Config, prizes: &[(&str, u32)]) -> (AppState, Router, RaffleRow) {
+    let mut cfg = cfg;
+    cfg.dev_auth = true;
+    let app = app_with(cfg).await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, prizes).await;
+    app.db
+        .query("UPDATE raffles SET owner_id = 'dev' WHERE id = ?")
+        .bind(&raffle.id)
+        .run()
+        .await
+        .unwrap();
+    (app, router, raffle)
+}
+
+/// The arguments of `add_entrants` for raffle `id`: an add of `rows` from
+/// `origin` (`one` or `list`), batch `batch`.
+fn add_args(id: &str, batch: &str, origin: &str, rows: serde_json::Value) -> String {
+    serde_json::json!({ "id": id, "add": { "batch_id": batch, "origin": origin, "rows": rows } })
+        .to_string()
+}
+
+/// Adding people over the admin API: one person as a batch of one (no
+/// consent, a claim code, retried safely), a list in its order, each
+/// refusal with its status, the rows' problems by index, and undo.
+#[tokio::test]
+async fn adding_people_over_http() {
+    let mut cfg = Config::for_tests();
+    cfg.max_entrants = 4;
+    let (app, router, raffle) = dev_raffle(cfg).await;
+    let id = raffle.id.as_str();
+
+    let one = add_args(
+        id,
+        "b-one",
+        "one",
+        serde_json::json!([{ "name": "Anna", "email": "anna@example.com" }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &one)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    assert_eq!((result.added.len(), result.skipped.len()), (1, 0));
+    let anna = entrants::get(&app.db, id, &result.added[0].id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(anna.source, rafi_lifecycle::entrant::Source::Manual);
+    assert!(anna.consent_version.is_none() && anna.claim_code.is_some());
+    // The reply was lost; the browser sends the same add again.
+    let (status, _, again) = send(&router, admin_call("add_entrants", &one)).await;
+    assert_eq!((status, again), (StatusCode::OK, body));
+    assert_eq!(entrants::list(&app.db, id).await.unwrap().len(), 1);
+
+    // An invalid row refuses the add, with every row's problem.
+    let bad = add_args(
+        id,
+        "b-bad",
+        "list",
+        serde_json::json!([
+            { "name": "Bence" },
+            { "name": "Csilla", "email": "not an email" },
+            { "name": "Dora", "email": "ANNA@example.com", "list_ref": "7" },
+            { "name": "Emil", "list_ref": "7" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &bad)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, "rows");
+    let rows: Vec<(u32, rafi_api::RowError)> =
+        err.rows.iter().map(|r| (r.row, r.problem)).collect();
+    assert_eq!(
+        rows,
+        [
+            (1, rafi_api::RowError::Email),
+            (3, rafi_api::RowError::DuplicateListRef)
+        ],
+        "an email already in is no problem: it is skipped"
+    );
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["rows"][0],
+        serde_json::json!({ "row": 1, "problem": "email" })
+    );
+
+    // A list: in its order, who is in skipped; past the cap, refused whole.
+    let list = add_args(
+        id,
+        "b-list",
+        "list",
+        serde_json::json!([
+            { "name": "Zoe" },
+            { "name": "Anna K.", "email": "Anna+list@example.com" },
+            { "name": "Bence", "list_ref": "T-1" },
+            { "name": "Csilla" },
+            { "name": "Dora" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &list)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, "room");
+    assert!(
+        err.message.contains("Only 3 more people fit"),
+        "{}",
+        err.message
+    );
+    assert_eq!(entrants::list(&app.db, id).await.unwrap().len(), 1);
+    app.clock.advance(1);
+    let list = add_args(
+        id,
+        "b-list",
+        "list",
+        serde_json::json!([
+            { "name": "Zoe" },
+            { "name": "Anna K.", "email": "Anna+list@example.com" },
+            { "name": "Bence", "list_ref": "T-1" },
+            { "name": "Csilla" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &list)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        result.added.iter().map(|a| a.row).collect::<Vec<_>>(),
+        [0, 2, 3]
+    );
+    assert_eq!(result.skipped[0].row, 1);
+    assert!(body.contains(r#""reason":"already_in""#), "{body}");
+    let names: Vec<String> = entrants::list(&app.db, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.display_name)
+        .collect();
+    assert_eq!(names, ["Zoe", "Bence", "Csilla", "Anna"]);
+
+    // The admin's view offers to undo the list; undoing it takes it back.
+    let (_, _, body) = send(
+        &router,
+        admin_call("get_raffle", &format!(r#"{{"id":"{id}"}}"#)),
+    )
+    .await;
+    let admin: rafi_api::RaffleAdmin = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        admin.actions.undo,
+        Some(rafi_api::UndoBatch {
+            batch_id: "b-list".into(),
+            count: 3
+        })
+    );
+    let bence = admin
+        .entrants
+        .iter()
+        .find(|e| e.display_name == "Bence")
+        .unwrap();
+    assert_eq!(bence.list_ref.as_deref(), Some("T-1"));
+    let (status, _, body) = send(
+        &router,
+        admin_call(
+            "undo_add",
+            &format!(r#"{{"id":"{id}","batch_id":"b-list"}}"#),
+        ),
+    )
+    .await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "3"));
+    assert_eq!(entrants::list(&app.db, id).await.unwrap().len(), 1);
+
+    // After the freeze: nothing is added, nothing undone.
+    service::start_draw(&app, service::Actor::solo("dev"), id)
+        .await
+        .unwrap();
+    let late = add_args(id, "b-late", "one", serde_json::json!([{ "name": "Late" }]));
+    let (status, _, body) = send(&router, admin_call("add_entrants", &late)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("entrants_frozen"), "{body}");
+    let (status, _, body) = send(
+        &router,
+        admin_call(
+            "undo_add",
+            &format!(r#"{{"id":"{id}","batch_id":"b-one"}}"#),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let audit: Vec<(String, String)> = app
+        .db
+        .query("SELECT action, detail FROM audit WHERE raffle_id = ? AND action IN ('add', 'undo_add') ORDER BY id")
+        .bind(id)
+        .all()
+        .await
+        .unwrap();
+    assert_eq!(
+        audit,
+        [
+            (
+                "add".into(),
+                "batch=b-one origin=one added=1 skipped=0 approved=0 lifted=0".into()
+            ),
+            (
+                "add".into(),
+                "batch=b-list origin=list added=3 skipped=1 approved=0 lifted=0".into()
+            ),
+            ("undo_add".into(), "batch=b-list removed=3".into()),
+        ]
+    );
+}
+
+/// Adds and undos are limited per organizer (429), and the admin API reads
+/// at most 512 KB of arguments (413), before anything else.
+#[tokio::test]
+async fn adding_people_is_bounded_over_http() {
+    let (app, router, raffle) = dev_raffle(Config::for_tests()).await;
+    let id = raffle.id.as_str();
+
+    let huge = add_args(
+        id,
+        "b-huge",
+        "list",
+        serde_json::json!([{ "name": "x".repeat(super::admin::MAX_BODY_BYTES) }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &huge)).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, rafi_api::admin::codes::TOO_LARGE);
+
+    let (budget, _) = service::Limit::AddPerOwner.budget();
+    for i in 0..budget {
+        let add = add_args(
+            id,
+            &format!("b-{i}"),
+            "one",
+            serde_json::json!([{ "name": format!("Person {i}") }]),
+        );
+        let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+        assert_eq!(status, StatusCode::OK, "{i}: {body}");
+    }
+    let add = add_args(
+        id,
+        "b-more",
+        "one",
+        serde_json::json!([{ "name": "One more" }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, "limited");
+    let (status, _, _) = send(
+        &router,
+        admin_call("undo_add", &format!(r#"{{"id":"{id}","batch_id":"b-0"}}"#)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        entrants::list(&app.db, id).await.unwrap().len(),
+        budget as usize
+    );
+}
+
+/// Over HTTP: a name the organizer adds that someone is already shown with
+/// (who joined, who was added before, an earlier row; case, spacing and
+/// composition aside) refuses the add with a 400 and the rows, naming
+/// whom; one person too. A blocked name goes in only approved, the
+/// approval lifting the blocklist alone, and is counted in the audit with
+/// the name format.
+#[tokio::test]
+async fn added_names_are_unique_and_approved_over_http() {
+    let (app, router, raffle) = dev_raffle(Config::for_tests()).await;
+    let id = raffle.id.as_str();
+    let (status, _, _) = join(&router, &raffle.join_code, "Anna K.", "anna@example.com").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let add = add_args(
+        id,
+        "b-clash",
+        "list",
+        serde_json::json!([
+            { "name": "ANNA  K." },
+            { "name": "Bence" },
+            { "name": "be\u{301}la" },
+            { "name": "bence" },
+            { "name": "Béla" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, "rows");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["rows"],
+        serde_json::json!([
+            { "row": 0, "problem": "name_taken", "shown_as": "Anna K." },
+            { "row": 3, "problem": "duplicate_name", "shown_as": "Bence" },
+            { "row": 4, "problem": "duplicate_name", "shown_as": "béla" },
+        ])
+    );
+    assert!(
+        err.message
+            .contains("row 1: someone is already shown as “Anna K.”"),
+        "{}",
+        err.message
+    );
+    assert_eq!(entrants::list(&app.db, id).await.unwrap().len(), 1);
+
+    // The one-person form is held to it too.
+    let one = add_args(
+        id,
+        "b-one",
+        "one",
+        serde_json::json!([{ "name": "anna k." }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &one)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.message, "Someone is already shown as “Anna K.”.");
+    assert_eq!(err.rows[0].problem, rafi_api::RowError::NameTaken);
+
+    // A blocked name, refused unless approved; an approval lifts nothing
+    // else.
+    let blocked = |batch: &str, approved: bool, name: &str| {
+        add_args(
+            id,
+            batch,
+            "list",
+            serde_json::json!([
+                { "name": "Nazir Ahmed", "approved": approved },
+                { "name": name, "approved": approved },
+            ]),
+        )
+    };
+    let (status, _, body) = send(
+        &router,
+        admin_call("add_entrants", &blocked("b-blocked", false, "Bence")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["rows"],
+        serde_json::json!([{ "row": 0, "problem": "blocked_name" }])
+    );
+    let (status, _, body) = send(
+        &router,
+        admin_call("add_entrants", &blocked("b-sneaky", true, "Bence\u{200B}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["rows"],
+        serde_json::json!([{ "row": 1, "problem": "name" }]),
+        "nothing invisible, approved or not"
+    );
+    let mut approved: serde_json::Value =
+        serde_json::from_str(&blocked("b-approved", true, "Bence")).unwrap();
+    approved["add"]["name_format"] = "full".into();
+    let (status, _, body) = send(&router, admin_call("add_entrants", &approved.to_string())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let names: Vec<String> = entrants::list(&app.db, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.display_name)
+        .collect();
+    assert_eq!(names, ["Nazir Ahmed", "Bence", "Anna K."]);
+    let (detail,): (String,) = app
+        .db
+        .query("SELECT detail FROM audit WHERE raffle_id = ? AND action = 'add'")
+        .bind(id)
+        .one()
+        .await
+        .unwrap();
+    assert_eq!(
+        detail,
+        "batch=b-approved origin=list added=2 skipped=0 approved=1 lifted=0 format=full"
+    );
+
+    // An unknown format is a bad request, not a guess.
+    let mut unknown: serde_json::Value = serde_json::from_str(&add_args(
+        id,
+        "b-x",
+        "list",
+        serde_json::json!([{ "name": "Csilla" }]),
+    ))
+    .unwrap();
+    unknown["add"]["name_format"] = "initials".into();
+    let (status, _, body) = send(&router, admin_call("add_entrants", &unknown.to_string())).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("invalid_arguments"), "{body}");
+}
+
+/// Names the organizer gives are stored whole up to 64 characters, joiners'
+/// up to 24: an add of 64 goes in and one of 65 is refused with its row, a
+/// rename of anyone to 64 goes in, a join of 25 is still refused. The long
+/// names reach the projector, the phones, the verification page and the
+/// winners' export whole.
+#[tokio::test]
+async fn names_the_organizer_gives_are_up_to_64_characters() {
+    use rafi_lifecycle::entrant::{MAX_ADDED_NAME_CHARS, MAX_NAME_CHARS};
+    let (app, router, raffle) = dev_raffle_with(Config::for_tests(), &[("Book", 2)]).await;
+    let id = raffle.id.as_str();
+    let dev = service::Actor::solo("dev");
+
+    // 64 characters once composed: the "Á" is sent decomposed, as some
+    // exports write it, 65 code points.
+    let maria = "Maria Fernanda de los Ángeles García-López y Hernández Rodríguez";
+    assert_eq!(maria.chars().count(), MAX_ADDED_NAME_CHARS);
+    let decomposed = maria.replace('Á', "A\u{301}");
+    let add = add_args(
+        id,
+        "b-long",
+        "list",
+        serde_json::json!([{ "name": decomposed }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    let maria_id = result.added[0].id.clone();
+    let stored = entrants::get(&app.db, id, &maria_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.display_name, maria, "stored whole, composed");
+
+    let too_long = add_args(
+        id,
+        "b-too-long",
+        "one",
+        serde_json::json!([{ "name": format!("{maria}s") }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &too_long)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    let rows: Vec<(u32, rafi_api::RowError)> =
+        err.rows.iter().map(|r| (r.row, r.problem)).collect();
+    assert_eq!(rows, [(0, rafi_api::RowError::Name)]);
+    assert!(err.message.contains("1–64 characters"), "{}", err.message);
+
+    // A joiner keeps 24.
+    let (status, _, page) = join(
+        &router,
+        &raffle.join_code,
+        &"x".repeat(MAX_NAME_CHARS + 1),
+        "long@example.com",
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(page.contains("at most 24 characters"), "{page}");
+    assert!(
+        page.contains(&format!("maxlength=\"{MAX_NAME_CHARS}\"")),
+        "the form says so too"
+    );
+    let (status, _, _) = join(&router, &raffle.join_code, "Bea", "bea@example.com").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let bea_id = entrants::list(&app.db, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|e| e.display_name == "Bea")
+        .unwrap()
+        .id;
+
+    // The organizer renames anyone up to 64, a joiner too.
+    let beatrix = "Beatrix Kovácsné Szabó-Nagy, Budapesti Műszaki Egyetem, Budapest";
+    assert_eq!(beatrix.chars().count(), MAX_ADDED_NAME_CHARS);
+    let rename = |name: &str| {
+        admin_call(
+            "patch_entrant",
+            &serde_json::json!({ "id": id, "entrant_id": bea_id, "patch": { "display_name": name } })
+                .to_string(),
+        )
+    };
+    let (status, _, body) = send(&router, rename(&format!("{beatrix}!"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("1–64 characters"), "{body}");
+    let (status, _, body) = send(&router, rename(beatrix)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // On the projector, before the freeze: whole.
+    let (_, _, view) = get_json(&router, &format!("/api/r/{}/view", raffle.slug)).await;
+    assert_eq!(view["recent_names"][0], maria, "{view}");
+
+    // Both win; every public and exported place has them whole.
+    service::start_draw(&app, dev, id).await.unwrap();
+    let r = wait_for(&app, id, |r| r.raffle.opened()).await;
+    let items: Vec<_> = r
+        .drawn
+        .as_ref()
+        .unwrap()
+        .items()
+        .iter()
+        .map(|u| u.id.clone())
+        .collect();
+    let mut won = Vec::new();
+    for item in &items {
+        won.push(draw_and_claim_as(&app, dev, id, item).await);
+    }
+    let name_of = |entrant: &str| if entrant == maria_id { maria } else { beatrix };
+    let latest = won.last().unwrap().clone();
+    won.sort();
+    let mut both = vec![maria_id.clone(), bea_id.clone()];
+    both.sort();
+    assert_eq!(won, both);
+
+    let (_, _, phone) = get_json(&router, &format!("/api/r/{}/participant", raffle.slug)).await;
+    assert_eq!(
+        phone["last"]["display_name"],
+        name_of(&latest),
+        "the phones: {phone}"
+    );
+
+    let (_, _, verify) = get_json(&router, &format!("/api/r/{}/verify.json", raffle.slug)).await;
+    let names: Vec<(String, String)> = serde_json::from_value(verify["names"].clone()).unwrap();
+    for entrant in [&maria_id, &bea_id] {
+        assert!(
+            names.contains(&(entrant.clone(), name_of(entrant).to_owned())),
+            "verify.json: {names:?}"
+        );
+    }
+
+    let csv = service::export_csv(&app, dev, id).await.unwrap();
+    for name in [maria, beatrix] {
+        assert!(csv.contains(&format!("\"{name}\"")), "{csv}");
+    }
+}
+
+/// The evening over HTTP: the projector's view says whose list it is,
+/// where the notice is and whether people were added from a list; each
+/// draw, and the phones' latest winner, whether the winner has a phone to
+/// tell them; the admin, per entrant; and `verify.json` counts the frozen
+/// list by source.
+#[tokio::test]
+async fn the_evening_over_http() {
+    let (app, router, raffle) = dev_raffle_with(Config::for_tests(), &[("Book", 2)]).await;
+    let id = raffle.id.as_str();
+    let dev = service::Actor::solo("dev");
+    let view_url = format!("/api/r/{}/view", raffle.slug);
+
+    let (_, _, view) = get_json(&router, &view_url).await;
+    assert_eq!(view["organizer"], "Cloud Native Budapest", "{view}");
+    assert_eq!(
+        view["privacy_url"],
+        format!("{}/privacy/{}", app.policy.public_url, raffle.slug)
+    );
+    assert_eq!(view["list_added"], false);
+
+    let add = add_args(
+        id,
+        "b-evening",
+        "list",
+        serde_json::json!([{ "name": "Anna Kovács", "email": "anna@example.com" }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let anna: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    let anna = anna.added[0].id.clone();
+    let (status, _, _) = join(&router, &raffle.join_code, "Bea", "bea@example.com").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, view) = get_json(&router, &view_url).await;
+    assert_eq!(view["list_added"], true, "{view}");
+
+    let (status, _, body) = send(
+        &router,
+        admin_call("get_raffle", &serde_json::json!({ "id": id }).to_string()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let admin: rafi_api::RaffleAdmin = serde_json::from_str(&body).unwrap();
+    let no_phone: Vec<(&str, bool)> = admin
+        .entrants
+        .iter()
+        .map(|e| (e.display_name.as_str(), e.no_phone))
+        .collect();
+    assert_eq!(no_phone, [("Anna Kovács", true), ("Bea", false)]);
+    assert!(admin.actions.missing.is_empty(), "opened: nothing missing");
+
+    service::start_draw(&app, dev, id).await.unwrap();
+    let r = wait_for(&app, id, |r| r.raffle.opened()).await;
+    let items: Vec<_> = r
+        .drawn
+        .as_ref()
+        .unwrap()
+        .items()
+        .iter()
+        .map(|u| u.id.clone())
+        .collect();
+    for item in &items {
+        let winner = draw_and_claim_as(&app, dev, id, item).await;
+        let (_, _, view) = get_json(&router, &view_url).await;
+        let last = view["draws"].as_array().unwrap().last().unwrap().clone();
+        assert_eq!(last["entrant"], winner.as_str());
+        assert_eq!(last["no_phone"], winner == anna, "{last}");
+        let (_, _, phone) = get_json(&router, &format!("/api/r/{}/participant", raffle.slug)).await;
+        assert_eq!(phone["last"]["no_phone"], winner == anna, "{phone}");
+    }
+
+    let (_, _, verify) = get_json(&router, &format!("/api/r/{}/verify.json", raffle.slug)).await;
+    assert_eq!(
+        verify["sources"],
+        serde_json::json!({ "joined": 1, "added": 1, "fake": 0 }),
+        "{verify}"
+    );
+}
+
+/// Removing someone at their request and someone taking themselves off,
+/// over the admin API: `at_request` is optional, a later add says who it
+/// left out and why, a row can lift it; after the freeze, "Took themselves
+/// off" and its undo, with what the admin page is told and the refusals'
+/// statuses.
+#[tokio::test]
+async fn removals_and_objections_over_http() {
+    let (app, router, raffle) = dev_raffle(Config::for_tests()).await;
+    let id = raffle.id.as_str();
+    let list = add_args(
+        id,
+        "b-1",
+        "list",
+        serde_json::json!([
+            { "name": "Anna", "email": "anna@example.com", "list_ref": "A1" },
+            { "name": "Bence", "email": "bence@example.com" },
+            { "name": "Csilla" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &list)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    let (anna, bence, csilla) = (
+        result.added[0].id.clone(),
+        result.added[1].id.clone(),
+        result.added[2].id.clone(),
+    );
+    let remove = |entrant: &str, extra: &str| {
+        admin_call(
+            "remove_entrant",
+            &format!(r#"{{"id":"{id}","entrant_id":"{entrant}"{extra}}}"#),
+        )
+    };
+    let (status, _, body) = send(&router, remove(&anna, r#","at_request":true"#)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, _, body) = send(&router, remove(&bence, "")).await;
+    assert_eq!(status, StatusCode::OK, "without at_request: {body}");
+    let get = || admin_call("get_raffle", &format!(r#"{{"id":"{id}"}}"#));
+    let (_, _, body) = send(&router, get()).await;
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(json["removed"].as_array().map(Vec::len), Some(1), "{body}");
+    assert_eq!(json["removed"][0]["email_key"], "anna@example.com");
+    assert_eq!(json["removed"][0]["list_ref"], "A1");
+
+    // The list again: Anna is left out, and says why; lifted, she's in.
+    let again = add_args(
+        id,
+        "b-2",
+        "list",
+        serde_json::json!([
+            { "name": "Anna", "email": "anna@example.com" },
+            { "name": "Bence", "email": "bence@example.com" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &again)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["skipped"],
+        serde_json::json!([{ "row": 0, "reason": "removed_at_request" }]),
+        "{body}"
+    );
+    let lifted = add_args(
+        id,
+        "b-3",
+        "list",
+        serde_json::json!([{ "name": "Anna", "list_ref": "A1", "lift_removal": true }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &lifted)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    let removed_anna = anna;
+    let anna = result.added[0].id.clone();
+    let (_, _, body) = send(&router, get()).await;
+    let admin: rafi_api::RaffleAdmin = serde_json::from_str(&body).unwrap();
+    assert!(admin.removed.is_empty(), "lifted");
+
+    // After the freeze: Csilla takes herself off.
+    service::start_draw(&app, service::Actor::solo("dev"), id)
+        .await
+        .unwrap();
+    let object = |name: &str, entrant: &str| {
+        admin_call(
+            name,
+            &format!(r#"{{"id":"{id}","entrant_id":"{entrant}"}}"#),
+        )
+    };
+    let (status, _, body) = send(&router, object("object_entrant", &csilla)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, _, body) = send(&router, get()).await;
+    let admin: rafi_api::RaffleAdmin = serde_json::from_str(&body).unwrap();
+    let c = admin.entrants.iter().find(|e| e.id == csilla).unwrap();
+    assert!(c.objected && c.hidden && c.actions.unobject && !c.actions.object);
+    let a = admin.entrants.iter().find(|e| e.id == anna).unwrap();
+    assert!(!a.objected && a.actions.object && !a.actions.unobject);
+    let show = format!(
+        r#"{{"id":"{id}","entrant_id":"{csilla}","patch":{{"display_name":null,"hidden":false,"delivered":null}}}}"#
+    );
+    let (status, _, body) = send(&router, admin_call("patch_entrant", &show)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("objected_hidden"), "{body}");
+    let (status, _, body) = send(&router, remove(&anna, r#","at_request":true"#)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("not_removable"), "{body}");
+    let (status, _, body) = send(&router, object("object_entrant", "nobody")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let (status, _, body) = send(&router, object("unobject_entrant", &csilla)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let audit: Vec<(String, String)> = app
+        .db
+        .query(
+            "SELECT action, detail FROM audit WHERE raffle_id = ?
+             AND action IN ('remove_entrant', 'object', 'unobject') ORDER BY id",
+        )
+        .bind(id)
+        .all()
+        .await
+        .unwrap();
+    assert_eq!(
+        audit,
+        [
+            (
+                "remove_entrant".into(),
+                format!("{removed_anna} at_request")
+            ),
+            ("remove_entrant".into(), bence.clone()),
+            ("object".into(), csilla.clone()),
+            ("unobject".into(), csilla.clone()),
+        ]
+    );
 }

@@ -50,7 +50,9 @@ impl Db {
 
     /// Runs reads as one transaction and returns each statement's rows: one
     /// consistent snapshot, which separate queries are not (a write can land
-    /// between them).
+    /// between them). A write may be among them, returning no rows: the
+    /// reads before it see exactly what it will change (a count that D1's
+    /// change counts can't give, since they include triggers' writes).
     pub async fn batch_rows(&self, queries: Vec<Query<'_>>) -> Result<Vec<Vec<Row>>> {
         let stmts = queries.into_iter().map(|q| q.stmt).collect();
         self.backend.batch_rows(stmts).await

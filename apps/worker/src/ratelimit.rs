@@ -1,4 +1,4 @@
-//! The join's [`RateLimit`] over Workers' rate-limiting bindings.
+//! The app's [`RateLimit`] over Workers' rate-limiting bindings.
 
 use rafi_app::{Limit, RateLimit};
 use rafi_engine::BoxFuture;
@@ -22,6 +22,7 @@ impl RateLimitBindings {
         match limit {
             Limit::JoinPerRaffle => "JOIN_PER_RAFFLE_LIMITER",
             Limit::JoinPerEmail => "JOIN_PER_EMAIL_LIMITER",
+            Limit::AddPerOwner => "ADD_LIMITER",
         }
     }
 }

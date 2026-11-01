@@ -1,0 +1,4 @@
+"Order code";"Position ID";"Status";"Email";"Product";"Price";"Attendee name";"Attendee name: Given name";"Attendee name: Family name";"Attendee email";"Order date"
+"AB12C";"1";"paid";"buyer@firm.example";"Conference ticket";"120,00";"Anna Kovács";"Anna";"Kovács";"anna@firm.example";"2026-09-30"
+"AB12C";"2";"paid";"buyer@firm.example";"Conference ticket";"120,00";"Bence Nagy";"Bence";"Nagy";"bence@firm.example";"2026-09-30"
+"XY34Z";"1";"paid";"gabor@example.hu";"Student ticket";"40,00";"Gábor Fekete";"Gábor";"Fekete";"gabor@example.hu";"2026-10-01"

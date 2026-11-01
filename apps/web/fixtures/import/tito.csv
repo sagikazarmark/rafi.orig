@@ -1,0 +1,4 @@
+Number,Ticket Created Date,Ticket,Ticket Full Name,Ticket First Name,Ticket Last Name,Ticket Email,Ticket Reference,Order Reference,Order Name,Order Email
+1,2026-10-01 10:00:00 +0200,Early Bird,Anna Kovács,Anna,Kovács,anna@example.com,ABCD-1,ABCD,Anna Kovács,anna@example.com
+2,2026-10-02 12:00:00 +0200,Regular,Bence Nagy,Bence,Nagy,bence@example.com,EFGH-1,EFGH,Office Manager,office@acme.example
+3,2026-10-02 12:00:00 +0200,Regular,Csilla Varga,Csilla,Varga,csilla@example.com,EFGH-2,EFGH,Office Manager,office@acme.example

@@ -108,6 +108,12 @@ pub struct Current {
 pub struct LastDraw {
     pub display_name: String,
     pub prize_name: String,
+    /// The winner has no phone to tell them they won (the organizer added
+    /// them): the projector, which takes the reveal from here when the
+    /// live channel is ahead, calls them to the front. Absent from an older
+    /// server's view.
+    #[serde(default)]
+    pub no_phone: bool,
 }
 
 /// An entrant holding a prize.
@@ -154,6 +160,8 @@ pub struct DrawInput {
     pub outcome: DrawOutcome,
     /// The prize is sent to the winner after the raffle.
     pub sent_later: bool,
+    /// The winner has no phone to tell them they won.
+    pub no_phone: bool,
 }
 
 impl ParticipantView {
@@ -185,6 +193,7 @@ impl ParticipantView {
             last = Some(LastDraw {
                 display_name: d.display_name,
                 prize_name: d.prize_name,
+                no_phone: d.no_phone,
             });
         }
         Self {
@@ -243,6 +252,7 @@ mod tests {
             prize_name: prize.into(),
             outcome,
             sent_later: false,
+            no_phone: false,
         }
     }
 
@@ -282,6 +292,7 @@ mod tests {
                 draw("a", "Book", DrawOutcome::Claimed),
                 DrawInput {
                     sent_later: true,
+                    no_phone: true,
                     ..draw("b", "Mug", DrawOutcome::Drawn)
                 },
                 draw("c", "Shirt", DrawOutcome::NotHere),
@@ -310,7 +321,8 @@ mod tests {
             v.last,
             Some(LastDraw {
                 display_name: "Name b".into(),
-                prize_name: "Mug".into()
+                prize_name: "Mug".into(),
+                no_phone: true,
             }),
             "the no-show and the decline are skipped"
         );
@@ -378,13 +390,18 @@ mod tests {
                 "v": 3,
                 "state": "drawing",
                 "current": { "prize_name": "Mug", "round": 42, "round_time": 1_700_000_000 },
-                "last": { "display_name": "Name a", "prize_name": "Book" },
+                "last": { "display_name": "Name a", "prize_name": "Book", "no_phone": false },
                 "winners": [{ "entrant_id": "a", "prize_name": "Book", "claimed": true, "sent_later": false }],
                 "prizes_left": 1,
             })
         );
-        let back: ParticipantView = serde_json::from_value(json).unwrap();
+        let mut json = json;
+        let back: ParticipantView = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(back, v);
+        // An older server's: no `no_phone`, read as a phone telling them.
+        json["last"].as_object_mut().unwrap().remove("no_phone");
+        let older: ParticipantView = serde_json::from_value(json).unwrap();
+        assert_eq!(older, v);
     }
 
     #[test]

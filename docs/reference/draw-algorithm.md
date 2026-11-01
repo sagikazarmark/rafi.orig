@@ -154,7 +154,8 @@ These rules hold, and the replay enforces them:
   "manifest": "<the canonical manifest string, exactly as hashed>",
   "manifest_hash": "<hex>",
   "events": [ … ],
-  "names": [["<entrant id>", "<display name>"], …]
+  "names": [["<entrant id>", "<display name>"], …],
+  "sources": { "joined": 8, "added": 312, "fake": 0 }
 }
 ```
 
@@ -167,6 +168,14 @@ the response also sends as its `ETag`; the same `v` is the same content, and any
 `names` lets people check that they are in the list: hidden names show as `★ ★ ★`. An entrant whose personal data
 is erased is no longer in it (their ID stays in the manifest), so once the organizer erases everyone's, it is
 empty. `test_mode` is `true` for a rehearsal, whose entrants may be fakes.
+
+`sources` counts the manifest's entrants by how they got in: `joined` on their phones with the QR code, `added` by
+the organizer (one by one or from a list), and `fake`, made up for a rehearsal (test mode only). The verification
+page says it in words ("320 entrants: 8 joined on their phones, 312 added by the organizer"). It is the server's
+statement, outside the manifest: the hash doesn't commit to it, and a verifier ignores it (a server from before it
+leaves it out, and so does one whose rows don't account for every entrant of the manifest). It makes the list's
+provenance visible; why that matters is in
+[Why the draw is verifiable](../explanation/verifiability.md#threat-model-and-limits).
 
 ## Verification
 

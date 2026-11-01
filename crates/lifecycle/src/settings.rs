@@ -1,5 +1,5 @@
 //! What a raffle's settings and prizes may hold, and which of them are fixed
-//! once an entrant has accepted them.
+//! once a real entrant is in under them.
 
 use crate::{
     dates::{self, DAY_SECS, Date},
@@ -175,7 +175,7 @@ impl<'a> Settings<'a> {
         )
     }
 
-    /// The fields that lock once an entrant has accepted the rules.
+    /// The fields that lock once a real entrant is in ([`rules_editable`]).
     pub fn fixed(&self) -> Fixed<'a> {
         Fixed {
             rules: self.rules,
@@ -224,8 +224,9 @@ impl ErasureDates {
     }
 }
 
-/// The settings that are fixed once a real entrant has accepted the rules:
-/// what the join form and the notices showed them.
+/// The settings that are fixed once a real entrant is in
+/// ([`rules_editable`]): what the join form and the notices showed them, or
+/// what the organizer added someone under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fixed<'a> {
     pub rules: &'a str,
@@ -356,16 +357,17 @@ pub fn prize_qty(qty: u32) -> bool {
 }
 
 /// Whether a raffle's fixed settings ([`Fixed`]) can still change, given
-/// its entrants' sources: not once anyone has accepted them
-/// ([`Source::accepted_rules`]). Fakes don't count, so a rehearsal leaves
-/// them editable.
+/// its entrants' sources: not once anyone entered under them
+/// ([`Source::locks_settings`]: people who joined and people the organizer
+/// added). Fakes don't count, so a rehearsal leaves them editable.
 pub fn rules_editable(entrants: impl IntoIterator<Item = Source>) -> bool {
-    !entrants.into_iter().any(Source::accepted_rules)
+    !entrants.into_iter().any(Source::locks_settings)
 }
 
-/// What a raffle still needs before registration can open: the privacy
-/// notice must name a controller and a way to reach them. Empty when it may
-/// open.
+/// What a raffle still needs before registration can open, or before a
+/// raffle without registration freezes from Published (where no opening
+/// asked): the privacy notice must name a controller and a way to reach
+/// them. Empty when it may.
 pub fn missing_for_open(
     organizer_name: &str,
     contact_email: &str,

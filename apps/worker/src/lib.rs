@@ -201,9 +201,11 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     };
     match server::service::housekeeping::run(&state).await {
         Ok(report) => worker::console_log!(
-            "rafi: housekeeping: {} raffles expired, {} entrants erased, {} raffles purged, {} live channels ended",
+            "rafi: housekeeping: {} raffles expired, {} entrants erased ({} who took themselves off), {} removals at their request forgotten, {} raffles purged, {} live channels ended",
             report.expired,
             report.erased,
+            report.objected,
+            report.removals_forgotten,
             report.purged,
             report.channels_ended
         ),

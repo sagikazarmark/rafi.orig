@@ -2,10 +2,11 @@
 
 **Live, verifiable raffles for meetups.**
 
-Attendees scan a QR code and join on their phone with a display name and email. There's no app to install and no
-account to create. The organizer draws each prize live on the projector. Every draw commits to public
-[drand](https://drand.love) randomness *before that randomness exists*, so nobody, the organizer included, can
-predict or steer a result. Anyone can re-run every draw afterwards.
+Attendees scan a QR code and join on their phone with a display name and email, or the organizer adds them, one by
+one or from the event's guest list. There's no app to install and no account to create. The organizer draws each
+prize live on the projector. Every draw commits to public [drand](https://drand.love) randomness *before that
+randomness exists*, so nobody, the organizer included, can predict or steer a result. Anyone can re-run every draw
+afterwards.
 
 ## Why
 
@@ -25,19 +26,20 @@ email, a claim code.
 
 ```mermaid
 flowchart LR
-    A["Set up<br/>prizes, rules"] --> B["Doors open<br/>QR code on the projector,<br/>attendees join"]
+    A["Set up<br/>prizes, rules,<br/>your guest list"] --> B["Doors open<br/>QR code on the projector,<br/>attendees join"]
     B --> C["Start the draw<br/>the entrant list is<br/>frozen and published"]
     C --> D["Draw each prize<br/>countdown to a drand round,<br/>winner on screen"]
     D --> E["Finish<br/>thanks screen,<br/>anyone can verify"]
 ```
 
-There are four screens:
+There are four screens. Joining with the QR code is a setting: switched off, the draw is among the people the
+organizer added, and the projector shows no QR code.
 
 | Screen | Path | |
 |---|---|---|
 | **Projector** | `/s/<slug>` | Intro, prizes, QR code, live entrant count, countdown, winner reveal. Never shows emails or admin controls. |
 | **Participant page** | `/j/<CODE>` | Server-rendered, so it works on bad venue wifi. It shows "YOU WON!" with a private claim code. |
-| **Organizer admin** | `/admin` | Raffles, prizes, people without a smartphone, the draw console (Draw / Claimed / Not here / Declined), CSV export |
+| **Organizer admin** | `/admin` | Raffles, prizes, adding people (one by one, or a guest list pasted or uploaded), the draw console (Draw / Claimed / Not here / Declined), CSV export |
 | **Verification** | `/v/<slug>` | Re-runs every draw in the browser. [`tools/verify.py`](tools/verify.py) does the same independently. |
 
 ## Why you can trust the draw

@@ -34,6 +34,7 @@ fn draw(id: &str, prize: &str, outcome: DrawOutcome) -> DrawInput {
         prize_name: prize.into(),
         outcome,
         sent_later: false,
+        no_phone: false,
     }
 }
 
@@ -315,7 +316,7 @@ fn between_draws_for_an_entrant_and_a_visitor() {
     let entrant = Case::new(Phase::Drawing, None, draws()).me("x");
     let html = entrant.render();
     single_root(&html, CARD);
-    assert!(html.contains("🎉 Name a → Book"), "{html}");
+    assert!(html.contains("🎉 <bdi>Name a</bdi> → Book"), "{html}");
     assert!(
         !html.contains("Name c"),
         "the no-show isn't celebrated: {html}"
@@ -330,7 +331,7 @@ fn between_draws_for_an_entrant_and_a_visitor() {
     ));
     let html = visitor.render();
     single_root(&html, CARD);
-    assert!(html.contains("🎉 Name a → Book"), "{html}");
+    assert!(html.contains("🎉 <bdi>Name a</bdi> → Book"), "{html}");
     assert!(html.contains(">[drawing]<"), "{html}");
     assert!(!html.contains("[not_this_time]"), "{html}");
 }

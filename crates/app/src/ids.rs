@@ -19,6 +19,21 @@ pub fn code(len: usize) -> String {
     crate::codes::from_bytes(&random_bytes::<16>(), len)
 }
 
+/// A claim code that isn't in `taken`, which then holds it: 4 characters
+/// (31⁴, about 920 000), or 6 if a few tries don't find a free one. Unique
+/// within a raffle, so a code names one entrant at the stage; `taken` is the
+/// raffle's codes, read once for any number of new entrants.
+pub fn code_besides(taken: &mut std::collections::HashSet<String>) -> String {
+    let mut tries = 0;
+    loop {
+        let code = code(if tries < 50 { 4 } else { 6 });
+        tries += 1;
+        if taken.insert(code.clone()) {
+            return code;
+        }
+    }
+}
+
 /// A random generated display name, like "Brave Otter"
 /// ([`rafi_lifecycle::entrant::generated_name`]).
 pub fn generated_name() -> String {
@@ -77,6 +92,14 @@ pub fn token_hash(token: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn claim_codes_are_unique_within_a_raffle() {
+        let mut taken = std::collections::HashSet::new();
+        let codes: Vec<String> = (0..3000).map(|_| super::code_besides(&mut taken)).collect();
+        assert_eq!(taken.len(), 3000, "every one new");
+        assert!(codes.iter().all(|c| taken.contains(c)));
+    }
+
     #[test]
     fn slugs() {
         let s = super::slug("KCD Budapest Meetup #3!");

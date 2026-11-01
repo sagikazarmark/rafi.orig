@@ -35,12 +35,12 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 | Layer | Tests |
 |---|---|
 | `rafi-raffle` | Unit, property and vector tests. They include a chi-square bias test of the selection, and properties that whatever `Raffle::admit` allows, the engine can apply. |
-| `rafi-lifecycle` | The lifecycle's rules, including an exhaustive table for starting the draw (`start::next`) |
+| `rafi-lifecycle` | The lifecycle's rules, including exhaustive tables for its transitions and for starting the draw (`start::next`), with registration and without |
 | `rafi-store` | The [storage conformance suite](#storage-conformance) on every backend |
 | `rafi-engine`, `rafi-engine-restate` | The [engine conformance suite](#engine-conformance), on the local runner and on the `Raffle` object |
 | `rafi-app` | Use-case tests ([`crates/app/tests/use_cases.rs`](../../crates/app/tests/use_cases.rs)) |
 | `rafi-server` | HTTP tests, and an end-to-end test of the app, `rafi-restate` and `restate-server` on one database |
-| `rafi-web` | The router, server-rendered natively at a path (`dioxus-ssr`, a `MemoryHistory`): the admin refuses to render inside a frame. Only pages that touch no browser API on their first render can be rendered so; the rest are the evening's |
+| `rafi-web` | The router, server-rendered natively at a path (`dioxus-ssr`, a `MemoryHistory`): the admin refuses to render inside a frame. Only pages that touch no browser API on their first render can be rendered so; the rest are the evening's. The list tab's parser, column detection and preview, on export fixtures (`apps/web/fixtures/import`), and the tab's static state; a person's row in the People tab; parts of the evening that need no browser: the projector's intro (with registration and without, a list added or not) and "Come to the front!" at the reveal, the draw console's winner (the masked email, "added by you", the check to make) and its "Confirmed: it's them", the freeze's reminder, the verification page's source counts |
 | `tools/verify.py` | The same vectors as the Rust code ([`testdata/draw-vectors.json`](../../testdata/draw-vectors.json), from real quicknet beacons) |
 | Workers | [`./scripts/workers-check.sh`](#workers) |
 
@@ -111,7 +111,10 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 - the participant page in headless Chromium (devenv's on Linux, or `CHROMIUM=…`), the fallback included
 - a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
   through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), the live channel,
-  the end; the security headers of each kind of page and of a static file; and every tab (the phone, the
+  the end; the verification page's counts by source; a 64-character name the organizer added from a list, in a
+  raffle of its own, the projector telling registered people they're in and calling the winner to the front,
+  fitting a projector-sized screen without scrolling sideways in the recent names, at the reveal and on the thanks screen; the security headers of
+  each kind of page and of a static file; and every tab (the phone, the
   projector, the admin, the verification page, a phone without WebAssembly) listens for Content-Security-Policy
   violations, enforced or reported, one of which fails the run. The admin is also reloaded, revalidating its page
   (a 304), and must still refuse an inline script. It runs under dev auth, so Clerk's part of the web app's policy

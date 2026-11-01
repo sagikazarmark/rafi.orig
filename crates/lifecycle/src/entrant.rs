@@ -31,17 +31,74 @@ impl Source {
         }
     }
 
-    /// Whether an entrant from this source accepted the raffle's rules:
-    /// everyone but fakes (the organizer vouches for people added by hand).
-    /// Once anyone has, the rules are fixed
-    /// ([`rules_editable`](crate::settings::rules_editable)).
-    pub fn accepted_rules(self) -> bool {
-        !matches!(self, Self::Fake)
+    /// Whether an entrant from this source fixes the raffle's rules, event
+    /// date and retention ([`rules_editable`](crate::settings::rules_editable)):
+    /// what they entered under must stay what the raffle says. Someone who
+    /// joined accepted them on the form; someone the organizer added accepted
+    /// nothing (no consent is recorded for them), but was entered under them
+    /// on the organizer's word, and may have been told them. Fakes are a
+    /// rehearsal's and fix nothing. Exhaustive, so a new source has to decide.
+    pub fn locks_settings(self) -> bool {
+        match self {
+            Self::SelfService | Self::Manual => true,
+            Self::Fake => false,
+        }
+    }
+
+    /// Whether removing an entrant from here at their request (before the
+    /// freeze) is remembered, so that a later add of the organizer's leaves
+    /// them out unless the organizer lifts it for that row: anyone real, a
+    /// joiner who asks too, since the list the organizer adds next may have
+    /// them. A fake is nobody to remember. Exhaustive, so a new source has
+    /// to decide.
+    pub fn removal_remembered(self) -> bool {
+        match self {
+            Self::SelfService | Self::Manual => true,
+            Self::Fake => false,
+        }
+    }
+
+    /// Whether an entrant from here can take themselves off after the
+    /// freeze ([`may_object`]): someone the organizer added, who accepted
+    /// nothing and is in on the organizer's legitimate interest, which they
+    /// may object to (GDPR Art. 21). Someone who joined accepted the rules,
+    /// and sharing their entry with the event until the finish is one of
+    /// them; a fake is nobody. Exhaustive, so a new source has to decide.
+    pub fn may_object(self) -> bool {
+        match self {
+            Self::Manual => true,
+            Self::SelfService | Self::Fake => false,
+        }
+    }
+
+    /// Whether a winner from here has no phone in the raffle: nothing tells
+    /// them they won, and they have no claim code to show. Someone the
+    /// organizer added: the projector calls them to the front, and the draw
+    /// console has the organizer check it is them (the email they
+    /// registered with, their badge) and confirm it, instead of comparing a
+    /// code. A joiner's phone says "YOU WON!" and shows the code; a fake
+    /// stands in for a joiner in a rehearsal. Exhaustive, so a new source
+    /// has to decide.
+    pub fn no_phone(self) -> bool {
+        match self {
+            Self::Manual => true,
+            Self::SelfService | Self::Fake => false,
+        }
     }
 }
 
-/// The longest display name, in characters.
+/// The longest display name someone gives themselves when they join, in
+/// characters ([`display_name`]). It keeps a joiner from filling the
+/// projector: anyone with the QR code can type anything there.
 pub const MAX_NAME_CHARS: usize = 24;
+
+/// The longest display name the organizer gives, in characters
+/// ([`added_name`]): the people they add (one or a list) and any entrant
+/// they rename. A registration list holds full names, often longer than a
+/// joiner's limit, and a name shortened in the database would be less
+/// recognizable to the winner and lost for good; the organizer's own list
+/// is no troll's, and the screens fit long names instead.
+pub const MAX_ADDED_NAME_CHARS: usize = 64;
 
 /// The longest email address, in characters (RFC 5321's path limit).
 pub const MAX_EMAIL_CHARS: usize = 254;
@@ -56,10 +113,13 @@ const BLOCKED: &[&str] = &[
 /// Why a display name is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameError {
-    /// Empty, longer than [`MAX_NAME_CHARS`], with control or invisible
-    /// characters, or without a single letter or digit.
+    /// Empty, longer than its limit ([`MAX_NAME_CHARS`] for a joiner,
+    /// [`MAX_ADDED_NAME_CHARS`] for the organizer), with control or
+    /// invisible characters, or without a single letter or digit.
     Invalid,
-    /// Contains a blocked word.
+    /// Contains a blocked word, and is otherwise fine: only this one the
+    /// organizer can approve ([`added_name_approved`]), since the
+    /// blocklist's substring matching catches real names too.
     Blocked,
 }
 
@@ -106,15 +166,63 @@ pub fn legible(text: &str) -> bool {
         && text.chars().any(char::is_alphanumeric)
 }
 
-/// The display name `input` stands for, with its whitespace collapsed.
+/// The display name `input` stands for, as someone joining gives it: in
+/// Unicode's composed form (NFC), with its whitespace collapsed, at most
+/// [`MAX_NAME_CHARS`] characters, legible ([`legible`]) and without a
+/// blocked word.
+///
+/// Composed first, so the characters counted and the names compared are
+/// the ones a reader sees: "Á" typed as `A` and a combining acute (as some
+/// keyboards and exports write it) is one character, and the same name as
+/// the precomposed "Á", not a second, longer spelling of it.
 pub fn display_name(input: &str) -> Result<String, NameError> {
-    let name = input.split_whitespace().collect::<Vec<_>>().join(" ");
+    name_within(input, MAX_NAME_CHARS, true)
+}
+
+/// The display name `input` stands for, as the organizer gives it (adding
+/// someone, or renaming any entrant): at most [`MAX_ADDED_NAME_CHARS`]
+/// characters, every other rule [`display_name`]'s. The longer limit is the
+/// only difference: the blocklist and the invisible characters guard the
+/// screen against mistakes and pasted junk as much as against trolls.
+pub fn added_name(input: &str) -> Result<String, NameError> {
+    name_within(input, MAX_ADDED_NAME_CHARS, true)
+}
+
+/// [`added_name`] for a name the organizer approved: one the blocklist
+/// refuses ([`NameError::Blocked`]) yet is someone's real name. Its
+/// substring matching can't tell "Nazir", "Buzinkay" or "Shitara" from what
+/// it is there for, and the organizer can: the approval lifts the blocklist
+/// and nothing else. The length, the legibility and the invisible
+/// characters still hold, since they guard the screen against what no
+/// approval makes right (a name that looks like another, or like nothing).
+/// Never [`NameError::Blocked`].
+pub fn added_name_approved(input: &str) -> Result<String, NameError> {
+    name_within(input, MAX_ADDED_NAME_CHARS, false)
+}
+
+/// `input` in Unicode's composed form (NFC), with its whitespace collapsed
+/// to single spaces and trimmed: the spelling every display name is
+/// compared and counted in ([`display_name`]).
+pub(crate) fn tidy(input: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    input
+        .nfc()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// [`display_name`]'s rules, with at most `max` characters, and the
+/// blocklist if `blocklist`.
+fn name_within(input: &str, max: usize, blocklist: bool) -> Result<String, NameError> {
+    let name = tidy(input);
     let len = name.chars().count();
-    if len == 0 || len > MAX_NAME_CHARS || !legible(&name) {
+    if len == 0 || len > max || !legible(&name) {
         return Err(NameError::Invalid);
     }
     let lower = name.to_lowercase();
-    if BLOCKED.iter().any(|w| lower.contains(w)) {
+    if blocklist && BLOCKED.iter().any(|w| lower.contains(w)) {
         return Err(NameError::Blocked);
     }
     Ok(name)
@@ -264,15 +372,25 @@ pub struct Email {
 }
 
 impl Email {
-    /// Parses an address, or `None` if it is obviously malformed or longer
-    /// than [`MAX_EMAIL_CHARS`].
+    /// Parses an address, or `None` if it is obviously malformed, longer
+    /// than [`MAX_EMAIL_CHARS`], or has whitespace, control or invisible
+    /// characters ([`is_invisible`]) in it.
+    ///
+    /// The unseen ones are refused as in a display name: an address with a
+    /// zero-width space is another key for the same-looking mailbox (a second
+    /// entry), a bidirectional control makes it read differently in the admin
+    /// and the winners' export, and neither is in any address mail reaches.
     ///
     /// The key is lowercased, drops a `+tag`, and for Gmail drops dots and
     /// maps `googlemail.com` to `gmail.com`: the spellings of one mailbox
     /// make one entrant.
     pub fn parse(input: &str) -> Option<Self> {
         let raw = input.trim();
-        if raw.chars().count() > MAX_EMAIL_CHARS {
+        if raw.chars().count() > MAX_EMAIL_CHARS
+            || raw
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control() || is_invisible(c))
+        {
             return None;
         }
         Some(Self {
@@ -293,7 +411,7 @@ fn key(email: &str) -> Option<String> {
     {
         return None;
     }
-    if email.chars().any(char::is_whitespace) || local.contains('@') {
+    if local.contains('@') {
         return None;
     }
     let local = local.split('+').next().unwrap_or(local);
@@ -362,6 +480,243 @@ pub fn fakes(test_mode: bool, state: RaffleState, requested: u32) -> Result<u32,
     Ok(requested.min(MAX_FAKES))
 }
 
+/// Where an organizer's add comes from: the one-person form, or a list. Both
+/// add people the organizer vouches for ([`Source::Manual`]) through the same
+/// batch; they differ in when the raffle takes them ([`Origin::admits`]) and
+/// in how the names reach the projector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Origin {
+    /// One person, typed in by the organizer.
+    One,
+    /// A list of people (pasted or uploaded), in its order.
+    List,
+}
+
+impl Origin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::One => "one",
+            Self::List => "list",
+        }
+    }
+
+    /// Whether an add from here goes into a raffle in `state`: while the
+    /// entrant list can change, and for a list once the raffle is published,
+    /// since the paragraph the organizer sends its people links the rules
+    /// and the privacy notice, which a draft doesn't serve yet.
+    pub fn admits(self, state: RaffleState) -> bool {
+        state.entrants_editable() && (self == Self::One || state.is_public())
+    }
+
+    /// Whether an add from here goes into a raffle in test mode. A list
+    /// doesn't: a rehearsal's draws are public, and it has fake entrants to
+    /// rehearse with; real people from a list would be drawn in it.
+    pub fn admits_test_mode(self) -> bool {
+        self == Self::One
+    }
+}
+
+/// The most rows one add takes. A longer list is added in parts, each all
+/// or nothing: it bounds the request's size, the rows checked at once and
+/// the statements of its batch.
+pub const MAX_ADD_ROWS: usize = 2000;
+
+/// The longest batch ID, in characters.
+pub const MAX_BATCH_ID_CHARS: usize = 64;
+
+/// Whether `id` can name an add: 1 to [`MAX_BATCH_ID_CHARS`] ASCII letters,
+/// digits, `-` or `_`. The browser makes it at random for each add and sends
+/// it again on a retry, so a retried add is recognized and undone by it; it
+/// is written to the audit log, so it can't carry anything but an ID.
+pub fn batch_id(id: &str) -> bool {
+    (1..=MAX_BATCH_ID_CHARS).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// The longest registration ID, in characters.
+pub const MAX_LIST_REF_CHARS: usize = 64;
+
+/// The registration ID `input` stands for (a row's ID in the organizer's
+/// registration system, which matches it on a later add), trimmed; `None`
+/// if it is empty, longer than [`MAX_LIST_REF_CHARS`], or has control or
+/// invisible characters ([`is_invisible`]): an unseen character would make
+/// a second ID that looks like the first.
+pub fn list_ref(input: &str) -> Option<String> {
+    let id = input.trim();
+    let len = id.chars().count();
+    ((1..=MAX_LIST_REF_CHARS).contains(&len)
+        && !id.chars().any(|c| c.is_control() || is_invisible(c)))
+    .then(|| id.to_owned())
+}
+
+/// Why the raffle doesn't take an add now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AddRefusal {
+    /// The entrant list is frozen.
+    Frozen,
+    /// The erasure date has passed: the raffle expires within the hour, and
+    /// its entrants with it.
+    ErasureDatePassed,
+    /// A list goes into a published raffle only ([`Origin::admits`]).
+    Unpublished,
+    /// A list doesn't go into a raffle in test mode
+    /// ([`Origin::admits_test_mode`]).
+    TestMode,
+}
+
+/// Whether a raffle in `state`, in test mode or not, before or past its
+/// erasure date, takes an add from `origin`. The store checks the same in
+/// the add's own SQL, so nothing lands after a freeze in between.
+pub fn may_add(
+    origin: Origin,
+    state: RaffleState,
+    test_mode: bool,
+    past_erase_date: bool,
+) -> Result<(), AddRefusal> {
+    if !state.entrants_editable() {
+        return Err(AddRefusal::Frozen);
+    }
+    if past_erase_date {
+        return Err(AddRefusal::ErasureDatePassed);
+    }
+    if !origin.admits(state) {
+        return Err(AddRefusal::Unpublished);
+    }
+    if test_mode && !origin.admits_test_mode() {
+        return Err(AddRefusal::TestMode);
+    }
+    Ok(())
+}
+
+/// What is wrong with a row of an add. An add with any is refused whole,
+/// with each row's problem, so the organizer fixes them and sends it again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RowError {
+    /// Not a display name the organizer may give ([`added_name`],
+    /// [`NameError::Invalid`]).
+    Name,
+    /// A display name with a blocked word ([`NameError::Blocked`]), not
+    /// approved: the organizer can approve it ([`RowInput::approved`]) if
+    /// it is someone's real name.
+    BlockedName,
+    /// Not an email address ([`Email::parse`]).
+    Email,
+    /// Not a registration ID ([`list_ref`]).
+    ListRef,
+    /// An earlier row of the same add has this email ([`Email::key`]).
+    DuplicateEmail,
+    /// An earlier row of the same add has this registration ID.
+    DuplicateListRef,
+    /// Someone in the raffle is already shown with this display name
+    /// ([`name_key`](crate::names::name_key)): two people on the screen
+    /// with one name couldn't tell who won
+    /// ([`name_clashes`](crate::names::name_clashes)).
+    NameTaken,
+    /// An earlier row of the same add, one that is added, is shown with
+    /// this display name.
+    DuplicateName,
+}
+
+/// One row of an add, as the organizer sent it: a name ([`added_name`]: up
+/// to [`MAX_ADDED_NAME_CHARS`] characters), an email and a registration ID,
+/// either blank for none, and whether the organizer approved a name the
+/// blocklist refuses.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RowInput<'a> {
+    pub name: &'a str,
+    pub email: Option<&'a str>,
+    pub list_ref: Option<&'a str>,
+    /// The organizer approved the name though the blocklist refuses it
+    /// ([`added_name_approved`]): it lifts the blocklist only.
+    pub approved: bool,
+}
+
+/// A row of an add, checked: what the store is given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddedRow {
+    pub name: String,
+    pub email: Option<Email>,
+    pub list_ref: Option<String>,
+    /// Its name is in only because the organizer approved it: the
+    /// blocklist refuses it ([`RowInput::approved`]). An approval of a name
+    /// the blocklist takes anyway approves nothing, and isn't one.
+    pub approved: bool,
+}
+
+/// One row of an add, checked ([`RowInput`]).
+pub fn added_row(row: RowInput<'_>) -> Result<AddedRow, RowError> {
+    let (name, approved) = match added_name(row.name) {
+        Ok(name) => (name, false),
+        Err(NameError::Blocked) if row.approved => (
+            added_name_approved(row.name).map_err(|_| RowError::Name)?,
+            true,
+        ),
+        Err(NameError::Blocked) => return Err(RowError::BlockedName),
+        Err(NameError::Invalid) => return Err(RowError::Name),
+    };
+    let email = match row.email.map(str::trim).filter(|e| !e.is_empty()) {
+        Some(e) => Some(Email::parse(e).ok_or(RowError::Email)?),
+        None => None,
+    };
+    let list_ref = match row.list_ref.filter(|r| !r.trim().is_empty()) {
+        Some(r) => Some(self::list_ref(r).ok_or(RowError::ListRef)?),
+        None => None,
+    };
+    Ok(AddedRow {
+        name,
+        email,
+        list_ref,
+        approved,
+    })
+}
+
+/// The rows of an add, checked ([`added_row`]), or every row's problem by
+/// its index: a row whose email key or registration ID an earlier row has
+/// is a duplicate, since one add can't say which of the two is meant.
+/// Whether their display names are unique depends on who is in the raffle
+/// and which rows it already has: [`name_clashes`](crate::names::name_clashes).
+pub fn added_rows<'a>(
+    rows: impl IntoIterator<Item = RowInput<'a>>,
+) -> Result<Vec<AddedRow>, Vec<(usize, RowError)>> {
+    let mut emails = std::collections::HashSet::new();
+    let mut refs = std::collections::HashSet::new();
+    let mut checked = Vec::new();
+    let mut problems = Vec::new();
+    for (i, input) in rows.into_iter().enumerate() {
+        let row = added_row(input).and_then(|row| {
+            if row
+                .email
+                .as_ref()
+                .is_some_and(|e| !emails.insert(e.key.clone()))
+            {
+                return Err(RowError::DuplicateEmail);
+            }
+            if row
+                .list_ref
+                .as_ref()
+                .is_some_and(|r| !refs.insert(r.clone()))
+            {
+                return Err(RowError::DuplicateListRef);
+            }
+            Ok(row)
+        });
+        match row {
+            Ok(row) => checked.push(row),
+            Err(e) => problems.push((i, e)),
+        }
+    }
+    if problems.is_empty() {
+        Ok(checked)
+    } else {
+        Err(problems)
+    }
+}
+
 /// How an entrant is removed ([`RaffleState::removal`](crate::RaffleState::removal)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -371,6 +726,67 @@ pub enum Removal {
     /// Their personal data is erased; their anonymous ID stays in the
     /// published list, so the draw stays verifiable.
     Erase,
+}
+
+/// Why an entrant can't take themselves off ([`may_object`]), or be put
+/// back ([`may_unobject`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectionRefusal {
+    /// The raffle isn't between the freeze and its end
+    /// ([`RaffleState::objections_allowed`]): before the freeze they are
+    /// removed at their request instead; once it is over, their data is
+    /// erased on request.
+    State,
+    /// They joined themselves, accepting the rules, or are a fake
+    /// ([`Source::may_object`]).
+    Source,
+    /// They claimed a prize: the result stands, and their data can be
+    /// erased on request once the raffle is over.
+    Claimed,
+}
+
+/// Whether an entrant from `source`, who claimed a prize or not, can take
+/// themselves off a raffle in `state`: someone the organizer added, from
+/// the freeze until the raffle is over. Their anonymous ID stays in the
+/// manifest (removing it would break the verification); their name is
+/// hidden, a draw that picks them can only be declined
+/// ([`objected_may_be`]), and their data is erased when the raffle is over
+/// rather than on the erasure date. Too late once they claimed a prize: a
+/// claim is the draw's result, and isn't undone.
+pub fn may_object(
+    state: RaffleState,
+    source: Source,
+    claimed: bool,
+) -> Result<(), ObjectionRefusal> {
+    if !state.objections_allowed() {
+        return Err(ObjectionRefusal::State);
+    }
+    if !source.may_object() {
+        return Err(ObjectionRefusal::Source);
+    }
+    if claimed {
+        return Err(ObjectionRefusal::Claimed);
+    }
+    Ok(())
+}
+
+/// Whether someone who took themselves off a raffle in `state` can be put
+/// back (the organizer's mistake undone): until the raffle is over, when
+/// their data is erased.
+pub fn may_unobject(state: RaffleState) -> Result<(), ObjectionRefusal> {
+    if state.objections_allowed() {
+        Ok(())
+    } else {
+        Err(ObjectionRefusal::State)
+    }
+}
+
+/// Whether a drawn winner who took themselves off may be resolved so:
+/// declined only. They said they don't take part, so they claim nothing,
+/// and "Not here" would record an absence that isn't what happened.
+pub fn objected_may_be(resolution: rafi_raffle::Resolution) -> bool {
+    resolution == rafi_raffle::Resolution::Declined
 }
 
 #[cfg(test)]
@@ -398,6 +814,189 @@ mod tests {
         assert_eq!(fakes(true, S::Draft, MAX_FAKES + 1), Ok(MAX_FAKES));
         assert_eq!(fakes(false, S::Open, 3), Err(FakesRefusal::NotTestMode));
         assert_eq!(fakes(true, S::Frozen, 3), Err(FakesRefusal::Frozen));
+    }
+
+    /// Only someone the organizer added has no phone to tell them they
+    /// won: a joiner's says so, and a fake stands in for a joiner.
+    #[test]
+    fn who_has_no_phone() {
+        let no_phone: Vec<Source> = Source::ALL.into_iter().filter(|s| s.no_phone()).collect();
+        assert_eq!(no_phone, [Source::Manual]);
+    }
+
+    #[test]
+    fn who_takes_an_add() {
+        use Origin::{List, One};
+        for s in S::ALL {
+            let editable = s.entrants_editable();
+            assert_eq!(One.admits(s), editable, "{s:?}");
+            assert_eq!(List.admits(s), editable && s != S::Draft, "{s:?}");
+        }
+        assert_eq!(may_add(One, S::Draft, true, false), Ok(()));
+        assert_eq!(may_add(List, S::Open, false, false), Ok(()));
+        assert_eq!(
+            may_add(List, S::Draft, false, false),
+            Err(AddRefusal::Unpublished)
+        );
+        assert_eq!(
+            may_add(List, S::Ready, true, false),
+            Err(AddRefusal::TestMode)
+        );
+        assert_eq!(
+            may_add(One, S::Closed, false, true),
+            Err(AddRefusal::ErasureDatePassed)
+        );
+        for frozen in [S::Frozen, S::Drawing, S::Finished, S::Purged] {
+            for origin in [One, List] {
+                assert_eq!(
+                    may_add(origin, frozen, false, false),
+                    Err(AddRefusal::Frozen),
+                    "frozen first: {origin:?} {frozen:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn batch_ids() {
+        for good in [
+            "a",
+            "0f3c9a1e-77b2-4f43-9d3a-2c1b5e6f7a80",
+            "A_b-9",
+            &"x".repeat(64),
+        ] {
+            assert!(batch_id(good), "{good:?}");
+        }
+        for bad in ["", "a b", "a/b", "anna@x.org", "é", &"x".repeat(65)] {
+            assert!(!batch_id(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn registration_ids() {
+        assert_eq!(list_ref("  TCK-0042 ").as_deref(), Some("TCK-0042"));
+        assert_eq!(list_ref("Order #12 / 3").as_deref(), Some("Order #12 / 3"));
+        assert_eq!(
+            list_ref(&"é".repeat(64)).map(|r| r.chars().count()),
+            Some(64)
+        );
+        for bad in [
+            "",
+            "   ",
+            "a\u{200B}b",
+            "a\tb",
+            "\u{202E}1",
+            &"x".repeat(65),
+        ] {
+            assert_eq!(list_ref(bad), None, "{bad:?}");
+        }
+    }
+
+    /// A row as the tests write it: name, email, registration ID.
+    fn row<'a>(name: &'a str, email: Option<&'a str>, list_ref: Option<&'a str>) -> RowInput<'a> {
+        RowInput {
+            name,
+            email,
+            list_ref,
+            approved: false,
+        }
+    }
+
+    #[test]
+    fn rows_of_an_add() {
+        let added = added_row(row(" Anna  K. ", Some(" Anna@X.org "), Some(" 7 "))).unwrap();
+        assert_eq!(added.name, "Anna K.");
+        assert_eq!(added.email.map(|e| e.key).as_deref(), Some("anna@x.org"));
+        assert_eq!(added.list_ref.as_deref(), Some("7"));
+        assert!(!added.approved);
+        let long = "x".repeat(MAX_ADDED_NAME_CHARS);
+        assert_eq!(added_row(row(&long, None, None)).map(|r| r.name), Ok(long));
+        assert_eq!(
+            added_row(row(&"x".repeat(MAX_ADDED_NAME_CHARS + 1), None, None)),
+            Err(RowError::Name),
+            "the organizer's limit, not a joiner's"
+        );
+        let blank = added_row(row("Bence", Some("  "), Some(""))).unwrap();
+        assert_eq!((blank.email, blank.list_ref), (None, None), "blank is none");
+        assert_eq!(added_row(row("", None, None)), Err(RowError::Name));
+        assert_eq!(
+            added_row(row("Kurva", None, None)),
+            Err(RowError::BlockedName)
+        );
+        assert_eq!(
+            added_row(row("Anna", Some("anna"), None)),
+            Err(RowError::Email)
+        );
+        assert_eq!(
+            added_row(row("Anna", None, Some("a\u{200B}"))),
+            Err(RowError::ListRef)
+        );
+
+        assert_eq!(
+            added_rows([
+                row("Anna", Some("anna@x.org"), Some("1")),
+                row("Bence", None, None),
+                row("Csilla", None, None),
+            ])
+            .map(|rows| rows.len()),
+            Ok(3),
+            "people without an email or an ID are fine, twice too"
+        );
+        assert_eq!(
+            added_rows([
+                row("Anna", Some("anna@x.org"), Some("1")),
+                row("", None, None),
+                row("Anna 2", Some("ANNA+x@x.org"), None),
+                row("Dora", None, Some("1")),
+                row("Emil", Some("bad"), None),
+            ]),
+            Err(vec![
+                (1, RowError::Name),
+                (2, RowError::DuplicateEmail),
+                (3, RowError::DuplicateListRef),
+                (4, RowError::Email),
+            ]),
+            "every row's problem, by index; the later of two is the duplicate"
+        );
+    }
+
+    /// The blocklist's substring matching catches real names; the organizer
+    /// approves them row by row, which lifts the blocklist and nothing else.
+    #[test]
+    fn approved_names() {
+        let approved = |name| RowInput {
+            name,
+            approved: true,
+            ..RowInput::default()
+        };
+        for real in ["Nazir Ahmed", "Buzinkay Gábor", "Shitara Ken"] {
+            assert_eq!(
+                added_row(row(real, None, None)),
+                Err(RowError::BlockedName),
+                "{real}: refused without the approval"
+            );
+            let added = added_row(approved(real)).unwrap();
+            assert_eq!(added.name, real);
+            assert!(added.approved, "{real}: in by the approval");
+            assert_eq!(added_name(real), Err(NameError::Blocked));
+            assert_eq!(added_name_approved(real).as_deref(), Ok(real));
+        }
+        let fine = added_row(approved("Anna Kovács")).unwrap();
+        assert!(
+            !fine.approved,
+            "approving a name the blocklist takes approves nothing"
+        );
+        // Every other rule holds, approved or not.
+        let long = format!("Nazir {}", "x".repeat(MAX_ADDED_NAME_CHARS));
+        for bad in ["", "Nazir\u{200B}", "\u{202E}Nazir", "★ ★ ★", &long] {
+            assert_eq!(added_row(approved(bad)), Err(RowError::Name), "{bad:?}");
+            assert_eq!(added_name_approved(bad), Err(NameError::Invalid), "{bad:?}");
+        }
+        assert_eq!(
+            added_rows([approved("Nazir"), row("Nazir Ali", None, None)]),
+            Err(vec![(1, RowError::BlockedName)]),
+            "an approval is the row's own"
+        );
     }
 
     #[test]
@@ -444,6 +1043,92 @@ mod tests {
         assert_eq!(key(&long), None, "too long");
     }
 
+    /// Nothing unseen in an address, as in a display name: a zero-width
+    /// space would make a second key for a mailbox that looks the same, a
+    /// bidirectional control would make it read differently.
+    #[test]
+    fn rejects_control_and_invisible_characters() {
+        for bad in [
+            "a\tb@x.com",
+            "a\u{0}b@x.com",
+            "a\u{7}b@x.com",
+            "ab@x.com\u{7f}",
+            "a\u{85}b@x.com",
+            "anna\u{200B}@x.com",
+            "anna@x\u{200D}.com",
+            "\u{202E}anna@x.com",
+            "anna@x.com\u{2066}",
+            "an\u{00AD}na@x.com",
+            "anna\u{FEFF}@x.com",
+            "anna@x.com\u{E0041}",
+            "a\u{3164}@x.com",
+            "a\u{00A0}b@x.com",
+        ] {
+            assert_eq!(Email::parse(bad), None, "{bad:?}");
+        }
+        // Around the address it is trimmed as before; letters beyond ASCII
+        // are fine.
+        assert_eq!(key("\tanna@x.com\n").as_deref(), Some("anna@x.com"));
+        assert_eq!(key("Árvíz@példa.hu").as_deref(), Some("árvíz@példa.hu"));
+    }
+
+    #[test]
+    fn what_locks_the_settings() {
+        assert!(Source::SelfService.locks_settings());
+        assert!(
+            Source::Manual.locks_settings(),
+            "accepted nothing, still entered under them"
+        );
+        assert!(!Source::Fake.locks_settings(), "a rehearsal's");
+    }
+
+    #[test]
+    fn removals_at_their_request_are_remembered_for_real_people() {
+        assert!(Source::SelfService.removal_remembered());
+        assert!(Source::Manual.removal_remembered());
+        assert!(!Source::Fake.removal_remembered());
+    }
+
+    /// Only someone the organizer added takes themselves off, between the
+    /// freeze and the end, and not once they claimed a prize.
+    #[test]
+    fn taking_oneself_off() {
+        for s in S::ALL {
+            let want = if s.objections_allowed() {
+                Ok(())
+            } else {
+                Err(ObjectionRefusal::State)
+            };
+            assert_eq!(may_object(s, Source::Manual, false), want, "{s:?}");
+            assert_eq!(may_unobject(s), want, "{s:?}");
+        }
+        for s in [S::Frozen, S::Drawing] {
+            assert_eq!(
+                may_object(s, Source::SelfService, false),
+                Err(ObjectionRefusal::Source),
+                "a joiner accepted the rules"
+            );
+            assert_eq!(
+                may_object(s, Source::Fake, false),
+                Err(ObjectionRefusal::Source)
+            );
+            assert_eq!(
+                may_object(s, Source::Manual, true),
+                Err(ObjectionRefusal::Claimed),
+                "a claim stands"
+            );
+        }
+        assert_eq!(
+            may_object(S::Open, Source::SelfService, true),
+            Err(ObjectionRefusal::State),
+            "the state first"
+        );
+        use rafi_raffle::Resolution as R;
+        assert!(objected_may_be(R::Declined));
+        assert!(!objected_may_be(R::Claimed));
+        assert!(!objected_may_be(R::NotHere));
+    }
+
     #[test]
     fn display_names() {
         assert_eq!(display_name("  Anna   K. ").as_deref(), Ok("Anna K."));
@@ -480,6 +1165,65 @@ mod tests {
         assert_eq!(display_name("Bence 🎉").as_deref(), Ok("Bence 🎉"));
         assert_eq!(display_name("Árvíztűrő").as_deref(), Ok("Árvíztűrő"));
         assert_eq!(display_name("李雷").as_deref(), Ok("李雷"));
+    }
+
+    /// A joiner gives up to 24 characters, the organizer up to 64, by the
+    /// same rules otherwise; counted after whitespace is collapsed.
+    #[test]
+    fn name_lengths() {
+        let joiner = "é".repeat(MAX_NAME_CHARS);
+        assert_eq!(display_name(&joiner).as_ref(), Ok(&joiner), "24 is fine");
+        assert_eq!(
+            display_name(&format!("{joiner}x")),
+            Err(NameError::Invalid),
+            "25 isn't, for a joiner"
+        );
+        assert_eq!(
+            added_name(&format!("{joiner}x")).map(|n| n.chars().count()),
+            Ok(MAX_NAME_CHARS + 1),
+            "it is for the organizer"
+        );
+
+        // A full name of 64 characters, as a registration list has it.
+        let full = "Maria Fernanda de los Ángeles García-López y Hernández Rodríguez";
+        assert_eq!(full.chars().count(), MAX_ADDED_NAME_CHARS);
+        assert_eq!(added_name(full).as_deref(), Ok(full));
+        assert_eq!(
+            added_name(&format!("  {}  ", full.replace(' ', "   "))).as_deref(),
+            Ok(full),
+            "whitespace collapses before counting"
+        );
+        assert_eq!(added_name(&format!("{full}s")), Err(NameError::Invalid));
+        assert_eq!(display_name(full), Err(NameError::Invalid));
+
+        // Every other rule holds at any length.
+        assert_eq!(added_name(""), Err(NameError::Invalid));
+        assert_eq!(added_name("Anna\u{200B}"), Err(NameError::Invalid));
+        assert_eq!(added_name("★ ★ ★"), Err(NameError::Invalid));
+        assert_eq!(added_name("Kurva Anna"), Err(NameError::Blocked));
+    }
+
+    /// Names are composed (NFC): a decomposed "Á" is one character, the
+    /// same name as the precomposed one, for joiners and the organizer.
+    #[test]
+    fn names_are_composed() {
+        let decomposed = "A\u{301}rpa\u{301}d";
+        assert_eq!(decomposed.chars().count(), 7);
+        assert_eq!(display_name(decomposed).as_deref(), Ok("Árpád"));
+        assert_eq!(added_name(decomposed).as_deref(), Ok("Árpád"));
+        // 24 letters with a combining accent each: 48 code points, 24
+        // characters once composed.
+        let accented = "e\u{301}".repeat(MAX_NAME_CHARS);
+        assert_eq!(
+            display_name(&accented).map(|n| n.chars().count()),
+            Ok(MAX_NAME_CHARS)
+        );
+        // A combining mark with nothing to compose with stays, and counts.
+        assert_eq!(
+            display_name("Zoe\u{0308}\u{0323}").map(|n| n.chars().count()),
+            Ok(4),
+            "an e with two marks: one composes with it, the other stays"
+        );
     }
 
     #[test]

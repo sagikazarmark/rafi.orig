@@ -7,7 +7,8 @@
 //! separate writes, each guarded by the state it expects and safe to repeat:
 //! close registration (the raffle freezes), read the now-fixed entrant list,
 //! store the manifest (or [unfreeze](crate::RaffleState::unfreeze) when
-//! nobody is left), open the raffle. [`next`] says which step a raffle is
+//! nobody is left), open the raffle. A raffle without registration freezes
+//! from Published (`Ready`): there was nothing to close. [`next`] says which step a raffle is
 //! at, so pressing "start" again picks up where an attempt stopped.
 
 use crate::RaffleState;
@@ -45,15 +46,27 @@ pub enum Refusal {
     FakeEntrants,
 }
 
-/// The next step for a raffle in `state`, with or without a stored manifest
-/// (`has_manifest`) and opened raffle (`opened`).
-pub fn next(state: RaffleState, has_manifest: bool, opened: bool) -> Result<Start, Refusal> {
+/// The next step for a raffle in `state`, with or without registration
+/// (`registration`), a stored manifest (`has_manifest`) and an opened raffle
+/// (`opened`).
+pub fn next(
+    state: RaffleState,
+    registration: bool,
+    has_manifest: bool,
+    opened: bool,
+) -> Result<Start, Refusal> {
     use crate::Command;
     match state {
-        from if from.apply(Command::Freeze).is_some() => Ok(Start::Freeze { from }),
-        // Whatever it froze from, it may reopen from closed.
+        from if from.apply(Command::Freeze, registration).is_some() => Ok(Start::Freeze { from }),
+        // Which state it froze from isn't stored: with registration, it may
+        // reopen from Closed whatever it was; without, Published is where
+        // its next freeze starts (one switched off in Closed included).
         RaffleState::Frozen if !opened && !has_manifest => Ok(Start::WriteManifest {
-            unfreeze_to: RaffleState::Closed,
+            unfreeze_to: if registration {
+                RaffleState::Closed
+            } else {
+                RaffleState::Ready
+            },
         }),
         RaffleState::Frozen if !opened => Ok(Start::Resend),
         RaffleState::Frozen | RaffleState::Drawing => Ok(Start::Started),
@@ -95,11 +108,29 @@ mod tests {
     #[test]
     fn freezes_from_open_or_closed() {
         assert_eq!(
-            next(S::Open, false, false),
+            next(S::Open, true, false, false),
             Ok(Start::Freeze { from: S::Open })
         );
         assert_eq!(
-            next(S::Closed, false, false),
+            next(S::Closed, true, false, false),
+            Ok(Start::Freeze { from: S::Closed })
+        );
+    }
+
+    #[test]
+    fn freezes_from_published_without_registration() {
+        assert_eq!(
+            next(S::Ready, false, false, false),
+            Ok(Start::Freeze { from: S::Ready })
+        );
+        assert_eq!(
+            next(S::Ready, true, false, false),
+            Err(Refusal::State(S::Ready)),
+            "with registration, it opens first"
+        );
+        // Switched off while closed: it freezes from there.
+        assert_eq!(
+            next(S::Closed, false, false, false),
             Ok(Start::Freeze { from: S::Closed })
         );
     }
@@ -107,35 +138,58 @@ mod tests {
     #[test]
     fn picks_up_where_an_attempt_stopped() {
         assert_eq!(
-            next(S::Frozen, false, false),
+            next(S::Frozen, true, false, false),
             Ok(Start::WriteManifest {
                 unfreeze_to: S::Closed
             })
         );
-        assert_eq!(next(S::Frozen, true, false), Ok(Start::Resend));
-        assert_eq!(next(S::Frozen, true, true), Ok(Start::Started));
-        assert_eq!(next(S::Drawing, true, true), Ok(Start::Started));
+        assert_eq!(
+            next(S::Frozen, false, false, false),
+            Ok(Start::WriteManifest {
+                unfreeze_to: S::Ready
+            })
+        );
+        assert_eq!(next(S::Frozen, true, true, false), Ok(Start::Resend));
+        assert_eq!(next(S::Frozen, true, true, true), Ok(Start::Started));
+        assert_eq!(next(S::Drawing, true, true, true), Ok(Start::Started));
     }
 
-    /// Every state, with and without a manifest and an opened raffle: the step, or
-    /// the refusal.
+    /// Every state, with and without registration, a manifest and an opened
+    /// raffle: the step, or the refusal. Wherever it unfreezes to, the
+    /// lifecycle can unfreeze to.
     #[test]
     fn every_combination() {
         for s in S::ALL {
-            for has_manifest in [false, true] {
-                for opened in [false, true] {
-                    let got = next(s, has_manifest, opened);
-                    let want = match s {
-                        S::Open | S::Closed => Ok(Start::Freeze { from: s }),
-                        S::Frozen if opened => Ok(Start::Started),
-                        S::Frozen if has_manifest => Ok(Start::Resend),
-                        S::Frozen => Ok(Start::WriteManifest {
-                            unfreeze_to: S::Closed,
-                        }),
-                        S::Drawing => Ok(Start::Started),
-                        _ => Err(Refusal::State(s)),
-                    };
-                    assert_eq!(got, want, "{s:?}, manifest {has_manifest}, opened {opened}");
+            for registration in [false, true] {
+                for has_manifest in [false, true] {
+                    for opened in [false, true] {
+                        let got = next(s, registration, has_manifest, opened);
+                        let want = match s {
+                            S::Open | S::Closed => Ok(Start::Freeze { from: s }),
+                            S::Ready if !registration => Ok(Start::Freeze { from: s }),
+                            S::Frozen if opened => Ok(Start::Started),
+                            S::Frozen if has_manifest => Ok(Start::Resend),
+                            S::Frozen => Ok(Start::WriteManifest {
+                                unfreeze_to: if registration { S::Closed } else { S::Ready },
+                            }),
+                            S::Drawing => Ok(Start::Started),
+                            _ => Err(Refusal::State(s)),
+                        };
+                        assert_eq!(
+                            got, want,
+                            "{s:?}, registration {registration}, manifest {has_manifest}, opened {opened}"
+                        );
+                        if let Ok(
+                            Start::Freeze { from: to } | Start::WriteManifest { unfreeze_to: to },
+                        ) = got
+                        {
+                            assert_eq!(
+                                S::Frozen.unfreeze(to),
+                                Some(to),
+                                "{s:?} unfreezes to {to:?}"
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -144,7 +198,10 @@ mod tests {
     #[test]
     fn refuses_elsewhere() {
         for s in [S::Draft, S::Ready, S::Finished, S::Purged] {
-            assert_eq!(next(s, false, false), Err(Refusal::State(s)));
+            assert_eq!(next(s, true, false, false), Err(Refusal::State(s)));
+        }
+        for s in [S::Draft, S::Finished, S::Purged] {
+            assert_eq!(next(s, false, false, false), Err(Refusal::State(s)));
         }
     }
 

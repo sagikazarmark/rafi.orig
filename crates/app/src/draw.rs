@@ -24,8 +24,11 @@ fn confirmed(result: std::result::Result<(), EngineError>) -> Result<()> {
     }
 }
 
-/// Closes registration, freezes the entrant list, writes the raffle's
-/// manifest from it, and hands that to the raffle engine.
+/// Freezes the entrant list (closing registration, if open), writes the raffle's
+/// manifest from it, and hands that to the raffle engine. A raffle without
+/// registration freezes from Published, after the checks opening would have
+/// made (a named controller and contact, the erasure date not passed); if
+/// nobody is left to draw from, it goes back there.
 ///
 /// Each step is its own write ([`start`]), so calling it again picks up
 /// where an attempt stopped: a raffle left frozen without a manifest gets
@@ -49,10 +52,19 @@ pub async fn start_draw(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
         .into());
     }
 
-    let next = start::next(raffle.state, raffle.manifest.is_some(), raffle.opened())
-        .map_err(Refusal::Start)?;
+    let next = start::next(
+        raffle.state,
+        raffle.registration,
+        raffle.manifest.is_some(),
+        raffle.opened(),
+    )
+    .map_err(Refusal::Start)?;
     let manifest = match next {
         Start::Freeze { from } => {
+            // From Published, no opening checked the notice and the date.
+            if from == RaffleState::Ready {
+                crate::raffles::ready_for_entrants(&raffle, now)?;
+            }
             let items = items(app, id).await?;
             let entrants = entrants::count_active(&app.db, id).await?;
             start::ready(usize::try_from(entrants).unwrap_or(0), items.len())
@@ -60,8 +72,9 @@ pub async fn start_draw(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
             let fakes = entrants::count_fakes(&app.db, id).await?;
             start::genuine(raffle.test_mode, usize::try_from(fakes).unwrap_or(0))
                 .map_err(Refusal::Start)?;
-            // Close registration first so no join can slip in while we read the list.
-            if !raffles::freeze(&app.db, id, from, now).await? {
+            // Close registration first so no join can slip in while we read
+            // the list; guarded on the setting the freeze was decided with.
+            if !raffles::freeze(&app.db, id, from, raffle.registration, now).await? {
                 return Err(Refusal::Changed.into());
             }
             app.live_updates.notify(id).await;
@@ -163,6 +176,7 @@ pub async fn command(
         .into(),
     })?;
 
+    objected_winner(app, id, &state, &cmd).await?;
     let delivery = delivery_on_claim(app, id, &state, &cmd).await?;
     send(app, actor, id, cmd, command_id).await?;
     // The store changes the winner's delivery with the claim, as it projects
@@ -172,6 +186,37 @@ pub async fn command(
         audit::record(&app.db, id, actor, action, winner.as_str(), now).await?;
     }
     Ok(())
+}
+
+/// Refuses `cmd` if it resolves a draw whose winner took themselves off
+/// ([`object_entrant`](crate::object_entrant)) any other way than declined
+/// ([`objected_may_be`](lifecycle::entrant::objected_may_be)): they said
+/// they don't take part, so they claim nothing, and "Not here" would
+/// record an absence. Checked before the engine is asked, against the
+/// projection (`state`, which admitted it) and the entrant as stored.
+async fn objected_winner(
+    app: &App,
+    id: &str,
+    state: &rafi_raffle::Raffle,
+    cmd: &Command,
+) -> Result<()> {
+    let Command::Decide(Decision::Resolve { item, resolution }) = cmd else {
+        return Ok(());
+    };
+    if lifecycle::entrant::objected_may_be(*resolution) {
+        return Ok(());
+    }
+    let Some(winner) = state.item(item).and_then(|i| i.winner().cloned()) else {
+        return Ok(());
+    };
+    let objected = entrants::get(&app.db, id, winner.as_str())
+        .await?
+        .is_some_and(|e| e.objected_at.is_some());
+    if objected {
+        Err(Refusal::ObjectedWinner.into())
+    } else {
+        Ok(())
+    }
 }
 
 /// What `cmd` does to a winner's delivery, if it is a claim that changes it

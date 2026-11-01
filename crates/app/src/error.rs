@@ -5,7 +5,10 @@ use std::fmt;
 use rafi_engine::EngineError;
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
-    entrant::{FakesRefusal, NameError},
+    entrant::{
+        AddRefusal, FakesRefusal, MAX_ADD_ROWS, MAX_ADDED_NAME_CHARS, NameError, ObjectionRefusal,
+        Origin,
+    },
     settings::{self, SettingsError},
     start,
 };
@@ -94,8 +97,12 @@ pub enum Refusal {
     PrivacyUrl,
     ContactEmail,
     TestModeLocked,
-    /// The named fixed settings can't change: someone accepted the rules
-    /// they were shown with.
+    /// Registration can't be switched while it is open, or once the list is
+    /// frozen ([`RaffleState::registration_editable`]).
+    RegistrationLocked,
+    /// The named fixed settings can't change: a real entrant is in under
+    /// them, who joined accepting them or was added by the organizer
+    /// ([`Source::locks_settings`](lifecycle::entrant::Source::locks_settings)).
     SettingsFixed(Vec<&'static str>),
     PrizeName,
     PrizeQty,
@@ -106,12 +113,21 @@ pub enum Refusal {
     /// The raffle has drawn (or announced a draw): its record stays.
     Drawn,
     JoinCodes,
-    /// Registration can't open: the privacy notice can't name the organizer
-    /// or a way to reach them. The fields still missing.
-    OrganizerMissing(Vec<&'static str>),
-    /// Registration can't open: the erasure date has passed, so the raffle
-    /// expires within the hour. The date can move while nobody has joined.
+    /// Registration can't open (or, without registration, the list can't
+    /// be frozen from Published): the privacy notice can't name the
+    /// organizer or a way to reach them. The fields still missing, and
+    /// whether the raffle has registration, for the words.
+    OrganizerMissing {
+        fields: Vec<&'static str>,
+        registration: bool,
+    },
+    /// Registration can't open (or the list be frozen from Published): the
+    /// erasure date has passed, so the raffle expires within the hour. The
+    /// date can move while nobody has joined.
     ErasureDatePassed,
+    /// Registration can't open: the raffle has none ("Let people join with
+    /// the QR code" is off).
+    NoRegistration,
     /// The organizer's data can't be removed while one of their raffles is
     /// frozen or drawing.
     EventLive,
@@ -148,12 +164,39 @@ pub enum Refusal {
     /// The raffle has as many entrants as the installation allows.
     Full,
     Name(NameError),
-    Email,
-    EmailTaken,
     Fakes(FakesRefusal),
+    /// An add without a valid batch ID ([`entrant::batch_id`](lifecycle::entrant::batch_id)).
+    BatchId,
+    /// An add with more or fewer rows than its origin takes: exactly one
+    /// from the one-person form, 1 to [`MAX_ADD_ROWS`] from a list.
+    RowCount(Origin),
+    /// An add with invalid rows, each with its problem: refused whole, so
+    /// the browser can show them and send it again.
+    Rows {
+        origin: Origin,
+        rows: Vec<rafi_api::RowProblem>,
+    },
+    /// The raffle doesn't take an add from there now.
+    Add(AddRefusal),
+    /// The add doesn't fit under the entrant cap: `left` more people would.
+    /// Nothing was added.
+    Room {
+        adding: usize,
+        left: i64,
+    },
+    /// Over the organizer's rate limit on adds and undos.
+    Limited,
     Erased,
     /// From the freeze until the raffle finishes, nobody leaves the list.
     NotRemovable,
+    /// "Took themselves off" doesn't apply to this entrant now (or undoing
+    /// it).
+    Objection(ObjectionRefusal),
+    /// Someone who took themselves off is drawn: they can only be declined
+    /// ([`objected_may_be`](lifecycle::entrant::objected_may_be)).
+    ObjectedWinner,
+    /// The name of someone who took themselves off stays hidden.
+    ObjectedHidden,
     NotDeliverable,
     /// The raffle hasn't finished, which what was asked needs.
     NotOver(Unfinished),
@@ -186,7 +229,9 @@ impl Refusal {
             | Self::PrizeName
             | Self::PrizeQty
             | Self::Name(_)
-            | Self::Email => true,
+            | Self::BatchId
+            | Self::RowCount(_)
+            | Self::Rows { .. } => true,
             Self::Engine { invalid, .. } => *invalid,
             Self::Raffle { error, .. } => error.kind() == ErrorKind::BadRequest,
             _ => false,
@@ -209,6 +254,7 @@ impl Refusal {
             Self::PrivacyUrl => "privacy_url",
             Self::ContactEmail => "contact_email",
             Self::TestModeLocked => "test_mode_locked",
+            Self::RegistrationLocked => "registration_locked",
             Self::SettingsFixed(_) => "settings_fixed",
             Self::PrizeName => "prize_name",
             Self::PrizeQty => "prize_qty",
@@ -216,8 +262,9 @@ impl Refusal {
             Self::PrizeDeliveryFixed => "prize_delivery_fixed",
             Self::Drawn => "drawn",
             Self::JoinCodes => "join_codes",
-            Self::OrganizerMissing(_) => "organizer_missing",
+            Self::OrganizerMissing { .. } => "organizer_missing",
             Self::ErasureDatePassed => "erasure_date_passed",
+            Self::NoRegistration => "no_registration",
             Self::EventLive => "event_live",
             Self::Forbidden(_) => "forbidden",
             Self::Lifecycle { .. } => "lifecycle",
@@ -232,11 +279,23 @@ impl Refusal {
             Self::EntrantsFrozen => "entrants_frozen",
             Self::Full => "full",
             Self::Name(_) => "name",
-            Self::Email => "email",
-            Self::EmailTaken => "email_taken",
             Self::Fakes(_) => "fakes",
+            Self::BatchId => "batch_id",
+            Self::RowCount(_) => "row_count",
+            Self::Rows { .. } => "rows",
+            Self::Add(AddRefusal::Frozen) => "entrants_frozen",
+            Self::Add(AddRefusal::ErasureDatePassed) => "erasure_date_passed",
+            Self::Add(AddRefusal::Unpublished) => "list_unpublished",
+            Self::Add(AddRefusal::TestMode) => "list_test_mode",
+            Self::Room { .. } => "room",
+            Self::Limited => "limited",
             Self::Erased => "erased",
             Self::NotRemovable => "not_removable",
+            Self::Objection(ObjectionRefusal::State) => "objection_state",
+            Self::Objection(ObjectionRefusal::Source) => "objection_source",
+            Self::Objection(ObjectionRefusal::Claimed) => "objection_claimed",
+            Self::ObjectedWinner => "objected_winner",
+            Self::ObjectedHidden => "objected_hidden",
             Self::NotDeliverable => "not_deliverable",
             Self::NotOver(_) => "not_over",
         }
@@ -283,12 +342,15 @@ impl fmt::Display for Refusal {
                 f.write_str("The privacy notice link must be an absolute https:// URL.")
             }
             Self::TestModeLocked => f.write_str("Test mode cannot change once the list is frozen."),
+            Self::RegistrationLocked => f.write_str(
+                "Joining with the QR code can't be switched on or off while registration is open (close it first), or once the list is frozen.",
+            ),
             Self::SettingsFixed(fields) if fields.is_empty() => f.write_str(
-                "These settings cannot change: entrants have already accepted them.",
+                "These settings cannot change: entrants are already in the raffle under them.",
             ),
             Self::SettingsFixed(fields) => write!(
                 f,
-                "The {} cannot change: entrants have already accepted the rules they were shown with.",
+                "The {} cannot change: entrants are already in the raffle under what was set.",
                 fields.join(", ")
             ),
             Self::PrizeName => write!(
@@ -311,13 +373,24 @@ impl fmt::Display for Refusal {
                 "This raffle has drawn prizes, so its record stays verifiable and it can't be deleted. Finish it, then erase its personal data from the menu.",
             ),
             Self::JoinCodes => f.write_str("Could not allocate a unique join code; please try again."),
-            Self::OrganizerMissing(fields) => write!(
+            Self::OrganizerMissing {
+                fields,
+                registration,
+            } => write!(
                 f,
-                "Before registration can open, fill in {} in the settings: the privacy notice must name the data controller and how to reach them.",
+                "Before {}, fill in {} in the settings: the privacy notice must name the data controller and how to reach them.",
+                if *registration {
+                    "registration can open"
+                } else {
+                    "the list can be frozen"
+                },
                 fields.join(" and ")
             ),
             Self::ErasureDatePassed => f.write_str(
                 "The erasure date has passed: this raffle expires within the hour. Move the event date (possible until someone joins) or duplicate the raffle.",
+            ),
+            Self::NoRegistration => f.write_str(
+                "This raffle has no registration: switch on “Let people join with the QR code” in the settings to open it, or freeze the list of the people you added.",
             ),
             Self::EventLive => f.write_str(
                 "Your data can't be removed while one of your raffles is being drawn. Finish it first.",
@@ -355,19 +428,63 @@ impl fmt::Display for Refusal {
             Self::Engine { message, .. } => f.write_str(message),
             Self::EntrantsFrozen => f.write_str("The entrant list is frozen."),
             Self::Full => f.write_str("The raffle is full: it has as many entrants as this installation allows."),
-            Self::Name(NameError::Invalid) => f.write_str(
-                "Please enter a name: 1–24 characters, with at least one letter or digit and nothing invisible.",
+            // Only the organizer's renames give this (a join has its own
+            // words): their limit.
+            Self::Name(NameError::Invalid) => write!(
+                f,
+                "Please enter a name: 1–{MAX_ADDED_NAME_CHARS} characters, with at least one letter or digit and nothing invisible.",
             ),
             Self::Name(NameError::Blocked) => f.write_str("Please choose a different name."),
-            Self::Email => f.write_str("Invalid email address."),
-            Self::EmailTaken => f.write_str("This email is already entered."),
+            Self::BatchId => {
+                f.write_str("This add has no valid batch ID. Reload the page and try again.")
+            }
+            Self::RowCount(Origin::One) => f.write_str("Add one person at a time here."),
+            Self::RowCount(Origin::List) => write!(
+                f,
+                "A list adds 1 to {MAX_ADD_ROWS} people at once. Add a longer one in parts."
+            ),
+            Self::Rows { origin, rows } => f.write_str(&rows_refusal(*origin, rows)),
+            Self::Add(AddRefusal::Frozen) => f.write_str("The entrant list is frozen."),
+            Self::Add(AddRefusal::ErasureDatePassed) => f.write_str(
+                "The erasure date has passed: this raffle expires within the hour, so nobody can be added.",
+            ),
+            Self::Add(AddRefusal::Unpublished) => f.write_str(
+                "Publish the raffle before adding a list: what you tell the people on it links the raffle's rules and privacy notice.",
+            ),
+            Self::Add(AddRefusal::TestMode) => f.write_str(
+                "A list can't be added in test mode: a rehearsal's draws are public. Rehearse with fake entrants, and add the list once test mode is off.",
+            ),
+            Self::Room { adding, left } if *left <= 0 => write!(
+                f,
+                "The raffle is full: it has as many entrants as this installation allows. Nobody of these {adding} was added."
+            ),
+            Self::Room { adding, left } => write!(
+                f,
+                "Only {left} more people fit in this raffle, and this add has {adding}. Nothing was added: add fewer."
+            ),
+            Self::Limited => f.write_str("Too many adds just now. Wait a minute and try again."),
             Self::Fakes(FakesRefusal::NotTestMode) => {
                 f.write_str("Fake entrants are only allowed in test mode.")
             }
             Self::Fakes(FakesRefusal::Frozen) => f.write_str("The entrant list is frozen."),
             Self::Erased => f.write_str("This entrant's data has been erased."),
             Self::NotRemovable => f.write_str(
-                "Entrants stay on the list until the raffle has finished or its erasure date has passed; then their personal data can be erased. You can hide or rename them now.",
+                "Entrants stay on the list until the raffle has finished or its erasure date has passed; then their personal data can be erased. You can hide or rename them now, and someone you added can take themselves off.",
+            ),
+            Self::Objection(ObjectionRefusal::State) => f.write_str(
+                "Taking someone off this way is for the time from the freeze until the raffle is over. Before the freeze, remove them at their request; once it is over, erase their data.",
+            ),
+            Self::Objection(ObjectionRefusal::Source) => f.write_str(
+                "Only someone you added can take themselves off: people who joined accepted the rules. Hide their name now, and erase their data once the raffle has finished.",
+            ),
+            Self::Objection(ObjectionRefusal::Claimed) => f.write_str(
+                "They already claimed a prize, so the result stands. Hide their name now, and erase their data once the raffle has finished.",
+            ),
+            Self::ObjectedWinner => f.write_str(
+                "They took themselves off the raffle: decline the prize for them, and it is drawn again.",
+            ),
+            Self::ObjectedHidden => f.write_str(
+                "They took themselves off the raffle, so their name stays hidden. Undo “Took themselves off” first if it was a mistake.",
             ),
             Self::NotDeliverable => {
                 f.write_str("Only a winner who claimed their prize can get it delivered.")
@@ -381,6 +498,45 @@ impl fmt::Display for Refusal {
             Self::NotOver(Unfinished::EndLive) => {
                 f.write_str("Live updates can end once the raffle has finished.")
             }
+        }
+    }
+}
+
+/// The organizer's words for an add refused for its rows: the problem itself
+/// for the one-person form, which has one row; for a list, how many rows
+/// and the first few, numbered from 1 as a spreadsheet does.
+fn rows_refusal(origin: Origin, rows: &[rafi_api::RowProblem]) -> String {
+    const SHOWN: usize = 3;
+    match (origin, rows) {
+        (_, []) => "Some rows can't be added.".to_owned(),
+        (Origin::One, [first, ..]) => {
+            let text = first.text();
+            let mut chars = text.chars();
+            let capital: String = chars
+                .next()
+                .into_iter()
+                .flat_map(char::to_uppercase)
+                .collect();
+            format!("{capital}{}.", chars.as_str())
+        }
+        (Origin::List, rows) => {
+            let listed: Vec<String> = rows
+                .iter()
+                .take(SHOWN)
+                .map(|r| format!("row {}: {}", r.row + 1, r.text()))
+                .collect();
+            let more = match rows.len().saturating_sub(SHOWN) {
+                0 => String::new(),
+                n => format!("; and {n} more"),
+            };
+            let count = match rows.len() {
+                1 => "1 row".to_owned(),
+                n => format!("{n} rows"),
+            };
+            format!(
+                "{count} can't be added, so nothing was: {}{more}.",
+                listed.join("; ")
+            )
         }
     }
 }

@@ -100,6 +100,7 @@ mod tests {
             prize_name: prize.into(),
             outcome,
             sent_later: false,
+            no_phone: false,
         }
     }
 
@@ -225,6 +226,7 @@ mod tests {
         let last = Some(LastDraw {
             display_name: "Name a".into(),
             prize_name: "Book".into(),
+            no_phone: false,
         });
         assert_eq!(
             screen(&v, Some("c"), Phase::Drawing, 0),
@@ -256,6 +258,7 @@ mod tests {
         let last = Some(LastDraw {
             display_name: "Name a".into(),
             prize_name: "Book".into(),
+            no_phone: false,
         });
         assert_eq!(
             screen(&v, Some("x"), Phase::Drawing, 0),

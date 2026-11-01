@@ -16,3 +16,11 @@ indent_size = 4
 
 [{justfile,*.just}]
 indent_size = 4
+
+# Exports as tools and spreadsheets write them, which the list tab's parser
+# is tested on: CRLF, byte order marks, trailing blank lines.
+[apps/web/fixtures/import/**]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = false

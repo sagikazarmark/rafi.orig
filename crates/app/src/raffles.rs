@@ -89,7 +89,7 @@ pub async fn create(app: &App, actor: Actor<'_>, title: &str, event: &EventDate)
         },
         now,
     )?;
-    let settings = stored(normalized, false);
+    let settings = stored(normalized, false, d.registration);
     let id = ids::id();
     for _ in 0..8 {
         let res = raffles::insert_with(
@@ -129,12 +129,14 @@ pub async fn get_defaults(app: &App, owner: &str) -> Result<RaffleDefaults> {
         privacy_url: d.privacy_url,
         rules: d.rules,
         retention_days: d.retention_days,
+        registration: d.registration,
     })
 }
 
 /// Saves what `owner`'s new raffles start with. Existing raffles keep theirs.
 pub async fn save_defaults(app: &App, actor: Actor<'_>, d: RaffleDefaults) -> Result<()> {
     let max = app.policy.retention.max_days;
+    let registration = d.registration;
     let d = settings::Defaults {
         organizer_name: &d.organizer_name,
         contact_email: &d.contact_email,
@@ -157,6 +159,7 @@ pub async fn save_defaults(app: &App, actor: Actor<'_>, d: RaffleDefaults) -> Re
             privacy_url: d.privacy_url.to_owned(),
             rules: d.rules.to_owned(),
             retention_days: d.retention_days,
+            registration,
         },
         app.clock.now(),
     )
@@ -178,6 +181,7 @@ pub fn settings_of(r: &RaffleRow) -> RaffleSettings {
         event_ends_at: Some(r.event_ends_at),
         retention_days: r.retention_days,
         test_mode: r.test_mode,
+        registration: r.registration,
     }
 }
 
@@ -195,7 +199,9 @@ fn fixed_of(r: &RaffleRow) -> settings::Fixed<'_> {
 /// Saves a raffle's settings. Switching test mode off removes the raffle's
 /// fake entrants in the same write. A fixed setting (the rules, the event
 /// date, the retention period, the privacy text or link) can't change once
-/// an entrant accepted the rules: the refusal names which.
+/// a real entrant is in, joined or added: the refusal names which. Registration
+/// switches before the freeze, but not while it is open
+/// ([`RaffleState::registration_editable`](lifecycle::RaffleState::registration_editable)).
 pub async fn update_settings(
     app: &App,
     actor: Actor<'_>,
@@ -230,23 +236,32 @@ pub async fn update_settings(
     if raffle.test_mode != s.test_mode && !raffle.state.test_mode_editable() {
         return Err(Refusal::TestModeLocked.into());
     }
+    if raffle.registration != s.registration && !raffle.state.registration_editable() {
+        return Err(Refusal::RegistrationLocked.into());
+    }
     // For the audit log: how many fakes switching test mode off removes.
     let fakes = if raffle.test_mode && !s.test_mode {
         entrants::count_fakes(&app.db, id).await?
     } else {
         0
     };
-    let write =
-        raffles::update_settings(&app.db, id, &stored(normalized, s.test_mode), now).await?;
+    let written = stored(normalized, s.test_mode, s.registration);
+    let write = raffles::update_settings(&app.db, id, &written, now).await?;
     if !write.written {
-        // Test mode changed after a freeze since the read above, or a fixed
-        // setting after someone accepted the rules.
+        // Test mode changed after a freeze since the read above,
+        // registration after it opened or froze, or a fixed setting after
+        // a real entrant came in.
         let current = raffles::get(&app.db, id).await?;
         let frozen = current
             .as_ref()
             .is_some_and(|r| r.test_mode != s.test_mode && !r.state.test_mode_editable());
+        let registration = current
+            .as_ref()
+            .is_some_and(|r| r.registration != s.registration && !r.state.registration_editable());
         return Err(if frozen {
             Refusal::TestModeLocked
+        } else if registration {
+            Refusal::RegistrationLocked
         } else {
             let changed = current
                 .as_ref()
@@ -261,12 +276,16 @@ pub async fn update_settings(
     }
     // What changed, by field name (never the values: the organizer's name
     // and contacts are personal data; the log says who changed what, when).
-    let changed = changed_fields(&raffle, &stored(normalized, s.test_mode));
+    let changed = changed_fields(&raffle, &written);
     if !changed.is_empty() {
         audit::record(&app.db, id, actor, "settings", &changed.join(","), now).await?;
     }
     // Nothing phones see: the participant view has no settings, and names
-    // only of drawn entrants (fakes are never drawn outside test mode).
+    // only of drawn entrants (fakes are never drawn outside test mode). The
+    // projector's QR code goes with registration, though: tell it at once.
+    if raffle.registration != s.registration {
+        app.live_updates.notify(id).await;
+    }
     Ok(())
 }
 
@@ -295,11 +314,12 @@ fn changed_fields(before: &RaffleRow, after: &raffles::Settings<'_>) -> Vec<&'st
         before.retention_days == after.retention_days,
     );
     diff("test_mode", before.test_mode == after.test_mode);
+    diff("registration", before.registration == after.registration);
     changed
 }
 
 /// Normalized settings, as the store writes them.
-fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
+fn stored(s: settings::Settings<'_>, test_mode: bool, registration: bool) -> raffles::Settings<'_> {
     raffles::Settings {
         title: s.title,
         description: s.description,
@@ -315,6 +335,7 @@ fn stored(s: settings::Settings<'_>, test_mode: bool) -> raffles::Settings<'_> {
             .expect("normalized settings resolve the end of the day"),
         retention_days: s.retention_days,
         test_mode,
+        registration,
     }
 }
 
@@ -393,7 +414,7 @@ pub async fn duplicate(app: &App, actor: Actor<'_>, id: &str, event: &EventDate)
         },
         now,
     )?;
-    let settings = stored(normalized, raffle.test_mode);
+    let settings = stored(normalized, raffle.test_mode, raffle.registration);
     let new_id = ids::id();
     for _ in 0..8 {
         let res = raffles::insert_with(
@@ -422,9 +443,11 @@ pub async fn duplicate(app: &App, actor: Actor<'_>, id: &str, event: &EventDate)
     Err(Refusal::JoinCodes.into())
 }
 
-/// Moves the raffle through its lifecycle. Registration opens only once the
-/// privacy notice can name the organizer and a way to reach them
-/// ([`settings::missing_for_open`]).
+/// Moves the raffle through its lifecycle, as its registration setting
+/// allows ([`lifecycle::RaffleState::apply`]): a raffle without
+/// registration doesn't open. Registration opens only once the privacy
+/// notice can name the organizer and a way to reach them
+/// ([`settings::missing_for_open`]), before the erasure date.
 pub async fn lifecycle(
     app: &App,
     actor: Actor<'_>,
@@ -433,27 +456,19 @@ pub async fn lifecycle(
 ) -> Result<()> {
     let raffle = owned(app, actor.owner, id).await?;
     let now = app.clock.now();
-    let command = match action {
-        LifecycleCommand::Publish => lifecycle::Command::Publish,
-        LifecycleCommand::Unpublish => lifecycle::Command::Unpublish,
-        LifecycleCommand::Open => lifecycle::Command::Open,
-        LifecycleCommand::Close => lifecycle::Command::Close,
-    };
+    let command = lifecycle::Command::from(action);
     let from = raffle.state;
-    let to = from
-        .apply(command)
-        .ok_or(Refusal::Lifecycle { command, from })?;
+    let to = match from.apply(command, raffle.registration) {
+        Some(to) => to,
+        None if from.apply(command, true).is_some() => return Err(Refusal::NoRegistration.into()),
+        None => return Err(Refusal::Lifecycle { command, from }.into()),
+    };
     if command == lifecycle::Command::Open {
-        let missing = missing_for_open(&raffle);
-        if !missing.is_empty() {
-            return Err(Refusal::OrganizerMissing(missing).into());
-        }
-        // Nobody joins a raffle that expires within the hour.
-        if raffle.past_erase_date(now) {
-            return Err(Refusal::ErasureDatePassed.into());
-        }
+        ready_for_entrants(&raffle, now)?;
     }
-    if !raffles::transition(&app.db, id, from, to, now).await? {
+    // Guarded on the setting too: switched since the read, the move may
+    // not hold any more.
+    if !raffles::transition(&app.db, id, from, to, raffle.registration, now).await? {
         return Err(Refusal::Changed.into());
     }
     audit::record(&app.db, id, actor, to.as_str(), "", now).await?;
@@ -461,7 +476,28 @@ pub async fn lifecycle(
     Ok(())
 }
 
-/// What `raffle` still needs before registration can open.
+/// Whether `raffle` may take entrants for its draw `now`: what opening
+/// registration checks, and what freezing from Published checks for a
+/// raffle without registration, where no opening came first. The privacy
+/// notice must name a controller and a way to reach them
+/// ([`missing_for_open`]), and nobody enters a raffle that expires within
+/// the hour (its erasure date passed).
+pub(crate) fn ready_for_entrants(raffle: &RaffleRow, now: i64) -> Result<(), Refusal> {
+    let fields = missing_for_open(raffle);
+    if !fields.is_empty() {
+        return Err(Refusal::OrganizerMissing {
+            fields,
+            registration: raffle.registration,
+        });
+    }
+    if raffle.past_erase_date(now) {
+        return Err(Refusal::ErasureDatePassed);
+    }
+    Ok(())
+}
+
+/// What `raffle` still needs before registration can open (or, without
+/// registration, before the list can be frozen from Published).
 pub fn missing_for_open(raffle: &RaffleRow) -> Vec<&'static str> {
     settings::missing_for_open(
         &raffle.organizer_name,

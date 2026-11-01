@@ -108,12 +108,16 @@ fn raffle_of<'a>(app: &AppState, raffle: &'a RaffleRow) -> Raffle<'a> {
         slug: &raffle.slug,
         join_code: &raffle.join_code,
         test_mode: raffle.test_mode,
+        // A raffle without registration is never open
+        // ([`RaffleState::apply`](rafi_lifecycle::RaffleState::apply)).
         joinable: rafi_lifecycle::entrant::may_join(
             raffle.state,
             raffle.past_erase_date(app.clock.now()),
             true,
         )
         .is_ok(),
+        registration: raffle.registration,
+        verifiable: raffle.manifest.is_some(),
     }
 }
 

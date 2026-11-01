@@ -34,6 +34,7 @@ struct DeliveryRow {
 struct NameRow {
     id: String,
     display_name: Option<String>,
+    source: rafi_lifecycle::entrant::Source,
 }
 
 /// Reads the raffle, or `None` if it doesn't exist.
@@ -46,8 +47,9 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
             .bind(raffle_id),
             // Only the entrants that were drawn, and only the names shown: an
             // erased entrant has none (phones show the start of their ID).
+            // Their source says whether a phone tells them they won.
             db.query(
-                "SELECT e.id, CASE WHEN e.hidden = 1 THEN NULL ELSE e.display_name END AS display_name
+                "SELECT e.id, CASE WHEN e.hidden = 1 THEN NULL ELSE e.display_name END AS display_name, e.source
                  FROM entrants e
                  WHERE e.raffle_id = ?1 AND e.erased = 0
                    AND e.id IN (SELECT entrant_id FROM draws WHERE raffle_id = ?1)",
@@ -67,10 +69,19 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
         return Ok(None);
     };
     let raffle: RaffleRow = raffle.decode()?;
-    let names = name_rows
+    let drawn_entrants = name_rows
         .into_iter()
-        .map(|r| r.decode::<NameRow>().map(|n| (n.id, n.display_name)))
-        .collect::<Result<_>>()?;
+        .map(|r| r.decode::<NameRow>())
+        .collect::<Result<Vec<_>>>()?;
+    let no_phone = drawn_entrants
+        .iter()
+        .filter(|n| n.source.no_phone())
+        .map(|n| n.id.clone())
+        .collect();
+    let names = drawn_entrants
+        .into_iter()
+        .map(|n| (n.id, n.display_name))
+        .collect();
     let prize_qty = qty_rows
         .into_iter()
         .next()
@@ -87,6 +98,7 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
         live_ended_at: raffle.live_ended_at,
         drawn: raffles::rebuild(raffle.opened_at, raffle.manifest.as_deref(), event_rows)?,
         names,
+        no_phone,
         prize_qty,
         deliveries,
     }))
@@ -94,7 +106,7 @@ pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Raffle, Resolution};
 
@@ -164,17 +176,19 @@ mod tests {
         .run()
         .await
         .unwrap();
-        for (id, name, hidden) in [
-            ("a".repeat(32), "Anna", false),
-            ("b".repeat(32), "Bence", true),
+        // Anna joined; the organizer added Bence.
+        for (id, name, hidden, source) in [
+            ("a".repeat(32), "Anna", false, "self"),
+            ("b".repeat(32), "Bence", true, "manual"),
         ] {
             db.query(
-                "INSERT INTO entrants (id, raffle_id, display_name, claim_code, hidden, created_at)
-                 VALUES (?, 'r1', ?, 'X', ?, 0)",
+                "INSERT INTO entrants (id, raffle_id, display_name, claim_code, hidden, created_at, source)
+                 VALUES (?, 'r1', ?, 'X', ?, 0, ?)",
             )
             .bind(id)
             .bind(name)
             .bind(hidden)
+            .bind(source)
             .run()
             .await
             .unwrap();
@@ -223,11 +237,20 @@ mod tests {
             HashMap::from([("b".repeat(32), None)]),
             "Anna was not drawn, Bence is hidden: neither name is read"
         );
+        assert_eq!(
+            snap.no_phone,
+            HashSet::from(["b".repeat(32)]),
+            "the organizer added Bence: no phone tells him"
+        );
         let k = log.draw(&"a".repeat(32), "u2");
         log.resolve(k, Resolution::Claimed);
         store(&db, &log, "drawing").await;
         let snap = snapshot(&db, "r1").await.unwrap().unwrap();
         assert_eq!(snap.names[&"a".repeat(32)].as_deref(), Some("Anna"));
+        assert!(
+            !snap.no_phone.contains(&"a".repeat(32)),
+            "Anna's phone does"
+        );
         assert_eq!(snap.drawn.unwrap().draws().len(), 2);
     }
 

@@ -75,7 +75,11 @@
       countdownTimer = setInterval(tick, 250);
     } else if (v.state === "frozen" || v.state === "drawing") {
       if (v.last) {
-        card.appendChild(el("p", "text-sm text-base-content/60", "🎉 " + v.last.display_name + " → " + v.last.prize_name));
+        // The name isolated and wrapped, as the card's.
+        var last = el("p", "text-sm text-base-content/60 wrap-anywhere", "🎉 ");
+        last.appendChild(el("bdi", null, v.last.display_name));
+        last.appendChild(document.createTextNode(" → " + v.last.prize_name));
+        card.appendChild(last);
         card.appendChild(el("p", "text-xl font-bold", me ? S.not_this_time + " 🤞" : S.drawing));
       } else {
         card.appendChild(el("p", "text-3xl", "🥁"));

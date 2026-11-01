@@ -76,6 +76,31 @@ binding; only the path tells them apart.
   draw.
 - **A release build.** Development features (`mock-drand`, `dev`) allow an unverifiable chain and disable auth.
 
+## The operator's records
+
+You are every organizer's processor (the data processing agreement in your terms) and the controller of their
+accounts; your documents are set up in [Self-hosting](self-hosting.md#5-legal-documents-and-the-operator) or
+[Cloudflare Workers](cloudflare.md#2-the-legal-documents-and-the-operator). What the software implies for your
+records (not legal advice):
+
+- **Your record of processing** as a processor (GDPR Art. 30(2)) lists, for the organizers you serve, the entrant
+  data they provide, not only what entrants type in: the people an organizer adds, one by one or from a list
+  (their names, emails and registration IDs, nothing else of the list, which is read in the organizer's browser),
+  and the email keys and registration IDs of people removed at their request, kept until the list is frozen. The
+  categories, the subprocessors and the erasure dates are in your privacy notice and in
+  [Privacy and abuse](../explanation/privacy-and-abuse.md).
+- **No DPIA for ordinary meetups.** Adding a meetup's guest list (names and emails for a prize draw, published as
+  the entrants' names are, erased on the same dates) isn't the kind of processing Art. 35 asks an impact
+  assessment for; an event that calls for one is the organizer's, the controller's, to assess. The terms keep out
+  the lists that might: organizers warrant that a list reveals no special-category data (a support group's or a
+  religious or political meeting's attendees) and that its people meet the age limit.
+- **The terms changed on 2026-11-01** for people the organizer adds (§4 of the template: the data subjects and
+  categories, adding as the organizer's instruction, the organizer's warranties, what the service receives from a
+  list), and the privacy notice's "Two roles" with them. If your documents started from the templates, carry the
+  change over, give them a new version (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`), and, since the processing
+  agreement changed, notify your organizers of it directly: publishing it isn't enough
+  ([Privacy and abuse](../explanation/privacy-and-abuse.md#who-is-responsible)).
+
 ## Guides
 
 - [Self-hosting](self-hosting.md): `rafi` and `rafi-restate` on your own machine

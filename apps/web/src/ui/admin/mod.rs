@@ -3,6 +3,8 @@
 
 mod draw;
 mod header;
+mod list;
+mod paragraph;
 mod people;
 mod prizes;
 
@@ -17,7 +19,7 @@ use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
 
 use super::{
     Route, command_id, copy_to_clipboard, dates,
-    forms::{AddEntrantForm, CreateRaffleForm, PrizeForm, SettingsForm, err_text},
+    forms::{AddPersonForm, CreateRaffleForm, PrizeForm, SettingsForm, err_text},
     live::{use_clock, use_live_view},
 };
 use crate::{
@@ -42,7 +44,9 @@ use rafi_api::{
     RaffleView, StartStep,
 };
 
-use self::{draw::DrawConsole, header::Header, people::People, prizes::Prizes};
+use self::{
+    draw::DrawConsole, header::Header, paragraph::ParagraphToSend, people::People, prizes::Prizes,
+};
 
 fn state_label(s: RaffleState) -> &'static str {
     match s {
@@ -105,12 +109,15 @@ fn ErrorToasts(error: Signal<Option<String>>) -> Element {
     rsx! {}
 }
 
-/// A confirmation for an action that cannot be undone.
+/// A confirmation for an action that cannot be undone. The title and the
+/// body are markup, so a name in them is isolated (`bdi`) like everywhere
+/// else; `note` comes after the body, in a paragraph of its own.
 #[component]
 fn Confirm(
     open: Signal<bool>,
-    title: String,
-    body: String,
+    title: Element,
+    body: Element,
+    #[props(default = VNode::empty())] note: Element,
     action: String,
     #[props(default)] danger: bool,
     on_confirm: EventHandler<()>,
@@ -119,8 +126,9 @@ fn Confirm(
         AlertDialog {
             open: Some(open()),
             on_open_change: move |next| open.set(next),
-            AlertDialogTitle { "{title}" }
-            AlertDialogDescription { "{body}" }
+            AlertDialogTitle { {title} }
+            AlertDialogDescription { {body} }
+            {note}
             AlertDialogActions {
                 AlertDialogCancel { "Cancel" }
                 AlertDialogAction {
@@ -278,11 +286,13 @@ fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
         }
         Confirm {
             open: ask,
-            title: if shared { "Remove your organization's data from this service?" } else { "Remove your data from this service?" },
-            body: if shared {
-                "Every raffle of the organization, for every co-host: those never frozen are deleted; every other one loses its entrants' personal data and the organizer's name and contacts, for good. The defaults are deleted. This cannot be undone."
-            } else {
-                "Raffles of yours that were never frozen are deleted. Every other raffle loses its entrants' personal data and your name and contacts, for good. Your defaults are deleted. This cannot be undone."
+            title: rsx! { if shared { "Remove your organization's data from this service?" } else { "Remove your data from this service?" } },
+            body: rsx! {
+                if shared {
+                    "Every raffle of the organization, for every co-host: those never frozen are deleted; every other one loses its entrants' personal data and the organizer's name and contacts, for good. The defaults are deleted. This cannot be undone."
+                } else {
+                    "Raffles of yours that were never frozen are deleted. Every other raffle loses its entrants' personal data and your name and contacts, for good. Your defaults are deleted. This cannot be undone."
+                }
             },
             action: if shared { "Remove the organization's data" } else { "Remove my data" },
             danger: true,
@@ -387,7 +397,16 @@ pub fn RaffleAdmin(id: String) -> Element {
                             "people" => rsx! { People { admin: admin.clone(), error, on_change: move |_| reload() } },
                             _ => rsx! {
                                 Panel { title: "Settings", icon: rsx! { SlidersVertical { class: "size-5" } },
-                                    SettingsForm { raffle_id: admin.id.clone(), settings: admin.settings.clone(), rules_editable: admin.actions.edit_rules, retention: admin.retention.clone(), can_edit: access.allows(Access::Manager), on_saved: move |_| reload() }
+                                    SettingsForm {
+                                        raffle_id: admin.id.clone(),
+                                        settings: admin.settings.clone(),
+                                        rules_editable: admin.actions.edit_rules,
+                                        registration_editable: admin.actions.edit_registration,
+                                        retention: admin.retention.clone(),
+                                        can_edit: access.allows(Access::Manager),
+                                        after_privacy: rsx! { ParagraphToSend { admin: admin.clone() } },
+                                        on_saved: move |_| reload(),
+                                    }
                                 }
                             },
                         }
@@ -481,23 +500,40 @@ fn RetentionCard(admin: AdminData) -> Element {
                     p { class: "text-warning", "⚠ Not finished, and the event day has passed. Entrants' data is erased on the date regardless; finish the raffle so its data can be erased for good." }
                 }
                 if r.erasure_imminent {
-                    p { class: "text-warning", "⚠ Erasure is at the end of {erase}, less than a day away: registration closes then, and everyone who didn't win is erased on the hour after. An evening that runs past midnight needs the list frozen and the draws done before it." }
+                    p { class: "text-warning", "⚠ Erasure is at the end of {erase}, less than a day away: nobody can join or be added after it, and everyone who didn't win is erased on the hour after. An evening that runs past midnight needs the list frozen and the draws done before it." }
                 }
             }
         }
     }
 }
 
+/// Where the raffle is in its life. Without registration there is no
+/// registration step: it goes from Published to the draw.
 #[component]
-fn Steps(state: RaffleState) -> Element {
-    let at = match state {
-        RaffleState::Draft => 0,
-        RaffleState::Ready => 1,
-        RaffleState::Open | RaffleState::Closed => 2,
-        RaffleState::Frozen | RaffleState::Drawing => 3,
-        RaffleState::Finished | RaffleState::Purged => 4,
+fn Steps(state: RaffleState, registration: bool) -> Element {
+    let (steps, at): (&[&str], usize) = if registration {
+        (
+            &["Prepare", "Publish", "Registration", "Draw", "Done"],
+            match state {
+                RaffleState::Draft => 0,
+                RaffleState::Ready => 1,
+                RaffleState::Open | RaffleState::Closed => 2,
+                RaffleState::Frozen | RaffleState::Drawing => 3,
+                RaffleState::Finished | RaffleState::Purged => 4,
+            },
+        )
+    } else {
+        (
+            &["Prepare", "Publish", "Draw", "Done"],
+            match state {
+                RaffleState::Draft => 0,
+                // Closed, then switched off: published, the draw next.
+                RaffleState::Ready | RaffleState::Open | RaffleState::Closed => 1,
+                RaffleState::Frozen | RaffleState::Drawing => 2,
+                RaffleState::Finished | RaffleState::Purged => 3,
+            },
+        )
     };
-    let steps = ["Prepare", "Publish", "Registration", "Draw", "Done"];
     rsx! {
         ul { class: "steps steps-horizontal w-full text-xs",
             for (i , label) in steps.iter().enumerate() {

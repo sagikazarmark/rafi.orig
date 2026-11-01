@@ -31,6 +31,12 @@ pub struct Raffle<'a> {
     /// date not yet passed ([`rafi_lifecycle::entrant::may_join`]). The
     /// form is shown only then.
     pub joinable: bool,
+    /// Whether people join with the QR code at all. Without registration
+    /// the page has no form, whatever the state: the organizer adds the
+    /// people taking part.
+    pub registration: bool,
+    /// Whether the frozen list is published: the verification page has it.
+    pub verifiable: bool,
 }
 
 /// The entrant this device joined as.
@@ -224,7 +230,9 @@ pub fn page(page: Page<'_>) -> String {
             section { class: "ticket bg-primary text-primary-content shadow-lg animate-pop",
                 div { class: "space-y-1 px-7 pt-6",
                     p { class: "text-xs font-bold uppercase tracking-[0.2em] opacity-80", "🎟️ You're in!" }
-                    h2 { class: "break-words text-3xl font-extrabold", "{e.display_name}" }
+                    // Up to 64 characters once the organizer renames
+                    // them: wrapped, and isolated from the page's direction.
+                    h2 { class: "text-3xl font-extrabold wrap-anywhere", bdi { "{e.display_name}" } }
                     p { class: "text-sm opacity-80", "Your name on the screen." }
                 }
                 div { class: "mx-7 my-4 border-t-2 border-dashed border-primary-content/40" }
@@ -288,9 +296,20 @@ pub fn page(page: Page<'_>) -> String {
         }
         None => {
             let (emoji, msg) = match (notice, phase) {
+                // One wording whoever is in under that email: someone who
+                // joined on another device, or someone the organizer added,
+                // who has no device with a claim code. Typing an email never
+                // attaches this device to the entry (no cookie is set), or
+                // anyone could take over an entry with someone else's email.
                 (Notice::AlreadyIn, _) => (
                     "👋",
-                    "This email is already entered. Your entry is safe — watch the screen. If you win, go to the organizer; the device you entered on has your claim code.",
+                    "This email is already entered. Your entry is safe. If you win, go to the organizer.",
+                ),
+                // Nothing to join, in any state, and a posted form was
+                // refused for it: no "not open yet" to wait for.
+                _ if !raffle.registration => (
+                    "📋",
+                    "This raffle has no registration: the organizer adds the people taking part.",
                 ),
                 (Notice::Error(why), _) => ("⚠️", why),
                 (_, Phase::Ready) => (
@@ -303,6 +322,17 @@ pub fn page(page: Page<'_>) -> String {
                 section { class: "{card} items-center gap-2 p-6 text-center",
                     span { class: "text-4xl", "{emoji}" }
                     p { class: "text-lg font-semibold", role: "status", "{msg}" }
+                    // What someone on the organizer's list reads: the rules
+                    // they are in under, the notice, and the frozen list.
+                    if !raffle.registration {
+                        p { class: "flex flex-wrap justify-center gap-x-3 text-sm",
+                            a { class: "link link-primary", href: "{rules_href}", "Rules" }
+                            a { class: "link link-primary", href: "{privacy_href}", "Privacy notice" }
+                            if raffle.verifiable {
+                                a { class: "link link-primary", href: "{verify_href}", "Verification page" }
+                            }
+                        }
+                    }
                 }
                 {live}
             }

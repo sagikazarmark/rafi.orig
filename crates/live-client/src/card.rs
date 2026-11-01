@@ -149,7 +149,15 @@ pub fn Card(
         } => rsx! {
             div { class: CARD,
                 if let Some(l) = last {
-                    p { class: "text-sm text-base-content/60", "🎉 {l.display_name} → {l.prize_name}" }
+                    // The winner's name isolated from the arrow and the
+                    // prize (a right-to-left name would reorder them), and
+                    // wrapped however long it is: the organizer gives up to
+                    // 64 characters. As in `fallback.js`.
+                    p { class: "text-sm text-base-content/60 wrap-anywhere",
+                        "🎉 "
+                        bdi { "{l.display_name}" }
+                        " → {l.prize_name}"
+                    }
                     p { class: "text-xl font-bold",
                         if entered {
                             "{s.not_this_time} 🤞"

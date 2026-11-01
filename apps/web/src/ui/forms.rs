@@ -8,7 +8,7 @@ use dioxus_icons::lucide::{
     BookmarkCheck, BookmarkPlus, Check, Gift, Plus, Smartphone, Sparkles, TriangleAlert, Undo2,
 };
 use rafi_lifecycle::{
-    entrant::{self, MAX_NAME_CHARS},
+    entrant::{self, MAX_ADDED_NAME_CHARS, Origin},
     prize::Delivery,
     settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
 };
@@ -22,9 +22,12 @@ use crate::{
         textarea::TextareaField,
         toast::{ToastOptions, use_toast},
     },
-    ui::dates,
+    ui::{command_id, dates},
 };
-use rafi_api::{PrizeInput, RaffleDefaults, RaffleSettings, Retention};
+use rafi_api::{
+    AddRequest, AddRow, PrizeInput, RaffleDefaults, RaffleSettings, RemovedAtRequest, Retention,
+    SkipReason,
+};
 
 /// What the organizer reads for a failed call: its message, and for a
 /// server error the request's ID, which the operator finds in the log.
@@ -386,44 +389,78 @@ pub fn PrizeForm(
 }
 
 // ---------------------------------------------------------------------------
-// Entrants without a phone
+// Adding one person
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, Default, PartialEq, Form)]
-struct Entrant {
+struct Person {
     name: String,
     email: String,
+    /// The organizer approved a name the blocklist refuses: it is someone's
+    /// real name. Offered only for such a name.
+    approved: bool,
+    /// The organizer adds them though they were removed at their request:
+    /// offered only for an email that was.
+    lift_removal: bool,
 }
 
+/// One person the organizer adds (the Add people dialog's first tab): an
+/// add of one row. Its batch ID is made with the form and again after each
+/// add that went in, so a submission whose reply was lost (a network error)
+/// is sent again with the same ID, and the server answers the first add
+/// instead of adding the person twice. An email of someone `removed` at
+/// their request is said so, and they are added only if the organizer adds
+/// them anyway.
 #[component]
-pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
+pub fn AddPersonForm(
+    raffle_id: String,
+    /// Who was removed at their request, as the admin's data has them.
+    #[props(default)]
+    removed: Vec<RemovedAtRequest>,
+    on_added: EventHandler<()>,
+) -> Element {
     let form = use_form_handle(|| {
-        let handle = FormHandle::<Entrant>::from_config(
-            FormConfig::new(Entrant::default())
-                .id_namespace("add-entrant")
+        let handle = FormHandle::<Person>::from_config(
+            FormConfig::new(Person::default())
+                .id_namespace("add-person")
                 .validation_mode(ValidationMode::on_submit()),
         );
         handle.write_advanced(|core| {
-            let f = Entrant::fields();
+            let f = Person::fields();
             core.register_sync_field_validator(f.name(), "required", required("Who is it?"));
-            core.register_sync_field_validator(f.name(), "length", |v: &String, _| {
-                match entrant::display_name(v) {
+            core.register_sync_field_validator(
+                f.name(),
+                "length",
+                |v: &String, ctx: ValidatorContext<'_, Person>| match entrant::added_name(v) {
                     Err(entrant::NameError::Invalid) if !v.trim().is_empty() => {
                         vec![format!(
-                            "{MAX_NAME_CHARS} characters at most, no control characters."
+                            "{MAX_ADDED_NAME_CHARS} characters at most, no control characters."
                         )]
                     }
-                    Err(entrant::NameError::Blocked) => {
-                        vec!["This name is not allowed.".to_owned()]
+                    Err(entrant::NameError::Blocked) if !ctx.form().approved => {
+                        vec![
+                            "This name has a word the blocklist refuses. If it is their real name, approve it below."
+                                .to_owned(),
+                        ]
                     }
                     _ => Vec::new(),
-                }
-            });
+                },
+            );
             core.register_sync_field_validator(f.email(), "email", optional_email());
         });
         handle
     });
-    let fields = Entrant::fields();
+    let mut batch_id = use_signal(command_id);
+    let fields = Person::fields();
+    // The blocklist's substring matching catches real names (Nazir,
+    // Buzinkay): such a name can be approved, which lifts the blocklist
+    // alone.
+    let blocked =
+        entrant::added_name(&form.text(fields.name()).value()) == Err(entrant::NameError::Blocked);
+    // Removed at their request, by this email: the server leaves them out
+    // unless lifted.
+    let was_removed = entrant::Email::parse(&form.text(fields.email()).value())
+        .is_some_and(|e| removed.iter().any(|r| r.matches(Some(&e.key), None)));
     let submit = form.managed_submit();
     let busy = form.is_submitting();
     let form_err = messages(form.visible_form_validation_errors());
@@ -436,13 +473,38 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
             novalidate: true,
             onsubmit: move |event| {
                 let (raffle_id, reset) = (raffle_id.clone(), reset.clone());
-                let _ = submit.on_submit_async(event, move |s: SubmissionSnapshot<Entrant>| async move {
+                let batch = batch_id();
+                let _ = submit.on_submit_async(event, move |s: SubmissionSnapshot<Person>| async move {
                     let v = s.value().clone();
-                    let email = Some(v.email.trim().to_owned()).filter(|e| !e.is_empty());
-                    match api::add_entrant(raffle_id, v.name.clone(), email).await {
+                    let name = v.name.trim().to_owned();
+                    let add = AddRequest {
+                        batch_id: batch,
+                        origin: Origin::One,
+                        rows: vec![AddRow {
+                            name: name.clone(),
+                            email: Some(v.email.trim().to_owned()).filter(|e| !e.is_empty()),
+                            list_ref: None,
+                            approved: v.approved,
+                            lift_removal: v.lift_removal,
+                        }],
+                        name_format: None,
+                    };
+                    match api::add_entrants(raffle_id, add).await {
+                        // Skipped: someone with this email is in already, or
+                        // was removed at their request.
+                        Ok(result) if result.added.is_empty() => {
+                            let removed = result.skipped.iter().any(|s| s.reason == SkipReason::RemovedAtRequest);
+                            SubmitError::form(if removed {
+                                "They were removed at their request. Add them anyway only if they told you they changed their mind.".to_owned()
+                            } else {
+                                "This email is already entered.".to_owned()
+                            })
+                            .into()
+                        }
                         Ok(_) => {
-                            reset.reinitialize(Entrant::default());
-                            toast.success(format!("🙋 {} is in", v.name.trim()), ToastOptions::new());
+                            reset.reinitialize(Person::default());
+                            batch_id.set(command_id());
+                            toast.success(format!("🙋 {name} is in"), ToastOptions::new());
                             on_added.call(());
                             SubmitErrors::none()
                         }
@@ -454,8 +516,9 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
                 context: form.text(fields.name()),
                 label: "Name",
                 required: true,
-                maxlength: "{MAX_NAME_CHARS}",
+                maxlength: "{MAX_ADDED_NAME_CHARS}",
                 placeholder: "Shown on the screen",
+                description: format!("As they'd recognize it, a full name too: up to {MAX_ADDED_NAME_CHARS} characters."),
                 prefix: rsx! { Smartphone { class: "size-4 opacity-60" } },
                 wrapper_attributes: dioxus_primitives::dioxus_attributes::attributes!(span { class: "w-full" }),
             }
@@ -469,7 +532,27 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
             div { class: "sm:pt-8",
                 Button { color: ButtonColor::Secondary, r#type: "submit", disabled: busy,
                     Plus { class: "size-5" }
-                    "Add entrant"
+                    "Add"
+                }
+            }
+            if was_removed {
+                div { class: "sm:col-span-3",
+                    SwitchField {
+                        context: form.field(fields.lift_removal()),
+                        label: "They were removed at their request: add them anyway",
+                        description: "They asked to be taken off this raffle. Add them again only if they told you they changed their mind.",
+                        color: SwitchColor::Warning,
+                    }
+                }
+            }
+            if blocked {
+                div { class: "sm:col-span-3",
+                    SwitchField {
+                        context: form.field(fields.approved()),
+                        label: "It's their real name",
+                        description: "The blocklist matches parts of words, so it refuses some real names. Approving lifts it for this name only.",
+                        color: SwitchColor::Warning,
+                    }
                 }
             }
             div { class: "sm:col-span-3", FormErrors { errors: form_err } }
@@ -495,6 +578,7 @@ struct Settings {
     privacy_text: String,
     rules: String,
     test_mode: bool,
+    registration: bool,
 }
 
 impl From<&RaffleSettings> for Settings {
@@ -511,6 +595,7 @@ impl From<&RaffleSettings> for Settings {
             privacy_text: s.privacy_text.clone(),
             rules: s.rules.clone(),
             test_mode: s.test_mode,
+            registration: s.registration,
         }
     }
 }
@@ -533,6 +618,7 @@ impl From<Settings> for RaffleSettings {
             event_ends_at,
             retention_days: s.retention_days.trim().parse().unwrap_or(-1),
             test_mode: s.test_mode,
+            registration: s.registration,
         }
     }
 }
@@ -543,8 +629,14 @@ pub fn SettingsForm(
     settings: RaffleSettings,
     /// Whether the fixed settings (the additional rules, the event date, the
     /// retention period, the privacy text and link) can still change: not
-    /// once an entrant accepted them.
+    /// once a real entrant is in
+    /// ([`locks_settings`](rafi_lifecycle::entrant::Source::locks_settings)).
     rules_editable: bool,
+    /// Whether registration can be switched now
+    /// ([`AdminActions::edit_registration`](rafi_api::AdminActions::edit_registration)):
+    /// before the freeze, not while it is open.
+    #[props(default = true)]
+    registration_editable: bool,
     /// The installation's periods, for the retention field.
     retention: Retention,
     /// Whether the signed-in user may change settings at all: an
@@ -552,6 +644,10 @@ pub fn SettingsForm(
     /// otherwise.
     #[props(default = true)]
     can_edit: bool,
+    /// Shown after the privacy fields: what goes with them (the paragraph
+    /// to send the people the organizer adds).
+    #[props(default = VNode::empty())]
+    after_privacy: Element,
     on_saved: EventHandler<()>,
 ) -> Element {
     let initial = Settings::from(&settings);
@@ -559,6 +655,7 @@ pub fn SettingsForm(
     // Fixed settings stay editable only while nobody has joined, and only
     // for someone who may edit at all.
     let rules_editable = rules_editable && can_edit;
+    let registration_editable = registration_editable && can_edit;
     let form = use_form_handle(move || {
         let handle = FormHandle::<Settings>::from_config(
             FormConfig::new(initial)
@@ -642,6 +739,9 @@ pub fn SettingsForm(
                             form.text(f.retention_days()).set_value(days.to_string());
                         }
                     }
+                    if registration_editable {
+                        form.set_field(f.registration(), d.registration);
+                    }
                 }
                 Err(e) => toast.error(err_text(e), ToastOptions::new()),
             }
@@ -661,12 +761,13 @@ pub fn SettingsForm(
                 privacy_url: s.privacy_url,
                 rules: s.rules,
                 retention_days: s.retention_days.trim().parse().ok(),
+                registration: s.registration,
             })
             .await;
             saving_defaults.set(false);
             match res {
                 Ok(()) => toast.success(
-                    "📌 New raffles will start with this organizer, contacts, privacy text, rules and retention period".to_owned(),
+                    "📌 New raffles will start with this organizer, contacts, privacy text, rules, retention period and registration".to_owned(),
                     ToastOptions::new(),
                 ),
                 Err(e) => toast.error(err_text(e), ToastOptions::new()),
@@ -709,7 +810,7 @@ pub fn SettingsForm(
             InputField {
                 context: form.text(f.organizer_name()),
                 label: "Organizer (data controller)",
-                description: "Named in the rules and the privacy notice. Needed before registration can open.",
+                description: "Named in the rules and the privacy notice. Needed before registration can open, or the list be frozen.",
                 maxlength: "{MAX_TITLE_CHARS}",
                 disabled: !can_edit,
                 class: "w-full",
@@ -717,7 +818,7 @@ pub fn SettingsForm(
             InputField {
                 context: form.text(f.contact_email()),
                 label: "Contact email",
-                description: "Shown in the rules and the privacy notice. Needed before registration can open (or a privacy contact).",
+                description: "Shown in the rules and the privacy notice. Needed before registration can open, or the list be frozen (or a privacy contact).",
                 r#type: "email",
                 disabled: !can_edit,
                 class: "w-full",
@@ -769,7 +870,7 @@ pub fn SettingsForm(
                     description: if rules_editable {
                         "One paragraph per line, appended to the standard rules. Put a higher age limit here. Fake entrants don't lock anything; a real one does."
                     } else {
-                        "Locked: entrants have accepted these rules. Remove them (People tab, before the freeze) to unlock."
+                        "Locked: real entrants are in under these rules. Remove them (People tab, before the freeze) to unlock."
                     },
                     placeholder: "e.g. Entrants must be 18 or older.",
                     readonly: !rules_editable,
@@ -789,6 +890,19 @@ pub fn SettingsForm(
                     readonly: !rules_editable,
                     rows: "3",
                     class: "w-full",
+                }
+            }
+            div { class: "md:col-span-2", {after_privacy} }
+            div { class: "mt-2 rounded-box bg-base-200 p-4 md:col-span-2",
+                SwitchField {
+                    context: form.field(f.registration()),
+                    label: "Let people join with the QR code",
+                    disabled: !registration_editable,
+                    description: if registration_editable || !can_edit {
+                        "You can always add people yourself, one by one or from a list."
+                    } else {
+                        "You can always add people yourself, one by one or from a list. It can't change while registration is open (close it first), or once the list is frozen."
+                    },
                 }
             }
             div { class: "mt-2 rounded-box bg-warning/10 p-4 md:col-span-2",

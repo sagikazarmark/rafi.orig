@@ -97,7 +97,9 @@ service; the admin links them. The software can't write these for you:
    processing agreement has to be notified to organizers directly, not only published.
 3. Name yourself: `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`.
 
-Without these, the app refuses to start (except under `RAFI_DEV_AUTH`, with placeholders marked as such).
+Without these, the app refuses to start (except under `RAFI_DEV_AUTH`, with placeholders marked as such). Your
+record of processing, and what changed in the templates, are in [the operator's
+records](overview.md#the-operators-records).
 
 The retention settings are yours too, within limits: `RAFI_RETENTION_DAYS` (7: days after the event date before
 non-winners are erased, for organizers who choose nothing), `RAFI_RETENTION_MAX_DAYS` (30: the most an organizer may
@@ -195,7 +197,8 @@ A backup holds personal data that may have been erased since. After a restore:
 2. Run `rafi reapply-erasures` with the app's environment. It erases again every entrant the log names, purges
    again every raffle that was purged, blanks again every organizer who removed their data, and runs housekeeping
    once, so whatever came due in the meantime is erased too (the erasure dates are in the raffles themselves, so
-   the clock needs no log). Then start the app.
+   the clock needs no log), whoever took themselves off a raffle that is over is erased, and the removals at their
+   request of raffles that are frozen, purged or past their date are deleted. Then start the app.
 
 Erasures the organizer made before the date, purges and organizers who left that aren't in what you restored, are
 the only things the clock won't redo: that is what step 1 is for.

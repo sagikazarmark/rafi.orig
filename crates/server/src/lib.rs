@@ -174,6 +174,31 @@ pub fn frameable(path: &str) -> bool {
     path.starts_with("/s/") || path.starts_with("/v/")
 }
 
+/// The paths of the web app that search engines are asked not to index
+/// ([`noindex`]): the projector and the verification page, both public
+/// pages that list entrants' names (the recent names, the list to find
+/// yours in) until they are erased. They are meant for the room and for
+/// whoever follows a link to check a draw, not for a search on someone's
+/// name; and a raffle is reached through its link, never by a search. The
+/// same set as [`frameable`], for its own reason.
+pub(crate) fn unindexed(path: &str) -> bool {
+    path.starts_with("/s/") || path.starts_with("/v/")
+}
+
+/// Asks search engines not to index `resp`: `X-Robots-Tag: noindex`, on the
+/// pages [`unindexed`] names and the JSON behind them that has the names
+/// (the full view, `verify.json`). A header rather than a `<meta>` tag: the
+/// shell is one `index.html` for every path, and JSON has nowhere to put
+/// one. Not `robots.txt`: a crawler kept out of a page can still index its
+/// URL from a link to it (meetup sites link the verification page), and
+/// never sees a `noindex` it isn't allowed to fetch.
+pub(crate) fn noindex(resp: &mut axum::response::Response) {
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-robots-tag"),
+        axum::http::HeaderValue::from_static("noindex"),
+    );
+}
+
 /// The headers every response carries, and that a browser acts on:
 ///
 /// - `X-Content-Type-Options: nosniff`: a response is what its type says;

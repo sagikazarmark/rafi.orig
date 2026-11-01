@@ -32,6 +32,11 @@ CREATE TABLE raffles (
     erase_at BIGINT NOT NULL GENERATED ALWAYS AS (event_ends_at + retention_days * 86400) STORED,
     state TEXT NOT NULL DEFAULT 'draft',
     test_mode BIGINT NOT NULL DEFAULT 0,
+    -- Whether people may join with the QR code (registration). Off, the raffle
+    -- has no Open or Closed: it freezes from Published, and its entrants are
+    -- the people the organizer added. Switched before the freeze, but not
+    -- while registration is open; guarded in SQL like test_mode.
+    registration BIGINT NOT NULL DEFAULT 1,
     -- The raffle's manifest: the frozen entrant list (canonical JSON, exactly
     -- as hashed), and its hash.
     manifest TEXT,
@@ -98,16 +103,66 @@ CREATE TABLE entrants (
     -- What the join form showed when the rules were accepted:
     -- `<form version>/age<minimum age>`, e.g. `2026-10-21.2/age16`; the form
     -- version is rafi_app::CONSENT_VERSION, bumped whenever its text changes.
+    -- Both NULL for whoever saw no join form: people the organizer added,
+    -- and fakes.
     consent_version TEXT,
     consent_rules_at BIGINT,
     delivered_at BIGINT,
     erased BIGINT NOT NULL DEFAULT 0,
     created_at BIGINT NOT NULL,
-    UNIQUE (raffle_id, email_norm)
+    -- The organizer's add this entrant came in with (a random ID the browser
+    -- made: the unit of retrying and undoing an add), and for a list its
+    -- row, which keeps the list's order among entrants added at one time.
+    -- NULL for joins and fakes (and the row for one person). Nothing
+    -- personal.
+    batch_id TEXT,
+    batch_row BIGINT,
+    -- The entrant's ID in the organizer's registration system, if their add
+    -- gave one: it matches them on a later add. Admin only; erased with the
+    -- rest of their personal data. NULLs are distinct, as in SQLite.
+    list_ref TEXT,
+    -- When someone the organizer added took themselves off after the freeze
+    -- (they object, and accepted no rules): their name is hidden, they can
+    -- only be declined if drawn, and their personal data is erased once the
+    -- raffle is over. The anonymous ID stays in the manifest. NULL otherwise.
+    objected_at BIGINT,
+    UNIQUE (raffle_id, email_norm),
+    UNIQUE (raffle_id, list_ref)
 );
 
 CREATE INDEX entrants_raffle ON entrants (raffle_id, created_at);
 CREATE INDEX entrants_token ON entrants (token_hash);
+-- Finding an add's entrants: a retry, an undo, the add's own guard.
+CREATE INDEX entrants_batch ON entrants (raffle_id, batch_id) WHERE batch_id IS NOT NULL;
+
+-- One row while an add is being written, keyed `add:<raffle id>`: the add's
+-- batch inserts it only if the raffle takes the whole add (its state, the
+-- entrant cap, a batch ID not used yet), inserts its rows only if it is
+-- there, and deletes it, so the table is empty outside a batch. One decision
+-- makes the add all or nothing, and two adds into one raffle serialize on
+-- the key. No trigger may touch it: its change count is the decision.
+CREATE TABLE batch_guards (
+    key TEXT PRIMARY KEY NOT NULL
+);
+
+-- Entrants removed before the freeze at their own request, by the keys a
+-- later add matches people with (the email key, the registration ID; one row
+-- may hold both): such an add leaves them out unless the organizer lifts the
+-- removal for that row, which deletes it. Personal data (an email key in
+-- clear, as in `entrants`: a hash without a secret would hide nothing), kept
+-- only while the raffle can still take an add: deleted when its list is
+-- frozen for good (the manifest is written), when it expires, is purged or
+-- is deleted, and by housekeeping for any raffle past that. NULLs are
+-- distinct, as in SQLite.
+CREATE TABLE add_removals (
+    raffle_id TEXT NOT NULL REFERENCES raffles (id) ON DELETE CASCADE,
+    email_norm TEXT,
+    list_ref TEXT,
+    removed_at BIGINT NOT NULL,
+    UNIQUE (raffle_id, email_norm),
+    UNIQUE (raffle_id, list_ref),
+    CHECK (email_norm IS NOT NULL OR list_ref IS NOT NULL)
+);
 
 -- A write that already moves the version (`SET version = ...`) is left alone;
 -- any other update of a raffle bumps it once. SQLite does this with an AFTER
@@ -236,8 +291,9 @@ CREATE TABLE pow_used (
 CREATE INDEX pow_used_expiry ON pow_used (expires_at);
 
 -- What an owner's new raffles start with: who organizes them (the data
--- controller), their privacy contact and text, their additional rules and
--- their retention period (NULL: the installation's default). Copied into each
+-- controller), their privacy contact and text, their additional rules,
+-- their retention period (NULL: the installation's default) and whether
+-- people join with the QR code. Copied into each
 -- raffle as it is created, so a later change leaves existing raffles as they
 -- are.
 CREATE TABLE owner_defaults (
@@ -249,6 +305,7 @@ CREATE TABLE owner_defaults (
     privacy_url TEXT NOT NULL DEFAULT '',
     rules TEXT NOT NULL DEFAULT '',
     retention_days BIGINT,
+    registration BIGINT NOT NULL DEFAULT 1,
     updated_at BIGINT NOT NULL
 );
 

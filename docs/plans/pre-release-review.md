@@ -585,6 +585,11 @@ day). **Why now**: what gets expensive after the release.
   `unicode-normalization` on wasm32. Apply the same predicate in `settings::title` (`settings.rs:301`) for prize
   and organizer names.
 - **Size**: small. **Why now**: changes what the projector accepts; easier before real data.
+- **Since #38**: `Email::parse` refuses the same invisible characters and control characters (whitespace only
+  before), the organizer's contact emails too: a zero-width space made a second key for one mailbox. Every
+  display name is composed (NFC) first, with `unicode-normalization` (already in the lock through sqlx, pure Rust),
+  so lengths count what a reader sees and the uniqueness of the names the organizer adds compares one spelling.
+  Still no NFKC folding for the blocklist.
 
 #### SEC-11 · Smaller hardening — **done**
 
@@ -597,7 +602,11 @@ day). **Why now**: what gets expensive after the release.
   phrase; keep the detail in logs. (trivial)
 - No cap on prizes (`crates/app/src/prizes.rs`; quantity ≤ 500 each); `insert_manual` and `insert_fakes`
   (`crates/store/src/entrants.rs:204-227,242-281`) don't check `max_entrants`. Cap total items in `start::ready`
-  and apply the entrant cap in every insert. (small)
+  and apply the entrant cap in every insert. (small) **Done**: the items are capped in `start::ready`
+  (`MAX_ITEMS`), and the entrant cap is in every insert (#38): the organizer's adds
+  (`insert_added`, which replaced `insert_manual`) and `insert_fakes` are one batch each, whose first statement
+  inserts a guard row (`batch_guards`) only if the whole add fits under the cap, and whose rows go in only under
+  it; fakes still fill up to the room left, and a race that took it refuses them.
 - Operator Markdown (`crates/server/src/pages/text.rs:313-324`) escapes raw HTML but passes `javascript:` hrefs;
   operator-trusted, still a few lines to filter `Event::Start(Tag::Link)` to `https`, `http`, `mailto`, `#`.
   (trivial)
@@ -615,7 +624,10 @@ day). **Why now**: what gets expensive after the release.
   (`crates/app/src/view.rs:50-56,176-183`), so anyone with the join code can read the count, post a probe, and
   read it again. A non-committal message would protect nobody. Bounded by the join code, one proof-of-work per
   probe, 5/min/email, and only while registration is open; for someone in the room the fact is visible anyway.
-  `privacy-and-abuse.md:101` and §Accepted risks say why. (trivial, docs)
+  `privacy-and-abuse.md:101` and §Accepted risks say why. (trivial, docs) **Since #38** the page says one thing
+  for every source ("This email is already entered. Your entry is safe. If you win, go to the organizer."): it
+  told everyone their device held the claim code, which was wrong for someone the organizer added. Typing an
+  email still never attaches a device to an entry, a rule with a test.
 
 ### Privacy and retention: what the audit found incomplete
 
@@ -837,7 +849,7 @@ the `room` feature; `cargo build` and `cargo clippy` are warning-free natively a
 | CLN-18 | Doc link names `rafi_app::housekeeping::run`; the code calls `server::service::housekeeping::run` | `apps/worker/src/lib.rs:15` vs `:178` | align |
 | CLN-19 | "attendee's cookie" in SQL comments (glossary: entrant) | `migrations/sqlite/0001_init.sql:85`, `migrations/postgres/0001_init.sql:87` | reword |
 | CLN-20 | D1 testbed: package `rafi-store-d1-check`, database `rafi-store-check` | `testbeds/store-d1/wrangler.toml:14`, `scripts/workers-check.sh:66` | align |
-| CLN-21 | CSV export has no UTF-8 BOM (Excel on Windows mangles accented names); the formula guard rewrites a name starting with `-` | `crates/app/src/reads.rs:151-181` | prepend `\u{FEFF}`; document the format in `routes.md` |
+| CLN-21 | CSV export has no UTF-8 BOM (Excel on Windows mangles accented names); the formula guard rewrites a name starting with `-` | `crates/app/src/reads.rs:151-181` | prepend `\u{FEFF}`; document the format in `routes.md`. Since #38 a leading tab or carriage return is prefixed too (OWASP) |
 | CLN-22 | `rafi_store::legal::list` has no production caller | `crates/store/src/legal.rs:64` | goes with SCH-3 |
 | CLN-23 | Local artefacts: `testbeds/cloudflare/site/attendee/` (ignored, untracked); stale Dependabot PR #11 (old `/crates/web` path) | local, GitHub | `rm -rf`; close |
 
@@ -907,7 +919,10 @@ challenge changed the reasoning, the corrected reasoning is here.
   (3) a passive record (a `terms_in_force` audit row with version and digest at creation, no schema, no gate, and
   a line under the Create button) was offered and declined, so the interim has no evidence trail and can't be
   backfilled when the feature "comes back whole". The legal review before the hosted launch
-  (privacy-and-retention.md, §Further notes) decides whether this holds for v1.
+  (privacy-and-retention.md, §Further notes) decides whether this holds for v1. #38 extended the template's
+  processing agreement (people the organizer adds, and the organizer's warranties for them) before any release,
+  so it is part of the first version, not a change to it; an installation that already published the earlier
+  text notifies its organizers directly (`docs/operations/overview.md`, §The operator's records).
 - **Join codes are enumerable.** 31⁶ codes, no per-IP limit by design. A hit yields the raffle's public pages
   **before any proof-of-work**: the join page, and through its slug the rules (organizer name and contact, prizes
   and sponsors), the privacy notice (the privacy contact) and `/api/r/<slug>/view` (the entrant count and the
@@ -1027,7 +1042,8 @@ So nobody re-audits them.
 - **The join**: ALTCHA signatures cover every parameter, 20-minute TTL, single redemption by primary-key insert
   (race-safe across instances), payload ≤ 8 KiB, rate limits before the proof-of-work; the cookie is `HttpOnly;
   SameSite=Lax; Secure` over HTTPS, 3 days, 128-bit token, SHA-256 at rest, lookup by `(raffle_id, token_hash)`;
-  `AlreadyIn` sets no cookie and shows no claim code; claim codes are unique per raffle and shown only to the
+  `AlreadyIn` sets no cookie and shows no claim code; claim codes are unique per raffle (fakes' too since #38,
+  `ids::code_besides`: they weren't checked) and shown only to the
   cookie's holder and the admin. No state-changing GET anywhere.
 - **No personal data** in `/view`, `/participant`, `verify.json`, the engine's manifest and state, the
   `RaffleRoom`'s cached view, `erasures`, `audit.detail`, or any `tracing`/`console` line (tests

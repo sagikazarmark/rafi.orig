@@ -13,8 +13,8 @@ you agree to them for yourself and, if you act for an organization, for that org
 ## 1. The service
 
 The service lets you run a free prize draw at an in-person event: people join on their phones with a display
-name and an email address, you draw prizes with public randomness, and the draw is published so anyone can
-verify it. The service is provided as is, free of charge, and may change or stop. We do our best to keep it
+name and an email address, or you add them yourself, one by one or from your event's list; you draw prizes with
+public randomness, and the draw is published so anyone can verify it. The service is provided as is, free of charge, and may change or stop. We do our best to keep it
 running during events but give no availability guarantee.
 
 ## 2. Your responsibilities
@@ -38,21 +38,43 @@ and delivering prizes. We may suspend or remove a raffle or an account that brea
 
 ## 4. Data processing agreement (GDPR Article 28)
 
-For the personal data of your raffle's entrants (display names, email addresses, claim codes, entry times and
-draw results), **you are the controller and we are your processor.** This section is the data processing
-agreement between us.
+For the personal data of your raffle's entrants, **you are the controller and we are your processor.** This
+section is the data processing agreement between us.
 
-**Subject matter and duration.** Running your raffles: collecting entries, drawing, publishing the verifiable
-draw, and erasing personal data on the dates shown, for as long as you use the service and until the last
-erasure date has passed.
+**Data subjects and categories of data.** Your raffles' entrants: the people who join on their phones, and the
+people you add yourself, one by one or from a list (your event's registrants, guests or attendees), or in any
+other way the service offers for adding people. Their display names, email addresses, the registration IDs you
+give for people you add (their IDs in your registration system), claim codes, entry times and draw results; and,
+for someone you removed at their request before the draw, the email address and registration ID that keep them
+out of a later add.
+
+**Subject matter and duration.** Running your raffles: collecting entries and the people you add, drawing,
+publishing the verifiable draw, and erasing personal data on the dates shown, for as long as you use the service
+and until the last erasure date has passed.
 
 **Nature and purpose.** Storing entries, telling them apart, identifying winners, letting you contact winners
 to deliver prizes, erasing personal data on schedule.
 
 **Your documented instructions.** We process entrants' data only as the service's documented behaviour
 describes (the privacy notice at `/privacy/<raffle>`, the retention settings you choose within the limits we
-set, your actions in the admin) and as the law requires. We tell you if we believe an instruction breaks the
-law.
+set, your actions in the admin, including the people you add) and as the law requires. We tell you if we
+believe an instruction breaks the law.
+
+**People you add.** Adding people to a raffle, one by one or from a list, is your instruction to process their
+data as this section describes. For everyone you add, you warrant that:
+
+- you have a lawful basis for sharing their data with us for the draw;
+- you tell them about the draw before it takes place, with the raffle's rules and privacy notice (the admin
+  gives you a paragraph to send), and that they can object; and you act on their objections (the admin removes
+  them before the draw, or records that they took themselves off after the list is frozen);
+- their being on your list reveals nothing about their health, religious or philosophical beliefs, political
+  opinions, sexual orientation or trade-union membership, or any other special category of data (GDPR Article
+  9): don't add, for example, the attendees of a support group or of a religious or political meeting; let
+  people at such events join with the QR code instead;
+- they meet the raffle's age limit.
+
+A list is read in your browser: the service receives only the name, the email address and the registration ID
+of each person you add from it. Its other columns are never sent to us.
 
 **Confidentiality.** People who can access the data are bound to confidentiality.
 
@@ -65,8 +87,9 @@ engine, organizer sign-in, the public randomness network). We tell you of change
 its version; you may object by stopping use of the service.
 
 **Assistance.** The admin gives you the tools to answer entrants' requests: you see their data, can correct a
-display name, erase one entrant or everyone, and export winners. We help with what the admin can't do, within
-reason.
+display name, remove someone at their request (and keep them out of a later add), record that someone you added
+took themselves off, erase one entrant or everyone, and export winners. We help with what the admin can't do,
+within reason.
 
 **End of processing.** When you remove your data from the service ("Remove my data" in the admin, by an
 organization admin for an organization), remaining personal data of your raffles is erased and your name and

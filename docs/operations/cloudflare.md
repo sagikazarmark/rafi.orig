@@ -16,7 +16,7 @@ The Worker, `rafi` (`apps/worker`), hosts:
   naming your Clerk host, so each load of the admin or the projector is a Worker request;
 - the raffle engine (`Raffle`, `EngineInfo`) under `/restate/*`, called by Restate Cloud over HTTPS with signed
   requests. It writes to the same D1 and nudges `RaffleRoom` after every change;
-- the `RaffleRoom` Durable Object (one live channel per raffle), the join rate limiters and the hourly Cron.
+- the `RaffleRoom` Durable Object (one live channel per raffle), the rate limiters and the hourly Cron.
 
 `apps/worker/wrangler.toml` has a production top level, plus `[env.dev]` for local development; an installation
 deploys the same shape from [`deploy/cloudflare/`](../../deploy/cloudflare/), below.
@@ -77,9 +77,10 @@ parts, have a lawyer review them, and delete the marker. A document that still c
 the Worker refuse every request. Their versions (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`) and
 the operator's name and email (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`) are secrets, next. A changed document is
 a new version, shown with it; a change to the processing agreement is notified to organizers directly, since nothing
-records who read which version. The retention settings (`RAFI_RETENTION_DAYS` and the others, see the
-[configuration](../reference/configuration.md)) have defaults; `RAFI_MIN_AGE` too; set them as secrets if you
-change them.
+records who read which version. Your record of processing, and what changed in the templates, are in [the
+operator's records](overview.md#the-operators-records). The retention settings (`RAFI_RETENTION_DAYS` and the
+others, see the [configuration](../reference/configuration.md)) have defaults; `RAFI_MIN_AGE` too; set them as
+secrets if you change them.
 
 ### 3. The Worker
 
@@ -181,7 +182,9 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
   own lines (warnings and errors, with raffle IDs and error text) are kept.
 - D1 Time Travel keeps erased data for up to 30 more days. Say so in your privacy notice (the template does). After
   restoring with Time Travel, re-apply the erasures. The hourly housekeeping erases again whatever is past its date
-  on its own (the dates are in the raffles themselves). What it can't know is what organizers erased before the
+  on its own (the dates are in the raffles themselves), and whoever took themselves off a raffle that is over, and
+  forgets the removals at their request of raffles that are frozen, purged or past their date (the last statement
+  below does the same at once). What it can't know is what organizers erased before the
   date, or who removed their data: for those, carry the live `erasures` table and the `organizer_left_at` values
   over if you can, and run the restore tool's statements against D1 (the same SQL `rafi reapply-erasures` runs
   natively, see [Self-hosting](self-hosting.md#backups)):
@@ -190,7 +193,7 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
   wrangler d1 execute rafi --remote --command "
     -- Entrants the log names (if the log came along).
     UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL,
-      token_hash = NULL, claim_code = NULL, erased = 1
+      list_ref = NULL, token_hash = NULL, claim_code = NULL, erased = 1
     WHERE erased = 0 AND EXISTS (SELECT 1 FROM erasures
       WHERE erasures.raffle_id = entrants.raffle_id AND erasures.entrant_id = entrants.id);
     -- Entrants of a purged raffle, or one whose organizer left: nobody in it is
@@ -202,18 +205,22 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
                       AND (r.purged_at IS NOT NULL OR r.organizer_left_at IS NOT NULL))
         AND NOT EXISTS (SELECT 1 FROM erasures e WHERE e.raffle_id = entrants.raffle_id AND e.entrant_id = entrants.id);
     UPDATE entrants SET display_name = '#' || substr(id, 1, 6), email_raw = NULL, email_norm = NULL,
-      token_hash = NULL, claim_code = NULL, erased = 1
+      list_ref = NULL, token_hash = NULL, claim_code = NULL, erased = 1
     WHERE erased = 0 AND EXISTS (SELECT 1 FROM raffles r WHERE r.id = entrants.raffle_id
       AND (r.purged_at IS NOT NULL OR r.organizer_left_at IS NOT NULL));
     UPDATE raffles SET state = 'purged' WHERE purged_at IS NOT NULL AND state <> 'purged';
     UPDATE raffles SET organizer_name = '', contact_email = '', privacy_email = '', privacy_text = '',
-      privacy_url = '' WHERE organizer_left_at IS NOT NULL;"
+      privacy_url = '' WHERE organizer_left_at IS NOT NULL;
+    -- Removals at their request no add can need any more.
+    DELETE FROM add_removals WHERE raffle_id IN (SELECT id FROM raffles
+      WHERE manifest IS NOT NULL OR purged_at IS NOT NULL OR erase_at <= unixepoch());"
   ```
 
 ## Limits
 
-The join limits are Workers rate-limiting bindings (600/min per raffle, 5/min per raffle and email, 600/min live
-connections). They are soft, per Cloudflare location. The hard limit is `RAFI_MAX_ENTRANTS`, enforced in D1.
+The rate limits are Workers rate-limiting bindings (600 joins/min per raffle, 5/min per raffle and email, 10 adds
+or undos/min per organizer, 600/min live connections). They are soft, per Cloudflare location. The hard limit is
+`RAFI_MAX_ENTRANTS`, enforced in D1.
 
 ## Local development
 

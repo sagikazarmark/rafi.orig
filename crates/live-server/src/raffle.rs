@@ -51,6 +51,7 @@ pub fn view(snapshot: &Snapshot) -> ParticipantView {
             outcome: outcome(d.outcome),
             // A prize no longer listed says nothing either way.
             sent_later: snapshot.delivery(&d.item) == Some(Delivery::Later),
+            no_phone: snapshot.no_phone.contains(id),
             entrant_id: d.entrant.into_string(),
         }
     });
@@ -70,7 +71,7 @@ pub fn view(snapshot: &Snapshot) -> ParticipantView {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use rafi_raffle::{BeaconSource, Event, Manifest, ManifestItem, Raffle, Resolution};
 
@@ -113,6 +114,7 @@ mod tests {
             live_ended_at: None,
             drawn,
             names,
+            no_phone: HashSet::new(),
             prize_qty: 2,
             deliveries: HashMap::new(),
         }
@@ -204,6 +206,20 @@ mod tests {
             view(&snap).winners.iter().all(|w| !w.sent_later),
             "unknown prizes aren't said to be sent"
         );
+    }
+
+    /// The latest winner says whether they have a phone to tell them, for
+    /// the projector to call them to the front.
+    #[test]
+    fn the_last_winner_without_a_phone_comes_forward() {
+        let (a, b) = ("a".repeat(32), "b".repeat(32));
+        let raffle =
+            Raffle::restore(&manifest(), &[drawn(1, &a, "u1"), drawn(2, &b, "u2")]).unwrap();
+        let mut snap = snapshot(Some(raffle), HashMap::new());
+        snap.no_phone = HashSet::from([b.clone()]);
+        assert!(view(&snap).last.unwrap().no_phone);
+        snap.no_phone = HashSet::from([a]);
+        assert!(!view(&snap).last.unwrap().no_phone, "a phone tells b");
     }
 
     #[test]
