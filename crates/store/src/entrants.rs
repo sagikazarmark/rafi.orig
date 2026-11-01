@@ -403,13 +403,22 @@ pub struct Taken {
     pub list_refs: std::collections::HashSet<String>,
     /// Claim codes in use.
     pub claim_codes: std::collections::HashSet<String>,
+    /// Display names, as stored (the names people are shown as; an erased
+    /// entrant's placeholder included).
+    pub names: Vec<String>,
 }
 
+/// One entrant's part of [`Taken`]: email key, registration ID, claim code
+/// and display name.
+type TakenRow = (Option<String>, Option<String>, Option<String>, String);
+
 /// How many entrants raffle `raffle_id` has, and the email keys,
-/// registration IDs and claim codes they hold, in one read.
+/// registration IDs, claim codes and display names they hold, in one read.
 pub async fn taken(db: &Db, raffle_id: &str) -> Result<Taken> {
-    let rows: Vec<(Option<String>, Option<String>, Option<String>)> = db
-        .query("SELECT email_norm, list_ref, claim_code FROM entrants WHERE raffle_id = ?")
+    let rows: Vec<TakenRow> = db
+        .query(
+            "SELECT email_norm, list_ref, claim_code, display_name FROM entrants WHERE raffle_id = ?",
+        )
         .bind(raffle_id)
         .all()
         .await?;
@@ -417,10 +426,11 @@ pub async fn taken(db: &Db, raffle_id: &str) -> Result<Taken> {
         entrants: rows.len(),
         ..Taken::default()
     };
-    for (email, list_ref, code) in rows {
+    for (email, list_ref, code, name) in rows {
         taken.emails.extend(email);
         taken.list_refs.extend(list_ref);
         taken.claim_codes.extend(code);
+        taken.names.push(name);
     }
     Ok(taken)
 }

@@ -76,8 +76,12 @@ later, the one part of a prize that changes after the freeze), `deliver_all_priz
 `add_entrants` adds people the organizer vouches for, one person (`"origin": "one"`) or a list (`"list"`, at most
 2000 rows, once the raffle is published and not in test mode), all or nothing under the entrant cap. Each add has a
 `batch_id` the client makes at random (1 to 64 of `A-Z a-z 0-9 - _`): sent again, it answers the first add's result
-and adds nothing. The result names each row by its index: `added` with its entrant ID, or `skipped` (`already_in`,
-an email or registration ID already in the raffle). `undo_add` takes an add's entrants off the list again before
+and adds nothing. A row is `name`, optional `email` and `list_ref` (the registration ID), and `approved` (the
+organizer approved a name the blocklist refuses: it lifts the blocklist only); a list's add may say how the browser
+made its names (`"name_format": "full"` or `"first_initial"`), for the audit log. Every name added must be nobody
+else's in the raffle (compared composed, lowercase, whitespace collapsed), joined or added, nor another row's. The
+result names each row by its index: `added` with its entrant ID, or `skipped` (`already_in`, an email or
+registration ID already in the raffle). `undo_add` takes an add's entrants off the list again before
 the freeze and returns how many; the admin's view offers the latest add (`actions.undo`).
 
 `export_winners_csv` returns the drawn entrants as CSV text: UTF-8 with a byte order mark, a header line, every
@@ -94,8 +98,9 @@ what kind of failure: 400 for a request that can never succeed, 401 without a se
 404 for what isn't theirs, 409 for what the raffle's state refuses, 413 for arguments over 512 KB (`too_large`), 429
 over the organizer's rate limit on adds (`limited`), 503 for an engine out of reach. An add refused for its rows
 (`rows`, 400) also carries `"rows": [{"row": 1, "problem": "email"}, …]`, each invalid row by its index (`name`,
-`blocked_name`, `email`, `list_ref`, `duplicate_email`, `duplicate_list_ref`). On a server error (5xx) the admin
-shows the organizer the request's ID as a reference (below).
+`blocked_name`, `email`, `list_ref`, `duplicate_email`, `duplicate_list_ref`, and for a display name someone else
+has, `name_taken` or `duplicate_name` with `"shown_as"`, the name as the other has it). On a server error (5xx)
+the admin shows the organizer the request's ID as a reference (below).
 
 ## Request IDs
 

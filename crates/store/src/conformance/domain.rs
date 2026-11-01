@@ -618,7 +618,10 @@ pub(super) async fn adds_all_or_nothing(db: &Db) -> Outcome {
             && taken.emails.contains("1@x")
             && taken.list_refs.contains("R29")
             && taken.claim_codes.contains("K2P9")
-            && taken.claim_codes.contains("C0029"),
+            && taken.claim_codes.contains("C0029")
+            && taken.names.len() == taken.entrants
+            && taken.names.iter().any(|n| n == "j")
+            && taken.names.iter().any(|n| n == "p00"),
         &format!("what an add must not repeat: {taken:?}"),
     )
 }

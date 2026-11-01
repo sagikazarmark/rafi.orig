@@ -450,7 +450,7 @@ fn rows_refusal(origin: Origin, rows: &[rafi_api::RowProblem]) -> String {
     match (origin, rows) {
         (_, []) => "Some rows can't be added.".to_owned(),
         (Origin::One, [first, ..]) => {
-            let text = rafi_api::row_error_text(first.problem);
+            let text = first.text();
             let mut chars = text.chars();
             let capital: String = chars
                 .next()
@@ -463,7 +463,7 @@ fn rows_refusal(origin: Origin, rows: &[rafi_api::RowProblem]) -> String {
             let listed: Vec<String> = rows
                 .iter()
                 .take(SHOWN)
-                .map(|r| format!("row {}: {}", r.row + 1, rafi_api::row_error_text(r.problem)))
+                .map(|r| format!("row {}: {}", r.row + 1, r.text()))
                 .collect();
             let more = match rows.len().saturating_sub(SHOWN) {
                 0 => String::new(),

@@ -393,6 +393,9 @@ pub fn PrizeForm(
 struct Person {
     name: String,
     email: String,
+    /// The organizer approved a name the blocklist refuses: it is someone's
+    /// real name. Offered only for such a name.
+    approved: bool,
 }
 
 /// One person the organizer adds (the Add people dialog's first tab): an
@@ -411,25 +414,35 @@ pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
         handle.write_advanced(|core| {
             let f = Person::fields();
             core.register_sync_field_validator(f.name(), "required", required("Who is it?"));
-            core.register_sync_field_validator(f.name(), "length", |v: &String, _| {
-                match entrant::added_name(v) {
+            core.register_sync_field_validator(
+                f.name(),
+                "length",
+                |v: &String, ctx: ValidatorContext<'_, Person>| match entrant::added_name(v) {
                     Err(entrant::NameError::Invalid) if !v.trim().is_empty() => {
                         vec![format!(
                             "{MAX_ADDED_NAME_CHARS} characters at most, no control characters."
                         )]
                     }
-                    Err(entrant::NameError::Blocked) => {
-                        vec!["This name is not allowed.".to_owned()]
+                    Err(entrant::NameError::Blocked) if !ctx.form().approved => {
+                        vec![
+                            "This name has a word the blocklist refuses. If it is their real name, approve it below."
+                                .to_owned(),
+                        ]
                     }
                     _ => Vec::new(),
-                }
-            });
+                },
+            );
             core.register_sync_field_validator(f.email(), "email", optional_email());
         });
         handle
     });
     let mut batch_id = use_signal(command_id);
     let fields = Person::fields();
+    // The blocklist's substring matching catches real names (Nazir,
+    // Buzinkay): such a name can be approved, which lifts the blocklist
+    // alone.
+    let blocked =
+        entrant::added_name(&form.text(fields.name()).value()) == Err(entrant::NameError::Blocked);
     let submit = form.managed_submit();
     let busy = form.is_submitting();
     let form_err = messages(form.visible_form_validation_errors());
@@ -453,7 +466,9 @@ pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
                             name: name.clone(),
                             email: Some(v.email.trim().to_owned()).filter(|e| !e.is_empty()),
                             list_ref: None,
+                            approved: v.approved,
                         }],
+                        name_format: None,
                     };
                     match api::add_entrants(raffle_id, add).await {
                         // Skipped: someone with this email is in already.
@@ -492,6 +507,16 @@ pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
                 Button { color: ButtonColor::Secondary, r#type: "submit", disabled: busy,
                     Plus { class: "size-5" }
                     "Add"
+                }
+            }
+            if blocked {
+                div { class: "sm:col-span-3",
+                    SwitchField {
+                        context: form.field(fields.approved()),
+                        label: "It's their real name",
+                        description: "The blocklist matches parts of words, so it refuses some real names. Approving lifts it for this name only.",
+                        color: SwitchColor::Warning,
+                    }
                 }
             }
             div { class: "sm:col-span-3", FormErrors { errors: form_err } }
@@ -575,6 +600,10 @@ pub fn SettingsForm(
     /// otherwise.
     #[props(default = true)]
     can_edit: bool,
+    /// Shown after the privacy fields: what goes with them (the paragraph
+    /// to send the people the organizer adds).
+    #[props(default = VNode::empty())]
+    after_privacy: Element,
     on_saved: EventHandler<()>,
 ) -> Element {
     let initial = Settings::from(&settings);
@@ -814,6 +843,7 @@ pub fn SettingsForm(
                     class: "w-full",
                 }
             }
+            div { class: "md:col-span-2", {after_privacy} }
             div { class: "mt-2 rounded-box bg-warning/10 p-4 md:col-span-2",
                 SwitchField {
                     context: form.field(f.test_mode()),

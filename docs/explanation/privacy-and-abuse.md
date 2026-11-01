@@ -13,7 +13,7 @@ installation's own notice is at `/privacy`, and the operator's terms, with the d
 
 | Data | Who sees it |
 |---|---|
-| **Display name** | The projector (after a 5 s delay, unless the organizer hides it), the verification page's list of entrants (until erasure), the admin. It is optional: an entrant who leaves it blank gets a generated one ("Brave Otter"), so nobody has to put their real name on a screen. Up to 24 characters when joining; up to 64 when the organizer adds someone or renames anyone, so a full name from a registration list is stored as written, never shortened (the projector fits it on screen, cutting it with "…" only in the recent names and on the thanks screen). The organizer can hide or rename it in one tap. Hidden names show as ★ ★ ★. |
+| **Display name** | The projector (after a 5 s delay, unless the organizer hides it), the verification page's list of entrants (until erasure), the admin. It is optional: an entrant who leaves it blank gets a generated one ("Brave Otter"), so nobody has to put their real name on a screen. Up to 24 characters when joining; up to 64 when the organizer adds someone or renames anyone, so a full name from a registration list is stored as written, never shortened (the projector fits it on screen, cutting it with "…" only in the recent names and on the thanks screen). A list's names are its full names, or first name and initial ("Anna K.") if the organizer chooses. The organizer can hide or rename it in one tap. Hidden names show as ★ ★ ★. |
 | **Email** | The admin only. It is never on the projector, in either public view, on the verification page, or in the raffle engine. |
 | **Registration ID** | For someone the organizer added with one (their ID in the organizer's registration system, to match them on a later add): the admin only, erased with their name and email |
 | **Claim code** | The entrant's own phone and the admin, until erasure |
@@ -62,14 +62,16 @@ The organizer can always erase earlier, never later:
 - **Before the freeze**, removing an entrant deletes them outright; so does deleting the raffle, which is
   possible until its first draw is announced (from then on the record stays, and the raffle is purged instead).
 - **From the freeze until the finish or the date**, nobody leaves the list: sharing their entry with the event is
-  part of the rules entrants accept. The organizer can hide or rename a name meanwhile.
+  part of the rules entrants accept. The organizer can hide or rename a name meanwhile. Someone the organizer added
+  accepted no rules: the notice tells them they can object (below).
 
 Entrant IDs and the event log stay, so the draw remains verifiable. Every erasure is recorded (entrant ID and time
 only) and every automatic one audited per raffle, so they can be re-applied after a database restore
 (`rafi reapply-erasures`, see [Self-hosting](../operations/self-hosting.md#backups)). What remains of an erased
 entrant besides the ID: when they entered, for someone who joined on their phone when they accepted the rules and
-which version of the join form they were shown (`consent_version`, as `<form version>/age<minimum age>`, e.g.
-`2026-10-21.2/age16`; someone the organizer added saw no form and has neither), whether their prize was
+which version of the join form and the standard rules they were shown (`consent_version`, as `<form
+version>/age<minimum age>`, e.g. `2026-11-01/age16`; someone the organizer added saw no form and has neither),
+whether their prize was
 delivered, how they got in, and whether their name was hidden. A winner's exported details are the organizer's
 copy, outside Rafi.
 
@@ -81,8 +83,9 @@ nothing to erase yet), every organizer's admin says so.
 Every action on a raffle is a row: who (the owner key, and the member who acted), when, what, and a detail that
 never holds personal data (a count, an ID, the names of the settings that changed). The organizer's: `create`,
 `settings` (which fields), `delete`, the lifecycle moves, `freeze`, `draw`, `resolve`, `void`, `abandon`,
-`finish`, `add` (one person or a list: the add's batch ID, where it came from and how many were added and skipped,
-never who), `undo_add` (the batch ID and how many were removed), `add_fakes`, `remove_fakes`, `patch_entrant`,
+`finish`, `add` (one person or a list: `batch=<ID> origin=<one|list> added=<n> skipped=<m> approved=<k>`, and
+`format=<full|first_initial>` when the browser made a list's names: how many were added and skipped, how many of
+them only because the organizer approved a name the blocklist refuses, never who), `undo_add` (the batch ID and how many were removed), `add_fakes`, `remove_fakes`, `patch_entrant`,
 `deliver` and `undeliver` (by hand, or after
 a `resolve` that changed it: a claim of a prize delivered on the spot, or of one sent later to a winner already
 delivered), `deliver_all`, `set_prize_delivery`, `remove_entrant`, `erase_entrant`, `purge`, `end_live`,
@@ -91,6 +94,41 @@ and stays after the organizer leaves.
 
 On Cloudflare D1, Time Travel keeps erased data for up to 30 more days. The installation's notice should say so (the
 template does).
+
+## People the organizer adds
+
+The organizer can add people instead of them joining with the QR code: one by one, or from a list such as the
+event's registration or guest list (parsed in the organizer's browser; only the name, the email and the
+registration ID reach the service). They accepted nothing and saw no form, so nothing of a consent is recorded for
+them, and Rafi doesn't reach them: the organizer tells them, before the event.
+
+- **The paragraph to send.** The raffle's settings show a paragraph to copy (and edit) onto the event page or into
+  a confirmation email: that they are in the organizer's prize draw, that their name is shown on the event screen
+  and the public results page and how (full name, or first name and initial), the rules and the privacy notice
+  (absolute links, which work once the raffle is published, with the organizer's own notice if it is `https:`), and
+  whom to tell before the draw if they'd rather not take part (the privacy contact, or else the contact email).
+- **The notice** has a section **"If the organizer added you"**, in every raffle: what is held (the name, and the
+  email if the organizer gave one, nothing else), where it came from (the person, at the event, or the organizer's
+  records about the event, such as its registration or guest list), what for (this draw), and the basis, the
+  organizer's legitimate interest in rewarding the event's attendees with a prize draw (GDPR Art. 6(1)(f)); then,
+  in a paragraph of its own, the right to object: before the freeze they are removed and stay out if the organizer
+  adds the list again; after it their name is hidden and their data erased when the raffle is over, the anonymous
+  ID staying in the draw so it can be verified. Their name is public like everyone's, and erased on the same dates.
+  The paragraphs about the email being required and the entry cookie say they are about joining with the QR code.
+  (The removal that a later add respects, and the hiding after the freeze, are being built:
+  [the plan](../plans/entrant-import.md#objections). Until then the organizer removes them before the freeze, and
+  hides their name after it.)
+- **Names are unique.** Nobody the organizer adds is shown with a name someone in the raffle already has (compared
+  composed, lowercase, with whitespace collapsed), whether that someone joined or was added, nor with another row's:
+  the add is refused whole, naming the rows and whom they clash with. Two "Anna K."s on the screen couldn't tell
+  which of them won. The one-person form takes a surname or a number then; a list's names are made unique in the
+  browser, a number for real namesakes ("Anna Kovács (2)"), and for first names and initials more letters of the
+  family name first ("Anna Ko.", "Anna Ki."), at most three. Joins and renames aren't held to it: a joiner's name is
+  their own choice, and the organizer renames on purpose.
+- **Approved names.** The blocklist matches parts of words, so it refuses real names ("Nazir", "Buzinkay",
+  "Shitara"). The organizer approves such a name row by row (or in the one-person form); an approval lifts the
+  blocklist and nothing else (the length, the invisible characters and the letter-or-digit rule hold), and the
+  `add` audit row counts the approvals.
 
 ## Who is responsible
 
@@ -140,7 +178,7 @@ The projector is the source of truth. A faked "you won" screen lacks the winner'
 | **Entrant cap** | `RAFI_MAX_ENTRANTS` (2000), enforced in the database (the hard limit) for joins and for everything the organizer adds, people and fakes: an add that doesn't fit is refused whole, in the same transaction as its rows. At most 1000 items (prize copies) in one raffle |
 | **Registration window** | The join code lets people in only while registration is open. The code is six characters out of 31 (887 million), and there is no per-IP limit, so codes can be guessed at a cost; a hit shows the raffle's public pages. Once the raffle is purged, its code answers nothing, so guessing finds only raffles inside their hold period. |
 | **Presence** | The rules require winners to be present to claim. Remote entries forfeit ("Not here"), and the prize is drawn again. |
-| **Display names** | Nothing invisible (bidirectional controls, zero-width characters, soft hyphens, blank fillers) and at least one letter or digit, so no name can look like another or like nothing; composed (Unicode NFC), so two spellings of one name are one; a blocklist; at most 24 characters when joining, so nobody fills the projector (64 for the organizer's own); rendered isolated from the text around it (`<bdi>`), so a right-to-left name can't reorder it; a 5 s delay before a name reaches the projector; one-tap hide or rename |
+| **Display names** | Nothing invisible (bidirectional controls, zero-width characters, soft hyphens, blank fillers) and at least one letter or digit, so no name can look like another or like nothing; composed (Unicode NFC), so two spellings of one name are one; a blocklist (which the organizer can lift for a real name they add, and only it); at most 24 characters when joining, so nobody fills the projector (64 for the organizer's own); the names the organizer adds unique in the raffle; rendered isolated from the text around it (`<bdi>`), so a right-to-left name can't reorder it; a 5 s delay before a name reaches the projector; one-tap hide or rename |
 | **Before the freeze** | The organizer can remove duplicates and trolls |
 
 Edge protection by IP (DDoS and similar) is the platform's job: Cloudflare, or your reverse proxy.
@@ -156,9 +194,13 @@ data (and `wrangler tail`, when an operator runs it, shows request details live)
 
 The standard rules (`/rules/<slug>`) say:
 
+- the raffle is for the people attending the event in person; its entrants are the people who join with the QR code
+  while registration is open and the people the organizer adds (for example, from the event's guest list), who can
+  ask the organizer to take them off (both ways in, in every raffle's rules)
 - entry is free and needs no purchase or donation
 - there is one entry per person, and one prize per person (unless there are more prizes than people)
-- entrants must be at least the installation's minimum age (16), which they confirm by entering
+- entrants must be at least the installation's minimum age (16), which they confirm by joining; the organizer is
+  responsible for the people it adds meeting the age limit
 - winners must be present
 - prizes can't be exchanged for cash
 - how the draw works
@@ -166,7 +208,8 @@ The standard rules (`/rules/<slug>`) say:
 The organizer appends their own **additional rules**, which is where a higher age limit goes. The additional rules,
 the event date, the retention period and the organizer's privacy text and link lock once a real entrant is in under
 them: someone who joined accepted them, and someone the organizer added was entered under them (no acceptance is
-recorded for them: they saw no form). Fake entrants lock nothing.
+recorded for them: they saw no form). Fake entrants lock nothing. The standard rules are part of the join form's
+version (`consent_version`): a change to them is a new version.
 
 Free entry matters: in many jurisdictions, selling entries or tying them to donations turns a prize draw into a
 regulated lottery. Prize tax treatment also varies. Check both for where you run your event.

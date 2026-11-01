@@ -76,7 +76,9 @@ pub enum NameError {
     /// [`MAX_ADDED_NAME_CHARS`] for the organizer), with control or
     /// invisible characters, or without a single letter or digit.
     Invalid,
-    /// Contains a blocked word.
+    /// Contains a blocked word, and is otherwise fine: only this one the
+    /// organizer can approve ([`added_name_approved`]), since the
+    /// blocklist's substring matching catches real names too.
     Blocked,
 }
 
@@ -133,7 +135,7 @@ pub fn legible(text: &str) -> bool {
 /// keyboards and exports write it) is one character, and the same name as
 /// the precomposed "Á", not a second, longer spelling of it.
 pub fn display_name(input: &str) -> Result<String, NameError> {
-    name_within(input, MAX_NAME_CHARS)
+    name_within(input, MAX_NAME_CHARS, true)
 }
 
 /// The display name `input` stands for, as the organizer gives it (adding
@@ -142,24 +144,44 @@ pub fn display_name(input: &str) -> Result<String, NameError> {
 /// only difference: the blocklist and the invisible characters guard the
 /// screen against mistakes and pasted junk as much as against trolls.
 pub fn added_name(input: &str) -> Result<String, NameError> {
-    name_within(input, MAX_ADDED_NAME_CHARS)
+    name_within(input, MAX_ADDED_NAME_CHARS, true)
 }
 
-/// [`display_name`]'s rules, with at most `max` characters.
-fn name_within(input: &str, max: usize) -> Result<String, NameError> {
+/// [`added_name`] for a name the organizer approved: one the blocklist
+/// refuses ([`NameError::Blocked`]) yet is someone's real name. Its
+/// substring matching can't tell "Nazir", "Buzinkay" or "Shitara" from what
+/// it is there for, and the organizer can: the approval lifts the blocklist
+/// and nothing else. The length, the legibility and the invisible
+/// characters still hold, since they guard the screen against what no
+/// approval makes right (a name that looks like another, or like nothing).
+/// Never [`NameError::Blocked`].
+pub fn added_name_approved(input: &str) -> Result<String, NameError> {
+    name_within(input, MAX_ADDED_NAME_CHARS, false)
+}
+
+/// `input` in Unicode's composed form (NFC), with its whitespace collapsed
+/// to single spaces and trimmed: the spelling every display name is
+/// compared and counted in ([`display_name`]).
+pub(crate) fn tidy(input: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
-    let name = input
+    input
         .nfc()
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ");
+        .join(" ")
+}
+
+/// [`display_name`]'s rules, with at most `max` characters, and the
+/// blocklist if `blocklist`.
+fn name_within(input: &str, max: usize, blocklist: bool) -> Result<String, NameError> {
+    let name = tidy(input);
     let len = name.chars().count();
     if len == 0 || len > max || !legible(&name) {
         return Err(NameError::Invalid);
     }
     let lower = name.to_lowercase();
-    if BLOCKED.iter().any(|w| lower.contains(w)) {
+    if blocklist && BLOCKED.iter().any(|w| lower.contains(w)) {
         return Err(NameError::Blocked);
     }
     Ok(name)
@@ -536,7 +558,9 @@ pub enum RowError {
     /// Not a display name the organizer may give ([`added_name`],
     /// [`NameError::Invalid`]).
     Name,
-    /// A display name with a blocked word ([`NameError::Blocked`]).
+    /// A display name with a blocked word ([`NameError::Blocked`]), not
+    /// approved: the organizer can approve it ([`RowInput::approved`]) if
+    /// it is someone's real name.
     BlockedName,
     /// Not an email address ([`Email::parse`]).
     Email,
@@ -546,6 +570,28 @@ pub enum RowError {
     DuplicateEmail,
     /// An earlier row of the same add has this registration ID.
     DuplicateListRef,
+    /// Someone in the raffle is already shown with this display name
+    /// ([`name_key`](crate::names::name_key)): two people on the screen
+    /// with one name couldn't tell who won
+    /// ([`name_clashes`](crate::names::name_clashes)).
+    NameTaken,
+    /// An earlier row of the same add, one that is added, is shown with
+    /// this display name.
+    DuplicateName,
+}
+
+/// One row of an add, as the organizer sent it: a name ([`added_name`]: up
+/// to [`MAX_ADDED_NAME_CHARS`] characters), an email and a registration ID,
+/// either blank for none, and whether the organizer approved a name the
+/// blocklist refuses.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RowInput<'a> {
+    pub name: &'a str,
+    pub email: Option<&'a str>,
+    pub list_ref: Option<&'a str>,
+    /// The organizer approved the name though the blocklist refuses it
+    /// ([`added_name_approved`]): it lifts the blocklist only.
+    pub approved: bool,
 }
 
 /// A row of an add, checked: what the store is given.
@@ -554,25 +600,28 @@ pub struct AddedRow {
     pub name: String,
     pub email: Option<Email>,
     pub list_ref: Option<String>,
+    /// Its name is in only because the organizer approved it: the
+    /// blocklist refuses it ([`RowInput::approved`]). An approval of a name
+    /// the blocklist takes anyway approves nothing, and isn't one.
+    pub approved: bool,
 }
 
-/// One row of an add, as the organizer sent it: a name ([`added_name`]: up
-/// to [`MAX_ADDED_NAME_CHARS`] characters), an email and a registration ID,
-/// either blank for none.
-pub fn added_row(
-    name: &str,
-    email: Option<&str>,
-    list_ref: Option<&str>,
-) -> Result<AddedRow, RowError> {
-    let name = added_name(name).map_err(|e| match e {
-        NameError::Invalid => RowError::Name,
-        NameError::Blocked => RowError::BlockedName,
-    })?;
-    let email = match email.map(str::trim).filter(|e| !e.is_empty()) {
+/// One row of an add, checked ([`RowInput`]).
+pub fn added_row(row: RowInput<'_>) -> Result<AddedRow, RowError> {
+    let (name, approved) = match added_name(row.name) {
+        Ok(name) => (name, false),
+        Err(NameError::Blocked) if row.approved => (
+            added_name_approved(row.name).map_err(|_| RowError::Name)?,
+            true,
+        ),
+        Err(NameError::Blocked) => return Err(RowError::BlockedName),
+        Err(NameError::Invalid) => return Err(RowError::Name),
+    };
+    let email = match row.email.map(str::trim).filter(|e| !e.is_empty()) {
         Some(e) => Some(Email::parse(e).ok_or(RowError::Email)?),
         None => None,
     };
-    let list_ref = match list_ref.filter(|r| !r.trim().is_empty()) {
+    let list_ref = match row.list_ref.filter(|r| !r.trim().is_empty()) {
         Some(r) => Some(self::list_ref(r).ok_or(RowError::ListRef)?),
         None => None,
     };
@@ -580,21 +629,24 @@ pub fn added_row(
         name,
         email,
         list_ref,
+        approved,
     })
 }
 
 /// The rows of an add, checked ([`added_row`]), or every row's problem by
 /// its index: a row whose email key or registration ID an earlier row has
 /// is a duplicate, since one add can't say which of the two is meant.
+/// Whether their display names are unique depends on who is in the raffle
+/// and which rows it already has: [`name_clashes`](crate::names::name_clashes).
 pub fn added_rows<'a>(
-    rows: impl IntoIterator<Item = (&'a str, Option<&'a str>, Option<&'a str>)>,
+    rows: impl IntoIterator<Item = RowInput<'a>>,
 ) -> Result<Vec<AddedRow>, Vec<(usize, RowError)>> {
     let mut emails = std::collections::HashSet::new();
     let mut refs = std::collections::HashSet::new();
     let mut checked = Vec::new();
     let mut problems = Vec::new();
-    for (i, (name, email, list_ref)) in rows.into_iter().enumerate() {
-        let row = added_row(name, email, list_ref).and_then(|row| {
+    for (i, input) in rows.into_iter().enumerate() {
+        let row = added_row(input).and_then(|row| {
             if row
                 .email
                 .as_ref()
@@ -729,34 +781,51 @@ mod tests {
         }
     }
 
+    /// A row as the tests write it: name, email, registration ID.
+    fn row<'a>(name: &'a str, email: Option<&'a str>, list_ref: Option<&'a str>) -> RowInput<'a> {
+        RowInput {
+            name,
+            email,
+            list_ref,
+            approved: false,
+        }
+    }
+
     #[test]
     fn rows_of_an_add() {
-        let row = added_row(" Anna  K. ", Some(" Anna@X.org "), Some(" 7 ")).unwrap();
-        assert_eq!(row.name, "Anna K.");
-        assert_eq!(row.email.map(|e| e.key).as_deref(), Some("anna@x.org"));
-        assert_eq!(row.list_ref.as_deref(), Some("7"));
+        let added = added_row(row(" Anna  K. ", Some(" Anna@X.org "), Some(" 7 "))).unwrap();
+        assert_eq!(added.name, "Anna K.");
+        assert_eq!(added.email.map(|e| e.key).as_deref(), Some("anna@x.org"));
+        assert_eq!(added.list_ref.as_deref(), Some("7"));
+        assert!(!added.approved);
         let long = "x".repeat(MAX_ADDED_NAME_CHARS);
-        assert_eq!(added_row(&long, None, None).map(|r| r.name), Ok(long));
+        assert_eq!(added_row(row(&long, None, None)).map(|r| r.name), Ok(long));
         assert_eq!(
-            added_row(&"x".repeat(MAX_ADDED_NAME_CHARS + 1), None, None),
+            added_row(row(&"x".repeat(MAX_ADDED_NAME_CHARS + 1), None, None)),
             Err(RowError::Name),
             "the organizer's limit, not a joiner's"
         );
-        let blank = added_row("Bence", Some("  "), Some("")).unwrap();
+        let blank = added_row(row("Bence", Some("  "), Some(""))).unwrap();
         assert_eq!((blank.email, blank.list_ref), (None, None), "blank is none");
-        assert_eq!(added_row("", None, None), Err(RowError::Name));
-        assert_eq!(added_row("Kurva", None, None), Err(RowError::BlockedName));
-        assert_eq!(added_row("Anna", Some("anna"), None), Err(RowError::Email));
+        assert_eq!(added_row(row("", None, None)), Err(RowError::Name));
         assert_eq!(
-            added_row("Anna", None, Some("a\u{200B}")),
+            added_row(row("Kurva", None, None)),
+            Err(RowError::BlockedName)
+        );
+        assert_eq!(
+            added_row(row("Anna", Some("anna"), None)),
+            Err(RowError::Email)
+        );
+        assert_eq!(
+            added_row(row("Anna", None, Some("a\u{200B}"))),
             Err(RowError::ListRef)
         );
 
         assert_eq!(
             added_rows([
-                ("Anna", Some("anna@x.org"), Some("1")),
-                ("Bence", None, None),
-                ("Csilla", None, None),
+                row("Anna", Some("anna@x.org"), Some("1")),
+                row("Bence", None, None),
+                row("Csilla", None, None),
             ])
             .map(|rows| rows.len()),
             Ok(3),
@@ -764,11 +833,11 @@ mod tests {
         );
         assert_eq!(
             added_rows([
-                ("Anna", Some("anna@x.org"), Some("1")),
-                ("", None, None),
-                ("Anna 2", Some("ANNA+x@x.org"), None),
-                ("Dora", None, Some("1")),
-                ("Emil", Some("bad"), None),
+                row("Anna", Some("anna@x.org"), Some("1")),
+                row("", None, None),
+                row("Anna 2", Some("ANNA+x@x.org"), None),
+                row("Dora", None, Some("1")),
+                row("Emil", Some("bad"), None),
             ]),
             Err(vec![
                 (1, RowError::Name),
@@ -777,6 +846,45 @@ mod tests {
                 (4, RowError::Email),
             ]),
             "every row's problem, by index; the later of two is the duplicate"
+        );
+    }
+
+    /// The blocklist's substring matching catches real names; the organizer
+    /// approves them row by row, which lifts the blocklist and nothing else.
+    #[test]
+    fn approved_names() {
+        let approved = |name| RowInput {
+            name,
+            approved: true,
+            ..RowInput::default()
+        };
+        for real in ["Nazir Ahmed", "Buzinkay Gábor", "Shitara Ken"] {
+            assert_eq!(
+                added_row(row(real, None, None)),
+                Err(RowError::BlockedName),
+                "{real}: refused without the approval"
+            );
+            let added = added_row(approved(real)).unwrap();
+            assert_eq!(added.name, real);
+            assert!(added.approved, "{real}: in by the approval");
+            assert_eq!(added_name(real), Err(NameError::Blocked));
+            assert_eq!(added_name_approved(real).as_deref(), Ok(real));
+        }
+        let fine = added_row(approved("Anna Kovács")).unwrap();
+        assert!(
+            !fine.approved,
+            "approving a name the blocklist takes approves nothing"
+        );
+        // Every other rule holds, approved or not.
+        let long = format!("Nazir {}", "x".repeat(MAX_ADDED_NAME_CHARS));
+        for bad in ["", "Nazir\u{200B}", "\u{202E}Nazir", "★ ★ ★", &long] {
+            assert_eq!(added_row(approved(bad)), Err(RowError::Name), "{bad:?}");
+            assert_eq!(added_name_approved(bad), Err(NameError::Invalid), "{bad:?}");
+        }
+        assert_eq!(
+            added_rows([approved("Nazir"), row("Nazir Ali", None, None)]),
+            Err(vec![(1, RowError::BlockedName)]),
+            "an approval is the row's own"
         );
     }
 

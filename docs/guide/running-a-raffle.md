@@ -85,6 +85,14 @@ deleted outright and it becomes Data erased.
    unless you choose otherwise, at most 30); and any **additional rules**, one paragraph per line. Put a higher age
    limit there (the service's minimum is in the standard rules, and the join form says the rules may ask for
    more). Save them as **your defaults** so the next raffle starts with them.
+   - **Adding people from a guest list?** Tell them before the event. Under the privacy fields, the settings show
+     **What to tell the people you add**: a paragraph to copy onto the event page or into the confirmation email,
+     and edit as you like. It says they are in your prize draw, that their name is shown on the event screen and
+     the public results page (pick full names or first name and initial to see how it reads), links the raffle's
+     rules and privacy notice (and your own notice, if it is an `https://` link), and asks anyone who'd rather not
+     take part to tell your privacy contact (or your contact email) before the draw. The links work once the raffle
+     is published. You're responsible for being allowed to share the list, for telling its people, and for their
+     meeting the age limit: the rules say so.
 3. **Prizes:** add each prize with a quantity and, optionally, a sponsor. Each copy is drawn on its own, in any
    order you like during the draw. Say how each one reaches its winner: **On the spot** (handed over when they
    come up with their code: pressing **Claimed** marks it delivered too) or **Sent later** (a voucher you email
@@ -114,7 +122,10 @@ deleted outright and it becomes Data erased.
    - **Add people**: someone without a smartphone, by name (email optional). They are in the draw like everyone
      else, as "added by you"; an email already in is skipped. **Undo last add** takes your latest add off the list
      again, until the freeze. A name you give may be a full name of up to 64 characters (people joining with the
-     QR code have 24): the projector fits it on screen.
+     QR code have 24): the projector fits it on screen. It can't be a name someone in the raffle is already shown
+     with ("Someone is already shown as “Anna K.”"): add a surname, an initial or a number, so the room can tell
+     who won. The word filter matches parts of words and refuses some real names (Nazir, Buzinkay): if it refuses
+     someone's real name, switch on **It's their real name** to add it anyway; nothing else is lifted.
    - **hide** or **rename** a display name on screen with one tap (a troll, a typo), up to 64 characters. New names
      reach the projector after a 5 s delay.
    - **remove** duplicates
@@ -199,4 +210,5 @@ organization, an admin does this, for every co-host's raffles.
 - [ ] The projector screen in fullscreen, readable from the back of the room
 - [ ] The venue wifi or mobile data reaches the server over HTTPS
 - [ ] Someone ready to add people without a phone
+- [ ] People you add from a list told in advance, with the paragraph from the settings
 - [ ] Nobody deploys while the raffle is live (see [Upgrades](../operations/upgrades.md))

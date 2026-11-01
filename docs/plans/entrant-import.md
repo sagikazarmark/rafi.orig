@@ -286,7 +286,8 @@ re-checks are in `rafi_lifecycle::entrant`.
 - **`full`** (default): the full name. **`first_initial`**: "Anna K.", for large or more private events.
 - **Collisions**: display names are unique within the raffle, joined entrants included. Real namesakes get a
   number ("Anna Kovács (2)"); with `first_initial`, more letters of the family name first ("Anna Ko.", "Anna Ki."),
-  at most three, then a number. The draw console's email tells namesakes apart.
+  at most three, then a number. Letters are added only where they tell people apart (or move them off a name in
+  the raffle): two Anna Kovács are "Anna K." and "Anna K. (2)". The draw console's email tells namesakes apart.
 - The server re-checks the length, the format and the uniqueness, and refuses a batch that collides.
 
 ### Store
@@ -374,9 +375,9 @@ re-checks are in `rafi_lifecycle::entrant`.
   cutoff:
 
   > You're in the prize draw of *\<title\>* on *\<date\>*, run by *\<organizer\>* with Rafi, as someone on our
-  > guest list. Your name is shown on the event screen and the public results page as "*\<format example\>*".
-  > Rules: *\<rules URL\>* · Privacy: *\<privacy URL\>*. Rather not take part? Tell *\<contact\>* before *\<date,
-  > time\>*.
+  > guest list. Your name is shown on the event screen and the public results page as your full name, like “Anna
+  > Kovács”. Rules: *\<rules URL\>* · Privacy: *\<privacy URL\>*. Rather not take part? Tell *\<contact\>*
+  > before the draw on *\<date\>*.
 
 ### Erasure and retention
 
@@ -425,10 +426,14 @@ Each is shippable and tested on its own.
    with its one-person tab, `MAX_ADD_ROWS`.
 2. **Long names.** `MAX_ADDED_NAME_CHARS`, the projector fitting long names (reveal, recent names, thanks screen),
    checked at projector size.
-3. **Lists, minimal.** A paste-only list tab for "name TAB email"; the privacy notice's section and
-   the rules' sentences; the paragraph; the responsibility line.
+3. **Lists, the server's side and the texts.** Name formats, the name key and the collision resolver in
+   `rafi_lifecycle::names` (pure, for the browser); the server's uniqueness check of added names (the one-person
+   form too) and blocklist approvals, with `approved` and `format` in the `add` audit row; the rules' sentences and
+   the join form's new version; the privacy notice's section; the paragraph (`rafi_api::paragraph_to_send`) in the
+   settings.
 4. **The list tab.** Parser, column detection with fixtures, mapping, files, the preview with groups and decisions,
-   blocklist approvals, retries by batch ID, name formats and collisions with the server's check.
+   approvals per row, retries by batch ID, names made with `names::unique_names`, the paragraph and the
+   responsibility line.
 5. **Removals and objections.** Removal at their request with `add_removals` and its erasure; objections after the
    freeze.
 6. **The evening.** The console's prompt and "Confirmed: it's them", "Come to the front!", the reminder at the

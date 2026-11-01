@@ -115,8 +115,9 @@ fn one(name: &str, email: Option<&str>) -> AddRequest {
         rows: vec![AddRow {
             name: name.into(),
             email: email.map(Into::into),
-            list_ref: None,
+            ..AddRow::default()
         }],
+        name_format: None,
     }
 }
 
@@ -504,8 +505,10 @@ fn list(rows: &[(&str, Option<&str>, Option<&str>)]) -> AddRequest {
                 name: (*name).into(),
                 email: email.map(Into::into),
                 list_ref: list_ref.map(Into::into),
+                approved: false,
             })
             .collect(),
+        name_format: None,
     }
 }
 
@@ -612,10 +615,10 @@ async fn adding_one_person_is_a_batch_of_one() {
     assert_eq!(adds.len(), 5, "{adds:?}");
     assert_eq!(
         adds[0],
-        format!("batch={batch} origin=one added=1 skipped=0")
+        format!("batch={batch} origin=one added=1 skipped=0 approved=0")
     );
     assert!(
-        adds[4].ends_with(" origin=one added=0 skipped=1"),
+        adds[4].ends_with(" origin=one added=0 skipped=1 approved=0"),
         "{adds:?}"
     );
     assert!(
@@ -685,7 +688,7 @@ async fn adding_a_list_keeps_its_order_and_skips_who_is_in() {
     assert_eq!(bence.batch_id.as_deref(), Some(batch.as_str()));
     assert_eq!(
         audited(&app, &id, "add").await.last().unwrap(),
-        &format!("batch={batch} origin=list added=3 skipped=1")
+        &format!("batch={batch} origin=list added=3 skipped=1 approved=0")
     );
 
     // An updated list adds only who is new, by email or registration ID.
@@ -751,7 +754,11 @@ async fn invalid_adds_are_refused_whole_with_their_rows() {
         ("Feri", None, Some(" 1 ")),
     ]);
     let refused = refusal(app::add_entrants(&app, ACTOR, &id, add).await);
-    let problem = |row, problem| RowProblem { row, problem };
+    let problem = |row, problem| RowProblem {
+        row,
+        problem,
+        shown_as: None,
+    };
     assert_eq!(
         refused,
         Refusal::Rows {
@@ -950,4 +957,235 @@ async fn adds_and_undos_are_rate_limited_per_owner() {
     app::add_entrants(&app, someone, &theirs, one("Anna", None))
         .await
         .unwrap();
+}
+
+/// Joins `raffle_id` on the participant page as `name` with `email`.
+async fn join_as(app: &App, raffle_id: &str, name: &str, email: &str) {
+    let raffle = raffles::get(&app.db, raffle_id).await.unwrap().unwrap();
+    let proof = solved(app);
+    let req = app::JoinRequest {
+        name,
+        email,
+        rules: true,
+        proof: &proof,
+    };
+    assert!(matches!(
+        app::join(app, &raffle, &req).await,
+        Ok(app::JoinOutcome::Joined { .. })
+    ));
+}
+
+/// Nobody the organizer adds is shown with a name someone else has, by
+/// the key (case, spacing and composition aside): not someone who joined,
+/// not someone added before, not another row. The whole add is refused,
+/// with the rows and whom they clash with; the one-person form too. Joins
+/// aren't held to it.
+#[tokio::test]
+async fn added_names_are_unique() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &["Bence Nagy"]).await;
+    join_as(&app, &id, "Anna K.", "anna@x.org").await;
+
+    let clash = |row, problem, shown_as: &str| RowProblem {
+        row,
+        problem,
+        shown_as: Some(shown_as.to_owned()),
+    };
+    let add = list(&[
+        ("Csilla", None, None),
+        ("anna  k.", None, None),
+        ("BENCE NAGY", Some("bence@x.org"), None),
+        ("Dora", None, None),
+        ("Csilla", None, None),
+        ("Do\u{301}ra", None, None),
+        ("Dóra", None, None),
+    ]);
+    let refused = refusal(app::add_entrants(&app, ACTOR, &id, add).await);
+    assert_eq!(
+        refused,
+        Refusal::Rows {
+            origin: Origin::List,
+            rows: vec![
+                clash(1, RowError::NameTaken, "Anna K."),
+                clash(2, RowError::NameTaken, "Bence Nagy"),
+                clash(4, RowError::DuplicateName, "Csilla"),
+                clash(6, RowError::DuplicateName, "Dóra"),
+            ],
+        },
+        "against who is in, joined or added, and the earlier rows; composed first"
+    );
+    assert!(refused.invalid());
+    assert!(
+        refused.to_string().starts_with(
+            "4 rows can't be added, so nothing was: row 2: someone is already shown as “Anna K.”; row 3: someone is already shown as “Bence Nagy”; row 5: an earlier row is shown as “Csilla” too; and 1 more."
+        ),
+        "{refused}"
+    );
+    assert_eq!(names(&app, &id).await.len(), 2, "nothing was added");
+
+    // One person too: the organizer adds a surname or a number.
+    let refused = refusal(app::add_entrants(&app, ACTOR, &id, one("Anna K.", None)).await);
+    assert_eq!(
+        refused.to_string(),
+        "Someone is already shown as “Anna K.”."
+    );
+    add_one(&app, &id, "Anna K. (2)", None).await.unwrap();
+
+    // A row already in (by its email) keeps its own name: an updated list
+    // goes in, the new rows checked against everyone.
+    add_one(&app, &id, "Emil", Some("emil@x.org"))
+        .await
+        .unwrap();
+    let update = list(&[("Emil", Some("emil@x.org"), None), ("Feri", None, None)]);
+    let result = app::add_entrants(&app, ACTOR, &id, update).await.unwrap();
+    assert_eq!(result.added.iter().map(|a| a.row).collect::<Vec<_>>(), [1]);
+    assert_eq!(result.skipped.len(), 1);
+    let refused = refusal(
+        app::add_entrants(
+            &app,
+            ACTOR,
+            &id,
+            list(&[("Gabi", Some("gabi@x.org"), None), ("emil", None, None)]),
+        )
+        .await,
+    );
+    assert_eq!(
+        refused,
+        Refusal::Rows {
+            origin: Origin::List,
+            rows: vec![clash(1, RowError::NameTaken, "Emil")],
+        },
+        "a new row with an added name"
+    );
+
+    // Joins and renames aren't held to it.
+    join_as(&app, &id, "Feri", "feri@x.org").await;
+    let anna2 = entrants::list(&app.db, &id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|e| e.display_name == "Anna K. (2)")
+        .unwrap();
+    app::patch_entrant(
+        &app,
+        ACTOR,
+        &id,
+        &anna2.id,
+        EntrantPatch {
+            display_name: Some("Anna K.".into()),
+            ..EntrantPatch::default()
+        },
+    )
+    .await
+    .unwrap();
+    let mut shown = names(&app, &id).await;
+    shown.sort();
+    assert_eq!(
+        shown,
+        ["Anna K.", "Anna K.", "Bence Nagy", "Emil", "Feri", "Feri"]
+    );
+}
+
+/// A name the blocklist refuses goes in when the organizer approved it, and
+/// the approval is counted in the audit; it lifts the blocklist only.
+#[tokio::test]
+async fn blocked_names_go_in_when_approved() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &[]).await;
+    let mut add = list(&[
+        ("Nazir Ahmed", None, None),
+        ("Gábor Buzinkay", None, None),
+        ("Anna", None, None),
+    ]);
+    let refused = refusal(app::add_entrants(&app, ACTOR, &id, add.clone()).await);
+    assert_eq!(
+        refused,
+        Refusal::Rows {
+            origin: Origin::List,
+            rows: [0, 1]
+                .map(|row| RowProblem {
+                    row,
+                    problem: RowError::BlockedName,
+                    shown_as: None,
+                })
+                .to_vec(),
+        },
+        "refused without the approval"
+    );
+    assert!(
+        refused.to_string().contains(
+            "row 1: the name has a word the blocklist refuses; approve it if it is their real name"
+        ),
+        "{refused}"
+    );
+
+    // Approval lifts the blocklist, not the other rules.
+    let mut sneaky = add.clone();
+    sneaky.rows[0].name = "Nazir\u{200B}".into();
+    sneaky.rows[0].approved = true;
+    sneaky.rows[1].approved = true;
+    assert_eq!(
+        refusal(app::add_entrants(&app, ACTOR, &id, sneaky).await),
+        Refusal::Rows {
+            origin: Origin::List,
+            rows: vec![RowProblem {
+                row: 0,
+                problem: RowError::Name,
+                shown_as: None,
+            }],
+        },
+        "nothing invisible, approved or not"
+    );
+    assert!(names(&app, &id).await.is_empty());
+
+    for row in &mut add.rows {
+        row.approved = true;
+    }
+    add.name_format = Some(rafi_api::NameFormat::Full);
+    let batch = add.batch_id.clone();
+    app::add_entrants(&app, ACTOR, &id, add).await.unwrap();
+    assert_eq!(
+        names(&app, &id).await,
+        ["Nazir Ahmed", "Gábor Buzinkay", "Anna"]
+    );
+    assert_eq!(
+        audited(&app, &id, "add").await.last().unwrap(),
+        &format!("batch={batch} origin=list added=3 skipped=0 approved=2 format=full"),
+        "an approval of a name the blocklist takes approves nothing"
+    );
+
+    // The one-person form takes an approval too.
+    let mut nazir = one("Nazir Ali", None);
+    assert_eq!(
+        refusal(app::add_entrants(&app, ACTOR, &id, nazir.clone()).await).to_string(),
+        "The name has a word the blocklist refuses; approve it if it is their real name."
+    );
+    nazir.rows[0].approved = true;
+    app::add_entrants(&app, ACTOR, &id, nazir).await.unwrap();
+    assert!(
+        audited(&app, &id, "add")
+            .await
+            .last()
+            .unwrap()
+            .ends_with(" origin=one added=1 skipped=0 approved=1"),
+        "no format for one person"
+    );
+}
+
+/// The add's audit row names the format the browser made the names in,
+/// when it says; never a name.
+#[tokio::test]
+async fn the_name_format_is_audited() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &[]).await;
+    let mut add = list(&[("Anna K.", None, None), ("Bence N.", None, None)]);
+    add.name_format = Some(rafi_api::NameFormat::FirstInitial);
+    let batch = add.batch_id.clone();
+    app::add_entrants(&app, ACTOR, &id, add).await.unwrap();
+    assert_eq!(
+        audited(&app, &id, "add").await,
+        [format!(
+            "batch={batch} origin=list added=2 skipped=0 approved=0 format=first_initial"
+        )]
+    );
 }

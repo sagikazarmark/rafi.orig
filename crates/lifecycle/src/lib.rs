@@ -1,8 +1,8 @@
 //! A raffle's lifecycle in the app and the rules that hang on it: how it
 //! starts ([`start`]) and follows the raffle as drawn ([`raffle`]), who its
-//! entrants are ([`entrant`]), how its prizes reach their winners
-//! ([`prize`]), what its settings may hold ([`settings`]) and what phones see
-//! of it ([`live`]).
+//! entrants are ([`entrant`]) and how their names are shown ([`names`]), how
+//! its prizes reach their winners ([`prize`]), what its settings may hold
+//! ([`settings`]) and what phones see of it ([`live`]).
 //! The raffle itself, from its manifest to its finish, is `rafi-raffle`'s,
 //! which knows nothing of the app.
 //!
@@ -12,6 +12,7 @@
 pub mod dates;
 pub mod entrant;
 pub mod live;
+pub mod names;
 pub mod prize;
 pub mod raffle;
 pub mod settings;

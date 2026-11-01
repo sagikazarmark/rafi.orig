@@ -171,9 +171,10 @@ pub fn rules(r: &Rules<'_>) -> String {
         ("Organizer".to_owned(), vec![format!("{organizer}{contact}").into()]),
         ("Prizes".to_owned(), if prizes.is_empty() { vec!["To be announced.".into()] } else { prizes }),
         ("Who can take part".to_owned(), vec![
-            "Anyone attending the event in person. Organizers and volunteers cannot win. Sponsor employees cannot win their own sponsor's prizes.".into(),
+            "The raffle is for the people attending the event in person. Entrants are the people who join with the QR code while registration is open, and the people the organizer adds (for example, from the event's guest list). If the organizer added you, you can ask them to take you off.".into(),
+            "Organizers and volunteers cannot win. Sponsor employees cannot win their own sponsor's prizes.".into(),
             "Entry is free. No purchase or donation is necessary. One entry per person.".into(),
-            format!("Entrants must be {} or older: by entering, you confirm you are.", r.min_age).into(),
+            format!("Entrants must be {} or older: by joining, you confirm you are; the organizer is responsible for the people it adds meeting the age limit.", r.min_age).into(),
         ]),
         ("How the draw works".to_owned(), vec![
             "Registration closes when the draw starts and the list of entrants is frozen and published (as a hash and as a list of anonymous IDs).".into(),
@@ -200,9 +201,10 @@ pub fn rules(r: &Rules<'_>) -> String {
 }
 
 /// The raffle's privacy notice, as HTML: the controller, what is collected
-/// and why, what is public, the three erasure dates, the operator as the
-/// processor (its own notice names its subprocessors), the entrant's rights,
-/// then whatever the organizer adds.
+/// and why from someone who joins and from someone the organizer adds, what
+/// is public, the three erasure dates, the operator as the processor (its
+/// own notice names its subprocessors), the entrant's rights, then whatever
+/// the organizer adds.
 pub fn privacy(p: &Privacy<'_>) -> String {
     let Privacy {
         raffle,
@@ -230,17 +232,18 @@ pub fn privacy(p: &Privacy<'_>) -> String {
     let mut sections: Vec<(String, Vec<Para>)> = vec![
         ("Controller".to_owned(), controller),
         ("What we collect and why".to_owned(), vec![
-            "Your display name and email address, to run the prize draw you entered under the raffle rules (GDPR Art. 6(1)(b)): to tell entries apart, to identify winners and to deliver prizes.".into(),
-            "Duplicate and abuse checks (one entry per email address, rate limiting, a proof-of-work check that runs in your browser) are based on our legitimate interest in a fair draw (Art. 6(1)(f)).".into(),
-            "Your email address is required to enter: without it you can't take part. A display name is optional. Your email is never shown on the screen or shared with sponsors.".into(),
+            "If you join with the QR code: your display name and email address, to run the prize draw you entered under the raffle rules (GDPR Art. 6(1)(b)): to tell entries apart, to identify winners and to deliver prizes.".into(),
+            "Duplicate and abuse checks (one entry per email address, rate limiting, a proof-of-work check that runs in your browser when you join) are based on our legitimate interest in a fair draw (Art. 6(1)(f)).".into(),
+            "To join with the QR code, your email address is required: without it you can't join. A display name is optional. Nobody's email is ever shown on the screen or shared with sponsors.".into(),
             "The draw is automated and random, from public randomness anyone can check; it makes no decision with legal or similarly significant effects on you.".into(),
         ]),
+        ("If the organizer added you".to_owned(), added(raffle, organizer)),
         ("What is public".to_owned(), vec![
-            "Your display name appears on the event screen and on the verification page, which lists every entrant's display name so everyone can check they were in, until your data is erased. It doesn't have to be your real name: leave it blank and we pick one for you. The organizer can also hide it.".into(),
+            "Your display name appears on the event screen and on the verification page, which lists every entrant's display name so everyone can check they were in, until your data is erased. If you join with the QR code, it doesn't have to be your real name: leave it blank and we pick one for you. The organizer can hide anyone's name.".into(),
             "The draw itself uses only random anonymous IDs. Your email address is never published.".into(),
         ]),
         ("Cookies".to_owned(), vec![
-            "We set one strictly necessary cookie that remembers your entry on this device. No analytics or tracking.".into(),
+            "When you join with the QR code, we set one strictly necessary cookie that remembers your entry on that device. No analytics or tracking.".into(),
         ]),
         ("How long we keep it".to_owned(), vec![
             format!(
@@ -287,6 +290,38 @@ pub fn privacy(p: &Privacy<'_>) -> String {
     }
     let title = format!("Privacy notice — {}", raffle.title);
     text_page(&title, format!("/j/{}", raffle.join_code), sections)
+}
+
+/// The notice's section for the people the organizer adds (one by one, or
+/// from a list) rather than joining themselves: what Art. 14 asks of data
+/// that didn't come from its person on a form (the categories, the source,
+/// the purpose and the basis, with the interest named), then the right to
+/// object, on its own as Art. 21(4) wants it, with what it does before and
+/// after the freeze. Always there: in any raffle, the organizer may add
+/// anyone by hand.
+fn added(raffle: &Raffle<'_>, organizer: &Organizer<'_>) -> Vec<Para> {
+    let who = if organizer.left || organizer.name.is_empty() {
+        "the organizer".to_owned()
+    } else {
+        organizer.name.to_owned()
+    };
+    let ask = if organizer.left || organizer.privacy_contact.is_empty() {
+        who
+    } else {
+        format!("{who} ({})", organizer.privacy_contact)
+    };
+    vec![
+        format!(
+            "The organizer may add you to this raffle themselves, one by one or from a list, instead of you joining with the QR code. Then we hold your name and, if the organizer gives it, your email address: nothing else. They come from you, at the event, or from the organizer's records about the event, such as its registration or guest list. They are used for this prize draw only, on the basis of the organizer's legitimate interest in rewarding the attendees of “{}” with a prize draw (GDPR Art. 6(1)(f)).",
+            raffle.title
+        )
+        .into(),
+        format!(
+            "You can object to this at any time: ask {ask} to take you off. Before the list of entrants is frozen for the draw, you are removed, and stay out if the organizer adds the list again. After that, your name is hidden and your data is erased when the raffle is over; only your anonymous ID stays in the draw, so it can still be verified."
+        )
+        .into(),
+        "Your name is shown on the event screen and on the verification page, as everyone's is, and erased on the same dates as everyone's (below).".into(),
+    ]
 }
 
 /// One of the installation's documents (its privacy notice, its terms), as

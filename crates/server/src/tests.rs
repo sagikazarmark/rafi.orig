@@ -1018,8 +1018,9 @@ pub(crate) async fn add_one(
         rows: vec![rafi_api::AddRow {
             name: name.into(),
             email,
-            list_ref: None,
+            ..rafi_api::AddRow::default()
         }],
+        name_format: None,
     };
     let result = service::add_entrants(app, actor, raffle_id, add).await?;
     Ok(result
@@ -3050,6 +3051,50 @@ async fn the_join_page_and_the_notices_say_when_data_is_erased() {
     assert!(notice.contains("We never sell anything."));
     assert!(notice.contains("href=\"https://example.com/privacy\""));
 
+    // Whoever the organizer adds is told what of theirs is held, where it
+    // came from, why and on what basis, and, on its own, how to object.
+    let added = notice
+        .find("If the organizer added you")
+        .expect("the section for people the organizer adds");
+    assert!(added < notice.find("What is public").unwrap());
+    let section = &notice[added..notice.find("What is public").unwrap()];
+    for said in [
+        "your name and, if the organizer gives it, your email address: nothing else",
+        "from you, at the event, or from the organizer&#39;s records about the event, such as its registration or guest list",
+        "for this prize draw only",
+        "the organizer&#39;s legitimate interest in rewarding the attendees of “",
+        "with a prize draw (GDPR Art. 6(1)(f))",
+        "on the event screen and on the verification page, as everyone&#39;s is",
+    ] {
+        assert!(section.contains(said), "{said}: {section}");
+    }
+    let object = section
+        .split("<p")
+        .find(|p| p.contains("You can object"))
+        .expect("the right to object, in a paragraph of its own");
+    assert!(
+        !object.contains("Art. 6(1)(f)"),
+        "apart from the basis: {object}"
+    );
+    for said in [
+        "ask Cloud Native Budapest (dpo@example.com) to take you off",
+        "Before the list of entrants is frozen for the draw, you are removed, and stay out if the organizer adds the list again.",
+        "After that, your name is hidden and your data is erased when the raffle is over",
+        "only your anonymous ID stays in the draw, so it can still be verified",
+    ] {
+        assert!(object.contains(said), "{said}: {object}");
+    }
+    // What is about joining says so.
+    for said in [
+        "If you join with the QR code: your display name and email address",
+        "To join with the QR code, your email address is required",
+        "When you join with the QR code, we set one strictly necessary cookie",
+        "If you join with the QR code, it doesn&#39;t have to be your real name",
+    ] {
+        assert!(notice.contains(said), "{said}: {notice}");
+    }
+    assert!(!notice.contains("Your email address is required to enter"));
+
     let (status, _, rules) = send(
         &router,
         Request::get(format!("/rules/{}", raffle.slug))
@@ -3059,6 +3104,17 @@ async fn the_join_page_and_the_notices_say_when_data_is_erased() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(rules.contains("Entrants must be 16 or older:"), "{rules}");
+    // Both ways in, for every raffle, so switching registration changes
+    // nothing anyone accepted; and who answers for the age of whom.
+    for said in [
+        "The raffle is for the people attending the event in person.",
+        "Entrants are the people who join with the QR code while registration is open, and the people the organizer adds (for example, from the event&#39;s guest list). If the organizer added you, you can ask them to take you off.",
+        "Organizers and volunteers cannot win.",
+        "by joining, you confirm you are; the organizer is responsible for the people it adds meeting the age limit.",
+        "Winners must be present",
+    ] {
+        assert!(rules.contains(said), "{said}: {rules}");
+    }
 
     // The installation's own documents, with their versions.
     for (path, text) in [
@@ -3811,6 +3867,10 @@ async fn an_organizer_can_remove_their_data() {
         "{notice}"
     );
     assert!(!notice.contains("hello@example.com"));
+    assert!(
+        notice.contains("ask the organizer to take you off"),
+        "nobody named: {notice}"
+    );
 }
 
 /// After a restore, the erasure log, the purges and the organizers who left
@@ -4161,6 +4221,10 @@ async fn the_notice_without_the_optional_fields() {
         notice.contains("Privacy requests: hello@example.com"),
         "{notice}"
     );
+    assert!(
+        notice.contains("ask Cloud Native Budapest (hello@example.com) to take you off"),
+        "the contact email, without a privacy contact: {notice}"
+    );
     assert!(!notice.contains("From the organizer"), "{notice}");
     assert!(!notice.contains("has since left"));
 
@@ -4185,6 +4249,10 @@ async fn the_notice_without_the_optional_fields() {
         "{notice}"
     );
     assert!(!notice.contains("Privacy requests:"));
+    assert!(
+        notice.contains("You can object to this at any time: ask the organizer to take you off."),
+        "nobody to name yet: {notice}"
+    );
 }
 
 /// Over HTTP: a locked setting is a 409 that names the field; an event date
@@ -4858,11 +4926,11 @@ async fn adding_people_over_http() {
         [
             (
                 "add".into(),
-                "batch=b-one origin=one added=1 skipped=0".into()
+                "batch=b-one origin=one added=1 skipped=0 approved=0".into()
             ),
             (
                 "add".into(),
-                "batch=b-list origin=list added=3 skipped=1".into()
+                "batch=b-list origin=list added=3 skipped=1 approved=0".into()
             ),
             ("undo_add".into(), "batch=b-list removed=3".into()),
         ]
@@ -4918,6 +4986,139 @@ async fn adding_people_is_bounded_over_http() {
         entrants::list(&app.db, id).await.unwrap().len(),
         budget as usize
     );
+}
+
+/// Over HTTP: a name the organizer adds that someone is already shown with
+/// (who joined, who was added before, an earlier row; case, spacing and
+/// composition aside) refuses the add with a 400 and the rows, naming
+/// whom; one person too. A blocked name goes in only approved, the
+/// approval lifting the blocklist alone, and is counted in the audit with
+/// the name format.
+#[tokio::test]
+async fn added_names_are_unique_and_approved_over_http() {
+    let (app, router, raffle) = dev_raffle(Config::for_tests()).await;
+    let id = raffle.id.as_str();
+    let (status, _, _) = join(&router, &raffle.join_code, "Anna K.", "anna@example.com").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let add = add_args(
+        id,
+        "b-clash",
+        "list",
+        serde_json::json!([
+            { "name": "ANNA  K." },
+            { "name": "Bence" },
+            { "name": "be\u{301}la" },
+            { "name": "bence" },
+            { "name": "Béla" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, "rows");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["rows"],
+        serde_json::json!([
+            { "row": 0, "problem": "name_taken", "shown_as": "Anna K." },
+            { "row": 3, "problem": "duplicate_name", "shown_as": "Bence" },
+            { "row": 4, "problem": "duplicate_name", "shown_as": "béla" },
+        ])
+    );
+    assert!(
+        err.message
+            .contains("row 1: someone is already shown as “Anna K.”"),
+        "{}",
+        err.message
+    );
+    assert_eq!(entrants::list(&app.db, id).await.unwrap().len(), 1);
+
+    // The one-person form is held to it too.
+    let one = add_args(
+        id,
+        "b-one",
+        "one",
+        serde_json::json!([{ "name": "anna k." }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &one)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.message, "Someone is already shown as “Anna K.”.");
+    assert_eq!(err.rows[0].problem, rafi_api::RowError::NameTaken);
+
+    // A blocked name, refused unless approved; an approval lifts nothing
+    // else.
+    let blocked = |batch: &str, approved: bool, name: &str| {
+        add_args(
+            id,
+            batch,
+            "list",
+            serde_json::json!([
+                { "name": "Nazir Ahmed", "approved": approved },
+                { "name": name, "approved": approved },
+            ]),
+        )
+    };
+    let (status, _, body) = send(
+        &router,
+        admin_call("add_entrants", &blocked("b-blocked", false, "Bence")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["rows"],
+        serde_json::json!([{ "row": 0, "problem": "blocked_name" }])
+    );
+    let (status, _, body) = send(
+        &router,
+        admin_call("add_entrants", &blocked("b-sneaky", true, "Bence\u{200B}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["rows"],
+        serde_json::json!([{ "row": 1, "problem": "name" }]),
+        "nothing invisible, approved or not"
+    );
+    let mut approved: serde_json::Value =
+        serde_json::from_str(&blocked("b-approved", true, "Bence")).unwrap();
+    approved["add"]["name_format"] = "full".into();
+    let (status, _, body) = send(&router, admin_call("add_entrants", &approved.to_string())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let names: Vec<String> = entrants::list(&app.db, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.display_name)
+        .collect();
+    assert_eq!(names, ["Nazir Ahmed", "Bence", "Anna K."]);
+    let (detail,): (String,) = app
+        .db
+        .query("SELECT detail FROM audit WHERE raffle_id = ? AND action = 'add'")
+        .bind(id)
+        .one()
+        .await
+        .unwrap();
+    assert_eq!(
+        detail,
+        "batch=b-approved origin=list added=2 skipped=0 approved=1 format=full"
+    );
+
+    // An unknown format is a bad request, not a guess.
+    let mut unknown: serde_json::Value = serde_json::from_str(&add_args(
+        id,
+        "b-x",
+        "list",
+        serde_json::json!([{ "name": "Csilla" }]),
+    ))
+    .unwrap();
+    unknown["add"]["name_format"] = "initials".into();
+    let (status, _, body) = send(&router, admin_call("add_entrants", &unknown.to_string())).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("invalid_arguments"), "{body}");
 }
 
 /// Names the organizer gives are stored whole up to 64 characters, joiners'

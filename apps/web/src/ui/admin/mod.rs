@@ -3,6 +3,7 @@
 
 mod draw;
 mod header;
+mod paragraph;
 mod people;
 mod prizes;
 
@@ -42,7 +43,9 @@ use rafi_api::{
     RaffleView, StartStep,
 };
 
-use self::{draw::DrawConsole, header::Header, people::People, prizes::Prizes};
+use self::{
+    draw::DrawConsole, header::Header, paragraph::ParagraphToSend, people::People, prizes::Prizes,
+};
 
 fn state_label(s: RaffleState) -> &'static str {
     match s {
@@ -387,7 +390,15 @@ pub fn RaffleAdmin(id: String) -> Element {
                             "people" => rsx! { People { admin: admin.clone(), error, on_change: move |_| reload() } },
                             _ => rsx! {
                                 Panel { title: "Settings", icon: rsx! { SlidersVertical { class: "size-5" } },
-                                    SettingsForm { raffle_id: admin.id.clone(), settings: admin.settings.clone(), rules_editable: admin.actions.edit_rules, retention: admin.retention.clone(), can_edit: access.allows(Access::Manager), on_saved: move |_| reload() }
+                                    SettingsForm {
+                                        raffle_id: admin.id.clone(),
+                                        settings: admin.settings.clone(),
+                                        rules_editable: admin.actions.edit_rules,
+                                        retention: admin.retention.clone(),
+                                        can_edit: access.allows(Access::Manager),
+                                        after_privacy: rsx! { ParagraphToSend { admin: admin.clone() } },
+                                        on_saved: move |_| reload(),
+                                    }
                                 }
                             },
                         }

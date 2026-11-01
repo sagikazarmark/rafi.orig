@@ -5,6 +5,7 @@ pub mod admin;
 
 use rafi_lifecycle::RaffleState;
 pub use rafi_lifecycle::entrant::{Origin, RowError};
+pub use rafi_lifecycle::names::NameFormat;
 use rafi_raffle::{EntrantId, Event, ItemId, ItemStatus, Outcome};
 use serde::{Deserialize, Serialize};
 
@@ -224,11 +225,18 @@ pub struct AddRow {
     pub email: Option<String>,
     #[serde(default)]
     pub list_ref: Option<String>,
+    /// The organizer approved the name, though the blocklist refuses it
+    /// ([`RowError::BlockedName`]): its substring matching catches real
+    /// names. It lifts the blocklist only, never the length or the
+    /// characters a name may hold.
+    #[serde(default)]
+    pub approved: bool,
 }
 
 /// An add: people the organizer puts in at once, all of them or none
-/// (`add_entrants`). Its rows are checked as a whole first: an invalid row
-/// refuses the add with every row's problem ([`ApiError::rows`](admin::ApiError::rows)).
+/// (`add_entrants`). Its rows are checked as a whole first: an invalid row,
+/// or a display name someone else is shown with, refuses the add with every
+/// row's problem ([`ApiError::rows`](admin::ApiError::rows)).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddRequest {
     /// A random ID the browser makes for the add (1 to 64 of `A-Z a-z 0-9 - _`)
@@ -239,6 +247,10 @@ pub struct AddRequest {
     pub origin: Origin,
     /// In the list's order, which the entrants keep.
     pub rows: Vec<AddRow>,
+    /// How the browser made a list's display names, for the audit log: the
+    /// server takes the names as sent, and checks them.
+    #[serde(default)]
+    pub name_format: Option<NameFormat>,
 }
 
 /// What an add did, row by row (rows by their index in the request).
@@ -273,26 +285,52 @@ pub enum SkipReason {
 }
 
 /// A row of an add that refused it, and what is wrong with it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RowProblem {
     /// Its index in the request.
     pub row: u32,
     pub problem: RowError,
+    /// For a display name someone else has ([`RowError::NameTaken`],
+    /// [`RowError::DuplicateName`]): the name they are shown as, as they
+    /// have it, so the organizer sees whom it clashes with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shown_as: Option<String>,
+}
+
+impl RowProblem {
+    /// What is wrong with the row, in the organizer's words (lowercase, to
+    /// follow "row 3: "): [`row_error_text`], with the name it clashes with
+    /// when there is one ("someone is already shown as “Anna K.”").
+    pub fn text(&self) -> String {
+        match (self.problem, &self.shown_as) {
+            (RowError::NameTaken, Some(name)) => {
+                format!("someone is already shown as “{name}”")
+            }
+            (RowError::DuplicateName, Some(name)) => {
+                format!("an earlier row is shown as “{name}” too")
+            }
+            (problem, _) => row_error_text(problem).to_owned(),
+        }
+    }
 }
 
 /// What is wrong with a row, in the organizer's words (lowercase, to follow
-/// "Row 3: "): the server's refusal says it, and the browser can say it
-/// where the row is.
+/// "row 3: "): the server's refusal says it, and the browser can say it
+/// where the row is. [`RowProblem::text`] names the other one of a clash.
 pub fn row_error_text(e: RowError) -> &'static str {
     match e {
         RowError::Name => {
             "the name must be 1–64 characters, with at least one letter or digit and nothing invisible"
         }
-        RowError::BlockedName => "the name has a word that isn't allowed",
+        RowError::BlockedName => {
+            "the name has a word the blocklist refuses; approve it if it is their real name"
+        }
         RowError::Email => "not an email address",
         RowError::ListRef => "the registration ID must be 1–64 characters, with nothing invisible",
         RowError::DuplicateEmail => "an earlier row has the same email",
         RowError::DuplicateListRef => "an earlier row has the same registration ID",
+        RowError::NameTaken => "someone is already shown with this name",
+        RowError::DuplicateName => "an earlier row is shown with this name too",
     }
 }
 
@@ -331,6 +369,97 @@ pub struct RaffleAdmin {
     /// empty when it may.
     #[serde(default)]
     pub missing_for_open: Vec<String>,
+}
+
+impl RaffleAdmin {
+    /// The paragraph to send the people the organizer adds
+    /// ([`paragraph_to_send`]), from the raffle's saved settings, with
+    /// names shown in `format`. Its links are absolute, under the
+    /// installation's address, and work once the raffle is published.
+    pub fn paragraph_to_send(&self, format: NameFormat) -> String {
+        let s = &self.settings;
+        let date = rafi_lifecycle::dates::Date::parse(&s.event_date)
+            .map_or_else(|| s.event_date.clone(), |d| d.long());
+        let contact = match s.privacy_email.trim() {
+            "" => s.contact_email.trim(),
+            privacy => privacy,
+        };
+        let base = self.public_url.trim_end_matches('/');
+        paragraph_to_send(&ToSend {
+            title: &s.title,
+            event_date: &date,
+            organizer: s.organizer_name.trim(),
+            contact,
+            rules_url: &format!("{base}/rules/{}", self.view.slug),
+            privacy_url: &format!("{base}/privacy/{}", self.view.slug),
+            own_privacy_url: s.privacy_url.trim(),
+            format,
+        })
+    }
+}
+
+/// What the paragraph to send names ([`paragraph_to_send`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToSend<'a> {
+    /// The raffle's title.
+    pub title: &'a str,
+    /// The event day in words, as the privacy notice says it ("28 October
+    /// 2026").
+    pub event_date: &'a str,
+    /// The organizer's name; empty if not given yet.
+    pub organizer: &'a str,
+    /// Where someone says they'd rather not take part: the privacy contact,
+    /// or else the contact email; empty if neither.
+    pub contact: &'a str,
+    /// The raffle's rules and privacy notice, absolute.
+    pub rules_url: &'a str,
+    pub privacy_url: &'a str,
+    /// The organizer's own privacy notice; empty if none. Linked only if it
+    /// is `https:`, as the settings require.
+    pub own_privacy_url: &'a str,
+    /// How the names are shown.
+    pub format: NameFormat,
+}
+
+/// The paragraph the organizer sends the people they add (in an email, on
+/// the event page, before the event): plain text, theirs to edit, in their
+/// voice. Adding a list is the organizer's word that its people take part;
+/// telling them is how they learn of it, so it says what a privacy notice
+/// of data from elsewhere must start with (GDPR Art. 14): that they are in,
+/// whose raffle it is, that their name is public and how, where the rules
+/// and the notice are, and how to stay out, with a concrete cutoff.
+pub fn paragraph_to_send(p: &ToSend<'_>) -> String {
+    let by = if p.organizer.is_empty() {
+        "us"
+    } else {
+        p.organizer
+    };
+    let contact = if p.contact.is_empty() {
+        "us"
+    } else {
+        p.contact
+    };
+    let own = if p
+        .own_privacy_url
+        .get(..8)
+        .is_some_and(|s| s.eq_ignore_ascii_case("https://"))
+    {
+        format!(" · Our privacy notice: {}", p.own_privacy_url)
+    } else {
+        String::new()
+    };
+    format!(
+        "You're in the prize draw of {title} on {date}, run by {by} with Rafi, as someone on our guest list. \
+         Your name is shown on the event screen and the public results page as {described}, like “{example}”. \
+         Rules: {rules} · Privacy: {privacy}{own}. \
+         Rather not take part? Tell {contact} before the draw on {date}.",
+        title = p.title,
+        date = p.event_date,
+        described = p.format.described(),
+        example = p.format.example(),
+        rules = p.rules_url,
+        privacy = p.privacy_url,
+    )
 }
 
 /// When a raffle's personal data is erased, as the admin shows it.
@@ -552,5 +681,141 @@ impl Access {
             Self::Manager => "an organization admin or manager",
             Self::Admin => "an organization admin",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn to_send(format: NameFormat) -> ToSend<'static> {
+        ToSend {
+            title: "Cloud Native Budapest #12",
+            event_date: "28 October 2026",
+            organizer: "Cloud Native Budapest",
+            contact: "dpo@example.com",
+            rules_url: "https://rafi.example/rules/cnb-12",
+            privacy_url: "https://rafi.example/privacy/cnb-12",
+            own_privacy_url: "",
+            format,
+        }
+    }
+
+    #[test]
+    fn the_paragraph_to_send() {
+        assert_eq!(
+            paragraph_to_send(&to_send(NameFormat::Full)),
+            "You're in the prize draw of Cloud Native Budapest #12 on 28 October 2026, run by Cloud Native Budapest with Rafi, as someone on our guest list. \
+             Your name is shown on the event screen and the public results page as your full name, like “Anna Kovács”. \
+             Rules: https://rafi.example/rules/cnb-12 · Privacy: https://rafi.example/privacy/cnb-12. \
+             Rather not take part? Tell dpo@example.com before the draw on 28 October 2026."
+        );
+        let initials = paragraph_to_send(&to_send(NameFormat::FirstInitial));
+        assert!(
+            initials
+                .contains("as your first name and the initial of your last name, like “Anna K.”."),
+            "{initials}"
+        );
+
+        // The organizer's own notice, only over https.
+        let mut p = to_send(NameFormat::Full);
+        p.own_privacy_url = "https://example.org/privacy";
+        assert!(
+            paragraph_to_send(&p).contains(
+                "Privacy: https://rafi.example/privacy/cnb-12 · Our privacy notice: https://example.org/privacy. Rather"
+            ),
+            "{}",
+            paragraph_to_send(&p)
+        );
+        for not_https in [
+            "http://example.org/privacy",
+            "javascript:alert(1)",
+            "ftp://example.org",
+        ] {
+            p.own_privacy_url = not_https;
+            assert!(!paragraph_to_send(&p).contains(not_https), "{not_https}");
+        }
+
+        // Nobody named yet: the organizer's voice.
+        let mut p = to_send(NameFormat::Full);
+        p.organizer = "";
+        p.contact = "";
+        let text = paragraph_to_send(&p);
+        assert!(text.contains(", run by us with Rafi,"), "{text}");
+        assert!(
+            text.contains("Tell us before the draw on 28 October 2026."),
+            "{text}"
+        );
+    }
+
+    /// From the admin's data: the date in words, the privacy contact first,
+    /// the links under the installation's address.
+    #[test]
+    fn the_paragraph_from_a_raffle() {
+        let admin: RaffleAdmin = serde_json::from_value(serde_json::json!({
+            "id": "r1",
+            "settings": {
+                "title": "Meetup", "description": "", "organizer_name": "Org",
+                "contact_email": "hello@example.com", "privacy_email": "",
+                "rules": "", "event_date": "2026-10-28", "test_mode": false
+            },
+            "prizes": [], "entrants": [],
+            "view": {
+                "v": 1, "follow": { "kind": "poll", "every_ms": 2500 }, "raffle_id": "r1", "slug": "meetup-x", "title": "Meetup",
+                "description": "", "state": "ready", "join_code": "ABCDEF", "join_url": "",
+                "entrant_count": 0, "recent_names": [], "prizes": [], "items": [],
+                "current": null, "draws": [], "last_failure": null, "manifest_hash": null,
+                "server_now_ms": 0, "test_mode": false, "verifiable": true
+            },
+            "public_url": "https://rafi.example/",
+            "actions": { "start": null, "draw": false, "export": false, "purge": false }
+        }))
+        .unwrap();
+        let text = admin.paragraph_to_send(NameFormat::Full);
+        assert!(
+            text.contains("of Meetup on 28 October 2026, run by Org"),
+            "{text}"
+        );
+        assert!(text.contains("Rules: https://rafi.example/rules/meetup-x · Privacy: https://rafi.example/privacy/meetup-x."), "{text}");
+        assert!(text.contains("Tell hello@example.com before"), "{text}");
+        let mut admin = admin;
+        admin.settings.privacy_email = "dpo@example.com".into();
+        assert!(
+            admin
+                .paragraph_to_send(NameFormat::Full)
+                .contains("Tell dpo@example.com before"),
+            "the privacy contact first"
+        );
+    }
+
+    #[test]
+    fn row_problems_name_the_clash() {
+        let problem = |problem, shown_as: Option<&str>| RowProblem {
+            row: 0,
+            problem,
+            shown_as: shown_as.map(str::to_owned),
+        };
+        assert_eq!(
+            problem(RowError::NameTaken, Some("Anna K.")).text(),
+            "someone is already shown as “Anna K.”"
+        );
+        assert_eq!(
+            problem(RowError::DuplicateName, Some("Anna K.")).text(),
+            "an earlier row is shown as “Anna K.” too"
+        );
+        assert_eq!(
+            problem(RowError::NameTaken, None).text(),
+            row_error_text(RowError::NameTaken)
+        );
+        assert_eq!(
+            problem(RowError::Email, None).text(),
+            "not an email address"
+        );
+        let json = serde_json::to_value(problem(RowError::Email, None)).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "row": 0, "problem": "email" }),
+            "no name where there is none"
+        );
     }
 }

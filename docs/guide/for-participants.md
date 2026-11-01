@@ -26,6 +26,21 @@ to watch the draw on your phone.
 
 No smartphone? Go to the organizer: they can add you by name.
 
+## If the organizer added you
+
+Some organizers enter the people on their guest list or check-in list themselves, so you may be in the raffle
+without scanning anything. The organizer should have told you, with links to the rules and the privacy notice.
+
+- **What Rafi has of you:** your name, and your email if the organizer gave it. Nothing else from their list.
+- **Your name is shown** on the event screen and the verification page, like everyone's, as the organizer chose:
+  your full name, or your first name and initial. Two people are never shown with the same name: a namesake gets a
+  number ("Anna Kovács (2)").
+- **If you win**, nothing appears on a phone: watch the screen for your name, and go to the organizer, who checks
+  it's you (for example, by the email you registered with). You must be in the room, as everyone must.
+- **Rather not take part?** Tell the organizer (the privacy notice names whom to ask). Before the list is frozen
+  for the draw, they take you off. After that, your name is hidden and your data erased when the raffle is over;
+  your anonymous ID stays in the draw so it can still be verified.
+
 ## The draw
 
 When the organizer starts the draw, registration closes and the list of entrants is published as anonymous IDs.
@@ -52,7 +67,7 @@ list of entrants lets anyone find their name. See [Verifying a draw](verifying-a
 ## Your data
 
 Your display name appears on the screen and in the verification page's list of entrants, until your data is
-erased. It doesn't have to be your real name. Your email never appears. Your entry stays in the raffle until it is
+erased. When you join yourself, it doesn't have to be your real name. Your email never appears. Your entry stays in the raffle until it is
 finished; your name and email are erased on the day the join form told you, automatically (a winner's once their
 prize is delivered), and the organizer can erase yours earlier on request once the draw is over. The **Privacy
 notice** link on the page has the details.

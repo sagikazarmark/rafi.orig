@@ -7,7 +7,8 @@ use rafi_api::{
 };
 use rafi_lifecycle::{
     self as lifecycle,
-    entrant::{self, Email, JoinRefusal, MAX_ADD_ROWS, NameError, Origin, Removal},
+    entrant::{self, Email, JoinRefusal, MAX_ADD_ROWS, NameError, Origin, Removal, RowInput},
+    names,
 };
 use rafi_store::{EntrantRow, RaffleRow, audit, entrants, raffles};
 
@@ -17,11 +18,17 @@ use crate::{
 };
 
 /// Version of the consent text shown on the join form: the rules checkbox,
-/// the erasure dates and the age line under it. Bumped whenever that text
-/// changes. What is stored with an entry is `<this>/age<minimum age>`
+/// the erasure dates and the age line under it, and the standard rules the
+/// checkbox accepts (`/rules/<slug>`, before the organizer's additional
+/// rules, which lock with the first entrant instead). Bumped whenever that
+/// text changes. What is stored with an entry is `<this>/age<minimum age>`
 /// ([`Policy::consent_version`](crate::Policy::consent_version)), so a row
 /// says which text and which age its entrant was shown.
-pub const CONSENT_VERSION: &str = "2026-10-21.2";
+///
+/// 2026-11-01: the rules say who the entrants are (who joins with the QR
+/// code, and whom the organizer adds) and who answers for the age of the
+/// people the organizer adds.
+pub const CONSENT_VERSION: &str = "2026-11-01";
 
 /// The claim codes in use in the raffle, for [`ids::code_besides`].
 async fn claim_codes(app: &App, raffle_id: &str) -> Result<HashSet<String>> {
@@ -253,16 +260,22 @@ async fn limit_adds(app: &App, actor: Actor<'_>) -> Result<()> {
 /// all or nothing ([`entrants::insert_added`]):
 ///
 /// - the rows are checked as a whole ([`entrant::added_rows`]), and any
-///   invalid row refuses the add with every row's problem;
+///   invalid row refuses the add with every row's problem; a name the
+///   blocklist refuses goes in only if the organizer approved it;
 /// - a row whose email or registration ID is already in the raffle is
 ///   skipped, not refused: adding an updated list adds only who is new;
+/// - every display name added must be nobody else's, by
+///   [`name_key`](names::name_key): not someone's in the raffle, nor
+///   another added row's ([`names::name_clashes`]), or the add is refused
+///   with the rows that clash. Joins and renames aren't held to it;
 /// - the rest must fit under the entrant cap together, or nothing is added;
 /// - the raffle must take an add from its origin ([`entrant::may_add`]),
 ///   checked here and again in the batch's SQL.
 ///
 /// A retry (the same batch ID, whose add went in) answers as the add did and
 /// adds nothing. The add is audited (`add`: its batch ID, origin and counts,
-/// never who). They saw no join form, so no consent is recorded for them;
+/// the approvals among them, and the name format the browser used, never
+/// who). They saw no join form, so no consent is recorded for them;
 /// they still fix the raffle's rules
 /// ([`Source::locks_settings`](entrant::Source::locks_settings)). Nothing on
 /// a phone changes, so nothing is notified; screens poll.
@@ -278,6 +291,7 @@ pub async fn add_entrants(
         batch_id,
         origin,
         rows,
+        name_format,
     } = add;
     if !entrant::batch_id(&batch_id) {
         return Err(Refusal::BatchId.into());
@@ -300,10 +314,12 @@ pub async fn add_entrants(
         raffle.past_erase_date(now),
     )
     .map_err(Refusal::Add)?;
-    let checked = entrant::added_rows(
-        rows.iter()
-            .map(|r| (r.name.as_str(), r.email.as_deref(), r.list_ref.as_deref())),
-    )
+    let checked = entrant::added_rows(rows.iter().map(|r| RowInput {
+        name: &r.name,
+        email: r.email.as_deref(),
+        list_ref: r.list_ref.as_deref(),
+        approved: r.approved,
+    }))
     .map_err(|problems| Refusal::Rows {
         origin,
         rows: problems
@@ -311,6 +327,7 @@ pub async fn add_entrants(
             .map(|(row, problem)| RowProblem {
                 row: row_index(row),
                 problem,
+                shown_as: None,
             })
             .collect(),
     })?;
@@ -332,6 +349,29 @@ pub async fn add_entrants(
         } else {
             fresh.push((row, person, ids::id()));
         }
+    }
+    // Nobody added is shown with a name someone else has: the organizer
+    // gives a surname, an initial or a number instead (the list tab does it
+    // for them). Only the rows to add: one already in has its own name.
+    let clashes = names::name_clashes(
+        taken.names.iter().map(String::as_str),
+        fresh
+            .iter()
+            .map(|(row, person, _)| (*row, person.name.as_str())),
+    );
+    if !clashes.is_empty() {
+        return Err(Refusal::Rows {
+            origin,
+            rows: clashes
+                .into_iter()
+                .map(|c| RowProblem {
+                    row: row_index(c.row),
+                    problem: c.error,
+                    shown_as: Some(c.shown_as),
+                })
+                .collect(),
+        }
+        .into());
     }
     let left = app.policy.max_entrants - i64::try_from(taken.entrants).unwrap_or(i64::MAX);
     if i64::try_from(fresh.len()).unwrap_or(i64::MAX) > left {
@@ -398,8 +438,10 @@ pub async fn add_entrants(
         added: Vec::new(),
         skipped: Vec::new(),
     };
-    for (row, _, id) in fresh {
+    let mut approved = 0;
+    for (row, person, id) in fresh {
         if stored.contains(&id) {
+            approved += usize::from(person.approved);
             result.added.push(AddedEntrant {
                 row: row_index(row),
                 id,
@@ -416,13 +458,17 @@ pub async fn add_entrants(
             reason: SkipReason::AlreadyIn,
         })
         .collect();
-    let detail = format!(
-        "batch={} origin={} added={} skipped={}",
+    let mut detail = format!(
+        "batch={} origin={} added={} skipped={} approved={approved}",
         result.batch_id,
         origin.as_str(),
         result.added.len(),
-        result.skipped.len()
+        result.skipped.len(),
     );
+    if let Some(format) = name_format {
+        detail.push_str(" format=");
+        detail.push_str(format.as_str());
+    }
     audit::record(&app.db, raffle_id, actor, "add", &detail, now).await?;
     Ok(result)
 }
