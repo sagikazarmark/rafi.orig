@@ -198,6 +198,17 @@ impl RaffleState {
         self.entrants_editable() && self != Self::Open
     }
 
+    /// Whether the step that lets the raffle's entrants in is still ahead:
+    /// opening registration, or, without registration, the freeze from
+    /// Published. Both check first that the privacy notice can name the
+    /// organizer and a way to reach them
+    /// ([`settings::missing_for_open`]), so until then the admin says what
+    /// is missing. In Draft and Published, with registration or without; a
+    /// raffle Closed (or switched off while Closed) has passed it.
+    pub fn opening_ahead(self) -> bool {
+        matches!(self, Self::Draft | Self::Ready)
+    }
+
     /// How an entrant is removed, if they can be: deleted while the list can
     /// change; once the raffle is over, or its erasure date has passed
     /// (`past_erase_date`), their ID stays in the published list and only
@@ -364,6 +375,20 @@ mod tests {
         for s in S::ALL {
             let want = matches!(s, S::Draft | S::Ready | S::Closed);
             assert_eq!(s.registration_editable(), want, "{s:?}");
+        }
+    }
+
+    /// The step that checks the organizer's details (opening, or the
+    /// freeze from Published without registration) is ahead in Draft,
+    /// which publishes to it, and in Published, which takes it.
+    #[test]
+    fn opening_is_ahead_until_published_moves_on() {
+        assert_eq!(S::Ready.apply(A::Open, true), Some(S::Open));
+        assert_eq!(S::Ready.apply(A::Freeze, false), Some(S::Frozen));
+        assert_eq!(S::Draft.apply(A::Publish, true), Some(S::Ready));
+        for s in S::ALL {
+            let want = matches!(s, S::Draft | S::Ready);
+            assert_eq!(s.opening_ahead(), want, "{s:?}");
         }
     }
 

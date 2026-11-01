@@ -52,6 +52,22 @@ pub struct RaffleView {
     /// people the organizer added.
     #[serde(default = "yes")]
     pub registration: bool,
+    /// The organizer's name, as the rules and the privacy notice give it;
+    /// empty if not given yet. The projector's intro says whose list is in
+    /// the draw.
+    #[serde(default)]
+    pub organizer: String,
+    /// The raffle's privacy notice, absolute (`/privacy/<slug>`): the
+    /// projector's intro shows it to people on the organizer's list, who
+    /// never saw a join form.
+    #[serde(default)]
+    pub privacy_url: String,
+    /// Whether someone on the list was added from a list (an add from the
+    /// list tab), rather than one by one or by joining: the projector tells
+    /// registered people they are in already, and the admin's freeze
+    /// reminds the organizer that they must have been told.
+    #[serde(default)]
+    pub list_added: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -93,6 +109,12 @@ pub struct DrawView {
     pub outcome: Outcome,
     pub pass: u8,
     pub round: u64,
+    /// The winner has no phone to tell them they won: the organizer added
+    /// them ([`Source::no_phone`](rafi_lifecycle::entrant::Source::no_phone)).
+    /// The projector calls them to the front. Not personal: the
+    /// verification page counts who was added.
+    #[serde(default)]
+    pub no_phone: bool,
 }
 
 /// Raffle list entry for the admin.
@@ -251,6 +273,13 @@ pub struct AdminEntrant {
     /// [`AdminActions`] says for everyone.
     #[serde(default)]
     pub actions: EntrantActions,
+    /// They have no phone in the raffle: nothing tells them they won and
+    /// they have no claim code to show
+    /// ([`Source::no_phone`](rafi_lifecycle::entrant::Source::no_phone)).
+    /// Drawn, the console has the organizer check it is them and confirm
+    /// it ("Confirmed: it's them") instead of comparing a code.
+    #[serde(default)]
+    pub no_phone: bool,
 }
 
 /// What the organizer can do with one entrant now: the server's rules say
@@ -451,7 +480,8 @@ pub struct RaffleAdmin {
     pub retention: Retention,
     /// What the raffle still needs before registration can open (or,
     /// without registration, before the list can be frozen from Published),
-    /// by name; empty when it may.
+    /// by name; empty when it may. Whatever the state:
+    /// [`AdminActions::missing`] is what the header goes by.
     #[serde(default)]
     pub missing_for_open: Vec<String>,
     /// Who was removed at their request, oldest first: a later add leaves
@@ -598,9 +628,18 @@ pub struct AdminActions {
     /// The lifecycle commands the raffle takes now, with its registration
     /// setting ([`rafi_lifecycle::RaffleState::apply`]): the header's
     /// buttons. Opening may still be refused for what
-    /// [`RaffleAdmin::missing_for_open`] names.
+    /// [`missing`](Self::missing) names.
     #[serde(default)]
     pub lifecycle: Vec<LifecycleCommand>,
+    /// What the settings still lack, by name, for the step that lets the
+    /// raffle's entrants in, while it is ahead
+    /// ([`opening_ahead`](rafi_lifecycle::RaffleState::opening_ahead):
+    /// Draft and Published): opening registration, or, without
+    /// registration, the freeze from Published. The header says what is
+    /// missing and keeps that step's button disabled. Empty when nothing
+    /// is, or once the step is behind.
+    #[serde(default)]
+    pub missing: Vec<String>,
     /// Whether registration can be switched on or off now
     /// ([`rafi_lifecycle::RaffleState::registration_editable`]): before the
     /// freeze, but not while it is open.
@@ -720,10 +759,73 @@ pub struct VerifyData {
     /// aren't listed (they are in the manifest, by ID): once personal data
     /// is erased, this is empty.
     pub names: Vec<(String, String)>,
+    /// How the manifest's entrants got in, counted: who joined on their
+    /// phone and whom the organizer added (their word, which the draw
+    /// can't check). `None` from a server that didn't count them.
+    /// Outside the manifest: the hash doesn't commit to them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sources: Option<SourceCounts>,
 }
 
 fn verify_format() -> u32 {
     VERIFY_FORMAT
+}
+
+/// The manifest's entrants by how they got in ([`VerifyData::sources`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct SourceCounts {
+    /// Joined on their phones, with the QR code.
+    pub joined: u32,
+    /// Added by the organizer, one by one or from a list.
+    pub added: u32,
+    /// Made up for a rehearsal (test mode only).
+    #[serde(default)]
+    pub fake: u32,
+}
+
+impl SourceCounts {
+    /// Counts `sources`, one per entrant.
+    pub fn of(sources: impl IntoIterator<Item = rafi_lifecycle::entrant::Source>) -> Self {
+        use rafi_lifecycle::entrant::Source;
+        let mut counts = Self::default();
+        for source in sources {
+            let n = match source {
+                Source::SelfService => &mut counts.joined,
+                Source::Manual => &mut counts.added,
+                Source::Fake => &mut counts.fake,
+            };
+            *n = n.saturating_add(1);
+        }
+        counts
+    }
+
+    /// Everyone counted.
+    pub fn total(&self) -> u64 {
+        u64::from(self.joined) + u64::from(self.added) + u64::from(self.fake)
+    }
+
+    /// The counts in words, as the verification page says them: "320
+    /// entrants: 8 joined on their phones, 312 added by the organizer".
+    /// Both counts are said even when zero, so "0 added by the organizer"
+    /// is said too; made-up ones only if there are any.
+    pub fn text(&self) -> String {
+        let total = self.total();
+        let mut text = format!(
+            "{total} {}: {} joined on {}, {} added by the organizer",
+            if total == 1 { "entrant" } else { "entrants" },
+            self.joined,
+            if self.joined == 1 {
+                "their phone"
+            } else {
+                "their phones"
+            },
+            self.added,
+        );
+        if self.fake > 0 {
+            text.push_str(&format!(", {} made up for the test", self.fake));
+        }
+        text
+    }
 }
 
 /// Current organizer identity, and what the admin must know before it
@@ -914,6 +1016,65 @@ mod tests {
                 .contains("Tell dpo@example.com before"),
             "the privacy contact first"
         );
+    }
+
+    #[test]
+    fn source_counts_in_words() {
+        use rafi_lifecycle::entrant::Source;
+        let counts = SourceCounts::of(
+            std::iter::repeat_n(Source::SelfService, 8)
+                .chain(std::iter::repeat_n(Source::Manual, 312)),
+        );
+        assert_eq!(
+            counts,
+            SourceCounts {
+                joined: 8,
+                added: 312,
+                fake: 0
+            }
+        );
+        assert_eq!(
+            counts.text(),
+            "320 entrants: 8 joined on their phones, 312 added by the organizer"
+        );
+        assert_eq!(
+            SourceCounts::of([Source::SelfService]).text(),
+            "1 entrant: 1 joined on their phone, 0 added by the organizer"
+        );
+        assert_eq!(
+            SourceCounts::of([Source::Fake, Source::Fake, Source::Manual]).text(),
+            "3 entrants: 0 joined on their phones, 1 added by the organizer, 2 made up for the test"
+        );
+    }
+
+    /// `verify.json` gains the counts without a new format: one without
+    /// them still reads, and theirs is left out rather than null.
+    #[test]
+    fn verify_data_with_and_without_source_counts() {
+        let old = serde_json::json!({
+            "format": 1, "v": 3, "title": "Meetup", "state": "drawing", "test_mode": false,
+            "manifest": "{}", "manifest_hash": "00", "events": [], "names": []
+        });
+        let data: VerifyData = serde_json::from_value(old).unwrap();
+        assert_eq!(data.sources, None);
+        assert!(
+            serde_json::to_value(&data)
+                .unwrap()
+                .get("sources")
+                .is_none()
+        );
+        let mut data = data;
+        data.sources = Some(SourceCounts {
+            joined: 1,
+            added: 2,
+            fake: 0,
+        });
+        let json = serde_json::to_value(&data).unwrap();
+        assert_eq!(
+            json["sources"],
+            serde_json::json!({ "joined": 1, "added": 2, "fake": 0 })
+        );
+        assert_eq!(json["format"], VERIFY_FORMAT);
     }
 
     #[test]

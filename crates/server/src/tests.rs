@@ -3632,6 +3632,10 @@ async fn registration_needs_an_organizer() {
         admin.missing_for_open,
         ["the organizer's name", "a contact or privacy email"]
     );
+    assert_eq!(
+        admin.actions.missing, admin.missing_for_open,
+        "the header goes by the actions"
+    );
     let refused = service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open).await;
     assert!(
         matches!(
@@ -5460,6 +5464,84 @@ async fn names_the_organizer_gives_are_up_to_64_characters() {
     for name in [maria, beatrix] {
         assert!(csv.contains(&format!("\"{name}\"")), "{csv}");
     }
+}
+
+/// The evening over HTTP: the projector's view says whose list it is,
+/// where the notice is and whether people were added from a list; each
+/// draw, and the phones' latest winner, whether the winner has a phone to
+/// tell them; the admin, per entrant; and `verify.json` counts the frozen
+/// list by source.
+#[tokio::test]
+async fn the_evening_over_http() {
+    let (app, router, raffle) = dev_raffle_with(Config::for_tests(), &[("Book", 2)]).await;
+    let id = raffle.id.as_str();
+    let dev = service::Actor::solo("dev");
+    let view_url = format!("/api/r/{}/view", raffle.slug);
+
+    let (_, _, view) = get_json(&router, &view_url).await;
+    assert_eq!(view["organizer"], "Cloud Native Budapest", "{view}");
+    assert_eq!(
+        view["privacy_url"],
+        format!("{}/privacy/{}", app.policy.public_url, raffle.slug)
+    );
+    assert_eq!(view["list_added"], false);
+
+    let add = add_args(
+        id,
+        "b-evening",
+        "list",
+        serde_json::json!([{ "name": "Anna Kovács", "email": "anna@example.com" }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let anna: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    let anna = anna.added[0].id.clone();
+    let (status, _, _) = join(&router, &raffle.join_code, "Bea", "bea@example.com").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, view) = get_json(&router, &view_url).await;
+    assert_eq!(view["list_added"], true, "{view}");
+
+    let (status, _, body) = send(
+        &router,
+        admin_call("get_raffle", &serde_json::json!({ "id": id }).to_string()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let admin: rafi_api::RaffleAdmin = serde_json::from_str(&body).unwrap();
+    let no_phone: Vec<(&str, bool)> = admin
+        .entrants
+        .iter()
+        .map(|e| (e.display_name.as_str(), e.no_phone))
+        .collect();
+    assert_eq!(no_phone, [("Anna Kovács", true), ("Bea", false)]);
+    assert!(admin.actions.missing.is_empty(), "opened: nothing missing");
+
+    service::start_draw(&app, dev, id).await.unwrap();
+    let r = wait_for(&app, id, |r| r.raffle.opened()).await;
+    let items: Vec<_> = r
+        .drawn
+        .as_ref()
+        .unwrap()
+        .items()
+        .iter()
+        .map(|u| u.id.clone())
+        .collect();
+    for item in &items {
+        let winner = draw_and_claim_as(&app, dev, id, item).await;
+        let (_, _, view) = get_json(&router, &view_url).await;
+        let last = view["draws"].as_array().unwrap().last().unwrap().clone();
+        assert_eq!(last["entrant"], winner.as_str());
+        assert_eq!(last["no_phone"], winner == anna, "{last}");
+        let (_, _, phone) = get_json(&router, &format!("/api/r/{}/participant", raffle.slug)).await;
+        assert_eq!(phone["last"]["no_phone"], winner == anna, "{phone}");
+    }
+
+    let (_, _, verify) = get_json(&router, &format!("/api/r/{}/verify.json", raffle.slug)).await;
+    assert_eq!(
+        verify["sources"],
+        serde_json::json!({ "joined": 1, "added": 1, "fake": 0 }),
+        "{verify}"
+    );
 }
 
 /// Removing someone at their request and someone taking themselves off,

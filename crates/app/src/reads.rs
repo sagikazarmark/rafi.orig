@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use rafi_api::{
     AdminActions, AdminEntrant, EntrantActions, LifecycleCommand, Prize, RaffleAdmin,
-    RemovedAtRequest, Retention, StartStep, UndoBatch, VerifyData,
+    RemovedAtRequest, Retention, SourceCounts, StartStep, UndoBatch, VerifyData,
 };
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
@@ -44,6 +44,10 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         })
         .collect();
     let held_winners = entrants.iter().filter(|e| e.held_until.is_some()).count();
+    let missing: Vec<String> = missing_for_open(raffle)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     let personal_data_left = full.entrants.iter().any(|e| !e.erased);
     let add_list = lifecycle::entrant::may_add(
         lifecycle::entrant::Origin::List,
@@ -70,6 +74,13 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
             .into_iter()
             .filter(|&c| raffle.state.apply(c.into(), raffle.registration).is_some())
             .collect(),
+        // Opening, or the freeze from Published without registration, checks
+        // them: said while that step is ahead.
+        missing: if raffle.state.opening_ahead() {
+            missing.clone()
+        } else {
+            Vec::new()
+        },
         edit_registration: raffle.state.registration_editable(),
         draw: raffle.state.frozen_or_later(),
         export: raffle.state.frozen_or_later(),
@@ -114,10 +125,7 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
             held_winners,
             ..retention
         },
-        missing_for_open: missing_for_open(raffle)
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
+        missing_for_open: missing,
         removed,
     })
 }
@@ -217,6 +225,7 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) ->
                 list_ref: e.list_ref.clone(),
                 objected: e.objected_at.is_some(),
                 actions,
+                no_phone: e.source.no_phone(),
             }
         })
         .collect()
@@ -302,6 +311,7 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
     let (Some(manifest), Some(manifest_hash)) = (raffle.manifest, raffle.manifest_hash) else {
         return Err(Error::NotFound);
     };
+    let sources = source_counts(&manifest, &full.entrants);
     // Erased entrants have no name left: the page shows the start of their ID.
     let names = full
         .entrants
@@ -325,7 +335,28 @@ pub async fn verify_data(app: &App, slug: &str) -> Result<VerifyData> {
         manifest,
         manifest_hash,
         names,
+        sources,
     })
+}
+
+/// How the entrants in `manifest` got in, counted from their rows in
+/// `entrants`. After the freeze the rows are the manifest's entrants (none
+/// is added or deleted; erasing one keeps its row and its source), so the
+/// counts are what the list held when it was frozen; they are matched by
+/// ID all the same. `None` if the manifest doesn't read, or names someone
+/// without a row: counts that don't add up to the list aren't published.
+fn source_counts(manifest: &str, entrants: &[EntrantRow]) -> Option<SourceCounts> {
+    let manifest: rafi_raffle::Manifest = serde_json::from_str(manifest).ok()?;
+    let sources: HashMap<String, lifecycle::entrant::Source> = entrants
+        .iter()
+        .map(|e| (e.id.to_ascii_lowercase(), e.source))
+        .collect();
+    let counted = manifest
+        .entrants
+        .iter()
+        .map(|id| sources.get(id.as_str()).copied())
+        .collect::<Option<Vec<_>>>()?;
+    Some(SourceCounts::of(counted))
 }
 
 #[cfg(test)]

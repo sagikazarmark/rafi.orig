@@ -35,6 +35,9 @@ Once the list is frozen, `/v/<slug>` and `/api/r/<slug>/verify.json` publish:
   entrant drops out of it (their ID stays in the manifest), so erasing everyone **empties it**.
 - whether the raffle was a rehearsal in **test mode**, whose entrants may be fakes. Switching test mode off removes
   every fake entrant, and a raffle out of test mode never freezes with fakes in it.
+- how many entrants joined on their phones and how many the organizer added (and fakes): counts only, not who is
+  which. The projector also says of a winner the organizer added that they should come to the front, since no
+  phone tells them.
 
 The verification page and the projector (`/s/<slug>`, with its recent names) ask search engines not to index them,
 nor the JSON behind them (`X-Robots-Tag: noindex`): they are public to whoever has the link, not to a search on

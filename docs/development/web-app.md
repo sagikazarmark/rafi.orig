@@ -66,7 +66,9 @@ Icons are `dioxus-icons`' Lucide components.
 The server sends the admin what it may do next (`RaffleAdmin.actions`, `AdminEntrant.deliverable`, …). The rules
 live in `rafi-raffle` and `rafi-lifecycle`. When a button needs a condition, add it to the server's answer rather
 than computing it in the UI. The header's lifecycle buttons, for one, come from `actions.lifecycle` and
-`actions.start`, which the server computes with the raffle's registration setting.
+`actions.start`, which the server computes with the raffle's registration setting, and what blocks the next of
+them from `actions.missing`; the draw console's "Confirmed: it's them" from `AdminEntrant.no_phone`; the
+projector's "Come to the front!" from a draw's `no_phone`, and the freeze's reminder from the view's `list_added`.
 
 ## Adding a list
 

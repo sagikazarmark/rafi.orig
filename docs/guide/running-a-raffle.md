@@ -119,7 +119,9 @@ opens: it goes from Published to the freeze.
 1. **Publish the intro screen.** Open the **Projector screen** on the venue's display, in fullscreen (which also
    keeps the screen awake). It shows the title, the prizes and "Registration opens soon".
 2. **Open registration.** The projector now shows a QR code, the short join URL and code, a live entrant count and
-   recent names, plus "No smartphone? Come to the organizer!".
+   recent names, plus "No smartphone? Come to the organizer!". Once you have added people from a list, it says
+   "Registered? You're already in. Not registered? Scan to join." instead of "Scan to join", so your registrants
+   don't join a second time.
 3. Attendees scan and join with their email and a display name, which is optional: whoever leaves it blank gets a
    generated one, like "Brave Otter" (see [For participants](for-participants.md)).
 4. While people join, use the **People** tab to:
@@ -151,8 +153,10 @@ registration or without.
 - The raffle has no **Open registration** or **Close registration**: after **Publish the intro screen**, the next
   step is **Freeze list & start the draw**, from Published. Like opening registration, it needs the organizer and
   a contact email in the settings, and an erasure date that hasn't passed.
-- The projector shows the title, the prizes, the entrant count and the latest names: no QR code, no join link or
-  code, no "No smartphone?".
+- The projector shows the title, the prizes, the entrant count and the latest names, and tells the room who is in
+  and how to stay out: "Everyone on *organizer*'s list is in the draw. Rather not? Tell the organizer before the
+  draw.", with the address of the raffle's privacy notice (the organizer's name from the settings, or "the
+  organizer's list" until you give one). No QR code, no join link or code, no "No smartphone?".
 - The participant page (`/j/<CODE>`) has no form: it says the organizer adds the people taking part, and links the
   rules, the privacy notice and, once the list is frozen, the verification page. Nobody can join.
 - If the freeze finds nobody to draw from, the raffle goes back to Published.
@@ -211,6 +215,10 @@ Press **Freeze list & start the draw** when everyone is in (from Registration op
 raffle without registration). It asks first, because this step is final:
 
 - Registration closes for good. Latecomers can't be added.
+- If you added people from a list, the dialog reminds you: "People added from a list will be shown on the screen
+  and the verification page. Make sure they were told about the draw." Nothing to tick, and nothing is recorded:
+  telling them is yours to do (the paragraph in the settings), and the reminder is the last moment before their
+  names are published.
 - The entrant list is frozen into the **manifest** and published as a hash and a list of anonymous IDs. The
   **Verification page** link appears.
 - Prizes are locked. From now on an item can only be **withdrawn**; how a prize is delivered can still change (it
@@ -237,12 +245,16 @@ Open the **Draw** tab. For each prize, in any order:
 
 1. Press **Draw**. The projector shows "Locking in public randomness · drand round R" and a countdown of about 6 s,
    then the winner's name.
-2. The admin shows the winner's **claim code**. The winner's phone shows **YOU WON!** with the same code.
+2. The admin shows the winner's **claim code**. The winner's phone shows **YOU WON!** with the same code. Their
+   email is masked ("a•••@example.com") until you press **Show**, in case your screen is mirrored.
 3. When they come up and the codes match, press **Claimed**. If they're not in the room, press **Not here**. If
    they don't want it, press **Declined**. With either of those, they're out and the prize goes back to be drawn
    again. Claimed means present with a valid code. For a prize delivered **on the spot** it also marks the prize
    delivered; one **sent later**, like a voucher you email, is **Mark delivered** (People tab) afterwards. The draw
    console says which, next to the button.
+4. Someone **you added** has no phone and no code: the projector says **"Come to the front!"** under their name,
+   and the console says "Check it's them: ask for the email they registered with, or their badge." Ask before you
+   show the email; when it matches, press **Confirmed: it's them** (recorded as claimed, like **Claimed**).
 
 [The draw](the-draw.md) covers every case, including what happens when drand can't be reached.
 
@@ -292,5 +304,5 @@ organization, an admin does this, for every co-host's raffles.
 - [ ] The projector screen in fullscreen, readable from the back of the room
 - [ ] The venue wifi or mobile data reaches the server over HTTPS
 - [ ] Someone ready to add people without a phone
-- [ ] People you add from a list told in advance, with the paragraph from the settings
+- [ ] People you add from a list told in advance, with the paragraph from the settings (the freeze reminds you)
 - [ ] Nobody deploys while the raffle is live (see [Upgrades](../operations/upgrades.md))

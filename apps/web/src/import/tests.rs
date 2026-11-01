@@ -54,6 +54,7 @@ fn entrant(
         list_ref: list_ref.map(Into::into),
         objected: false,
         actions: Default::default(),
+        no_phone: source.no_phone(),
     }
 }
 

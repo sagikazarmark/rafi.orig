@@ -38,8 +38,12 @@ verification page.
 - **Your name is shown** on the event screen and the verification page, like everyone's, as the organizer chose:
   your full name, or your first name and initial. Two people are never shown with the same name: a namesake gets a
   number ("Anna Kovács (2)").
-- **If you win**, nothing appears on a phone: watch the screen for your name, and go to the organizer, who checks
-  it's you (for example, by the email you registered with). You must be in the room, as everyone must.
+- **If you win**, nothing appears on a phone: watch the screen for your name. When it comes up, with **"Come to the
+  front!"** under it, go to the front: the organizer checks it's you (they may ask for the email you registered
+  with, or to see your badge). You must be in the room, as everyone must.
+- **On the screen before the draw**, a raffle without a QR code says "Everyone on *organizer*'s list is in the
+  draw", how to stay out and where the privacy notice is; one with a QR code says "Registered? You're already in":
+  no need to scan.
 - **Rather not take part?** Tell the organizer (the privacy notice names whom to ask). Before the list is frozen
   for the draw, they take you off, and you stay off if they add their list again. After that, your name is hidden
   at once, if you're drawn the prize is declined for you and drawn again, and your data is erased when the raffle

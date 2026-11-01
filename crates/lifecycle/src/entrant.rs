@@ -70,6 +70,21 @@ impl Source {
             Self::SelfService | Self::Fake => false,
         }
     }
+
+    /// Whether a winner from here has no phone in the raffle: nothing tells
+    /// them they won, and they have no claim code to show. Someone the
+    /// organizer added: the projector calls them to the front, and the draw
+    /// console has the organizer check it is them (the email they
+    /// registered with, their badge) and confirm it, instead of comparing a
+    /// code. A joiner's phone says "YOU WON!" and shows the code; a fake
+    /// stands in for a joiner in a rehearsal. Exhaustive, so a new source
+    /// has to decide.
+    pub fn no_phone(self) -> bool {
+        match self {
+            Self::Manual => true,
+            Self::SelfService | Self::Fake => false,
+        }
+    }
 }
 
 /// The longest display name someone gives themselves when they join, in
@@ -799,6 +814,14 @@ mod tests {
         assert_eq!(fakes(true, S::Draft, MAX_FAKES + 1), Ok(MAX_FAKES));
         assert_eq!(fakes(false, S::Open, 3), Err(FakesRefusal::NotTestMode));
         assert_eq!(fakes(true, S::Frozen, 3), Err(FakesRefusal::Frozen));
+    }
+
+    /// Only someone the organizer added has no phone to tell them they
+    /// won: a joiner's says so, and a fake stands in for a joiner.
+    #[test]
+    fn who_has_no_phone() {
+        let no_phone: Vec<Source> = Source::ALL.into_iter().filter(|s| s.no_phone()).collect();
+        assert_eq!(no_phone, [Source::Manual]);
     }
 
     #[test]

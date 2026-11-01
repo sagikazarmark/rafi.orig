@@ -17,6 +17,12 @@ pub fn join_url(app: &App, join_code: &str) -> String {
     format!("{}/j/{join_code}", app.policy.public_url)
 }
 
+/// The raffle's privacy notice, absolute: what the projector shows the
+/// people on the organizer's list.
+pub fn privacy_url(app: &App, slug: &str) -> String {
+    format!("{}/privacy/{slug}", app.policy.public_url)
+}
+
 /// The full view of a raffle, or `None` if it doesn't exist. Its `v` is the
 /// raffle's version.
 pub async fn build(app: &App, raffle_id: &str) -> anyhow::Result<Option<RaffleView>> {
@@ -45,6 +51,13 @@ pub fn of(app: &App, full: &Full, now: i64) -> anyhow::Result<RaffleView> {
         })
         .collect();
     let name_of = |id: &str| rafi_live_client::public_name(id, known.get(id).copied());
+    // Who has no phone to tell them they won, erased or not: the projector
+    // calls them to the front.
+    let no_phone: std::collections::HashSet<&str> = entrants
+        .iter()
+        .filter(|e| e.source.no_phone())
+        .map(|e| e.id.as_str())
+        .collect();
 
     let recent_names = entrants
         .iter()
@@ -128,6 +141,7 @@ pub fn of(app: &App, full: &Full, now: i64) -> anyhow::Result<RaffleView> {
                 prize_name: item_name(&d.item),
                 item: d.item,
                 display_name: name_of(d.entrant.as_str()),
+                no_phone: no_phone.contains(d.entrant.as_str()),
                 entrant: d.entrant,
                 outcome: d.outcome,
                 pass: d.pass,
@@ -190,6 +204,9 @@ pub fn of(app: &App, full: &Full, now: i64) -> anyhow::Result<RaffleView> {
         test_mode: raffle.test_mode,
         verifiable,
         registration: raffle.registration,
+        organizer: raffle.organizer_name.trim().to_owned(),
+        privacy_url: privacy_url(app, &raffle.slug),
+        list_added: entrants.iter().any(crate::entrants::from_list),
         state,
     })
 }

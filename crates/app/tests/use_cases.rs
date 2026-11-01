@@ -1730,3 +1730,179 @@ async fn a_copy_keeps_registration() {
     assert!(!copy.registration);
     assert_eq!(copy.state, rafi_lifecycle::RaffleState::Draft);
 }
+
+/// What the admin says is missing goes by the step ahead: while opening (or,
+/// without registration, the freeze from Published) is to come, the
+/// organizer's name and contact; nothing once it is behind, though the
+/// settings still lack them.
+#[tokio::test]
+async fn the_admin_says_what_the_next_step_misses() {
+    let app = app().await;
+    let both = ["the organizer's name", "a contact or privacy email"];
+    for registration in [true, false] {
+        let id = app::create(&app, ACTOR, "Gala", &EventDate::today(&app))
+            .await
+            .unwrap();
+        let mut settings = app::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
+        settings.registration = registration;
+        app::update_settings(&app, ACTOR, &id, settings)
+            .await
+            .unwrap();
+        let actions = app::admin(&app, OWNER, &id).await.unwrap().actions;
+        assert_eq!(actions.missing, both, "Draft, registration {registration}");
+        app::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
+            .await
+            .unwrap();
+        let admin = app::admin(&app, OWNER, &id).await.unwrap();
+        assert_eq!(admin.actions.missing, both, "Published, {registration}");
+        assert_eq!(admin.missing_for_open, both);
+
+        let mut settings = admin.settings;
+        settings.organizer_name = "Gala".into();
+        app::update_settings(&app, ACTOR, &id, settings.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            app::admin(&app, OWNER, &id).await.unwrap().actions.missing,
+            ["a contact or privacy email"]
+        );
+        settings.contact_email = "hello@example.com".into();
+        app::update_settings(&app, ACTOR, &id, settings)
+            .await
+            .unwrap();
+        assert!(
+            app::admin(&app, OWNER, &id)
+                .await
+                .unwrap()
+                .actions
+                .missing
+                .is_empty()
+        );
+    }
+
+    // Opened, then the contact cleared: opening is behind and nothing blocks
+    // the freeze, though `missing_for_open` (whatever the state) names it.
+    let (id, _) = open_raffle(&app, &["Anna"]).await;
+    raffles_set_contact(&app, &id, "").await;
+    let admin = app::admin(&app, OWNER, &id).await.unwrap();
+    assert!(admin.actions.missing.is_empty(), "{:?}", admin.actions);
+    assert_eq!(admin.missing_for_open, ["a contact or privacy email"]);
+}
+
+/// Clears or sets raffle `id`'s contact email directly: the settings form
+/// refuses a blank one once registration is open.
+async fn raffles_set_contact(app: &App, id: &str, email: &str) {
+    app.db
+        .query("UPDATE raffles SET contact_email = ? WHERE id = ?")
+        .bind(email)
+        .bind(id)
+        .run()
+        .await
+        .unwrap();
+}
+
+/// The evening's flags: whom no phone tells they won (someone the
+/// organizer added, not a joiner), on the projector's draws and in the
+/// admin; whether people were added from a list (not one by one); and the
+/// manifest's entrants counted by source for the verification page.
+#[tokio::test]
+async fn the_evening_knows_who_has_no_phone() {
+    let app = app().await;
+    let (id, people) = open_raffle(&app, &["Anna"]).await;
+    let anna = people[0].clone();
+    let view = app::admin(&app, OWNER, &id).await.unwrap().view;
+    assert!(!view.list_added, "one by one isn't a list");
+    assert_eq!(view.organizer, "Meetup");
+    let slug = view.slug.clone();
+    assert_eq!(view.privacy_url, format!("http://localhost/privacy/{slug}"));
+    app::add_entrants(
+        &app,
+        ACTOR,
+        &id,
+        list(&[("Bence", Some("bence@x.org"), None)]),
+    )
+    .await
+    .unwrap();
+    join_as(&app, &id, "Jo", "jo@x.org").await;
+    let admin = app::admin(&app, OWNER, &id).await.unwrap();
+    assert!(admin.view.list_added);
+    for (name, no_phone) in [("Anna", true), ("Bence", true), ("Jo", false)] {
+        assert_eq!(
+            admin_entrant(&app, &id, name).await.no_phone,
+            no_phone,
+            "{name}"
+        );
+    }
+    assert!(
+        matches!(app::verify_data(&app, &slug).await, Err(Error::NotFound)),
+        "nothing to count before the freeze"
+    );
+
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    let data = app::verify_data(&app, &slug).await.unwrap();
+    assert_eq!(
+        data.sources,
+        Some(rafi_api::SourceCounts {
+            joined: 1,
+            added: 2,
+            fake: 0
+        })
+    );
+    let item = app::admin(&app, OWNER, &id).await.unwrap().view.items[0]
+        .item
+        .clone();
+    app::command(&app, ACTOR, &id, DrawRequest { item }, "d1")
+        .await
+        .unwrap();
+    let winner = drawn(&app, &id).await;
+    let view = app::admin(&app, OWNER, &id).await.unwrap().view;
+    let draw = view.draws.last().unwrap();
+    assert_eq!(draw.entrant.as_str(), winner);
+    let jo = admin_entrant(&app, &id, "Jo").await.id;
+    assert_eq!(draw.no_phone, winner != jo, "{winner} ({anna}, {jo})");
+    // The phones' view says the same of the latest winner.
+    let snapshot = rafi_store::live::snapshot(&app.db, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    let phones = rafi_live_server::raffle::view(&snapshot);
+    assert_eq!(phones.last.unwrap().no_phone, winner != jo);
+}
+
+/// In test mode the counts include the fakes, and an older reader of
+/// `verify.json` (no counts) still reads it.
+#[tokio::test]
+async fn a_rehearsal_counts_its_fakes() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &["Anna"]).await;
+    let mut settings = app::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
+    settings.test_mode = true;
+    app::update_settings(&app, ACTOR, &id, settings)
+        .await
+        .unwrap();
+    app::add_fakes(&app, ACTOR, &id, 3).await.unwrap();
+    join_as(&app, &id, "Jo", "jo@x.org").await;
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    let slug = app::admin(&app, OWNER, &id).await.unwrap().view.slug;
+    let data = app::verify_data(&app, &slug).await.unwrap();
+    assert!(data.test_mode);
+    let sources = data.sources.unwrap();
+    assert_eq!((sources.joined, sources.added, sources.fake), (1, 1, 3));
+    assert_eq!(
+        sources.text(),
+        "5 entrants: 1 joined on their phone, 1 added by the organizer, 3 made up for the test"
+    );
+
+    // Published beside the envelope's fields, under the same format: a
+    // reader that doesn't know them reads the rest as before.
+    let mut json = serde_json::to_value(&data).unwrap();
+    assert_eq!(
+        json["sources"],
+        serde_json::json!({ "joined": 1, "added": 1, "fake": 3 })
+    );
+    assert_eq!(json["format"], rafi_api::VERIFY_FORMAT);
+    json.as_object_mut().unwrap().remove("sources");
+    let older: rafi_api::VerifyData = serde_json::from_value(json).unwrap();
+    assert_eq!(older.sources, None);
+    assert_eq!(older.manifest, data.manifest);
+}

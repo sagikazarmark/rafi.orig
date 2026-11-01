@@ -178,8 +178,8 @@ fn UndoLastAdd(
         }
         Confirm {
             open: confirm,
-            title: "Undo the last add?",
-            body: format!("This takes the {people} of your last add off the list. You can add them again before the freeze."),
+            title: rsx! { "Undo the last add?" },
+            body: rsx! { "This takes the {people} of your last add off the list. You can add them again before the freeze." },
             action: "Undo add",
             danger: true,
             on_confirm: move |_| { spawn(run()); },
@@ -371,8 +371,8 @@ fn EntrantRow(
                         Some(Removal::Erase) => rsx! {
                             Confirm {
                                 open: confirm,
-                                title: format!("Erase {}'s personal data?", e.display_name),
-                                body: "The anonymous entry stays (the draw must remain verifiable), but the name, email and claim code are erased for good.",
+                                title: rsx! { "Erase " bdi { "{e.display_name}" } "'s personal data?" },
+                                body: rsx! { "The anonymous entry stays (the draw must remain verifiable), but the name, email and claim code are erased for good." },
                                 action: "Erase",
                                 danger: true,
                                 on_confirm: { let remove = remove.clone(); move |_| { spawn(remove(false)); } },
@@ -383,8 +383,8 @@ fn EntrantRow(
                     if e.actions.object {
                         Confirm {
                             open: confirm_object,
-                            title: format!("{} took themselves off?", e.display_name),
-                            body: OBJECT_BODY,
+                            title: rsx! { bdi { "{e.display_name}" } " took themselves off?" },
+                            body: rsx! { "{OBJECT_BODY}" },
                             action: "Took themselves off",
                             danger: true,
                             on_confirm: { let objection = objection.clone(); move |_| { spawn(objection(true)); } },
@@ -393,8 +393,8 @@ fn EntrantRow(
                     if e.actions.unobject {
                         Confirm {
                             open: confirm_unobject,
-                            title: format!("Put {} back?", e.display_name),
-                            body: "For a mistake: they are in the draw as before and erased on the usual dates. Their name stays hidden until you show it.",
+                            title: rsx! { "Put " bdi { "{e.display_name}" } " back?" },
+                            body: rsx! { "For a mistake: they are in the draw as before and erased on the usual dates. Their name stays hidden until you show it." },
                             action: "Put back",
                             on_confirm: { let objection = objection.clone(); move |_| { spawn(objection(false)); } },
                         }
@@ -432,7 +432,7 @@ fn RemoveDialog(
                 }
                 open.set(next)
             },
-            AlertDialogTitle { "Remove {entrant.display_name}?" }
+            AlertDialogTitle { "Remove " bdi { "{entrant.display_name}" } "?" }
             AlertDialogDescription {
                 if registration {
                     "They are taken off the entrant list. They can join again while registration is open."

@@ -54,7 +54,9 @@ sequenceDiagram
    `pool[uniform(SHA256(…randomness, manifest hash, draw number…))]`. The details are in the
    [reference](../reference/draw-algorithm.md).
 4. **Winner.** The projector shows the winner's display name. The winner's phone shows **YOU WON!** with their claim
-   code, and everyone else sees "Not this time". Your admin shows the winner's name, email and claim code.
+   code, and everyone else sees "Not this time". Your admin shows the winner's name, email (masked until you press
+   **Show**) and claim code. A winner [you added](#checking-a-winner-you-added) has no phone: the projector says
+   **"Come to the front!"** under their name.
 
 ### Who can be drawn
 
@@ -90,7 +92,7 @@ stateDiagram-v2
 
 | Button | When | Effect |
 |---|---|---|
-| **Claimed** | The winner came up and showed the matching claim code | The item is theirs. Works even while another draw is counting down. A prize delivered **on the spot** is marked delivered with it; one **sent later** is **Mark delivered** in the People tab, once it reached them. The prize's delivery is set in the Prizes tab, and the console says which it is. |
+| **Claimed** (**Confirmed: it's them** for someone [you added](#checking-a-winner-you-added)) | The winner came up and showed the matching claim code, or you checked it is them | The item is theirs. Works even while another draw is counting down. A prize delivered **on the spot** is marked delivered with it; one **sent later** is **Mark delivered** in the People tab, once it reached them. The prize's delivery is set in the Prizes tab, and the console says which it is. |
 | **Not here** | Nobody answers to the name | The winner is out of the raffle, and the item goes back to be drawn again with a new round |
 | **Declined** | The winner doesn't want it, or [took themselves off](#someone-who-took-themselves-off) | Same as Not here |
 | **Withdraw** | An item that won't be given away (it broke, the sponsor didn't show) | The item is withdrawn. Only an item that is still to be drawn can be withdrawn. |
@@ -98,7 +100,21 @@ stateDiagram-v2
 **Not here** and **Declined** ask for confirmation, can't be undone, and are recorded in the public log. They're
 disabled while another draw is counting down, because they would change who that draw can pick.
 
-People you added by hand (no phone) have no phone to show a code on, so confirm them by name.
+### Checking a winner you added
+
+Someone you added, one by one or from a list ("added by you" in the console), has no phone: nothing tells them
+they won, and they never saw a claim code. So:
+
+- The projector shows **"Come to the front!"** under their name: they recognize it and come up.
+- The console shows their name, their email masked ("a•••@example.com") with a **Show** button, "added by you",
+  and **"Check it's them: ask for the email they registered with, or their badge."** No claim code: there is
+  nothing to compare it with. The email is masked because consoles get mirrored onto projectors, and asking for it
+  is the check: shown in full, it would give the answer away. It also tells namesakes apart.
+- When it is them, press **Confirmed: it's them**. It is recorded as **claimed**, as for a joiner who showed their
+  code, and a prize delivered on the spot is marked delivered with it. If nobody comes, **Not here**; if it's
+  somebody else, don't confirm.
+
+Winners who joined with the QR code show their code as always, and their button reads **Claimed**.
 
 ### Someone who took themselves off
 
@@ -138,7 +154,7 @@ draw.
 |---|---|---|---|
 | Ready to draw | "N prizes left", entrant count | "The draw is starting!" | "The draw is starting!" |
 | Countdown | Prize, "drand round R", countdown | "Locking in public randomness" | same |
-| Drawn | The winner's display name | **YOU WON!**, claim code, chime (and vibration on Android) | "Not this time", prizes left |
+| Drawn | The winner's display name, and "Come to the front!" for someone you added | **YOU WON!**, claim code, chime (and vibration on Android) | "Not this time", prizes left |
 | Finished | **Thanks for playing!**, winners, verification link | Their prize | "Thanks for playing!" |
 
 ## See also

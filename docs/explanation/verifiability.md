@@ -100,6 +100,27 @@ an abandoned draw, anyone can see whom its round *would* have picked.
 **One win per person.** Once drawn, an entrant leaves the pool whatever the outcome. Only if there are more items
 than people does a second pass draw again from earlier winners who didn't forfeit.
 
+## People the organizer added
+
+Most entrants join on their phones: they typed their own email, accepted the rules, and their phone holds the claim
+code. Some are added by the organizer, one by one or from a guest list. Those are **the organizer's word**: nothing
+shows they exist, are at the event, or agreed to take part. The draw can't check that, and doesn't pretend to; it is
+fair over the list it was given. What keeps the list honest is that it is visible and that winning needs a person:
+
+- **Counted in public.** The verification page and `verify.json` publish how the frozen list's entrants got in:
+  "320 entrants: 8 joined on their phones, 312 added by the organizer" (and, in a rehearsal, how many were made up).
+  A list that is mostly the organizer's is plain to see, and so is the list itself, by name, until erasure. The
+  counts are the server's statement beside the manifest, not part of it: the hash commits to the anonymous IDs,
+  not to their sources.
+- **Presence.** Winners must be in the room. Someone invented has nobody to walk up when their name is shown
+  ("Come to the front!"), so the prize is forfeited in public ("Not here") and drawn again. A stranger can't claim
+  as someone added either: the organizer checks it is them (the email they registered with, their badge) before
+  "Confirmed: it's them".
+- **No grinding.** Could an organizer add or remove people until the list favours a friend? No: the winner depends
+  on a drand round that doesn't exist until after the manifest is fixed and published, so no list can be tested
+  against it in advance. Entrant IDs are random, made by the server, so nobody picks a position in the list either,
+  and it wouldn't help without the randomness.
+
 ## What verification proves
 
 The [verification page](../guide/verifying-a-draw.md) and [`tools/verify.py`](../../tools/verify.py) check that:
@@ -125,7 +146,8 @@ Verifiability is a strong claim, so here is where it ends.
 | Organizer or operator | …block drand so a draw stalls, look at the now-public round, and abandon it if the winner is "wrong"? | **Possible, but visible.** This is the one remaining lever. Every abandon is logged, and the verifier shows whom the abandoned round would have picked. Treat an abandon as something the organizer should explain. |
 | Operator | …edit the log or the manifest afterwards? | **Detected.** The manifest hash, the BLS signatures and the replay all have to match. |
 | Operator | …forge a beacon? | **No.** That would mean forging a threshold BLS signature. |
-| Organizer | …add people before the freeze? | **Not prevented by cryptography.** Before the freeze the list is the organizer's to manage: removing duplicates, adding people without a phone, and in test mode, adding fake entrants. Fakes only freeze in test mode, and its verification page says so. The projector shows the live count, and the verification page lists every entrant by display name until personal data is erased, so attendees can check who is in. |
+| Organizer | …add people before the freeze? | **Not prevented by cryptography.** Before the freeze the list is the organizer's to manage: removing duplicates, adding people without a phone or from a guest list, and in test mode, adding fake entrants. Fakes only freeze in test mode, and its verification page says so. The projector shows the live count, and the verification page lists every entrant by display name until personal data is erased, so attendees can check who is in. |
+| Organizer | …stack the list with people of their own, or invented ones? | **Not prevented; visible.** The verification page counts the entrants by source (joined on their phones, added by the organizer), and lists them by name. Invented entrants forfeit: winners must come to the front, in front of the room, and nobody answers to an invented name. Adding or removing people can't aim at a result: the round is unknown until after the list is fixed ([above](#people-the-organizer-added)). |
 | Entrant | …enter many times? | **Hard.** There is one entry per email address, a proof-of-work on joining, and rate limits. Winners must be present to claim, so remote or invented entries forfeit. |
 | drand | …a threshold of League of Entropy members colluding? | **Out of scope.** This is drand's trust assumption. |
 

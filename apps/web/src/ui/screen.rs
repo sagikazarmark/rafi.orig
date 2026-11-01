@@ -89,6 +89,12 @@ fn FullscreenButton() -> Element {
     }
 }
 
+/// `url` as the screen shows it, without its scheme: shorter to read off
+/// and type.
+fn without_scheme(url: &str) -> &str {
+    url.split_once("://").map_or(url, |(_, rest)| rest)
+}
+
 fn qr_svg(url: &str) -> String {
     use qrcode::{EcLevel, QrCode, render::svg};
     QrCode::with_error_correction_level(url.as_bytes(), EcLevel::M)
@@ -126,8 +132,10 @@ fn PrizeList(view: RaffleView) -> Element {
 }
 
 /// Before the freeze: the prizes, and how to get in. With registration,
-/// the QR code while it is open; without, no code, link or "No
-/// smartphone?": the organizer's list is who takes part.
+/// the QR code while it is open, and, once people were added from a list,
+/// that they needn't scan; without, no code, link or "No smartphone?": the
+/// organizer's list is who takes part, and the screen says so, how to stay
+/// out, and where the privacy notice is.
 #[component]
 fn Intro(view: RaffleView) -> Element {
     let qr = if view.registration {
@@ -135,12 +143,8 @@ fn Intro(view: RaffleView) -> Element {
     } else {
         String::new()
     };
-    let short = view
-        .join_url
-        .split("://")
-        .nth(1)
-        .unwrap_or(&view.join_url)
-        .to_owned();
+    let short = without_scheme(&view.join_url).to_owned();
+    let privacy = without_scheme(&view.privacy_url).to_owned();
     rsx! {
         div { class: "grid flex-1 items-center gap-[3vw] lg:grid-cols-[1.15fr_1fr]",
             div { class: "min-w-0 space-y-[1.4em]",
@@ -159,9 +163,28 @@ fn Intro(view: RaffleView) -> Element {
                 match view.state {
                     // Without registration: no QR code, and nothing said of
                     // registration opening or closing. Who is in goes here.
+                    // Who is in, and how to stay out: the people on the
+                    // list saw no join form, and the room is where they
+                    // learn the draw is theirs too.
                     _ if !view.registration => rsx! {
                         span { class: "animate-float text-[5em]", "🎟️" }
                         p { class: "font-display text-[2em] font-extrabold", "The draw is coming up" }
+                        p { class: "max-w-[24em] text-[1.15em] font-semibold",
+                            "Everyone on "
+                            if view.organizer.is_empty() {
+                                "the organizer's"
+                            } else {
+                                bdi { "{view.organizer}" }
+                                "'s"
+                            }
+                            " list is in the draw. Rather not? Tell the organizer before the draw."
+                        }
+                        if !privacy.is_empty() {
+                            p { class: "text-[0.95em] text-base-content/70",
+                                "Privacy: "
+                                span { class: "rounded-lg bg-base-200 px-[0.4em] py-[0.1em] font-mono font-bold", "{privacy}" }
+                            }
+                        }
                     },
                     RaffleState::Open => rsx! {
                         div { class: "relative",
@@ -171,7 +194,14 @@ fn Intro(view: RaffleView) -> Element {
                                 div { class: "[&>svg]:h-auto [&>svg]:w-full", dangerous_inner_html: "{qr}" }
                             }
                         }
-                        p { class: "font-display text-[1.6em] font-extrabold", "Scan to join" }
+                        // People on a registration list the organizer added
+                        // needn't scan: they are in.
+                        if view.list_added {
+                            p { class: "font-display text-[1.4em] font-extrabold", "Registered? You're already in." }
+                            p { class: "font-display text-[1.6em] font-extrabold", "Not registered? Scan to join." }
+                        } else {
+                            p { class: "font-display text-[1.6em] font-extrabold", "Scan to join" }
+                        }
                         p { class: "text-[1.05em]",
                             "or visit "
                             span { class: "rounded-lg bg-base-200 px-[0.4em] py-[0.1em] font-mono font-bold", "{short}" }
@@ -222,6 +252,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
                 display_name: l.display_name.clone(),
                 prize_name: l.prize_name.clone(),
                 round: None,
+                no_phone: l.no_phone,
             }),
         ),
         None => (
@@ -235,6 +266,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
                     display_name: d.display_name.clone(),
                     prize_name: d.prize_name.clone(),
                     round: Some(d.round),
+                    no_phone: d.no_phone,
                 }),
         ),
     };
@@ -301,6 +333,9 @@ struct Reveal {
     prize_name: String,
     /// The drand round, once the full view has it.
     round: Option<u64>,
+    /// No phone tells them they won (the organizer added them): the screen
+    /// calls them to the front.
+    no_phone: bool,
 }
 
 #[component]
@@ -318,6 +353,9 @@ fn Winner(reveal: Reveal) -> Element {
             span { class: "badge badge-secondary badge-lg gap-2 font-bold", Trophy { class: "size-[1.1em]" } "{reveal.prize_name}" }
             h2 { class: "gradient-text animate-reveal max-w-full py-[0.1em] font-black leading-[1.05] text-balance wrap-anywhere {reveal_size(&reveal.display_name)}",
                 bdi { "{reveal.display_name}" }
+            }
+            if reveal.no_phone {
+                p { class: "animate-pop font-display text-[2.2em] font-extrabold text-primary", "Come to the front!" }
             }
             if let Some(round) = reveal.round {
                 p { class: "text-[0.9em] text-base-content/60",
@@ -424,9 +462,69 @@ mod tests {
             "join_code": "ABCDEF", "join_url": "https://rafi.example/j/ABCDEF", "entrant_count": 2,
             "recent_names": ["Anna Kovács", "Bea"], "prizes": [], "items": [], "current": null,
             "draws": [], "last_failure": null, "manifest_hash": null, "server_now_ms": 0,
-            "test_mode": false, "verifiable": true, "registration": registration
+            "test_mode": false, "verifiable": true, "registration": registration,
+            "organizer": "Cloud Native Budapest", "privacy_url": "https://rafi.example/privacy/meetup"
         }))
         .unwrap()
+    }
+
+    /// Without registration the intro says whose list is in, how to stay
+    /// out and where the notice is; with it, once people were added from a
+    /// list, that they needn't scan.
+    #[test]
+    fn the_intro_tells_the_people_on_the_list() {
+        let html = dioxus_ssr::render_element(rsx! { Intro { view: view("ready", false) } });
+        for present in [
+            "Everyone on <bdi>Cloud Native Budapest</bdi>&#39;s list is in the draw. Rather not? Tell the organizer before the draw.",
+            "rafi.example/privacy/meetup",
+        ] {
+            assert!(html.contains(present), "{present}: {html}");
+        }
+        assert!(
+            !html.contains("https://rafi.example/privacy"),
+            "shown short: {html}"
+        );
+        let mut nameless = view("closed", false);
+        nameless.organizer = String::new();
+        let html = dioxus_ssr::render_element(rsx! { Intro { view: nameless } });
+        assert!(
+            html.contains("Everyone on the organizer&#39;s list is in the draw."),
+            "{html}"
+        );
+
+        // With registration: as before until a list is added.
+        let html = dioxus_ssr::render_element(rsx! { Intro { view: view("open", true) } });
+        assert!(html.contains("Scan to join"), "{html}");
+        for absent in ["Registered?", "Everyone on", "privacy/meetup"] {
+            assert!(!html.contains(absent), "{absent}: {html}");
+        }
+        let mut listed = view("open", true);
+        listed.list_added = true;
+        let html = dioxus_ssr::render_element(rsx! { Intro { view: listed } });
+        assert!(
+            html.contains("Registered? You&#39;re already in.")
+                && html.contains("Not registered? Scan to join."),
+            "{html}"
+        );
+    }
+
+    /// A winner with no phone to tell them is called to the front; one
+    /// whose phone says so isn't.
+    #[test]
+    fn a_winner_without_a_phone_comes_to_the_front() {
+        let reveal = |no_phone| Reveal {
+            display_name: "Anna Kovács".into(),
+            prize_name: "Book".into(),
+            round: Some(7),
+            no_phone,
+        };
+        let html = dioxus_ssr::render_element(rsx! { Winner { reveal: reveal(true) } });
+        assert!(
+            html.contains("Anna Kovács") && html.contains("Come to the front!"),
+            "{html}"
+        );
+        let html = dioxus_ssr::render_element(rsx! { Winner { reveal: reveal(false) } });
+        assert!(!html.contains("Come to the front!"), "{html}");
     }
 
     /// Without registration the intro has the count and the names, and no

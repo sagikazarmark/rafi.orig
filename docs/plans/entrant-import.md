@@ -474,7 +474,16 @@ Each is shippable and tested on its own.
    freeze. Done: removals forgotten with the manifest (§Store), objections refused for a claimed winner and
    undoable until the finish (§Objections).
 6. **The evening.** The console's prompt and "Confirmed: it's them", "Come to the front!", the reminder at the
-   freeze, source counts on `/v/`, the projector's lines.
+   freeze, source counts on `/v/`, the projector's lines. Done: whom no phone tells is a rule of the source
+   (`Source::no_phone`: added by the organizer; a fake stands in for a joiner), sent as `no_phone` on the view's
+   draws, the participant view's latest winner (the projector takes the reveal from there when the live channel is
+   ahead) and the admin's entrants; the console shows no claim code for them (they never saw one) and masks every
+   winner's email until **Show**. "Added from a list" is an entrant the organizer added with a row number
+   (`batch_row`), kept through erasure: the view's `list_added`, which the projector's "Registered? You're already
+   in." and the freeze's reminder go by. The view carries the organizer's name and the privacy notice's address
+   for the intro without registration. `VerifyData.sources` counts the manifest's entrants by their rows' source at
+   read time (left out when they don't add up to the manifest); not in the manifest. The header's missing fields
+   come from `AdminActions.missing` (`RaffleState::opening_ahead`). The confirmations isolate names (`<bdi>`).
 7. **Registration as a setting.** Schema, settings, defaults, duplicate, the SQL guards, `apply` and `next` with
    the setting, the freeze from Published and unfreezing to it, the lifecycle buttons from `AdminActions`, the
    projector and `/j/` without registration. Done: every lifecycle write guarded on the setting (§Registration as

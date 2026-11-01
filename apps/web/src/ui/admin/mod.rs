@@ -109,12 +109,15 @@ fn ErrorToasts(error: Signal<Option<String>>) -> Element {
     rsx! {}
 }
 
-/// A confirmation for an action that cannot be undone.
+/// A confirmation for an action that cannot be undone. The title and the
+/// body are markup, so a name in them is isolated (`bdi`) like everywhere
+/// else; `note` comes after the body, in a paragraph of its own.
 #[component]
 fn Confirm(
     open: Signal<bool>,
-    title: String,
-    body: String,
+    title: Element,
+    body: Element,
+    #[props(default = VNode::empty())] note: Element,
     action: String,
     #[props(default)] danger: bool,
     on_confirm: EventHandler<()>,
@@ -123,8 +126,9 @@ fn Confirm(
         AlertDialog {
             open: Some(open()),
             on_open_change: move |next| open.set(next),
-            AlertDialogTitle { "{title}" }
-            AlertDialogDescription { "{body}" }
+            AlertDialogTitle { {title} }
+            AlertDialogDescription { {body} }
+            {note}
             AlertDialogActions {
                 AlertDialogCancel { "Cancel" }
                 AlertDialogAction {
@@ -282,11 +286,13 @@ fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
         }
         Confirm {
             open: ask,
-            title: if shared { "Remove your organization's data from this service?" } else { "Remove your data from this service?" },
-            body: if shared {
-                "Every raffle of the organization, for every co-host: those never frozen are deleted; every other one loses its entrants' personal data and the organizer's name and contacts, for good. The defaults are deleted. This cannot be undone."
-            } else {
-                "Raffles of yours that were never frozen are deleted. Every other raffle loses its entrants' personal data and your name and contacts, for good. Your defaults are deleted. This cannot be undone."
+            title: rsx! { if shared { "Remove your organization's data from this service?" } else { "Remove your data from this service?" } },
+            body: rsx! {
+                if shared {
+                    "Every raffle of the organization, for every co-host: those never frozen are deleted; every other one loses its entrants' personal data and the organizer's name and contacts, for good. The defaults are deleted. This cannot be undone."
+                } else {
+                    "Raffles of yours that were never frozen are deleted. Every other raffle loses its entrants' personal data and your name and contacts, for good. Your defaults are deleted. This cannot be undone."
+                }
             },
             action: if shared { "Remove the organization's data" } else { "Remove my data" },
             danger: true,
