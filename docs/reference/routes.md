@@ -82,7 +82,9 @@ made its names (`"name_format": "full"` or `"first_initial"`), for the audit log
 else's in the raffle (compared composed, lowercase, whitespace collapsed), joined or added, nor another row's. The
 result names each row by its index: `added` with its entrant ID, or `skipped` (`already_in`, an email or
 registration ID already in the raffle). `undo_add` takes an add's entrants off the list again before
-the freeze and returns how many; the admin's view offers the latest add (`actions.undo`).
+the freeze and returns how many; the admin's view offers the latest add (`actions.undo`), and says whether a list
+can be added now (`actions.add_list`) and why not (`actions.add_list_refusal`: `unpublished`, `test_mode`, `frozen`,
+`erasure_date_passed`), so the list tab derives nothing.
 
 `export_winners_csv` returns the drawn entrants as CSV text: UTF-8 with a byte order mark, a header line, every
 field double-quoted (`"` doubled), a field starting with `=`, `+`, `-`, `@`, a tab or a carriage return prefixed

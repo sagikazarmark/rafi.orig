@@ -67,6 +67,16 @@ The server sends the admin what it may do next (`RaffleAdmin.actions`, `AdminEnt
 live in `rafi-raffle` and `rafi-lifecycle`. When a button needs a condition, add it to the server's answer rather
 than computing it in the UI.
 
+## Adding a list
+
+The list tab of Add people reads the organizer's list in the browser: `apps/web/src/import` (no Dioxus) parses it
+(UTF-8, or UTF-16 with a byte order mark; the delimiter sniffed; RFC 4180 quotes; the limits), finds the columns,
+and builds the preview with the rules `rafi_lifecycle::entrant` and `rafi_lifecycle::names` share with the server.
+The UI (`ui/admin/list.rs`) holds the list in memory only and sends the preview's rows. The tests run natively
+(`cargo test -p rafi-web`) on exports shaped like the common registration tools' in `apps/web/fixtures/import`,
+their line ends and byte order marks kept as written (`.gitattributes`, `.editorconfig`). Supporting another
+export starts with its fixture and a test.
+
 ## The proof-of-work
 
 Joining uses ALTCHA v2:

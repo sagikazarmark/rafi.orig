@@ -119,19 +119,61 @@ deleted outright and it becomes Data erased.
 3. Attendees scan and join with their email and a display name, which is optional: whoever leaves it blank gets a
    generated one, like "Brave Otter" (see [For participants](for-participants.md)).
 4. While people join, use the **People** tab to:
-   - **Add people**: someone without a smartphone, by name (email optional). They are in the draw like everyone
+   - **Add people → One person**: someone without a smartphone, by name (email optional). They are in the draw like everyone
      else, as "added by you"; an email already in is skipped. **Undo last add** takes your latest add off the list
      again, until the freeze. A name you give may be a full name of up to 64 characters (people joining with the
      QR code have 24): the projector fits it on screen. It can't be a name someone in the raffle is already shown
      with ("Someone is already shown as “Anna K.”"): add a surname, an initial or a number, so the room can tell
      who won. The word filter matches parts of words and refuses some real names (Nazir, Buzinkay): if it refuses
      someone's real name, switch on **It's their real name** to add it anyway; nothing else is lifted.
+   - **Add people → Paste or upload a list**: your guest list, in one go ([below](#adding-a-list)).
    - **hide** or **rename** a display name on screen with one tap (a troll, a typo), up to 64 characters. New names
      reach the projector after a 5 s delay.
    - **remove** duplicates
    - search by name, email or claim code
 
 You can close and reopen registration as often as you like before the draw.
+
+### Adding a list
+
+**Add people → Paste or upload a list** puts everyone on your guest list in the draw at once, once the raffle is
+published and out of test mode (the tab says which is missing). Winners must be at the event, so the best list is
+the **checked-in guests**: export them from your registration tool (Luma, Eventbrite, Pretix, Tito, Meetup, a
+Google Form…) near the end of the doors, or add the registrations early and the check-ins again later (only the new
+people are added).
+
+1. **Paste** the cells from your spreadsheet (select them, copy, paste: the easiest way, whatever the file), or pick
+   a CSV or TSV file (UTF-8, up to 5 MB; Excel's "CSV UTF-8" works, its plain "CSV" in a Windows encoding doesn't:
+   copy and paste instead). Excel files aren't read: copy and paste. At most 10 000 rows, 200 columns and 1 KB per
+   cell. The list stays in your browser: only the names, emails and IDs of the people added are sent.
+2. **Check the columns.** Rafi finds the header row and the name (one column, or first and last name), email and
+   registration ID columns by their headers, in the common tools' exports and in Hungarian; correct any of them.
+   The email and the ID are optional, but they recognize people on a later add: without either, adding the list
+   again may add people twice. For one name column written family name first ("Kovács Anna"), switch on **Names
+   are written family name first**.
+3. **Pick how names are shown:** the **full name** ("Anna Kovács", the default: winners recognize themselves, and
+   the room sees real people) or **first name and initial** ("Anna K.", for a large event or one that calls for
+   less). Names are unique in the raffle: namesakes get more letters ("Anna Ko.", "Anna Ki.") or a number ("Anna
+   Kovács (2)"); people already in keep theirs.
+4. **Read the preview:** **N to add · M already in · K to check**, then the rows that need you, then the first rows
+   to be added.
+   - **Already in**: someone in the raffle has the row's email or ID; skipped. "Joined by phone as *Batman*" means
+     someone joined with the QR code using that email under another name: if it isn't them, remove that entry and
+     add the list again.
+   - **Same email, different names**: a group order, one buyer's email on several tickets. **Keep all** (the
+     default) adds each of them, the email with the first; **Keep first only** adds the first. The same email with
+     the same name twice is one person, added once; the same ID twice, the first row.
+   - **Names the blocklist refuses**: it matches parts of words, so it refuses some real names (Nazir, Buzinkay).
+     Approve the ones that are; the rest are left out.
+   - **Left out**: a row without a name, an email that isn't one, a name over 64 characters or with invisible
+     characters. Fix it in the list and add it again, or leave it out.
+5. **Add.** One add takes at most 2000 people: a longer list goes in parts (paste the first 2000 rows, then the
+   rest; people already in are skipped). An add is all or nothing; **Undo last add** takes it back until the
+   freeze. If the connection drops, add again: nobody is added twice. If someone took a name meanwhile, the
+   preview gives the next one and you add again.
+
+Under the button: you're responsible for being allowed to share the list, and for telling the people on it about
+the draw before it, with the paragraph shown there (also in the settings), in the name format you chose.
 
 ## Starting the draw
 

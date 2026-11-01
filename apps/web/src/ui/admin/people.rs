@@ -1,10 +1,15 @@
 //! The people tab: entrants, adding and editing them.
 
-use dioxus_icons::lucide::{Check, Eye, EyeOff, Pencil, Trash, Undo2, UserPlus, Users};
+use dioxus_icons::lucide::{
+    Check, ClipboardList, Eye, EyeOff, Pencil, Trash, Undo2, UserPlus, Users,
+};
 use rafi_api::UndoBatch;
 use rafi_lifecycle::entrant::{MAX_ADDED_NAME_CHARS, Removal};
 
-use super::*;
+use super::{
+    list::{AddList, list_refusal_text},
+    *,
+};
 
 // ---------------------------------------------------------------------------
 // People
@@ -61,7 +66,7 @@ pub(super) fn People(
                 }
             },
             if editable {
-                AddPeople { open: adding, raffle_id: admin.id.clone(), on_added: move |_| on_change.call(()) }
+                AddPeople { open: adding, admin: admin.clone(), on_added: move |_| on_change.call(()) }
             }
             if let Some(undo) = admin.actions.undo.clone() {
                 UndoLastAdd { raffle_id: admin.id.clone(), undo, error, on_change }
@@ -91,21 +96,35 @@ pub(super) fn People(
     }
 }
 
-/// The Add people dialog: one person, by name and optional email. Everyone
-/// added here is in the draw like everyone else, with no phone of theirs.
+/// The Add people dialog: one person, by name and optional email, or a
+/// list, pasted or uploaded. Everyone added here is in the draw like
+/// everyone else, with no phone of theirs. The list tab is there when the
+/// server says the raffle takes a list ([`AdminActions::add_list`](rafi_api::AdminActions::add_list)),
+/// and otherwise says why not.
 #[component]
-fn AddPeople(open: Signal<bool>, raffle_id: String, on_added: EventHandler<()>) -> Element {
+fn AddPeople(open: Signal<bool>, admin: AdminData, on_added: EventHandler<()>) -> Element {
+    let raffle_id = admin.id.clone();
+    let lists = admin.actions.add_list;
+    let refusal = admin.actions.add_list_refusal;
     rsx! {
         AlertDialog {
             open: Some(open()),
             on_open_change: move |next| open.set(next),
-            class: "max-w-2xl",
+            class: "max-w-4xl",
             AlertDialogTitle { "Add people" }
-            AlertDialogDescription { "For someone without a smartphone, or who can't join with the QR code. Their name is shown on the screen like everyone's; with no phone to show a claim code, check it's them at the stage." }
+            AlertDialogDescription { "For people who don't join with the QR code: someone without a smartphone, or your guest list. Their names are shown on the screen like everyone's; with no phone to show a claim code, check it's them at the stage." }
             Tabs { appearance: TabsAppearance::Border, default_value: "one", class: "w-full",
                 TabTrigger { value: "one", index: 0usize, class: "gap-2", UserPlus { class: "size-4" } "One person" }
                 TabContent { value: "one", index: 0usize, appearance: TabContentAppearance::None, class: "w-full pt-4",
                     AddPersonForm { raffle_id, on_added }
+                }
+                TabTrigger { value: "list", index: 1usize, class: "gap-2", ClipboardList { class: "size-4" } "Paste or upload a list" }
+                TabContent { value: "list", index: 1usize, appearance: TabContentAppearance::None, class: "w-full pt-4",
+                    if lists {
+                        AddList { admin: admin.clone(), on_added, on_done: move |_| open.set(false) }
+                    } else {
+                        div { role: "status", class: "alert alert-info alert-soft text-sm", "{list_refusal_text(refusal)}" }
+                    }
                 }
             }
             AlertDialogActions {

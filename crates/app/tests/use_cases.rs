@@ -710,6 +710,22 @@ async fn adds_the_raffle_doesnt_take_are_refused() {
         .await
         .unwrap();
     let anna = || list(&[("Anna", None, None)]);
+    // The admin's view says whether a list can be added, and why not: the
+    // list tab derives nothing.
+    let list_tab = |id: String| {
+        let app = app.clone();
+        async move {
+            let a = app::admin(&app, OWNER, &id).await.unwrap().actions;
+            (a.add_list, a.add_list_refusal)
+        }
+    };
+    assert_eq!(
+        list_tab(draft.clone()).await,
+        (
+            false,
+            Some(rafi_lifecycle::entrant::AddRefusal::Unpublished)
+        )
+    );
     assert_eq!(
         refusal(app::add_entrants(&app, ACTOR, &draft, anna()).await),
         Refusal::Add(rafi_lifecycle::entrant::AddRefusal::Unpublished),
@@ -718,11 +734,16 @@ async fn adds_the_raffle_doesnt_take_are_refused() {
     add_one(&app, &draft, "Anna", None).await.unwrap();
 
     let (id, _) = open_raffle(&app, &[]).await;
+    assert_eq!(list_tab(id.clone()).await, (true, None));
     let mut settings = app::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
     settings.test_mode = true;
     app::update_settings(&app, ACTOR, &id, settings)
         .await
         .unwrap();
+    assert_eq!(
+        list_tab(id.clone()).await,
+        (false, Some(rafi_lifecycle::entrant::AddRefusal::TestMode))
+    );
     assert_eq!(
         refusal(app::add_entrants(&app, ACTOR, &id, anna()).await),
         Refusal::Add(rafi_lifecycle::entrant::AddRefusal::TestMode),
@@ -732,6 +753,10 @@ async fn adds_the_raffle_doesnt_take_are_refused() {
 
     // After the freeze, nobody is added, one person or a list.
     app::start_draw(&app, ACTOR, &id).await.unwrap();
+    assert_eq!(
+        list_tab(id.clone()).await,
+        (false, Some(rafi_lifecycle::entrant::AddRefusal::Frozen))
+    );
     for add in [one("Bence", None), anna()] {
         assert_eq!(
             refusal(app::add_entrants(&app, ACTOR, &id, add).await),

@@ -1,0 +1,10 @@
+name,email,ticket id
+Anna Kovács,office@acme.example,T-1
+Bence Nagy,office@acme.example,T-2
+Csilla Varga,office@acme.example,T-3
+Anna Kovács,office@acme.example,T-4
+Dóra Molnár,dora@example.com,T-5
+Dóra Molnár (again),dora2@example.com,T-5
+Ernő Buzinkay,erno@example.com,T-6
+Fanni,not-an-email,T-7
+,,

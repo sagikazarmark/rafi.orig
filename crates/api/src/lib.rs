@@ -531,6 +531,16 @@ pub struct AdminActions {
     /// and an add of the organizer's is on it.
     #[serde(default)]
     pub undo: Option<UndoBatch>,
+    /// Whether a list can be added now (the Add people dialog's list tab):
+    /// the raffle takes an add from [`Origin::List`]
+    /// ([`may_add`](rafi_lifecycle::entrant::may_add)).
+    #[serde(default)]
+    pub add_list: bool,
+    /// Why a list can't be added now, for the list tab to say (not
+    /// published yet, in test mode, …); `None` when it can be
+    /// ([`add_list`](Self::add_list)).
+    #[serde(default)]
+    pub add_list_refusal: Option<rafi_lifecycle::entrant::AddRefusal>,
 }
 
 fn yes() -> bool {

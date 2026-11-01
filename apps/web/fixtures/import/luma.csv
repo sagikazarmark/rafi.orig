@@ -1,0 +1,7 @@
+api_id,name,first_name,last_name,email,phone_number,created_at,approval_status,checked_in_at,ticket_name,What do you work on?
+gst-a1B2c3D4e5,Anna Kovács,Anna,Kovács,anna.kovacs@example.com,+36301234567,2026-10-01T10:00:00.000Z,approved,2026-10-28T17:55:12.000Z,Standard,"Platform engineering, mostly ""boring"" infra"
+gst-f6G7h8I9j0,Bence Nagy,Bence,Nagy,bence@example.org,,2026-10-02T08:30:00.000Z,approved,,Standard,
+gst-k1L2m3N4o5,Zoé Szabó,Zoé,Szabó,zoe.szabo@example.net,,2026-10-03T12:00:00.000Z,approved,2026-10-28T18:02:40.000Z,Speaker,"Two lines:
+Rust and Go"
+gst-p6Q7r8S9t0,Dávid Tóth,Dávid,Tóth,David.Toth@Example.com,,2026-10-04T09:15:00.000Z,declined,,Standard,
+gst-u1V2w3X4y5,Eszter Kiss,Eszter,Kiss,eszter.kiss+meetup@example.com,,2026-10-05T19:45:00.000Z,approved,2026-10-28T18:10:05.000Z,Standard,Data

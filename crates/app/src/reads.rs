@@ -33,6 +33,12 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
     let entrants = admin_entrants(&full, full.drawn.as_ref(), retention.winners_erase_at);
     let held_winners = entrants.iter().filter(|e| e.held_until.is_some()).count();
     let personal_data_left = full.entrants.iter().any(|e| !e.erased);
+    let add_list = lifecycle::entrant::may_add(
+        lifecycle::entrant::Origin::List,
+        raffle.state,
+        raffle.test_mode,
+        raffle.past_erase_date(now),
+    );
     let actions = AdminActions {
         start: start::next(raffle.state, raffle.manifest.is_some(), raffle.opened())
             .ok()
@@ -54,6 +60,8 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
             .entrants_editable()
             .then(|| last_add(&full.entrants))
             .flatten(),
+        add_list: add_list.is_ok(),
+        add_list_refusal: add_list.err(),
     };
     Ok(RaffleAdmin {
         id: raffle.id.clone(),

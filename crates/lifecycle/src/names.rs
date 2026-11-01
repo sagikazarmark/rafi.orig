@@ -248,13 +248,19 @@ pub fn unique_names<'a>(
     for (i, key) in keys.iter().enumerate() {
         numbered[i] = !used.insert(key.clone());
     }
+    // Where the search for a free number goes on, by name: the numbers
+    // before it are taken, and stay so, so a list of many namesakes isn't
+    // quadratic.
+    let mut next: HashMap<String, usize> = HashMap::new();
     for (i, name) in names.iter_mut().enumerate() {
         if !numbered[i] {
             continue;
         }
-        for n in 2.. {
+        let from = next.get(name.as_str()).copied().unwrap_or(2);
+        for n in from.. {
             let candidate = with_number(name, n);
             if used.insert(name_key(&candidate)) {
+                next.insert(name.clone(), n + 1);
                 *name = candidate;
                 break;
             }
@@ -491,6 +497,17 @@ mod tests {
             ),
             ["Anna Kovács (3)", "Anna Kovács (4)"],
             "numbers already taken are skipped"
+        );
+        assert_eq!(
+            unique(&["Anna Kovács (3)"], &[("Anna", "Kovács"); 5], Full),
+            [
+                "Anna Kovács",
+                "Anna Kovács (2)",
+                "Anna Kovács (4)",
+                "Anna Kovács (5)",
+                "Anna Kovács (6)"
+            ],
+            "many namesakes: each its own number, in order, past a taken one"
         );
         assert_eq!(
             unique(

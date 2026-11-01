@@ -512,7 +512,8 @@ pub fn list_ref(input: &str) -> Option<String> {
 }
 
 /// Why the raffle doesn't take an add now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AddRefusal {
     /// The entrant list is frozen.
     Frozen,

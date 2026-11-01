@@ -163,9 +163,9 @@ Findings from the code that the plan accounts for:
 | Risk | Answer |
 |---|---|
 | D1 queries per batch | 4 shared + 7 per row parameters (the ID, the name, the email as given and its key, the claim code, the row number, the registration ID): 13 rows per statement, 156 statements for 2000 rows with the guard's two, one round trip, under the paid plan's 1000 per invocation (the hosted instance is on it). One JSON parameter (`json_each` / `jsonb_to_recordset`) stays a measured fallback: it would be the first SQL that differs by dialect. |
-| Body size | At most `MAX_ADD_ROWS` (2000) rows per request, ~250 KB; the add route's limit is 512 KB. Larger lists go in parts, each part all or nothing. |
+| Body size | At most `MAX_ADD_ROWS` (2000) rows per request, ~250 KB; the add route's limit is 512 KB. Larger lists go in parts, each part all or nothing: the list tab takes at most 2000 people to add, and the organizer adds the rest next (the people already in are skipped), so each add is one undo. |
 | CPU on Workers | Validation of 2000 rows and the version trigger's 2000 bumps: measure in the store spike. |
-| Bundle size | `csv-core` (or `csv`) in the web app: measure against the 2.5 MiB gzipped budget. |
+| Bundle size | A hand-written RFC 4180 reader instead of `csv-core`, and `unicode-normalization` already in the build: the list tab took the web app's WebAssembly from 1035 to 1094 KB gzipped (2.96 to 3.11 MB raw). |
 | Long names on screen | The projector's winner reveal, the recent names and the thanks screen must fit 64 characters: checked at projector size, and in the end-to-end evening. |
 
 Rough size: two weeks, in the slices of §Slices.
@@ -245,8 +245,9 @@ re-checks are in `rafi_lifecycle::entrant`.
   isn't read: copy and paste. A preview showing mojibake patterns (`Ã¡`, `Å‘`) warns the same way. The parsed data
   lives in memory only: no storage, no logs.
 - **Limits.** 10 000 rows, 200 columns, 1 KB per field; an unclosed quote that swallows the rest is an error; the
-  delimiter (tab, `,`, `;`) is sniffed from the first 20 lines; RFC 4180 quoting; parsing yields to the page
-  between slices.
+  delimiter (tab, `,`, `;`) is sniffed from the first 20 lines (or Excel's `sep=` line); RFC 4180 quoting. A list
+  is read a moment after it is pasted, behind a spinner, and the preview made again only when what it depends on
+  changes (10 000 rows: well under a second).
 - **Columns.** Detected by header, case- and accent-insensitive, with aliases for the common exports: `name`,
   `full name`, `first name`, `given name`, `last name`, `surname`, `family name`, `email`, `e-mail`, `attendee
   email`, `ticket first name`, `ticket last name`, `ticket email`, `order email` (an attendee or ticket email beats
@@ -269,7 +270,8 @@ re-checks are in `rafi_lifecycle::entrant`.
   - Rows with neither email nor registration ID can't be matched again: the preview says so ("Without emails or
     IDs, adding this list again may add people twice").
 - **Sent.** For each row to add: the display name, the email, the registration ID, approvals; plus the batch ID
-  (random, made when the preview is built: a retry sends the same one). Nothing else.
+  (random, made for the rows sent: the same rows sent again, a retry, send the same one; while an add's reply is
+  unknown, its entrants are left out of the preview so it stays the same). Nothing else.
 
 ### Names
 

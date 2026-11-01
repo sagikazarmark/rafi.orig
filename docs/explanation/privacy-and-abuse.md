@@ -129,6 +129,11 @@ them, and Rafi doesn't reach them: the organizer tells them, before the event.
   "Shitara"). The organizer approves such a name row by row (or in the one-person form); an approval lifts the
   blocklist and nothing else (the length, the invisible characters and the letter-or-digit rule hold), and the
   `add` audit row counts the approvals.
+- **The list stays in the browser.** A pasted or uploaded list is read in the organizer's page and held in its
+  memory only: nothing of it is stored, logged or sent but the name, the email and the registration ID of each row
+  added, in the columns the organizer mapped. The other columns (phone numbers, companies, answers to a
+  registration form) never reach the service. The preview flags an email someone already joined with by phone
+  under another name ("joined by phone as …"): someone may have used a registrant's email first.
 
 ## Who is responsible
 

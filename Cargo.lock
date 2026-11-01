@@ -5124,6 +5124,7 @@ dependencies = [
  "rafi-raffle",
  "serde",
  "serde_json",
+ "unicode-normalization",
  "uuid",
  "wasm-bindgen",
  "web-sys",
