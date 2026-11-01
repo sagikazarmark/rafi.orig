@@ -20,6 +20,8 @@ use rafi_store::{Db, RaffleWriter, raffles, view::Full};
 use restate_e2e_harness::{Call, ReusePolicy, ServerSpec, launcher_or_skip};
 use restate_sdk::endpoint::Endpoint;
 
+use super::tests::add_one;
+
 use super::{
     AppState,
     config::{Config, RestateConfig},
@@ -131,7 +133,7 @@ async fn app_and_rafi_restate_share_the_database() {
         .await
         .unwrap();
     for i in 0..3 {
-        service::add_manual(&app, ACTOR, &id, &format!("Person {i}"), None)
+        add_one(&app, ACTOR, &id, &format!("Person {i}"), None)
             .await
             .unwrap();
     }

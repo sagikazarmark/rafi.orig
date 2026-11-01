@@ -111,7 +111,9 @@ deleted outright and it becomes Data erased.
 3. Attendees scan and join with their email and a display name, which is optional: whoever leaves it blank gets a
    generated one, like "Brave Otter" (see [For participants](for-participants.md)).
 4. While people join, use the **People** tab to:
-   - **add someone without a smartphone** by name (email optional)
+   - **Add people**: someone without a smartphone, by name (email optional). They are in the draw like everyone
+     else, as "added by you"; an email already in is skipped. **Undo last add** takes your latest add off the list
+     again, until the freeze.
    - **hide** or **rename** a display name on screen with one tap (a troll, a typo). New names reach the projector
      after a 5 s delay.
    - **remove** duplicates

@@ -1,6 +1,7 @@
 //! The people tab: entrants, adding and editing them.
 
-use dioxus_icons::lucide::{Check, Eye, EyeOff, Pencil, Trash, Users};
+use dioxus_icons::lucide::{Check, Eye, EyeOff, Pencil, Trash, Undo2, UserPlus, Users};
+use rafi_api::UndoBatch;
 use rafi_lifecycle::entrant::Removal;
 
 use super::*;
@@ -20,6 +21,7 @@ pub(super) fn People(
     // the erasure date.
     let removal = admin.actions.removal;
     let mut filter = use_signal(String::new);
+    let mut adding = use_signal(|| false);
     let id = admin.id.clone();
     let fakes = move |_| {
         let id = id.clone();
@@ -54,12 +56,15 @@ pub(super) fn People(
                 if admin.settings.test_mode && editable {
                     button { class: "btn btn-sm btn-warning btn-soft", onclick: fakes, "🧪 Add 25 fake entrants" }
                 }
+                if editable {
+                    button { class: "btn btn-sm btn-secondary", onclick: move |_| adding.set(true), UserPlus { class: "size-4" } "Add people" }
+                }
             },
             if editable {
-                div { class: "rounded-box bg-base-200 p-4",
-                    p { class: "mb-3 text-sm font-semibold", "Someone without a smartphone? Add them here." }
-                    AddEntrantForm { raffle_id: admin.id.clone(), on_added: move |_| on_change.call(()) }
-                }
+                AddPeople { open: adding, raffle_id: admin.id.clone(), on_added: move |_| on_change.call(()) }
+            }
+            if let Some(undo) = admin.actions.undo.clone() {
+                UndoLastAdd { raffle_id: admin.id.clone(), undo, error, on_change }
             }
             if admin.entrants.is_empty() {
                 div { class: "rounded-box border-2 border-dashed border-base-300 py-10 text-center",
@@ -82,6 +87,77 @@ pub(super) fn People(
                     }
                 }
             }
+        }
+    }
+}
+
+/// The Add people dialog: one person, by name and optional email. Everyone
+/// added here is in the draw like everyone else, with no phone of theirs.
+#[component]
+fn AddPeople(open: Signal<bool>, raffle_id: String, on_added: EventHandler<()>) -> Element {
+    rsx! {
+        AlertDialog {
+            open: Some(open()),
+            on_open_change: move |next| open.set(next),
+            class: "max-w-2xl",
+            AlertDialogTitle { "Add people" }
+            AlertDialogDescription { "For someone without a smartphone, or who can't join with the QR code. Their name is shown on the screen like everyone's; with no phone to show a claim code, check it's them at the stage." }
+            Tabs { appearance: TabsAppearance::Border, default_value: "one", class: "w-full",
+                TabTrigger { value: "one", index: 0usize, class: "gap-2", UserPlus { class: "size-4" } "One person" }
+                TabContent { value: "one", index: 0usize, appearance: TabContentAppearance::None, class: "w-full pt-4",
+                    AddPersonForm { raffle_id, on_added }
+                }
+            }
+            AlertDialogActions {
+                AlertDialogCancel { "Close" }
+            }
+        }
+    }
+}
+
+/// "Undo last add": takes the latest add's people off the list again, as
+/// the server offers it (before the freeze).
+#[component]
+fn UndoLastAdd(
+    raffle_id: String,
+    undo: UndoBatch,
+    error: Signal<Option<String>>,
+    on_change: EventHandler<()>,
+) -> Element {
+    let mut confirm = use_signal(|| false);
+    let toast = use_toast();
+    let people = match undo.count {
+        1 => "1 person".to_owned(),
+        n => format!("{n} people"),
+    };
+    let run = move || {
+        let (raffle_id, batch_id) = (raffle_id.clone(), undo.batch_id.clone());
+        async move {
+            match api::undo_add(raffle_id, batch_id).await {
+                Ok(n) => {
+                    let who = if n == 1 {
+                        "1 person".to_owned()
+                    } else {
+                        format!("{n} people")
+                    };
+                    toast.success(format!("↩️ {who} taken off the list"), ToastOptions::new());
+                    on_change.call(());
+                }
+                Err(e) => error.set(Some(err_text(e))),
+            }
+        }
+    };
+    rsx! {
+        div { class: "flex justify-end",
+            button { class: "btn btn-sm btn-ghost", onclick: move |_| confirm.set(true), Undo2 { class: "size-4" } "Undo last add ({people})" }
+        }
+        Confirm {
+            open: confirm,
+            title: "Undo the last add?",
+            body: format!("This takes the {people} of your last add off the list. You can add them again before the freeze."),
+            action: "Undo add",
+            danger: true,
+            on_confirm: move |_| { spawn(run()); },
         }
     }
 }

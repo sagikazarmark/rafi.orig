@@ -16,7 +16,7 @@ The Worker, `rafi` (`apps/worker`), hosts:
   naming your Clerk host, so each load of the admin or the projector is a Worker request;
 - the raffle engine (`Raffle`, `EngineInfo`) under `/restate/*`, called by Restate Cloud over HTTPS with signed
   requests. It writes to the same D1 and nudges `RaffleRoom` after every change;
-- the `RaffleRoom` Durable Object (one live channel per raffle), the join rate limiters and the hourly Cron.
+- the `RaffleRoom` Durable Object (one live channel per raffle), the rate limiters and the hourly Cron.
 
 `apps/worker/wrangler.toml` has a production top level, plus `[env.dev]` for local development; an installation
 deploys the same shape from [`deploy/cloudflare/`](../../deploy/cloudflare/), below.
@@ -212,8 +212,9 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
 
 ## Limits
 
-The join limits are Workers rate-limiting bindings (600/min per raffle, 5/min per raffle and email, 600/min live
-connections). They are soft, per Cloudflare location. The hard limit is `RAFI_MAX_ENTRANTS`, enforced in D1.
+The rate limits are Workers rate-limiting bindings (600 joins/min per raffle, 5/min per raffle and email, 10 adds
+or undos/min per organizer, 600/min live connections). They are soft, per Cloudflare location. The hard limit is
+`RAFI_MAX_ENTRANTS`, enforced in D1.
 
 ## Local development
 

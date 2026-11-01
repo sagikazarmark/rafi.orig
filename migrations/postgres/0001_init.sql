@@ -105,11 +105,35 @@ CREATE TABLE entrants (
     delivered_at BIGINT,
     erased BIGINT NOT NULL DEFAULT 0,
     created_at BIGINT NOT NULL,
-    UNIQUE (raffle_id, email_norm)
+    -- The organizer's add this entrant came in with (a random ID the browser
+    -- made: the unit of retrying and undoing an add), and for a list its
+    -- row, which keeps the list's order among entrants added at one time.
+    -- NULL for joins and fakes (and the row for one person). Nothing
+    -- personal.
+    batch_id TEXT,
+    batch_row BIGINT,
+    -- The entrant's ID in the organizer's registration system, if their add
+    -- gave one: it matches them on a later add. Admin only; erased with the
+    -- rest of their personal data. NULLs are distinct, as in SQLite.
+    list_ref TEXT,
+    UNIQUE (raffle_id, email_norm),
+    UNIQUE (raffle_id, list_ref)
 );
 
 CREATE INDEX entrants_raffle ON entrants (raffle_id, created_at);
 CREATE INDEX entrants_token ON entrants (token_hash);
+-- Finding an add's entrants: a retry, an undo, the add's own guard.
+CREATE INDEX entrants_batch ON entrants (raffle_id, batch_id) WHERE batch_id IS NOT NULL;
+
+-- One row while an add is being written, keyed `add:<raffle id>`: the add's
+-- batch inserts it only if the raffle takes the whole add (its state, the
+-- entrant cap, a batch ID not used yet), inserts its rows only if it is
+-- there, and deletes it, so the table is empty outside a batch. One decision
+-- makes the add all or nothing, and two adds into one raffle serialize on
+-- the key. No trigger may touch it: its change count is the decision.
+CREATE TABLE batch_guards (
+    key TEXT PRIMARY KEY NOT NULL
+);
 
 -- A write that already moves the version (`SET version = ...`) is left alone;
 -- any other update of a raffle bumps it once. SQLite does this with an AFTER

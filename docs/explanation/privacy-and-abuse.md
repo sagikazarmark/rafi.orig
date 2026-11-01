@@ -15,6 +15,7 @@ installation's own notice is at `/privacy`, and the operator's terms, with the d
 |---|---|
 | **Display name** | The projector (after a 5 s delay, unless the organizer hides it), the verification page's list of entrants (until erasure), the admin. It is optional: an entrant who leaves it blank gets a generated one ("Brave Otter"), so nobody has to put their real name on a screen. The organizer can hide or rename it in one tap. Hidden names show as ★ ★ ★. |
 | **Email** | The admin only. It is never on the projector, in either public view, on the verification page, or in the raffle engine. |
+| **Registration ID** | For someone the organizer added with one (their ID in the organizer's registration system, to match them on a later add): the admin only, erased with their name and email |
 | **Claim code** | The entrant's own phone and the admin, until erasure |
 | **Entrant ID** | Public. It is random, and is what the manifest and the event log contain. |
 
@@ -49,7 +50,7 @@ promise a day gone by) and expires within the hour. The hourly housekeeping run 
 
 | Clock | When | What |
 |---|---|---|
-| **Non-winners** | the erasure date: the end of the event day plus the period (7 days unless the organizer chose otherwise, 0 to the installation's maximum, 30) | Everyone who didn't win, and winners whose prize was marked delivered, lose their name, email, claim code and token. In any state: a raffle nobody finished is erased all the same. |
+| **Non-winners** | the erasure date: the end of the event day plus the period (7 days unless the organizer chose otherwise, 0 to the installation's maximum, 30) | Everyone who didn't win, and winners whose prize was marked delivered, lose their name, email, registration ID, claim code and token. In any state: a raffle nobody finished is erased all the same. |
 | **Winners** | the erasure date plus the **winner hold** (90 days) | Winners (the entrants of claimed draws) are kept so a prize can still reach them, until it is marked delivered ("Mark delivered", or "All prizes delivered" from the menu, or claiming a prize the organizer delivers on the spot), which puts them on the first clock. At the hold, everyone left is erased, a finished raffle becomes "Data erased", and a raffle still being drawn is asked to finish. |
 | **Expiry** | the erasure date | A raffle that was never frozen has no draw to keep verifiable: its entrants are deleted outright and it becomes "Data erased". |
 
@@ -80,7 +81,9 @@ nothing to erase yet), every organizer's admin says so.
 Every action on a raffle is a row: who (the owner key, and the member who acted), when, what, and a detail that
 never holds personal data (a count, an ID, the names of the settings that changed). The organizer's: `create`,
 `settings` (which fields), `delete`, the lifecycle moves, `freeze`, `draw`, `resolve`, `void`, `abandon`,
-`finish`, `add_manual`, `add_fakes`, `remove_fakes`, `patch_entrant`, `deliver` and `undeliver` (by hand, or after
+`finish`, `add` (one person or a list: the add's batch ID, where it came from and how many were added and skipped,
+never who), `undo_add` (the batch ID and how many were removed), `add_fakes`, `remove_fakes`, `patch_entrant`,
+`deliver` and `undeliver` (by hand, or after
 a `resolve` that changed it: a claim of a prize delivered on the spot, or of one sent later to a winner already
 delivered), `deliver_all`, `set_prize_delivery`, `remove_entrant`, `erase_entrant`, `purge`, `end_live`,
 `export_csv`. Housekeeping's: `expire`, `auto_erase`, `auto_purge`, `auto_finish`. Leaving: `delete` and `purge` with "owner left". The log is the operator's record
@@ -133,8 +136,8 @@ The projector is the source of truth. A faked "you won" screen lacks the winner'
 |---|---|
 | **One entry per email** | Per raffle, on a normalized key: lowercased, `+tag` dropped, and for Gmail, dots dropped. No device fingerprinting. |
 | **Proof-of-work** | Joining requires solving an [ALTCHA v2](https://altcha.org) challenge (PBKDF2/SHA-256) in the browser. Challenges are HMAC-signed and each is redeemed once. The difficulty is `RAFI_POW_COST`. |
-| **Rate limits** | 600 joins per minute per raffle, and 5 per minute per raffle and email. **Never per IP**, because a venue shares one. On Workers they are soft (per location). |
-| **Entrant cap** | `RAFI_MAX_ENTRANTS` (2000), enforced in the database for joins (the hard limit) and checked for the organizer's additions; at most 1000 items (prize copies) in one raffle |
+| **Rate limits** | 600 joins per minute per raffle, and 5 per minute per raffle and email; 10 adds or undos per minute per organizer. **Never per IP**, because a venue shares one. On Workers they are soft (per location). |
+| **Entrant cap** | `RAFI_MAX_ENTRANTS` (2000), enforced in the database (the hard limit) for joins and for everything the organizer adds, people and fakes: an add that doesn't fit is refused whole, in the same transaction as its rows. At most 1000 items (prize copies) in one raffle |
 | **Registration window** | The join code lets people in only while registration is open. The code is six characters out of 31 (887 million), and there is no per-IP limit, so codes can be guessed at a cost; a hit shows the raffle's public pages. Once the raffle is purged, its code answers nothing, so guessing finds only raffles inside their hold period. |
 | **Presence** | The rules require winners to be present to claim. Remote entries forfeit ("Not here"), and the prize is drawn again. |
 | **Display names** | Nothing invisible (bidirectional controls, zero-width characters, soft hyphens, blank fillers) and at least one letter or digit, so no name can look like another or like nothing; a blocklist; a 5 s delay before a name reaches the projector; one-tap hide or rename |

@@ -8,7 +8,7 @@ use dioxus_icons::lucide::{
     BookmarkCheck, BookmarkPlus, Check, Gift, Plus, Smartphone, Sparkles, TriangleAlert, Undo2,
 };
 use rafi_lifecycle::{
-    entrant::{self, MAX_NAME_CHARS},
+    entrant::{self, MAX_NAME_CHARS, Origin},
     prize::Delivery,
     settings::{self, MAX_PRIZE_QTY, MAX_TITLE_CHARS},
 };
@@ -22,9 +22,9 @@ use crate::{
         textarea::TextareaField,
         toast::{ToastOptions, use_toast},
     },
-    ui::dates,
+    ui::{command_id, dates},
 };
-use rafi_api::{PrizeInput, RaffleDefaults, RaffleSettings, Retention};
+use rafi_api::{AddRequest, AddRow, PrizeInput, RaffleDefaults, RaffleSettings, Retention};
 
 /// What the organizer reads for a failed call: its message, and for a
 /// server error the request's ID, which the operator finds in the log.
@@ -386,25 +386,30 @@ pub fn PrizeForm(
 }
 
 // ---------------------------------------------------------------------------
-// Entrants without a phone
+// Adding one person
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, Default, PartialEq, Form)]
-struct Entrant {
+struct Person {
     name: String,
     email: String,
 }
 
+/// One person the organizer adds (the Add people dialog's first tab): an
+/// add of one row. Its batch ID is made with the form and again after each
+/// add that went in, so a submission whose reply was lost (a network error)
+/// is sent again with the same ID, and the server answers the first add
+/// instead of adding the person twice.
 #[component]
-pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
+pub fn AddPersonForm(raffle_id: String, on_added: EventHandler<()>) -> Element {
     let form = use_form_handle(|| {
-        let handle = FormHandle::<Entrant>::from_config(
-            FormConfig::new(Entrant::default())
-                .id_namespace("add-entrant")
+        let handle = FormHandle::<Person>::from_config(
+            FormConfig::new(Person::default())
+                .id_namespace("add-person")
                 .validation_mode(ValidationMode::on_submit()),
         );
         handle.write_advanced(|core| {
-            let f = Entrant::fields();
+            let f = Person::fields();
             core.register_sync_field_validator(f.name(), "required", required("Who is it?"));
             core.register_sync_field_validator(f.name(), "length", |v: &String, _| {
                 match entrant::display_name(v) {
@@ -423,7 +428,8 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
         });
         handle
     });
-    let fields = Entrant::fields();
+    let mut batch_id = use_signal(command_id);
+    let fields = Person::fields();
     let submit = form.managed_submit();
     let busy = form.is_submitting();
     let form_err = messages(form.visible_form_validation_errors());
@@ -436,13 +442,28 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
             novalidate: true,
             onsubmit: move |event| {
                 let (raffle_id, reset) = (raffle_id.clone(), reset.clone());
-                let _ = submit.on_submit_async(event, move |s: SubmissionSnapshot<Entrant>| async move {
+                let batch = batch_id();
+                let _ = submit.on_submit_async(event, move |s: SubmissionSnapshot<Person>| async move {
                     let v = s.value().clone();
-                    let email = Some(v.email.trim().to_owned()).filter(|e| !e.is_empty());
-                    match api::add_entrant(raffle_id, v.name.clone(), email).await {
+                    let name = v.name.trim().to_owned();
+                    let add = AddRequest {
+                        batch_id: batch,
+                        origin: Origin::One,
+                        rows: vec![AddRow {
+                            name: name.clone(),
+                            email: Some(v.email.trim().to_owned()).filter(|e| !e.is_empty()),
+                            list_ref: None,
+                        }],
+                    };
+                    match api::add_entrants(raffle_id, add).await {
+                        // Skipped: someone with this email is in already.
+                        Ok(result) if result.added.is_empty() => {
+                            SubmitError::form("This email is already entered.".to_owned()).into()
+                        }
                         Ok(_) => {
-                            reset.reinitialize(Entrant::default());
-                            toast.success(format!("🙋 {} is in", v.name.trim()), ToastOptions::new());
+                            reset.reinitialize(Person::default());
+                            batch_id.set(command_id());
+                            toast.success(format!("🙋 {name} is in"), ToastOptions::new());
                             on_added.call(());
                             SubmitErrors::none()
                         }
@@ -469,7 +490,7 @@ pub fn AddEntrantForm(raffle_id: String, on_added: EventHandler<()>) -> Element 
             div { class: "sm:pt-8",
                 Button { color: ButtonColor::Secondary, r#type: "submit", disabled: busy,
                     Plus { class: "size-5" }
-                    "Add entrant"
+                    "Add"
                 }
             }
             div { class: "sm:col-span-3", FormErrors { errors: form_err } }

@@ -3,14 +3,16 @@
 
 use std::collections::HashMap;
 
-use rafi_api::{AdminActions, AdminEntrant, Prize, RaffleAdmin, Retention, StartStep, VerifyData};
+use rafi_api::{
+    AdminActions, AdminEntrant, Prize, RaffleAdmin, Retention, StartStep, UndoBatch, VerifyData,
+};
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
     settings::{self, ErasureDates},
     start::{self, Start},
 };
 use rafi_raffle::{ItemId, Outcome, Raffle};
-use rafi_store::{RaffleRow, audit, raffles, view::Full};
+use rafi_store::{EntrantRow, RaffleRow, audit, raffles, view::Full};
 
 use crate::{
     Actor, App, Error, Result,
@@ -47,6 +49,11 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         removal: raffle.state.removal(raffle.past_erase_date(now)),
         deliver_all: raffle.state.is_over() && held_winners > 0,
         delete: lifecycle::raffle::deletable(full.drawn.as_ref()),
+        undo: raffle
+            .state
+            .entrants_editable()
+            .then(|| last_add(&full.entrants))
+            .flatten(),
     };
     Ok(RaffleAdmin {
         id: raffle.id.clone(),
@@ -77,6 +84,27 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
             .map(str::to_owned)
             .collect(),
     })
+}
+
+/// The add "Undo last add" takes back: of the adds with entrants on the
+/// list, the one made last ([`added_at`](crate::entrants::added_at); then
+/// the greatest batch ID, so it is the same on every read), with how many
+/// it has.
+fn last_add(entrants: &[EntrantRow]) -> Option<UndoBatch> {
+    let mut adds: HashMap<&str, (i64, u32)> = HashMap::new();
+    for e in entrants {
+        if let (Some(batch), Some(at)) = (e.batch_id.as_deref(), crate::entrants::added_at(e)) {
+            let add = adds.entry(batch).or_insert((at, 0));
+            add.0 = add.0.max(at);
+            add.1 += 1;
+        }
+    }
+    adds.into_iter()
+        .max_by_key(|&(batch, (entered, _))| (entered, batch))
+        .map(|(batch, (_, count))| UndoBatch {
+            batch_id: batch.to_owned(),
+            count,
+        })
 }
 
 /// When `raffle`'s personal data is erased, as of `now`.
@@ -140,6 +168,8 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) ->
                 held_until: (deliverable && e.delivered_at.is_none() && !e.erased)
                     .then_some(winners_erase_at),
                 erased: e.erased,
+                batch_id: e.batch_id.clone(),
+                list_ref: e.list_ref.clone(),
             }
         })
         .collect()

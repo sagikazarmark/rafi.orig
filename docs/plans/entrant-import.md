@@ -162,7 +162,7 @@ Findings from the code that the plan accounts for:
 
 | Risk | Answer |
 |---|---|
-| D1 queries per batch | 3 shared + 5 per row parameters: 19 rows per statement, ~108 statements for 2000 rows, one round trip, under the paid plan's 1000 per invocation (the hosted instance is on it). One JSON parameter (`json_each` / `jsonb_to_recordset`) stays a measured fallback: it would be the first SQL that differs by dialect. |
+| D1 queries per batch | 4 shared + 7 per row parameters (the ID, the name, the email as given and its key, the claim code, the row number, the registration ID): 13 rows per statement, 156 statements for 2000 rows with the guard's two, one round trip, under the paid plan's 1000 per invocation (the hosted instance is on it). One JSON parameter (`json_each` / `jsonb_to_recordset`) stays a measured fallback: it would be the first SQL that differs by dialect. |
 | Body size | At most `MAX_ADD_ROWS` (2000) rows per request, ~250 KB; the add route's limit is 512 KB. Larger lists go in parts, each part all or nothing. |
 | CPU on Workers | Validation of 2000 rows and the version trigger's 2000 bumps: measure in the store spike. |
 | Bundle size | `csv-core` (or `csv`) in the web app: measure against the 2.5 MiB gzipped budget. |
@@ -296,7 +296,7 @@ re-checks are in `rafi_lifecycle::entrant`.
      not test mode> AND (SELECT COUNT(*) FROM entrants WHERE raffle_id = ?r) + ?n <= ?cap AND NOT EXISTS (SELECT 1
      FROM entrants WHERE raffle_id = ?r AND batch_id = ?batch)`: the one decision. The guard table has no trigger,
      so its change count is reliable.
-  2. The rows, 19 per statement: `INSERT INTO entrants (…) SELECT * FROM (VALUES …) AS v WHERE EXISTS (SELECT 1
+  2. The rows, 13 per statement: `INSERT INTO entrants (…) SELECT * FROM (VALUES …) AS v WHERE EXISTS (SELECT 1
      FROM batch_guards WHERE key = ?key) ON CONFLICT (raffle_id, email_norm) DO NOTHING`. (`list_ref` conflicts are
      filtered by the app first; an ID collision still errors.)
   3. `DELETE FROM batch_guards WHERE key = ?key`.

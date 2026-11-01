@@ -4,6 +4,7 @@
 pub mod admin;
 
 use rafi_lifecycle::RaffleState;
+pub use rafi_lifecycle::entrant::{Origin, RowError};
 use rafi_raffle::{EntrantId, Event, ItemId, ItemStatus, Outcome};
 use serde::{Deserialize, Serialize};
 
@@ -202,6 +203,106 @@ pub struct AdminEntrant {
     /// Outcome and prize, once drawn.
     pub outcome: Option<Outcome>,
     pub prize: Option<String>,
+    /// The add the organizer put them in with; `None` if they joined, or
+    /// are a fake.
+    #[serde(default)]
+    pub batch_id: Option<String>,
+    /// Their ID in the organizer's registration system, if their add gave
+    /// one. `None` once erased.
+    #[serde(default)]
+    pub list_ref: Option<String>,
+}
+
+/// One person to add ([`AddRequest`]): the name shown on the screen, and
+/// optionally their email (to reach a winner, and one entry per address)
+/// and their ID in the organizer's registration system (to match them on a
+/// later add). Blank means none.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AddRow {
+    pub name: String,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub list_ref: Option<String>,
+}
+
+/// An add: people the organizer puts in at once, all of them or none
+/// (`add_entrants`). Its rows are checked as a whole first: an invalid row
+/// refuses the add with every row's problem ([`ApiError::rows`](admin::ApiError::rows)).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddRequest {
+    /// A random ID the browser makes for the add (1 to 64 of `A-Z a-z 0-9 - _`)
+    /// and sends again on a retry: an add already made with it answers its
+    /// first result and adds nothing. "Undo last add" names it too.
+    pub batch_id: String,
+    /// The one-person form (exactly one row), or a list.
+    pub origin: Origin,
+    /// In the list's order, which the entrants keep.
+    pub rows: Vec<AddRow>,
+}
+
+/// What an add did, row by row (rows by their index in the request).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddResult {
+    pub batch_id: String,
+    /// The rows added, with their entrant IDs.
+    pub added: Vec<AddedEntrant>,
+    /// The rows left out, and why.
+    pub skipped: Vec<SkippedRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddedEntrant {
+    pub row: u32,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkippedRow {
+    pub row: u32,
+    pub reason: SkipReason,
+}
+
+/// Why a row of an add was left out, though the add went through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipReason {
+    /// Someone with this email or registration ID is in the raffle already
+    /// (they joined, or an earlier add has them).
+    AlreadyIn,
+}
+
+/// A row of an add that refused it, and what is wrong with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RowProblem {
+    /// Its index in the request.
+    pub row: u32,
+    pub problem: RowError,
+}
+
+/// What is wrong with a row, in the organizer's words (lowercase, to follow
+/// "Row 3: "): the server's refusal says it, and the browser can say it
+/// where the row is.
+pub fn row_error_text(e: RowError) -> &'static str {
+    match e {
+        RowError::Name => {
+            "the name must be 1–24 characters, with at least one letter or digit and nothing invisible"
+        }
+        RowError::BlockedName => "the name has a word that isn't allowed",
+        RowError::Email => "not an email address",
+        RowError::ListRef => "the registration ID must be 1–64 characters, with nothing invisible",
+        RowError::DuplicateEmail => "an earlier row has the same email",
+        RowError::DuplicateListRef => "an earlier row has the same registration ID",
+    }
+}
+
+/// The add "Undo last add" undoes: the raffle's latest, while its entrants
+/// can change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UndoBatch {
+    pub batch_id: String,
+    /// How many people it would take off the list.
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -270,7 +371,7 @@ pub struct Retention {
 }
 
 /// What the organizer can do next with a raffle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct AdminActions {
     /// Where starting the draw stands, while it can start (or has).
     pub start: Option<StartStep>,
@@ -297,6 +398,10 @@ pub struct AdminActions {
     /// way to be rid of what's personal in it.
     #[serde(default = "yes")]
     pub delete: bool,
+    /// The add "Undo last add" takes back, while the entrant list can change
+    /// and an add of the organizer's is on it.
+    #[serde(default)]
+    pub undo: Option<UndoBatch>,
 }
 
 fn yes() -> bool {

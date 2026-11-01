@@ -362,7 +362,7 @@ async fn full_raffle_flow() {
     assert!(page.contains("already entered"));
 
     // A person without a phone.
-    service::add_manual(&app, ACTOR, &raffle.id, "No Phone", None)
+    add_one(&app, ACTOR, &raffle.id, "No Phone", None)
         .await
         .unwrap();
     assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 6);
@@ -375,7 +375,7 @@ async fn full_raffle_flow() {
     assert_ne!(status, StatusCode::SEE_OTHER);
     assert!(cookie.is_none());
     assert!(
-        service::add_manual(&app, ACTOR, &raffle.id, "Late", None)
+        add_one(&app, ACTOR, &raffle.id, "Late", None)
             .await
             .is_err()
     );
@@ -750,7 +750,7 @@ async fn full_view_v_is_the_version_column() {
     let (_, _, again) = get_json(&router, &url).await;
     assert_eq!(again["v"].as_u64().unwrap(), v0);
 
-    service::add_manual(&app, ACTOR, &raffle.id, "Anna", None)
+    add_one(&app, ACTOR, &raffle.id, "Anna", None)
         .await
         .unwrap();
     let (_, _, view) = get_json(&router, &url).await;
@@ -965,7 +965,7 @@ async fn an_engine_on_another_chain_is_refused_before_freezing() {
     cfg.drand_chain = rafi_raffle::drand::chains::QUICKNET_HASH.to_string();
     let app = app_with_engine(cfg, mock_drand(), LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, ACTOR, &raffle.id, "Anna", None)
+    add_one(&app, ACTOR, &raffle.id, "Anna", None)
         .await
         .unwrap();
     let err = service::start_draw(&app, ACTOR, &raffle.id)
@@ -985,7 +985,7 @@ async fn draws_need_restate() {
     let app = AppState::new(cfg).await.unwrap();
     assert!(app.engine.is_none());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, ACTOR, &raffle.id, "Anna", None)
+    add_one(&app, ACTOR, &raffle.id, "Anna", None)
         .await
         .unwrap();
     let err = service::start_draw(&app, ACTOR, &raffle.id)
@@ -1001,6 +1001,32 @@ async fn draws_need_restate() {
         RaffleState::Open,
         "nothing was frozen"
     );
+}
+
+/// Adds `name` (and `email`) as `actor` with the one-person form, in a
+/// batch of its own; returns their entrant ID.
+pub(crate) async fn add_one(
+    app: &service::App,
+    actor: service::Actor<'_>,
+    raffle_id: &str,
+    name: &str,
+    email: Option<String>,
+) -> service::Result<String> {
+    let add = rafi_api::AddRequest {
+        batch_id: service::ids::id(),
+        origin: rafi_api::Origin::One,
+        rows: vec![rafi_api::AddRow {
+            name: name.into(),
+            email,
+            list_ref: None,
+        }],
+    };
+    let result = service::add_entrants(app, actor, raffle_id, add).await?;
+    Ok(result
+        .added
+        .first()
+        .map(|a| a.id.clone())
+        .unwrap_or_default())
 }
 
 /// POSTs `args` (JSON) to the admin function `name`.
@@ -1428,7 +1454,7 @@ async fn pages_with_names_are_not_indexed() {
     let app = app().await;
     let router = with_shell(&app);
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, ACTOR, &raffle.id, "Anna Kovács", None)
+    add_one(&app, ACTOR, &raffle.id, "Anna Kovács", None)
         .await
         .unwrap();
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
@@ -1786,9 +1812,7 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 2)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(&app, ACTOR, &raffle.id, name, None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &raffle.id, name, None).await.unwrap();
     }
     // The freeze's first write landed, the manifest's did not.
     app.db
@@ -1843,7 +1867,7 @@ async fn rules_are_fixed_once_accepted() {
     let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
     assert!(admin.actions.edit_rules);
 
-    service::add_manual(&app, ACTOR, &raffle.id, "No Phone", None)
+    add_one(&app, ACTOR, &raffle.id, "No Phone", None)
         .await
         .unwrap();
     let refused = save("Changed after someone accepted.", true).await;
@@ -2008,7 +2032,7 @@ async fn stalled_draw_keeps_its_round() {
     let app = unreachable_drand_app().await;
     let raffle = setup_open(&app, &[("Prize", 3)]).await;
     for i in 0..4 {
-        service::add_manual(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
+        add_one(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
             .await
             .unwrap();
     }
@@ -2116,7 +2140,7 @@ async fn only_claiming_passes_a_waiting_draw() {
     let app = app_with_engine(Config::for_tests(), drand, LiveUpdates::polling()).await;
     let raffle = setup_open(&app, &[("Prize", 2)]).await;
     for i in 0..3 {
-        service::add_manual(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
+        add_one(&app, ACTOR, &raffle.id, &format!("Person {i}"), None)
             .await
             .unwrap();
     }
@@ -2181,7 +2205,7 @@ async fn only_claiming_passes_a_waiting_draw() {
 async fn mock_raffles_are_not_publicly_verified() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    service::add_manual(&app, ACTOR, &raffle.id, "Person", None)
+    add_one(&app, ACTOR, &raffle.id, "Person", None)
         .await
         .unwrap();
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
@@ -2231,7 +2255,7 @@ async fn an_added_entrants_email_doesnt_attach_a_device() {
     let app = app().await;
     let router = routes(app.clone());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
-    let added = service::add_manual(
+    let added = add_one(
         &app,
         ACTOR,
         &raffle.id,
@@ -2408,9 +2432,7 @@ async fn proof_of_work_forgeries_are_refused() {
 async fn finished_raffle(app: &AppState) -> RaffleRow {
     let raffle = setup_open(app, &[("Prize", 1)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(app, ACTOR, &raffle.id, name, None)
-            .await
-            .unwrap();
+        add_one(app, ACTOR, &raffle.id, name, None).await.unwrap();
     }
     service::start_draw(app, ACTOR, &raffle.id).await.unwrap();
     service::command(app, ACTOR, &raffle.id, Decision::Finish, "fin")
@@ -2474,7 +2496,7 @@ async fn writes_nudge_and_destroy_the_channel() {
 
     let before = nudges();
     join(&router, &raffle.join_code, "Anna", "anna@example.com").await;
-    service::add_manual(&app, ACTOR, &raffle.id, "Bence", None)
+    add_one(&app, ACTOR, &raffle.id, "Bence", None)
         .await
         .unwrap();
     assert_eq!(nudges(), before, "joins don't nudge");
@@ -2689,11 +2711,7 @@ async fn entrants_are_erased_only_once_the_raffle_is_over() {
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     let mut ids = Vec::new();
     for name in ["Anna", "Bence", "Csilla"] {
-        ids.push(
-            service::add_manual(&app, ACTOR, &raffle.id, name, None)
-                .await
-                .unwrap(),
-        );
+        ids.push(add_one(&app, ACTOR, &raffle.id, name, None).await.unwrap());
     }
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
@@ -2773,7 +2791,7 @@ async fn fakes_stay_in_test_mode() {
     service::add_fakes(&app, ACTOR, &raffle.id, 5)
         .await
         .unwrap();
-    service::add_manual(&app, ACTOR, &raffle.id, "Real Person", None)
+    add_one(&app, ACTOR, &raffle.id, "Real Person", None)
         .await
         .unwrap();
     let listed = entrants::list(&app.db, &raffle.id).await.unwrap();
@@ -3121,9 +3139,7 @@ async fn housekeeping_erases_on_the_dates() {
     // A drawing raffle, never finished: one claimed winner.
     let drawing = setup_open(&app, &[("Pen", 1)]).await;
     for name in ["Erik", "Fanni"] {
-        service::add_manual(&app, ACTOR, &drawing.id, name, None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &drawing.id, name, None).await.unwrap();
     }
     service::start_draw(&app, ACTOR, &drawing.id).await.unwrap();
     let r = wait_for(&app, &drawing.id, |r| r.raffle.opened()).await;
@@ -3278,12 +3294,10 @@ async fn erasure_on_request_follows_the_date() {
     let app = app().await;
     // Anna and Bence in a raffle frozen today; returns Anna's ID.
     let frozen = async |r: &RaffleRow| {
-        let id = service::add_manual(&app, ACTOR, &r.id, "Anna", Some("anna@x.org".into()))
+        let id = add_one(&app, ACTOR, &r.id, "Anna", Some("anna@x.org".into()))
             .await
             .unwrap();
-        service::add_manual(&app, ACTOR, &r.id, "Bence", None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &r.id, "Bence", None).await.unwrap();
         service::start_draw(&app, ACTOR, &r.id).await.unwrap();
         wait_for(&app, &r.id, |r| r.raffle.opened()).await;
         id
@@ -3370,9 +3384,7 @@ async fn all_prizes_delivered() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 1), ("Mug", 1)]).await;
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(&app, ACTOR, &raffle.id, name, None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &raffle.id, name, None).await.unwrap();
     }
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
@@ -3457,9 +3469,7 @@ async fn a_prize_handed_over_on_the_spot_is_delivered_by_its_claim() {
         .await
         .unwrap();
     for name in ["Anna", "Bence", "Csilla"] {
-        service::add_manual(&app, ACTOR, &raffle.id, name, None)
-            .await
-            .unwrap();
+        add_one(&app, ACTOR, &raffle.id, name, None).await.unwrap();
     }
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
     let r = wait_for(&app, &raffle.id, |r| r.raffle.opened()).await;
@@ -3589,7 +3599,7 @@ async fn exports_have_the_winners_and_are_audited() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 1), ("Mug", 1)]).await;
     // A name that a spreadsheet would run as a formula.
-    let formula = service::add_manual(
+    let formula = add_one(
         &app,
         ACTOR,
         &raffle.id,
@@ -3598,10 +3608,10 @@ async fn exports_have_the_winners_and_are_audited() {
     )
     .await
     .unwrap();
-    service::add_manual(&app, ACTOR, &raffle.id, "Bence", Some("bence@x.org".into()))
+    add_one(&app, ACTOR, &raffle.id, "Bence", Some("bence@x.org".into()))
         .await
         .unwrap();
-    service::add_manual(&app, ACTOR, &raffle.id, "Csilla", None)
+    add_one(&app, ACTOR, &raffle.id, "Csilla", None)
         .await
         .unwrap();
     service::start_draw(&app, ACTOR, &raffle.id).await.unwrap();
@@ -3695,7 +3705,7 @@ async fn an_organizer_can_remove_their_data() {
     let finished = finished_raffle(&app).await;
     let draft = create(&app, OWNER, "Draft").await;
     let drawing = setup_open(&app, &[("Book", 1)]).await;
-    service::add_manual(&app, ACTOR, &drawing.id, "Anna", None)
+    add_one(&app, ACTOR, &drawing.id, "Anna", None)
         .await
         .unwrap();
     service::start_draw(&app, ACTOR, &drawing.id).await.unwrap();
@@ -4056,7 +4066,7 @@ async fn a_frozen_raffle_is_erased_in_place_and_finished_at_the_ceiling() {
     let hold = app.policy.retention.winner_hold_secs();
     let raffle = setup_open(&app, &[("Book", 1)]).await;
     for name in ["Anna", "Bence"] {
-        service::add_manual(&app, ACTOR, &raffle.id, name, Some(format!("{name}@x.org")))
+        add_one(&app, ACTOR, &raffle.id, name, Some(format!("{name}@x.org")))
             .await
             .unwrap();
     }
@@ -4184,7 +4194,7 @@ async fn settings_refusals_over_http() {
         .run()
         .await
         .unwrap();
-    service::add_manual(&app, service::Actor::solo("dev"), &raffle.id, "Anna", None)
+    add_one(&app, service::Actor::solo("dev"), &raffle.id, "Anna", None)
         .await
         .unwrap();
 
@@ -4300,14 +4310,14 @@ async fn never_frozen_raffles_expire() {
     let (recording, live) = recording();
     let app = app_with_live(Config::for_tests(), live).await;
     let open = setup_open(&app, &[("Cap", 1)]).await;
-    service::add_manual(&app, ACTOR, &open.id, "Gabi", Some("gabi@x.org".into()))
+    add_one(&app, ACTOR, &open.id, "Gabi", Some("gabi@x.org".into()))
         .await
         .unwrap();
     let draft = create(&app, OWNER, "Draft").await;
     // Ten days on, a fresh one.
     app.clock.advance(10 * DAY);
     let fresh = setup_open(&app, &[("Hat", 1)]).await;
-    service::add_manual(&app, ACTOR, &fresh.id, "Hanna", None)
+    add_one(&app, ACTOR, &fresh.id, "Hanna", None)
         .await
         .unwrap();
 
@@ -4533,7 +4543,7 @@ async fn abandoned_freezes_leave_limbo() {
     // opened, which purges the raffle here.
     let orphan = setup_open(&app, &[("Book", 1)]).await;
     let orphan = retain(&app, &orphan.id, 0).await;
-    service::add_manual(&app, ACTOR, &orphan.id, "Anna", None)
+    add_one(&app, ACTOR, &orphan.id, "Anna", None)
         .await
         .unwrap();
     assert!(
@@ -4570,7 +4580,7 @@ async fn abandoned_freezes_leave_limbo() {
     // Frozen without a manifest: the freeze stopped after closing registration.
     let stuck = setup_open(&app, &[("Book", 1)]).await;
     let stuck = retain(&app, &stuck.id, 0).await;
-    service::add_manual(&app, ACTOR, &stuck.id, "Bence", None)
+    add_one(&app, ACTOR, &stuck.id, "Bence", None)
         .await
         .unwrap();
     assert!(
@@ -4632,4 +4642,265 @@ async fn abandoned_freezes_leave_limbo() {
     app.clock.advance(1);
     let again = service::housekeeping::run(&app).await.unwrap();
     assert_eq!((again.expired, again.purged), (0, 0), "nothing left to do");
+}
+
+/// An open raffle of `dev`'s (the organizer under dev auth), and the routes.
+async fn dev_raffle(cfg: Config) -> (AppState, Router, RaffleRow) {
+    let mut cfg = cfg;
+    cfg.dev_auth = true;
+    let app = app_with(cfg).await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    app.db
+        .query("UPDATE raffles SET owner_id = 'dev' WHERE id = ?")
+        .bind(&raffle.id)
+        .run()
+        .await
+        .unwrap();
+    (app, router, raffle)
+}
+
+/// The arguments of `add_entrants` for raffle `id`: an add of `rows` from
+/// `origin` (`one` or `list`), batch `batch`.
+fn add_args(id: &str, batch: &str, origin: &str, rows: serde_json::Value) -> String {
+    serde_json::json!({ "id": id, "add": { "batch_id": batch, "origin": origin, "rows": rows } })
+        .to_string()
+}
+
+/// Adding people over the admin API: one person as a batch of one (no
+/// consent, a claim code, retried safely), a list in its order, each
+/// refusal with its status, the rows' problems by index, and undo.
+#[tokio::test]
+async fn adding_people_over_http() {
+    let mut cfg = Config::for_tests();
+    cfg.max_entrants = 4;
+    let (app, router, raffle) = dev_raffle(cfg).await;
+    let id = raffle.id.as_str();
+
+    let one = add_args(
+        id,
+        "b-one",
+        "one",
+        serde_json::json!([{ "name": "Anna", "email": "anna@example.com" }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &one)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    assert_eq!((result.added.len(), result.skipped.len()), (1, 0));
+    let anna = entrants::get(&app.db, id, &result.added[0].id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(anna.source, rafi_lifecycle::entrant::Source::Manual);
+    assert!(anna.consent_version.is_none() && anna.claim_code.is_some());
+    // The reply was lost; the browser sends the same add again.
+    let (status, _, again) = send(&router, admin_call("add_entrants", &one)).await;
+    assert_eq!((status, again), (StatusCode::OK, body));
+    assert_eq!(entrants::list(&app.db, id).await.unwrap().len(), 1);
+
+    // An invalid row refuses the add, with every row's problem.
+    let bad = add_args(
+        id,
+        "b-bad",
+        "list",
+        serde_json::json!([
+            { "name": "Bence" },
+            { "name": "Csilla", "email": "not an email" },
+            { "name": "Dora", "email": "ANNA@example.com", "list_ref": "7" },
+            { "name": "Emil", "list_ref": "7" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &bad)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, "rows");
+    let rows: Vec<(u32, rafi_api::RowError)> =
+        err.rows.iter().map(|r| (r.row, r.problem)).collect();
+    assert_eq!(
+        rows,
+        [
+            (1, rafi_api::RowError::Email),
+            (3, rafi_api::RowError::DuplicateListRef)
+        ],
+        "an email already in is no problem: it is skipped"
+    );
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        json["rows"][0],
+        serde_json::json!({ "row": 1, "problem": "email" })
+    );
+
+    // A list: in its order, who is in skipped; past the cap, refused whole.
+    let list = add_args(
+        id,
+        "b-list",
+        "list",
+        serde_json::json!([
+            { "name": "Zoe" },
+            { "name": "Anna K.", "email": "Anna+list@example.com" },
+            { "name": "Bence", "list_ref": "T-1" },
+            { "name": "Csilla" },
+            { "name": "Dora" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &list)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, "room");
+    assert!(
+        err.message.contains("Only 3 more people fit"),
+        "{}",
+        err.message
+    );
+    assert_eq!(entrants::list(&app.db, id).await.unwrap().len(), 1);
+    app.clock.advance(1);
+    let list = add_args(
+        id,
+        "b-list",
+        "list",
+        serde_json::json!([
+            { "name": "Zoe" },
+            { "name": "Anna K.", "email": "Anna+list@example.com" },
+            { "name": "Bence", "list_ref": "T-1" },
+            { "name": "Csilla" },
+        ]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &list)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result: rafi_api::AddResult = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        result.added.iter().map(|a| a.row).collect::<Vec<_>>(),
+        [0, 2, 3]
+    );
+    assert_eq!(result.skipped[0].row, 1);
+    assert!(body.contains(r#""reason":"already_in""#), "{body}");
+    let names: Vec<String> = entrants::list(&app.db, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.display_name)
+        .collect();
+    assert_eq!(names, ["Zoe", "Bence", "Csilla", "Anna"]);
+
+    // The admin's view offers to undo the list; undoing it takes it back.
+    let (_, _, body) = send(
+        &router,
+        admin_call("get_raffle", &format!(r#"{{"id":"{id}"}}"#)),
+    )
+    .await;
+    let admin: rafi_api::RaffleAdmin = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        admin.actions.undo,
+        Some(rafi_api::UndoBatch {
+            batch_id: "b-list".into(),
+            count: 3
+        })
+    );
+    let bence = admin
+        .entrants
+        .iter()
+        .find(|e| e.display_name == "Bence")
+        .unwrap();
+    assert_eq!(bence.list_ref.as_deref(), Some("T-1"));
+    let (status, _, body) = send(
+        &router,
+        admin_call(
+            "undo_add",
+            &format!(r#"{{"id":"{id}","batch_id":"b-list"}}"#),
+        ),
+    )
+    .await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "3"));
+    assert_eq!(entrants::list(&app.db, id).await.unwrap().len(), 1);
+
+    // After the freeze: nothing is added, nothing undone.
+    service::start_draw(&app, service::Actor::solo("dev"), id)
+        .await
+        .unwrap();
+    let late = add_args(id, "b-late", "one", serde_json::json!([{ "name": "Late" }]));
+    let (status, _, body) = send(&router, admin_call("add_entrants", &late)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("entrants_frozen"), "{body}");
+    let (status, _, body) = send(
+        &router,
+        admin_call(
+            "undo_add",
+            &format!(r#"{{"id":"{id}","batch_id":"b-one"}}"#),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let audit: Vec<(String, String)> = app
+        .db
+        .query("SELECT action, detail FROM audit WHERE raffle_id = ? AND action IN ('add', 'undo_add') ORDER BY id")
+        .bind(id)
+        .all()
+        .await
+        .unwrap();
+    assert_eq!(
+        audit,
+        [
+            (
+                "add".into(),
+                "batch=b-one origin=one added=1 skipped=0".into()
+            ),
+            (
+                "add".into(),
+                "batch=b-list origin=list added=3 skipped=1".into()
+            ),
+            ("undo_add".into(), "batch=b-list removed=3".into()),
+        ]
+    );
+}
+
+/// Adds and undos are limited per organizer (429), and the admin API reads
+/// at most 512 KB of arguments (413), before anything else.
+#[tokio::test]
+async fn adding_people_is_bounded_over_http() {
+    let (app, router, raffle) = dev_raffle(Config::for_tests()).await;
+    let id = raffle.id.as_str();
+
+    let huge = add_args(
+        id,
+        "b-huge",
+        "list",
+        serde_json::json!([{ "name": "x".repeat(super::admin::MAX_BODY_BYTES) }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &huge)).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, rafi_api::admin::codes::TOO_LARGE);
+
+    let (budget, _) = service::Limit::AddPerOwner.budget();
+    for i in 0..budget {
+        let add = add_args(
+            id,
+            &format!("b-{i}"),
+            "one",
+            serde_json::json!([{ "name": format!("Person {i}") }]),
+        );
+        let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+        assert_eq!(status, StatusCode::OK, "{i}: {body}");
+    }
+    let add = add_args(
+        id,
+        "b-more",
+        "one",
+        serde_json::json!([{ "name": "One more" }]),
+    );
+    let (status, _, body) = send(&router, admin_call("add_entrants", &add)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    let err: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(err.code, "limited");
+    let (status, _, _) = send(
+        &router,
+        admin_call("undo_add", &format!(r#"{{"id":"{id}","batch_id":"b-0"}}"#)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        entrants::list(&app.db, id).await.unwrap().len(),
+        budget as usize
+    );
 }

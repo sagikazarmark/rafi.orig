@@ -17,7 +17,7 @@ use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
 
 use super::{
     Route, command_id, copy_to_clipboard, dates,
-    forms::{AddEntrantForm, CreateRaffleForm, PrizeForm, SettingsForm, err_text},
+    forms::{AddPersonForm, CreateRaffleForm, PrizeForm, SettingsForm, err_text},
     live::{use_clock, use_live_view},
 };
 use crate::{

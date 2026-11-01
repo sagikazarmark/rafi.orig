@@ -76,8 +76,13 @@ macro_rules! admin_functions {
             fn abandon_draw(id: String, item: $crate::admin::ItemId, command_id: String) -> ();
             fn finish_raffle(id: String, command_id: String) -> ();
             fn end_live_updates(id: String) -> ();
-            /// Adds an entrant by hand; returns their ID.
-            fn add_entrant(id: String, name: String, email: Option<String>) -> String;
+            /// Adds people the organizer vouches for, one person or a list, all
+            /// or nothing; a retry with the same batch ID answers the first
+            /// result and adds nothing.
+            fn add_entrants(id: String, add: $crate::AddRequest) -> $crate::AddResult;
+            /// Takes an add's entrants off the list again, before the freeze;
+            /// returns how many (0 if none are left).
+            fn undo_add(id: String, batch_id: String) -> u32;
             fn add_fake_entrants(id: String, n: u32) -> ();
             fn patch_entrant(id: String, entrant_id: String, patch: $crate::EntrantPatch) -> ();
             /// Takes an entrant off the list: deleted before the freeze, their
@@ -113,6 +118,10 @@ pub struct ApiError {
     /// `x-request-id` header, which every response carries.
     #[serde(skip)]
     pub request_id: Option<String>,
+    /// For an add refused for its rows (`rows`): each row's problem, so the
+    /// browser can show them where they are.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<crate::RowProblem>,
 }
 
 impl ApiError {
@@ -121,7 +130,13 @@ impl ApiError {
             code: code.into(),
             message: message.into(),
             request_id: None,
+            rows: Vec::new(),
         }
+    }
+
+    /// This error, with the rows of an add that refused it.
+    pub fn with_rows(self, rows: Vec<crate::RowProblem>) -> Self {
+        Self { rows, ..self }
     }
 
     /// This error, for the request `id`.
@@ -143,6 +158,8 @@ pub mod codes {
     pub const NOT_FOUND: &str = "not_found";
     /// The arguments don't decode.
     pub const INVALID_ARGUMENTS: &str = "invalid_arguments";
+    /// The request is larger than the admin API takes (512 KB).
+    pub const TOO_LARGE: &str = "too_large";
     /// The raffle engine can't be reached.
     pub const UNAVAILABLE: &str = "unavailable";
     /// The server failed; the details are in its log.

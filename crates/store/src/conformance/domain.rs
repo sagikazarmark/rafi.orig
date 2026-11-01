@@ -1,6 +1,10 @@
 //! The `domain.*` scenarios: the domain functions, on every backend.
 
-use rafi_lifecycle::{RaffleState, prize::Delivery};
+use rafi_lifecycle::{
+    RaffleState,
+    entrant::{Origin, Source},
+    prize::Delivery,
+};
 use rafi_raffle::{BeaconSource, Decision, Event, Manifest, ManifestItem, Raffle, Resolution};
 
 use super::{Outcome, check, fail};
@@ -168,15 +172,101 @@ async fn join(db: &Db, raffle_id: &str, id: &str, email: &str, cap: i64) -> Resu
         .map_err(fail)
 }
 
-fn manual<'a>(raffle_id: &'a str, id: &'a str, email: Option<&'a str>) -> entrants::Manual<'a> {
-    entrants::Manual {
-        id,
+/// A cap no fixture reaches.
+const CAP: i64 = 1000;
+
+/// A row of an add in a fixture: an ID (its display name too), an email
+/// (its key as well) and a registration ID.
+type Row<'a> = (&'a str, Option<&'a str>, Option<&'a str>);
+
+/// Raffle `raffle_id`'s add `batch_id` of `rows` from `origin`, under the
+/// entrant cap `cap`, entered at `created_at` (now [`NOW`]): whether the
+/// guard admitted it. Row `n` is the add's row `n`.
+async fn add_at(
+    db: &Db,
+    raffle_id: &str,
+    batch_id: &str,
+    origin: Origin,
+    rows: &[Row<'_>],
+    cap: i64,
+    created_at: i64,
+) -> crate::Result<bool> {
+    let codes: Vec<String> = (0..rows.len()).map(|i| format!("C{i:04}")).collect();
+    let added: Vec<entrants::Added<'_>> = rows
+        .iter()
+        .zip(&codes)
+        .enumerate()
+        .map(|(i, ((id, email, list_ref), code))| entrants::Added {
+            id,
+            display_name: id,
+            email_raw: *email,
+            email_norm: *email,
+            claim_code: code,
+            row: (origin == Origin::List).then_some(i as i64),
+            list_ref: *list_ref,
+        })
+        .collect();
+    entrants::insert_added(
+        db,
+        &entrants::AddBatch {
+            raffle_id,
+            batch_id,
+            origin,
+            created_at,
+            rows: &added,
+            max_entrants: cap,
+            now: NOW,
+        },
+    )
+    .await
+}
+
+/// [`add_at`], entered now.
+async fn add(
+    db: &Db,
+    raffle_id: &str,
+    batch_id: &str,
+    origin: Origin,
+    rows: &[Row<'_>],
+    cap: i64,
+) -> Result<bool, String> {
+    add_at(db, raffle_id, batch_id, origin, rows, cap, NOW)
+        .await
+        .map_err(fail)
+}
+
+/// Adds `id`, without an email, as the one-person form does (its own batch,
+/// `b-<id>`).
+async fn add_one(db: &Db, raffle_id: &str, id: &str) -> Result<bool, String> {
+    add(
+        db,
         raffle_id,
-        display_name: id,
-        email_raw: email,
-        email_norm: email,
-        claim_code: "Q4M7",
-    }
+        &format!("b-{id}"),
+        Origin::One,
+        &[(id, None, None)],
+        CAP,
+    )
+    .await
+}
+
+/// The IDs of raffle `raffle_id`'s entrants, in the order they are listed.
+async fn listed(db: &Db, raffle_id: &str) -> Result<Vec<String>, String> {
+    Ok(entrants::list(db, raffle_id)
+        .await
+        .map_err(fail)?
+        .into_iter()
+        .map(|e| e.id)
+        .collect())
+}
+
+/// Whether `batch_guards` is empty, as it must be outside a batch.
+async fn no_guard_left(db: &Db) -> Outcome {
+    let (n,): (i64,) = db
+        .query("SELECT COUNT(*) FROM batch_guards")
+        .one()
+        .await
+        .map_err(fail)?;
+    check(n == 0, &format!("{n} guard rows left behind"))
 }
 
 async fn raffle(db: &Db, id: &str) -> Result<RaffleRow, String> {
@@ -321,9 +411,7 @@ pub(super) async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
 
     // The organizer can add people without an email, but not a taken one.
     for id in ["m1", "m2"] {
-        entrants::insert_manual(db, &manual("r1", id, None), NOW)
-            .await
-            .map_err(fail)?;
+        add_one(db, "r1", id).await.map_err(fail)?;
     }
     let m1 = entrant(db, "r1", "m1").await?;
     check(
@@ -333,10 +421,18 @@ pub(super) async fn joins_up_to_the_cap_once_per_email(db: &Db) -> Outcome {
             && m1.token_hash.is_none(),
         "someone added saw no form: no consent recorded, no device",
     )?;
-    let taken = entrants::insert_manual(db, &manual("r1", "m3", Some("b@x")), NOW).await;
+    let taken = add(
+        db,
+        "r1",
+        "b-m3",
+        Origin::One,
+        &[("m3", Some("b@x"), None)],
+        CAP,
+    )
+    .await?;
     check(
-        taken.is_err_and(|e| e.is_unique_violation()),
-        "a manual entry with a taken email",
+        taken && entrants::get(db, "r1", "m3").await.map_err(fail)?.is_none(),
+        "an added entry with a taken email is left out",
     )?;
     check(
         entrants::claim_codes(db, "r1").await.map_err(fail)?.len() == 4,
@@ -390,6 +486,289 @@ pub(super) async fn racing_joins_respect_the_cap(db: &Db) -> Outcome {
     )
 }
 
+/// An add is one batch: its rows across statements, in the add's order,
+/// left out where a join took the email, all of them or none under the cap,
+/// once per batch ID, and a registration ID once per raffle.
+pub(super) async fn adds_all_or_nothing(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    check(join(db, "r1", "j", "j@x", CAP).await?, "a join")?;
+    // More rows than one statement takes; IDs against the list's order, so
+    // only the row number can keep it. Row 7 is the joiner's email.
+    let ids: Vec<String> = (0..30).map(|i| format!("p{:02}", 29 - i)).collect();
+    let emails: Vec<String> = (0..30).map(|i| format!("{i}@x")).collect();
+    let refs: Vec<String> = (0..30).map(|i| format!("R{i}")).collect();
+    let rows: Vec<Row<'_>> = (0..30)
+        .map(|i| {
+            let email = if i == 7 { "j@x" } else { emails[i].as_str() };
+            // Every third row has no email, every fifth no registration ID.
+            (
+                ids[i].as_str(),
+                (i % 3 != 0).then_some(email),
+                (i % 5 != 0).then_some(refs[i].as_str()),
+            )
+        })
+        .collect();
+    check(
+        add_at(db, "r1", "b1", Origin::List, &rows, CAP, NOW - 5)
+            .await
+            .map_err(fail)?,
+        "a list of thirty",
+    )?;
+    no_guard_left(db).await?;
+    let want: Vec<String> = (0..30)
+        .filter(|&i| i != 7)
+        .map(|i| ids[i].clone())
+        .chain(["j".to_owned()])
+        .collect();
+    check(
+        listed(db, "r1").await? == want,
+        &format!(
+            "in the list's order, before the joiner who entered after their names' time; the clash left out: {:?}",
+            listed(db, "r1").await?
+        ),
+    )?;
+    let batch = entrants::of_batch(db, "r1", "b1").await.map_err(fail)?;
+    check(batch.len() == 29, "the batch, read back")?;
+    for e in &batch {
+        let i = 29 - e.id[1..].parse::<usize>().map_err(fail)?;
+        check(
+            e.source == Source::Manual
+                && e.batch_id.as_deref() == Some("b1")
+                && e.batch_row == Some(i as i64)
+                && e.list_ref == rows[i].2.map(str::to_owned)
+                && e.email_norm == rows[i].1.map(str::to_owned)
+                && e.created_at == NOW - 5
+                && e.consent_version.is_none()
+                && e.consent_rules_at.is_none()
+                && e.token_hash.is_none()
+                && e.claim_code.is_some(),
+            &format!("row {i} as added: {e:?}"),
+        )?;
+    }
+
+    // A retry with the same batch ID adds nothing, whatever it carries.
+    check(
+        !add(db, "r1", "b1", Origin::List, &[("q1", None, None)], CAP).await?,
+        "the batch ID was used",
+    )?;
+    no_guard_left(db).await?;
+
+    // The cap holds for the whole add, the add counted in.
+    let five: Vec<Row<'_>> = ["c1", "c2", "c3", "c4", "c5"]
+        .into_iter()
+        .map(|id| (id, None, None))
+        .collect();
+    check(
+        !add(db, "r1", "b2", Origin::List, &five, 34).await?,
+        "30 in and 5 more don't fit under 34",
+    )?;
+    no_guard_left(db).await?;
+    check(
+        entrants::count_active(db, "r1").await.map_err(fail)? == 30,
+        "nothing of a refused add",
+    )?;
+    check(
+        add(db, "r1", "b2", Origin::List, &five, 35).await?,
+        "they fit under 35",
+    )?;
+    check(
+        !add(db, "r1", "b3", Origin::One, &[("d1", None, None)], 35).await?,
+        "one person past the cap is refused too",
+    )?;
+
+    // A registration ID once per raffle: a taken one fails the whole add.
+    let clash = add_at(
+        db,
+        "r1",
+        "b4",
+        Origin::List,
+        &[("e1", None, None), ("e2", None, Some("R1"))],
+        CAP,
+        NOW,
+    )
+    .await;
+    check(
+        matches!(&clash, Err(e) if e.is_unique_violation()),
+        &format!("a taken registration ID: {clash:?}"),
+    )?;
+    no_guard_left(db).await?;
+    check(
+        entrants::of_batch(db, "r1", "b4")
+            .await
+            .map_err(fail)?
+            .is_empty(),
+        "nothing of it",
+    )?;
+    raffle_in(db, "r2", RaffleState::Open).await?;
+    check(
+        add(
+            db,
+            "r2",
+            "b5",
+            Origin::List,
+            &[("f1", None, Some("R1"))],
+            CAP,
+        )
+        .await?,
+        "the same registration ID in another raffle",
+    )?;
+    let taken = entrants::taken(db, "r1").await.map_err(fail)?;
+    check(
+        taken.emails.contains("j@x")
+            && taken.emails.contains("1@x")
+            && taken.list_refs.contains("R29")
+            && taken.claim_codes.contains("K2P9")
+            && taken.claim_codes.contains("C0029"),
+        &format!("what an add must not repeat: {taken:?}"),
+    )
+}
+
+/// Racing adds (each on its own connection) stop at the cap together: the
+/// guard row serializes them, and the count is the batch's own.
+pub(super) async fn racing_adds_respect_the_cap(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    let ids: Vec<String> = (0..8).map(|n| format!("{n:032}")).collect();
+    let adds = ids.iter().map(|id| async move {
+        add(
+            db,
+            "r1",
+            &format!("b{id}"),
+            Origin::One,
+            &[(id, None, None)],
+            5,
+        )
+        .await
+    });
+    let mut added = 0;
+    for result in futures_util::future::join_all(adds).await {
+        added += usize::from(result?);
+    }
+    check(added == 5, &format!("{added} of 8 racing adds went in"))?;
+    no_guard_left(db).await?;
+    check(
+        entrants::count_active(db, "r1").await.map_err(fail)? == 5,
+        "five entrants",
+    )
+}
+
+/// Which raffles take an add, by its origin: the same rules as the
+/// lifecycle's, in the add's own SQL.
+pub(super) async fn adds_where_the_raffle_takes_them(db: &Db) -> Outcome {
+    let one = |id: &'static str| [(id, None, None)];
+    raffle_in(db, "draft", RaffleState::Draft).await?;
+    check(
+        !add(db, "draft", "l1", Origin::List, &one("x1"), CAP).await?,
+        "no list before publishing",
+    )?;
+    check(
+        add(db, "draft", "o1", Origin::One, &one("x2"), CAP).await?,
+        "one person in a draft",
+    )?;
+    raffle_in(db, "test", RaffleState::Ready).await?;
+    test_mode_on(db, "test").await?;
+    check(
+        !add(db, "test", "l2", Origin::List, &one("x3"), CAP).await?,
+        "no list in test mode",
+    )?;
+    check(
+        add(db, "test", "o2", Origin::One, &one("x4"), CAP).await?,
+        "one person in test mode",
+    )?;
+    raffle_in(db, "closed", RaffleState::Closed).await?;
+    check(
+        add(db, "closed", "l3", Origin::List, &one("x5"), CAP).await?,
+        "a list once registration closed",
+    )?;
+    for state in [
+        RaffleState::Frozen,
+        RaffleState::Drawing,
+        RaffleState::Finished,
+    ] {
+        force_state(db, "closed", state).await?;
+        for (origin, batch) in [(Origin::One, "o3"), (Origin::List, "l4")] {
+            check(
+                !add(db, "closed", batch, origin, &one("x6"), CAP).await?,
+                &format!("nobody is added once {}", state.as_str()),
+            )?;
+        }
+    }
+    raffle_in(db, "late", RaffleState::Open).await?;
+    erase_at(db, "late", NOW).await?;
+    check(
+        !add(db, "late", "o4", Origin::One, &one("x7"), CAP).await?,
+        "nobody is added once the erasure date has come",
+    )?;
+    no_guard_left(db).await?;
+    for (raffle, want) in [
+        ("draft", vec!["x2"]),
+        ("test", vec!["x4"]),
+        ("closed", vec!["x5"]),
+        ("late", vec![]),
+    ] {
+        let ids = listed(db, raffle).await?;
+        check(ids == want, &format!("{raffle}: {ids:?}"))?;
+    }
+    Ok(())
+}
+
+/// Undoing an add removes its entrants, says how many, and only while the
+/// list can change.
+pub(super) async fn deletes_a_batch(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    check(join(db, "r1", "j", "j@x", CAP).await?, "a join")?;
+    let rows = [
+        ("a", Some("a@x"), None),
+        ("b", None, Some("7")),
+        ("c", None, None),
+    ];
+    add(db, "r1", "b1", Origin::List, &rows, CAP).await?;
+    add(db, "r1", "b2", Origin::One, &[("d", None, None)], CAP).await?;
+    let delete = |batch: &'static str| entrants::delete_batch(db, "r1", batch);
+    check(
+        delete("b1").await.map_err(fail)? == 3,
+        "the three of the first add",
+    )?;
+    check(
+        listed(db, "r1").await? == ["d", "j"],
+        "the joiner and the other add stay (entered at once: by ID)",
+    )?;
+    check(delete("b1").await.map_err(fail)? == 0, "undone already")?;
+    check(delete("nope").await.map_err(fail)? == 0, "no such add")?;
+    check(
+        add(db, "r1", "b3", Origin::List, &rows, CAP).await?,
+        "the same people again, in a new add",
+    )?;
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    check(
+        delete("b2").await.map_err(fail)? == 0,
+        "nothing is undone once frozen",
+    )?;
+    check(listed(db, "r1").await?.len() == 5, "the list as frozen")?;
+
+    // Erasing an added entrant erases their registration ID too; the add
+    // they came in with is nothing personal and stays.
+    force_state(db, "r1", RaffleState::Finished).await?;
+    check(
+        entrants::erase(db, "r1", Some("b"), NOW)
+            .await
+            .map_err(fail)?,
+        "erasing one",
+    )?;
+    let b = entrant(db, "r1", "b").await?;
+    check(
+        b.erased && b.list_ref.is_none() && b.batch_id.as_deref() == Some("b3"),
+        &format!("erased: {b:?}"),
+    )?;
+    check(
+        entrants::taken(db, "r1")
+            .await
+            .map_err(fail)?
+            .list_refs
+            .is_empty(),
+        "no registration ID left",
+    )
+}
+
 /// Settings with `rules`, in test mode, the rest fixed; the erasure date far
 /// away ([`FAR`]).
 fn settings_with(rules: &str) -> raffles::Settings<'_> {
@@ -427,7 +806,7 @@ pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
         display_name: "Fake".into(),
         claim_code: "F001".into(),
     };
-    entrants::insert_fakes(db, "r1", 0, &[fake])
+    entrants::insert_fakes(db, "r1", 0, &[fake], CAP)
         .await
         .map_err(fail)?;
     check(
@@ -435,9 +814,7 @@ pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
         "only fakes",
     )?;
     check(
-        entrants::insert_manual(db, &manual("r1", "m1", None), NOW)
-            .await
-            .map_err(fail)?,
+        add_one(db, "r1", "m1").await.map_err(fail)?,
         "adding someone",
     )?;
     check(
@@ -507,7 +884,7 @@ pub(super) async fn fakes_go_with_test_mode(db: &Db) -> Outcome {
         claim_code: id.to_uppercase(),
     };
     check(
-        !entrants::insert_fakes(db, "r1", 0, &[fake("f0")])
+        !entrants::insert_fakes(db, "r1", 0, &[fake("f0")], CAP)
             .await
             .map_err(fail)?,
         "no fakes outside test mode",
@@ -531,14 +908,12 @@ pub(super) async fn fakes_go_with_test_mode(db: &Db) -> Outcome {
         &format!("test mode on: {on:?}"),
     )?;
     check(
-        entrants::insert_fakes(db, "r1", 0, &[fake("f1"), fake("f2")])
+        entrants::insert_fakes(db, "r1", 0, &[fake("f1"), fake("f2")], CAP)
             .await
             .map_err(fail)?,
         "fakes in test mode",
     )?;
-    entrants::insert_manual(db, &manual("r1", "m1", None), NOW)
-        .await
-        .map_err(fail)?;
+    add_one(db, "r1", "m1").await.map_err(fail)?;
     check(
         entrants::count_fakes(db, "r1").await.map_err(fail)? == 2,
         "two fakes",
@@ -570,7 +945,7 @@ pub(super) async fn fakes_go_with_test_mode(db: &Db) -> Outcome {
 
     // Frozen: test mode no longer changes, so nothing is removed.
     save(true).await?;
-    entrants::insert_fakes(db, "r1", 0, &[fake("f3")])
+    entrants::insert_fakes(db, "r1", 0, &[fake("f3")], CAP)
         .await
         .map_err(fail)?;
     force_state(db, "r1", RaffleState::Frozen).await?;
@@ -638,7 +1013,7 @@ pub(super) async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
     };
     // More rows than fit in one statement's parameters on D1.
     let fakes: Vec<_> = (0..70).map(fake).collect();
-    entrants::insert_fakes(db, "r1", 5, &fakes)
+    entrants::insert_fakes(db, "r1", 5, &fakes, CAP)
         .await
         .map_err(fail)?;
     let list = entrants::list(db, "r1").await.map_err(fail)?;
@@ -659,12 +1034,34 @@ pub(super) async fn adds_fakes_in_chunks(db: &Db) -> Outcome {
     let mut again: Vec<_> = (100..140).map(fake).collect();
     again.push(fake(0));
     check(
-        entrants::insert_fakes(db, "r1", 6, &again).await.is_err(),
+        entrants::insert_fakes(db, "r1", 6, &again, CAP)
+            .await
+            .is_err(),
         "a duplicate ID fails",
     )?;
     check(
         entrants::list(db, "r1").await.map_err(fail)?.len() == 70,
         "nothing was added",
+    )?;
+    no_guard_left(db).await?;
+    // The cap holds for fakes too, in the same batch.
+    let more: Vec<_> = (200..205).map(fake).collect();
+    check(
+        !entrants::insert_fakes(db, "r1", 7, &more, 74)
+            .await
+            .map_err(fail)?,
+        "70 in and 5 more don't fit under 74",
+    )?;
+    no_guard_left(db).await?;
+    check(
+        entrants::list(db, "r1").await.map_err(fail)?.len() == 70,
+        "nothing of it",
+    )?;
+    check(
+        entrants::insert_fakes(db, "r1", 7, &more, 75)
+            .await
+            .map_err(fail)?,
+        "they fit under 75",
     )
 }
 
@@ -907,6 +1304,7 @@ pub(super) async fn reads_the_full_view(db: &Db) -> Outcome {
             display_name: "Yves".into(),
             claim_code: "Y1".into(),
         }],
+        CAP,
     )
     .await
     .map_err(fail)?;
@@ -953,9 +1351,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
     let (anna, bence) = ("a".repeat(32), "b".repeat(32));
     force_state(db, "r1", RaffleState::Closed).await?;
     for id in [&anna, &bence] {
-        entrants::insert_manual(db, &manual("r1", id, None), NOW)
-            .await
-            .map_err(fail)?;
+        add_one(db, "r1", id).await.map_err(fail)?;
     }
     force_state(db, "r1", RaffleState::Frozen).await?;
     patch(
@@ -1092,13 +1488,11 @@ pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcom
         claim_code: id.to_uppercase(),
     };
     check(
-        entrants::insert_manual(db, &manual("r1", "m1", None), NOW)
-            .await
-            .map_err(fail)?,
+        add_one(db, "r1", "m1").await.map_err(fail)?,
         "added by hand while closed",
     )?;
     check(
-        entrants::insert_fakes(db, "r1", 0, &[fake("f1"), fake("f2")])
+        entrants::insert_fakes(db, "r1", 0, &[fake("f1"), fake("f2")], CAP)
             .await
             .map_err(fail)?,
         "fakes while closed",
@@ -1116,13 +1510,11 @@ pub(super) async fn the_list_and_prizes_are_fixed_once_frozen(db: &Db) -> Outcom
 
     force_state(db, "r1", RaffleState::Frozen).await?;
     check(
-        !entrants::insert_manual(db, &manual("r1", "m2", None), NOW)
-            .await
-            .map_err(fail)?,
+        !add_one(db, "r1", "m2").await.map_err(fail)?,
         "nobody is added by hand once frozen",
     )?;
     check(
-        !entrants::insert_fakes(db, "r1", 0, &[fake("f3")])
+        !entrants::insert_fakes(db, "r1", 0, &[fake("f3")], CAP)
             .await
             .map_err(fail)?,
         "no fakes once frozen",
@@ -1235,9 +1627,7 @@ pub(super) async fn delivers_on_the_spot_with_the_claim(db: &Db) -> Outcome {
     frozen_with(db, &manifest).await?;
     force_state(db, "r1", RaffleState::Closed).await?;
     for id in [&anna, &bence, &csilla] {
-        entrants::insert_manual(db, &manual("r1", id, None), NOW)
-            .await
-            .map_err(fail)?;
+        add_one(db, "r1", id).await.map_err(fail)?;
     }
     for (id, name, delivery) in [
         ("book", "Book", Delivery::OnTheSpot),
@@ -1339,9 +1729,7 @@ pub(super) async fn delivers_on_the_spot_with_the_claim(db: &Db) -> Outcome {
     frozen_with(db, &manifest).await?;
     force_state(db, "r1", RaffleState::Closed).await?;
     for id in [&anna, &bence, &csilla] {
-        entrants::insert_manual(db, &manual("r1", id, None), NOW)
-            .await
-            .map_err(fail)?;
+        add_one(db, "r1", id).await.map_err(fail)?;
     }
     let fields = prizes::PrizeFields {
         name: "Book",
@@ -1387,9 +1775,7 @@ async fn delivers_once_every_claimed_prize_is(db: &Db) -> Outcome {
     let setup = || async {
         frozen_with(db, &manifest).await?;
         force_state(db, "r2", RaffleState::Closed).await?;
-        entrants::insert_manual(db, &manual("r2", &dora, None), NOW)
-            .await
-            .map_err(fail)?;
+        add_one(db, "r2", &dora).await.map_err(fail)?;
         for (id, delivery) in [
             ("book", Delivery::OnTheSpot),
             ("voucher", Delivery::Later),
@@ -1464,9 +1850,7 @@ async fn delivers_once_every_claimed_prize_is(db: &Db) -> Outcome {
 
 pub(super) async fn patches_an_entrant_at_once(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
-    entrants::insert_manual(db, &manual("r1", "m1", None), NOW)
-        .await
-        .map_err(fail)?;
+    add_one(db, "r1", "m1").await.map_err(fail)?;
     let patch = entrants::Patch {
         display_name: Some("Anna"),
         hidden: Some(true),

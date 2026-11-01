@@ -4,7 +4,7 @@
 //! the verification data).
 //!
 //! Each use case is a function over an [`App`]: the database, the raffle
-//! engine, the [`LiveUpdates`] and the join's [`RateLimit`] the deployment
+//! engine, the [`LiveUpdates`] and the [`RateLimit`]s the deployment
 //! plugs in, its [`Clock`], and the deployment's [`Policy`]. The rules come
 //! from `rafi-lifecycle` and `rafi-raffle`; a use case sequences the reads
 //! and writes around them. A refusal is a typed [`Refusal`]; the HTTP layer
@@ -42,8 +42,8 @@ use rafi_store::{Db, RaffleRow, raffles as store};
 
 pub use draw::{command, start_draw};
 pub use entrants::{
-    CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_fakes, add_manual, deliver_all,
-    end_live, join, name_ideas, patch_entrant, purge, remove_entrant,
+    CONSENT_VERSION, JoinError, JoinOutcome, JoinRequest, add_entrants, add_fakes, deliver_all,
+    end_live, join, name_ideas, patch_entrant, purge, remove_entrant, undo_add,
 };
 pub use error::{Error, Refusal, Result, Unfinished};
 pub use owners::{reapply_erasures, remove_owner_data};
@@ -71,7 +71,7 @@ pub struct App {
     pub engine: Option<Arc<dyn Engine>>,
     /// Live updates to clients (natively: none, clients poll).
     pub live_updates: LiveUpdates,
-    /// The join's rate limits.
+    /// The rate limits: on joining, and on the organizer's adds.
     pub limiter: Arc<dyn RateLimit>,
     /// What time it is, for the use cases: the system's, or a test's.
     pub clock: Clock,

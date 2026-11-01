@@ -597,7 +597,11 @@ day). **Why now**: what gets expensive after the release.
   phrase; keep the detail in logs. (trivial)
 - No cap on prizes (`crates/app/src/prizes.rs`; quantity ≤ 500 each); `insert_manual` and `insert_fakes`
   (`crates/store/src/entrants.rs:204-227,242-281`) don't check `max_entrants`. Cap total items in `start::ready`
-  and apply the entrant cap in every insert. (small)
+  and apply the entrant cap in every insert. (small) **Done**: the items are capped in `start::ready`
+  (`MAX_ITEMS`), and the entrant cap is in every insert (#38): the organizer's adds
+  (`insert_added`, which replaced `insert_manual`) and `insert_fakes` are one batch each, whose first statement
+  inserts a guard row (`batch_guards`) only if the whole add fits under the cap, and whose rows go in only under
+  it; fakes still fill up to the room left, and a race that took it refuses them.
 - Operator Markdown (`crates/server/src/pages/text.rs:313-324`) escapes raw HTML but passes `javascript:` hrefs;
   operator-trusted, still a few lines to filter `Event::Start(Tag::Link)` to `https`, `http`, `mailto`, `#`.
   (trivial)

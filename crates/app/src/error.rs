@@ -5,7 +5,7 @@ use std::fmt;
 use rafi_engine::EngineError;
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
-    entrant::{FakesRefusal, NameError},
+    entrant::{AddRefusal, FakesRefusal, MAX_ADD_ROWS, NameError, Origin},
     settings::{self, SettingsError},
     start,
 };
@@ -148,9 +148,28 @@ pub enum Refusal {
     /// The raffle has as many entrants as the installation allows.
     Full,
     Name(NameError),
-    Email,
-    EmailTaken,
     Fakes(FakesRefusal),
+    /// An add without a valid batch ID ([`entrant::batch_id`](lifecycle::entrant::batch_id)).
+    BatchId,
+    /// An add with more or fewer rows than its origin takes: exactly one
+    /// from the one-person form, 1 to [`MAX_ADD_ROWS`] from a list.
+    RowCount(Origin),
+    /// An add with invalid rows, each with its problem: refused whole, so
+    /// the browser can show them and send it again.
+    Rows {
+        origin: Origin,
+        rows: Vec<rafi_api::RowProblem>,
+    },
+    /// The raffle doesn't take an add from there now.
+    Add(AddRefusal),
+    /// The add doesn't fit under the entrant cap: `left` more people would.
+    /// Nothing was added.
+    Room {
+        adding: usize,
+        left: i64,
+    },
+    /// Over the organizer's rate limit on adds and undos.
+    Limited,
     Erased,
     /// From the freeze until the raffle finishes, nobody leaves the list.
     NotRemovable,
@@ -186,7 +205,9 @@ impl Refusal {
             | Self::PrizeName
             | Self::PrizeQty
             | Self::Name(_)
-            | Self::Email => true,
+            | Self::BatchId
+            | Self::RowCount(_)
+            | Self::Rows { .. } => true,
             Self::Engine { invalid, .. } => *invalid,
             Self::Raffle { error, .. } => error.kind() == ErrorKind::BadRequest,
             _ => false,
@@ -232,9 +253,16 @@ impl Refusal {
             Self::EntrantsFrozen => "entrants_frozen",
             Self::Full => "full",
             Self::Name(_) => "name",
-            Self::Email => "email",
-            Self::EmailTaken => "email_taken",
             Self::Fakes(_) => "fakes",
+            Self::BatchId => "batch_id",
+            Self::RowCount(_) => "row_count",
+            Self::Rows { .. } => "rows",
+            Self::Add(AddRefusal::Frozen) => "entrants_frozen",
+            Self::Add(AddRefusal::ErasureDatePassed) => "erasure_date_passed",
+            Self::Add(AddRefusal::Unpublished) => "list_unpublished",
+            Self::Add(AddRefusal::TestMode) => "list_test_mode",
+            Self::Room { .. } => "room",
+            Self::Limited => "limited",
             Self::Erased => "erased",
             Self::NotRemovable => "not_removable",
             Self::NotDeliverable => "not_deliverable",
@@ -359,8 +387,34 @@ impl fmt::Display for Refusal {
                 "Please enter a name: 1–24 characters, with at least one letter or digit and nothing invisible.",
             ),
             Self::Name(NameError::Blocked) => f.write_str("Please choose a different name."),
-            Self::Email => f.write_str("Invalid email address."),
-            Self::EmailTaken => f.write_str("This email is already entered."),
+            Self::BatchId => {
+                f.write_str("This add has no valid batch ID. Reload the page and try again.")
+            }
+            Self::RowCount(Origin::One) => f.write_str("Add one person at a time here."),
+            Self::RowCount(Origin::List) => write!(
+                f,
+                "A list adds 1 to {MAX_ADD_ROWS} people at once. Add a longer one in parts."
+            ),
+            Self::Rows { origin, rows } => f.write_str(&rows_refusal(*origin, rows)),
+            Self::Add(AddRefusal::Frozen) => f.write_str("The entrant list is frozen."),
+            Self::Add(AddRefusal::ErasureDatePassed) => f.write_str(
+                "The erasure date has passed: this raffle expires within the hour, so nobody can be added.",
+            ),
+            Self::Add(AddRefusal::Unpublished) => f.write_str(
+                "Publish the raffle before adding a list: what you tell the people on it links the raffle's rules and privacy notice.",
+            ),
+            Self::Add(AddRefusal::TestMode) => f.write_str(
+                "A list can't be added in test mode: a rehearsal's draws are public. Rehearse with fake entrants, and add the list once test mode is off.",
+            ),
+            Self::Room { adding, left } if *left <= 0 => write!(
+                f,
+                "The raffle is full: it has as many entrants as this installation allows. Nobody of these {adding} was added."
+            ),
+            Self::Room { adding, left } => write!(
+                f,
+                "Only {left} more people fit in this raffle, and this add has {adding}. Nothing was added: add fewer."
+            ),
+            Self::Limited => f.write_str("Too many adds just now. Wait a minute and try again."),
             Self::Fakes(FakesRefusal::NotTestMode) => {
                 f.write_str("Fake entrants are only allowed in test mode.")
             }
@@ -381,6 +435,45 @@ impl fmt::Display for Refusal {
             Self::NotOver(Unfinished::EndLive) => {
                 f.write_str("Live updates can end once the raffle has finished.")
             }
+        }
+    }
+}
+
+/// The organizer's words for an add refused for its rows: the problem itself
+/// for the one-person form, which has one row; for a list, how many rows
+/// and the first few, numbered from 1 as a spreadsheet does.
+fn rows_refusal(origin: Origin, rows: &[rafi_api::RowProblem]) -> String {
+    const SHOWN: usize = 3;
+    match (origin, rows) {
+        (_, []) => "Some rows can't be added.".to_owned(),
+        (Origin::One, [first, ..]) => {
+            let text = rafi_api::row_error_text(first.problem);
+            let mut chars = text.chars();
+            let capital: String = chars
+                .next()
+                .into_iter()
+                .flat_map(char::to_uppercase)
+                .collect();
+            format!("{capital}{}.", chars.as_str())
+        }
+        (Origin::List, rows) => {
+            let listed: Vec<String> = rows
+                .iter()
+                .take(SHOWN)
+                .map(|r| format!("row {}: {}", r.row + 1, rafi_api::row_error_text(r.problem)))
+                .collect();
+            let more = match rows.len().saturating_sub(SHOWN) {
+                0 => String::new(),
+                n => format!("; and {n} more"),
+            };
+            let count = match rows.len() {
+                1 => "1 row".to_owned(),
+                n => format!("{n} rows"),
+            };
+            format!(
+                "{count} can't be added, so nothing was: {}{more}.",
+                listed.join("; ")
+            )
         }
     }
 }

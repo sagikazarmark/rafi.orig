@@ -1,4 +1,4 @@
-//! Rate limits on joining.
+//! Rate limits on joining, and on the organizer's adds.
 //!
 //! Keys are never IP addresses: a whole meetup venue shares one NAT address.
 //! Edge protection keyed by IP belongs to the platform (a WAF, the reverse
@@ -19,6 +19,11 @@ pub enum Limit {
     /// Joins per raffle and email address (key: the SHA-256 of the raffle ID
     /// and the normalized email, so the limiter never holds an address).
     JoinPerEmail,
+    /// The organizer's adds and undos, per owner (key: the SHA-256 of the
+    /// owner key): far above what the one-person form or a few lists need,
+    /// far below a script filling raffles. Each add is bounded by the
+    /// entrant cap in any case.
+    AddPerOwner,
 }
 
 impl Limit {
@@ -27,6 +32,7 @@ impl Limit {
         match self {
             Self::JoinPerRaffle => (600, Duration::from_secs(60)),
             Self::JoinPerEmail => (5, Duration::from_secs(60)),
+            Self::AddPerOwner => (10, Duration::from_secs(60)),
         }
     }
 }

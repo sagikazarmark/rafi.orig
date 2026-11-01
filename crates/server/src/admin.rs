@@ -5,7 +5,7 @@
 use axum::{
     Extension, Json, Router,
     body::Bytes,
-    extract::Path,
+    extract::{DefaultBodyLimit, Path, rejection::BytesRejection},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::post,
@@ -13,8 +13,8 @@ use axum::{
 use dioxus_clerk::server::ClerkAuth;
 
 use rafi_api::{
-    Access, Caller, EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin, RaffleDefaults,
-    RaffleSettings, RaffleSummary,
+    Access, AddRequest, AddResult, Caller, EntrantPatch, LifecycleCommand, Me, PrizeInput,
+    RaffleAdmin, RaffleDefaults, RaffleSettings, RaffleSummary,
     admin::{self, Admin, ApiError, Delivery, ItemId, Resolution, codes},
 };
 use rafi_raffle::{Decision, DrawRequest};
@@ -26,8 +26,16 @@ use super::{
 
 type DispatchError = admin::DispatchError<Error>;
 
+/// The largest request body the admin API reads: an add of
+/// [`MAX_ADD_ROWS`](rafi_lifecycle::entrant::MAX_ADD_ROWS) people is about
+/// 250 KB, with room to spare; every other function's arguments are far
+/// smaller (the settings' texts are bounded in characters).
+pub const MAX_BODY_BYTES: usize = 512 * 1024;
+
 pub fn routes() -> Router {
-    Router::new().route("/api/admin/{name}", post(call))
+    Router::new()
+        .route("/api/admin/{name}", post(call))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
 /// `ClerkAuthLayer` (around the whole router) verifies the session; without one,
@@ -44,7 +52,7 @@ async fn call(
     auth: Option<ClerkAuth>,
     Path(name): Path<String>,
     headers: HeaderMap,
-    args: Bytes,
+    args: Result<Bytes, BytesRejection>,
 ) -> Response {
     let Some(caller) = auth::caller(&app, auth) else {
         return error(
@@ -52,6 +60,17 @@ async fn call(
             codes::UNAUTHORIZED,
             "Please sign in.",
         );
+    };
+    let args = match args {
+        Ok(args) => args,
+        Err(e) if e.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            return error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                codes::TOO_LARGE,
+                "The request is too large. Add a long list in parts.",
+            );
+        }
+        Err(e) => return error(e.status(), codes::INVALID_ARGUMENTS, &e.body_text()),
     };
     let json = headers
         .get(header::CONTENT_TYPE)
@@ -78,16 +97,24 @@ async fn call(
 /// A refusal's code is its kind ([`service::Refusal::code`]); the status
 /// says what kind of failure: 400 for a request that can never succeed, 403
 /// for the caller's tier, 404 for what isn't theirs, 409 for what the
-/// raffle's state refuses, 503 for an engine out of reach.
+/// raffle's state refuses, 429 over a rate limit, 503 for an engine out of
+/// reach. An add refused for its rows carries each row's problem (`rows`).
 fn app_error(name: &str, e: DispatchError) -> Response {
     let (status, code) = match &e {
         DispatchError::Unknown | DispatchError::App(Error::NotFound) => {
             (StatusCode::NOT_FOUND, codes::NOT_FOUND)
         }
         DispatchError::Arguments(_) => (StatusCode::BAD_REQUEST, codes::INVALID_ARGUMENTS),
+        DispatchError::App(Error::Refused(r @ service::Refusal::Rows { rows, .. })) => {
+            let body = ApiError::new(r.code(), r.to_string()).with_rows(rows.clone());
+            return reply(StatusCode::BAD_REQUEST, body);
+        }
         DispatchError::App(Error::Refused(r)) if r.invalid() => (StatusCode::BAD_REQUEST, r.code()),
         DispatchError::App(Error::Refused(r @ service::Refusal::Forbidden(_))) => {
             (StatusCode::FORBIDDEN, r.code())
+        }
+        DispatchError::App(Error::Refused(r @ service::Refusal::Limited)) => {
+            (StatusCode::TOO_MANY_REQUESTS, r.code())
         }
         DispatchError::App(Error::Refused(r)) => (StatusCode::CONFLICT, r.code()),
         DispatchError::App(Error::Unavailable) => {
@@ -116,12 +143,11 @@ fn app_error(name: &str, e: DispatchError) -> Response {
 /// Error replies are `no-store` like the successes: nothing of the admin API
 /// belongs in a cache.
 fn error(status: StatusCode, code: &str, message: &str) -> Response {
-    (
-        status,
-        [(header::CACHE_CONTROL, "no-store")],
-        Json(ApiError::new(code, message)),
-    )
-        .into_response()
+    reply(status, ApiError::new(code, message))
+}
+
+fn reply(status: StatusCode, body: ApiError) -> Response {
+    (status, [(header::CACHE_CONTROL, "no-store")], Json(body)).into_response()
 }
 
 /// Refuses unless the caller's tier allows what `needs`. Running a raffle
@@ -323,14 +349,17 @@ impl Admin for AppState {
         service::end_live(self, service::actor(c), &id).await
     }
 
-    async fn add_entrant(
+    async fn add_entrants(
         &self,
         c: &Caller,
         id: String,
-        name: String,
-        email: Option<String>,
-    ) -> service::Result<String> {
-        service::add_manual(self, service::actor(c), &id, &name, email).await
+        add: AddRequest,
+    ) -> service::Result<AddResult> {
+        service::add_entrants(self, service::actor(c), &id, add).await
+    }
+
+    async fn undo_add(&self, c: &Caller, id: String, batch_id: String) -> service::Result<u32> {
+        service::undo_add(self, service::actor(c), &id, &batch_id).await
     }
 
     async fn add_fake_entrants(&self, c: &Caller, id: String, n: u32) -> service::Result<()> {

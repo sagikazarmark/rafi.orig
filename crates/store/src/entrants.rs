@@ -1,6 +1,9 @@
 //! A raffle's entrants, and erasing their personal data.
 
-use rafi_lifecycle::{RaffleState, entrant::Source};
+use rafi_lifecycle::{
+    RaffleState,
+    entrant::{Origin, Source},
+};
 use rafi_raffle::Outcome;
 use serde::Deserialize;
 
@@ -25,19 +28,40 @@ pub struct EntrantRow {
     /// Their personal data was erased (the `ERASED` write): the row stays, anonymous.
     pub erased: bool,
     pub created_at: i64,
+    /// The organizer's add they came in with ([`insert_added`]); `None` for
+    /// joins and fakes.
+    pub batch_id: Option<String>,
+    /// Their row in that add, if it was a list.
+    pub batch_row: Option<i64>,
+    /// Their ID in the organizer's registration system, if the add gave one.
+    pub list_ref: Option<String>,
 }
 
-/// The order entrants are listed in: by when they entered.
-pub(crate) const ORDER: &str = "ORDER BY created_at, id";
+/// The order entrants are listed in: by when they entered, and an add's
+/// rows, entered at one time, in the add's order. `COALESCE` because SQLite
+/// sorts `NULL` first and Postgres last; then the ID, so ties come out the
+/// same on every backend.
+pub(crate) const ORDER: &str = "ORDER BY created_at, COALESCE(batch_row, 0), id";
 
 /// The `SET` clause that erases an entrant's personal data: their name, email,
-/// cookie token and claim code. The anonymous ID and the draw log stay.
+/// registration ID, cookie token and claim code. The anonymous ID and the draw
+/// log stay, and the add they came in with (an ID and a row number).
 pub(crate) const ERASED: &str = "display_name = '#' || substr(id, 1, 6), email_raw = NULL, \
-     email_norm = NULL, token_hash = NULL, claim_code = NULL, erased = 1";
+     email_norm = NULL, list_ref = NULL, token_hash = NULL, claim_code = NULL, erased = 1";
 
-/// Rows per `INSERT` in [`insert_fakes`]: 2 shared parameters plus 3 per row
+/// Rows per `INSERT` in [`insert_fakes`]: 3 shared parameters plus 3 per row
 /// stays within D1's 100 bound parameters per statement.
-const FAKES_PER_INSERT: usize = 32;
+const FAKES_PER_INSERT: usize = (MAX_PARAMS - 3) / 3;
+
+/// Rows per `INSERT` in [`insert_added`]: 4 shared parameters plus 7 per row
+/// (13 rows, 95 parameters).
+const ADDED_PER_INSERT: usize = (MAX_PARAMS - 4) / 7;
+
+/// D1 binds at most 100 parameters per statement.
+const MAX_PARAMS: usize = 100;
+
+const _: () =
+    assert!(3 + 3 * FAKES_PER_INSERT <= MAX_PARAMS && 4 + 7 * ADDED_PER_INSERT <= MAX_PARAMS);
 
 /// A raffle's entrants, in the order they entered.
 pub async fn list(db: &Db, raffle_id: &str) -> Result<Vec<EntrantRow>> {
@@ -178,18 +202,6 @@ pub async fn join(db: &Db, j: &Join<'_>, max_entrants: i64, now: i64) -> Result<
     Ok(inserted > 0)
 }
 
-/// An entrant the organizer adds by hand. They saw no join form and accepted
-/// nothing, so no consent is recorded for them ([`insert_manual`]).
-#[derive(Debug, Clone)]
-pub struct Manual<'a> {
-    pub id: &'a str,
-    pub raffle_id: &'a str,
-    pub display_name: &'a str,
-    pub email_raw: Option<&'a str>,
-    pub email_norm: Option<&'a str>,
-    pub claim_code: &'a str,
-}
-
 /// The SQL condition that raffle `?{param}`'s entrants can still change
 /// ([`RaffleState::entrants_editable`]): writes to the list check it in the
 /// same statement, so none lands after the freeze.
@@ -200,31 +212,217 @@ fn editable(param: u8) -> String {
     )
 }
 
-/// Adds an entrant by hand, only while the entrant list can change. Returns
-/// `false` if it can't. An email that already entered is an
-/// [`Error::Unique`](crate::Error::Unique). The entry is made `now`, with
-/// no consent (`consent_version` and `consent_rules_at` stay `NULL`): a
-/// record that they accepted the join form's text would be untrue.
-pub async fn insert_manual(db: &Db, m: &Manual<'_>, now: i64) -> Result<bool> {
-    let inserted = db
-        .query(format!(
-            "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source, claim_code,
-                                   created_at)
-             SELECT ?1, ?2, ?3, ?4, ?5, '{}', ?6, ?7
-             WHERE {}",
-            Source::Manual.as_str(),
-            editable(2)
+/// The key of raffle `raffle_id`'s row in `batch_guards`: one per raffle, so
+/// two adds into it (people or fakes) serialize, and adds into different
+/// raffles don't wait for each other.
+fn guard_key(raffle_id: &str) -> String {
+    format!("add:{raffle_id}")
+}
+
+/// The condition each statement of a guarded batch writes under: the guard
+/// row `?1` is there, so its first statement decided for all of them.
+const GUARDED: &str = "EXISTS (SELECT 1 FROM batch_guards WHERE key = ?1)";
+
+/// The guard's condition that raffle `?2` has room for `?3` more entrants
+/// under the cap `?4`: counted inside the batch, so a join or another add
+/// that landed first counts too.
+const ROOM: &str = "(SELECT COUNT(*) FROM entrants WHERE raffle_id = ?2) + ?3 <= ?4";
+
+/// A guarded batch's last statement: the guard row `key` goes, and
+/// `batch_guards` is empty again.
+fn release<'a>(db: &'a Db, key: &str) -> crate::Query<'a> {
+    db.query("DELETE FROM batch_guards WHERE key = ?1")
+        .bind(key.to_owned())
+}
+
+/// Someone the organizer adds ([`insert_added`]): one row of an add.
+#[derive(Debug, Clone)]
+pub struct Added<'a> {
+    pub id: &'a str,
+    pub display_name: &'a str,
+    pub email_raw: Option<&'a str>,
+    pub email_norm: Option<&'a str>,
+    pub claim_code: &'a str,
+    /// Their row in a list (`batch_row`), which keeps its order; `None`
+    /// from the one-person form.
+    pub row: Option<i64>,
+    pub list_ref: Option<&'a str>,
+}
+
+/// An add: people the organizer adds at once ([`insert_added`]).
+#[derive(Debug, Clone)]
+pub struct AddBatch<'a> {
+    pub raffle_id: &'a str,
+    /// The add's ID, from the browser: a second add with it is refused.
+    pub batch_id: &'a str,
+    /// Where the add comes from, which decides the states and test mode the
+    /// raffle takes it in ([`Origin::admits`]).
+    pub origin: Origin,
+    /// When the rows entered: the projector shows names from 5 s after.
+    pub created_at: i64,
+    pub rows: &'a [Added<'a>],
+    /// The most entrants the raffle may have, the add included.
+    pub max_entrants: i64,
+    /// What the erasure date is compared with.
+    pub now: i64,
+}
+
+/// Adds people the organizer vouches for ([`Source::Manual`]), all or
+/// nothing, in one batch whose first statement decides for the whole add:
+/// it inserts the raffle's guard row (`batch_guards`) only if the raffle
+/// takes the add from its origin ([`Origin::admits`], not past its erasure
+/// date), has room for every row under `max_entrants`, and has no entrant
+/// from this batch ID yet (a retry). The rows' `INSERT`s, 13 to a statement for
+/// D1's limit of 100 parameters, run only if the guard row is
+/// there; the last statement deletes it. Returns whether the guard admitted
+/// the add: change counts on D1 include trigger writes (each entrant bumps
+/// the raffle's version), but `batch_guards` has no trigger.
+///
+/// A row whose email key is already in the raffle is left out by
+/// `ON CONFLICT`: a join that landed since the caller looked. The caller
+/// reads back which rows went in ([`of_batch`]). A taken registration ID or
+/// entrant ID is an [`Error::Unique`](crate::Error::Unique), and nothing is
+/// added. They saw no join form and accepted nothing, so no consent is
+/// recorded for them, and no device holds their entry (no token).
+pub async fn insert_added(db: &Db, add: &AddBatch<'_>) -> Result<bool> {
+    let key = guard_key(add.raffle_id);
+    let test_mode = if add.origin.admits_test_mode() {
+        ""
+    } else {
+        " AND test_mode = 0"
+    };
+    let mut batch = vec![
+        db.query(format!(
+            "INSERT INTO batch_guards (key)
+             SELECT ?1 WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ?2 AND state IN ({admits})
+                                     AND erase_at > ?5{test_mode})
+               AND {ROOM}
+               AND NOT EXISTS (SELECT 1 FROM entrants WHERE raffle_id = ?2 AND batch_id = ?6)",
+            admits = crate::raffles::states(|s| add.origin.admits(s)),
         ))
-        .bind(m.id)
-        .bind(m.raffle_id)
-        .bind(m.display_name)
-        .bind(m.email_raw)
-        .bind(m.email_norm)
-        .bind(m.claim_code)
-        .bind(now)
-        .run()
+        .bind(key.as_str())
+        .bind(add.raffle_id)
+        .bind(add.rows.len())
+        .bind(add.max_entrants)
+        .bind(add.now)
+        .bind(add.batch_id),
+    ];
+    // ?1 to ?4 are the same for every row; each row binds seven after them.
+    for chunk in add.rows.chunks(ADDED_PER_INSERT) {
+        let values: Vec<String> = (0..chunk.len())
+            .map(|r| {
+                let p = 5 + 7 * r;
+                // The row number is cast: a statement whose rows all have
+                // none would leave Postgres a column of untyped NULLs, which
+                // it reads as text.
+                format!(
+                    "(?{p}, ?2, ?{}, ?{}, ?{}, '{}', ?{}, ?3, ?4, CAST(?{} AS BIGINT), ?{})",
+                    p + 1,
+                    p + 2,
+                    p + 3,
+                    Source::Manual.as_str(),
+                    p + 4,
+                    p + 5,
+                    p + 6,
+                )
+            })
+            .collect();
+        let insert = db
+            .query(format!(
+                "INSERT INTO entrants (id, raffle_id, display_name, email_raw, email_norm, source,
+                                       claim_code, created_at, batch_id, batch_row, list_ref)
+                 SELECT * FROM (VALUES {}) AS added
+                 WHERE {GUARDED}
+                 ON CONFLICT (raffle_id, email_norm) DO NOTHING",
+                values.join(", ")
+            ))
+            .bind(key.as_str())
+            .bind(add.raffle_id)
+            .bind(add.created_at)
+            .bind(add.batch_id);
+        batch.push(chunk.iter().fold(insert, |q, a| {
+            q.bind(a.id)
+                .bind(a.display_name)
+                .bind(a.email_raw)
+                .bind(a.email_norm)
+                .bind(a.claim_code)
+                .bind(a.row)
+                .bind(a.list_ref)
+        }));
+    }
+    batch.push(release(db, &key));
+    let changed = db.batch(batch).await?;
+    Ok(changed.first().is_some_and(|&n| n > 0))
+}
+
+/// The entrants add `batch_id` put in raffle `raffle_id`, in its order:
+/// what an add reads back, and what a retried one answers with.
+pub async fn of_batch(db: &Db, raffle_id: &str, batch_id: &str) -> Result<Vec<EntrantRow>> {
+    db.query(format!(
+        "SELECT * FROM entrants WHERE raffle_id = ? AND batch_id = ? {ORDER}"
+    ))
+    .bind(raffle_id)
+    .bind(batch_id)
+    .all()
+    .await
+}
+
+/// Removes the entrants add `batch_id` put in raffle `raffle_id` (undoing
+/// it), only while the entrant list can change. Returns how many: counted in
+/// the same transaction as the delete and under the same condition, since
+/// D1's change count would include the triggers' writes.
+pub async fn delete_batch(db: &Db, raffle_id: &str, batch_id: &str) -> Result<u64> {
+    let in_batch = format!("raffle_id = ?1 AND batch_id = ?2 AND {}", editable(1));
+    let mut sets = db
+        .batch_rows(vec![
+            db.query(format!("SELECT COUNT(*) FROM entrants WHERE {in_batch}"))
+                .bind(raffle_id)
+                .bind(batch_id),
+            db.query(format!("DELETE FROM entrants WHERE {in_batch}"))
+                .bind(raffle_id)
+                .bind(batch_id),
+        ])
+        .await?
+        .into_iter();
+    let count = match sets.next().and_then(|rows| rows.into_iter().next()) {
+        Some(row) => row.decode::<(i64,)>()?.0,
+        None => 0,
+    };
+    Ok(count.max(0) as u64)
+}
+
+/// What a raffle's entrants already hold that an add must not repeat.
+#[derive(Debug, Clone, Default)]
+pub struct Taken {
+    /// How many entrants there are, erased ones included (the cap counts
+    /// them, as the add's guard does).
+    pub entrants: usize,
+    /// Email keys ([`EntrantRow::email_norm`]).
+    pub emails: std::collections::HashSet<String>,
+    /// Registration IDs.
+    pub list_refs: std::collections::HashSet<String>,
+    /// Claim codes in use.
+    pub claim_codes: std::collections::HashSet<String>,
+}
+
+/// How many entrants raffle `raffle_id` has, and the email keys,
+/// registration IDs and claim codes they hold, in one read.
+pub async fn taken(db: &Db, raffle_id: &str) -> Result<Taken> {
+    let rows: Vec<(Option<String>, Option<String>, Option<String>)> = db
+        .query("SELECT email_norm, list_ref, claim_code FROM entrants WHERE raffle_id = ?")
+        .bind(raffle_id)
+        .all()
         .await?;
-    Ok(inserted > 0)
+    let mut taken = Taken {
+        entrants: rows.len(),
+        ..Taken::default()
+    };
+    for (email, list_ref, code) in rows {
+        taken.emails.extend(email);
+        taken.list_refs.extend(list_ref);
+        taken.claim_codes.extend(code);
+    }
+    Ok(taken)
 }
 
 /// A fake entrant, for rehearsals.
@@ -235,50 +433,63 @@ pub struct Fake {
     pub claim_code: String,
 }
 
-/// Adds fake entrants, all or nothing: multi-row `INSERT`s in one batch,
-/// only while the entrant list can change and the raffle is in test mode.
+/// Adds fake entrants, all or nothing, under the same guard as
+/// [`insert_added`]: only while the entrant list can change, the raffle is
+/// in test mode, and it has room for all of them under `max_entrants`;
+/// multi-row `INSERT`s, 32 to a statement, in one batch.
 /// They entered at `created_at`, and accepted nothing (no consent is
-/// recorded). Returns `false` if the list can't change or the raffle isn't
-/// in test mode (nothing is added).
+/// recorded). Returns `false` if the raffle refused them (nothing is added).
 pub async fn insert_fakes(
     db: &Db,
     raffle_id: &str,
     created_at: i64,
     fakes: &[Fake],
+    max_entrants: i64,
 ) -> Result<bool> {
-    // ?1 and ?2 are the same for every row; each row binds its ID, name and
+    let key = guard_key(raffle_id);
+    let mut batch = vec![
+        db.query(format!(
+            "INSERT INTO batch_guards (key)
+             SELECT ?1 WHERE {} AND EXISTS (SELECT 1 FROM raffles WHERE id = ?2 AND test_mode = 1)
+               AND {ROOM}",
+            editable(2)
+        ))
+        .bind(key.as_str())
+        .bind(raffle_id)
+        .bind(fakes.len())
+        .bind(max_entrants),
+    ];
+    // ?1 to ?3 are the same for every row; each row binds its ID, name and
     // claim code after them.
-    let inserts = fakes
-        .chunks(FAKES_PER_INSERT)
-        .map(|chunk| {
-            let values: Vec<String> = (0..chunk.len())
-                .map(|r| {
-                    let p = 3 + 3 * r;
-                    format!(
-                        "(?{p}, ?1, ?{}, '{}', ?{}, ?2)",
-                        p + 1,
-                        Source::Fake.as_str(),
-                        p + 2
-                    )
-                })
-                .collect();
-            let insert = db
-                .query(format!(
-                    "INSERT INTO entrants (id, raffle_id, display_name, source, claim_code, created_at)
-                     SELECT * FROM (VALUES {}) AS fakes
-                     WHERE {} AND EXISTS (SELECT 1 FROM raffles WHERE id = ?1 AND test_mode = 1)",
-                    values.join(", "),
-                    editable(1)
-                ))
-                .bind(raffle_id)
-                .bind(created_at);
-            chunk.iter().fold(insert, |q, f| {
-                q.bind(&f.id).bind(&f.display_name).bind(&f.claim_code)
+    for chunk in fakes.chunks(FAKES_PER_INSERT) {
+        let values: Vec<String> = (0..chunk.len())
+            .map(|r| {
+                let p = 4 + 3 * r;
+                format!(
+                    "(?{p}, ?2, ?{}, '{}', ?{}, ?3)",
+                    p + 1,
+                    Source::Fake.as_str(),
+                    p + 2
+                )
             })
-        })
-        .collect();
-    let inserted = db.batch(inserts).await?;
-    Ok(fakes.is_empty() || inserted.iter().any(|&n| n > 0))
+            .collect();
+        let insert = db
+            .query(format!(
+                "INSERT INTO entrants (id, raffle_id, display_name, source, claim_code, created_at)
+                 SELECT * FROM (VALUES {}) AS fakes
+                 WHERE {GUARDED}",
+                values.join(", "),
+            ))
+            .bind(key.as_str())
+            .bind(raffle_id)
+            .bind(created_at);
+        batch.push(chunk.iter().fold(insert, |q, f| {
+            q.bind(&f.id).bind(&f.display_name).bind(&f.claim_code)
+        }));
+    }
+    batch.push(release(db, &key));
+    let changed = db.batch(batch).await?;
+    Ok(changed.first().is_some_and(|&n| n > 0))
 }
 
 /// Removes a raffle's fake entrants if it isn't in test mode, while its

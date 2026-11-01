@@ -15,8 +15,11 @@
 //!   counts (with triggers), ties in `ORDER BY`, a statement at D1's limit of
 //!   100 bound parameters, and the version triggers;
 //! - **`domain.*`, the domain functions:** the freeze's steps, joins (the
-//!   cap, one entry per email, racing joins), fake entrants across
-//!   statements and with test mode, erasure (only once the raffle is over)
+//!   cap, one entry per email, racing joins), the organizer's adds (one
+//!   guarded batch across statements, all or nothing under the cap, in the
+//!   list's order, once per batch ID, racing adds, the states that take
+//!   them, undoing one), fake entrants across statements, under the cap and
+//!   with test mode, erasure (only once the raffle is over)
 //!   and its log, housekeeping's clocks (expiry, the erasure date, the
 //!   winner hold, the purge at the ceiling, re-applying after a restore),
 //!   delivering every prize and the organizer leaving, the terms accepted,
@@ -211,6 +214,11 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "domain.join_cap_race" needs Capabilities::CONCURRENT_SESSIONS
         => domain::racing_joins_respect_the_cap,
     "domain.fakes_across_statements" => domain::adds_fakes_in_chunks,
+    "domain.add_batch" => domain::adds_all_or_nothing,
+    "domain.add_cap_race" needs Capabilities::CONCURRENT_SESSIONS
+        => domain::racing_adds_respect_the_cap,
+    "domain.add_states" => domain::adds_where_the_raffle_takes_them,
+    "domain.add_undo" => domain::deletes_a_batch,
     "domain.rules_fixed" => domain::rules_are_fixed_once_accepted,
     "domain.test_mode_fakes" => domain::fakes_go_with_test_mode,
     "domain.owner_defaults" => domain::saves_owner_defaults,
