@@ -25,7 +25,10 @@ fn confirmed(result: std::result::Result<(), EngineError>) -> Result<()> {
 }
 
 /// Closes registration, freezes the entrant list, writes the raffle's
-/// manifest from it, and hands that to the raffle engine.
+/// manifest from it, and hands that to the raffle engine. A raffle without
+/// registration freezes from Published, after the checks opening would have
+/// made (a named controller and contact, the erasure date not passed); if
+/// nobody is left to draw from, it goes back there.
 ///
 /// Each step is its own write ([`start`]), so calling it again picks up
 /// where an attempt stopped: a raffle left frozen without a manifest gets
@@ -49,10 +52,19 @@ pub async fn start_draw(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
         .into());
     }
 
-    let next = start::next(raffle.state, raffle.manifest.is_some(), raffle.opened())
-        .map_err(Refusal::Start)?;
+    let next = start::next(
+        raffle.state,
+        raffle.registration,
+        raffle.manifest.is_some(),
+        raffle.opened(),
+    )
+    .map_err(Refusal::Start)?;
     let manifest = match next {
         Start::Freeze { from } => {
+            // From Published, no opening checked the notice and the date.
+            if from == RaffleState::Ready {
+                crate::raffles::ready_for_entrants(&raffle, now)?;
+            }
             let items = items(app, id).await?;
             let entrants = entrants::count_active(&app.db, id).await?;
             start::ready(usize::try_from(entrants).unwrap_or(0), items.len())
@@ -60,8 +72,9 @@ pub async fn start_draw(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
             let fakes = entrants::count_fakes(&app.db, id).await?;
             start::genuine(raffle.test_mode, usize::try_from(fakes).unwrap_or(0))
                 .map_err(Refusal::Start)?;
-            // Close registration first so no join can slip in while we read the list.
-            if !raffles::freeze(&app.db, id, from, now).await? {
+            // Close registration first so no join can slip in while we read
+            // the list; guarded on the setting the freeze was decided with.
+            if !raffles::freeze(&app.db, id, from, raffle.registration, now).await? {
                 return Err(Refusal::Changed.into());
             }
             app.live_updates.notify(id).await;

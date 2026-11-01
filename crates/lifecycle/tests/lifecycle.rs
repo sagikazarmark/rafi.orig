@@ -38,14 +38,17 @@ fn source() -> BeaconSource {
     BeaconSource::Drand(chain().0.chain().hash())
 }
 
-fn command() -> impl Strategy<Value = Command> {
+/// An organizer's command, or `None`: switching registration, where the
+/// rules let them.
+fn command() -> impl Strategy<Value = Option<Command>> {
     prop_oneof![
-        Just(Command::Publish),
-        Just(Command::Unpublish),
-        Just(Command::Open),
-        Just(Command::Close),
-        Just(Command::Freeze),
-        Just(Command::Purge),
+        Just(Some(Command::Publish)),
+        Just(Some(Command::Unpublish)),
+        Just(Some(Command::Open)),
+        Just(Some(Command::Close)),
+        Just(Some(Command::Freeze)),
+        Just(Some(Command::Purge)),
+        Just(None),
     ]
 }
 
@@ -121,26 +124,34 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
     /// Commands never move the lifecycle into the states the raffle decides,
-    /// and nothing is editable once the list is frozen.
+    /// registration is never open in a raffle without it, and nothing is
+    /// editable once the list is frozen.
     #[test]
-    fn commands_leave_drawing_and_finishing_to_the_raffle(commands in proptest::collection::vec(command(), 0..30)) {
-        let mut state = RaffleState::Draft;
+    fn commands_leave_drawing_and_finishing_to_the_raffle(registration in any::<bool>(), commands in proptest::collection::vec(command(), 0..30)) {
+        let (mut state, mut registration) = (RaffleState::Draft, registration);
         for command in commands {
             let before = state;
-            if let Some(next) = state.apply(command) {
-                state = next;
+            match command {
+                Some(command) => {
+                    if let Some(next) = state.apply(command, registration) {
+                        state = next;
+                    }
+                }
+                None if state.registration_editable() => registration = !registration,
+                None => {}
             }
             prop_assert!(
                 !matches!(state, RaffleState::Drawing | RaffleState::Finished) || state == before,
                 "{before:?} -{command:?}-> {state:?}"
             );
+            prop_assert!(registration || state != RaffleState::Open, "open without registration");
             if state == RaffleState::Frozen && before != RaffleState::Frozen {
                 prop_assert_eq!(RaffleState::Frozen.unfreeze(before), Some(before));
             }
         }
         for s in RaffleState::ALL {
             if s.follows_raffle() || s.is_over() {
-                prop_assert!(!s.entrants_editable() && !s.prizes_editable() && !s.test_mode_editable());
+                prop_assert!(!s.entrants_editable() && !s.prizes_editable() && !s.test_mode_editable() && !s.registration_editable());
             }
         }
     }

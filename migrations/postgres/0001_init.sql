@@ -32,6 +32,11 @@ CREATE TABLE raffles (
     erase_at BIGINT NOT NULL GENERATED ALWAYS AS (event_ends_at + retention_days * 86400) STORED,
     state TEXT NOT NULL DEFAULT 'draft',
     test_mode BIGINT NOT NULL DEFAULT 0,
+    -- Whether people may join with the QR code (registration). Off, the raffle
+    -- has no Open or Closed: it freezes from Published, and its entrants are
+    -- the people the organizer added. Switched before the freeze, but not
+    -- while registration is open; guarded in SQL like test_mode.
+    registration BIGINT NOT NULL DEFAULT 1,
     -- The raffle's manifest: the frozen entrant list (canonical JSON, exactly
     -- as hashed), and its hash.
     manifest TEXT,
@@ -286,8 +291,9 @@ CREATE TABLE pow_used (
 CREATE INDEX pow_used_expiry ON pow_used (expires_at);
 
 -- What an owner's new raffles start with: who organizes them (the data
--- controller), their privacy contact and text, their additional rules and
--- their retention period (NULL: the installation's default). Copied into each
+-- controller), their privacy contact and text, their additional rules,
+-- their retention period (NULL: the installation's default) and whether
+-- people join with the QR code. Copied into each
 -- raffle as it is created, so a later change leaves existing raffles as they
 -- are.
 CREATE TABLE owner_defaults (
@@ -299,6 +305,7 @@ CREATE TABLE owner_defaults (
     privacy_url TEXT NOT NULL DEFAULT '',
     rules TEXT NOT NULL DEFAULT '',
     retention_days BIGINT,
+    registration BIGINT NOT NULL DEFAULT 1,
     updated_at BIGINT NOT NULL
 );
 

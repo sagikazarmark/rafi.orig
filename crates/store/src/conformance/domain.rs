@@ -143,7 +143,7 @@ async fn raffle_in(db: &Db, id: &str, state: RaffleState) -> Outcome {
     .map_err(fail)?;
     if state != RaffleState::Draft {
         check(
-            raffles::transition(db, id, RaffleState::Draft, state, NOW)
+            raffles::transition(db, id, RaffleState::Draft, state, true, NOW)
                 .await
                 .map_err(fail)?,
             "moving a new raffle",
@@ -298,19 +298,19 @@ async fn test_mode_on(db: &Db, id: &str) -> Outcome {
 pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Draft).await?;
     check(
-        !raffles::freeze(db, "r1", RaffleState::Open, NOW)
+        !raffles::freeze(db, "r1", RaffleState::Open, true, NOW)
             .await
             .map_err(fail)?,
         "a raffle that isn't in the state it froze from",
     )?;
     check(
-        raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open, NOW)
+        raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open, true, NOW)
             .await
             .map_err(fail)?,
         "opening",
     )?;
     check(
-        !raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open, NOW)
+        !raffles::transition(db, "r1", RaffleState::Draft, RaffleState::Open, true, NOW)
             .await
             .map_err(fail)?,
         "a transition from a state the raffle has left",
@@ -330,13 +330,13 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     )?;
 
     check(
-        raffles::freeze(db, "r1", RaffleState::Open, NOW)
+        raffles::freeze(db, "r1", RaffleState::Open, true, NOW)
             .await
             .map_err(fail)?,
         "freezing",
     )?;
     check(
-        !raffles::freeze(db, "r1", RaffleState::Open, NOW)
+        !raffles::freeze(db, "r1", RaffleState::Open, true, NOW)
             .await
             .map_err(fail)?,
         "freezing twice",
@@ -379,7 +379,7 @@ pub(super) async fn freezes_in_steps(db: &Db) -> Outcome {
     // A freeze that found nobody to draw from goes back.
     raffle_in(db, "r2", RaffleState::Closed).await?;
     check(
-        raffles::freeze(db, "r2", RaffleState::Closed, NOW)
+        raffles::freeze(db, "r2", RaffleState::Closed, true, NOW)
             .await
             .map_err(fail)?,
         "freezing a closed raffle",
@@ -790,6 +790,7 @@ fn settings_with(rules: &str) -> raffles::Settings<'_> {
         event_ends_at: FAR,
         retention_days: 7,
         test_mode: true,
+        registration: true,
     }
 }
 
@@ -970,6 +971,100 @@ pub(super) async fn fakes_go_with_test_mode(db: &Db) -> Outcome {
     )
 }
 
+/// Registration (joining with the QR code) guards the lifecycle's moves in
+/// SQL: a raffle opens only with it, freezes from Published only without
+/// it, and it switches before the freeze but not while registration is open.
+pub(super) async fn registration_guards_the_lifecycle(db: &Db) -> Outcome {
+    let save = async |id: &str, registration: bool| {
+        raffles::update_settings(
+            db,
+            id,
+            &raffles::Settings {
+                registration,
+                ..settings_with("")
+            },
+            NOW,
+        )
+        .await
+        .map(|w| w.written)
+        .map_err(fail)
+    };
+    let state = async |id: &str| raffle(db, id).await.map(|r| (r.state, r.registration));
+
+    // Published, with registration: no freeze from there.
+    raffle_in(db, "r1", RaffleState::Ready).await?;
+    check(raffle(db, "r1").await?.registration, "on by default")?;
+    check(
+        !raffles::freeze(db, "r1", RaffleState::Ready, false, NOW)
+            .await
+            .map_err(fail)?,
+        "a freeze from Published with registration on",
+    )?;
+    // Switched off: no opening, and the freeze goes from Published.
+    check(save("r1", false).await?, "switching it off when published")?;
+    check(
+        !raffles::transition(db, "r1", RaffleState::Ready, RaffleState::Open, true, NOW)
+            .await
+            .map_err(fail)?,
+        "opening without registration",
+    )?;
+    check(
+        raffles::freeze(db, "r1", RaffleState::Ready, false, NOW)
+            .await
+            .map_err(fail)?,
+        "a freeze from Published without registration",
+    )?;
+    check(!save("r1", true).await?, "switching it on once frozen")?;
+    raffles::unfreeze(db, "r1", RaffleState::Ready, NOW)
+        .await
+        .map_err(fail)?;
+    check(
+        state("r1").await? == (RaffleState::Ready, false),
+        "back to Published, registration still off",
+    )?;
+
+    // Open: it doesn't switch until registration closes.
+    raffle_in(db, "r2", RaffleState::Ready).await?;
+    check(
+        raffles::transition(db, "r2", RaffleState::Ready, RaffleState::Open, true, NOW)
+            .await
+            .map_err(fail)?,
+        "opening with registration",
+    )?;
+    check(!save("r2", false).await?, "switching it off while open")?;
+    check(
+        save("r2", true).await?,
+        "the other settings save while open",
+    )?;
+    check(
+        state("r2").await? == (RaffleState::Open, true),
+        "still open, with registration",
+    )?;
+    check(
+        raffles::transition(db, "r2", RaffleState::Open, RaffleState::Closed, true, NOW)
+            .await
+            .map_err(fail)?,
+        "closing",
+    )?;
+    check(save("r2", false).await?, "switching it off once closed")?;
+    check(
+        !raffles::transition(db, "r2", RaffleState::Closed, RaffleState::Open, true, NOW)
+            .await
+            .map_err(fail)?,
+        "reopening without registration",
+    )?;
+    check(
+        raffles::freeze(db, "r2", RaffleState::Closed, false, NOW)
+            .await
+            .map_err(fail)?,
+        "a closed raffle switched off freezes from there",
+    )?;
+    check(
+        state("r2").await? == (RaffleState::Frozen, false),
+        "frozen without registration",
+    )
+}
+
 /// An owner's defaults: none until saved, then replaced as a whole; other
 /// owners have their own.
 pub(super) async fn saves_owner_defaults(db: &Db) -> Outcome {
@@ -985,17 +1080,19 @@ pub(super) async fn saves_owner_defaults(db: &Db) -> Outcome {
         privacy_url: "https://b.c/p".into(),
         rules: "One.".into(),
         retention_days: Some(3),
+        registration: false,
     };
     defaults::save(db, "o", &first, NOW).await.map_err(fail)?;
     let second = defaults::Defaults {
         rules: "Two.".into(),
         retention_days: None,
+        registration: true,
         ..first.clone()
     };
     defaults::save(db, "o", &second, NOW).await.map_err(fail)?;
     check(
         defaults::get(db, "o").await.map_err(fail)? == Some(second),
-        "the second save replaces the first, an unset period included",
+        "the second save replaces the first, an unset period and registration included",
     )?;
     check(
         defaults::get(db, "p").await.map_err(fail)?.is_none(),
@@ -2361,7 +2458,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     raffle_in(db, "stuck", RaffleState::Open).await?;
     check(join(db, "stuck", "s", "s@x", 10).await?, "joining stuck")?;
     check(
-        raffles::freeze(db, "stuck", RaffleState::Open, NOW)
+        raffles::freeze(db, "stuck", RaffleState::Open, true, NOW)
             .await
             .map_err(fail)?,
         "closing stuck's registration",
@@ -3089,7 +3186,7 @@ pub(super) async fn removals_keep_people_out_until_lifted(db: &Db) -> Outcome {
 
     // Frozen: nobody is removed, nothing is remembered.
     check(
-        raffles::freeze(db, "r1", RaffleState::Open, NOW)
+        raffles::freeze(db, "r1", RaffleState::Open, true, NOW)
             .await
             .map_err(fail)?,
         "freezing r1",

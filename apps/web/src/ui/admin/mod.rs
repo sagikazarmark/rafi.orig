@@ -395,6 +395,7 @@ pub fn RaffleAdmin(id: String) -> Element {
                                         raffle_id: admin.id.clone(),
                                         settings: admin.settings.clone(),
                                         rules_editable: admin.actions.edit_rules,
+                                        registration_editable: admin.actions.edit_registration,
                                         retention: admin.retention.clone(),
                                         can_edit: access.allows(Access::Manager),
                                         after_privacy: rsx! { ParagraphToSend { admin: admin.clone() } },
@@ -500,16 +501,33 @@ fn RetentionCard(admin: AdminData) -> Element {
     }
 }
 
+/// Where the raffle is in its life. Without registration there is no
+/// registration step: it goes from Published to the draw.
 #[component]
-fn Steps(state: RaffleState) -> Element {
-    let at = match state {
-        RaffleState::Draft => 0,
-        RaffleState::Ready => 1,
-        RaffleState::Open | RaffleState::Closed => 2,
-        RaffleState::Frozen | RaffleState::Drawing => 3,
-        RaffleState::Finished | RaffleState::Purged => 4,
+fn Steps(state: RaffleState, registration: bool) -> Element {
+    let (steps, at): (&[&str], usize) = if registration {
+        (
+            &["Prepare", "Publish", "Registration", "Draw", "Done"],
+            match state {
+                RaffleState::Draft => 0,
+                RaffleState::Ready => 1,
+                RaffleState::Open | RaffleState::Closed => 2,
+                RaffleState::Frozen | RaffleState::Drawing => 3,
+                RaffleState::Finished | RaffleState::Purged => 4,
+            },
+        )
+    } else {
+        (
+            &["Prepare", "Publish", "Draw", "Done"],
+            match state {
+                RaffleState::Draft => 0,
+                // Closed, then switched off: published, the draw next.
+                RaffleState::Ready | RaffleState::Open | RaffleState::Closed => 1,
+                RaffleState::Frozen | RaffleState::Drawing => 2,
+                RaffleState::Finished | RaffleState::Purged => 3,
+            },
+        )
     };
-    let steps = ["Prepare", "Publish", "Registration", "Draw", "Done"];
     rsx! {
         ul { class: "steps steps-horizontal w-full text-xs",
             for (i , label) in steps.iter().enumerate() {

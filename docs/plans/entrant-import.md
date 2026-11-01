@@ -219,6 +219,16 @@ present" setting are later options (§Out of scope).
 - `AdminActions` gains the allowed lifecycle commands (the header stops deciding from the state), `add`, `import`,
   `undo_add`; `start` is computed with the setting. Steps and the empty People tab get wording for raffles without
   registration ("Add the people taking part, then freeze the list").
+- **Decided in slice 7:** every lifecycle write is guarded on the setting the lifecycle decided with
+  (`raffles::transition` and `freeze` take it: `AND registration = ?`), which gives both guards above and refuses a
+  move whose setting changed since the read (`changed`). A raffle found frozen without a manifest doesn't record
+  where it froze from: with registration it unfreezes to Closed as before, without it to Published. The view's and
+  the settings' `registration` default to on when absent; `AdminActions` gains `lifecycle` (the commands
+  `RaffleState::apply` allows with the setting) and `edit_registration` (`registration_editable`); `add_list` and
+  `undo` were already there. Refusals: `no_registration` (opening without it), `registration_locked` (switching while
+  open or after the freeze), and `organizer_missing` naming the freeze rather than opening when it is off. The
+  admin header hides the join link and code without registration; the projector's intro says "The draw is coming
+  up" where it would say registration opens or has closed.
 
 ### Telling people
 
@@ -467,7 +477,8 @@ Each is shippable and tested on its own.
    freeze, source counts on `/v/`, the projector's lines.
 7. **Registration as a setting.** Schema, settings, defaults, duplicate, the SQL guards, `apply` and `next` with
    the setting, the freeze from Published and unfreezing to it, the lifecycle buttons from `AdminActions`, the
-   projector and `/j/` without registration.
+   projector and `/j/` without registration. Done: every lifecycle write guarded on the setting (§Registration as
+   a setting).
 8. **Docs and terms.**
 
 ## Testing decisions

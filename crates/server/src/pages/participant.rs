@@ -31,6 +31,12 @@ pub struct Raffle<'a> {
     /// date not yet passed ([`rafi_lifecycle::entrant::may_join`]). The
     /// form is shown only then.
     pub joinable: bool,
+    /// Whether people join with the QR code at all. Without registration
+    /// the page has no form, whatever the state: the organizer adds the
+    /// people taking part.
+    pub registration: bool,
+    /// Whether the frozen list is published: the verification page has it.
+    pub verifiable: bool,
 }
 
 /// The entrant this device joined as.
@@ -299,6 +305,12 @@ pub fn page(page: Page<'_>) -> String {
                     "👋",
                     "This email is already entered. Your entry is safe. If you win, go to the organizer.",
                 ),
+                // Nothing to join, in any state, and a posted form was
+                // refused for it: no "not open yet" to wait for.
+                _ if !raffle.registration => (
+                    "📋",
+                    "This raffle has no registration: the organizer adds the people taking part.",
+                ),
                 (Notice::Error(why), _) => ("⚠️", why),
                 (_, Phase::Ready) => (
                     "⏳",
@@ -310,6 +322,17 @@ pub fn page(page: Page<'_>) -> String {
                 section { class: "{card} items-center gap-2 p-6 text-center",
                     span { class: "text-4xl", "{emoji}" }
                     p { class: "text-lg font-semibold", role: "status", "{msg}" }
+                    // What someone on the organizer's list reads: the rules
+                    // they are in under, the notice, and the frozen list.
+                    if !raffle.registration {
+                        p { class: "flex flex-wrap justify-center gap-x-3 text-sm",
+                            a { class: "link link-primary", href: "{rules_href}", "Rules" }
+                            a { class: "link link-primary", href: "{privacy_href}", "Privacy notice" }
+                            if raffle.verifiable {
+                                a { class: "link link-primary", href: "{verify_href}", "Verification page" }
+                            }
+                        }
+                    }
                 }
                 {live}
             }

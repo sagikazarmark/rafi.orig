@@ -1,13 +1,15 @@
 //! What an owner's new raffles start with (`owner_defaults`): who organizes
-//! them, their privacy contact and text, their additional rules and their
-//! retention period. A raffle gets a copy as it is created.
+//! them, their privacy contact and text, their additional rules, their
+//! retention period and whether people join with the QR code. A raffle gets
+//! a copy as it is created.
 
 use serde::Deserialize;
 
 use crate::{Db, Result};
 
-/// An owner's defaults, already validated.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+/// An owner's defaults, already validated. An owner who saved none gets
+/// [`Default`]: blank, and registration on.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Defaults {
     pub organizer_name: String,
     pub contact_email: String,
@@ -17,12 +19,30 @@ pub struct Defaults {
     pub rules: String,
     /// `None`: the installation's default.
     pub retention_days: Option<i64>,
+    /// Whether people may join with the QR code.
+    pub registration: bool,
+}
+
+impl Default for Defaults {
+    fn default() -> Self {
+        Self {
+            organizer_name: String::new(),
+            contact_email: String::new(),
+            privacy_email: String::new(),
+            privacy_text: String::new(),
+            privacy_url: String::new(),
+            rules: String::new(),
+            retention_days: None,
+            registration: true,
+        }
+    }
 }
 
 /// `owner`'s defaults, if they saved any.
 pub async fn get(db: &Db, owner: &str) -> Result<Option<Defaults>> {
     db.query(
-        "SELECT organizer_name, contact_email, privacy_email, privacy_text, privacy_url, rules, retention_days
+        "SELECT organizer_name, contact_email, privacy_email, privacy_text, privacy_url, rules, retention_days,
+                registration
          FROM owner_defaults WHERE owner_id = ?",
     )
     .bind(owner)
@@ -34,13 +54,13 @@ pub async fn get(db: &Db, owner: &str) -> Result<Option<Defaults>> {
 pub async fn save(db: &Db, owner: &str, d: &Defaults, now: i64) -> Result<()> {
     db.query(
         "INSERT INTO owner_defaults (owner_id, organizer_name, contact_email, privacy_email, privacy_text,
-                                     privacy_url, rules, retention_days, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                                     privacy_url, rules, retention_days, registration, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT (owner_id) DO UPDATE SET organizer_name = excluded.organizer_name,
              contact_email = excluded.contact_email, privacy_email = excluded.privacy_email,
              privacy_text = excluded.privacy_text, privacy_url = excluded.privacy_url,
              rules = excluded.rules, retention_days = excluded.retention_days,
-             updated_at = excluded.updated_at",
+             registration = excluded.registration, updated_at = excluded.updated_at",
     )
     .bind(owner)
     .bind(&d.organizer_name)
@@ -50,6 +70,7 @@ pub async fn save(db: &Db, owner: &str, d: &Defaults, now: i64) -> Result<()> {
     .bind(&d.privacy_url)
     .bind(&d.rules)
     .bind(d.retention_days)
+    .bind(d.registration)
     .bind(now)
     .run()
     .await

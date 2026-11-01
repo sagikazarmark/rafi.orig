@@ -1930,10 +1930,12 @@ async fn new_raffles_start_with_the_owners_defaults() {
         privacy_url: "https://example.com/privacy".into(),
         rules: "Entrants must be 18 or older.".into(),
         retention_days: Some(3),
+        registration: false,
     };
     service::save_defaults(&app, ACTOR, defaults).await.unwrap();
     let saved = service::get_defaults(&app, OWNER).await.unwrap();
     assert_eq!(saved.organizer_name, "Cloud Native Budapest", "trimmed");
+    assert!(!saved.registration);
 
     let event = service::EventDate {
         date: "2026-10-28".into(),
@@ -1952,6 +1954,7 @@ async fn new_raffles_start_with_the_owners_defaults() {
             r.privacy_url.as_str(),
             r.rules.as_str(),
             r.retention_days,
+            r.registration,
         ),
         (
             "Cloud Native Budapest",
@@ -1961,6 +1964,7 @@ async fn new_raffles_start_with_the_owners_defaults() {
             "https://example.com/privacy",
             "Entrants must be 18 or older.",
             3,
+            false,
         )
     );
     assert_eq!(r.event_date, "2026-10-28");
@@ -1980,6 +1984,14 @@ async fn new_raffles_start_with_the_owners_defaults() {
         .unwrap();
     let r = raffles::get(&app.db, &other).await.unwrap().unwrap();
     assert!(r.organizer_name.is_empty() && r.rules.is_empty());
+    assert!(r.registration, "registration on without defaults");
+    assert!(
+        service::get_defaults(&app, "someone-else")
+            .await
+            .unwrap()
+            .registration,
+        "none saved: on"
+    );
     assert_eq!(
         r.retention_days, app.policy.retention.days,
         "the installation's period without defaults"
@@ -3624,7 +3636,7 @@ async fn registration_needs_an_organizer() {
     assert!(
         matches!(
             &refused,
-            Err(service::Error::Refused(service::Refusal::OrganizerMissing(fields)))
+            Err(service::Error::Refused(service::Refusal::OrganizerMissing { fields, registration: true }))
                 if fields == &["the organizer's name", "a contact or privacy email"]
         ),
         "{refused:?}"
@@ -3654,6 +3666,177 @@ async fn registration_needs_an_organizer() {
     assert_eq!(
         raffles::get(&app.db, &id).await.unwrap().unwrap().state,
         RaffleState::Open
+    );
+}
+
+/// Switches raffle `id`'s registration (joining with the QR code) as
+/// `actor`.
+async fn set_registration(app: &AppState, id: &str, registration: bool) -> service::Result<()> {
+    let mut settings = service::settings_of(&raffles::get(&app.db, id).await.unwrap().unwrap());
+    settings.registration = registration;
+    service::update_settings(app, ACTOR, id, settings).await
+}
+
+/// Without registration, the projector's view says so, and `/j/` has no
+/// form and takes no join: the organizer adds the people taking part, and
+/// the page links the rules, the notice and, once frozen, the verification
+/// page.
+#[tokio::test]
+async fn without_registration_nobody_joins() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let id = create(&app, OWNER, "Gala").await;
+    set_registration(&app, &id, false).await.unwrap();
+    service::upsert_prize(
+        &app,
+        ACTOR,
+        &id,
+        PrizeInput {
+            name: "Book".into(),
+            qty: 1,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
+        .await
+        .unwrap();
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    let get = |url: String| {
+        let router = router.clone();
+        async move { send(&router, Request::get(url).body(Body::empty()).unwrap()).await }
+    };
+
+    let (status, _, body) = get(format!("/api/r/{}/view", raffle.slug)).await;
+    assert_eq!(status, StatusCode::OK);
+    let view: rafi_api::RaffleView = serde_json::from_str(&body).unwrap();
+    assert!(!view.registration);
+    assert_eq!(view.state, RaffleState::Ready);
+
+    let no_registration =
+        "This raffle has no registration: the organizer adds the people taking part.";
+    let (status, _, page) = get(format!("/j/{}", raffle.join_code)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains(no_registration), "{page}");
+    assert!(!page.contains("name=\"email\""), "no form: {page}");
+    assert!(!page.contains("not open yet"), "{page}");
+    for link in [
+        format!("href=\"/rules/{}\"", raffle.slug),
+        format!("href=\"/privacy/{}\"", raffle.slug),
+    ] {
+        assert!(page.contains(&link), "{link}: {page}");
+    }
+    assert!(
+        !page.contains(">Verification page<"),
+        "nothing frozen yet: {page}"
+    );
+
+    let (status, cookie, body) = join(&router, &raffle.join_code, "Anna", "anna@example.com").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(cookie.is_none());
+    assert!(body.contains(no_registration), "{body}");
+    assert!(!body.contains("name=\"email\""), "{body}");
+    assert!(entrants::list(&app.db, &id).await.unwrap().is_empty());
+
+    // The organizer's list is who takes part.
+    add_one(&app, ACTOR, &id, "Anna", None).await.unwrap();
+    service::start_draw(&app, ACTOR, &id).await.unwrap();
+    let (_, _, page) = get(format!("/j/{}", raffle.join_code)).await;
+    assert!(page.contains(no_registration), "{page}");
+    assert!(
+        page.contains(&format!("href=\"/v/{}\"", raffle.slug))
+            && page.contains(">Verification page<"),
+        "{page}"
+    );
+    assert_eq!(
+        set_registration(&app, &id, true)
+            .await
+            .unwrap_err()
+            .to_string(),
+        "Joining with the QR code can't be switched on or off while registration is open (close it first), or once the list is frozen."
+    );
+}
+
+/// A raffle without registration freezes from Published only after the
+/// checks opening would have made: a named controller and contact, and an
+/// erasure date not passed.
+#[tokio::test]
+async fn a_freeze_from_published_checks_what_opening_would() {
+    let app = app().await;
+    let id = service::create(&app, ACTOR, "Nameless", &service::EventDate::today(&app))
+        .await
+        .unwrap();
+    set_registration(&app, &id, false).await.unwrap();
+    // Erased at the end of today.
+    retain(&app, &id, 0).await;
+    service::upsert_prize(
+        &app,
+        ACTOR,
+        &id,
+        PrizeInput {
+            name: "Book".into(),
+            qty: 1,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Publish)
+        .await
+        .unwrap();
+    add_one(&app, ACTOR, &id, "Anna", None).await.unwrap();
+
+    let refused = service::start_draw(&app, ACTOR, &id).await;
+    assert!(
+        matches!(
+            &refused,
+            Err(service::Error::Refused(service::Refusal::OrganizerMissing { fields, registration: false }))
+                if fields == &["the organizer's name", "a contact or privacy email"]
+        ),
+        "{refused:?}"
+    );
+    name_organizer(&app, ACTOR, &id).await;
+    app.clock.advance(DAY);
+    let refused = service::start_draw(&app, ACTOR, &id).await;
+    assert!(
+        matches!(
+            refused,
+            Err(service::Error::Refused(service::Refusal::ErasureDatePassed))
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        raffles::get(&app.db, &id).await.unwrap().unwrap().state,
+        RaffleState::Ready,
+        "nothing frozen"
+    );
+}
+
+/// Registration can't be switched off while it is open: phones in the
+/// middle of the form would be cut off. Switched on (the default), the
+/// raffle opens as ever.
+#[tokio::test]
+async fn registration_stays_while_open() {
+    let app = app().await;
+    let raffle = setup_open(&app, &[("Book", 1)]).await;
+    assert!(raffle.registration);
+    let refused = set_registration(&app, &raffle.id, false).await;
+    assert!(
+        matches!(
+            refused,
+            Err(service::Error::Refused(
+                service::Refusal::RegistrationLocked
+            ))
+        ),
+        "{refused:?}"
+    );
+    assert!(
+        raffles::get(&app.db, &raffle.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .registration
     );
 }
 
@@ -4642,9 +4825,15 @@ async fn abandoned_freezes_leave_limbo() {
         .await
         .unwrap();
     assert!(
-        raffles::freeze(&app.db, &orphan.id, RaffleState::Open, app.clock.now())
-            .await
-            .unwrap()
+        raffles::freeze(
+            &app.db,
+            &orphan.id,
+            RaffleState::Open,
+            true,
+            app.clock.now()
+        )
+        .await
+        .unwrap()
     );
     let manifest = rafi_raffle::Manifest::new(
         orphan.id.as_str(),
@@ -4679,7 +4868,7 @@ async fn abandoned_freezes_leave_limbo() {
         .await
         .unwrap();
     assert!(
-        raffles::freeze(&app.db, &stuck.id, RaffleState::Open, app.clock.now())
+        raffles::freeze(&app.db, &stuck.id, RaffleState::Open, true, app.clock.now())
             .await
             .unwrap()
     );

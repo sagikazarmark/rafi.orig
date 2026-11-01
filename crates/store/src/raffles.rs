@@ -54,6 +54,9 @@ pub struct RaffleRow {
     /// Decoding fails on a state rafi doesn't know: never guessed.
     pub state: RaffleState,
     pub test_mode: bool,
+    /// Whether people may join with the QR code: the lifecycle's moves
+    /// depend on it ([`RaffleState::apply`]).
+    pub registration: bool,
     pub manifest: Option<String>,
     pub manifest_hash: Option<String>,
     pub frozen_at: Option<i64>,
@@ -187,6 +190,8 @@ pub struct Settings<'a> {
     /// date, `erase_at`, is the database's: these two, added.
     pub retention_days: i64,
     pub test_mode: bool,
+    /// Whether people may join with the QR code.
+    pub registration: bool,
 }
 
 pub async fn get(db: &Db, id: &str) -> Result<Option<RaffleRow>> {
@@ -240,8 +245,8 @@ fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>, s: &Settings<'_>, now: i64) -
     db.query(
         "INSERT INTO raffles (id, owner_id, slug, join_code, title, description, organizer_name, contact_email,
                               privacy_email, privacy_text, privacy_url, rules, event_date, event_ends_at,
-                              retention_days, test_mode, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                              retention_days, test_mode, registration, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id)
     .bind(r.owner_id)
@@ -259,6 +264,7 @@ fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>, s: &Settings<'_>, now: i64) -
     .bind(s.event_ends_at)
     .bind(s.retention_days)
     .bind(s.test_mode)
+    .bind(s.registration)
     .bind(now)
     .bind(now)
 }
@@ -268,8 +274,8 @@ fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>, s: &Settings<'_>, now: i64) -
 pub struct SettingsWrite {
     /// The settings were written: `false` if they changed a fixed setting
     /// (the rules, the event date, the retention period, the privacy text or
-    /// link) after someone accepted them, or test mode once the list is
-    /// frozen.
+    /// link) after someone accepted them, test mode once the list is
+    /// frozen, or registration while it is open or once the list is frozen.
     pub written: bool,
     /// Whether fake entrants went with test mode. (Change counts are only
     /// zero or not on every backend: D1's include the triggers' writes.)
@@ -300,9 +306,11 @@ pub async fn update_settings(
 /// Writes the settings, unless they change a fixed setting after a real
 /// entrant is in ([`rafi_lifecycle::settings::rules_editable`]: the
 /// rules, the event date and with it the erasure date, the retention period,
-/// the privacy text and link) or test mode once the entrant list is frozen
-/// ([`RaffleState::test_mode_editable`]): the checks and the write are one
-/// statement, so no join or freeze slips in between.
+/// the privacy text and link), test mode once the entrant list is frozen
+/// ([`RaffleState::test_mode_editable`]) or registration while it is open or
+/// once the list is frozen ([`RaffleState::registration_editable`]): the
+/// checks and the write are one statement, so no join, opening or freeze
+/// slips in between.
 fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>, now: i64) -> Query<'a> {
     let locking = Source::ALL
         .into_iter()
@@ -313,13 +321,16 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>, now: i64) -> Query
     db.query(format!(
         "UPDATE raffles SET title = ?1, description = ?2, organizer_name = ?3, contact_email = ?4,
          privacy_email = ?5, privacy_text = ?6, privacy_url = ?7, rules = ?8, event_date = ?9,
-         event_ends_at = ?10, retention_days = ?11, test_mode = ?12, updated_at = ?13
+         event_ends_at = ?10, retention_days = ?11, test_mode = ?12, updated_at = ?13,
+         registration = ?15
          WHERE id = ?14
            AND ((rules = ?8 AND event_date = ?9 AND privacy_text = ?6 AND privacy_url = ?7
                  AND event_ends_at = ?10 AND retention_days = ?11)
                 OR NOT EXISTS (SELECT 1 FROM entrants WHERE raffle_id = ?14 AND source IN ({locking})))
-           AND (test_mode = ?12 OR state IN ({test_mode_editable}))",
+           AND (test_mode = ?12 OR state IN ({test_mode_editable}))
+           AND (registration = ?15 OR state IN ({registration_editable}))",
         test_mode_editable = states(RaffleState::test_mode_editable),
+        registration_editable = states(RaffleState::registration_editable),
     ))
     .bind(s.title)
     .bind(s.description)
@@ -335,6 +346,7 @@ fn settings_query<'a>(db: &'a Db, id: &str, s: &Settings<'_>, now: i64) -> Query
     .bind(s.test_mode)
     .bind(now)
     .bind(id)
+    .bind(s.registration)
 }
 
 /// Creates a draft raffle with `settings` and `prizes` (IDs and fields) in
@@ -365,37 +377,52 @@ pub async fn delete(db: &Db, id: &str) -> Result<()> {
         .map(|_| ())
 }
 
-/// Moves the raffle from `from` to `to`, `now`. Returns `false` (and changes
-/// nothing) if it isn't in `from` any more.
+/// Moves the raffle from `from` to `to`, `now`, as the lifecycle decided
+/// with `registration` ([`RaffleState::apply`]). Returns `false` (and
+/// changes nothing) if it isn't in `from` any more, or its registration
+/// setting changed since: the move may not hold with the other (no opening
+/// without registration, no freeze from Published with it).
 pub async fn transition(
     db: &Db,
     id: &str,
     from: RaffleState,
     to: RaffleState,
+    registration: bool,
     now: i64,
 ) -> Result<bool> {
     let changed = db
-        .query("UPDATE raffles SET state = ?, updated_at = ? WHERE id = ? AND state = ?")
+        .query(
+            "UPDATE raffles SET state = ?, updated_at = ?
+             WHERE id = ? AND state = ? AND registration = ?",
+        )
         .bind(to.as_str())
         .bind(now)
         .bind(id)
         .bind(from.as_str())
+        .bind(registration)
         .run()
         .await?;
     Ok(changed > 0)
 }
 
 /// The freeze's first step: closes registration of a raffle in `from` (which
-/// the lifecycle allows to freeze, [`RaffleState::apply`]). Returns `false` if
-/// it isn't in `from` any more.
-pub async fn freeze(db: &Db, id: &str, from: RaffleState, now: i64) -> Result<bool> {
-    transition(db, id, from, RaffleState::Frozen, now).await
+/// the lifecycle allows to freeze with `registration`,
+/// [`RaffleState::apply`]; without registration, from Published). Returns
+/// `false` if it isn't in `from` any more, or its registration changed.
+pub async fn freeze(
+    db: &Db,
+    id: &str,
+    from: RaffleState,
+    registration: bool,
+    now: i64,
+) -> Result<bool> {
+    transition(db, id, from, RaffleState::Frozen, registration, now).await
 }
 
 /// Reverts a freeze that found nobody to draw from: a frozen raffle without a
 /// manifest goes back to `to` ([`RaffleState::unfreeze`]: the state it froze
-/// from). It undoes the freeze's first step, the store having no transaction
-/// to roll back.
+/// from, Published for a raffle without registration). It undoes the
+/// freeze's first step, the store having no transaction to roll back.
 pub async fn unfreeze(db: &Db, id: &str, to: RaffleState, now: i64) -> Result<()> {
     db.query(
         "UPDATE raffles SET state = ?, updated_at = ?

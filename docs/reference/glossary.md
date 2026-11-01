@@ -30,6 +30,7 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Claim code** | A private code shown on the entrant's phone and in the admin. A winner shows it to collect their prize. Erasure clears it. |
 | **Join code** | The six-character code in the join URL `/j/<CODE>`, also on the projector for typing (shown as `K7Q-2X3`; case and dashes don't matter). Letters and digits without look-alikes. A purged raffle keeps its code but no longer answers to it |
 | **Slug** | The raffle's public name in `/s/<slug>`, `/v/<slug>`, `/rules/<slug>` and `/privacy/<slug>` |
+| **Registration** (setting), "Let people join with the QR code" | Whether people may join with the QR code (`registration`, on by default; in the settings, the owner's defaults and copies). Off, the raffle has no registration: no Open or Close, no QR code on the projector, no form on `/j/<CODE>`; it freezes from Published, and its entrants are the people the organizer added. Switchable before the freeze, but not while registration is open; not fixed with the rules, which describe both ways in. |
 | **Test mode** | Rehearsal: the organizer can add fake entrants, and a TEST badge shows on every screen, the verification page included. Switching it off removes the fakes; it is fixed once the list is frozen. |
 
 ## The lifecycle
@@ -37,9 +38,9 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | Term | Meaning |
 |---|---|
 | **Draft** | Being set up. Not public. |
-| **Published** (`Ready`) | The projector shows the intro screen, but nobody can join yet |
+| **Published** (`Ready`) | The projector shows the intro screen, but nobody can join yet. Without registration, the list is frozen from here. |
 | **Registration open** / **closed** (`Open` / `Closed`) | Whether phones can join. Registration can be reopened until the freeze. |
-| **Freeze**, "Freeze list & start the draw" | Closes registration for good, fixes the entrant list, writes the manifest and opens the raffle in the engine |
+| **Freeze**, "Freeze list & start the draw" | Closes registration for good, fixes the entrant list, writes the manifest and opens the raffle in the engine. From Registration open or closed; without registration, from Published, after the checks opening would make (an organizer and a contact named, the erasure date not passed). A freeze that finds nobody goes back where it came from. |
 | **Ready to draw** (`Frozen`) | Frozen, before the first draw |
 | **Drawing** | At least one draw has started |
 | **Finished** | "Finish the raffle": nothing more can be drawn |

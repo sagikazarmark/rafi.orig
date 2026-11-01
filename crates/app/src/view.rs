@@ -189,6 +189,7 @@ pub fn of(app: &App, full: &Full, now: i64) -> anyhow::Result<RaffleView> {
         server_now_ms: rafi_store::now_ms(),
         test_mode: raffle.test_mode,
         verifiable,
+        registration: raffle.registration,
         state,
     })
 }

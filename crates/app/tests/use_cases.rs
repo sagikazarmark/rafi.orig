@@ -359,6 +359,7 @@ async fn the_admin_page_offers_what_the_rules_allow() {
             &app.db,
             &id,
             rafi_lifecycle::RaffleState::Open,
+            true,
             app.clock.now(),
         )
         .await
@@ -1540,4 +1541,192 @@ async fn a_winner_who_took_themselves_off_is_declined() {
         refusal(app::object_entrant(&app, ACTOR, &other, &kim).await),
         Refusal::Objection(rafi_lifecycle::entrant::ObjectionRefusal::Claimed)
     );
+}
+
+/// A raffle with one prize and registration off, its organizer named or
+/// not, published; returns its ID.
+async fn published_without_registration(app: &App, named: bool) -> String {
+    let id = app::create(app, ACTOR, "Gala", &EventDate::today(app))
+        .await
+        .unwrap();
+    let mut settings = app::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
+    settings.registration = false;
+    if named {
+        settings.organizer_name = "Gala".into();
+        settings.contact_email = "hello@example.com".into();
+    }
+    app::update_settings(app, ACTOR, &id, settings)
+        .await
+        .unwrap();
+    app::upsert_prize(
+        app,
+        ACTOR,
+        &id,
+        PrizeInput {
+            id: None,
+            name: "Book".into(),
+            sponsor: String::new(),
+            description: String::new(),
+            qty: 1,
+            position: 0,
+            delivery: Delivery::Later,
+        },
+    )
+    .await
+    .unwrap();
+    app::lifecycle(app, ACTOR, &id, LifecycleCommand::Publish)
+        .await
+        .unwrap();
+    id
+}
+
+/// Without registration a raffle doesn't open: it freezes from Published,
+/// once the notice names a controller and a contact, with the people the
+/// organizer added; the setting is fixed from then on.
+#[tokio::test]
+async fn without_registration_the_list_freezes_from_published() {
+    let app = app().await;
+    let id = published_without_registration(&app, false).await;
+    let admin = app::admin(&app, OWNER, &id).await.unwrap();
+    assert!(!admin.settings.registration && !admin.view.registration);
+    assert_eq!(admin.actions.lifecycle, [LifecycleCommand::Unpublish]);
+    assert_eq!(admin.actions.start, Some(StartStep::Freeze));
+    assert!(admin.actions.edit_registration);
+    assert_eq!(
+        refusal(app::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open).await),
+        Refusal::NoRegistration
+    );
+    add_one(&app, &id, "Anna", None).await.unwrap();
+
+    // The checks opening would have made.
+    let refused = refusal(app::start_draw(&app, ACTOR, &id).await);
+    assert_eq!(
+        refused,
+        Refusal::OrganizerMissing {
+            fields: vec!["the organizer's name", "a contact or privacy email"],
+            registration: false,
+        }
+    );
+    assert!(
+        refused
+            .to_string()
+            .starts_with("Before the list can be frozen, fill in")
+    );
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    assert_eq!(raffle.state, rafi_lifecycle::RaffleState::Ready);
+    let mut settings = app::settings_of(&raffle);
+    settings.organizer_name = "Gala".into();
+    settings.contact_email = "hello@example.com".into();
+    app::update_settings(&app, ACTOR, &id, settings.clone())
+        .await
+        .unwrap();
+
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    assert!(raffle.state.drawable() && raffle.manifest.is_some());
+    let actions = app::admin(&app, OWNER, &id).await.unwrap().actions;
+    assert!(actions.lifecycle.is_empty() && !actions.edit_registration);
+    settings.registration = true;
+    assert_eq!(
+        refusal(app::update_settings(&app, ACTOR, &id, settings).await),
+        Refusal::RegistrationLocked
+    );
+
+    let audit: Vec<(String, String)> = app
+        .db
+        .query("SELECT action, detail FROM audit WHERE raffle_id = ? AND action = 'settings' ORDER BY id")
+        .bind(&id)
+        .all()
+        .await
+        .unwrap();
+    assert_eq!(audit[0].1, "registration", "{audit:?}");
+}
+
+/// A freeze from Published that finds nobody to draw from goes back to
+/// Published, where the next one starts.
+#[tokio::test]
+async fn a_freeze_from_published_unfreezes_to_it() {
+    let app = app().await;
+    let id = published_without_registration(&app, true).await;
+    // The freeze's first step, everyone removed meanwhile.
+    assert!(
+        raffles::freeze(
+            &app.db,
+            &id,
+            rafi_lifecycle::RaffleState::Ready,
+            false,
+            app.clock.now(),
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        refusal(app::start_draw(&app, ACTOR, &id).await),
+        Refusal::Start(rafi_lifecycle::start::Refusal::NoEntrants)
+    );
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    assert_eq!(raffle.state, rafi_lifecycle::RaffleState::Ready);
+    let actions = app::admin(&app, OWNER, &id).await.unwrap().actions;
+    assert_eq!(actions.start, Some(StartStep::Freeze));
+}
+
+/// Registration switches before the freeze, but not while it is open; a
+/// raffle switched off once closed doesn't reopen, and freezes from Closed.
+#[tokio::test]
+async fn registration_switches_only_while_nobody_is_joining() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &["Anna"]).await;
+    let admin = app::admin(&app, OWNER, &id).await.unwrap();
+    assert!(
+        admin.settings.registration && admin.view.registration,
+        "on by default"
+    );
+    assert_eq!(admin.actions.lifecycle, [LifecycleCommand::Close]);
+    assert!(!admin.actions.edit_registration);
+    let mut off = admin.settings.clone();
+    off.registration = false;
+    assert_eq!(
+        refusal(app::update_settings(&app, ACTOR, &id, off.clone()).await),
+        Refusal::RegistrationLocked
+    );
+
+    app::lifecycle(&app, ACTOR, &id, LifecycleCommand::Close)
+        .await
+        .unwrap();
+    let admin = app::admin(&app, OWNER, &id).await.unwrap();
+    assert_eq!(admin.actions.lifecycle, [LifecycleCommand::Open], "reopen");
+    app::update_settings(&app, ACTOR, &id, off).await.unwrap();
+    let admin = app::admin(&app, OWNER, &id).await.unwrap();
+    assert!(
+        admin.actions.lifecycle.is_empty(),
+        "no reopening: {:?}",
+        admin.actions.lifecycle
+    );
+    assert_eq!(admin.actions.start, Some(StartStep::Freeze));
+    assert_eq!(
+        refusal(app::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open).await),
+        Refusal::NoRegistration
+    );
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    assert!(
+        raffles::get(&app.db, &id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state
+            .drawable()
+    );
+}
+
+/// A copy keeps the original's registration setting.
+#[tokio::test]
+async fn a_copy_keeps_registration() {
+    let app = app().await;
+    let id = published_without_registration(&app, true).await;
+    let copy = app::duplicate(&app, ACTOR, &id, &EventDate::today(&app))
+        .await
+        .unwrap();
+    let copy = raffles::get(&app.db, &copy).await.unwrap().unwrap();
+    assert!(!copy.registration);
+    assert_eq!(copy.state, rafi_lifecycle::RaffleState::Draft);
 }

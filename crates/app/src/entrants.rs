@@ -942,7 +942,11 @@ pub async fn unobject_entrant(
 /// its live channel.
 pub async fn purge(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<()> {
     let raffle = owned(app, actor.owner, raffle_id).await?;
-    if raffle.state.apply(lifecycle::Command::Purge).is_none() {
+    if raffle
+        .state
+        .apply(lifecycle::Command::Purge, raffle.registration)
+        .is_none()
+    {
         return Err(Refusal::NotOver(Unfinished::Purge).into());
     }
     let now = app.clock.now();

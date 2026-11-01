@@ -46,6 +46,7 @@ stateDiagram-v2
     Closed --> Open: Reopen registration
     Open --> Frozen: Freeze list & start the draw
     Closed --> Frozen: Freeze list & start the draw
+    Ready --> Frozen: Freeze list & start the draw<br/>(no registration)
     Frozen --> Drawing: first Draw
     Drawing --> Finished: Finish the raffle
     Finished --> Purged: Erase personal data now,<br/>or the winner hold passes
@@ -56,15 +57,16 @@ stateDiagram-v2
 ```
 
 A raffle that was never frozen **expires** when its erasure date passes, whatever its state: its entrants are
-deleted outright and it becomes Data erased.
+deleted outright and it becomes Data erased. A raffle [without registration](#raffles-without-registration) never
+opens: it goes from Published to the freeze.
 
-| State | Prizes and entrants editable | Phones can join | Draws |
-|---|---|---|---|
-| Draft, Published | yes | no | no |
-| Registration open | yes | **yes** | no |
-| Registration closed | yes | no | no |
-| Ready to draw, Drawing | no (only withdraw an item) | no | **yes** |
-| Finished, Data erased | no | no | no |
+| State | Prizes and entrants editable | Registration switchable | Phones can join | Draws |
+|---|---|---|---|---|
+| Draft, Published | yes | yes | no | no |
+| Registration open | yes | no (close it first) | **yes** | no |
+| Registration closed | yes | yes | no | no |
+| Ready to draw, Drawing | no (only withdraw an item) | no | no | **yes** |
+| Finished, Data erased | no | no | no | no |
 
 ## Before the event
 
@@ -84,7 +86,9 @@ deleted outright and it becomes Data erased.
    the **retention period** (how many days after the event non-winners are erased: the service's default, 7,
    unless you choose otherwise, at most 30); and any **additional rules**, one paragraph per line. Put a higher age
    limit there (the service's minimum is in the standard rules, and the join form says the rules may ask for
-   more). Save them as **your defaults** so the next raffle starts with them.
+   more). **Let people join with the QR code** is on unless you switch it off: off, the raffle has no registration
+   and its entrants are the people you add ([below](#raffles-without-registration)). Save them as **your
+   defaults** so the next raffle starts with them.
    - **Adding people from a guest list?** Tell them before the event. Under the privacy fields, the settings show
      **What to tell the people you add**: a paragraph to copy onto the event page or into the confirmation email,
      and edit as you like. It says they are in your prize draw, that their name is shown on the event screen and
@@ -138,6 +142,26 @@ deleted outright and it becomes Data erased.
 
 You can close and reopen registration as often as you like before the draw.
 
+### Raffles without registration
+
+When the people taking part are the ones on your list (a gala's guests, a team's members), switch off **Let people
+join with the QR code** in the settings. You can always add people yourself, one by one or from a list, with
+registration or without.
+
+- The raffle has no **Open registration** or **Close registration**: after **Publish the intro screen**, the next
+  step is **Freeze list & start the draw**, from Published. Like opening registration, it needs the organizer and
+  a contact email in the settings, and an erasure date that hasn't passed.
+- The projector shows the title, the prizes, the entrant count and the latest names: no QR code, no join link or
+  code, no "No smartphone?".
+- The participant page (`/j/<CODE>`) has no form: it says the organizer adds the people taking part, and links the
+  rules, the privacy notice and, once the list is frozen, the verification page. Nobody can join.
+- If the freeze finds nobody to draw from, the raffle goes back to Published.
+- The setting can change until the freeze, but not while registration is open: close it first, so nobody is cut
+  off in the middle of the form. Add your registrants and then switch it on for walk-ins, or the other way round.
+  A raffle switched off once registration closed doesn't reopen, and freezes from there. The rules describe both
+  ways in, so switching changes nothing anyone accepted.
+- Copies (**Duplicate**) keep the setting; new raffles take it from your defaults.
+
 ### Adding a list
 
 **Add people → Paste or upload a list** puts everyone on your guest list in the draw at once, once the raffle is
@@ -183,7 +207,8 @@ the draw before it, with the paragraph shown there (also in the settings), in th
 
 ## Starting the draw
 
-Press **Freeze list & start the draw** when everyone is in. It asks first, because this step is final:
+Press **Freeze list & start the draw** when everyone is in (from Registration open or closed, or from Published in a
+raffle without registration). It asks first, because this step is final:
 
 - Registration closes for good. Latecomers can't be added.
 - The entrant list is frozen into the **manifest** and published as a hash and a list of anonymous IDs. The
@@ -203,7 +228,8 @@ Press **Freeze list & start the draw** when everyone is in. It asks first, becau
 - The raffle is handed to the raffle engine.
 
 If handing over fails (for example, the engine is briefly unreachable), the admin offers **Retry handing the list
-to the raffle engine**. That picks up where it stopped. If nobody has entered, the freeze is undone.
+to the raffle engine**. That picks up where it stopped. If nobody has entered, the freeze is undone: the raffle goes
+back to Registration closed (or, without registration, to Published).
 
 ## Drawing
 
@@ -259,8 +285,9 @@ organization, an admin does this, for every co-host's raffles.
 ## Checklist
 
 - [ ] Prizes entered with the right quantities, sponsors and delivery (on the spot or sent later)
-- [ ] Event date right, organizer, contact email and additional rules filled in (registration won't open without
-      an organizer and a contact)
+- [ ] Event date right, organizer, contact email and additional rules filled in (registration won't open, nor a
+      raffle without registration freeze, without an organizer and a contact)
+- [ ] **Let people join with the QR code** as you want it: off if only the people you add take part
 - [ ] Rehearsed on a duplicate in test mode, with the projector
 - [ ] The projector screen in fullscreen, readable from the back of the room
 - [ ] The venue wifi or mobile data reaches the server over HTTPS

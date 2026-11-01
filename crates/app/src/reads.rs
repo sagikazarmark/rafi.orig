@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 
 use rafi_api::{
-    AdminActions, AdminEntrant, EntrantActions, Prize, RaffleAdmin, RemovedAtRequest, Retention,
-    StartStep, UndoBatch, VerifyData,
+    AdminActions, AdminEntrant, EntrantActions, LifecycleCommand, Prize, RaffleAdmin,
+    RemovedAtRequest, Retention, StartStep, UndoBatch, VerifyData,
 };
 use rafi_lifecycle::{
     self as lifecycle, RaffleState,
@@ -52,16 +52,31 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         raffle.past_erase_date(now),
     );
     let actions = AdminActions {
-        start: start::next(raffle.state, raffle.manifest.is_some(), raffle.opened())
-            .ok()
-            .map(|step| match step {
-                Start::Freeze { .. } => StartStep::Freeze,
-                Start::WriteManifest { .. } | Start::Resend => StartStep::Retry,
-                Start::Started => StartStep::Started,
-            }),
+        start: start::next(
+            raffle.state,
+            raffle.registration,
+            raffle.manifest.is_some(),
+            raffle.opened(),
+        )
+        .ok()
+        .map(|step| match step {
+            Start::Freeze { .. } => StartStep::Freeze,
+            Start::WriteManifest { .. } | Start::Resend => StartStep::Retry,
+            Start::Started => StartStep::Started,
+        }),
+        // The header's buttons, with the registration setting: no opening
+        // without it.
+        lifecycle: LifecycleCommand::ALL
+            .into_iter()
+            .filter(|&c| raffle.state.apply(c.into(), raffle.registration).is_some())
+            .collect(),
+        edit_registration: raffle.state.registration_editable(),
         draw: raffle.state.frozen_or_later(),
         export: raffle.state.frozen_or_later(),
-        purge: raffle.state.apply(lifecycle::Command::Purge).is_some()
+        purge: raffle
+            .state
+            .apply(lifecycle::Command::Purge, raffle.registration)
+            .is_some()
             && (raffle.state == RaffleState::Finished || personal_data_left),
         edit_rules: settings::rules_editable(full.entrants.iter().map(|e| e.source)),
         removal: raffle.state.removal(raffle.past_erase_date(now)),

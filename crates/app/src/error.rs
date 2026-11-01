@@ -97,6 +97,9 @@ pub enum Refusal {
     PrivacyUrl,
     ContactEmail,
     TestModeLocked,
+    /// Registration can't be switched while it is open, or once the list is
+    /// frozen ([`RaffleState::registration_editable`]).
+    RegistrationLocked,
     /// The named fixed settings can't change: someone accepted the rules
     /// they were shown with.
     SettingsFixed(Vec<&'static str>),
@@ -109,12 +112,21 @@ pub enum Refusal {
     /// The raffle has drawn (or announced a draw): its record stays.
     Drawn,
     JoinCodes,
-    /// Registration can't open: the privacy notice can't name the organizer
-    /// or a way to reach them. The fields still missing.
-    OrganizerMissing(Vec<&'static str>),
-    /// Registration can't open: the erasure date has passed, so the raffle
-    /// expires within the hour. The date can move while nobody has joined.
+    /// Registration can't open (or, without registration, the list can't
+    /// be frozen from Published): the privacy notice can't name the
+    /// organizer or a way to reach them. The fields still missing, and
+    /// whether the raffle has registration, for the words.
+    OrganizerMissing {
+        fields: Vec<&'static str>,
+        registration: bool,
+    },
+    /// Registration can't open (or the list be frozen from Published): the
+    /// erasure date has passed, so the raffle expires within the hour. The
+    /// date can move while nobody has joined.
     ErasureDatePassed,
+    /// Registration can't open: the raffle has none ("Let people join with
+    /// the QR code" is off).
+    NoRegistration,
     /// The organizer's data can't be removed while one of their raffles is
     /// frozen or drawing.
     EventLive,
@@ -241,6 +253,7 @@ impl Refusal {
             Self::PrivacyUrl => "privacy_url",
             Self::ContactEmail => "contact_email",
             Self::TestModeLocked => "test_mode_locked",
+            Self::RegistrationLocked => "registration_locked",
             Self::SettingsFixed(_) => "settings_fixed",
             Self::PrizeName => "prize_name",
             Self::PrizeQty => "prize_qty",
@@ -248,8 +261,9 @@ impl Refusal {
             Self::PrizeDeliveryFixed => "prize_delivery_fixed",
             Self::Drawn => "drawn",
             Self::JoinCodes => "join_codes",
-            Self::OrganizerMissing(_) => "organizer_missing",
+            Self::OrganizerMissing { .. } => "organizer_missing",
             Self::ErasureDatePassed => "erasure_date_passed",
+            Self::NoRegistration => "no_registration",
             Self::EventLive => "event_live",
             Self::Forbidden(_) => "forbidden",
             Self::Lifecycle { .. } => "lifecycle",
@@ -327,6 +341,9 @@ impl fmt::Display for Refusal {
                 f.write_str("The privacy notice link must be an absolute https:// URL.")
             }
             Self::TestModeLocked => f.write_str("Test mode cannot change once the list is frozen."),
+            Self::RegistrationLocked => f.write_str(
+                "Joining with the QR code can't be switched on or off while registration is open (close it first), or once the list is frozen.",
+            ),
             Self::SettingsFixed(fields) if fields.is_empty() => f.write_str(
                 "These settings cannot change: entrants have already accepted them.",
             ),
@@ -355,13 +372,24 @@ impl fmt::Display for Refusal {
                 "This raffle has drawn prizes, so its record stays verifiable and it can't be deleted. Finish it, then erase its personal data from the menu.",
             ),
             Self::JoinCodes => f.write_str("Could not allocate a unique join code; please try again."),
-            Self::OrganizerMissing(fields) => write!(
+            Self::OrganizerMissing {
+                fields,
+                registration,
+            } => write!(
                 f,
-                "Before registration can open, fill in {} in the settings: the privacy notice must name the data controller and how to reach them.",
+                "Before {}, fill in {} in the settings: the privacy notice must name the data controller and how to reach them.",
+                if *registration {
+                    "registration can open"
+                } else {
+                    "the list can be frozen"
+                },
                 fields.join(" and ")
             ),
             Self::ErasureDatePassed => f.write_str(
                 "The erasure date has passed: this raffle expires within the hour. Move the event date (possible until someone joins) or duplicate the raffle.",
+            ),
+            Self::NoRegistration => f.write_str(
+                "This raffle has no registration: switch on “Let people join with the QR code” in the settings to open it, or freeze the list of the people you added.",
             ),
             Self::EventLive => f.write_str(
                 "Your data can't be removed while one of your raffles is being drawn. Finish it first.",

@@ -74,7 +74,13 @@ pub(super) fn People(
             if admin.entrants.is_empty() {
                 div { class: "rounded-box border-2 border-dashed border-base-300 py-10 text-center",
                     p { class: "text-4xl", "🙋" }
-                    p { class: "mt-2 text-base-content/60", "Nobody yet. Open registration and show the projector screen." }
+                    p { class: "mt-2 text-base-content/60",
+                        if admin.settings.registration {
+                            "Nobody yet. Open registration and show the projector screen."
+                        } else {
+                            "Nobody yet. Add the people taking part, then freeze the list."
+                        }
+                    }
                 }
             } else {
                 label { class: "input w-full",
@@ -86,7 +92,7 @@ pub(super) fn People(
                         thead { tr { th { "Name" } th { "Email" } th { "Claim code" } th { "Status" } th {} } }
                         tbody {
                             for e in shown.iter() {
-                                EntrantRow { key: "{e.id}", raffle_id: admin.id.clone(), entrant: e.clone(), removal, winners_erase_date: admin.retention.winners_erase_date.clone(), error, on_change }
+                                EntrantRow { key: "{e.id}", raffle_id: admin.id.clone(), entrant: e.clone(), removal, winners_erase_date: admin.retention.winners_erase_date.clone(), registration: admin.settings.registration, error, on_change }
                             }
                         }
                     }
@@ -197,6 +203,10 @@ fn EntrantRow(
     removal: Option<Removal>,
     /// The day held winners are erased at the latest, in words.
     winners_erase_date: String,
+    /// Whether people join with the QR code (the remove dialog says they
+    /// can join again).
+    #[props(default = true)]
+    registration: bool,
     error: Signal<Option<String>>,
     on_change: EventHandler<()>,
 ) -> Element {
@@ -356,7 +366,7 @@ fn EntrantRow(
                     }
                     match removal {
                         Some(Removal::Delete) => rsx! {
-                            RemoveDialog { open: confirm, entrant: e.clone(), on_confirm: { let remove = remove.clone(); move |at_request| { spawn(remove(at_request)); } } }
+                            RemoveDialog { open: confirm, entrant: e.clone(), registration, on_confirm: { let remove = remove.clone(); move |at_request| { spawn(remove(at_request)); } } }
                         },
                         Some(Removal::Erase) => rsx! {
                             Confirm {
@@ -405,6 +415,9 @@ const OBJECT_BODY: &str = "For someone you added who asks, after the freeze, not
 fn RemoveDialog(
     open: Signal<bool>,
     entrant: AdminEntrant,
+    /// Whether people join with the QR code: then they can join again.
+    #[props(default = true)]
+    registration: bool,
     on_confirm: EventHandler<bool>,
 ) -> Element {
     let mut at_request = use_signal(|| false);
@@ -420,7 +433,13 @@ fn RemoveDialog(
                 open.set(next)
             },
             AlertDialogTitle { "Remove {entrant.display_name}?" }
-            AlertDialogDescription { "They are taken off the entrant list. They can join again while registration is open." }
+            AlertDialogDescription {
+                if registration {
+                    "They are taken off the entrant list. They can join again while registration is open."
+                } else {
+                    "They are taken off the entrant list."
+                }
+            }
             if real {
                 label { class: "flex items-start gap-3 text-sm",
                     Switch { value: Some(at_request()), on_change: move |on| at_request.set(on) }

@@ -13,7 +13,9 @@ makes the result trustworthy, see [Why the draw is verifiable](../explanation/ve
 
 ## 1. Freezing the list
 
-**Freeze list & start the draw** turns the raffle's entrants and prizes into a **manifest**:
+**Freeze list & start the draw**, offered while registration is open or closed (or, in a raffle [without
+registration](running-a-raffle.md#raffles-without-registration), once it is published), turns the raffle's
+entrants and prizes into a **manifest**:
 
 - every entrant, as a random anonymous ID (no names or emails)
 - one **item** per copy of each prize ("3 × T-shirt" becomes three items)

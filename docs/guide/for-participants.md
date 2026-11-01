@@ -29,7 +29,10 @@ No smartphone? Go to the organizer: they can add you by name.
 ## If the organizer added you
 
 Some organizers enter the people on their guest list or check-in list themselves, so you may be in the raffle
-without scanning anything. The organizer should have told you, with links to the rules and the privacy notice.
+without scanning anything. The organizer should have told you, with links to the rules and the privacy notice. Some
+raffles have no QR code at all: only the people the organizer adds take part, and the raffle's page (`/j/…`, if
+you have its address) has no form, only the rules, the privacy notice and, once the list is frozen, the
+verification page.
 
 - **What Rafi has of you:** your name, and your email if the organizer gave it. Nothing else from their list.
 - **Your name is shown** on the event screen and the verification page, like everyone's, as the organizer chose:
@@ -44,7 +47,8 @@ without scanning anything. The organizer should have told you, with links to the
 
 ## The draw
 
-When the organizer starts the draw, registration closes and the list of entrants is published as anonymous IDs.
+When the organizer starts the draw, registration (if there was any) closes and the list of entrants is published as
+anonymous IDs.
 Then, for each prize:
 
 - Everyone sees **"Locking in public randomness · drand round …"** and a short countdown. The result will come

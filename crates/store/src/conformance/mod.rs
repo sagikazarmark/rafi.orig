@@ -22,7 +22,8 @@
 //!   of later adds until lifted, forgotten when no add can come), people
 //!   who took themselves off after the freeze (hidden, erased at the end),
 //!   fake entrants across statements, under the cap and
-//!   with test mode, erasure (only once the raffle is over)
+//!   with test mode, the registration setting guarding opening, the freeze
+//!   from Published and its own switch, erasure (only once the raffle is over)
 //!   and its log, housekeeping's clocks (expiry, the erasure date, the
 //!   winner hold, the purge at the ceiling, re-applying after a restore),
 //!   delivering every prize and the organizer leaving, the terms accepted,
@@ -226,6 +227,7 @@ pub static SCENARIOS: &[Scenario] = scenarios! {
     "domain.objections" => domain::objections_hide_and_erase_at_the_end,
     "domain.rules_fixed" => domain::rules_are_fixed_once_accepted,
     "domain.test_mode_fakes" => domain::fakes_go_with_test_mode,
+    "domain.registration" => domain::registration_guards_the_lifecycle,
     "domain.owner_defaults" => domain::saves_owner_defaults,
     "domain.erasure_log" => domain::erases_and_logs_erasures,
     "domain.retention" => domain::retention_erases_what_is_due,

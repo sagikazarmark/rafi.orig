@@ -125,9 +125,16 @@ fn PrizeList(view: RaffleView) -> Element {
     }
 }
 
+/// Before the freeze: the prizes, and how to get in. With registration,
+/// the QR code while it is open; without, no code, link or "No
+/// smartphone?": the organizer's list is who takes part.
 #[component]
 fn Intro(view: RaffleView) -> Element {
-    let qr = qr_svg(&view.join_url);
+    let qr = if view.registration {
+        qr_svg(&view.join_url)
+    } else {
+        String::new()
+    };
     let short = view
         .join_url
         .split("://")
@@ -141,13 +148,21 @@ fn Intro(view: RaffleView) -> Element {
                     p { class: "max-w-[34em] text-[1.25em] text-base-content/75", "{view.description}" }
                 }
                 PrizeList { view: view.clone() }
-                div { class: "inline-flex items-center gap-[0.6em] rounded-box bg-accent px-[1em] py-[0.6em] font-bold text-accent-content -rotate-1 shadow-sm",
-                    span { class: "text-[1.4em]", "📵" }
-                    "No smartphone? Come to the organizer!"
+                if view.registration {
+                    div { class: "inline-flex items-center gap-[0.6em] rounded-box bg-accent px-[1em] py-[0.6em] font-bold text-accent-content -rotate-1 shadow-sm",
+                        span { class: "text-[1.4em]", "📵" }
+                        "No smartphone? Come to the organizer!"
+                    }
                 }
             }
             div { class: "flex min-w-0 flex-col items-center gap-[0.8em] text-center",
                 match view.state {
+                    // Without registration: no QR code, and nothing said of
+                    // registration opening or closing. Who is in goes here.
+                    _ if !view.registration => rsx! {
+                        span { class: "animate-float text-[5em]", "🎟️" }
+                        p { class: "font-display text-[2em] font-extrabold", "The draw is coming up" }
+                    },
                     RaffleState::Open => rsx! {
                         div { class: "relative",
                             div { class: "absolute -inset-3 rounded-[2rem] bg-gradient-to-br from-primary via-secondary to-accent opacity-80 blur-xl" }
@@ -400,7 +415,58 @@ fn Finished(view: RaffleView) -> Element {
 
 #[cfg(test)]
 mod tests {
-    use super::reveal_size;
+    use super::*;
+
+    fn view(state: &str, registration: bool) -> RaffleView {
+        serde_json::from_value(serde_json::json!({
+            "v": 1, "follow": { "kind": "poll", "every_ms": 2500 }, "raffle_id": "r1",
+            "slug": "meetup", "title": "Meetup", "description": "", "state": state,
+            "join_code": "ABCDEF", "join_url": "https://rafi.example/j/ABCDEF", "entrant_count": 2,
+            "recent_names": ["Anna Kovács", "Bea"], "prizes": [], "items": [], "current": null,
+            "draws": [], "last_failure": null, "manifest_hash": null, "server_now_ms": 0,
+            "test_mode": false, "verifiable": true, "registration": registration
+        }))
+        .unwrap()
+    }
+
+    /// Without registration the intro has the count and the names, and no
+    /// way to join: no QR code, link, "No smartphone?" or word of
+    /// registration opening.
+    #[test]
+    fn the_intro_without_registration() {
+        for state in ["ready", "closed"] {
+            let html = dioxus_ssr::render_element(rsx! { Intro { view: view(state, false) } });
+            for absent in [
+                "<svg",
+                "rafi.example/j/ABCDEF",
+                "No smartphone?",
+                "Registration opens soon",
+                "Registration is closed.",
+                "Scan to join",
+            ] {
+                assert!(!html.contains(absent), "{state}, {absent}: {html}");
+            }
+            for present in ["The draw is coming up", "Anna Kovács", "entrants"] {
+                assert!(html.contains(present), "{state}, {present}: {html}");
+            }
+        }
+        // With it, as before.
+        let html = dioxus_ssr::render_element(rsx! { Intro { view: view("ready", true) } });
+        assert!(html.contains("Registration opens soon") && html.contains("No smartphone?"));
+        let html = dioxus_ssr::render_element(rsx! { Intro { view: view("open", true) } });
+        assert!(
+            html.contains("<svg") && html.contains("rafi.example/j/ABCDEF"),
+            "{html}"
+        );
+        // A view from before the setting: registration on.
+        let mut old = serde_json::to_value(view("open", true)).unwrap();
+        old.as_object_mut().unwrap().remove("registration");
+        assert!(
+            serde_json::from_value::<RaffleView>(old)
+                .unwrap()
+                .registration
+        );
+    }
 
     /// Longer names get smaller type, never larger; a joiner's short name
     /// keeps the full size, the organizer's longest the smallest.

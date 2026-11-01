@@ -35,7 +35,7 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 | Layer | Tests |
 |---|---|
 | `rafi-raffle` | Unit, property and vector tests. They include a chi-square bias test of the selection, and properties that whatever `Raffle::admit` allows, the engine can apply. |
-| `rafi-lifecycle` | The lifecycle's rules, including an exhaustive table for starting the draw (`start::next`) |
+| `rafi-lifecycle` | The lifecycle's rules, including exhaustive tables for its transitions and for starting the draw (`start::next`), with registration and without |
 | `rafi-store` | The [storage conformance suite](#storage-conformance) on every backend |
 | `rafi-engine`, `rafi-engine-restate` | The [engine conformance suite](#engine-conformance), on the local runner and on the `Raffle` object |
 | `rafi-app` | Use-case tests ([`crates/app/tests/use_cases.rs`](../../crates/app/tests/use_cases.rs)) |

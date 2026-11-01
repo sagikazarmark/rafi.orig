@@ -9,7 +9,7 @@ Every URL a Rafi app serves. All of them are on one origin.
 | `/admin`, `/admin/r/<id>` | The organizer's admin: raffles, prizes, people, the draw console | Organizers (Clerk login) |
 | `/s/<slug>` | The projector screen | Public |
 | `/v/<slug>` | The verification page. It re-runs every draw in the browser. | Public, once the list is frozen |
-| `/j/<CODE>` | The participant page: the join form, then the entrant's own card. Server-rendered. `POST` joins. | Public (the entry lives in a cookie) |
+| `/j/<CODE>` | The participant page: the join form, then the entrant's own card. Server-rendered. `POST` joins. Without registration, no form and no join: the organizer adds the people taking part, and the page links the rules, the notice and, once frozen, the verification page. | Public (the entry lives in a cookie) |
 | `/rules/<slug>` | The raffle's rules | Public |
 | `/privacy/<slug>` | The raffle's privacy notice: the organizer as controller, the erasure dates, the operator as processor, the organizer's own text | Public |
 | `/privacy` | The installation's own privacy notice (the operator's; from `privacy.md`) | Public |
@@ -54,7 +54,7 @@ These never contain emails, tokens or claim codes.
 
 | Path | What |
 |---|---|
-| `GET /api/r/<slug>/view` | The full view, which the projector and the admin poll: state, count, recent names, prizes, every draw, the server's time |
+| `GET /api/r/<slug>/view` | The full view, which the projector and the admin poll: state, count, recent names, prizes, every draw, the server's time, and whether people join with the QR code (`registration`; without it the projector shows no QR code) |
 | `GET /api/r/<slug>/participant` | The participant view, which phones render: state, the current draw, winners by entrant ID (whether they claimed, and whether the prize is sent later), prizes left |
 | `GET /api/r/<slug>/verify.json` | The manifest, its hash, the event log and display names ([format](draw-algorithm.md#verifyjson)) |
 | `GET /api/challenge` | A proof-of-work challenge for the join form |
@@ -69,7 +69,12 @@ These never contain emails, tokens or claim codes.
 
 Both sides come from one declaration, `admin_functions!` in [`crates/api/src/admin.rs`](../../crates/api/src/admin.rs),
 which also says how the functions are named. Among them: `whoami` (who is signed in and what they may do, whether
-housekeeping looks stopped), `set_lifecycle` (publish, open, close), `set_prize_delivery` (on the spot or sent
+housekeeping looks stopped), `set_lifecycle` (`publish`, `unpublish`, `open`, `close`: the ones the admin's view
+allows are its `actions.lifecycle`; `open` without registration is 409 `no_registration`), `start_draw` (the freeze,
+from Registration open or closed, or from Published without registration, `actions.start`), `save_settings` (with
+`registration`, whether people join with the QR code, `true` when left out: switchable before the freeze but not
+while registration is open, 409 `registration_locked`, `actions.edit_registration`; `save_defaults` takes it too),
+`set_prize_delivery` (on the spot or sent
 later, the one part of a prize that changes after the freeze), `deliver_all_prizes` ("All prizes delivered"),
 `remove_my_data` (the organizer leaving), and `export_winners_csv`, which is audited.
 

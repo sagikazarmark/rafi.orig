@@ -578,6 +578,7 @@ struct Settings {
     privacy_text: String,
     rules: String,
     test_mode: bool,
+    registration: bool,
 }
 
 impl From<&RaffleSettings> for Settings {
@@ -594,6 +595,7 @@ impl From<&RaffleSettings> for Settings {
             privacy_text: s.privacy_text.clone(),
             rules: s.rules.clone(),
             test_mode: s.test_mode,
+            registration: s.registration,
         }
     }
 }
@@ -616,6 +618,7 @@ impl From<Settings> for RaffleSettings {
             event_ends_at,
             retention_days: s.retention_days.trim().parse().unwrap_or(-1),
             test_mode: s.test_mode,
+            registration: s.registration,
         }
     }
 }
@@ -629,6 +632,11 @@ pub fn SettingsForm(
     /// once a real entrant is in
     /// ([`locks_settings`](rafi_lifecycle::entrant::Source::locks_settings)).
     rules_editable: bool,
+    /// Whether registration can be switched now
+    /// ([`AdminActions::edit_registration`](rafi_api::AdminActions::edit_registration)):
+    /// before the freeze, not while it is open.
+    #[props(default = true)]
+    registration_editable: bool,
     /// The installation's periods, for the retention field.
     retention: Retention,
     /// Whether the signed-in user may change settings at all: an
@@ -647,6 +655,7 @@ pub fn SettingsForm(
     // Fixed settings stay editable only while nobody has joined, and only
     // for someone who may edit at all.
     let rules_editable = rules_editable && can_edit;
+    let registration_editable = registration_editable && can_edit;
     let form = use_form_handle(move || {
         let handle = FormHandle::<Settings>::from_config(
             FormConfig::new(initial)
@@ -730,6 +739,9 @@ pub fn SettingsForm(
                             form.text(f.retention_days()).set_value(days.to_string());
                         }
                     }
+                    if registration_editable {
+                        form.set_field(f.registration(), d.registration);
+                    }
                 }
                 Err(e) => toast.error(err_text(e), ToastOptions::new()),
             }
@@ -749,12 +761,13 @@ pub fn SettingsForm(
                 privacy_url: s.privacy_url,
                 rules: s.rules,
                 retention_days: s.retention_days.trim().parse().ok(),
+                registration: s.registration,
             })
             .await;
             saving_defaults.set(false);
             match res {
                 Ok(()) => toast.success(
-                    "📌 New raffles will start with this organizer, contacts, privacy text, rules and retention period".to_owned(),
+                    "📌 New raffles will start with this organizer, contacts, privacy text, rules, retention period and registration".to_owned(),
                     ToastOptions::new(),
                 ),
                 Err(e) => toast.error(err_text(e), ToastOptions::new()),
@@ -797,7 +810,7 @@ pub fn SettingsForm(
             InputField {
                 context: form.text(f.organizer_name()),
                 label: "Organizer (data controller)",
-                description: "Named in the rules and the privacy notice. Needed before registration can open.",
+                description: "Named in the rules and the privacy notice. Needed before registration can open, or the list be frozen.",
                 maxlength: "{MAX_TITLE_CHARS}",
                 disabled: !can_edit,
                 class: "w-full",
@@ -805,7 +818,7 @@ pub fn SettingsForm(
             InputField {
                 context: form.text(f.contact_email()),
                 label: "Contact email",
-                description: "Shown in the rules and the privacy notice. Needed before registration can open (or a privacy contact).",
+                description: "Shown in the rules and the privacy notice. Needed before registration can open, or the list be frozen (or a privacy contact).",
                 r#type: "email",
                 disabled: !can_edit,
                 class: "w-full",
@@ -880,6 +893,18 @@ pub fn SettingsForm(
                 }
             }
             div { class: "md:col-span-2", {after_privacy} }
+            div { class: "mt-2 rounded-box bg-base-200 p-4 md:col-span-2",
+                SwitchField {
+                    context: form.field(f.registration()),
+                    label: "Let people join with the QR code",
+                    disabled: !registration_editable,
+                    description: if registration_editable || !can_edit {
+                        "You can always add people yourself, one by one or from a list."
+                    } else {
+                        "You can always add people yourself, one by one or from a list. It can't change while registration is open (close it first), or once the list is frozen."
+                    },
+                }
+            }
             div { class: "mt-2 rounded-box bg-warning/10 p-4 md:col-span-2",
                 SwitchField {
                     context: form.field(f.test_mode()),

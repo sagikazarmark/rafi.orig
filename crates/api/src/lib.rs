@@ -47,6 +47,11 @@ pub struct RaffleView {
     /// Whether the raffle's beacon source is publicly verifiable (not the
     /// mock drand chain).
     pub verifiable: bool,
+    /// Whether people join with the QR code. Without registration the
+    /// projector shows no QR code, join link or code: its entrants are the
+    /// people the organizer added.
+    #[serde(default = "yes")]
+    pub registration: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -103,7 +108,7 @@ pub struct RaffleSummary {
 }
 
 /// Editable raffle settings.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RaffleSettings {
     pub title: String,
     pub description: String,
@@ -131,11 +136,17 @@ pub struct RaffleSettings {
     #[serde(default)]
     pub retention_days: i64,
     pub test_mode: bool,
+    /// Whether people may join with the QR code ("Let people join with the
+    /// QR code"). Off, the raffle has no registration: it freezes from
+    /// Published, with the people the organizer added. Switched before the
+    /// freeze, but not while registration is open.
+    #[serde(default = "yes")]
+    pub registration: bool,
 }
 
 /// What the organizer's new raffles start with. Each raffle gets a copy, so
 /// changing them changes no existing raffle.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RaffleDefaults {
     pub organizer_name: String,
     pub contact_email: String,
@@ -150,6 +161,25 @@ pub struct RaffleDefaults {
     /// `None`: the installation's default.
     #[serde(default)]
     pub retention_days: Option<i64>,
+    /// Whether new raffles let people join with the QR code.
+    #[serde(default = "yes")]
+    pub registration: bool,
+}
+
+impl Default for RaffleDefaults {
+    /// None saved: blank, and registration on.
+    fn default() -> Self {
+        Self {
+            organizer_name: String::new(),
+            contact_email: String::new(),
+            privacy_email: String::new(),
+            privacy_text: String::new(),
+            privacy_url: String::new(),
+            rules: String::new(),
+            retention_days: None,
+            registration: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -419,8 +449,9 @@ pub struct RaffleAdmin {
     /// When the raffle's personal data is erased.
     #[serde(default)]
     pub retention: Retention,
-    /// What the raffle still needs before registration can open, by name;
-    /// empty when it may.
+    /// What the raffle still needs before registration can open (or,
+    /// without registration, before the list can be frozen from Published),
+    /// by name; empty when it may.
     #[serde(default)]
     pub missing_for_open: Vec<String>,
     /// Who was removed at their request, oldest first: a later add leaves
@@ -561,8 +592,20 @@ pub struct Retention {
 /// What the organizer can do next with a raffle.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct AdminActions {
-    /// Where starting the draw stands, while it can start (or has).
+    /// Where starting the draw stands, while it can start (or has): the
+    /// freeze from Open or Closed, or from Published without registration.
     pub start: Option<StartStep>,
+    /// The lifecycle commands the raffle takes now, with its registration
+    /// setting ([`rafi_lifecycle::RaffleState::apply`]): the header's
+    /// buttons. Opening may still be refused for what
+    /// [`RaffleAdmin::missing_for_open`] names.
+    #[serde(default)]
+    pub lifecycle: Vec<LifecycleCommand>,
+    /// Whether registration can be switched on or off now
+    /// ([`rafi_lifecycle::RaffleState::registration_editable`]): before the
+    /// freeze, but not while it is open.
+    #[serde(default)]
+    pub edit_registration: bool,
     /// Whether the raffle has a draw console: its entrant list is frozen.
     pub draw: bool,
     /// Whether the winners can be exported.
@@ -610,7 +653,7 @@ fn yes() -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StartStep {
-    /// Registration can be frozen and the draw started.
+    /// The list can be frozen and the draw started.
     Freeze,
     /// Frozen, but an attempt stopped before the raffle engine had the
     /// list: starting again picks up where it stopped.
@@ -629,6 +672,22 @@ pub enum LifecycleCommand {
     Unpublish,
     Open,
     Close,
+}
+
+impl LifecycleCommand {
+    /// Every command, in the order the header offers them.
+    pub const ALL: [Self; 4] = [Self::Publish, Self::Open, Self::Close, Self::Unpublish];
+}
+
+impl From<LifecycleCommand> for rafi_lifecycle::Command {
+    fn from(c: LifecycleCommand) -> Self {
+        match c {
+            LifecycleCommand::Publish => Self::Publish,
+            LifecycleCommand::Unpublish => Self::Unpublish,
+            LifecycleCommand::Open => Self::Open,
+            LifecycleCommand::Close => Self::Close,
+        }
+    }
 }
 
 /// The shape of [`VerifyData`] as published: `format` in the JSON. A reader

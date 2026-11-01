@@ -364,9 +364,10 @@ pub fn rules_editable(entrants: impl IntoIterator<Item = Source>) -> bool {
     !entrants.into_iter().any(Source::locks_settings)
 }
 
-/// What a raffle still needs before registration can open: the privacy
-/// notice must name a controller and a way to reach them. Empty when it may
-/// open.
+/// What a raffle still needs before registration can open, or before a
+/// raffle without registration freezes from Published (where no opening
+/// asked): the privacy notice must name a controller and a way to reach
+/// them. Empty when it may.
 pub fn missing_for_open(
     organizer_name: &str,
     contact_email: &str,
