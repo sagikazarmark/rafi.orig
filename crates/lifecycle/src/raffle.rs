@@ -79,13 +79,21 @@ pub fn deliverable(raffle: Option<&Raffle>, entrant: &str) -> bool {
     })
 }
 
-/// What claiming draw `k` of `raffle` does to its winner's delivery, each
-/// prize delivered as `delivery` says (by prize ID; `None` for one that
+/// What claiming draw `k` of `raffle` does to its winner's delivery, its
+/// prize delivered as `delivery` says now (by prize ID; `None` for one that
 /// isn't known). The draw may be claimed already (the store, projecting the
 /// claim) or not yet (the app, sending it). Its winner's other claims count:
 /// they are delivered by this claim only if every prize they claimed is
-/// handed over on the spot.
-pub fn on_claim(raffle: &Raffle, k: u64, delivery: impl Fn(&str) -> Option<Delivery>) -> OnClaim {
+/// handed over on the spot. Each of those is taken as it was delivered when
+/// it was claimed (`claimed_as`, by draw; the prize's delivery now for one
+/// not recorded yet): a prize switched to "on the spot" after its claim is
+/// still owed to whoever claimed it as "sent later".
+pub fn on_claim(
+    raffle: &Raffle,
+    k: u64,
+    delivery: impl Fn(&str) -> Option<Delivery>,
+    claimed_as: impl Fn(u64) -> Option<Delivery>,
+) -> OnClaim {
     let draws = raffle.draws();
     let Some(claim) = draws.iter().find(|d| d.k == k) else {
         return OnClaim::Nothing;
@@ -98,7 +106,7 @@ pub fn on_claim(raffle: &Raffle, k: u64, delivery: impl Fn(&str) -> Option<Deliv
             let all_on_the_spot = draws
                 .iter()
                 .filter(|d| d.k != k && d.entrant == claim.entrant && d.outcome == Outcome::Claimed)
-                .all(|d| of(&d.item) == Some(Delivery::OnTheSpot));
+                .all(|d| claimed_as(d.k).or_else(|| of(&d.item)) == Some(Delivery::OnTheSpot));
             if all_on_the_spot {
                 OnClaim::Deliver
             } else {
@@ -210,12 +218,14 @@ mod tests {
             _ => None,
         };
         let at = |events: &[Event]| Raffle::restore(&manifest, events).unwrap();
+        // No claim recorded with its delivery yet: each prize as it is now.
+        let none = |_: u64| None;
 
         // The app asks before the claim, the store after it: the same answer.
         let events = [drawn(1, "book-1")];
-        assert_eq!(on_claim(&at(&events), 1, delivery), OnClaim::Deliver);
+        assert_eq!(on_claim(&at(&events), 1, delivery, none), OnClaim::Deliver);
         let events = [drawn(1, "book-1"), claimed(1)];
-        assert_eq!(on_claim(&at(&events), 1, delivery), OnClaim::Deliver);
+        assert_eq!(on_claim(&at(&events), 1, delivery, none), OnClaim::Deliver);
 
         let events = [
             drawn(1, "book-1"),
@@ -224,7 +234,7 @@ mod tests {
             claimed(2),
         ];
         assert_eq!(
-            on_claim(&at(&events), 2, delivery),
+            on_claim(&at(&events), 2, delivery, none),
             OnClaim::Undeliver,
             "she is owed the voucher now"
         );
@@ -237,19 +247,39 @@ mod tests {
             claimed(3),
         ];
         assert_eq!(
-            on_claim(&at(&events), 3, delivery),
+            on_claim(&at(&events), 3, delivery, none),
             OnClaim::Nothing,
             "the mug is handed over, the voucher still isn't"
         );
         assert_eq!(
-            on_claim(&at(&events), 3, |_| None),
+            on_claim(&at(&events), 3, |_| None, none),
             OnClaim::Nothing,
             "unknown prizes"
         );
         assert_eq!(
-            on_claim(&at(&events), 9, delivery),
+            on_claim(&at(&events), 9, delivery, none),
             OnClaim::Nothing,
             "no such draw"
+        );
+
+        // The voucher was claimed as sent later; the organizer then switches
+        // it to on the spot (for the copies still to come). The mug's claim
+        // doesn't deliver her: the voucher she claimed is still owed.
+        let switched = |_: &str| Some(Delivery::OnTheSpot);
+        let as_claimed = |k: u64| match k {
+            1 => Some(Delivery::OnTheSpot),
+            2 => Some(Delivery::Later),
+            _ => None,
+        };
+        assert_eq!(
+            on_claim(&at(&events), 3, switched, as_claimed),
+            OnClaim::Nothing,
+            "an earlier claim keeps the delivery it was claimed with"
+        );
+        assert_eq!(
+            on_claim(&at(&events), 3, switched, none),
+            OnClaim::Deliver,
+            "unrecorded, it is taken as the prize is now"
         );
     }
 

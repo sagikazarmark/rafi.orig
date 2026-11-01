@@ -65,6 +65,9 @@ pub async fn start_draw(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
             if from == RaffleState::Ready {
                 crate::raffles::ready_for_entrants(&raffle, now)?;
             }
+            // Checked before anything is frozen, for the organizer's
+            // refusal; the manifest reads the prizes again once they are
+            // locked (`write_manifest`).
             let items = items(app, id).await?;
             let entrants = entrants::count_active(&app.db, id).await?;
             start::ready(usize::try_from(entrants).unwrap_or(0), items.len())
@@ -78,10 +81,10 @@ pub async fn start_draw(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
                 return Err(Refusal::Changed.into());
             }
             app.live_updates.notify(id).await;
-            write_manifest(app, actor, id, items, from, now).await?
+            write_manifest(app, actor, id, from, now).await?
         }
         Start::WriteManifest { unfreeze_to } => {
-            write_manifest(app, actor, id, items(app, id).await?, unfreeze_to, now).await?
+            write_manifest(app, actor, id, unfreeze_to, now).await?
         }
         Start::Resend => {
             let json = raffle.manifest.as_deref().unwrap_or_default();
@@ -107,21 +110,24 @@ async fn items(app: &App, id: &str) -> Result<Vec<ManifestItem>> {
 }
 
 /// Writes the manifest of a frozen raffle `now`: builds it from its entrants
-/// and stores it with its hash.
+/// and prizes and stores it with its hash.
 ///
 /// The store has no interactive transactions, so freezing and writing the
 /// manifest are separate writes ([`rafi_store::raffles`]); this is the second,
-/// and is safe to repeat. If another attempt wrote one first, that one is
-/// returned. If nobody is left to draw from (everyone was removed while
-/// freezing), the raffle goes back to `unfreeze_to`.
+/// and is safe to repeat. Both lists are read here, after the freeze, which
+/// locks them: a prize edit that landed while the freeze was being decided
+/// is in the manifest, like the join that did. If another attempt wrote one
+/// first, that one is returned. If nobody is left to draw from (everyone was
+/// removed while freezing), or nothing (every prize was deleted), the raffle
+/// goes back to `unfreeze_to`.
 async fn write_manifest(
     app: &App,
     actor: Actor<'_>,
     id: &str,
-    items: Vec<ManifestItem>,
     unfreeze_to: RaffleState,
     now: i64,
 ) -> Result<Manifest> {
+    let items = items(app, id).await?;
     let entrant_ids = entrants::active_ids(&app.db, id).await?;
     if let Err(refusal) = start::ready(entrant_ids.len(), items.len()) {
         let to = RaffleState::Frozen
@@ -200,7 +206,10 @@ async fn objected_winner(
     state: &rafi_raffle::Raffle,
     cmd: &Command,
 ) -> Result<()> {
-    let Command::Decide(Decision::Resolve { item, resolution }) = cmd else {
+    let Command::Decide(Decision::Resolve {
+        item, resolution, ..
+    }) = cmd
+    else {
         return Ok(());
     };
     if lifecycle::entrant::objected_may_be(*resolution) {
@@ -233,6 +242,7 @@ async fn delivery_on_claim(
     let Command::Decide(Decision::Resolve {
         item,
         resolution: Resolution::Claimed,
+        ..
     }) = cmd
     else {
         return Ok(None);
@@ -244,6 +254,7 @@ async fn delivery_on_claim(
         return Ok(None);
     };
     let deliveries = prizes::deliveries(&app.db, id).await?;
+    let claimed_as = prizes::claimed_deliveries(&app.db, id).await?;
     let delivered = || async {
         Ok::<_, Error>(
             entrants::get(&app.db, id, winner.as_str())
@@ -251,7 +262,13 @@ async fn delivery_on_claim(
                 .is_some_and(|e| e.delivered_at.is_some() && !e.erased),
         )
     };
-    let action = match lifecycle::raffle::on_claim(state, k, |p| deliveries.get(p).copied()) {
+    let effect = lifecycle::raffle::on_claim(
+        state,
+        k,
+        |p| deliveries.get(p).copied(),
+        |k| claimed_as.get(&k).copied(),
+    );
+    let action = match effect {
         OnClaim::Deliver if !delivered().await? => "deliver",
         OnClaim::Undeliver if delivered().await? => "undeliver",
         _ => return Ok(None),
@@ -281,7 +298,9 @@ async fn send(app: &App, actor: Actor<'_>, id: &str, cmd: Command, command_id: &
 fn audited(cmd: &Command) -> (&'static str, String) {
     match cmd {
         Command::Draw(DrawRequest { item }) => ("draw", item.to_string()),
-        Command::Decide(Decision::Resolve { item, resolution }) => {
+        Command::Decide(Decision::Resolve {
+            item, resolution, ..
+        }) => {
             let resolution = match resolution {
                 Resolution::Claimed => "claimed",
                 Resolution::NotHere => "not_here",

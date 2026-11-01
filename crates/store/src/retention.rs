@@ -191,11 +191,20 @@ pub async fn erase_due(db: &Db, now: i64, winner_hold_secs: i64) -> Result<Erase
 /// of a raffle that is over, not erased yet: due at once, not on the
 /// erasure date. Purged raffles stay in the set, as in [`due`]: a restored
 /// backup can bring their entrants back.
+///
+/// Not a winner who claimed a prize: the objection and the claim can both
+/// land (pressed within the engine's round trip, the objection checks a
+/// claim the engine hasn't stored yet), and a claimed prize may still be
+/// owed to them. They are on the winners' clock ([`due`]) instead.
 fn objected_due() -> String {
     format!(
         "entrants.raffle_id IN (SELECT id FROM raffles WHERE state IN ({over}))
-         AND entrants.erased = 0 AND entrants.objected_at IS NOT NULL",
+         AND entrants.erased = 0 AND entrants.objected_at IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM draws
+                         WHERE draws.raffle_id = entrants.raffle_id
+                           AND draws.entrant_id = entrants.id AND draws.outcome = '{claimed}')",
         over = states(RaffleState::is_over),
+        claimed = Outcome::Claimed.as_str(),
     )
 }
 
@@ -298,19 +307,25 @@ pub async fn purge_unfinished(db: &Db, id: &str, now: i64) -> Result<()> {
 }
 
 /// The frozen or drawing raffles past the ceiling at `now`: never finished,
-/// everyone erased. Housekeeping asks the engine to finish them, best effort.
+/// everyone erased. Housekeeping asks the engine to finish them, best effort,
+/// a few per run: they come in ID order starting after `after` (the last one
+/// asked about) and wrapping around, so raffles the engine keeps refusing
+/// don't starve the rest.
 pub async fn unfinished_at_ceiling(
     db: &Db,
     now: i64,
     winner_hold_secs: i64,
+    after: Option<&str>,
 ) -> Result<Vec<String>> {
     let ids: Vec<(String,)> = db
         .query(format!(
-            "SELECT id FROM raffles WHERE state IN ({}) AND erase_at + ?2 <= ?1 ORDER BY id",
+            "SELECT id FROM raffles WHERE state IN ({}) AND erase_at + ?2 <= ?1
+             ORDER BY CASE WHEN id > ?3 THEN 0 ELSE 1 END, id",
             states(RaffleState::drawable)
         ))
         .bind(now)
         .bind(winner_hold_secs)
+        .bind(after.unwrap_or(""))
         .all()
         .await?;
     Ok(ids.into_iter().map(|(id,)| id).collect())

@@ -368,13 +368,22 @@ pub async fn insert_with(
     db.batch(queries).await.map(|_| ())
 }
 
-/// Deletes the raffle with its prizes and entrants.
-pub async fn delete(db: &Db, id: &str) -> Result<()> {
-    db.query("DELETE FROM raffles WHERE id = ?")
+/// Deletes the raffle with its prizes, entrants and log, unless a draw of
+/// it was announced: from then on its record stays
+/// ([`deletable`](rafi_lifecycle::raffle::deletable)), checked in the same
+/// statement, so a draw stored after the caller's check keeps it too.
+/// Returns whether it was deleted (`false`: drawn, or not there).
+pub async fn delete(db: &Db, id: &str) -> Result<bool> {
+    let deleted = db
+        .query(
+            "DELETE FROM raffles WHERE id = ?1
+               AND NOT EXISTS (SELECT 1 FROM raffle_events
+                               WHERE raffle_id = ?1 AND type = 'announced')",
+        )
         .bind(id)
         .run()
-        .await
-        .map(|_| ())
+        .await?;
+    Ok(deleted > 0)
 }
 
 /// Moves the raffle from `from` to `to`, `now`, as the lifecycle decided
@@ -443,7 +452,8 @@ pub async fn unfreeze(db: &Db, id: &str, to: RaffleState, now: i64) -> Result<()
 /// In the same batch, the people removed at their request are forgotten
 /// (`add_removals`): with the manifest the list is fixed for good, no add
 /// will come that they must be kept out of, and their email keys serve
-/// nothing any more.
+/// nothing any more. So are the adds' receipts (`add_batches`): a retried
+/// add is answered from its entrants from then on, as none can be undone.
 pub async fn set_manifest(
     db: &Db,
     id: &str,
@@ -463,6 +473,11 @@ pub async fn set_manifest(
             .bind(id),
             db.query(
                 "DELETE FROM add_removals
+                 WHERE raffle_id = ?1 AND EXISTS (SELECT 1 FROM raffles WHERE id = ?1 AND manifest IS NOT NULL)",
+            )
+            .bind(id),
+            db.query(
+                "DELETE FROM add_batches
                  WHERE raffle_id = ?1 AND EXISTS (SELECT 1 FROM raffles WHERE id = ?1 AND manifest IS NOT NULL)",
             )
             .bind(id),

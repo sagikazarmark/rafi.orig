@@ -35,6 +35,17 @@ pub enum Error {
     WrongBeaconSource,
     #[error("draw {0} holds no drawn item")]
     UnknownDraw(u64),
+    #[error("item {item} is no longer held by draw {expected}{}", match actual {
+        Some(k) => format!(" but by draw {k}"),
+        None => String::new(),
+    })]
+    DrawChanged {
+        item: ItemId,
+        /// The draw the command named.
+        expected: u64,
+        /// The draw holding the item now, if any.
+        actual: Option<u64>,
+    },
 }
 
 impl Error {
@@ -50,7 +61,8 @@ impl Error {
             | Self::ItemNotDrawn(_)
             | Self::DrawInProgress
             | Self::NoDrawInProgress
-            | Self::NoEligibleEntrants => ErrorKind::Conflict,
+            | Self::NoEligibleEntrants
+            | Self::DrawChanged { .. } => ErrorKind::Conflict,
             // A beacon for the wrong round or source only ever stalls a draw:
             // these are engine bugs.
             Self::WrongRound { .. } | Self::WrongBeaconSource => ErrorKind::Invariant,

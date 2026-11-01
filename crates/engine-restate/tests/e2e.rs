@@ -181,6 +181,7 @@ async fn e2e_raffle() {
         .invoke(
             &call("decide"),
             Some(&json!(Decision::Resolve {
+                k: None,
                 item: "ticket-1".into(),
                 resolution: Resolution::NotHere,
             })),
@@ -198,8 +199,19 @@ async fn e2e_raffle() {
     })
     .await;
     assert_ne!(s.item(&"ticket-1".into()).unwrap().winner(), Some(&first));
+    // A claim naming the forfeited draw (a console showing it): refused, and
+    // nothing changes. Then one naming the redraw.
+    let stale = json!(Decision::Resolve {
+        item: "ticket-1".into(),
+        k: Some(1),
+        resolution: Resolution::Claimed,
+    });
+    let reply = restate.invoke(&call("decide"), Some(&stale), None).await;
+    assert_eq!(reply.status, 409, "{}", reply.body);
+    assert!(reply.body.to_string().contains("draw 2"), "{}", reply.body);
     let claim = json!(Decision::Resolve {
         item: "ticket-1".into(),
+        k: Some(2),
         resolution: Resolution::Claimed,
     });
     assert_eq!(

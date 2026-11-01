@@ -69,9 +69,14 @@ macro_rules! admin_functions {
             /// Freezes the entrants and hands the raffle to the engine.
             fn start_draw(id: String) -> ();
             fn draw_item(id: String, item: $crate::admin::ItemId, command_id: String) -> ();
+            /// Resolves the winner of draw `k` of `item`, the draw the page
+            /// shows: refused (`draw_changed`) if the item was drawn again
+            /// meanwhile, on another console. Without `k`, whichever draw
+            /// holds the item.
             fn resolve_item(
                 id: String,
                 item: $crate::admin::ItemId,
+                #[serde(default)] k: Option<u64>,
                 resolution: $crate::admin::Resolution,
                 command_id: String,
             ) -> ();
@@ -176,6 +181,9 @@ pub mod codes {
     pub const INVALID_ARGUMENTS: &str = "invalid_arguments";
     /// The request is larger than the admin API takes (512 KB).
     pub const TOO_LARGE: &str = "too_large";
+    /// The browser says the request came from another origin
+    /// (`Sec-Fetch-Site`).
+    pub const CROSS_SITE: &str = "cross_site";
     /// The raffle engine can't be reached.
     pub const UNAVAILABLE: &str = "unavailable";
     /// The server failed; the details are in its log.

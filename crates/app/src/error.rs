@@ -274,6 +274,10 @@ impl Refusal {
             Self::Start(_) => "start",
             Self::NotDrawing => "not_drawing",
             Self::NotOpened => "not_opened",
+            Self::Raffle {
+                error: RaffleError::DrawChanged { .. },
+                ..
+            } => "draw_changed",
             Self::Raffle { .. } => "raffle",
             Self::Engine { .. } => "engine",
             Self::EntrantsFrozen => "entrants_frozen",
@@ -550,6 +554,9 @@ fn raffle_refusal(command: Option<&Command>, e: &RaffleError) -> String {
             "This prize has already been drawn or withdrawn."
         }
         (_, RaffleError::NoEligibleEntrants) => "There are no eligible entrants left.",
+        (_, RaffleError::DrawChanged { .. }) => {
+            "The draw moved on: this prize was drawn again. Reload to see the current winner."
+        }
         (Some(Command::Decide(Decision::Resolve { .. })), RaffleError::ItemNotDrawn(_)) => {
             "This prize has no undecided winner."
         }

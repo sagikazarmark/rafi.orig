@@ -495,6 +495,11 @@ pub async fn add_entrants(
         detail.push_str(" format=");
         detail.push_str(format.as_str());
     }
+    // The receipt a retry is answered with, after an undo too. Recorded
+    // once the result is known; an add that stops before it is answered
+    // from its entrants instead ([`earlier_add`]).
+    let receipt = serde_json::to_string(&result).map_err(anyhow::Error::from)?;
+    entrants::record_add(&app.db, raffle_id, &result.batch_id, &receipt, now).await?;
     audit::record(&app.db, raffle_id, actor, "add", &detail, now).await?;
     Ok(result)
 }
@@ -537,16 +542,24 @@ fn row_index(row: usize) -> u32 {
 }
 
 /// What add `batch_id` of `rows` did, if it went in before: a retry is
-/// answered with it. Its entrants were added, by their row (one person's
-/// is row 0); every other row was skipped: removed at their request if
+/// answered with it. As recorded when it went in (its receipt, kept until
+/// the freeze, an undo notwithstanding: the browser keeps the batch ID
+/// across a network error, and a retry after an undo must not add the
+/// people again); without one, from its entrants: added by their row (one
+/// person's is row 0), every other row skipped, removed at their request if
 /// its email or registration ID still is, already in otherwise. `None` if
-/// no entrant of it is there.
+/// neither is there.
 async fn earlier_add(
     app: &App,
     raffle_id: &str,
     batch_id: &str,
     rows: &[rafi_api::AddRow],
 ) -> Result<Option<AddResult>> {
+    if let Some(receipt) = entrants::add_receipt(&app.db, raffle_id, batch_id).await? {
+        return Ok(Some(
+            serde_json::from_str(&receipt).map_err(anyhow::Error::from)?,
+        ));
+    }
     let stored = entrants::of_batch(&app.db, raffle_id, batch_id).await?;
     if stored.is_empty() {
         return Ok(None);

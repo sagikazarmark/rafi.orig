@@ -429,6 +429,7 @@ async fn full_raffle_flow() {
                 ACTOR,
                 &raffle.id,
                 Decision::Resolve {
+                    k: None,
                     item: item.clone(),
                     resolution: Resolution::NotHere,
                 },
@@ -479,6 +480,7 @@ async fn full_raffle_flow() {
             ACTOR,
             &raffle.id,
             Decision::Resolve {
+                k: None,
                 item: item.clone(),
                 resolution: Resolution::Claimed,
             },
@@ -1181,6 +1183,62 @@ async fn admin_requires_clerk_session() {
         service::list(&app, "user_2abc").await.unwrap().is_empty(),
         "nothing was created"
     );
+
+    // Even a function without arguments: an empty POST is what any page
+    // could send, and this one erases the caller's data.
+    let mut req = admin_call(
+        "create_raffle",
+        r#"{"title":"Kept","event_date":"2026-10-28","event_ends_at":null}"#,
+    );
+    req.headers_mut().insert(
+        header::COOKIE,
+        clerk.cookie("user_2abc").unwrap().parse().unwrap(),
+    );
+    let (status, _, body) = send(&router, req).await;
+    assert!(status.is_success(), "{status}: {body}");
+    let empty_post = |headers: &[(&'static str, &'static str)]| {
+        let mut req = Request::post("/api/admin/remove_my_data")
+            .body(Body::empty())
+            .unwrap();
+        for (name, value) in headers {
+            req.headers_mut().insert(*name, value.parse().unwrap());
+        }
+        req.headers_mut().insert(
+            header::COOKIE,
+            clerk.cookie("user_2abc").unwrap().parse().unwrap(),
+        );
+        req
+    };
+    let (status, _, body) = send(&router, empty_post(&[])).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+    // JSON from a sibling subdomain (the same site, so the Lax cookie came
+    // along) is refused by what the browser says of its origin.
+    let (status, _, body) = send(
+        &router,
+        empty_post(&[
+            ("content-type", "application/json"),
+            ("sec-fetch-site", "same-site"),
+        ]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains(rafi_api::admin::codes::CROSS_SITE), "{body}");
+    assert_eq!(
+        service::list(&app, "user_2abc").await.unwrap().len(),
+        1,
+        "nothing was removed"
+    );
+    // From the page itself it goes through.
+    let (status, _, body) = send(
+        &router,
+        empty_post(&[
+            ("content-type", "application/json"),
+            ("sec-fetch-site", "same-origin"),
+        ]),
+    )
+    .await;
+    assert!(status.is_success(), "{status}: {body}");
+    assert!(service::list(&app, "user_2abc").await.unwrap().is_empty());
 
     // The web app, with a single-page fallback for its own routes, and the
     // security headers: the admin can't be framed, the projector and the
@@ -2179,7 +2237,11 @@ async fn only_claiming_passes_a_waiting_draw() {
         let id = id.to_owned();
         let (app, raffle_id, item) = (app.clone(), raffle.id.clone(), items[0].clone());
         async move {
-            let decision = Decision::Resolve { item, resolution };
+            let decision = Decision::Resolve {
+                k: None,
+                item,
+                resolution,
+            };
             service::command(&app, ACTOR, &raffle_id, decision, &id).await
         }
     };
@@ -2953,6 +3015,7 @@ async fn draw_and_claim_as(
         actor,
         raffle_id,
         Decision::Resolve {
+            k: None,
             item: item.clone(),
             resolution: Resolution::Claimed,
         },
@@ -4742,6 +4805,7 @@ async fn deleting_stops_at_the_first_draw() {
         ACTOR,
         &drawn.id,
         Decision::Resolve {
+            k: None,
             item,
             resolution: Resolution::Claimed,
         },
@@ -4951,6 +5015,96 @@ async fn dev_raffle_with(cfg: Config, prizes: &[(&str, u32)]) -> (AppState, Rout
         .await
         .unwrap();
     (app, router, raffle)
+}
+
+/// Two consoles on one raffle. Console A shows Alice drawn for the book;
+/// console B says she isn't here and draws again: Bob. A, still showing
+/// Alice, presses "Claimed": refused, as it names the draw it shows, and
+/// Bob's draw stays undecided until B, which shows it, claims it.
+#[tokio::test]
+async fn a_stale_console_cannot_resolve_the_redraw() {
+    let (app, router, raffle) = dev_raffle(Config::for_tests()).await;
+    let id = raffle.id.as_str();
+    let dev = service::Actor::solo("dev");
+    for name in ["Alice", "Bob"] {
+        add_one(&app, dev, id, name, None).await.unwrap();
+    }
+    let call = |name: &'static str, args: serde_json::Value| {
+        let router = router.clone();
+        async move {
+            let (status, _, body) = send(&router, admin_call(name, &args.to_string())).await;
+            (status, body)
+        }
+    };
+    let (status, body) = call("start_draw", serde_json::json!({ "id": id })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let r = wait_for(&app, id, |r| r.raffle.opened()).await;
+    let item = r.drawn.as_ref().unwrap().items()[0].id.clone();
+    let drawn_by = |k: u64| {
+        let item = item.clone();
+        move |r: &Full| {
+            r.drawn
+                .as_ref()
+                .and_then(|s| s.item(&item))
+                .is_some_and(|i| i.status() == ItemStatus::Drawn && i.k() == Some(k))
+        }
+    };
+    let draw = |command_id: &'static str| {
+        call(
+            "draw_item",
+            serde_json::json!({ "id": id, "item": item, "command_id": command_id }),
+        )
+    };
+    let resolve = |k: u64, resolution: &'static str, command_id: &'static str| {
+        call(
+            "resolve_item",
+            serde_json::json!({
+                "id": id, "item": item, "k": k, "resolution": resolution, "command_id": command_id,
+            }),
+        )
+    };
+
+    let (status, body) = draw("a-draw").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    wait_for(&app, id, drawn_by(1)).await;
+    // Console B: not here, and drawn again.
+    let (status, body) = resolve(1, "not_here", "b-not-here").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = draw("b-draw").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    wait_for(&app, id, drawn_by(2)).await;
+
+    // Console A, showing draw 1.
+    let (status, body) = resolve(1, "claimed", "a-claimed").await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let error: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(error.code, "draw_changed", "{body}");
+    assert!(error.message.contains("drawn again"), "{body}");
+    let outcome = |k: u64| {
+        app.db
+            .query("SELECT outcome FROM draws WHERE raffle_id = ? AND k = ?")
+            .bind(id)
+            .bind(k)
+            .one::<(String,)>()
+    };
+    assert_eq!(
+        outcome(2).await.unwrap().0,
+        "drawn",
+        "the redraw's winner is undecided"
+    );
+
+    // Console B, showing draw 2.
+    let (status, body) = resolve(2, "claimed", "b-claimed").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    wait_for(&app, id, |r| {
+        r.drawn
+            .as_ref()
+            .and_then(|s| s.item(&item))
+            .is_some_and(|i| i.status() == ItemStatus::Claimed && i.k() == Some(2))
+    })
+    .await;
+    assert_eq!(outcome(1).await.unwrap().0, "not_here");
+    assert_eq!(outcome(2).await.unwrap().0, "claimed");
 }
 
 /// The arguments of `add_entrants` for raffle `id`: an add of `rows` from

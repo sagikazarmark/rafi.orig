@@ -58,7 +58,11 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(&config.endpoint.listener)
         .await
         .with_context(|| format!("binding {}", config.endpoint.listener))?;
-    info!(address = %listener.local_addr()?, database = config.database.url, "serving the Rafi raffle engine");
+    info!(
+        address = %listener.local_addr()?,
+        database = rafi_store::redact_url(&config.database.url),
+        "serving the Rafi raffle engine"
+    );
 
     let endpoint = endpoint(config)?;
     HttpServer::new(endpoint)

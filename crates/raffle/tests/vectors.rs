@@ -128,6 +128,7 @@ fn generate() -> Vectors {
     };
     let decide = |s: &mut Raffle, decision: Decision| s.decide(&decision).unwrap();
     let resolve = |item: &str, resolution| Decision::Resolve {
+        k: None,
         item: item.into(),
         resolution,
     };

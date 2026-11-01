@@ -105,6 +105,7 @@ fn apply(d: &mut Raffle, op: Op, round: &mut u64, item: impl Fn(usize) -> String
                 Resolution::Declined,
             ][o as usize];
             let _ = d.decide(&Decision::Resolve {
+                k: None,
                 item: item(i).into(),
                 resolution,
             });

@@ -107,9 +107,19 @@ pub async fn run(app: &App) -> anyhow::Result<Report> {
 /// finish is tried again on the next run. At most [`FINISHES_PER_RUN`] are
 /// asked per run, one after the other: each call may wait the engine's
 /// timeout, and the run must end well within the hour (on Workers, within
-/// the Cron Trigger's wall clock).
+/// the Cron Trigger's wall clock). Each run starts after the last raffle
+/// the previous one asked about, so raffles the engine keeps refusing
+/// don't keep the others waiting.
 async fn finish_at_ceiling(app: &App, now: i64, hold: i64) {
-    let mut due = match retention::unfinished_at_ceiling(&app.db, now, hold).await {
+    let after = match store::last_finish_asked(&app.db).await {
+        Ok(after) => after,
+        Err(e) => {
+            tracing::warn!(error = %e, "reading where the last run stopped finishing raffles failed");
+            None
+        }
+    };
+    let mut due = match retention::unfinished_at_ceiling(&app.db, now, hold, after.as_deref()).await
+    {
         Ok(due) => due,
         Err(e) => {
             tracing::warn!(error = %e, "looking for unfinished raffles past the ceiling failed");
@@ -127,6 +137,9 @@ async fn finish_at_ceiling(app: &App, now: i64, hold: i64) {
         return;
     };
     for id in due {
+        if let Err(e) = store::record_finish_asked(&app.db, &id).await {
+            tracing::warn!(raffle_id = id, error = %e, "recording the raffle asked to finish failed");
+        }
         let command_id = format!("housekeeping-finish-{id}");
         match engine
             .decide(&RaffleId::new(&id), &Decision::Finish, &command_id)

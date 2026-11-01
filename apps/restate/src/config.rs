@@ -126,8 +126,13 @@ impl DatabaseConfig {
         if self.url.trim().is_empty() {
             bail!("database.url is required");
         }
-        let db = Db::connect_lazy(&self.url)
-            .with_context(|| format!("invalid database.url {:?}", self.url))?;
+        // The URL may carry the password: the message names it without.
+        let db = Db::connect_lazy(&self.url).with_context(|| {
+            format!(
+                "invalid database.url {:?}",
+                rafi_store::redact_url(&self.url)
+            )
+        })?;
         Ok(RaffleWriter::new(db))
     }
 }

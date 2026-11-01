@@ -134,6 +134,7 @@ mod tests {
     fn lets_a_claim_through_while_a_draw_waits() {
         // Checked by the rules, not held back: item-2 has no winner yet.
         let claim = Decision::Resolve {
+            k: None,
             item: "item-2".into(),
             resolution: Resolution::Claimed,
         };

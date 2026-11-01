@@ -67,6 +67,11 @@ These never contain emails, tokens or claim codes.
 |---|---|
 | `POST /api/admin/<function>` | One function of the admin API: the arguments as a JSON object in, the result as JSON out. Requires a Clerk session, and every call checks that the raffle belongs to the caller (the active organization, or else the user). |
 
+Every call must say `Content-Type: application/json`, a function without arguments too (415 otherwise): a form on
+another page can't send that type, and `fetch` from another origin can't without CORS, which the admin API doesn't
+allow. A browser that sends `Sec-Fetch-Site` must say `same-origin` (or `none`): a page on a sibling subdomain is the
+same *site*, so Clerk's `SameSite=Lax` cookie goes along with its request, which is refused with 403 `cross_site`.
+
 Both sides come from one declaration, `admin_functions!` in [`crates/api/src/admin.rs`](../../crates/api/src/admin.rs),
 which also says how the functions are named. Among them: `whoami` (who is signed in and what they may do, whether
 housekeeping looks stopped), `set_lifecycle` (`publish`, `unpublish`, `open`, `close`: the ones the admin's view
@@ -81,7 +86,7 @@ later, the one part of a prize that changes after the freeze), `deliver_all_priz
 `add_entrants` adds people the organizer vouches for, one person (`"origin": "one"`) or a list (`"list"`, at most
 2000 rows, once the raffle is published and not in test mode), all or nothing under the entrant cap. Each add has a
 `batch_id` the client makes at random (1 to 64 of `A-Z a-z 0-9 - _`): sent again, it answers the first add's result
-and adds nothing. A row is `name`, optional `email` and `list_ref` (the registration ID), and `approved` (the
+and adds nothing, after `undo_add` too (the result is kept, without personal data, until the list is frozen). A row is `name`, optional `email` and `list_ref` (the registration ID), and `approved` (the
 organizer approved a name the blocklist refuses: it lifts the blocklist only); a list's add may say how the browser
 made its names (`"name_format": "full"` or `"first_initial"`), for the audit log. Every name added must be nobody
 else's in the raffle (compared composed, lowercase, whitespace collapsed), joined or added, nor another row's. The
@@ -102,7 +107,9 @@ freeze, a later add leaves them out by their email key and registration ID, whic
 themselves off", for someone the organizer added, from the freeze until the raffle is over (not for a winner who
 claimed a prize), and `unobject_entrant` its undo; each entrant of the admin's view says whether it `objected` and
 which of the two its `actions` allow. `resolve_item` refuses `claimed` and `not_here` for a winner who took
-themselves off (409 `objected_winner`).
+themselves off (409 `objected_winner`). It takes the draw the console shows, `k` (the view's `draws[].k`), and
+refuses once another console forfeited that draw and drew the item again (409 `draw_changed`); without `k` it
+resolves whichever draw holds the item.
 
 `export_winners_csv` returns the drawn entrants as CSV text: UTF-8 with a byte order mark, a header line, every
 field double-quoted (`"` doubled), a field starting with `=`, `+`, `-`, `@`, a tab or a carriage return prefixed

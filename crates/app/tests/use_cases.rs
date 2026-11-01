@@ -209,6 +209,7 @@ async fn only_a_claimed_winner_is_delivered_to() {
         ACTOR,
         &id,
         Decision::Resolve {
+            k: None,
             item,
             resolution: Resolution::Claimed,
         },
@@ -271,6 +272,7 @@ async fn claiming_a_prize_handed_over_on_the_spot_delivers_it() {
         .unwrap();
     let winner = drawn(&app, &id).await;
     let claim = Decision::Resolve {
+        k: None,
         item,
         resolution: Resolution::Claimed,
     };
@@ -958,6 +960,30 @@ async fn undoing_an_add_takes_it_back_until_the_freeze() {
     assert_eq!(names(&app, &id).await, ["Dora"]);
 }
 
+/// The browser keeps an add's batch ID across a network error and sends it
+/// again: after an undo too, which deleted the people, the retry is
+/// answered with the first result and adds nobody.
+#[tokio::test]
+async fn a_retry_after_an_undo_adds_nobody() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &[]).await;
+    let add = list(&[("Bence", None, None), ("Csilla", None, None)]);
+    let first = app::add_entrants(&app, ACTOR, &id, add.clone())
+        .await
+        .unwrap();
+    assert_eq!(first.added.len(), 2);
+    assert_eq!(
+        app::undo_add(&app, ACTOR, &id, &add.batch_id)
+            .await
+            .unwrap(),
+        2
+    );
+    let retried = app::add_entrants(&app, ACTOR, &id, add).await.unwrap();
+    assert_eq!(retried, first, "the first result");
+    assert!(names(&app, &id).await.is_empty(), "nobody added again");
+    assert_eq!(audited(&app, &id, "add").await.len(), 1, "one add");
+}
+
 #[tokio::test]
 async fn adds_and_undos_are_rate_limited_per_owner() {
     let app = app().await;
@@ -1486,6 +1512,7 @@ async fn a_winner_who_took_themselves_off_is_declined() {
     app::object_entrant(&app, ACTOR, &id, &zoe).await.unwrap();
     for (resolution, command_id) in [(Resolution::Claimed, "c1"), (Resolution::NotHere, "n1")] {
         let decide = Decision::Resolve {
+            k: None,
             item: item.clone(),
             resolution,
         };
@@ -1497,6 +1524,7 @@ async fn a_winner_who_took_themselves_off_is_declined() {
     }
     assert!(audited(&app, &id, "resolve").await.is_empty());
     let decline = Decision::Resolve {
+        k: None,
         item: item.clone(),
         resolution: Resolution::Declined,
     };
@@ -1524,6 +1552,7 @@ async fn a_winner_who_took_themselves_off_is_declined() {
     .unwrap();
     assert_eq!(drawn(&app, &other).await, kim);
     let claim = Decision::Resolve {
+        k: None,
         item,
         resolution: Resolution::Claimed,
     };
@@ -1905,4 +1934,359 @@ async fn a_rehearsal_counts_its_fakes() {
     let older: rafi_api::VerifyData = serde_json::from_value(json).unwrap();
     assert_eq!(older.sources, None);
     assert_eq!(older.manifest, data.manifest);
+}
+
+// ---------------------------------------------------------------------------
+// Interleavings: a second actor between two of a use case's statements.
+// ---------------------------------------------------------------------------
+
+/// Where [`paused_at`] holds a use case: [`Pause::reached`] returns once it
+/// is about to send the statement, [`Pause::resume`] lets it go on.
+struct Pause {
+    reached: Arc<tokio::sync::Notify>,
+    resume: Arc<tokio::sync::Notify>,
+}
+
+impl Pause {
+    async fn reached(&self) {
+        tokio::time::timeout(Duration::from_secs(5), self.reached.notified())
+            .await
+            .expect("the paused statement was never reached");
+    }
+
+    fn resume(&self) {
+        self.resume.notify_one();
+    }
+}
+
+/// `app` with its database paused before the first statement `at` matches
+/// (by its SQL), for a use case run on it; another actor uses `app` itself,
+/// which doesn't pause. Both share one database.
+fn paused_at(app: &App, at: fn(&str) -> bool) -> (App, Pause) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let fired = Arc::new(AtomicBool::new(false));
+    let hook: rafi_store::Hook = {
+        let (reached, resume) = (reached.clone(), resume.clone());
+        Arc::new(move |sql: &str| {
+            let hit = at(sql) && !fired.swap(true, Ordering::SeqCst);
+            let (reached, resume) = (reached.clone(), resume.clone());
+            Box::pin(async move {
+                if hit {
+                    reached.notify_one();
+                    resume.notified().await;
+                }
+            })
+        })
+    };
+    let paused = App {
+        db: app.db.with_hook(hook),
+        ..app.clone()
+    };
+    (paused, Pause { reached, resume })
+}
+
+/// The freeze decides from the prizes it reads, then locks them: a prize
+/// saved by another organizer in between is in the manifest, which reads
+/// them again once they are locked.
+#[tokio::test]
+async fn a_prize_saved_while_freezing_is_in_the_manifest() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &["Anna", "Bence"]).await;
+    // Paused at the freeze's first write, after its checks.
+    let (paused, pause) = paused_at(&app, |sql| {
+        sql.contains("UPDATE raffles SET state") && sql.contains("registration = ?")
+    });
+    let freeze = tokio::spawn({
+        let id = id.clone();
+        async move { app::start_draw(&paused, ACTOR, &id).await }
+    });
+    pause.reached().await;
+    app::upsert_prize(
+        &app,
+        ACTOR,
+        &id,
+        PrizeInput {
+            id: None,
+            name: "Mug".into(),
+            sponsor: String::new(),
+            description: String::new(),
+            qty: 2,
+            position: 1,
+            delivery: Delivery::OnTheSpot,
+        },
+    )
+    .await
+    .unwrap();
+    pause.resume();
+    freeze.await.unwrap().unwrap();
+
+    let raffle = raffles::get(&app.db, &id).await.unwrap().unwrap();
+    let manifest: rafi_raffle::Manifest =
+        serde_json::from_str(raffle.manifest.as_deref().unwrap()).unwrap();
+    let names: Vec<&str> = manifest.items.iter().map(|i| i.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["Book", "Mug", "Mug"],
+        "the prizes as they were locked"
+    );
+}
+
+/// The raffle engine, with `gate` awaited before each decision it passes
+/// on: a pause point between a use case's reads and its call to the engine.
+struct Gated {
+    inner: Arc<dyn rafi_engine::Engine>,
+    gate: Gate,
+}
+
+/// What [`Gated`] awaits before passing a decision on.
+type Gate = Arc<dyn Fn(&Decision) -> rafi_engine::BoxFuture<'static, ()> + Send + Sync>;
+
+impl rafi_engine::Engine for Gated {
+    fn info(
+        &self,
+    ) -> rafi_engine::BoxFuture<'_, Result<rafi_engine::EngineInfo, rafi_engine::EngineError>> {
+        self.inner.info()
+    }
+
+    fn open<'a>(
+        &'a self,
+        manifest: &'a rafi_raffle::Manifest,
+    ) -> rafi_engine::BoxFuture<'a, Result<(), rafi_engine::EngineError>> {
+        self.inner.open(manifest)
+    }
+
+    fn draw<'a>(
+        &'a self,
+        raffle_id: &'a rafi_raffle::RaffleId,
+        request: &'a DrawRequest,
+        command_id: &'a str,
+    ) -> rafi_engine::BoxFuture<'a, Result<(), rafi_engine::EngineError>> {
+        self.inner.draw(raffle_id, request, command_id)
+    }
+
+    fn decide<'a>(
+        &'a self,
+        raffle_id: &'a rafi_raffle::RaffleId,
+        decision: &'a Decision,
+        command_id: &'a str,
+    ) -> rafi_engine::BoxFuture<'a, Result<(), rafi_engine::EngineError>> {
+        Box::pin(async move {
+            (self.gate)(decision).await;
+            self.inner.decide(raffle_id, decision, command_id).await
+        })
+    }
+}
+
+/// `app` with its engine paused before the first `Finish` it is sent.
+fn paused_before_finish(app: &App) -> (App, Pause) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let fired = Arc::new(AtomicBool::new(false));
+    let gate = {
+        let (reached, resume) = (reached.clone(), resume.clone());
+        Arc::new(move |decision: &Decision| {
+            let hit = *decision == Decision::Finish && !fired.swap(true, Ordering::SeqCst);
+            let (reached, resume) = (reached.clone(), resume.clone());
+            Box::pin(async move {
+                if hit {
+                    reached.notify_one();
+                    resume.notified().await;
+                }
+            }) as rafi_engine::BoxFuture<'static, ()>
+        })
+    };
+    let engine = Gated {
+        inner: app.engine.clone().expect("an engine"),
+        gate,
+    };
+    let paused = App {
+        engine: Some(Arc::new(engine)),
+        ..app.clone()
+    };
+    (paused, Pause { reached, resume })
+}
+
+/// Deleting a frozen raffle checks that nothing was drawn, then asks the
+/// engine to forget it. Another organizer's draw in between keeps the
+/// raffle: its record (the announced draw) is what makes it verifiable.
+#[tokio::test]
+async fn a_draw_announced_while_deleting_keeps_the_raffle() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &["Anna", "Bence"]).await;
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    let item = app::admin(&app, OWNER, &id).await.unwrap().view.items[0]
+        .item
+        .clone();
+
+    let (paused, pause) = paused_before_finish(&app);
+    let deleting = tokio::spawn({
+        let id = id.clone();
+        async move { app::delete(&paused, ACTOR, &id).await }
+    });
+    pause.reached().await;
+    app::command(&app, ACTOR, &id, DrawRequest { item }, "d1")
+        .await
+        .unwrap();
+    drawn(&app, &id).await;
+    pause.resume();
+    let err = deleting.await.unwrap().unwrap_err();
+    assert!(matches!(err, Error::Refused(Refusal::Drawn)), "{err:?}");
+
+    assert!(
+        raffles::get(&app.db, &id).await.unwrap().is_some(),
+        "the raffle stays"
+    );
+    let (announced,): (i64,) = app
+        .db
+        .query("SELECT COUNT(*) FROM raffle_events WHERE raffle_id = ? AND type = 'announced'")
+        .bind(&id)
+        .one()
+        .await
+        .unwrap();
+    assert_eq!(announced, 1, "with its log");
+}
+
+/// The engine refusing the finish (a draw it holds, not yet stored) is a
+/// refusal, not an outage: nothing is deleted.
+#[tokio::test]
+async fn an_engine_refusing_the_finish_keeps_the_raffle() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &["Anna", "Bence"]).await;
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    struct Refusing(Arc<dyn rafi_engine::Engine>);
+    impl rafi_engine::Engine for Refusing {
+        fn info(
+            &self,
+        ) -> rafi_engine::BoxFuture<'_, Result<rafi_engine::EngineInfo, rafi_engine::EngineError>>
+        {
+            self.0.info()
+        }
+        fn open<'a>(
+            &'a self,
+            manifest: &'a rafi_raffle::Manifest,
+        ) -> rafi_engine::BoxFuture<'a, Result<(), rafi_engine::EngineError>> {
+            self.0.open(manifest)
+        }
+        fn draw<'a>(
+            &'a self,
+            raffle_id: &'a rafi_raffle::RaffleId,
+            request: &'a DrawRequest,
+            command_id: &'a str,
+        ) -> rafi_engine::BoxFuture<'a, Result<(), rafi_engine::EngineError>> {
+            self.0.draw(raffle_id, request, command_id)
+        }
+        fn decide<'a>(
+            &'a self,
+            _: &'a rafi_raffle::RaffleId,
+            _: &'a Decision,
+            _: &'a str,
+        ) -> rafi_engine::BoxFuture<'a, Result<(), rafi_engine::EngineError>> {
+            Box::pin(async {
+                Err(rafi_engine::EngineError::rejected(
+                    &rafi_raffle::Error::DrawInProgress,
+                ))
+            })
+        }
+    }
+    let refused = App {
+        engine: Some(Arc::new(Refusing(app.engine.clone().unwrap()))),
+        ..app.clone()
+    };
+    let err = app::delete(&refused, ACTOR, &id).await.unwrap_err();
+    assert!(matches!(err, Error::Refused(Refusal::Drawn)), "{err:?}");
+    assert!(raffles::get(&app.db, &id).await.unwrap().is_some());
+
+    // Without a draw, the engine forgets it and the raffle goes.
+    app::delete(&app, ACTOR, &id).await.unwrap();
+    assert!(raffles::get(&app.db, &id).await.unwrap().is_none());
+}
+
+/// An engine that refuses every finish, as one holding a draw would, and
+/// records which raffles it was asked to finish.
+struct RefusesFinish {
+    inner: Arc<dyn rafi_engine::Engine>,
+    asked: std::sync::Mutex<Vec<String>>,
+}
+
+impl rafi_engine::Engine for RefusesFinish {
+    fn info(
+        &self,
+    ) -> rafi_engine::BoxFuture<'_, Result<rafi_engine::EngineInfo, rafi_engine::EngineError>> {
+        self.inner.info()
+    }
+
+    fn open<'a>(
+        &'a self,
+        manifest: &'a rafi_raffle::Manifest,
+    ) -> rafi_engine::BoxFuture<'a, Result<(), rafi_engine::EngineError>> {
+        self.inner.open(manifest)
+    }
+
+    fn draw<'a>(
+        &'a self,
+        raffle_id: &'a rafi_raffle::RaffleId,
+        request: &'a DrawRequest,
+        command_id: &'a str,
+    ) -> rafi_engine::BoxFuture<'a, Result<(), rafi_engine::EngineError>> {
+        self.inner.draw(raffle_id, request, command_id)
+    }
+
+    fn decide<'a>(
+        &'a self,
+        raffle_id: &'a rafi_raffle::RaffleId,
+        _: &'a Decision,
+        _: &'a str,
+    ) -> rafi_engine::BoxFuture<'a, Result<(), rafi_engine::EngineError>> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push(raffle_id.as_str().to_owned());
+        Box::pin(async {
+            Err(rafi_engine::EngineError::rejected(
+                &rafi_raffle::Error::DrawInProgress,
+            ))
+        })
+    }
+}
+
+/// Raffles never finished, past the ceiling: a run asks the engine about a
+/// few, and the next starts after the last it asked about, so the ones the
+/// engine keeps refusing don't keep the rest waiting.
+#[tokio::test]
+async fn ceiling_finishes_take_turns() {
+    let app = app().await;
+    let mut ids = Vec::new();
+    for _ in 0..7 {
+        let (id, _) = open_raffle(&app, &["Anna"]).await;
+        app::start_draw(&app, ACTOR, &id).await.unwrap();
+        ids.push(id);
+    }
+    ids.sort();
+    let engine = Arc::new(RefusesFinish {
+        inner: app.engine.clone().unwrap(),
+        asked: std::sync::Mutex::new(Vec::new()),
+    });
+    let refusing = App {
+        engine: Some(engine.clone()),
+        ..app.clone()
+    };
+    // Past the erasure date and the winner hold.
+    app.clock.advance(200 * 86_400);
+
+    app::housekeeping::run(&refusing).await.unwrap();
+    let first: Vec<String> = std::mem::take(&mut *engine.asked.lock().unwrap());
+    assert_eq!(first, ids[..5], "five per run, in ID order");
+    app::housekeeping::run(&refusing).await.unwrap();
+    let second: Vec<String> = std::mem::take(&mut *engine.asked.lock().unwrap());
+    assert_eq!(
+        second[..2],
+        ids[5..],
+        "the next run starts with the two left"
+    );
+    assert_eq!(second[2..], ids[..3], "then around again");
 }

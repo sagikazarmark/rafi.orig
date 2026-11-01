@@ -52,7 +52,7 @@ impl Db {
         } else {
             Native::Sqlite(sqlite::connect(url).await?)
         };
-        let db = Self { backend };
+        let db = Self::from_backend(backend);
         db.migrate().await?;
         Ok(db)
     }
@@ -72,7 +72,7 @@ impl Db {
         } else {
             Native::Sqlite(sqlite::connect_lazy(url)?)
         };
-        Ok(Self { backend })
+        Ok(Self::from_backend(backend))
     }
 
     /// Brings the schema up to date: `migrations/sqlite/` for SQLite (on D1,

@@ -176,6 +176,7 @@ async fn app_and_rafi_restate_share_the_database() {
         ACTOR,
         &id,
         Decision::Resolve {
+            k: None,
             item: item.clone(),
             resolution: Resolution::Claimed,
         },

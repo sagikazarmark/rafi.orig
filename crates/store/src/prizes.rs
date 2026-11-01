@@ -67,6 +67,26 @@ pub async fn deliveries(db: &Db, raffle_id: &str) -> Result<HashMap<String, Deli
     Ok(rows.into_iter().map(|r| (r.id, r.delivery)).collect())
 }
 
+/// How each of a raffle's claimed draws was delivered when it was claimed
+/// (`draws.delivery`), by draw: what the prize said then, whatever it says
+/// now.
+pub async fn claimed_deliveries(db: &Db, raffle_id: &str) -> Result<HashMap<u64, Delivery>> {
+    #[derive(Deserialize)]
+    struct Row {
+        k: i64,
+        delivery: Delivery,
+    }
+    let rows: Vec<Row> = db
+        .query("SELECT k, delivery FROM draws WHERE raffle_id = ? AND delivery IS NOT NULL")
+        .bind(raffle_id)
+        .all()
+        .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| Some((u64::try_from(r.k).ok()?, r.delivery)))
+        .collect())
+}
+
 /// Adds a prize, only while the raffle's prizes can change. Returns `false`
 /// if they can't.
 pub async fn insert(db: &Db, id: &str, raffle_id: &str, prize: &PrizeFields<'_>) -> Result<bool> {

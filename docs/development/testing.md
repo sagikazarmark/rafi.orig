@@ -54,6 +54,29 @@ same clock. A test of the erasure dates lets time pass instead of dating its raf
 real time: drand's rounds, the screens' countdowns, the proof-of-work's expiry and the rate limits. The storage
 conformance suite passes `now` to the domain functions directly.
 
+## Interleavings
+
+A use case reads, decides and writes in several steps, and the store has no interactive transactions, so a second
+organizer can act between two of them. The races that matter have a test that runs the second actor *in* that gap,
+not two use cases one after the other. Both tools are in
+[`crates/app/tests/use_cases.rs`](../../crates/app/tests/use_cases.rs):
+
+- **A paused database** (`paused_at`): `Db::with_hook` (rafi-store's `hooks` feature, on for rafi-app's tests only)
+  gives a handle that awaits a hook before each statement it sends, with its SQL. `paused_at(&app, |sql| …)` returns
+  a copy of the app on such a handle, paused before the first statement the predicate matches, and a `Pause`: the
+  test spawns the use case on the paused copy, waits for `pause.reached()`, acts on `app` (the same database, no
+  hook), then `pause.resume()`. Example: a prize saved between the freeze's checks and its first write
+  (`a_prize_saved_while_freezing_is_in_the_manifest`).
+- **A paused engine** (`Gated`, `paused_before_finish`): the in-process engine behind a wrapper that awaits a gate
+  before each decision it passes on, for a gap between a use case's reads and its call to the engine. Example: a
+  draw announced while a raffle is being deleted (`a_draw_announced_while_deleting_keeps_the_raffle`). Stub engines
+  in the same file refuse what the test needs refused (`RefusesFinish`).
+
+What two consoles do over HTTP with a stale page (`a_stale_console_cannot_resolve_the_redraw` in
+`crates/server/src/tests.rs`) and what the store must hold whichever order two writes land in
+(`domain.objected_winner`, `domain.delete_guard`, `domain.add_retry_after_undo`, `domain.delivery_snapshot`) are
+tested where those layers are.
+
 ## Storage conformance
 
 `rafi_store::conformance` is the contract every database backend must pass. It has named scenarios for:

@@ -140,6 +140,12 @@ These rules hold, and the replay enforces them:
    pending.
 4. Only an item that is available can be drawn or voided. Only a drawn item can be resolved.
 
+The `resolved` event names its draw (`k`), and so does the organizer's command that records it: `Resolve { item,
+k, resolution }` resolves draw `k` of `item` only while that draw holds the item, and is refused
+(`DrawChanged`) once the item was forfeited and drawn again. A console still showing the earlier winner can't
+resolve the new one. A command without `k` (sent by a page from before it, or kept in an engine's journal from
+then) resolves whichever draw holds the item. The command isn't in the log, so the verifier is unaffected.
+
 ## `verify.json`
 
 `GET /api/r/<slug>/verify.json` publishes everything a verifier needs once the list is frozen:

@@ -85,11 +85,13 @@ pub(super) fn DrawConsole(
         }
     };
     let id = admin.id.clone();
-    // Whether the engine took it.
-    let resolved = move |item: ItemId, resolution: Resolution| {
+    // Whether the engine took it. `k` is the draw the page shows: if another
+    // console drew the prize again meanwhile, the server refuses rather than
+    // resolve that draw's winner.
+    let resolved = move |item: ItemId, k: Option<u64>, resolution: Resolution| {
         let id = id.clone();
         async move {
-            match api::resolve_item(id, item, resolution, command_id()).await {
+            match api::resolve_item(id, item, k, resolution, command_id()).await {
                 Ok(()) => {
                     error.set(None);
                     on_change.call(());
@@ -104,7 +106,7 @@ pub(super) fn DrawConsole(
     };
     let claim = {
         let resolved = resolved.clone();
-        move |item: ItemId| {
+        move |item: ItemId, k: Option<u64>| {
             // As a draw: held from the click, a click while a claim is out
             // ignored.
             let mut claiming = claiming;
@@ -112,7 +114,7 @@ pub(super) fn DrawConsole(
             if !ignored {
                 claiming.set(Some(Sent::new(Awaiting::Claim, item.clone())));
             }
-            let sent = resolved(item, Resolution::Claimed);
+            let sent = resolved(item, k, Resolution::Claimed);
             async move {
                 if ignored {
                     return;
@@ -126,8 +128,8 @@ pub(super) fn DrawConsole(
             }
         }
     };
-    let resolve = move |item: ItemId, resolution: Resolution| {
-        let sent = resolved(item, resolution);
+    let resolve = move |item: ItemId, k: Option<u64>, resolution: Resolution| {
+        let sent = resolved(item, k, resolution);
         async move {
             sent.await;
         }
@@ -255,6 +257,7 @@ pub(super) fn DrawConsole(
                             // organizer checks it is them.
                             let no_phone = winner.is_some_and(|w| w.no_phone);
                             let uid = u.item.clone();
+                            let k = drawn_k(&v, &u.item);
                             let winner_name = winner.map_or_else(|| "The winner".to_owned(), |w| w.display_name.clone());
                             let prize = u.prize_name.clone();
                             let on_the_spot = deliveries.get(u.prize_id.as_str()).is_some_and(|d| d.delivered_on_claim());
@@ -293,19 +296,19 @@ pub(super) fn DrawConsole(
                                                 button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let item = uid.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Withdraw { item: item.clone(), prize: prize.clone() }) }, "Withdraw" }
                                             },
                                             ItemStatus::Drawn if drawable && objected => rsx! {
-                                                button { class: "btn btn-warning", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "They took themselves off the raffle: the prize is drawn again" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
+                                                button { class: "btn btn-warning", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "They took themselves off the raffle: the prize is drawn again" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), k, winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
                                             },
                                             ItemStatus::Drawn if drawable => rsx! {
                                                 // The resolution is "claimed" either way: with no
                                                 // phone, the organizer's check stands for the code.
-                                                ClaimButton { no_phone, held: claiming_this, onclick: { let claim = claim.clone(); let uid = uid.clone(); move |_| { spawn(claim(uid.clone())); } } }
+                                                ClaimButton { no_phone, held: claiming_this, onclick: { let claim = claim.clone(); let uid = uid.clone(); move |_| { spawn(claim(uid.clone(), k)); } } }
                                                 if on_the_spot {
                                                     span { class: "text-xs text-base-content/60", title: "{claimed_means(no_phone)} This prize is handed over on the spot (Prizes tab), so claiming it also marks it delivered.", "Handed over now: claiming marks it delivered." }
                                                 } else {
                                                     span { class: "text-xs text-base-content/60", title: "{claimed_means(no_phone)} This prize is sent later (Prizes tab): mark it delivered in the People tab once it reached them.", "Sent later? Mark it delivered in People." }
                                                 }
-                                                button { class: "btn btn-ghost", disabled: busy || claiming_this, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::NotHere { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Not here" }
-                                                button { class: "btn btn-ghost", disabled: busy || claiming_this, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
+                                                button { class: "btn btn-ghost", disabled: busy || claiming_this, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::NotHere { item: item.clone(), k, winner: winner.clone(), prize: prize.clone() }) }, "Not here" }
+                                                button { class: "btn btn-ghost", disabled: busy || claiming_this, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), k, winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
                                             },
                                             _ => rsx! {},
                                         }
@@ -360,8 +363,8 @@ pub(super) fn DrawConsole(
                         let void = void.clone();
                         move |_| {
                             match step.clone() {
-                                Irreversible::NotHere { item, .. } => { spawn(resolve(item, Resolution::NotHere)); }
-                                Irreversible::Declined { item, .. } => { spawn(resolve(item, Resolution::Declined)); }
+                                Irreversible::NotHere { item, k, .. } => { spawn(resolve(item, k, Resolution::NotHere)); }
+                                Irreversible::Declined { item, k, .. } => { spawn(resolve(item, k, Resolution::Declined)); }
                                 Irreversible::Withdraw { item, .. } => { spawn(void(item)); }
                             }
                         }
@@ -372,18 +375,32 @@ pub(super) fn DrawConsole(
     }
 }
 
+/// The draw holding `item` undecided, as the page shows it: the latest of
+/// the item's draws, while it waits for its winner's decision.
+fn drawn_k(v: &RaffleView, item: &ItemId) -> Option<u64> {
+    v.draws
+        .iter()
+        .rev()
+        .find(|d| d.item == *item)
+        .filter(|d| d.outcome == Outcome::Drawn)
+        .map(|d| d.k)
+}
+
 /// A step on a prize that can't be undone, held while the organizer confirms it.
 #[derive(Clone, PartialEq)]
 enum Irreversible {
     /// The winner isn't here to collect the prize: out of the raffle, the prize is drawn again.
     NotHere {
         item: ItemId,
+        /// The draw whose winner it is, as the page showed it.
+        k: Option<u64>,
         winner: String,
         prize: String,
     },
     /// The winner declined the prize: out of the raffle, the prize is drawn again.
     Declined {
         item: ItemId,
+        k: Option<u64>,
         winner: String,
         prize: String,
     },

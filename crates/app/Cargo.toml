@@ -27,4 +27,6 @@ tracing = "0.1"
 [dev-dependencies]
 altcha = { workspace = true }
 rafi-engine = { workspace = true, features = ["local", "mock-drand"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# Interleavings: a second actor between two of a use case's statements.
+rafi-store = { workspace = true, features = ["hooks"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }

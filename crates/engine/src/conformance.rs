@@ -519,6 +519,7 @@ async fn commands_apply_once(fx: Arc<Fixture>, id: String) -> Result<(), String>
     fx.draw(&id, "item-1", "d1").await?;
     fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
+        k: None,
         item: "item-1".into(),
         resolution: Resolution::Claimed,
     };
@@ -548,6 +549,7 @@ async fn concurrent_duplicates_apply_once(fx: Arc<Fixture>, id: String) -> Resul
     b?;
     fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
+        k: None,
         item: "item-1".into(),
         resolution: Resolution::Claimed,
     };
@@ -577,6 +579,7 @@ async fn a_reused_command_id_keeps_its_first_command(
     fx.draw(&id, "item-1", "d1").await?;
     fx.drawn(&id, "item-1").await?;
     let resolve = |resolution| Decision::Resolve {
+        k: None,
         item: "item-1".into(),
         resolution,
     };
@@ -604,6 +607,7 @@ async fn refusals_keep_their_kind(fx: Arc<Fixture>, id: String) -> Result<(), St
     let doc = fx.doc(&id, 3, 2);
     fx.open(&doc).await?;
     let resolve = |item: &str, resolution| Decision::Resolve {
+        k: None,
         item: item.into(),
         resolution,
     };
@@ -672,6 +676,7 @@ async fn a_finished_raffle_is_forgotten(fx: Arc<Fixture>, id: String) -> Result<
     fx.draw(&id, "item-1", "d1").await?;
     fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
+        k: None,
         item: "item-1".into(),
         resolution: Resolution::Claimed,
     };
@@ -920,6 +925,7 @@ async fn every_state_reaches_a_flaky_store(fx: Arc<Fixture>, id: String) -> Resu
     fx.draw(&id, "item-1", "d1").await?;
     fx.drawn(&id, "item-1").await?;
     let claimed = Decision::Resolve {
+        k: None,
         item: "item-1".into(),
         resolution: Resolution::Claimed,
     };

@@ -72,9 +72,17 @@ impl Resolution {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Decision {
-    /// Resolves a drawn item's winner.
+    /// Resolves a drawn item's winner: of draw `k`, the one the organizer
+    /// was shown. Refused ([`Error::DrawChanged`](crate::Error::DrawChanged))
+    /// once the item is held by another draw: a console showing an earlier
+    /// winner, forfeited and drawn again meanwhile on another, would
+    /// otherwise resolve the new winner. Without `k` (a caller from before
+    /// it was sent, and journals written then) it resolves whichever draw
+    /// holds the item now.
     Resolve {
         item: ItemId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        k: Option<u64>,
         resolution: Resolution,
     },
     /// Withdraws an item that will not be given away.
@@ -112,12 +120,36 @@ mod tests {
         assert_eq!(json, r#"{"item":"item-1"}"#);
         let json = serde_json::to_string(&Decision::Resolve {
             item: "item-1".into(),
+            k: None,
             resolution: Resolution::NotHere,
         })
         .unwrap();
         assert_eq!(
             json,
             r#"{"type":"resolve","item":"item-1","resolution":"not_here"}"#
+        );
+        // Naming its draw; and a journal written before `k` still reads.
+        let named = Decision::Resolve {
+            item: "item-1".into(),
+            k: Some(2),
+            resolution: Resolution::Claimed,
+        };
+        let json = serde_json::to_string(&named).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"resolve","item":"item-1","k":2,"resolution":"claimed"}"#
+        );
+        assert_eq!(serde_json::from_str::<Decision>(&json).unwrap(), named);
+        assert_eq!(
+            serde_json::from_str::<Decision>(
+                r#"{"type":"resolve","item":"item-1","resolution":"claimed"}"#
+            )
+            .unwrap(),
+            Decision::Resolve {
+                item: "item-1".into(),
+                k: None,
+                resolution: Resolution::Claimed,
+            }
         );
         assert_eq!(
             serde_json::to_string(&Decision::Abandon {

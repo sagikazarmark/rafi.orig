@@ -16,6 +16,9 @@ postgres = ["sqlx/postgres", "sqlx/tls-rustls-aws-lc-rs", "dep:tokio"]
 ## The storage conformance suite (`conformance`): the scenarios every backend
 ## must pass. `tests/conformance.rs` runs them natively; `testbeds/store-d1` on D1.
 conformance = ["dep:futures-util"]
+## `Db::with_hook`: a pause point before each statement, for tests that run
+## a second actor between two of a use case's statements (interleavings).
+hooks = []
 ## An embedded PostgreSQL (Oliphaunt: a local server from prebuilt native
 ## binaries) for the conformance suite, so every `cargo test -p rafi-store`
 ## checks the Postgres dialect without a server installed. Only rafi-store's

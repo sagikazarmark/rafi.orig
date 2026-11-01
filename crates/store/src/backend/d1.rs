@@ -26,9 +26,7 @@ impl Db {
     /// Wraps a D1 binding, for example `env.d1("DB")?`. Migrations run with
     /// `wrangler d1 migrations apply`, from the same files as the native build.
     pub fn d1(db: D1Database) -> Self {
-        Self {
-            backend: D1 { db: Arc::new(db) },
-        }
+        Self::from_backend(D1 { db: Arc::new(db) })
     }
 }
 

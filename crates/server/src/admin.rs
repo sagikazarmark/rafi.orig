@@ -41,12 +41,16 @@ pub fn routes() -> Router {
 /// `ClerkAuthLayer` (around the whole router) verifies the session; without one,
 /// or without the layer, `auth` is `None` and only dev auth lets the call through.
 ///
-/// The arguments must come as `application/json`. The session rides in a
-/// cookie, so a page on another site could make the browser POST here; a
-/// cross-site form can't set that content type (only `text/plain`,
-/// `multipart/form-data` or `application/x-www-form-urlencoded`), while
-/// `fetch` with JSON from another origin is stopped by CORS. With Clerk's
-/// `SameSite=Lax` cookie this is a second line, not the first.
+/// Every call must come as `application/json`, with arguments or without
+/// (the SPA sends `{}` for a function that takes none). The session rides in
+/// a cookie, so another page could make the browser POST here; a form can't
+/// set that content type (only `text/plain`, `multipart/form-data` or
+/// `application/x-www-form-urlencoded`), while `fetch` with JSON from
+/// another origin is stopped by CORS. Clerk's cookie is `SameSite=Lax`, which
+/// still lets a page on a sibling subdomain (the same *site*) send it, so a
+/// browser that says where the request came from (`Sec-Fetch-Site`) must say
+/// `same-origin`, or `none` for one the user typed; a request without the
+/// header (an older browser, a script) has the content-type rule alone.
 async fn call(
     Extension(app): Extension<AppState>,
     auth: Option<ClerkAuth>,
@@ -80,11 +84,21 @@ async fn call(
                 .next()
                 .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"))
         });
-    if !json && !args.is_empty() {
+    if !json {
         return error(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             codes::INVALID_ARGUMENTS,
             "The arguments must be sent as application/json.",
+        );
+    }
+    let cross_site = headers
+        .get("sec-fetch-site")
+        .is_some_and(|v| !matches!(v.to_str(), Ok("same-origin" | "none")));
+    if cross_site {
+        return error(
+            StatusCode::FORBIDDEN,
+            codes::CROSS_SITE,
+            "The admin API takes requests from this site's own pages only.",
         );
     }
     match admin::dispatch(&app, &caller, &name, &args).await {
@@ -295,10 +309,15 @@ impl Admin for AppState {
         c: &Caller,
         id: String,
         item: ItemId,
+        k: Option<u64>,
         resolution: Resolution,
         command_id: String,
     ) -> service::Result<()> {
-        let decision = Decision::Resolve { item, resolution };
+        let decision = Decision::Resolve {
+            item,
+            k,
+            resolution,
+        };
         service::command(self, service::actor(c), &id, decision, &command_id).await
     }
 

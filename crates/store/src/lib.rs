@@ -62,6 +62,7 @@ pub mod pow;
 pub mod prizes;
 mod query;
 pub mod raffles;
+mod redact;
 pub mod retention;
 mod value;
 pub mod view;
@@ -71,11 +72,12 @@ pub use dialect::Dialect;
 pub use entrants::EntrantRow;
 pub use error::{Error, Result};
 pub use prizes::PrizeRow;
-pub use query::{Db, Query};
+pub use query::{Db, Hook, Query};
 pub use raffles::RaffleRow;
 use rafi_engine::BoxFuture;
 use rafi_lifecycle::{prize::OnClaim, raffle::on_claim};
 use rafi_raffle::{CompletedDraw, Event, Raffle, Resolution};
+pub use redact::redact_url;
 use std::collections::BTreeSet;
 pub use value::{Row, Value};
 
@@ -184,28 +186,49 @@ pub(crate) async fn write_raffle(
             _ => None,
         })
         .collect();
+    // How the prizes are delivered now, for the draws claimed by these
+    // events (recorded with each), and how the winner's earlier claims were.
+    let (deliveries, claimed_as) = if claimed.is_empty() {
+        Default::default()
+    } else {
+        (
+            prizes::deliveries(db, id).await?,
+            prizes::claimed_deliveries(db, id).await?,
+        )
+    };
     for draw in state.draws().iter().filter(|d| touched.contains(&d.k)) {
+        let delivery = claimed
+            .contains(&draw.k)
+            .then(|| deliveries.get(rafi_lifecycle::raffle::prize_id(&draw.item)))
+            .flatten()
+            .map(|d| d.as_str());
+        // A claim's delivery is recorded once: a replay doesn't rewrite it
+        // with the prize's setting of the moment.
         writes.push(
             db.query(format!(
-                "INSERT INTO draws (raffle_id, k, item_id, entrant_id, outcome)
-                 SELECT ?1, ?3, ?4, ?5, ?6 WHERE {guard}
-                 ON CONFLICT (raffle_id, k) DO UPDATE SET outcome = excluded.outcome"
+                "INSERT INTO draws (raffle_id, k, item_id, entrant_id, outcome, delivery)
+                 SELECT ?1, ?3, ?4, ?5, ?6, ?7 WHERE {guard}
+                 ON CONFLICT (raffle_id, k) DO UPDATE SET outcome = excluded.outcome,
+                     delivery = COALESCE(draws.delivery, excluded.delivery)"
             ))
             .bind(id)
             .bind(events.len())
             .bind(draw.k)
             .bind(draw.item.as_str())
             .bind(draw.entrant.as_str())
-            .bind(draw.outcome.as_str()),
+            .bind(draw.outcome.as_str())
+            .bind(delivery),
         );
     }
-    if !claimed.is_empty() {
-        let deliveries = prizes::deliveries(db, id).await?;
-        for draw in state.draws().iter().filter(|d| claimed.contains(&d.k)) {
-            let effect = on_claim(state, draw.k, |prize| deliveries.get(prize).copied());
-            if let Some(write) = delivery_on_claim(db, id, events.len(), draw, effect, now) {
-                writes.push(write);
-            }
+    for draw in state.draws().iter().filter(|d| claimed.contains(&d.k)) {
+        let effect = on_claim(
+            state,
+            draw.k,
+            |prize| deliveries.get(prize).copied(),
+            |k| claimed_as.get(&k).copied(),
+        );
+        if let Some(write) = delivery_on_claim(db, id, events.len(), draw, effect, now) {
+            writes.push(write);
         }
     }
     writes.push(
@@ -235,7 +258,9 @@ pub(crate) async fn write_raffle(
 /// on the spot; marked not delivered when it is sent later. Written here,
 /// with the claim's event, so it holds whichever engine applied the claim
 /// and however late: the app only hears that the engine took the command.
-/// The prizes' deliveries are read as they are now. An erased winner is
+/// The claimed prize's delivery is read as it is now, and recorded with the
+/// draw (`draws.delivery`); the winner's earlier claims count as they were
+/// recorded. An erased winner is
 /// left alone; so is everyone when the save is stale (the batch's guard, on
 /// `seq` = `?2`).
 fn delivery_on_claim<'a>(

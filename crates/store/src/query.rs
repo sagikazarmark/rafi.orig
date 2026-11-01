@@ -5,6 +5,9 @@
 //! placeholders; SQLite and D1 accept them, and the Postgres backend
 //! rewrites them to `$N`.
 
+use std::sync::Arc;
+
+use rafi_engine::BoxFuture;
 use serde::de::DeserializeOwned;
 
 use crate::{
@@ -18,9 +21,45 @@ use crate::{
 #[derive(Clone)]
 pub struct Db {
     pub(crate) backend: Backend,
+    /// Awaited before each statement or batch is sent, with its SQL (a
+    /// batch's first statement): a test's pause point (`Db::with_hook`, the
+    /// `hooks` feature).
+    /// `None` outside tests.
+    pub(crate) hook: Option<Hook>,
 }
 
+/// What `Db::with_hook` (the `hooks` feature) runs before each statement: given its SQL, a
+/// future the statement waits for.
+pub type Hook = Arc<dyn Fn(&str) -> BoxFuture<'static, ()> + Send + Sync>;
+
 impl Db {
+    pub(crate) fn from_backend(backend: Backend) -> Self {
+        Self {
+            backend,
+            hook: None,
+        }
+    }
+
+    /// This database through a handle that awaits `hook` before each
+    /// statement it sends (a batch: before the batch, with its first
+    /// statement's SQL). For tests that run a second actor between two of a
+    /// use case's statements: the hook pauses on the statement it is waiting
+    /// for while the other actor, on a handle without it, goes ahead. Other
+    /// clones of `self` are unaffected.
+    #[cfg(feature = "hooks")]
+    pub fn with_hook(&self, hook: Hook) -> Self {
+        Self {
+            backend: self.backend.clone(),
+            hook: Some(hook),
+        }
+    }
+
+    async fn before(&self, sql: &str) {
+        if let Some(hook) = &self.hook {
+            hook(sql).await;
+        }
+    }
+
     /// The backend's SQL dialect, for the few statements that differ.
     pub fn dialect(&self) -> Dialect {
         self.backend.dialect()
@@ -44,7 +83,10 @@ impl Db {
     /// D1 has no interactive transactions, so this is the only way to make
     /// several writes atomic. Use it for every write that spans statements.
     pub async fn batch(&self, queries: Vec<Query<'_>>) -> Result<Vec<u64>> {
-        let stmts = queries.into_iter().map(|q| q.stmt).collect();
+        let stmts: Vec<Statement> = queries.into_iter().map(|q| q.stmt).collect();
+        if let Some(first) = stmts.first() {
+            self.before(&first.sql).await;
+        }
         self.backend.batch(stmts).await
     }
 
@@ -54,7 +96,10 @@ impl Db {
     /// reads before it see exactly what it will change (a count that D1's
     /// change counts can't give, since they include triggers' writes).
     pub async fn batch_rows(&self, queries: Vec<Query<'_>>) -> Result<Vec<Vec<Row>>> {
-        let stmts = queries.into_iter().map(|q| q.stmt).collect();
+        let stmts: Vec<Statement> = queries.into_iter().map(|q| q.stmt).collect();
+        if let Some(first) = stmts.first() {
+            self.before(&first.sql).await;
+        }
         self.backend.batch_rows(stmts).await
     }
 }
@@ -105,11 +150,13 @@ impl Query<'_> {
     /// Only rely on zero versus non-zero: D1 also counts rows that triggers
     /// changed (every raffle write bumps `raffles.version`), SQLite does not.
     pub async fn run(self) -> Result<u64> {
+        self.db.before(&self.stmt.sql).await;
         self.db.backend.run(self.stmt).await
     }
 
     /// The raw rows.
     pub async fn rows(self) -> Result<Vec<Row>> {
+        self.db.before(&self.stmt.sql).await;
         self.db.backend.all(self.stmt).await
     }
 }

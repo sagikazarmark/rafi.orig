@@ -401,6 +401,46 @@ pub async fn of_batch(db: &Db, raffle_id: &str, batch_id: &str) -> Result<Vec<En
     .await
 }
 
+/// What add `batch_id` of raffle `raffle_id` did, as recorded with
+/// [`record_add`] (the caller's JSON), if it was: kept until the manifest
+/// is written, so a retry after an undo is still answered with it.
+pub async fn add_receipt(db: &Db, raffle_id: &str, batch_id: &str) -> Result<Option<String>> {
+    let row: Option<(String,)> = db
+        .query("SELECT result FROM add_batches WHERE raffle_id = ? AND batch_id = ?")
+        .bind(raffle_id)
+        .bind(batch_id)
+        .optional()
+        .await?;
+    Ok(row.map(|(result,)| result))
+}
+
+/// Records what add `batch_id` did (`result`, the caller's JSON), `now`,
+/// once: a second record of the same batch keeps the first. Only while the
+/// raffle has no manifest (the receipts go with its write). Returns whether
+/// it was recorded.
+pub async fn record_add(
+    db: &Db,
+    raffle_id: &str,
+    batch_id: &str,
+    result: &str,
+    now: i64,
+) -> Result<bool> {
+    let recorded = db
+        .query(
+            "INSERT INTO add_batches (raffle_id, batch_id, result, created_at)
+             SELECT ?1, ?2, ?3, ?4
+             WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ?1 AND manifest IS NULL)
+             ON CONFLICT (raffle_id, batch_id) DO NOTHING",
+        )
+        .bind(raffle_id)
+        .bind(batch_id)
+        .bind(result)
+        .bind(now)
+        .run()
+        .await?;
+    Ok(recorded > 0)
+}
+
 /// Removes the entrants add `batch_id` put in raffle `raffle_id` (undoing
 /// it), only while the entrant list can change. Returns how many: counted in
 /// the same transaction as the delete and under the same condition, since

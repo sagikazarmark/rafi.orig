@@ -6,6 +6,10 @@ use crate::{Db, Result};
 /// `meta`'s key for when housekeeping last succeeded.
 const LAST_OK: &str = "last_retention_ok_at";
 
+/// `meta`'s key for the last raffle housekeeping asked the engine to finish
+/// at the ceiling: the next run's asking starts after it.
+const LAST_FINISH: &str = "last_ceiling_finish";
+
 /// The raffles that finished at or before `finished_by` and still have live
 /// updates.
 pub async fn live_channels_due(db: &Db, finished_by: i64) -> Result<Vec<String>> {
@@ -58,6 +62,31 @@ pub async fn record_ok(db: &Db, now: i64) -> Result<()> {
     )
     .bind(LAST_OK)
     .bind(now.to_string())
+    .run()
+    .await
+    .map(|_| ())
+}
+
+/// The last raffle a run asked the engine to finish at the ceiling (its
+/// ID), if any.
+pub async fn last_finish_asked(db: &Db) -> Result<Option<String>> {
+    let row: Option<(String,)> = db
+        .query("SELECT value FROM meta WHERE key = ?")
+        .bind(LAST_FINISH)
+        .optional()
+        .await?;
+    Ok(row.map(|(v,)| v))
+}
+
+/// Records that a run asked the engine to finish raffle `id` at the
+/// ceiling, the last it asked about.
+pub async fn record_finish_asked(db: &Db, id: &str) -> Result<()> {
+    db.query(
+        "INSERT INTO meta (key, value) VALUES (?, ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(LAST_FINISH)
+    .bind(id)
     .run()
     .await
     .map(|_| ())

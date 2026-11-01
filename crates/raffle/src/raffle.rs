@@ -485,7 +485,29 @@ impl Raffle {
     /// and the engine may forget it.
     pub fn decide(&mut self, decision: &Decision) -> Result<(), Error> {
         match decision {
-            Decision::Resolve { item, resolution } => self.resolve(item, *resolution),
+            Decision::Resolve {
+                item,
+                k: Some(k),
+                resolution,
+            } => {
+                let held_by = self
+                    .item(item)
+                    .ok_or_else(|| Error::UnknownItem(item.clone()))?
+                    .k();
+                if held_by != Some(*k) {
+                    return Err(Error::DrawChanged {
+                        item: item.clone(),
+                        expected: *k,
+                        actual: held_by,
+                    });
+                }
+                self.resolve(item, *resolution)
+            }
+            Decision::Resolve {
+                item,
+                k: None,
+                resolution,
+            } => self.resolve(item, *resolution),
             Decision::Void { item } => self.void(item),
             Decision::Abandon { item } => match &self.pending {
                 Some(p) if p.item == *item => self.abandon("abandoned by the organizer"),
@@ -899,6 +921,64 @@ pub(crate) mod tests {
         );
     }
 
+    /// Two consoles: one shows item-0 drawn (k = 1); the other forfeits it
+    /// and draws it again (k = 2). The first one's "Claimed", naming the
+    /// draw it shows, is refused; the second's is applied.
+    #[test]
+    fn a_resolve_names_its_draw() {
+        let mut s = opened(2, 1);
+        let first = draw(&mut s, "item-0", 1);
+        let resolve = |k, resolution| Decision::Resolve {
+            item: "item-0".into(),
+            k: Some(k),
+            resolution,
+        };
+        s.decide(&resolve(first.k, Resolution::NotHere)).unwrap();
+        // Forfeited, not drawn again yet: draw 1 holds nothing.
+        assert_eq!(
+            s.decide(&resolve(first.k, Resolution::Claimed)),
+            Err(Error::DrawChanged {
+                item: "item-0".into(),
+                expected: 1,
+                actual: None,
+            })
+        );
+        let second = draw(&mut s, "item-0", 2);
+        assert_eq!(second.k, 2);
+        let refused = s
+            .decide(&resolve(first.k, Resolution::Claimed))
+            .unwrap_err();
+        assert_eq!(
+            refused,
+            Error::DrawChanged {
+                item: "item-0".into(),
+                expected: 1,
+                actual: Some(2),
+            }
+        );
+        assert_eq!(refused.kind(), ErrorKind::Conflict);
+        assert_eq!(status(&s, "item-0"), ItemStatus::Drawn, "nothing changed");
+        s.decide(&resolve(second.k, Resolution::Claimed)).unwrap();
+        assert_eq!(status(&s, "item-0"), ItemStatus::Claimed);
+        assert_eq!(
+            s.events().last(),
+            Some(&Event::Resolved {
+                k: 2,
+                resolution: Resolution::Claimed
+            })
+        );
+        // Without `k`, whichever draw holds the item (as before).
+        let mut s = opened(2, 1);
+        draw(&mut s, "item-0", 1);
+        s.decide(&Decision::Resolve {
+            item: "item-0".into(),
+            k: None,
+            resolution: Resolution::Claimed,
+        })
+        .unwrap();
+        assert_eq!(status(&s, "item-0"), ItemStatus::Claimed);
+    }
+
     #[test]
     fn pass_two_only_includes_winners() {
         let mut s = opened(2, 3);
@@ -1122,6 +1202,7 @@ pub(crate) mod tests {
         let mut s = opened(5, 2);
         draw(&mut s, "item-0", 1);
         let resolve = Decision::Resolve {
+            k: None,
             item: "item-0".into(),
             resolution: Resolution::Claimed,
         };

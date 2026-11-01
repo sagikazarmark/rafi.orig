@@ -520,4 +520,18 @@ mod tests {
         );
         assert!(!html.contains(">Took themselves off<"), "{html}");
     }
+
+    /// Took themselves off and claimed, both (pressed within the engine's
+    /// round trip): the row says both, and offers the objection's undo.
+    #[test]
+    fn objected_and_claimed() {
+        let mut both = entrant(true);
+        both.outcome = Some(Outcome::Claimed);
+        both.prize = Some("Book".into());
+        both.deliverable = true;
+        let html = dioxus_ssr::render_element(rsx! { Row { entrant: both } });
+        for expected in ["took themselves off", "won Book", "Undo", "Mark delivered"] {
+            assert!(html.contains(expected), "{expected}: {html}");
+        }
+    }
 }

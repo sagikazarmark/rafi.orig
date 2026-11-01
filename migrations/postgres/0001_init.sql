@@ -164,6 +164,20 @@ CREATE TABLE add_removals (
     CHECK (email_norm IS NOT NULL OR list_ref IS NOT NULL)
 );
 
+-- What each add of the organizer's did (`rafi_api::AddResult` as JSON: its
+-- rows by index, added with their entrant IDs or skipped with the reason; no
+-- personal data), by the batch ID the browser made for it: a retry with the
+-- same ID is answered with it and adds nothing, after an undo too (the undo
+-- deletes the entrants, not the receipt). Kept while the list can still take
+-- an add: deleted with the manifest's write, and with the raffle.
+CREATE TABLE add_batches (
+    raffle_id TEXT NOT NULL REFERENCES raffles (id) ON DELETE CASCADE,
+    batch_id TEXT NOT NULL,
+    result TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    PRIMARY KEY (raffle_id, batch_id)
+);
+
 -- A write that already moves the version (`SET version = ...`) is left alone;
 -- any other update of a raffle bumps it once. SQLite does this with an AFTER
 -- UPDATE trigger that updates the row again; here the row is changed before
@@ -252,6 +266,11 @@ CREATE TABLE draws (
     -- rafi_raffle::Outcome::as_str(): the code writes only those, so the
     -- schema doesn't list them.
     outcome TEXT NOT NULL,
+    -- How its prize reached the winner, as the prize said when the draw was
+    -- claimed (rafi_lifecycle::prize::Delivery::as_str()); NULL until then.
+    -- A later change to the prize's delivery is for the claims after it: an
+    -- earlier claim keeps what it meant (sent later stays owed).
+    delivery TEXT,
     PRIMARY KEY (raffle_id, k)
 );
 
@@ -310,7 +329,9 @@ CREATE TABLE owner_defaults (
 );
 
 -- Small operational facts: when housekeeping last succeeded
--- (`last_retention_ok_at`, unix seconds as text).
+-- (`last_retention_ok_at`, unix seconds as text), and the last raffle it
+-- asked the engine to finish at the ceiling (`last_ceiling_finish`, its ID),
+-- where the next run starts.
 CREATE TABLE meta (
     key TEXT PRIMARY KEY NOT NULL,
     value TEXT NOT NULL

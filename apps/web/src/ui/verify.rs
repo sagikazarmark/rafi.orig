@@ -36,11 +36,12 @@ pub fn Verify(slug: String) -> Element {
         // A reply this page can't read is a page older than the server (or
         // a record written by a newer one), not a missing raffle.
         Some(Err(e)) if e.code == api::codes::CLIENT => rsx! {
-            div { class: "rounded-box border-2 border-dashed border-base-300 py-16 text-center",
-                p { class: "text-5xl", "🧩" }
-                p { class: "mt-3 text-base-content/70", "This page can't read the raffle's record. Reload the page; if that doesn't help, the record was written by a newer version of Rafi than this page." }
-                p { class: "mt-1 text-sm text-base-content/50", "{e.message}" }
-            }
+            Unreadable { detail: e.message.clone() }
+        },
+        // One this page reads but whose format it doesn't know: its rules
+        // may differ, so it isn't checked by these.
+        Some(Ok(d)) if unknown_format(d).is_some() => rsx! {
+            Unreadable { detail: unknown_format(d).unwrap_or_default() }
         },
         Some(Err(_)) => rsx! {
             div { class: "rounded-box border-2 border-dashed border-base-300 py-16 text-center",
@@ -421,6 +422,32 @@ fn describe(
     (text, None)
 }
 
+/// Why this page can't check `d`, if it can't: a `format` it doesn't know
+/// ([`rafi_api::VERIFY_FORMAT`]), as `tools/verify.py` refuses one.
+fn unknown_format(d: &rafi_api::VerifyData) -> Option<String> {
+    (d.format != rafi_api::VERIFY_FORMAT).then(|| {
+        format!(
+            "The record is in format {}; this page reads format {}.",
+            d.format,
+            rafi_api::VERIFY_FORMAT
+        )
+    })
+}
+
+/// A record this page can't check: a reply it can't read, or one in a
+/// format it doesn't know (`verify.json`'s `format`), which a newer
+/// version of Rafi wrote. Never a verdict: the page says why and stops.
+#[component]
+fn Unreadable(detail: String) -> Element {
+    rsx! {
+        div { class: "rounded-box border-2 border-dashed border-base-300 py-16 text-center",
+            p { class: "text-5xl", "🧩" }
+            p { class: "mt-3 text-base-content/70", "This page can't read the raffle's record. Reload the page; if that doesn't help, the record was written by a newer version of Rafi than this page." }
+            p { class: "mt-1 text-sm text-base-content/50", "{detail}" }
+        }
+    }
+}
+
 /// How the frozen list's entrants got in: who joined on their phones and
 /// whom the organizer added. The draw is fair over the list it was given;
 /// an added entrant is the organizer's word, and this makes the list's
@@ -441,6 +468,31 @@ fn Sources(sources: rafi_api::SourceCounts) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A record in a format this page doesn't know is not checked: the
+    /// page says a newer Rafi wrote it.
+    #[test]
+    fn a_newer_format_is_not_checked() {
+        let record = |format: u32| -> rafi_api::VerifyData {
+            serde_json::from_value(serde_json::json!({
+                "format": format, "title": "Meetup", "state": "finished",
+                "manifest": "{}", "manifest_hash": "00", "events": [], "names": [],
+            }))
+            .unwrap()
+        };
+        assert_eq!(
+            unknown_format(&record(1)),
+            None,
+            "the format this page reads"
+        );
+        let detail = unknown_format(&record(2)).expect("a newer format");
+        let html = dioxus_ssr::render_element(rsx! { Unreadable { detail } });
+        assert!(
+            html.contains("written by a newer version of Rafi"),
+            "{html}"
+        );
+        assert!(html.contains("format 2"), "{html}");
+    }
 
     #[test]
     fn the_sources_in_words() {

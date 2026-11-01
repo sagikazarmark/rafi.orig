@@ -51,6 +51,18 @@ async fn patch(db: &Db, raffle_id: &str, id: &str, p: entrants::Patch<'_>) -> Ou
 /// Puts raffle `id` in `state` as is, past the lifecycle's rules: fixtures
 /// that need entrants in a raffle whose list no longer changes add them
 /// first, then move it on.
+/// Deletes raffle `id` whatever it holds, as the schema allows (the
+/// app's [`raffles::delete`] keeps a raffle that has drawn): to start a
+/// scenario's raffle again, or to see what deleting takes with it.
+async fn drop_raffle(db: &Db, id: &str) -> Outcome {
+    db.query("DELETE FROM raffles WHERE id = ?")
+        .bind(id)
+        .run()
+        .await
+        .map_err(fail)?;
+    Ok(())
+}
+
 async fn force_state(db: &Db, id: &str, state: RaffleState) -> Outcome {
     db.query("UPDATE raffles SET state = ? WHERE id = ?")
         .bind(state.as_str())
@@ -1515,6 +1527,7 @@ pub(super) async fn phones_see_only_drawn_names(db: &Db) -> Outcome {
     let mut state = state;
     state
         .decide(&Decision::Resolve {
+            k: None,
             item: "u1".into(),
             resolution: Resolution::NotHere,
         })
@@ -1827,7 +1840,7 @@ pub(super) async fn delivers_on_the_spot_with_the_claim(db: &Db) -> Outcome {
     )?;
 
     // The same evening in one save, the winner of the book erased first.
-    raffles::delete(db, "r1").await.map_err(fail)?;
+    drop_raffle(db, "r1").await?;
     frozen_with(db, &manifest).await?;
     force_state(db, "r1", RaffleState::Closed).await?;
     for id in [&anna, &bence, &csilla] {
@@ -1940,7 +1953,7 @@ async fn delivers_once_every_claimed_prize_is(db: &Db) -> Outcome {
         check(delivered().await? == want, what)?;
     }
 
-    raffles::delete(db, "r2").await.map_err(fail)?;
+    drop_raffle(db, "r2").await?;
     setup().await?;
     let state = Raffle::restore(&manifest, &events).map_err(fail)?;
     check(
@@ -1948,6 +1961,150 @@ async fn delivers_once_every_claimed_prize_is(db: &Db) -> Outcome {
         "saving it at once",
     )?;
     check(!delivered().await?, "at once, the voucher still isn't")
+}
+
+/// A claim keeps the delivery its prize had when it was claimed: Eve claims
+/// a voucher sent later; the organizer then switches the voucher to on the
+/// spot (for the copies still to come, they think); Eve claims a mug handed
+/// over. She is still owed the voucher, so she isn't delivered, and the
+/// voucher's draw still reads `later`.
+pub(super) async fn a_claim_keeps_its_delivery(db: &Db) -> Outcome {
+    let eve = "e".repeat(32);
+    let manifest = Manifest::new(
+        "r1",
+        BeaconSource::QUICKNET,
+        vec![eve.clone().into()],
+        ["voucher", "mug"]
+            .map(|p| ManifestItem {
+                id: format!("{p}-1").into(),
+                name: p.into(),
+            })
+            .into(),
+    );
+    frozen_with(db, &manifest).await?;
+    force_state(db, "r1", RaffleState::Closed).await?;
+    add_one(db, "r1", &eve).await.map_err(fail)?;
+    for (id, delivery) in [("voucher", Delivery::Later), ("mug", Delivery::OnTheSpot)] {
+        let fields = prizes::PrizeFields {
+            name: id,
+            sponsor: "",
+            description: "",
+            qty: 1,
+            position: 0,
+            delivery,
+        };
+        prizes::insert(db, id, "r1", &fields).await.map_err(fail)?;
+    }
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    let claim = |k: u64, item: &str| {
+        [
+            Event::Drawn {
+                k,
+                item: format!("{item}-1").into(),
+                round: k,
+                signature: String::new(),
+                randomness: String::new(),
+                pass: if k == 1 { 1 } else { 2 },
+                pool_size: 1,
+                index: 0,
+                entrant: eve.clone().into(),
+            },
+            Event::Resolved {
+                k,
+                resolution: Resolution::Claimed,
+            },
+        ]
+    };
+    let draw_delivery = |k: u64| async move {
+        db.query("SELECT delivery FROM draws WHERE raffle_id = 'r1' AND k = ?")
+            .bind(k)
+            .one::<(Option<String>,)>()
+            .await
+            .map(|(d,)| d)
+            .map_err(fail)
+    };
+
+    let mut events = claim(1, "voucher").to_vec();
+    let state = Raffle::restore(&manifest, &events).map_err(fail)?;
+    check(
+        save_raffle(db, &state, NOW).await.map_err(fail)?,
+        "saving the voucher's claim",
+    )?;
+    check(
+        draw_delivery(1).await?.as_deref() == Some("later"),
+        "the voucher's claim is recorded as sent later",
+    )?;
+    check(
+        prizes::set_delivery(db, "voucher", "r1", Delivery::OnTheSpot)
+            .await
+            .map_err(fail)?,
+        "the voucher switched to on the spot",
+    )?;
+    events.extend(claim(2, "mug"));
+    let state = Raffle::restore(&manifest, &events).map_err(fail)?;
+    check(
+        save_raffle(db, &state, NOW + 5).await.map_err(fail)?,
+        "saving the mug's claim",
+    )?;
+    check(
+        entrant(db, "r1", &eve).await?.delivered_at.is_none(),
+        "the voucher she claimed is still owed: not delivered",
+    )?;
+    check(
+        draw_delivery(1).await?.as_deref() == Some("later"),
+        "the voucher's claim still reads sent later",
+    )?;
+    check(
+        draw_delivery(2).await?.as_deref() == Some("on_the_spot"),
+        "the mug's claim is recorded as handed over",
+    )
+}
+
+/// Deleting a raffle checks, in its own statement, that no draw was
+/// announced: a frozen raffle with no draw goes; one whose draw the engine
+/// stored after the caller's check (a draw announced, not even settled)
+/// stays, with its log.
+pub(super) async fn deletes_only_undrawn_raffles(db: &Db) -> Outcome {
+    let manifest = manifest("r1", ["a".repeat(32), "b".repeat(32)]);
+    frozen_with(db, &manifest).await?;
+    let opened = Raffle::open(&manifest).map_err(fail)?;
+    check(
+        save_raffle(db, &opened, NOW).await.map_err(fail)?,
+        "opened by the engine",
+    )?;
+    check(
+        raffles::delete(db, "r1").await.map_err(fail)?,
+        "frozen and opened, nothing drawn: deleted",
+    )?;
+    check(
+        raffles::get(db, "r1").await.map_err(fail)?.is_none(),
+        "gone",
+    )?;
+
+    frozen_with(db, &manifest).await?;
+    let mut drawing = Raffle::open(&manifest).map_err(fail)?;
+    drawing
+        .announce(
+            &rafi_raffle::DrawRequest { item: "u1".into() },
+            &BeaconSource::QUICKNET,
+            1,
+            0,
+        )
+        .map_err(fail)?;
+    check(
+        save_raffle(db, &drawing, NOW).await.map_err(fail)?,
+        "a draw announced",
+    )?;
+    check(
+        !raffles::delete(db, "r1").await.map_err(fail)?,
+        "an announced draw keeps the raffle",
+    )?;
+    check(
+        raffles::get(db, "r1").await.map_err(fail)?.is_some(),
+        "still there",
+    )?;
+    let (events, _) = stored_log(db, "r1").await?;
+    check(events.len() == 1, "with its log")
 }
 
 pub(super) async fn patches_an_entrant_at_once(db: &Db) -> Outcome {
@@ -2127,7 +2284,7 @@ pub(super) async fn logs_a_whole_evening(db: &Db) -> Outcome {
     )?;
 
     // Deleting the raffle takes its log with it.
-    raffles::delete(db, id).await.map_err(fail)?;
+    drop_raffle(db, id).await?;
     let (events_left, draws_left) = stored_log(db, id).await?;
     check(
         events_left.is_empty() && draws_left.is_empty(),
@@ -2342,7 +2499,7 @@ pub(super) async fn raffle_events_are_append_only(db: &Db) -> Outcome {
     )?;
     holds(db, &claimed, "after refused writes").await?;
 
-    raffles::delete(db, "r1").await.map_err(fail)?;
+    drop_raffle(db, "r1").await?;
     let (events, draws) = stored_log(db, "r1").await?;
     check(
         events.is_empty() && draws.is_empty(),
@@ -2570,7 +2727,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
     // The ceiling: w and y go, fin is purged, dr is left for the engine; q
     // is due on its own date.
     check(
-        retention::unfinished_at_ceiling(db, 999, 900)
+        retention::unfinished_at_ceiling(db, 999, 900, None)
             .await
             .map_err(fail)?
             .is_empty(),
@@ -2604,7 +2761,7 @@ pub(super) async fn retention_erases_what_is_due(db: &Db) -> Outcome {
         "dr and later aren't moved",
     )?;
     check(
-        retention::unfinished_at_ceiling(db, 1000, 900)
+        retention::unfinished_at_ceiling(db, 1000, 900, None)
             .await
             .map_err(fail)?
             == ["dr"],
@@ -3250,7 +3407,10 @@ pub(super) async fn removals_keep_people_out_until_lifted(db: &Db) -> Outcome {
     )?;
 
     // Deleting a raffle, or its owner leaving, takes them along.
-    raffles::delete(db, "live").await.map_err(fail)?;
+    check(
+        raffles::delete(db, "live").await.map_err(fail)?,
+        "a raffle never drawn is deleted",
+    )?;
     check(removals_left(db).await? == 0, "deleted with the raffle")?;
     raffle_in(db, "mine", RaffleState::Open).await?;
     remembered(db, "mine", Some("m@x"), None).await?;
@@ -3385,5 +3545,113 @@ pub(super) async fn objections_hide_and_erase_at_the_end(db: &Db) -> Outcome {
     check(
         entrant(db, "r1", "m1").await?.objected_at == Some(50),
         "the anonymous entry still says so",
+    )
+}
+
+/// Took themselves off and claimed, both written (the objection first, the
+/// claim landing within the engine's round trip): once the raffle is over,
+/// the end-of-raffle erasure of objections leaves them, as a winner a prize
+/// may still be owed to; the winner hold erases them.
+pub(super) async fn an_objected_winner_waits_for_the_hold(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    for id in ["m1", "m2"] {
+        check(add_one(db, "r1", id).await?, "adding")?;
+    }
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    check(
+        entrants::object(db, "r1", "m1", 50).await.map_err(fail)?,
+        "m1 takes themselves off",
+    )?;
+    claimed(db, "r1", 1, "m1").await?;
+    check(
+        entrants::object(db, "r1", "m2", 51).await.map_err(fail)?,
+        "m2 takes themselves off",
+    )?;
+    force_state(db, "r1", RaffleState::Finished).await?;
+    erase_at(db, "r1", 100).await?;
+
+    let erased = retention::erase_objected(db, 80).await.map_err(fail)?;
+    check(
+        erased.entrants == 1,
+        &format!("m2 only, at the end: {erased:?}"),
+    )?;
+    erased_are(db, "r1", &["m2"]).await?;
+    check(
+        entrant(db, "r1", "m1").await?.objected_at == Some(50),
+        "m1 is still objected",
+    )?;
+
+    const HOLD: i64 = 1000;
+    retention::erase_due(db, 200, HOLD).await.map_err(fail)?;
+    erased_are(db, "r1", &["m2"]).await?;
+    retention::erase_due(db, 100 + HOLD, HOLD)
+        .await
+        .map_err(fail)?;
+    erased_are(db, "r1", &["m1", "m2"]).await
+}
+
+/// An add's receipt outlives its undo, so a retry with the same batch ID is
+/// answered with it rather than adding the people again; recorded once,
+/// only before the manifest, and forgotten with the manifest's write.
+pub(super) async fn an_add_receipt_outlives_its_undo(db: &Db) -> Outcome {
+    raffle_in(db, "r1", RaffleState::Open).await?;
+    check(add_one(db, "r1", "m1").await?, "the add")?;
+    let first = r#"{"batch_id":"b-m1","added":[{"row":0,"id":"m1"}],"skipped":[]}"#;
+    check(
+        entrants::record_add(db, "r1", "b-m1", first, NOW)
+            .await
+            .map_err(fail)?,
+        "its receipt",
+    )?;
+    check(
+        !entrants::record_add(db, "r1", "b-m1", "{}", NOW + 1)
+            .await
+            .map_err(fail)?,
+        "recorded once",
+    )?;
+    check(
+        entrants::delete_batch(db, "r1", "b-m1")
+            .await
+            .map_err(fail)?
+            == 1,
+        "the undo",
+    )?;
+    check(listed(db, "r1").await?.is_empty(), "nobody left")?;
+    check(
+        entrants::add_receipt(db, "r1", "b-m1")
+            .await
+            .map_err(fail)?
+            .as_deref()
+            == Some(first),
+        "the first result, after the undo",
+    )?;
+    check(
+        entrants::add_receipt(db, "r1", "b-other")
+            .await
+            .map_err(fail)?
+            .is_none(),
+        "no receipt for another batch",
+    )?;
+
+    // The manifest's write forgets them; none is recorded after it.
+    force_state(db, "r1", RaffleState::Frozen).await?;
+    check(
+        raffles::set_manifest(db, "r1", "{}", "hash", NOW)
+            .await
+            .map_err(fail)?,
+        "the manifest",
+    )?;
+    check(
+        entrants::add_receipt(db, "r1", "b-m1")
+            .await
+            .map_err(fail)?
+            .is_none(),
+        "forgotten with the manifest",
+    )?;
+    check(
+        !entrants::record_add(db, "r1", "b-late", first, NOW)
+            .await
+            .map_err(fail)?,
+        "none after it",
     )
 }

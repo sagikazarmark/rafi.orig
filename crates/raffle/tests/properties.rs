@@ -84,6 +84,7 @@ fn candidates(items: usize, pending: Option<rafi_raffle::ItemId>) -> Vec<Command
             Resolution::Declined,
         ] {
             out.push(Command::Decide(Decision::Resolve {
+                k: None,
                 item: item(i),
                 resolution,
             }));
@@ -174,7 +175,7 @@ proptest! {
                 }
                 Op::Resolve(i, o) => {
                     let resolution = [Resolution::Claimed, Resolution::NotHere, Resolution::Declined][o as usize];
-                    let _ = s.decide(&Decision::Resolve { item: item(i % items), resolution });
+                    let _ = s.decide(&Decision::Resolve { k: None, item: item(i % items), resolution });
                 }
                 Op::Void(i) => { let _ = s.decide(&Decision::Void { item: item(i % items) }); }
                 Op::Finish => { let _ = s.decide(&Decision::Finish); }
