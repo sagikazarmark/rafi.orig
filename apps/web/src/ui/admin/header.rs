@@ -378,11 +378,16 @@ fn FreezeDialog(open: Signal<bool>, view: RaffleView, on_confirm: EventHandler<(
 /// What freezing does.
 #[component]
 fn FreezeBody(registration: bool, count: usize) -> Element {
+    let entrants = if count == 1 {
+        "1 entrant".to_owned()
+    } else {
+        format!("{count} entrants")
+    };
     rsx! {
         if registration {
-            "Registration closes for good and the list of {count} entrants is published. Latecomers can't be added afterwards."
+            "Registration closes for good and the list of {entrants} is published. Latecomers can't be added afterwards."
         } else {
-            "The list of {count} entrants is published. Nobody can be added afterwards."
+            "The list of {entrants} is published. Nobody can be added afterwards."
         }
     }
 }
@@ -441,6 +446,12 @@ mod tests {
             dioxus_ssr::render_element(rsx! { FreezeBody { registration: false, count: 12 } });
         assert!(
             html.contains("The list of 12 entrants is published."),
+            "{html}"
+        );
+        let html =
+            dioxus_ssr::render_element(rsx! { FreezeBody { registration: false, count: 1 } });
+        assert!(
+            html.contains("The list of 1 entrant is published."),
             "{html}"
         );
     }

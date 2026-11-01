@@ -218,7 +218,7 @@ fn Intro(view: RaffleView) -> Element {
                 }
                 div { class: "flex items-baseline gap-[0.4em]",
                     span { key: "{view.entrant_count}", class: "inline-block animate-pop font-display text-[2.6em] font-black leading-none text-primary", "{view.entrant_count}" }
-                    span { class: "text-[1.2em] font-semibold text-base-content/60", "entrants" }
+                    span { class: "text-[1.2em] font-semibold text-base-content/60", if view.entrant_count == 1 { "entrant" } else { "entrants" } }
                 }
                 // The latest names, a long one cut with "…" (the organizer
                 // gives up to 64 characters) so the others still fit.
@@ -302,8 +302,8 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>) -> Element {
         rsx! {
             div { class: "flex flex-col items-center gap-[0.6em] text-center",
                 span { class: "animate-float text-[5em]", "🎁" }
-                p { class: "font-display text-[3em] font-black", "{left} " span { class: "text-base-content/60", "prizes left" } }
-                p { class: "text-[1.2em] text-base-content/60", "{view.entrant_count} entrants" }
+                p { class: "font-display text-[3em] font-black", "{left} " span { class: "text-base-content/60", if left == 1 { "prize left" } else { "prizes left" } } }
+                p { class: "text-[1.2em] text-base-content/60", if view.entrant_count == 1 { "1 entrant" } else { "{view.entrant_count} entrants" } }
                 if let Some(f) = &view.last_failure {
                     p { class: "alert alert-warning alert-soft text-[0.8em]", "⚠ {f}" }
                 }
@@ -354,7 +354,9 @@ fn Winner(reveal: Reveal) -> Element {
             h2 { class: "gradient-text animate-reveal max-w-full py-[0.1em] font-black leading-[1.05] text-balance wrap-anywhere {reveal_size(&reveal.display_name)}",
                 bdi { "{reveal.display_name}" }
             }
-            if reveal.no_phone {
+            // Only under a name they can recognize: not under a hidden one
+            // (someone who took themselves off, whose prize is declined).
+            if reveal.no_phone && reveal.display_name != rafi_live_client::HIDDEN_NAME {
                 p { class: "animate-pop font-display text-[2.2em] font-extrabold text-primary", "Come to the front!" }
             }
             if let Some(round) = reveal.round {
@@ -524,6 +526,14 @@ mod tests {
             "{html}"
         );
         let html = dioxus_ssr::render_element(rsx! { Winner { reveal: reveal(false) } });
+        assert!(!html.contains("Come to the front!"), "{html}");
+        // A hidden name (someone who took themselves off): nobody can tell
+        // it's them.
+        let hidden = Reveal {
+            display_name: rafi_live_client::HIDDEN_NAME.into(),
+            ..reveal(true)
+        };
+        let html = dioxus_ssr::render_element(rsx! { Winner { reveal: hidden } });
         assert!(!html.contains("Come to the front!"), "{html}");
     }
 

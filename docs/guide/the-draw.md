@@ -105,7 +105,8 @@ disabled while another draw is counting down, because they would change who that
 Someone you added, one by one or from a list ("added by you" in the console), has no phone: nothing tells them
 they won, and they never saw a claim code. So:
 
-- The projector shows **"Come to the front!"** under their name: they recognize it and come up.
+- The projector shows **"Come to the front!"** under their name: they recognize it and come up. Not when their
+  name is hidden (you hid it, or they took themselves off): nobody would recognize ★ ★ ★, so call them yourself.
 - The console shows their name, their email masked ("a•••@example.com") with a **Show** button, "added by you",
   and **"Check it's them: ask for the email they registered with, or their badge."** No claim code: there is
   nothing to compare it with. The email is masked because consoles get mirrored onto projectors, and asking for it

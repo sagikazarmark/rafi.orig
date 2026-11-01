@@ -47,7 +47,7 @@ pub(super) fn ParagraphToSend(
                             button {
                                 key: "{f.as_str()}",
                                 r#type: "button",
-                                class: if f == shown { "btn btn-xs join-item btn-active" } else { "btn btn-xs join-item" },
+                                class: if f == shown { "btn btn-xs join-item btn-active btn-secondary" } else { "btn btn-xs join-item" },
                                 aria_pressed: "{f == shown}",
                                 onclick: move |_| picked.set(f),
                                 "{format_label(f)}"

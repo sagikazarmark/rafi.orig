@@ -457,7 +457,7 @@ fn MappingForm(
                     div { class: "join", role: "group", aria_label: "How the names are written",
                         button {
                             r#type: "button",
-                            class: if split { "btn btn-xs join-item" } else { "btn btn-xs join-item btn-active" },
+                            class: if split { "btn btn-xs join-item" } else { "btn btn-xs join-item btn-active btn-secondary" },
                             aria_pressed: "{!split}",
                             onclick: move |_| on_change.call(Mapping { name: match m.name {
                                 NameColumns::Split { given, .. } => NameColumns::Single(given),
@@ -467,7 +467,7 @@ fn MappingForm(
                         }
                         button {
                             r#type: "button",
-                            class: if split { "btn btn-xs join-item btn-active" } else { "btn btn-xs join-item" },
+                            class: if split { "btn btn-xs join-item btn-active btn-secondary" } else { "btn btn-xs join-item" },
                             aria_pressed: "{split}",
                             onclick: move |_| on_change.call(Mapping { name: match m.name {
                                 NameColumns::Single(c) => NameColumns::Split { given: c, family: c },
@@ -618,7 +618,7 @@ fn PreviewView(
                                 button {
                                     key: "{label}",
                                     r#type: "button",
-                                    class: if g.first_only == first_only { "btn btn-xs join-item btn-active" } else { "btn btn-xs join-item" },
+                                    class: if g.first_only == first_only { "btn btn-xs join-item btn-active btn-secondary" } else { "btn btn-xs join-item" },
                                     aria_pressed: "{g.first_only == first_only}",
                                     onclick: {
                                         let key = g.key.clone();
@@ -735,7 +735,12 @@ fn PreviewView(
                         }
                     }
                 }
-            } else if p.already_in.is_empty() {
+            } else if p.already_in.is_empty()
+                || !p.removed.is_empty()
+                || !p.invalid.is_empty()
+                || !p.blocked.is_empty()
+            {
+                // Some rows are left out (above), so not everyone is in.
                 p { class: "text-sm text-base-content/60", "Nobody to add." }
             } else {
                 p { class: "text-sm text-base-content/60", "Everyone on the list is in already." }
@@ -895,6 +900,42 @@ mod tests {
         ] {
             assert!(html.contains(expected), "{expected}: {html}");
         }
+    }
+
+    #[component]
+    fn NothingNew() -> Element {
+        let decisions = use_signal(Decisions::default);
+        let t = import::parse("name,email\nAnna,anna@x.org\nBea,bea@x.org").unwrap();
+        let mapping = import::detect(&t);
+        let anna: AdminEntrant = serde_json::from_value(serde_json::json!({
+            "id": "e1", "display_name": "Anna", "email": "anna@x.org", "source": "manual",
+            "hidden": false, "claim_code": "K2P9", "created_at": 0, "delivered": false,
+            "erased": false, "outcome": null, "prize": null
+        }))
+        .unwrap();
+        let removed = [rafi_api::RemovedAtRequest {
+            email_key: Some("bea@x.org".into()),
+            list_ref: None,
+            removed_at: 1,
+        }];
+        let existing = Existing::new([&anna]).with_removed(&removed);
+        let p = import::preview(&t, &mapping, NameFormat::Full, &existing, &decisions()).unwrap();
+        rsx! { PreviewView { preview: Rc::new(p), decisions, problems: vec![] } }
+    }
+
+    /// Nobody to add, but not everyone is in: someone was left out at
+    /// their request.
+    #[test]
+    fn nothing_to_add_with_someone_left_out() {
+        let html = dioxus_ssr::render_element(rsx! { NothingNew {} });
+        assert!(
+            html.contains("0 to add") && html.contains("Nobody to add."),
+            "{html}"
+        );
+        assert!(
+            !html.contains("Everyone on the list is in already."),
+            "{html}"
+        );
     }
 
     #[test]

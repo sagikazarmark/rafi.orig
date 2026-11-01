@@ -57,7 +57,9 @@ pub(super) fn People(
             title: "People",
             icon: rsx! { Users { class: "size-5" } },
             actions: rsx! {
-                span { class: "badge badge-soft badge-primary", "{admin.entrants.len()} entrants" }
+                span { class: "badge badge-soft badge-primary",
+                    if admin.entrants.len() == 1 { "1 entrant" } else { "{admin.entrants.len()} entrants" }
+                }
                 if admin.settings.test_mode && editable {
                     button { class: "btn btn-sm btn-warning btn-soft", onclick: fakes, "🧪 Add 25 fake entrants" }
                 }
@@ -303,7 +305,7 @@ fn EntrantRow(
                                 div { class: "flex gap-1",
                                     if e.objected { span { class: "badge badge-warning badge-soft badge-xs", "took themselves off" } }
                                     if e.hidden { span { class: "badge badge-ghost badge-xs", "hidden on screen" } }
-                                    if e.source == Source::Manual { span { class: "badge badge-secondary badge-soft badge-xs", "no phone" } }
+                                    if e.source == Source::Manual { span { class: "badge badge-secondary badge-soft badge-xs", "added by you" } }
                                     if e.source == Source::Fake { span { class: "badge badge-warning badge-soft badge-xs", "fake" } }
                                     if e.held_until.is_some() { span { class: "badge badge-info badge-soft badge-xs", "data held until {winners_erase_date}" } }
                                 }
@@ -421,17 +423,20 @@ fn RemoveDialog(
     on_confirm: EventHandler<bool>,
 ) -> Element {
     let mut at_request = use_signal(|| false);
+    // The switch starts off each time the dialog opens. Not reset on
+    // closing: the action's on_click runs after the dialog has closed, and
+    // reads it.
+    use_effect(move || {
+        if open() {
+            at_request.set(false);
+        }
+    });
     let real = entrant.source != Source::Fake;
     let keyed = entrant.email.is_some() || entrant.list_ref.is_some();
     rsx! {
         AlertDialog {
             open: Some(open()),
-            on_open_change: move |next: bool| {
-                if !next {
-                    at_request.set(false);
-                }
-                open.set(next)
-            },
+            on_open_change: move |next: bool| open.set(next),
             AlertDialogTitle { "Remove " bdi { "{entrant.display_name}" } "?" }
             AlertDialogDescription {
                 if registration {
