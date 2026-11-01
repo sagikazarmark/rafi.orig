@@ -17,7 +17,8 @@
 //!     in `wrangler.toml`: the shell carries a Content-Security-Policy naming
 //!     the installation's Clerk host, which the static files' `_headers`
 //!     can't know).
-//! - `scheduled`: the Cron Trigger runs housekeeping (`rafi_app::housekeeping::run`).
+//! - `scheduled`: the Cron Trigger runs housekeeping (`rafi_app::housekeeping::run`);
+//!   a run that fails, or can't start, fails the invocation.
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker.
 //!
 //! Nothing of an installation's is compiled in, so one build of the Worker
@@ -53,7 +54,7 @@ pub use rafi_cloudflare::RaffleRoom;
 use rafi_cloudflare::{DurableObjects, lookup};
 use restate_sdk::endpoint::Endpoint;
 use tower_service::Service;
-use worker::{Context, Env, HttpRequest, ScheduleContext, ScheduledEvent, event};
+use worker::{Context, Env, HttpRequest, event};
 
 use rafi_server::{self as server, AppState, config::Config};
 
@@ -190,25 +191,54 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> worker::Result<http
         .unwrap_or_else(|never| match never {}))
 }
 
-#[event(scheduled)]
-async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    let App { state, .. } = match cached(&env).await {
-        Ok(app) => app,
-        Err(e) => {
-            worker::console_error!("rafi: housekeeping not run: {e:#}");
-            return;
-        }
+/// One housekeeping run, as the Cron Trigger fires it. An error is a run that
+/// didn't happen (the app didn't build) or didn't finish.
+async fn housekeeping(env: &Env) -> anyhow::Result<()> {
+    let App { state, .. } = cached(env)
+        .await
+        .map_err(|e| e.context("housekeeping not run"))?;
+    let report = server::service::housekeeping::run(&state)
+        .await
+        .map_err(|e| e.context("housekeeping failed"))?;
+    worker::console_log!(
+        "rafi: housekeeping: {} raffles expired, {} entrants erased ({} who took themselves off), {} removals at their request forgotten, {} raffles purged, {} live channels ended",
+        report.expired,
+        report.erased,
+        report.objected,
+        report.removals_forgotten,
+        report.purged,
+        report.channels_ended
+    );
+    Ok(())
+}
+
+/// The Cron Trigger's handler, exported by hand: `#[event(scheduled)]`'s
+/// export always resolves, so a run that failed would show as a success in
+/// the Cron history. This one rejects instead, and the invocation is an
+/// exception there. The export is the macro's otherwise (worker 0.8: same
+/// name, arguments and `wasm_bindgen` paths; no `experimental_tokio` here).
+mod scheduled {
+    use worker::{
+        Env, js_sys,
+        wasm_bindgen::{JsValue, prelude::wasm_bindgen},
+        worker_sys::{ScheduleContext, ScheduledEvent},
     };
-    match server::service::housekeeping::run(&state).await {
-        Ok(report) => worker::console_log!(
-            "rafi: housekeeping: {} raffles expired, {} entrants erased ({} who took themselves off), {} removals at their request forgotten, {} raffles purged, {} live channels ended",
-            report.expired,
-            report.erased,
-            report.objected,
-            report.removals_forgotten,
-            report.purged,
-            report.channels_ended
-        ),
-        Err(e) => worker::console_error!("rafi: housekeeping failed: {e:#}"),
+
+    #[wasm_bindgen(
+        wasm_bindgen = ::worker::wasm_bindgen,
+        wasm_bindgen_futures = ::worker::wasm_bindgen_futures,
+        js_sys = ::worker::js_sys
+    )]
+    pub async fn scheduled(
+        _event: ScheduledEvent,
+        env: Env,
+        _ctx: ScheduleContext,
+    ) -> Result<JsValue, JsValue> {
+        super::housekeeping(&env).await.map_err(|e| {
+            let message = format!("rafi: {e:#}");
+            worker::console_error!("{message}");
+            JsValue::from(js_sys::Error::new(&message))
+        })?;
+        Ok(JsValue::UNDEFINED)
     }
 }

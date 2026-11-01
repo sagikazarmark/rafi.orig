@@ -134,8 +134,14 @@ if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev
 
   step "housekeeping, fired as the Cron Trigger fires it"
   # The erasure promise rests on this handler running; it records each
-  # success in `meta`, which is what the admin's staleness warning reads.
-  curl -s -m 120 -o /dev/null "http://127.0.0.1:8787/__scheduled?cron=0+*+*+*+*"
+  # success in `meta`, which is what the admin's staleness warning reads. A
+  # failed run fails the invocation (500 here, an exception in the Cron history).
+  fired="$(curl -s -m 120 -o /dev/null -w '%{http_code}' "http://127.0.0.1:8787/__scheduled?cron=0+*+*+*+*")"
+  if [ "$fired" != "200" ]; then
+    echo "the scheduled handler failed ($fired); log:" >&2
+    tail -30 "$LOGS/worker.log" >&2
+    exit 1
+  fi
   last_ok="$(cd "$ROOT/apps/worker" && $WRANGLER d1 execute rafi --local --env dev --persist-to "$STATE/wrangler" --json \
     --command "SELECT value FROM meta WHERE key = 'last_retention_ok_at'" | node -e '
       const out = JSON.parse(require("fs").readFileSync(0, "utf8"));

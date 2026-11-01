@@ -804,7 +804,9 @@ day). **Why now**: what gets expensive after the release.
   (migrations → `wrangler deploy` → remind to re-register with Restate) or an explicit statement that deploys are
   manual with CI-1's dry-run as the gate. (small)
 - `scheduled` (`apps/worker/src/lib.rs:171-176`) returns normally when `cached()` fails, so the Cron Trigger
-  history shows green; after SEC-1 the error is at least visible. `finish_at_ceiling`
+  history shows green; after SEC-1 the error is at least visible. **Done 2026-11-01**: `scheduled` is exported by
+  hand and rejects when the app doesn't build or the run fails, so the invocation is an exception in the Cron
+  history; `workers-check.sh` asserts the 200. `finish_at_ceiling`
   (`crates/app/src/housekeeping.rs:92-115`) loops serially with a 90 s timer per `decide`; cap the count per run
   so a few stuck raffles can't push the cron past its wall clock. (trivial)
 
