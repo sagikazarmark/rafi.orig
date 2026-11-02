@@ -272,9 +272,16 @@ check(await until(async () => (await screenText()).includes("Rust in Action"), 4
 // The organizer's draw console, open through the draw.
 const drawConsole = await tab("draw console", `${base}/admin/r/${id}`);
 check(await until(async () => (await drawConsole.text()).includes("Prizes to draw"), 45000), "the draw console is up");
+// A queue row's Draw: a button in an `li` (the tab trigger, also "Draw", is
+// in none). Only the next prize's is primary; the others are outlined.
+let drawButtons = null;
+await until(async () => (drawButtons = await drawConsole.js(`[...document.querySelectorAll("li button")]
+  .filter((b) => b.innerText.trim() === "Draw").map((b) => b.classList.contains("btn-primary"))`))?.length === 2, 10000);
+check(drawButtons?.length === 2 && drawButtons[0] && !drawButtons[1],
+  `one primary Draw, the first prize's (${JSON.stringify(drawButtons)})`);
 // The organizer draws from the console, double-clicking as people do: one
 // draw, and the console says it's drawing.
-check(await drawConsole.click("Draw", 2, "li button.btn-primary"), "the console offers Draw, and the organizer double-clicks it");
+check(await drawConsole.click("Draw", 2, "li button"), "the console offers Draw, and the organizer double-clicks it");
 const clickedAt = Date.now();
 // (innerText is as shown: the label is upper-cased by CSS.)
 check(await until(async () => /drawing now/i.test(await drawConsole.text()), 5000),
@@ -336,12 +343,12 @@ const waitingPanel = async () => (await drawConsole.js(`[...document.querySelect
   .find((s) => /waiting for the/i.test(s.querySelector("h2")?.innerText ?? ""))?.innerText.replace(/\\s+/g, " ") ?? ""`)) ?? "";
 // Whether the queue's row for `prize` has its Draw button, enabled.
 const offersDraw = (prize) => drawConsole.js(`[...document.querySelectorAll("li")].some((li) => li.innerText.includes(${JSON.stringify(prize)})
-  && [...li.querySelectorAll("button.btn-primary")].some((b) => !b.disabled && b.innerText.trim() === "Draw"))`);
+  && [...li.querySelectorAll("button")].some((b) => !b.disabled && b.innerText.trim() === "Draw"))`);
 let notHere = null, annaWon = false;
 for (let n = 1; n <= 3; n++) {
   // The first draw is the double click's; then the queue's first Draw,
   // the prize put back first.
-  if (n > 1) check(await until(() => drawConsole.click("Draw", 1, "li button.btn-primary"), 10000), `draw ${n}: the organizer clicks Draw`);
+  if (n > 1) check(await until(() => drawConsole.click("Draw", 1, "li button"), 10000), `draw ${n}: the organizer clicks Draw`);
   let d = null;
   await until(async () => { d = (await viewDraws())[n - 1] ?? null; return !!d; }, 30000);
   if (!d) { check(false, `draw ${n} is decided`); break; }

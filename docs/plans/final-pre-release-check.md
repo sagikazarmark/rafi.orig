@@ -1310,8 +1310,7 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
 - T4-3: the evening on the Worker over real HTTP relays.
 - T5-6: a Copy button for an error's reference (the vendored toasts take no actions). T6-1's checks in the evening (the
   smallest font, contrast on computed colours) and T6-2's previews checked by hand in Slack; T6-3's Lighthouse run.
-  T6-6: the toasts' and dialogs' motion (vendored components), the one-`btn-primary`-per-view rule (the console's
-  Draw buttons are each primary).
+  T6-6: the toasts' and dialogs' motion (vendored components).
 - T7-2's other guarded writes (the entrant ones each re-read the entrant, not the raffle); T7-5's `use_confirm`,
   `Async` and `AddList`'s state machine; T7-6's `entrant.rs` and test-file splits and Postgres `CAST`s.
 

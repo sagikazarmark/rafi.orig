@@ -195,7 +195,12 @@ pub(super) fn DrawConsole(
     // the top), or one in the queue below, where the copies of a prize still
     // to be drawn are one row (`group`: how many are left of how many).
     // `named`: more than one winner waits, so Claimed says whose it is.
-    let item_row = |u: &ItemView, group: Option<(usize, usize)>, named: bool| -> Element {
+    // `next`: the queue's first row with Draw, whose button is the primary.
+    let item_row = |u: &ItemView,
+                    group: Option<(usize, usize)>,
+                    named: bool,
+                    next: bool|
+     -> Element {
         let winner = u
             .entrant
             .as_ref()
@@ -244,10 +249,7 @@ pub(super) fn DrawConsole(
                 div { class: "flex flex-wrap gap-2",
                     match u.status {
                         ItemStatus::Available if drawable => rsx! {
-                            button { class: "btn btn-primary hover-wiggle", disabled: busy, onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone()) },
-                                if draw_held.as_ref() == Some(&u.item) { span { class: "loading loading-spinner loading-sm" } } else { Dice5 { class: "size-5" } }
-                                "Draw"
-                            }
+                            DrawButton { primary: next, disabled: busy, held: draw_held.as_ref() == Some(&u.item), onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone()) } }
                             button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let item = uid.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Withdraw { item: item.clone(), prize: prize.clone() }) }, "Withdraw" }
                         },
                         ItemStatus::Drawn if drawable && objected => rsx! {
@@ -279,6 +281,7 @@ pub(super) fn DrawConsole(
         .collect();
     let several = waiting.len() > 1;
     let queue = queue(&v.items, pending.as_ref().map(|p| &p.item));
+    let next = next_to_draw(&queue);
 
     rsx! {
         div { class: "space-y-4",
@@ -337,7 +340,7 @@ pub(super) fn DrawConsole(
                     icon: rsx! { Trophy { class: "size-5" } },
                     ul { class: "space-y-2",
                         for u in waiting.iter() {
-                            {item_row(u, None, several)}
+                            {item_row(u, None, several, false)}
                         }
                     }
                 }
@@ -353,8 +356,8 @@ pub(super) fn DrawConsole(
                     }
                 },
                 ul { class: "space-y-2",
-                    for (u , group) in queue.iter() {
-                        {item_row(u, *group, false)}
+                    for (i , (u , group)) in queue.iter().enumerate() {
+                        {item_row(u, *group, false, next == Some(i))}
                     }
                 }
                 if drawable {
@@ -447,6 +450,27 @@ fn queue<'a>(
         }
     }
     rows
+}
+
+/// The queue's row whose Draw is the next step, and so the console's one
+/// primary button: the first still to be drawn. The other rows' Draw
+/// buttons are outlined.
+fn next_to_draw(rows: &[(&ItemView, Option<(usize, usize)>)]) -> Option<usize> {
+    rows.iter()
+        .position(|(u, _)| u.status == ItemStatus::Available)
+}
+
+/// A queue row's Draw button: the primary for the next prize to draw
+/// (`primary`), outlined for the others. `held` while a draw sent from it
+/// isn't on the page yet.
+#[component]
+fn DrawButton(primary: bool, disabled: bool, held: bool, onclick: EventHandler<()>) -> Element {
+    rsx! {
+        button { class: if primary { "btn btn-primary hover-wiggle" } else { "btn btn-outline" }, disabled, onclick: move |_| onclick.call(()),
+            if held { span { class: "loading loading-spinner loading-sm" } } else { Dice5 { class: "size-5" } }
+            "Draw"
+        }
+    }
 }
 
 /// The draw holding `item` undecided, as the page shows it: the latest of
@@ -965,6 +989,64 @@ mod tests {
             ]
         );
         assert_eq!(rows(Some("shirt-3"))[1], ("shirt-3".into(), Some((2, 3))));
+    }
+
+    /// The queue's Draw buttons, as the console renders them.
+    #[component]
+    fn Queue(items: Vec<ItemView>) -> Element {
+        let rows = queue(&items, None);
+        let next = next_to_draw(&rows);
+        rsx! {
+            for (i , (u , _)) in rows.iter().enumerate() {
+                if u.status == ItemStatus::Available {
+                    DrawButton { key: "{u.item}", primary: next == Some(i), disabled: false, held: false, onclick: |_| {} }
+                }
+            }
+        }
+    }
+
+    /// One primary button: the first prize still to be drawn's Draw, the
+    /// next step; the others' are outlined, and only it wiggles.
+    #[test]
+    fn only_the_next_draw_is_primary() {
+        let items = vec![
+            item("shirt-1", "shirt", "claimed"),
+            item("book-1", "book", "drawn"),
+            item("shirt-2", "shirt", "available"),
+            item("mug-1", "mug", "available"),
+            item("pen-1", "pen", "available"),
+        ];
+        assert_eq!(next_to_draw(&queue(&items, None)), Some(1));
+        let html = dioxus_ssr::render_element(rsx! { Queue { items: items.clone() } });
+        assert_eq!(html.matches(">Draw<").count(), 3, "{html}");
+        assert_eq!(html.matches("btn-primary").count(), 1, "{html}");
+        assert_eq!(html.matches("hover-wiggle").count(), 1, "{html}");
+        assert_eq!(html.matches("btn btn-outline").count(), 2, "{html}");
+        assert!(
+            html.find("btn-primary") < html.find("btn-outline"),
+            "{html}"
+        );
+
+        let done = [
+            item("shirt-1", "shirt", "claimed"),
+            item("pen-1", "pen", "voided"),
+        ];
+        assert_eq!(next_to_draw(&queue(&done, None)), None);
+    }
+
+    #[test]
+    fn a_held_draw_button_spins() {
+        #[component]
+        fn Held(held: bool) -> Element {
+            rsx! { DrawButton { primary: false, disabled: true, held, onclick: |_| {} } }
+        }
+        let html = dioxus_ssr::render_element(rsx! { Held { held: true } });
+        assert!(
+            html.contains("loading-spinner") && html.contains("disabled"),
+            "{html}"
+        );
+        let html = dioxus_ssr::render_element(rsx! { Held { held: false } });
+        assert!(!html.contains("loading-spinner"), "{html}");
     }
 
     /// With more than one winner waiting, Claimed says whose it is.

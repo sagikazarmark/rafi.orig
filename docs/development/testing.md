@@ -140,8 +140,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   (4403) polling instead
 - a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
   through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), drawn, claimed and
-  finished by trusted clicks in the draw console (a double click on Draw drawing once; a winner the organizer added
-  marked Not here, confirmed, and the prize drawn again from its re-enabled Draw), the projector's and the
+  finished by trusted clicks in the draw console (only the first prize's Draw primary; a double click on Draw
+  drawing once; a winner the organizer added marked Not here, confirmed, and the prize drawn again from its
+  re-enabled Draw), the projector's and the
   console's countdowns running between fetches (with a drand lead of 8 s), the live channel, the end, and the
   raffle's own `verify.json` through `tools/verify.py`, passing with `--test-chain` and failing without (the evening
   draws from the mock chain);

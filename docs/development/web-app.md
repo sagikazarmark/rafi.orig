@@ -49,6 +49,9 @@ Every colour and its `-content`, and `base-content` on each base, reads at 4.5:1
 the stops of the light theme's `.gradient-text` (the winner's name): `theme_contrast` in `rafi-web` checks the
 stylesheet, so a colour that doesn't fails `cargo test -p rafi-web`.
 
+A view has at most one `btn-primary`, the next step: in the draw console, the first prize still to be drawn's Draw
+(the other rows' are outlined).
+
 ## Following a raffle live
 
 - **The projector and the admin** poll the full view (`ui/live.rs`, `LiveView`). A countdown reads the server's
