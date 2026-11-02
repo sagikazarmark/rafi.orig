@@ -1,10 +1,10 @@
 # Final pre-release check
 
 **Status (2026-11-02): Tiers 0 and 1 done; Tier 2's repository side done; [the next run](#the-next-run) done, but
-what [What it left](#what-it-left) lists; `0001_init.sql` frozen.** Findings done before the next run say what
-shipped under **Done**; the next run's are summarized under it. Before the tag: Tier 2's GitHub and Cloudflare side
-(the rename, a dispatch dry run and `v0.1.0-rc.1`, a real deploy, a stranger's deploy), the maintainer's; then the
-open items become tickets, their Accept lines the definition of done.
+what [What it left](#what-it-left) lists; `0001_init.sql` frozen; the open items are [tickets](#tickets).**
+Findings done before the next run say what shipped under **Done**; the next run's are summarized under it. Before
+the tag: Tier 2's GitHub and Cloudflare side (the rename, a dispatch dry run and `v0.1.0-rc.1`, a real deploy, a
+stranger's deploy, the attestation, the ruleset, the screenshot), the maintainer's.
 
 ### Progress
 
@@ -1383,7 +1383,7 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
   through a test-only switch (`DrandClientBuilder::mock_over_http`) the Worker can't turn on. It needs a `dev`-only
   variable for the Worker to fetch the mock chain from its relays, and a local relay (Node, not Python) that
   `workers-check.sh` starts and points `RAFI_DRAND_RELAYS` at; about half a day. The real deploy (T2-3) exercises
-  the Worker's fetch path against the public relays meanwhile.
+  the Worker's fetch path against the public relays meanwhile. [#46](https://github.com/sagikazarmark/rafi.orig/issues/46).
 - T6-2's previews checked by hand in Slack and T6-3's Lighthouse run. Deferred (2026-11-02): Slack fetches a preview
   from a public URL, so it waits for the real deploy (T2-3); Lighthouse can run locally against `wrangler dev`
   (`npx lighthouse`, which downloads it), on the maintainer's word. T6-1's checks in the evening (the smallest
@@ -1391,7 +1391,14 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
   skipped.
 - T7-5's `AddList` state machine. Left (2026-11-02): its states overlap (a new read keeps the last list and its
   disabled Add button on screen, a send can be out while a list is read, the batch ID and the name format outlive a
-  new read), which one `Step` would change.
+  new read), which one `Step` would change. [#50](https://github.com/sagikazarmark/rafi.orig/issues/50).
+
+Since then (2026-11-02, `d4797d2` … `04d8173`): the list import clicked in the evening (T4-5); a double winner's
+phone lists every prize, and the CSV a row per prize (T4-7); the verification page checks a record once, not per
+keystroke (T3-8); the restore rehearsed in `crates/app/tests/restore.rs`, which found and fixed what it brought back
+(T2-7); the web gzip budget and the `EXPLAIN QUERY PLAN` gate, with `0002_housekeeping_indexes.sql` for the 13 scans
+it found (T3-11 1 and 7); `dioxus-primitives` at `9a75825`, without the dialog's `AbortError`; the native server's
+static files precompressed and cached (T3-5).
 
 ### Tickets
 
@@ -1434,10 +1441,10 @@ The tag is ready when every line is true.
 - [x] `tools/verify.py` fails every tampered vector; the evening's `verify.json` passes it.
 - [x] `evening.mjs` clicks through a draw on the console, imports a list, and runs housekeeping with due rows.
 - [x] The tracing test is in its own binary; `workers-check.sh` refuses an occupied port.
-- [ ] README has a projector screenshot and badges; community profile 100 %; a ruleset on `main`;
-      `compatibility_date` bumped; `wrangler` pinned.
-- [ ] `pre-release-review.md` moved to `docs/history/`; this plan's status line says what shipped and what was
-      ticketed; `0001_init.sql`'s header says it is frozen. (Moved and frozen; the tickets not yet made.)
+- [ ] README has a projector screenshot and badges; a ruleset on `main`; `compatibility_date` bumped; `wrangler`
+      pinned. (The community profile's 100 % dropped: its templates and community files were declined.)
+- [x] `pre-release-review.md` moved to `docs/history/`; this plan's status line says what shipped and what was
+      ticketed; `0001_init.sql`'s header says it is frozen.
 - [ ] `just ci` and `just workers` green on the tagged commit.
 
 ## Not doing, with reasons
