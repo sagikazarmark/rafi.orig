@@ -32,7 +32,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: The version (default: the one deploy/cloudflare pins)
+        description: "The version (default: the one deploy/cloudflare pins)"
         required: false
         type: string
       dry_run:
