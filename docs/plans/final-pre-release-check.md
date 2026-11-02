@@ -666,6 +666,12 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
 - **Accept**: a `rafi-web` test asserts `verify_public` is called once for one `data` across three query
   changes; `evening.mjs` types five characters into the search on `/v/<slug>` and asserts no jank (long task
   > 50 ms) via `PerformanceObserver`.
+- **Done**: `Checked::of(&VerifyData)` does everything that doesn't depend on the search (the report, the manifest,
+  the names, the sorted list) in `Record`'s `use_memo` keyed on the record; the search box and the filtered list
+  are a child, `Entrants`, the only reader of the query, so typing renders it alone. The test counts `Checked::of`
+  (a `cfg(test)` counter, as `verify_public` has no seam): once across three searches, each filtering the list
+  (SSR of a `VirtualDom`). The page renders the same. No `PerformanceObserver` check in the evening; the Web
+  Worker stays "later".
 
 #### T3-9 · Measure first, then decide
 
