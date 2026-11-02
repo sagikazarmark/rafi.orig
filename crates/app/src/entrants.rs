@@ -500,7 +500,7 @@ pub async fn add_entrants(
     // from its entrants instead ([`earlier_add`]).
     let receipt = serde_json::to_string(&result).map_err(anyhow::Error::from)?;
     entrants::record_add(&app.db, raffle_id, &result.batch_id, &receipt, now).await?;
-    audit::record(&app.db, raffle_id, actor, "add", &detail, now).await?;
+    audit::record(&app.db, raffle_id, actor, audit::Action::Add, &detail, now).await?;
     Ok(result)
 }
 
@@ -664,7 +664,15 @@ pub async fn undo_add(app: &App, actor: Actor<'_>, raffle_id: &str, batch_id: &s
     }
     let now = app.clock.now();
     let detail = format!("batch={batch_id} removed={removed}");
-    audit::record(&app.db, raffle_id, actor, "undo_add", &detail, now).await?;
+    audit::record(
+        &app.db,
+        raffle_id,
+        actor,
+        audit::Action::UndoAdd,
+        &detail,
+        now,
+    )
+    .await?;
     Ok(u32::try_from(removed).unwrap_or(u32::MAX))
 }
 
@@ -714,7 +722,15 @@ pub async fn add_fakes(app: &App, actor: Actor<'_>, raffle_id: &str, n: u32) -> 
         }
         .into());
     }
-    audit::record(&app.db, raffle_id, actor, "add_fakes", &n.to_string(), now).await?;
+    audit::record(
+        &app.db,
+        raffle_id,
+        actor,
+        audit::Action::AddFakes,
+        &n.to_string(),
+        now,
+    )
+    .await?;
     Ok(())
 }
 
@@ -779,9 +795,9 @@ pub async fn patch_entrant(
     // The action names what changed: delivery moves a winner onto the
     // erasure clock, which the log should say outright.
     let action = match patch.delivered {
-        Some(true) => "deliver",
-        Some(false) => "undeliver",
-        None => "patch_entrant",
+        Some(true) => audit::Action::Deliver,
+        Some(false) => audit::Action::Undeliver,
+        None => audit::Action::PatchEntrant,
     };
     audit::record(&app.db, raffle_id, actor, action, entrant_id, now).await?;
     // A drawn entrant's name is on the phones.
@@ -839,10 +855,26 @@ pub async fn remove_entrant(
     };
     match removal {
         Some(Removal::Delete) => {
-            audit::record(&app.db, raffle_id, actor, "remove_entrant", &detail, now).await?;
+            audit::record(
+                &app.db,
+                raffle_id,
+                actor,
+                audit::Action::RemoveEntrant,
+                &detail,
+                now,
+            )
+            .await?;
         }
         Some(Removal::Erase) => {
-            audit::record(&app.db, raffle_id, actor, "erase_entrant", &detail, now).await?;
+            audit::record(
+                &app.db,
+                raffle_id,
+                actor,
+                audit::Action::EraseEntrant,
+                &detail,
+                now,
+            )
+            .await?;
         }
         None => return Ok(()),
     }
@@ -898,7 +930,15 @@ pub async fn object_entrant(
         entrant::may_object(raffle.state, entrant.source, claimed).map_err(Refusal::Objection)?;
         return Err(Refusal::Changed.into());
     }
-    audit::record(&app.db, raffle_id, actor, "object", entrant_id, now).await?;
+    audit::record(
+        &app.db,
+        raffle_id,
+        actor,
+        audit::Action::Object,
+        entrant_id,
+        now,
+    )
+    .await?;
     // A drawn entrant's name is on the screens and the phones.
     app.live_updates.notify(raffle_id).await;
     Ok(())
@@ -947,7 +987,15 @@ pub async fn unobject_entrant(
         .into());
     }
     let now = app.clock.now();
-    audit::record(&app.db, raffle_id, actor, "unobject", entrant_id, now).await?;
+    audit::record(
+        &app.db,
+        raffle_id,
+        actor,
+        audit::Action::Unobject,
+        entrant_id,
+        now,
+    )
+    .await?;
     Ok(())
 }
 
@@ -965,7 +1013,7 @@ pub async fn purge(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<()> {
     let now = app.clock.now();
     entrants::erase(&app.db, raffle_id, None, now).await?;
     raffles::mark_purged(&app.db, raffle_id, now).await?;
-    audit::record(&app.db, raffle_id, actor, "purge", "", now).await?;
+    audit::record(&app.db, raffle_id, actor, audit::Action::Purge, "", now).await?;
     // Destroying the channel publishes the final (erased) view first.
     app.live_updates.end(raffle_id).await?;
     Ok(())
@@ -986,7 +1034,7 @@ pub async fn deliver_all(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result
             &app.db,
             raffle_id,
             actor,
-            "deliver_all",
+            audit::Action::DeliverAll,
             &delivered.to_string(),
             now,
         )
@@ -1006,7 +1054,7 @@ pub async fn end_live(app: &App, actor: Actor<'_>, raffle_id: &str) -> Result<()
     let now = app.clock.now();
     raffles::end_live(&app.db, raffle_id, now).await?;
     if raffle.live_ended_at.is_none() {
-        audit::record(&app.db, raffle_id, actor, "end_live", "", now).await?;
+        audit::record(&app.db, raffle_id, actor, audit::Action::EndLive, "", now).await?;
     }
     app.live_updates.end(raffle_id).await?;
     Ok(())

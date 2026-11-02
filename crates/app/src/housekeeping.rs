@@ -146,8 +146,15 @@ async fn finish_at_ceiling(app: &App, now: i64, hold: i64) {
             .await
         {
             Ok(_) => {
-                if let Err(e) =
-                    audit::record(&app.db, &id, audit::HOUSEKEEPING, "auto_finish", "", now).await
+                if let Err(e) = audit::record(
+                    &app.db,
+                    &id,
+                    audit::HOUSEKEEPING,
+                    audit::Action::AutoFinish,
+                    "",
+                    now,
+                )
+                .await
                 {
                     tracing::warn!(raffle_id = id, error = %e, "auditing an automatic finish failed");
                 }

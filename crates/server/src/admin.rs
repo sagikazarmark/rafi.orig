@@ -182,7 +182,6 @@ impl Admin for AppState {
     async fn whoami(&self, c: &Caller) -> service::Result<Me> {
         Ok(Me {
             owner_id: c.owner.clone(),
-            dev_auth: self.cfg.dev_auth,
             access: c.access,
             shared: c.owner != c.user,
             retention_stale: service::housekeeping::stale(self).await?,

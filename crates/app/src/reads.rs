@@ -44,10 +44,6 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         })
         .collect();
     let held_winners = entrants.iter().filter(|e| e.held_until.is_some()).count();
-    let missing: Vec<String> = missing_for_open(raffle)
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
     let personal_data_left = full.entrants.iter().any(|e| !e.erased);
     let add_list = lifecycle::entrant::may_add(
         lifecycle::entrant::Origin::List,
@@ -77,7 +73,10 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
         // Opening, or the freeze from Published without registration, checks
         // them: said while that step is ahead.
         missing: if raffle.state.opening_ahead() {
-            missing.clone()
+            missing_for_open(raffle)
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
         } else {
             Vec::new()
         },
@@ -125,7 +124,6 @@ pub async fn admin(app: &App, owner: &str, id: &str) -> Result<RaffleAdmin> {
             held_winners,
             ..retention
         },
-        missing_for_open: missing,
         removed,
     })
 }
@@ -166,7 +164,6 @@ fn retention_of(app: &App, raffle: &RaffleRow, now: i64) -> Retention {
         winners_erase_at: app.policy.retention.winners_erase_at(raffle.erase_at),
         winners_erase_date,
         held_winners: 0,
-        past_event,
         past_erase_date: raffle.past_erase_date(now),
         unfinished_past_event: past_event && raffle.state.drawable(),
         expires_unfrozen: past_event && raffle.state.expires_with(raffle.manifest.is_some()),
@@ -276,7 +273,7 @@ pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String>
         &app.db,
         id,
         actor,
-        "export_csv",
+        audit::Action::ExportCsv,
         &rows.to_string(),
         app.clock.now(),
     )

@@ -156,7 +156,8 @@ pub struct RaffleSummaryRow {
     pub title: String,
     pub state: RaffleState,
     pub test_mode: bool,
-    pub created_at: i64,
+    /// The event's day (`YYYY-MM-DD`).
+    pub event_date: String,
     /// Every entrant, erased ones included.
     pub entrant_count: i64,
 }
@@ -218,7 +219,7 @@ pub async fn by_join_code(db: &Db, code: &str) -> Result<Option<RaffleRow>> {
 /// An owner's raffles, newest first.
 pub async fn list_by_owner(db: &Db, owner_id: &str) -> Result<Vec<RaffleSummaryRow>> {
     db.query(
-        "SELECT r.id, r.slug, r.title, r.state, r.test_mode, r.created_at,
+        "SELECT r.id, r.slug, r.title, r.state, r.test_mode, r.event_date,
                 (SELECT COUNT(*) FROM entrants e WHERE e.raffle_id = r.id) AS entrant_count
          FROM raffles r WHERE r.owner_id = ? ORDER BY r.created_at DESC, r.id DESC",
     )
@@ -538,16 +539,18 @@ pub async fn owner_leaves(db: &Db, actor: Actor<'_>, now: i64) -> Result<Left> {
     db.batch(vec![
         db.query(format!(
             "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
-             SELECT id, ?2, ?1, ?3, 'delete', 'owner left' FROM raffles
-             WHERE owner_id = ?1 AND state IN ({expiring}) AND {none_drawing}"
+             SELECT id, ?2, ?1, ?3, '{delete}', 'owner left' FROM raffles
+             WHERE owner_id = ?1 AND state IN ({expiring}) AND {none_drawing}",
+            delete = crate::audit::Action::Delete.as_str()
         ))
         .bind(owner)
         .bind(now)
         .bind(actor.user),
         db.query(format!(
             "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
-             SELECT id, ?2, ?1, ?3, 'purge', 'owner left' FROM raffles
-             WHERE owner_id = ?1 AND state IN ({over}) AND {none_drawing}"
+             SELECT id, ?2, ?1, ?3, '{purge}', 'owner left' FROM raffles
+             WHERE owner_id = ?1 AND state IN ({over}) AND {none_drawing}",
+            purge = crate::audit::Action::Purge.as_str()
         ))
         .bind(owner)
         .bind(now)

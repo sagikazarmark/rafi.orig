@@ -150,7 +150,7 @@ async fn write_manifest(
             .ok_or(Refusal::Changed)?;
         return Ok(serde_json::from_str(&stored).map_err(anyhow::Error::from)?);
     }
-    audit::record(&app.db, id, actor, "freeze", &hash, now).await?;
+    audit::record(&app.db, id, actor, audit::Action::Freeze, &hash, now).await?;
     Ok(manifest)
 }
 
@@ -238,7 +238,7 @@ async fn delivery_on_claim(
     id: &str,
     state: &rafi_raffle::Raffle,
     cmd: &Command,
-) -> Result<Option<(&'static str, EntrantId)>> {
+) -> Result<Option<(audit::Action, EntrantId)>> {
     let Command::Decide(Decision::Resolve {
         item,
         resolution: Resolution::Claimed,
@@ -269,8 +269,8 @@ async fn delivery_on_claim(
         |k| claimed_as.get(&k).copied(),
     );
     let action = match effect {
-        OnClaim::Deliver if !delivered().await? => "deliver",
-        OnClaim::Undeliver if delivered().await? => "undeliver",
+        OnClaim::Deliver if !delivered().await? => audit::Action::Deliver,
+        OnClaim::Undeliver if delivered().await? => audit::Action::Undeliver,
         _ => return Ok(None),
     };
     Ok(Some((action, winner)))
@@ -295,9 +295,9 @@ async fn send(app: &App, actor: Actor<'_>, id: &str, cmd: Command, command_id: &
 
 /// How the audit log records a command: the organizer's request as a verb,
 /// like every other audit row, and what it was about.
-fn audited(cmd: &Command) -> (&'static str, String) {
+fn audited(cmd: &Command) -> (audit::Action, String) {
     match cmd {
-        Command::Draw(DrawRequest { item }) => ("draw", item.to_string()),
+        Command::Draw(DrawRequest { item }) => (audit::Action::Draw, item.to_string()),
         Command::Decide(Decision::Resolve {
             item, resolution, ..
         }) => {
@@ -306,10 +306,10 @@ fn audited(cmd: &Command) -> (&'static str, String) {
                 Resolution::NotHere => "not_here",
                 Resolution::Declined => "declined",
             };
-            ("resolve", format!("{item} {resolution}"))
+            (audit::Action::Resolve, format!("{item} {resolution}"))
         }
-        Command::Decide(Decision::Void { item }) => ("void", item.to_string()),
-        Command::Decide(Decision::Abandon { item }) => ("abandon", item.to_string()),
-        Command::Decide(Decision::Finish) => ("finish", String::new()),
+        Command::Decide(Decision::Void { item }) => (audit::Action::Void, item.to_string()),
+        Command::Decide(Decision::Abandon { item }) => (audit::Action::Abandon, item.to_string()),
+        Command::Decide(Decision::Finish) => (audit::Action::Finish, String::new()),
     }
 }

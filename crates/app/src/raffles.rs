@@ -27,7 +27,7 @@ pub async fn list(app: &App, owner: &str) -> Result<Vec<RaffleSummary>> {
             title: r.title,
             entrant_count: r.entrant_count,
             test_mode: r.test_mode,
-            created_at: r.created_at,
+            event_date: r.event_date,
         })
         .collect())
 }
@@ -109,7 +109,7 @@ pub async fn create(app: &App, actor: Actor<'_>, title: &str, event: &EventDate)
         .await;
         match res {
             Ok(_) => {
-                audit::record(&app.db, &id, actor, "create", title, now).await?;
+                audit::record(&app.db, &id, actor, audit::Action::Create, title, now).await?;
                 return Ok(id);
             }
             Err(e) if e.is_unique_violation() => continue,
@@ -273,13 +273,29 @@ pub async fn update_settings(
         .into());
     }
     if write.fakes_removed {
-        audit::record(&app.db, id, actor, "remove_fakes", &fakes.to_string(), now).await?;
+        audit::record(
+            &app.db,
+            id,
+            actor,
+            audit::Action::RemoveFakes,
+            &fakes.to_string(),
+            now,
+        )
+        .await?;
     }
     // What changed, by field name (never the values: the organizer's name
     // and contacts are personal data; the log says who changed what, when).
     let changed = changed_fields(&raffle, &written);
     if !changed.is_empty() {
-        audit::record(&app.db, id, actor, "settings", &changed.join(","), now).await?;
+        audit::record(
+            &app.db,
+            id,
+            actor,
+            audit::Action::Settings,
+            &changed.join(","),
+            now,
+        )
+        .await?;
     }
     // Nothing phones see: the participant view has no settings, and names
     // only of drawn entrants (fakes are never drawn outside test mode). The
@@ -391,7 +407,15 @@ pub async fn delete(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
     if !raffles::delete(&app.db, id).await? {
         return Err(Refusal::Drawn.into());
     }
-    audit::record(&app.db, id, actor, "delete", "", app.clock.now()).await?;
+    audit::record(
+        &app.db,
+        id,
+        actor,
+        audit::Action::Delete,
+        "",
+        app.clock.now(),
+    )
+    .await?;
     // Best effort: the raffle is gone either way, and its channel finds nothing to show.
     if let Err(e) = app.live_updates.end(id).await {
         tracing::warn!(raffle_id = id, error = %e, "ending the live channel of a deleted raffle failed");
@@ -461,7 +485,7 @@ pub async fn duplicate(app: &App, actor: Actor<'_>, id: &str, event: &EventDate)
         .await;
         match res {
             Ok(()) => {
-                audit::record(&app.db, &new_id, actor, "create", &title, now).await?;
+                audit::record(&app.db, &new_id, actor, audit::Action::Create, &title, now).await?;
                 return Ok(new_id);
             }
             Err(e) if e.is_unique_violation() => continue,
@@ -499,7 +523,7 @@ pub async fn lifecycle(
     if !raffles::transition(&app.db, id, from, to, raffle.registration, now).await? {
         return Err(Refusal::Changed.into());
     }
-    audit::record(&app.db, id, actor, to.as_str(), "", now).await?;
+    audit::record(&app.db, id, actor, audit::Action::To(to), "", now).await?;
     app.live_updates.notify(id).await;
     Ok(())
 }

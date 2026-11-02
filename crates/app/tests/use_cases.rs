@@ -1784,7 +1784,6 @@ async fn the_admin_says_what_the_next_step_misses() {
             .unwrap();
         let admin = app::admin(&app, OWNER, &id).await.unwrap();
         assert_eq!(admin.actions.missing, both, "Published, {registration}");
-        assert_eq!(admin.missing_for_open, both);
 
         let mut settings = admin.settings;
         settings.organizer_name = "Gala".into();
@@ -1810,12 +1809,11 @@ async fn the_admin_says_what_the_next_step_misses() {
     }
 
     // Opened, then the contact cleared: opening is behind and nothing blocks
-    // the freeze, though `missing_for_open` (whatever the state) names it.
+    // the freeze.
     let (id, _) = open_raffle(&app, &["Anna"]).await;
     raffles_set_contact(&app, &id, "").await;
     let admin = app::admin(&app, OWNER, &id).await.unwrap();
     assert!(admin.actions.missing.is_empty(), "{:?}", admin.actions);
-    assert_eq!(admin.missing_for_open, ["a contact or privacy email"]);
 }
 
 /// Clears or sets raffle `id`'s contact email directly: the settings form

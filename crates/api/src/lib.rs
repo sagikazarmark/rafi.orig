@@ -134,7 +134,9 @@ pub struct RaffleSummary {
     pub state: RaffleState,
     pub entrant_count: i64,
     pub test_mode: bool,
-    pub created_at: i64,
+    /// The event's day (`YYYY-MM-DD`), which the raffle's card shows.
+    #[serde(default)]
+    pub event_date: String,
 }
 
 /// Editable raffle settings.
@@ -250,6 +252,8 @@ pub struct AdminEntrant {
     pub hidden: bool,
     /// `None` once their personal data is erased.
     pub claim_code: Option<String>,
+    /// When they entered (unix seconds): the People tab lists the latest
+    /// first.
     pub created_at: i64,
     pub delivered: bool,
     /// Whether their prize can be marked delivered (or not): they claimed it.
@@ -486,12 +490,6 @@ pub struct RaffleAdmin {
     /// When the raffle's personal data is erased.
     #[serde(default)]
     pub retention: Retention,
-    /// What the raffle still needs before registration can open (or,
-    /// without registration, before the list can be frozen from Published),
-    /// by name; empty when it may. Whatever the state:
-    /// [`AdminActions::missing`] is what the header goes by.
-    #[serde(default)]
-    pub missing_for_open: Vec<String>,
     /// Who was removed at their request, oldest first: a later add leaves
     /// them out unless the organizer lifts it. Empty once the list is
     /// frozen for good.
@@ -602,8 +600,6 @@ pub struct Retention {
     pub winners_erase_date: String,
     /// Winners whose data is held: claimed, not delivered, not erased.
     pub held_winners: usize,
-    /// The event day has ended.
-    pub past_event: bool,
     /// The erasure date has passed.
     pub past_erase_date: bool,
     /// The event day has ended and the raffle is still being drawn: its
@@ -841,7 +837,6 @@ impl SourceCounts {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Me {
     pub owner_id: String,
-    pub dev_auth: bool,
     /// What the signed-in user may do for the owner.
     #[serde(default = "Access::admin")]
     pub access: Access,

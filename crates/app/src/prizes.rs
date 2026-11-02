@@ -112,7 +112,7 @@ pub async fn set_prize_delivery(
         &app.db,
         raffle_id,
         actor,
-        "set_prize_delivery",
+        audit::Action::SetPrizeDelivery,
         &detail,
         now,
     )

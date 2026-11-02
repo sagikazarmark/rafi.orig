@@ -1145,7 +1145,6 @@ async fn admin_requires_clerk_session() {
     assert!(status.is_success(), "{status}: {body}");
     let me: rafi_api::Me = serde_json::from_str(&body).unwrap();
     assert_eq!(me.owner_id, "user_2abc");
-    assert!(!me.dev_auth);
 
     // A token minted for this origin passes; one minted for another site on
     // the same Clerk instance doesn't (`azp`).
@@ -1802,7 +1801,7 @@ async fn admin_api_needs_a_session_unless_dev_auth() {
     let (status, _, body) = send(&router, admin_call("whoami", "")).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let me: rafi_api::Me = serde_json::from_str(&body).unwrap();
-    assert_eq!((me.owner_id.as_str(), me.dev_auth), ("dev", true));
+    assert_eq!(me.owner_id, "dev");
 
     let create = r#"{"title":"Meetup #1","event_date":"2026-10-28","event_ends_at":null}"#;
     let (status, _, body) = send(&router, admin_call("create_raffle", create)).await;
@@ -3750,12 +3749,8 @@ async fn registration_needs_an_organizer() {
         .unwrap();
     let admin = service::admin(&app, OWNER, &id).await.unwrap();
     assert_eq!(
-        admin.missing_for_open,
+        admin.actions.missing,
         ["the organizer's name", "a contact or privacy email"]
-    );
-    assert_eq!(
-        admin.actions.missing, admin.missing_for_open,
-        "the header goes by the actions"
     );
     let refused = service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open).await;
     assert!(
@@ -3782,7 +3777,8 @@ async fn registration_needs_an_organizer() {
         service::admin(&app, OWNER, &id)
             .await
             .unwrap()
-            .missing_for_open
+            .actions
+            .missing
             .is_empty()
     );
     service::lifecycle(&app, ACTOR, &id, LifecycleCommand::Open)
@@ -4306,7 +4302,7 @@ async fn a_past_event_date_is_warned_about() {
     let raffle = setup_open(&app, &[("Book", 1)]).await;
     app.clock.advance(2 * DAY);
     let admin = service::admin(&app, OWNER, &raffle.id).await.unwrap();
-    assert!(admin.retention.past_event && !admin.retention.past_erase_date);
+    assert!(!admin.retention.past_erase_date);
     assert!(admin.retention.expires_unfrozen, "{:?}", admin.retention);
     assert!(!admin.retention.unfinished_past_event);
     assert!(raffle.erase_at > app.clock.now());

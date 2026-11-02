@@ -245,6 +245,9 @@ pub fn AdminHome() -> Element {
                                     div { class: "flex flex-wrap items-center gap-2 text-sm",
                                         StateBadge { state: r.state }
                                         span { class: "inline-flex items-center gap-1 text-base-content/60", Users { class: "size-4" } "{r.entrant_count}" }
+                                        if let Some(day) = rafi_lifecycle::dates::Date::parse(&r.event_date) {
+                                            span { class: "inline-flex items-center gap-1 text-base-content/60", CalendarClock { class: "size-4" } "{day.long()}" }
+                                        }
                                     }
                                 }
                             }
@@ -379,7 +382,7 @@ pub fn RaffleAdmin(id: String) -> Element {
         main { class: "mx-auto max-w-6xl space-y-6 px-4 py-6",
             Link { class: "btn btn-ghost btn-sm -ml-2", to: Route::AdminHome {}, ArrowLeft { class: "size-4" } "All raffles" }
             if state.is_public() {
-                LiveRefresh { key: "{admin.view.slug}", slug: admin.view.slug.clone(), version: admin.view.v, on_change: move |_| data.restart() }
+                LiveRefresh { key: "{admin.view.slug}", slug: admin.view.slug.clone(), view: admin.view.clone(), on_change: move |_| data.restart() }
             }
             Header { admin: admin.clone(), access, error, on_change: move |_| reload() }
             ErrorToasts { error }
@@ -423,9 +426,40 @@ pub fn RaffleAdmin(id: String) -> Element {
     }
 }
 
-/// Re-fetches admin data whenever the public live view moves past `version`.
+/// How long joins alone wait before the admin data is fetched again: a room
+/// joining is a version a second, and each fetch is every entrant.
+const JOINS_QUIET_MS: u32 = 10_000;
+
+/// What makes the admin fetch its data again at once when the live view
+/// moves: the state, the draws and their outcomes, the draw pending, a failure,
+/// the channel ended. Anything else (people joining, names, another tab's
+/// prize edit) waits for [`JOINS_QUIET_MS`].
+#[derive(Clone, Debug, PartialEq)]
+struct Moment {
+    state: RaffleState,
+    draws: Vec<(u64, Outcome)>,
+    pending: Option<u64>,
+    failure: bool,
+    live_ended: bool,
+}
+
+impl Moment {
+    fn of(v: &RaffleView) -> Self {
+        Self {
+            state: v.state,
+            draws: v.draws.iter().map(|d| (d.k, d.outcome)).collect(),
+            pending: v.current.as_ref().map(|c| c.k),
+            failure: v.last_failure.is_some(),
+            live_ended: v.live_ended,
+        }
+    }
+}
+
+/// Re-fetches admin data when the public live view moves past what the page
+/// shows (`view`, the admin data's): at once for a moment of the evening
+/// ([`Moment`]), at most every [`JOINS_QUIET_MS`] for joins.
 #[component]
-fn LiveRefresh(slug: String, version: u64, on_change: EventHandler<()>) -> Element {
+fn LiveRefresh(slug: String, view: RaffleView, on_change: EventHandler<()>) -> Element {
     let live = use_live_view(slug);
     // The header's "Offline" goes by this view's fetches too.
     let connection = try_use_context::<AdminConnection>();
@@ -440,11 +474,40 @@ fn LiveRefresh(slug: String, version: u64, on_change: EventHandler<()>) -> Eleme
             c.set(None);
         }
     });
+    // What the page shows: its version and moment, kept up with the admin
+    // data, however it was fetched (an action of the organizer's reloads it too).
+    let mut seen = use_signal(|| (view.v, Moment::of(&view)));
+    use_effect(use_reactive((&view,), move |(view,)| {
+        if view.v >= seen.peek().0 {
+            seen.set((view.v, Moment::of(&view)));
+        }
+    }));
+    let mut waiting = use_signal(|| false);
     use_effect(move || {
-        if let Some(v) = live.view.read().as_ref()
-            && v.v > version
-        {
+        let Some(v) = live.view.read().clone() else {
+            return;
+        };
+        let (shown, moment) = seen.peek().clone();
+        if v.v <= shown {
+            return;
+        }
+        if Moment::of(&v) != moment {
+            seen.set((v.v, Moment::of(&v)));
             on_change.call(());
+        } else if !*waiting.peek() {
+            waiting.set(true);
+            spawn(async move {
+                gloo_timers::future::TimeoutFuture::new(JOINS_QUIET_MS).await;
+                waiting.set(false);
+                let newer = live
+                    .view
+                    .peek()
+                    .as_ref()
+                    .is_some_and(|v| v.v > seen.peek().0);
+                if newer {
+                    on_change.call(());
+                }
+            });
         }
     });
     live.subscription()
@@ -559,5 +622,43 @@ fn Steps(state: RaffleState, registration: bool) -> Element {
                 li { key: "{i}", class: if i <= at { "step step-primary" } else { "step" }, "{label}" }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn view(entrants: usize, draws: serde_json::Value, current: serde_json::Value) -> RaffleView {
+        serde_json::from_value(serde_json::json!({
+            "v": 1, "follow": { "kind": "poll", "every_ms": 2500 }, "raffle_id": "r1",
+            "slug": "meetup", "title": "Meetup", "description": "", "state": "open",
+            "join_code": "ABCDEF", "join_url": "", "entrant_count": entrants,
+            "recent_names": [], "prizes": [], "items": [], "current": current,
+            "draws": draws, "last_failure": null, "manifest_hash": null, "server_now_ms": 0,
+            "test_mode": false, "verifiable": true
+        }))
+        .unwrap()
+    }
+
+    /// People joining is no moment: the admin waits before fetching them;
+    /// a draw pending, or one decided, is.
+    #[test]
+    fn joins_are_not_a_moment() {
+        let none = serde_json::json!([]);
+        let null = serde_json::Value::Null;
+        let quiet = Moment::of(&view(2, none.clone(), null.clone()));
+        assert_eq!(quiet, Moment::of(&view(40, none.clone(), null.clone())));
+        let pending = serde_json::json!({ "k": 1, "item": "i1", "prize_name": "Book", "round": 7, "round_time": 0 });
+        assert_ne!(quiet, Moment::of(&view(2, none, pending)));
+        let draw = |outcome: &str| {
+            serde_json::json!([{
+                "k": 1, "item": "i1", "prize_name": "Book", "entrant": "e1", "display_name": "Anna",
+                "outcome": outcome, "pass": 1, "round": 7
+            }])
+        };
+        let drawn = Moment::of(&view(2, draw("drawn"), null.clone()));
+        assert_ne!(quiet, drawn);
+        assert_ne!(drawn, Moment::of(&view(2, draw("claimed"), null)));
     }
 }

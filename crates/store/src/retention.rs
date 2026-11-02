@@ -43,9 +43,10 @@ pub async fn expire_due(db: &Db, now: i64) -> Result<Vec<String>> {
     db.batch(vec![
         db.query(format!(
             "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
-             SELECT id, ?1, '{ACTOR}', '{ACTOR}', 'expire',
+             SELECT id, ?1, '{ACTOR}', '{ACTOR}', '{expire}',
                     CAST((SELECT COUNT(*) FROM entrants WHERE raffle_id = raffles.id) AS TEXT)
-             FROM raffles WHERE {due}"
+             FROM raffles WHERE {due}",
+            expire = crate::audit::Action::Expire.as_str()
         ))
         .bind(now),
         db.query(format!(
@@ -150,8 +151,9 @@ pub async fn erase_due(db: &Db, now: i64, winner_hold_secs: i64) -> Result<Erase
     db.batch(vec![
         db.query(format!(
             "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
-             SELECT raffle_id, ?1, '{ACTOR}', '{ACTOR}', 'auto_erase', CAST(COUNT(*) AS TEXT)
-             FROM entrants WHERE {due} GROUP BY raffle_id"
+             SELECT raffle_id, ?1, '{ACTOR}', '{ACTOR}', '{auto_erase}', CAST(COUNT(*) AS TEXT)
+             FROM entrants WHERE {due} GROUP BY raffle_id",
+            auto_erase = crate::audit::Action::AutoErase.as_str()
         ))
         .bind(now)
         .bind(winner_hold_secs),
@@ -166,7 +168,8 @@ pub async fn erase_due(db: &Db, now: i64, winner_hold_secs: i64) -> Result<Erase
             .bind(winner_hold_secs),
         db.query(format!(
             "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
-             SELECT id, ?1, '{ACTOR}', '{ACTOR}', 'auto_purge', '' FROM raffles WHERE {ceiling}"
+             SELECT id, ?1, '{ACTOR}', '{ACTOR}', '{auto_purge}', '' FROM raffles WHERE {ceiling}",
+            auto_purge = crate::audit::Action::AutoPurge.as_str()
         ))
         .bind(now)
         .bind(winner_hold_secs),
@@ -228,8 +231,9 @@ pub async fn erase_objected(db: &Db, now: i64) -> Result<Erased> {
     db.batch(vec![
         db.query(format!(
             "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
-             SELECT raffle_id, ?1, '{ACTOR}', '{ACTOR}', 'auto_erase', CAST(COUNT(*) AS TEXT) || ' objected'
-             FROM entrants WHERE {due} GROUP BY raffle_id"
+             SELECT raffle_id, ?1, '{ACTOR}', '{ACTOR}', '{auto_erase}', CAST(COUNT(*) AS TEXT) || ' objected'
+             FROM entrants WHERE {due} GROUP BY raffle_id",
+            auto_erase = crate::audit::Action::AutoErase.as_str()
         ))
         .bind(now),
         db.query(format!(
@@ -286,8 +290,9 @@ pub async fn purge_unfinished(db: &Db, id: &str, now: i64) -> Result<()> {
     db.batch(vec![
         db.query(format!(
             "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail)
-             SELECT id, ?2, '{ACTOR}', '{ACTOR}', 'auto_purge', 'unfinished' FROM raffles
+             SELECT id, ?2, '{ACTOR}', '{ACTOR}', '{auto_purge}', 'unfinished' FROM raffles
              WHERE id = ?1 AND state IN ({drawable})",
+            auto_purge = crate::audit::Action::AutoPurge.as_str(),
             drawable = states(RaffleState::drawable),
         ))
         .bind(id)
