@@ -2032,6 +2032,165 @@ async fn a_prize_saved_while_freezing_is_in_the_manifest() {
     );
 }
 
+/// `app` with its database paused twice: before the first statement
+/// `write` matches (by its SQL), then before the next statement after it,
+/// for a use case run on it; another actor uses `app` itself. Around a
+/// guarded write: something changed before it makes it change nothing,
+/// something changed after it is what the use case's re-read finds.
+fn paused_around(app: &App, write: fn(&str) -> bool) -> (App, Pause, Pause) {
+    use std::sync::atomic::{AtomicU8, Ordering};
+
+    let pauses = [(); 2].map(|()| Pause {
+        reached: Arc::new(tokio::sync::Notify::new()),
+        resume: Arc::new(tokio::sync::Notify::new()),
+    });
+    // 0: waiting for the write; 1: waiting for the statement after it; 2: done.
+    let stage = Arc::new(AtomicU8::new(0));
+    let hook: rafi_store::Hook = {
+        let notifies = pauses
+            .each_ref()
+            .map(|p| (p.reached.clone(), p.resume.clone()));
+        Arc::new(move |sql: &str| {
+            let hit = if write(sql) {
+                stage.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            } else {
+                stage.compare_exchange(1, 2, Ordering::SeqCst, Ordering::SeqCst)
+            };
+            let pause = hit.ok().map(|i| notifies[usize::from(i)].clone());
+            Box::pin(async move {
+                if let Some((reached, resume)) = pause {
+                    reached.notify_one();
+                    resume.notified().await;
+                }
+            })
+        })
+    };
+    let paused = App {
+        db: app.db.with_hook(hook),
+        ..app.clone()
+    };
+    let [before, after] = pauses;
+    (paused, before, after)
+}
+
+/// A raffle's settings refused by a real entrant who came in meanwhile,
+/// then the raffle deleted before the refusal is explained: not found,
+/// not fixed settings naming none.
+#[tokio::test]
+async fn settings_refused_on_a_raffle_deleted_meanwhile_are_not_found() {
+    let app = app().await;
+    let (id, _) = open_raffle(&app, &[]).await;
+    let mut settings = app::settings_of(&raffles::get(&app.db, &id).await.unwrap().unwrap());
+    settings.rules = "Bring a mug.".into();
+    let (paused, before, after) =
+        paused_around(&app, |sql| sql.starts_with("UPDATE raffles SET title"));
+    let saving = tokio::spawn({
+        let id = id.clone();
+        async move { app::update_settings(&paused, ACTOR, &id, settings).await }
+    });
+    before.reached().await;
+    add_one(&app, &id, "Anna", None).await.unwrap();
+    before.resume();
+    after.reached().await;
+    app::delete(&app, ACTOR, &id).await.unwrap();
+    after.resume();
+    let err = saving.await.unwrap().unwrap_err();
+    assert!(matches!(err, Error::NotFound), "{err:?}");
+}
+
+/// An entrant shown again after they took themselves off meanwhile, then
+/// gone with their raffle before the refusal is explained: not found, not
+/// erased.
+#[tokio::test]
+async fn a_patch_of_an_entrant_gone_meanwhile_is_not_found() {
+    let app = app().await;
+    let (id, people) = open_raffle(&app, &["Anna", "Bence"]).await;
+    let anna = people[0].clone();
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    let (paused, before, after) =
+        paused_around(&app, |sql| sql.contains("display_name = COALESCE"));
+    let patching = tokio::spawn({
+        let (id, anna) = (id.clone(), anna.clone());
+        let show = EntrantPatch {
+            hidden: Some(false),
+            ..Default::default()
+        };
+        async move { app::patch_entrant(&paused, ACTOR, &id, &anna, show).await }
+    });
+    before.reached().await;
+    app::object_entrant(&app, ACTOR, &id, &anna).await.unwrap();
+    before.resume();
+    after.reached().await;
+    app::delete(&app, ACTOR, &id).await.unwrap();
+    after.resume();
+    let err = patching.await.unwrap().unwrap_err();
+    assert!(matches!(err, Error::NotFound), "{err:?}");
+}
+
+/// An objection undone by someone else meanwhile, then the raffle deleted
+/// before the refusal is explained: not found, not the objection refused
+/// for the raffle's state.
+#[tokio::test]
+async fn an_unobject_on_a_raffle_deleted_meanwhile_is_not_found() {
+    let app = app().await;
+    let (id, people) = open_raffle(&app, &["Anna", "Bence"]).await;
+    let anna = people[0].clone();
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    app::object_entrant(&app, ACTOR, &id, &anna).await.unwrap();
+    let (paused, before, after) = paused_around(&app, |sql| sql.contains("SET objected_at = NULL"));
+    let undoing = tokio::spawn({
+        let (id, anna) = (id.clone(), anna.clone());
+        async move { app::unobject_entrant(&paused, ACTOR, &id, &anna).await }
+    });
+    before.reached().await;
+    app::unobject_entrant(&app, ACTOR, &id, &anna)
+        .await
+        .unwrap();
+    before.resume();
+    after.reached().await;
+    app::delete(&app, ACTOR, &id).await.unwrap();
+    after.resume();
+    let err = undoing.await.unwrap().unwrap_err();
+    assert!(matches!(err, Error::NotFound), "{err:?}");
+}
+
+/// An objection undone by someone else meanwhile, then the entrant erased
+/// (the erasure date has passed) before the refusal is explained: erased,
+/// not "it changed".
+#[tokio::test]
+async fn an_unobject_of_an_entrant_erased_meanwhile_is_erased() {
+    let app = app().await;
+    let (id, people) = open_raffle(&app, &["Anna", "Bence"]).await;
+    let anna = people[0].clone();
+    app::start_draw(&app, ACTOR, &id).await.unwrap();
+    app::object_entrant(&app, ACTOR, &id, &anna).await.unwrap();
+    // Past the erasure date: a frozen raffle's entrants can be erased.
+    app.clock.advance(200 * 86_400);
+    let (paused, before, after) = paused_around(&app, |sql| sql.contains("SET objected_at = NULL"));
+    let undoing = tokio::spawn({
+        let (id, anna) = (id.clone(), anna.clone());
+        async move { app::unobject_entrant(&paused, ACTOR, &id, &anna).await }
+    });
+    before.reached().await;
+    app::unobject_entrant(&app, ACTOR, &id, &anna)
+        .await
+        .unwrap();
+    before.resume();
+    after.reached().await;
+    app::remove_entrant(&app, ACTOR, &id, &anna, false)
+        .await
+        .unwrap();
+    assert!(
+        entrants::get(&app.db, &id, &anna)
+            .await
+            .unwrap()
+            .unwrap()
+            .erased
+    );
+    after.resume();
+    assert_eq!(refusal(undoing.await.unwrap()), Refusal::Erased);
+}
+
 /// The raffle engine, with `gate` awaited before each decision it passes
 /// on: a pause point between a use case's reads and its call to the engine.
 struct Gated {

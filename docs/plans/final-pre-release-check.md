@@ -1203,6 +1203,11 @@ file. Nothing here blocks the release; each accrues a copy a week.
   "gone", `undo_add` returns `Ok(0)`, `object_entrant` is idempotent) keep their own code. An `Audited` helper so
   the 23 `audit::record` calls stop repeating `&app.db, id, actor, …, now`.
 - **Size**: medium. **Accept**: the twelve sites call the helper; the use-case tests are unchanged and pass.
+- **#51** (fixed): a row gone by the re-read is not found. `update_settings` explains through `unwritten` (`Changed`
+  where no fixed setting would change, never `SettingsFixed` naming none); `patch_entrant`, `object_entrant` and
+  `unobject_entrant` through an entrant-level sibling, `unwritten_entrant` (raffle or entrant gone: not found; else
+  the pre-check, `patchable`, `objecting` or `unobjecting`, on the rows re-read), so an entrant erased meanwhile is
+  `Erased`. Four interleaving tests in `use_cases.rs` (`paused_around`).
 
 #### T7-3 · Tier authorization lives in the HTTP adapter
 
@@ -1411,7 +1416,7 @@ the concurrency scenarios on a SQLite file and D1, T4-8 ([#47](https://github.co
 screenshots, T4-9 ([#48](https://github.com/sagikazarmark/rafi.orig/issues/48)); Clerk on Workers, T4-10 ([#33](https://github.com/sagikazarmark/rafi.orig/issues/33));
 the projector bundle split and the rest of T3-9 and T3-10 ([#49](https://github.com/sagikazarmark/rafi.orig/issues/49)); `AddList`'s state as two
 enums, T7-5 ([#50](https://github.com/sagikazarmark/rafi.orig/issues/50)); three guarded writes answering wrongly when the row is gone, from T7-2
-([#51](https://github.com/sagikazarmark/rafi.orig/issues/51)); refusing a `Resolve` without `k` one release after the tag, T0-1
+([#51](https://github.com/sagikazarmark/rafi.orig/issues/51), fixed before the tag); refusing a `Resolve` without `k` one release after the tag, T0-1
 ([#52](https://github.com/sagikazarmark/rafi.orig/issues/52)); the rest of T3-11's regression guards (D1 `rows_read`, the
 query count, payloads, Worker startup, microbenchmarks) and `oldest_raffle_at`'s walk of `raffles_owner`
 ([#54](https://github.com/sagikazarmark/rafi.orig/issues/54)).

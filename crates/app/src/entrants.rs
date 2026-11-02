@@ -746,12 +746,7 @@ pub async fn patch_entrant(
     let entrant = entrants::get(&app.db, raffle_id, entrant_id)
         .await?
         .ok_or(Error::NotFound)?;
-    if entrant.erased {
-        return Err(Refusal::Erased.into());
-    }
-    if patch.hidden == Some(false) && entrant.objected_at.is_some() {
-        return Err(Refusal::ObjectedHidden.into());
-    }
+    patchable(&entrant, &patch)?;
     // The organizer's name for anyone, up to their limit, whoever chose the
     // one before: a joiner's limit keeps trolls off the screen, which the
     // organizer isn't.
@@ -780,15 +775,10 @@ pub async fn patch_entrant(
     .await?;
     if !written {
         // Erased since the read above, or took themselves off.
-        let now_objected = entrants::get(&app.db, raffle_id, entrant_id)
-            .await?
-            .is_some_and(|e| !e.erased && e.objected_at.is_some());
-        return Err(if now_objected {
-            Refusal::ObjectedHidden
-        } else {
-            Refusal::Erased
-        }
-        .into());
+        return unwritten_entrant(app, raffle_id, entrant_id, async |_, e| {
+            patchable(e, &patch).map(|()| true)
+        })
+        .await;
     }
     // The action names what changed: delivery moves a winner onto the
     // erasure clock, which the log should say outright.
@@ -803,6 +793,45 @@ pub async fn patch_entrant(
         app.live_updates.notify(raffle_id).await;
     }
     Ok(())
+}
+
+/// Whether `patch` may be written over `entrant` as they are: not if
+/// they're erased, nor shown again once they took themselves off. What
+/// [`patch_entrant`] checks before its write, and again to explain one that
+/// didn't happen.
+fn patchable(entrant: &EntrantRow, patch: &EntrantPatch) -> Result<()> {
+    if entrant.erased {
+        return Err(Refusal::Erased.into());
+    }
+    if patch.hidden == Some(false) && entrant.objected_at.is_some() {
+        return Err(Refusal::ObjectedHidden.into());
+    }
+    Ok(())
+}
+
+/// Why a write guarded on an entrant and their raffle changed nothing: both
+/// as they are now, asked of `writing` (the use case's own pre-check, as it
+/// reads them now: a refusal, `Ok(false)` for nothing to do, `Ok(true)` if
+/// it would write). Its refusal, nothing to do, or, if it would still
+/// write, that something changed meanwhile. Either one gone is not found
+/// (an entrant goes with their raffle).
+async fn unwritten_entrant(
+    app: &App,
+    raffle_id: &str,
+    entrant_id: &str,
+    writing: impl AsyncFnOnce(&RaffleRow, &EntrantRow) -> Result<bool>,
+) -> Result<()> {
+    let raffle = raffles::get(&app.db, raffle_id)
+        .await?
+        .ok_or(Error::NotFound)?;
+    let entrant = entrants::get(&app.db, raffle_id, entrant_id)
+        .await?
+        .ok_or(Error::NotFound)?;
+    if writing(&raffle, &entrant).await? {
+        Err(Refusal::Changed.into())
+    } else {
+        Ok(())
+    }
 }
 
 /// Removes an entrant before the freeze; once the raffle is over, or its
@@ -908,17 +937,10 @@ pub async fn object_entrant(
         // Something changed since the read above: say what the rules say
         // now (nothing to do if they took themselves off meanwhile), or
         // that it changed.
-        let raffle = raffles::get(&app.db, raffle_id)
-            .await?
-            .ok_or(Error::NotFound)?;
-        let entrant = entrants::get(&app.db, raffle_id, entrant_id)
-            .await?
-            .ok_or(Error::NotFound)?;
-        return if objecting(app, &raffle, &entrant).await? {
-            Err(Refusal::Changed.into())
-        } else {
-            Ok(())
-        };
+        return unwritten_entrant(app, raffle_id, entrant_id, async |r, e| {
+            objecting(app, r, e).await
+        })
+        .await;
     }
     audit::record(
         &app.db,
@@ -973,24 +995,13 @@ pub async fn unobject_entrant(
     let entrant = entrants::get(&app.db, raffle_id, entrant_id)
         .await?
         .ok_or(Error::NotFound)?;
-    if entrant.erased {
-        return Err(Refusal::Erased.into());
-    }
-    entrant::may_unobject(raffle.state).map_err(Refusal::Objection)?;
-    if entrant.objected_at.is_none() {
+    if !unobjecting(&raffle, &entrant)? {
         return Ok(());
     }
     if !entrants::unobject(&app.db, raffle_id, entrant_id).await? {
-        // Over, or erased, since the read above.
-        let over = raffles::get(&app.db, raffle_id)
-            .await?
-            .is_none_or(|r| entrant::may_unobject(r.state).is_err());
-        return Err(if over {
-            Refusal::Objection(lifecycle::entrant::ObjectionRefusal::State)
-        } else {
-            Refusal::Changed
-        }
-        .into());
+        // Over, or erased, since the read above (nothing to do if it was
+        // undone meanwhile).
+        return unwritten_entrant(app, raffle_id, entrant_id, async |r, e| unobjecting(r, e)).await;
     }
     let now = app.clock.now();
     audit::record(
@@ -1003,6 +1014,18 @@ pub async fn unobject_entrant(
     )
     .await?;
     Ok(())
+}
+
+/// Whether `entrant`'s objection is to be undone in `raffle` as they are:
+/// `Ok(false)` if there is none (nothing to do), a refusal if they're
+/// erased or [`entrant::may_unobject`] says no. What [`unobject_entrant`]
+/// checks before its write, and again to explain one that didn't happen.
+fn unobjecting(raffle: &RaffleRow, entrant: &EntrantRow) -> Result<bool> {
+    if entrant.erased {
+        return Err(Refusal::Erased.into());
+    }
+    entrant::may_unobject(raffle.state).map_err(Refusal::Objection)?;
+    Ok(entrant.objected_at.is_some())
 }
 
 /// Erases every entrant's personal data of a finished raffle now, and ends

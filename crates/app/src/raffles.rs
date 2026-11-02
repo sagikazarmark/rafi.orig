@@ -265,21 +265,14 @@ pub async fn update_settings(
         // Test mode changed after a freeze since the read above,
         // registration after it opened or froze, or a fixed setting after
         // a real entrant came in: the pre-check's refusal as the raffle is
-        // now, or the fixed settings this would change (none named if the
-        // raffle is gone).
-        let current = raffles::get(&app.db, id).await?;
-        let refusal = current
-            .as_ref()
-            .and_then(|r| locked(r, &s))
-            .unwrap_or_else(|| {
-                Refusal::SettingsFixed(
-                    current
-                        .as_ref()
-                        .map(|r| normalized.fixed().changed_from(&fixed_of(r)))
-                        .unwrap_or_default(),
-                )
-            });
-        return Err(refusal.into());
+        // now, or the fixed settings this would change.
+        let refuses = |r: &RaffleRow| {
+            locked(r, &s).or_else(|| {
+                let fixed = normalized.fixed().changed_from(&fixed_of(r));
+                (!fixed.is_empty()).then_some(Refusal::SettingsFixed(fixed))
+            })
+        };
+        return Err(crate::unwritten(app, id, refuses, Refusal::Changed.into()).await);
     }
     if write.fakes_removed {
         audit::record(
