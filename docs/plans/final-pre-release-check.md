@@ -1307,9 +1307,16 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
 
 ### What it left
 
-- T4-3: the evening on the Worker over real HTTP relays.
-- T6-1's checks in the evening (the smallest font, contrast on computed colours) and T6-2's previews checked by hand
-  in Slack; T6-3's Lighthouse run. T6-6: the toasts' and dialogs' motion (vendored components).
+- T4-3: the evening on the Worker over real HTTP relays. Deferred (2026-11-02): the engine suite fetches over HTTP
+  through a test-only switch (`DrandClientBuilder::mock_over_http`) the Worker can't turn on. It needs a `dev`-only
+  variable for the Worker to fetch the mock chain from its relays, and a local relay (Node, not Python) that
+  `workers-check.sh` starts and points `RAFI_DRAND_RELAYS` at; about half a day. The real deploy (T2-3) exercises
+  the Worker's fetch path against the public relays meanwhile.
+- T6-2's previews checked by hand in Slack and T6-3's Lighthouse run. Deferred (2026-11-02): Slack fetches a preview
+  from a public URL, so it waits for the real deploy (T2-3); Lighthouse can run locally against `wrangler dev`
+  (`npx lighthouse`, which downloads it), on the maintainer's word. T6-1's checks in the evening (the smallest
+  font, contrast on computed colours) are left too. T6-6: the toasts' and dialogs' motion (vendored components),
+  skipped.
 - T7-2's other guarded writes (the entrant ones each re-read the entrant, not the raffle); T7-5's `use_confirm`,
   `Async` and `AddList`'s state machine; T7-6's `entrant.rs` and test-file splits and Postgres `CAST`s.
 
