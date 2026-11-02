@@ -879,7 +879,10 @@ gaps below are where a bug would ruin an evening, leak personal data or break ve
   goes to the other in pass 2, who declines it, and drawn again it is refused 409 "There are no eligible entrants
   left." (with 3 items a fourth draw has no item to name). The Workers evening checks Anna's phone lists "Rust in
   Action" and "Ferris plush" with the code once, the second announced afresh. The thanks screen and the admin's
-  People row (one prize per entrant) are unchanged.
+  People row (one prize per entrant) are unchanged. Since then the People tab lists every prize too: the admin's
+  entrant carries `prizes` (each held prize's name and `drawn` or `claimed`, in draw order) instead of `prize`, from
+  the walk over the draws the CSV uses, a badge per prize; `outcome` is as before (a claim over anything else), and
+  one Mark delivered covers all of a winner's prizes; the server test, a People row test and the evening check it.
 
 #### T4-8 · Concurrency scenarios run on Postgres only
 

@@ -49,7 +49,7 @@ fn entrant(
         held_until: None,
         erased: false,
         outcome: None,
-        prize: None,
+        prizes: Vec::new(),
         batch_id: None,
         list_ref: list_ref.map(Into::into),
         objected: false,

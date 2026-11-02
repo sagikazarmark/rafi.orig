@@ -63,7 +63,7 @@ sequenceDiagram
 - **One win per person.** Once someone is drawn, they're out of the pool, whatever happens next.
 - **Pass 2.** If there are more items than people, the pool runs dry. A second pass then draws from earlier winners
   who didn't forfeit, each at most once more. A winner drawn again sees every prize they won on their phone, with
-  their claim code once.
+  their claim code once. The People tab lists every prize on their row, and one **Mark delivered** covers them all.
 - If nobody at all is left, Rafi refuses the draw, and the item stays to be drawn.
 
 ## 3. Deciding what happened

@@ -914,7 +914,7 @@ mod tests {
         let anna: AdminEntrant = serde_json::from_value(serde_json::json!({
             "id": "e1", "display_name": "Anna", "email": "anna@x.org", "source": "manual",
             "hidden": false, "claim_code": "K2P9", "created_at": 0, "delivered": false,
-            "erased": false, "outcome": null, "prize": null
+            "erased": false, "outcome": null, "prizes": []
         }))
         .unwrap();
         let removed = [rafi_api::RemovedAtRequest {

@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use rafi_api::{
-    AdminActions, AdminEntrant, EntrantActions, LifecycleCommand, Prize, RaffleAdmin,
+    AdminActions, AdminEntrant, EntrantActions, HeldPrize, LifecycleCommand, Prize, RaffleAdmin,
     RemovedAtRequest, Retention, SourceCounts, StartStep, UndoBatch, VerifyData,
 };
 use rafi_lifecycle::{
@@ -176,23 +176,58 @@ fn retention_of(app: &App, raffle: &RaffleRow, now: i64) -> Retention {
     }
 }
 
-/// The entrants as the organizer sees them, with what the raffle made of
-/// each and what the organizer can do with each. A claimed winner whose
-/// prize isn't delivered is held until `winners_erase_at`.
-fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) -> Vec<AdminEntrant> {
-    let outcomes = drawn.map(Raffle::entrant_outcomes).unwrap_or_default();
-    let item_names: HashMap<ItemId, String> = drawn
-        .map(|s| {
-            s.items()
-                .iter()
-                .map(|item| (item.id.clone(), item.name.clone()))
-                .collect()
+/// What the draws made of one drawn entrant ([`turns`]).
+struct Turn {
+    /// Where they stand ([`Raffle::entrant_outcomes`]): a claim over
+    /// anything else, otherwise their latest draw; and that draw's prize.
+    outcome: Outcome,
+    prize: String,
+    /// Every prize they hold (drawn or claimed), in draw order: more than
+    /// one for a winner pass 2 drew again (more prizes than people).
+    held: Vec<HeldPrize>,
+}
+
+/// What the draws of `drawn` made of each entrant they picked, by ID.
+fn turns(drawn: Option<&Raffle>) -> HashMap<String, Turn> {
+    let Some(drawn) = drawn else {
+        return HashMap::new();
+    };
+    let name = |item: &ItemId| drawn.item(item).map(|i| i.name.clone()).unwrap_or_default();
+    let mut turns: HashMap<String, Turn> = drawn
+        .entrant_outcomes()
+        .into_iter()
+        .map(|(entrant, (outcome, item))| {
+            let turn = Turn {
+                outcome,
+                prize: name(&item),
+                held: Vec::new(),
+            };
+            (entrant.into_string(), turn)
         })
-        .unwrap_or_default();
+        .collect();
+    for d in drawn.draws() {
+        if matches!(d.outcome, Outcome::Drawn | Outcome::Claimed)
+            && let Some(turn) = turns.get_mut(d.entrant.as_str())
+        {
+            turn.held.push(HeldPrize {
+                name: name(&d.item),
+                outcome: d.outcome,
+            });
+        }
+    }
+    turns
+}
+
+/// The entrants as the organizer sees them, with what the raffle made of
+/// each (every prize they hold) and what the organizer can do with each. A
+/// claimed winner whose prize isn't delivered is held until
+/// `winners_erase_at`.
+fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) -> Vec<AdminEntrant> {
+    let mut turns = turns(drawn);
     full.entrants
         .iter()
         .map(|e| {
-            let outcome = outcomes.get(e.id.as_str());
+            let turn = turns.remove(e.id.as_str());
             let deliverable = lifecycle::raffle::deliverable(drawn, &e.id);
             let state = full.raffle.state;
             let actions = EntrantActions {
@@ -204,8 +239,8 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) ->
                     && lifecycle::entrant::may_unobject(state).is_ok(),
             };
             AdminEntrant {
-                outcome: outcome.map(|o| o.0),
-                prize: outcome.and_then(|o| item_names.get(&o.1).cloned()),
+                outcome: turn.as_ref().map(|t| t.outcome),
+                prizes: turn.map(|t| t.held).unwrap_or_default(),
                 id: e.id.clone(),
                 display_name: e.display_name.clone(),
                 email: e.email_raw.clone(),
@@ -249,29 +284,24 @@ pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String>
     let mut out = String::from(
         "\u{FEFF}entrant_id,display_name,email,source,claim_code,outcome,prize,delivered\n",
     );
-    // The prizes each entrant holds (drawn or claimed), in draw order: more
-    // than one for a winner pass 2 drew again.
-    let mut held: HashMap<String, Vec<(Outcome, String)>> = HashMap::new();
-    if let Some(drawn) = full.drawn.as_ref() {
-        for d in drawn.draws() {
-            if matches!(d.outcome, Outcome::Drawn | Outcome::Claimed) {
-                let prize = drawn.item(&d.item).map(|i| i.name.clone());
-                held.entry(d.entrant.into_string())
-                    .or_default()
-                    .push((d.outcome, prize.unwrap_or_default()));
-            }
-        }
-    }
+    // The prize of the draw that ended the turn of an entrant who holds none
+    // (not here, declined).
+    let turns = turns(full.drawn.as_ref());
     let mut rows = 0;
     for e in admin_entrants(&full, full.drawn.as_ref(), hold)
         .iter()
         .filter(|e| e.outcome.is_some())
     {
         // One row per prize held; one with how their turn ended for an
-        // entrant who holds none (not here, declined).
-        let lines: Vec<(Option<Outcome>, String)> = match held.get(&e.id) {
-            Some(prizes) => prizes.iter().map(|(o, p)| (Some(*o), p.clone())).collect(),
-            None => vec![(e.outcome, e.prize.clone().unwrap_or_default())],
+        // entrant who holds none.
+        let lines: Vec<(Option<Outcome>, String)> = if e.prizes.is_empty() {
+            let prize = turns.get(&e.id).map(|t| t.prize.clone());
+            vec![(e.outcome, prize.unwrap_or_default())]
+        } else {
+            e.prizes
+                .iter()
+                .map(|p| (Some(p.outcome), p.name.clone()))
+                .collect()
         };
         for (outcome, prize) in lines {
             rows += 1;

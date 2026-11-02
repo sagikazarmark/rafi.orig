@@ -766,7 +766,7 @@ mod tests {
         serde_json::from_value(serde_json::json!({
             "id": "e1", "display_name": "Anna Kovács", "email": "anna@example.com",
             "source": source, "hidden": false, "claim_code": "K2P9", "created_at": 0,
-            "delivered": false, "erased": false, "outcome": "drawn", "prize": "Book",
+            "delivered": false, "erased": false, "outcome": "drawn", "prizes": [{ "name": "Book", "outcome": "drawn" }],
             "no_phone": no_phone
         }))
         .unwrap()

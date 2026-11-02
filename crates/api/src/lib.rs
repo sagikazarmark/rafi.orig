@@ -299,6 +299,8 @@ pub struct AdminEntrant {
     /// When they entered (unix seconds): the People tab lists the latest
     /// first.
     pub created_at: i64,
+    /// Their prize reached them: one mark for the entrant, so for every
+    /// prize they claimed (claiming one sent later clears it).
     pub delivered: bool,
     /// Whether their prize can be marked delivered (or not): they claimed it.
     #[serde(default)]
@@ -309,9 +311,16 @@ pub struct AdminEntrant {
     pub held_until: Option<i64>,
     /// Their personal data was erased; the anonymous entry stays.
     pub erased: bool,
-    /// Outcome and prize, once drawn.
+    /// Where they stand, once drawn: a claim over anything else, otherwise
+    /// their latest draw ([`entrant_outcomes`](rafi_raffle::Raffle::entrant_outcomes)).
+    /// A winner who claimed one prize and was not here for, or declined,
+    /// another that pass 2 drew them for is `claimed`.
     pub outcome: Option<Outcome>,
-    pub prize: Option<String>,
+    /// Every prize they hold (drawn or claimed), in draw order: more than
+    /// one for a winner pass 2 drew again (more prizes than people). None
+    /// for someone who holds none, a forfeited one included.
+    #[serde(default)]
+    pub prizes: Vec<HeldPrize>,
     /// The add the organizer put them in with; `None` if they joined, or
     /// are a fake.
     #[serde(default)]
@@ -336,6 +345,14 @@ pub struct AdminEntrant {
     /// it ("Confirmed: it's them") instead of comparing a code.
     #[serde(default)]
     pub no_phone: bool,
+}
+
+/// A prize an entrant holds ([`AdminEntrant::prizes`]): its name, and
+/// whether they claimed it or it waits for them (`drawn`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeldPrize {
+    pub name: String,
+    pub outcome: Outcome,
 }
 
 /// What the organizer can do with one entrant now: the server's rules say

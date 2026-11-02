@@ -268,13 +268,29 @@ fn EntrantRow(
             }
         }
     };
-    let (status, status_class) = match (e.outcome, &e.prize) {
-        (Some(Outcome::Claimed), Some(p)) => (format!("won {p}"), "badge-success"),
-        (Some(Outcome::Drawn), Some(p)) => (format!("drawn for {p}"), "badge-primary"),
-        (Some(Outcome::NotHere), _) => ("not here".to_owned(), "badge-ghost"),
-        (Some(Outcome::Declined), _) => ("declined".to_owned(), "badge-ghost"),
-        _ if e.erased => ("erased".to_owned(), "badge-neutral"),
-        _ => (String::new(), ""),
+    // A badge per prize they hold, in draw order (a winner pass 2 drew again
+    // has more than one); otherwise how their turn ended.
+    let status: Vec<(String, &str)> = if e.prizes.is_empty() {
+        match e.outcome {
+            Some(Outcome::NotHere) => vec![("not here".to_owned(), "badge-ghost")],
+            Some(Outcome::Declined) => vec![("declined".to_owned(), "badge-ghost")],
+            _ if e.erased => vec![("erased".to_owned(), "badge-neutral")],
+            _ => Vec::new(),
+        }
+    } else {
+        e.prizes
+            .iter()
+            .map(|p| match p.outcome {
+                Outcome::Claimed => (format!("won {}", p.name), "badge-success"),
+                _ => (format!("drawn for {}", p.name), "badge-primary"),
+            })
+            .collect()
+    };
+    // "Mark delivered" covers every prize they claimed: one mark per entrant.
+    let prize_word = if e.prizes.len() > 1 {
+        "prizes"
+    } else {
+        "prize"
     };
     let won = e.deliverable;
     let avatar = match e.source {
@@ -321,7 +337,15 @@ fn EntrantRow(
             }
             td { class: "block py-1 text-sm text-base-content/70 empty:hidden sm:table-cell sm:py-3", "{e.email.clone().unwrap_or_default()}" }
             td { class: "block py-1 empty:hidden sm:table-cell sm:py-3", if let Some(code) = &e.claim_code { span { class: "claim-code text-sm", "{code}" } } }
-            td { class: "block py-1 empty:hidden sm:table-cell sm:py-3", if !status.is_empty() { span { class: "badge badge-soft {status_class} whitespace-nowrap", "{status}" } } }
+            td { class: "block py-1 empty:hidden sm:table-cell sm:py-3",
+                if status.len() > 1 {
+                    div { class: "flex flex-col items-start gap-1",
+                        for (text, class) in status.iter() { span { class: "badge badge-soft {class} whitespace-nowrap", "{text}" } }
+                    }
+                } else if let Some((text, class)) = status.first() {
+                    span { class: "badge badge-soft {class} whitespace-nowrap", "{text}" }
+                }
+            }
             td { class: "block sm:table-cell",
                 if !e.erased {
                     div { class: "flex flex-wrap gap-1 sm:justify-end",
@@ -352,7 +376,7 @@ fn EntrantRow(
                         } else if won {
                             button {
                                 class: "btn btn-ghost sm:btn-xs tooltip",
-                                "data-tip": if e.held_until.is_some() { format!("Their name and email are kept until {}, or until you mark the prize delivered", winners_erase_date) } else { String::new() },
+                                "data-tip": if e.held_until.is_some() { format!("Their name and email are kept until {}, or until you mark the {prize_word} delivered", winners_erase_date) } else { String::new() },
                                 onclick: { let patch = patch.clone(); move |_| { if past_erase_date { confirm_delivered.open(); } else { spawn(patch(EntrantPatch { delivered: Some(true), ..Default::default() })); } } },
                                 "Mark delivered"
                             }
@@ -404,7 +428,7 @@ fn EntrantRow(
                     if won && !e.delivered && past_erase_date {
                         Confirm {
                             open: confirm_delivered,
-                            title: rsx! { "Mark " bdi { "{e.display_name}" } "'s prize delivered?" },
+                            title: rsx! { "Mark " bdi { "{e.display_name}" } "'s {prize_word} delivered?" },
                             body: rsx! { "The erasure date has passed: their name and email are erased within the hour, for good." },
                             action: "Mark delivered",
                             danger: true,
@@ -512,7 +536,7 @@ mod tests {
         serde_json::from_value(serde_json::json!({
             "id": "e1", "display_name": "Anna Kovács", "email": "anna@example.com",
             "source": "manual", "hidden": objected, "claim_code": "K2P9", "created_at": 0,
-            "delivered": false, "erased": false, "outcome": null, "prize": null,
+            "delivered": false, "erased": false, "outcome": null, "prizes": [],
             "objected": objected,
             "actions": { "object": !objected, "unobject": objected }
         }))
@@ -556,11 +580,52 @@ mod tests {
     fn objected_and_claimed() {
         let mut both = entrant(true);
         both.outcome = Some(Outcome::Claimed);
-        both.prize = Some("Book".into());
+        both.prizes = vec![held("Book", Outcome::Claimed)];
         both.deliverable = true;
         let html = dioxus_ssr::render_element(rsx! { Row { entrant: both } });
         for expected in ["took themselves off", "won Book", "Undo", "Mark delivered"] {
             assert!(html.contains(expected), "{expected}: {html}");
         }
+    }
+
+    fn held(name: &str, outcome: Outcome) -> rafi_api::HeldPrize {
+        rafi_api::HeldPrize {
+            name: name.into(),
+            outcome,
+        }
+    }
+
+    /// A winner pass 2 drew again (more prizes than people): every prize
+    /// they hold, in draw order, each as it stands; one delivery mark for
+    /// them all. One prize is one badge, as before.
+    #[test]
+    fn every_prize_a_winner_holds() {
+        let mut twice = entrant(false);
+        twice.outcome = Some(Outcome::Claimed);
+        twice.prizes = vec![
+            held("Rust in Action", Outcome::Claimed),
+            held("Ferris plush", Outcome::Drawn),
+        ];
+        twice.deliverable = true;
+        twice.held_until = Some(1);
+        let html = dioxus_ssr::render_element(rsx! { Row { entrant: twice.clone() } });
+        let (book, plush) = (
+            html.find("won Rust in Action").expect(&html),
+            html.find("drawn for Ferris plush").expect(&html),
+        );
+        assert!(book < plush, "in draw order: {html}");
+        assert_eq!(html.matches("Mark delivered").count(), 1, "{html}");
+        assert!(html.contains("mark the prizes delivered"), "{html}");
+
+        twice.prizes.truncate(1);
+        let html = dioxus_ssr::render_element(rsx! { Row { entrant: twice } });
+        assert_eq!(
+            html.matches("class=\"badge badge-soft").count(),
+            1,
+            "{html}"
+        );
+        assert!(html.contains("won Rust in Action"), "{html}");
+        assert!(!html.contains("Ferris plush"), "{html}");
+        assert!(html.contains("mark the prize delivered"), "{html}");
     }
 }

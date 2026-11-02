@@ -436,6 +436,13 @@ const adminTab = await tab("admin", `${base}/admin`);
 check(await until(async () => (await adminTab.text()).includes("Your raffles"), 45000), "the admin lists the raffles");
 await adminTab.call("Page.navigate", { url: `${base}/admin/r/${id}` });
 check(await until(async () => (await adminTab.text()).includes("Workers evening"), 45000), "the raffle's admin page shows it");
+// Its People tab lists both of Anna's prizes on her row (matched in any
+// case: innerText is as shown).
+await adminTab.call("Page.navigate", { url: `${base}/admin/r/${id}?tab=people` });
+const annaRow = async () => (await adminTab.js(`[...document.querySelectorAll("tbody tr")]
+  .find((r) => r.querySelector("bdi")?.textContent.trim() === "Anna")?.innerText.replace(/\\s+/g, " ") ?? ""`)) ?? "";
+check(await until(async () => { const r = await annaRow(); return /rust in action/i.test(r) && /ferris plush/i.test(r); }, 45000),
+  `the People tab lists both of Anna's prizes (${await annaRow()})`);
 adminTab.close();
 const verification = await tab("verification page", `${base}/v/${slug}`);
 check(await until(async () => (await verification.text()).includes("Rust in Action"), 45000), "the verification page shows the draw");

@@ -100,7 +100,10 @@ can be added now (`actions.add_list`) and why not (`actions.add_list_refusal`: `
 step that lets entrants in (opening registration, or without it the freeze from Published) while that step is
 ahead, in Draft and Published: the header says so and keeps the step's button disabled. Each entrant says whether
 they have `no_phone` (added by the organizer): drawn, the console has the organizer check it is them and confirm
-("Confirmed: it's them"), which `resolve_item` records as `claimed`.
+("Confirmed: it's them"), which `resolve_item` records as `claimed`. Each also has `prizes`, every prize it holds in
+draw order (`name`, and `outcome`: `drawn` or `claimed`; a winner pass 2 drew again has more than one), and
+`outcome`, where it stands: a claim over anything else, otherwise its latest draw, so a winner who claimed one prize
+and declined another is `claimed`; `delivered` is one mark for all its prizes.
 
 `remove_entrant` takes `"at_request": true` (optional, `false` when left out) for someone who asked: before the
 freeze, a later add leaves them out by their email key and registration ID, which the admin's view lists

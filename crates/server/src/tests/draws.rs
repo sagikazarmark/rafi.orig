@@ -541,6 +541,26 @@ async fn more_prizes_than_people() {
     assert_eq!(items.len(), 4);
 
     let first = draw_and_claim_as(&app, dev, id, &items[0]).await;
+    // The admin's entrants: what each holds, in draw order, and where they
+    // stand; nothing for whoever the draws haven't picked.
+    let held = |who: String| {
+        let app = app.clone();
+        async move {
+            let admin = service::admin(&app, "dev", id).await.unwrap();
+            let e = admin.entrants.into_iter().find(|e| e.id == who).unwrap();
+            let prizes: Vec<(String, rafi_raffle::Outcome)> =
+                e.prizes.into_iter().map(|p| (p.name, p.outcome)).collect();
+            (e.outcome, prizes)
+        }
+    };
+    let not_yet = service::admin(&app, "dev", id)
+        .await
+        .unwrap()
+        .entrants
+        .into_iter()
+        .find(|e| e.id != first)
+        .unwrap();
+    assert_eq!((not_yet.outcome, not_yet.prizes), (None, vec![]));
     let second = draw_and_claim_as(&app, dev, id, &items[1]).await;
     assert_ne!(first, second, "pass 1 draws everyone once");
     let twice = draw_and_claim_as(&app, dev, id, &items[2]).await;
@@ -575,6 +595,18 @@ async fn more_prizes_than_people() {
     assert!(
         matches!(&me, rafi_live_client::Screen::Won { prizes, .. } if prizes.len() == 2),
         "{me:?}"
+    );
+
+    // The People tab lists both of theirs, as the phone does.
+    use rafi_raffle::Outcome::Claimed;
+    let claimed = |prize: &str| (prize.to_owned(), Claimed);
+    assert_eq!(
+        held(twice.clone()).await,
+        (Some(Claimed), vec![claimed(earlier), claimed("Voucher")])
+    );
+    assert_eq!(
+        held(once.clone()).await,
+        (Some(Claimed), vec![claimed(later)])
     );
 
     // A row per prize: three.
@@ -675,4 +707,10 @@ async fn more_prizes_than_people() {
     let view: rafi_live_client::ParticipantView = serde_json::from_value(view).unwrap();
     assert_eq!(view.wins_of(&twice).len(), 2);
     assert_eq!(view.wins_of(once).len(), 1);
+    // The admin too: they still stand as claimed, with the prize they hold.
+    assert_eq!(
+        held(once.clone()).await,
+        (Some(Claimed), vec![claimed(later)])
+    );
+    assert_eq!(held(twice.clone()).await.1.len(), 2);
 }
