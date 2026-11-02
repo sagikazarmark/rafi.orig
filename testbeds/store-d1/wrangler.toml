@@ -1,7 +1,7 @@
 # Local only: runs rafi-store's scenarios against D1 (see src/lib.rs).
 name = "rafi-store-d1-check"
 main = "build/index.js"
-compatibility_date = "2026-05-01"
+compatibility_date = "2026-10-01"
 
 [build]
 command = "worker-build --release"

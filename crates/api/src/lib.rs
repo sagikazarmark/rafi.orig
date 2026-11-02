@@ -853,6 +853,9 @@ pub struct Me {
     /// succeeded for two hours, counting from the first raffle.
     #[serde(default)]
     pub retention_stale: bool,
+    /// Which Rafi the server is (its version).
+    #[serde(default)]
+    pub version: String,
 }
 
 /// Who is calling the admin API: the owner key (a Clerk organization, or

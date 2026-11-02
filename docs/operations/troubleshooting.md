@@ -35,6 +35,10 @@ to another chain.
 
 ## During the draw
 
+**The raffle engine can't be reached.** Restate (Restate Cloud on Workers) is down or unreachable: starting the draw
+and drawing fail, or a draw stays on its countdown. Nothing committed is lost. What the organizer can do tonight is
+in the [runbook](runbook.md#when-the-raffle-engine-is-down-during-an-event).
+
 **A draw stalls: "Round R could not be fetched yet".**
 The engine couldn't get the round's beacon within its fetch timeout (60 s). The draw stays committed to round R, so
 nothing is lost. Check that the engine has outbound HTTPS to the drand relays (`api.drand.sh`, `api2.drand.sh`,

@@ -5,6 +5,10 @@
 #   ./deploy.sh fetch                # only fetch it: into rafi/, checked against RAFI_SHA256 (or its SHA256SUMS)
 #   ./deploy.sh deploy [--dry-run]   # only deploy rafi/: legal/ into place, the D1 migrations,
 #                                    # wrangler deploy (--dry-run: validate, touch nothing)
+#   ./deploy.sh deploy --allow-templates
+#                                    # deploy legal/ still holding the templates: the Worker
+#                                    # then refuses every request, saying so (a first deploy
+#                                    # that only creates the Worker, before the documents are ready)
 #
 # The release is Rafi's build (the Worker, the static files, the D1 migrations),
 # the same for every installation. What is yours is this directory:
@@ -31,7 +35,8 @@ cd "$(dirname "$0")"
 RELEASE="${RAFI_RELEASE_URL:-https://github.com/sagikazarmark/rafi/releases/download/v$RAFI_VERSION}"
 TARBALL="rafi-cloudflare-$RAFI_VERSION.tar.gz"
 if [ -z "${WRANGLER:-}" ]; then
-  if command -v wrangler >/dev/null; then WRANGLER=wrangler; else WRANGLER="npx --yes wrangler@4"; fi
+  # The version this release was checked with (the Rafi repository's devenv).
+  if command -v wrangler >/dev/null; then WRANGLER=wrangler; else WRANGLER="npx --yes wrangler@4.148.0"; fi
 fi
 if command -v sha256sum >/dev/null; then SHA256="sha256sum"; else SHA256="shasum -a 256"; fi
 
@@ -65,16 +70,32 @@ fetch() {
 }
 
 deploy() {
+  local dry_run= allow_templates=
+  for arg in "$@"; do
+    case "$arg" in
+      --dry-run) dry_run=1 ;;
+      --allow-templates) allow_templates=1 ;;
+      *) echo "deploy: unknown option $arg" >&2; exit 2 ;;
+    esac
+  done
   [ -f rafi/build/index.js ] || { echo "deploy: rafi/ holds no release: ./deploy.sh fetch, or a build from source" >&2; exit 1; }
   mkdir -p rafi/worker-assets/legal
   for doc in terms.md privacy.md; do
     [ -f "legal/$doc" ] || { echo "deploy: legal/$doc is missing" >&2; exit 1; }
     cp "legal/$doc" rafi/worker-assets/legal/
   done
-  if grep -q '\*\*Template\.\*\*' legal/terms.md legal/privacy.md; then
-    echo "deploy: legal/ still holds the templates (they say **Template.**): the Worker refuses every request until reviewed documents replace them" >&2
+  if templates="$(grep -l '\*\*Template\.\*\*' legal/terms.md legal/privacy.md)"; then
+    # The Worker would refuse every request with them, so a deploy that
+    # replaces a working Worker with one that serves nothing is refused here.
+    msg="deploy: still the template (it says **Template.**): $(echo $templates). Fill each in, have it reviewed and delete the marker"
+    if [ -n "$dry_run" ] || [ -n "$allow_templates" ]; then
+      echo "$msg; deploying anyway, and the Worker refuses every request until then" >&2
+    else
+      echo "$msg (or --allow-templates, for a Worker that refuses every request until then)" >&2
+      exit 1
+    fi
   fi
-  if [ "${1:-}" = "--dry-run" ]; then
+  if [ -n "$dry_run" ]; then
     $WRANGLER deploy --dry-run
   else
     $WRANGLER d1 migrations apply DB --remote
@@ -86,5 +107,5 @@ case "${1:-}" in
   "") fetch; deploy ;;
   fetch) fetch ;;
   deploy) shift; deploy "$@" ;;
-  *) echo "usage: deploy.sh [fetch | deploy [--dry-run]]" >&2; exit 2 ;;
+  *) echo "usage: deploy.sh [fetch | deploy [--dry-run] [--allow-templates]]" >&2; exit 2 ;;
 esac

@@ -375,6 +375,28 @@ pub const DEFAULT_MIN_AGE: u32 = 16;
 /// The oldest `RAFI_MIN_AGE` may ask for.
 const MAX_MIN_AGE: u32 = 30;
 
+/// What a server that refuses to start (a Worker: every request) says in
+/// public about why: `misconfigured`, the reason when it names only
+/// settings or files (a setting not set or required, the documents missing
+/// or still templates), never a value, and where the whole reason is. The
+/// operator sees it on the first request after a deploy, rather than only in
+/// `wrangler tail`.
+pub fn refusal(e: &anyhow::Error, log: &str) -> String {
+    let reason = e.root_cause().to_string();
+    let names_only = reason.ends_with(" is not set")
+        || reason.contains(" is not set:")
+        || reason.contains(" required")
+        || reason.contains("must be at least")
+        || reason.contains("has no `dev` feature")
+        || reason.contains(Documents::TEMPLATE_MARKER)
+        || reason.contains("missing from the Worker's static files");
+    if names_only {
+        format!("misconfigured: {reason}\n\nThe server's log has the details ({log}).\n")
+    } else {
+        format!("misconfigured\n\nThe reason is in the server's log ({log}).\n")
+    }
+}
+
 /// The document version under dev auth when none is set.
 fn dev_version(dev_auth: bool) -> String {
     if dev_auth {
@@ -418,6 +440,33 @@ fn resolve_chain(configured: &str, mock: Option<ChainHash>) -> anyhow::Result<Ch
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refusal names a missing setting or the template marker, never a
+    /// value; anything else only points at the log.
+    #[test]
+    fn a_refusal_says_why_without_values() {
+        let log = "wrangler tail";
+        let body = refusal(&anyhow!("RAFI_POW_KEY is not set"), log);
+        assert!(
+            body.starts_with("misconfigured: RAFI_POW_KEY is not set") && body.contains(log),
+            "{body}"
+        );
+        let mut cfg = Config::for_tests();
+        cfg.documents = Documents::new("# T\n\n> **Template.** Review me.", "# P");
+        let body = refusal(&cfg.validate().unwrap_err(), log);
+        assert!(body.contains("**Template.**"), "{body}");
+        let secret = anyhow!("Clerk configuration: sk_live_secret").context("building the app");
+        let body = refusal(&secret, log);
+        assert!(
+            body.starts_with("misconfigured\n") && !body.contains("sk_live"),
+            "{body}"
+        );
+        let body = refusal(&anyhow!("not a valid value: RAFI_MIN_AGE=\"x\""), log);
+        assert!(
+            !body.contains("RAFI_MIN_AGE"),
+            "values stay in the log: {body}"
+        );
+    }
 
     #[test]
     fn release_builds_commit_only_to_public_chains() {

@@ -1,7 +1,7 @@
 # Local only: drives rafi-cloudflare's Durable Object (see scenario.mjs).
 name = "rafi-cloudflare-check"
 main = "build/index.js"
-compatibility_date = "2026-05-01"
+compatibility_date = "2026-10-01"
 
 [build]
 command = "worker-build --release"

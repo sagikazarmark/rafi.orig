@@ -47,6 +47,16 @@ if [ -n "$(sed -n 's/^RAFI_SHA256=//p' "$ROOT/deploy/cloudflare/deploy.sh")" ]; 
   exit 1
 fi
 
+# The Deploy to Cloudflare buttons deploy the template at this release's tag,
+# so the template and the release it fetches agree; between releases they
+# keep naming the last one.
+for doc in deploy/cloudflare/README.md docs/operations/cloudflare.md; do
+  if ! grep -q "tree/v$VERSION/deploy/cloudflare" "$ROOT/$doc"; then
+    echo "$doc: its Deploy to Cloudflare button doesn't name tree/v$VERSION/deploy/cloudflare: point it at this release" >&2
+    exit 1
+  fi
+done
+
 step "the release: the artifact, its tarball and checksums"
 just "$ROOT/apps/worker/" release "$VERSION" "$OUT"
 cat "$OUT/SHA256SUMS"

@@ -79,7 +79,7 @@ artifact out="../../target/cloudflare/rafi": assets build
     echo "$version" >"$out/VERSION"
     echo "rafi-cloudflare: Rafi $version, $(du -sh "$out" | cut -f1) in $out"
 
-# Package a release of `version`: the artifact as rafi-cloudflare-<version>.tar.gz with its SHA256SUMS, in `out` (what scripts/cloudflare-release.sh then proves, and .github/workflows/release.yaml publishes).
+# Package a release of `version`: the artifact as rafi-cloudflare-<version>.tar.gz (packed reproducibly, with GNU tar) with its SHA256SUMS, in `out` (what scripts/cloudflare-release.sh then proves, and .github/workflows/release.yaml publishes).
 release version out="../../target/cloudflare":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -87,7 +87,13 @@ release version out="../../target/cloudflare":
     tarball="rafi-cloudflare-{{ version }}.tar.gz"
     RAFI_VERSION="{{ version }}" {{ just_executable() }} artifact "$out/rafi"
     rm -f "$out/$tarball" "$out/SHA256SUMS"
-    (cd "$out" && tar -czf "$tarball" rafi)
+    # The same bytes from the same files (sorted, every time SOURCE_DATE_EPOCH
+    # or the commit's, no owner, gzip without a name or a time): two builds
+    # of a tag can be compared. GNU tar (the devenv shell's).
+    epoch="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || echo 0)}"
+    (cd "$out" && tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
+        --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
+        -cf - rafi | gzip -9 -n >"$tarball")
     if command -v sha256sum >/dev/null; then
         (cd "$out" && sha256sum "$tarball" >SHA256SUMS)
     else

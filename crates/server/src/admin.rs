@@ -186,6 +186,7 @@ impl Admin for AppState {
             access: c.access,
             shared: c.owner != c.user,
             retention_stale: service::housekeeping::stale(self).await?,
+            version: crate::build_info::VERSION.to_owned(),
         })
     }
 

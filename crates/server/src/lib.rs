@@ -15,6 +15,7 @@
 
 pub mod admin;
 pub mod auth;
+pub mod build_info;
 pub mod config;
 pub mod csp;
 #[cfg(not(target_arch = "wasm32"))]

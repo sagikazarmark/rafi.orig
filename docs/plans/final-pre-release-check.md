@@ -1,20 +1,21 @@
 # Final pre-release check
 
 **Status: Tier 0 and T4-2 done (`cf56888`, 2026-11-02); Tier 1, the schema and query shapes, and the contract notes
-done (2026-11-02), their browser checks in `evening.mjs` still open; Tiers 2–8 otherwise proposed.** Each finding
+done (2026-11-02), their browser checks in `evening.mjs` still open; Tier 2's repository side done (2026-11-02);
+Tiers 3–8 otherwise proposed.** Each finding
 below that is done says what shipped, under **Done**, where it differs from its **Change**. Next, per
-[Order of work](#order-of-work): the launch mechanics (Tier 2), which need the repository renamed and a Cloudflare
-account; and `just workers` once port 8787 is free, with the `evening.mjs` checks Tier 1 left open.
+[Order of work](#order-of-work): Tier 2's GitHub and Cloudflare side (the rename, a dispatch dry run and
+`v0.1.0-rc.1`, a real deploy, a stranger's deploy); the `evening.mjs` checks Tier 1 left open; then design and UX.
 
 ### Progress
 
 | Step | State |
 |---|---|
-| 1. Tier 0 | **Done** (`cf56888`). `0001_init.sql` gained `draws.delivery` and `add_batches`. Verified: fmt, `just clippy` (native and wasm32), `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, the D1 conformance testbed (every scenario ok). **Not run:** `just workers` (port 8787 was taken), so `evening.mjs` hasn't exercised the changed admin API in a browser. |
-| 2. Tier 1 | **Done**, but for the `evening.mjs` parts of the Accepts (the countdown read twice, `/view` blocked, a projector at an unknown slug): `just workers` not run, port 8787 taken. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`; the D1 conformance testbed, the live channel's scenario and the participant smoke (steps 1–3 of `workers-check.sh`), every check ok. |
+| 1. Tier 0 | **Done** (`cf56888`). `0001_init.sql` gained `draws.delivery` and `add_batches`. Verified: fmt, `just clippy` (native and wasm32), `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, the D1 conformance testbed (every scenario ok). `just workers` ran later, with Tier 2 (the evening on another port): every check ok, so `evening.mjs` exercised the stricter admin API. |
+| 2. Tier 1 | **Done**, but for the `evening.mjs` parts of the Accepts (the countdown read twice, `/view` blocked, a projector at an unknown slug), not written. The evening runs green with Tier 1 in (Tier 2's `just workers`). Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`; the D1 conformance testbed, the live channel's scenario and the participant smoke (steps 1–3 of `workers-check.sh`), every check ok. |
 | 3. Schema and query shapes | **Done**: T3-1, T3-7, T7-6's `erasures` index, T3-9's manifest row measured (natively) and kept. The `rows_read` counter and the `EXPLAIN` gate (T3-11) not built. |
 | 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
-| 5. Launch mechanics | Not started |
+| 5. Launch mechanics | **Done locally** (2026-11-02): T2-2, T2-4 … T2-8 as far as the repository goes; T2-1, T2-3, the stranger, the GitHub runs and settings open. Declined: release-note labels and templates, community files, third-party notices, Python in the release. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, `just workers` (the evening on `WORKERS_APP_PORT=8797`, every check ok), two `cloudflare-release.sh 0.1.0` builds byte-identical. |
 | 6. Design and UX | Not started |
 | 7. Tests | T4-2 done; T4-11's occupied port done; the rest not started |
 | 8. Tiers 7 and 8 | Not started |
@@ -121,8 +122,8 @@ sequential tests.
 - **Accept**: an HTTP test posting `remove_my_data` with no body and no content type gets 415 and changes
   nothing; with `Content-Type: application/json` and `Sec-Fetch-Site: same-site` gets 403; the evening still
   signs out and removes data (`apps/worker/evening.mjs`); `docs/reference/routes.md` (security headers) says so.
-- **Done**: as changed; the 403's code is `cross_site`. The `evening.mjs` part of Accept is unchecked (`just workers`
-  not run); it sends JSON, so it should pass.
+- **Done**: as changed; the 403's code is `cross_site`. The evening signs out and removes data under it (`just workers`
+  with Tier 2).
 
 #### T0-4 · The native engine logs its database credentials — **done**
 
@@ -373,6 +374,7 @@ copy → announce.
 - **Accept**: `gh repo view sagikazarmark/rafi` resolves; `./deploy.sh fetch` from a clean copy of
   `deploy/cloudflare` downloads the release (after T2-3); every `github.com/sagikazarmark/rafi` link in the repo
   resolves (`rg -o 'github.com/sagikazarmark/[a-z.]+' | sort -u` shows one name).
+- **Not done**: the rename is GitHub's. The Deploy buttons now name `tree/v0.1.0` (T2-8), so they resolve once the repository is `rafi` and the tag exists.
 
 #### T2-2 · The release workflow has never run and can't be rehearsed
 
@@ -389,6 +391,12 @@ copy → announce.
 - **Accept**: one `workflow_dispatch` dry run is green on `main`; a `v0.1.0-rc.1` tag produces a pre-release
   whose tarball `./deploy.sh fetch` accepts; the release job is skipped (not failed) when CI for the commit is
   red (tested by dispatching on a commit with a failing test on a branch).
+- **Done** (the workflow; its runs need GitHub): `release.yaml` calls `ci.yaml` (now `workflow_call`) and the release job
+  `needs:` it, so a red commit skips the release; `workflow_dispatch` with `version` (default: `deploy.sh`'s pin) and
+  `dry_run` (default on; off publishes a tag that exists); a draft, the uploaded digest checked against the build's,
+  then published; a version with a `-` suffix is a pre-release. Notes stay generated: no `.github/release.yml`, PR
+  template or hand-written notes (declined). `docs/development/releasing.md` says how to cut one. Open: the dry run
+  and `v0.1.0-rc.1` on GitHub.
 
 #### T2-3 · The production path has never touched real Cloudflare
 
@@ -403,6 +411,7 @@ copy → announce.
 - **Accept**: a raffle with ten real phones (or ten browser tabs over a tethered connection) has been drawn end
   to end on real Cloudflare with real drand, verified at `/v/<slug>` and by `tools/verify.py --fetch`; the six
   items are dated in `cloudflare.md`; the Worker's reported startup time is under 200 ms.
+- **Not done**: needs a Cloudflare account; out of this pass.
 
 #### T2-4 · The deploy walk-through has friction a stranger can't get past
 
@@ -421,6 +430,13 @@ copy → announce.
 - **Size**: small.
 - **Accept**: someone who hasn't seen the repository deploys from the README to a working `/healthz` → `ok` in
   under an hour, noting every place they had to guess; their notes are folded in before the tag.
+- **Done** (but the stranger): `deploy.sh deploy` refuses documents still marked **Template.** unless
+  `--allow-templates` (a dry run warns, as the release rehearsal needs); the Worker's `misconfigured` names the reason
+  when it names only a setting or the documents, never a value (`rafi_server::config::refusal`), and points at
+  `wrangler tail`; the README goes domain → Clerk (its DNS records) → Restate (`restate cloud login`, `env
+  configure`, the keys) → D1 → documents → secrets → deploy → `restate deployments register`, and says the button's
+  database isn't in the EU and that its first deploy fails on the templates; `getting-started.md` has a table with an
+  install line for every tool. Open: the stranger.
 
 #### T2-5 · The release is unattested, the tarball isn't reproducible, the version isn't observable
 
@@ -436,6 +452,13 @@ copy → announce.
 - **Accept**: two CI builds of one commit produce byte-identical tarballs; `gh attestation verify
   rafi-cloudflare-0.1.0.tar.gz -R sagikazarmark/rafi` passes; `curl /healthz` on the deployed Worker prints the
   tag.
+- **Done** (but the attestation's first run): `crates/server/build.rs` compiles in the version (`RAFI_VERSION`, else
+  a `v*` tag at `HEAD`, else `<crate>-dev+<commit>`) and the source (`RAFI_SOURCE_URL`, else the workspace's
+  `repository`) as `rafi_server::build_info`; `/healthz` answers `ok <version>`, `whoami` and `/config.js` carry it,
+  the native server logs it. `release.yaml` attests with `actions/attest-build-provenance` (v4.2.2, pinned), the
+  README's Upgrading shows `gh attestation verify`. `just release` packs with GNU tar (`--sort=name`,
+  `--mtime=@$SOURCE_DATE_EPOCH`, no owner, `gzip -n`): two local builds of 0.1.0 gave the same SHA256. Open: two CI
+  builds compared, the attestation verified.
 
 #### T2-6 · Licensing and attribution
 
@@ -449,6 +472,10 @@ copy → announce.
 - **Size**: trivial.
 - **Accept**: `ls apps/web/assets/fonts/OFL.txt`; the deployed `/v/<slug>` has a link whose target returns 200 and
   is `verify.py`; the admin footer shows the version and a link to the source.
+- **Done** (but `THIRD_PARTY_NOTICES.md`, declined): `apps/web/assets/fonts/OFL.txt`, also served beside the fonts; a
+  footer (`Colophon`) with the version, the source at its tag and drand on the admin and the verification page, and a
+  "Source code" link on the participant page; the verification page links `tools/verify.py` at the tag and its
+  `curl` command has the absolute URL.
 
 #### T2-7 · Operations runbook gaps
 
@@ -475,6 +502,14 @@ copy → announce.
 - **Accept**: each of the ten topics has a heading that `rg -n` finds in `docs/operations`; the restore
   procedure has been run once against a copy (D1 export → local D1 → restore SQL) with removals and objections
   present and nobody came back; the DSAR recipe finds a known email across two raffles.
+- **Done** (but the rehearsal): `docs/operations/runbook.md` (the deploy preflight across every organizer, rotation per
+  secret, rollback with `wrangler rollback` and when not to, the engine down during an event, Time Travel as the
+  backup and the restore in order, a person's data request by email key, a breach, monitoring, costs), linked from
+  the overview, upgrades, troubleshooting, self-hosting and Cloudflare docs. The restore didn't carry removals at a
+  person's request or objections (only the erasures, purges and organizers who left): self-hosting's and the
+  runbook's now save and put back `add_removals` and `objected_at`. The runbook's SQL runs on the schema. The cost
+  figures are from Cloudflare's allowances as remembered, not checked against a bill. Open: the restore rehearsed
+  against a copy.
 
 #### T2-8 · Public face
 
@@ -492,6 +527,11 @@ copy → announce.
 - **Size**: small.
 - **Accept**: the README renders the image on GitHub; the community profile is 100 %; Scorecard ≥ 7 on the next
   run; `curl /.well-known/security.txt` returns the org's policy.
+- **Done** (but what lives on GitHub and the screenshot): CI, Scorecard and licence badges; `/.well-known/security.txt`
+  (the operator's email, Rafi's policy, an expiry 180 days on); `compatibility_date = "2026-10-01"` in the four
+  `wrangler.toml`; `deploy.sh` falls back to `npx wrangler@4.148.0`; the buttons name `tree/v0.1.0`, which
+  `cloudflare-release.sh` checks against the version it releases. Declined: `CONTRIBUTING.md`, a code of conduct,
+  issue templates. Open: the screenshot and GIF, the ruleset on `main`.
 
 ## Tier 3 · Performance and its regression guards
 
@@ -1217,7 +1257,7 @@ The tag is ready when every line is true.
       reaches `/healthz` → `ok 0.1.0`; with unedited templates it refuses.
 - [ ] A stranger deployed from the README in under an hour; their notes are folded in.
 - [ ] `gh attestation verify` passes on the tarball; two builds of the tag are byte-identical.
-- [ ] `OFL.txt` beside the fonts; the admin footer links the source and shows the version; `/v/<slug>` links
+- [x] `OFL.txt` beside the fonts; the admin footer links the source and shows the version; `/v/<slug>` links
       `verify.py`.
 - [ ] `docs/operations` has backup/restore (rehearsed once), rotation, rollback, "Restate is down tonight", the
       breach runbook, a cost paragraph, the DSAR recipe, monitoring, a global deploy preflight.

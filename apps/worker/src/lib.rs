@@ -156,11 +156,14 @@ fn app(env: &Env, cfg: Config) -> anyhow::Result<App> {
     })
 }
 
+/// Every request refused: why in the log, and in the body when the reason
+/// names only a setting or the documents (`rafi_server::config::refusal`).
 fn misconfigured(e: anyhow::Error) -> http::Response<Body> {
     worker::console_error!("rafi: {e:#}");
     http::Response::builder()
         .status(500)
-        .body(Body::from("misconfigured"))
+        .header(http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(Body::from(server::config::refusal(&e, "`wrangler tail`")))
         .expect("a static response")
 }
 

@@ -3,8 +3,9 @@
 ## The deploy freeze
 
 **Don't deploy while a draw is pending or a room is live**: from the moment registration opens at the venue until
-the raffle finishes and the thank-you screen is up. Check the admin's raffle list before you deploy: nothing
-should be Open, and nothing Drawing.
+the raffle finishes and the thank-you screen is up. The admin shows each organizer only their raffles; before you
+deploy, ask the database about everyone's ([the preflight](runbook.md#before-a-deploy-is-anything-live)): nothing
+should be Open, Closed or Drawing.
 
 A raffle that is merely *frozen* and waiting (an event that didn't happen, an organizer who walked away) doesn't
 stop a deploy: see [What a deploy does to a raffle in flight](#what-a-deploy-does-to-a-raffle-in-flight).
@@ -49,9 +50,10 @@ the top of `deploy.sh`, `RAFI_VERSION` and `RAFI_SHA256` (the tarball's hash, fr
 Natively, deploy the app before (or together with) the engine. Until the schema is current, the engine's writes
 fail and Restate retries them.
 
-**Never run a build older than the one that wrote the database.** Nothing in the code checks (the Worker's
-`/healthz` is a static `ok`): a rolled-back build meets columns it doesn't know, or event types it can't read,
-and fails on the first request that touches them. Roll forward instead.
+**Never run a build older than the one that wrote the database.** Nothing in the code checks (`/healthz` says
+which version runs, not which wrote the database): a rolled-back build meets columns it doesn't know, or event
+types it can't read, and fails on the first request that touches them. Roll forward instead; the one exception is
+in [Rolling back a deploy](runbook.md#rolling-back-a-deploy).
 
 ## Registering the raffle engine
 
@@ -96,7 +98,7 @@ Never remove a deployment with `--force` while a draw is in flight on it.
 
 ## Order of operations
 
-1. Check that no raffle is Open or Drawing.
+1. Check that no raffle is live ([the preflight](runbook.md#before-a-deploy-is-anything-live)).
 2. Apply migrations (D1), or let the new app apply them on start (native).
 3. Deploy the app (on Workers, that's the engine too).
 4. Natively, deploy the engine. If the release changed the engine's handlers, register its new URI with Restate

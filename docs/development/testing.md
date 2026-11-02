@@ -161,7 +161,8 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 
 Each `wrangler dev` gets a fixed port (8789 to 8792, 8787 for the evening), and the script refuses one something
 already listens on: a developer's own `wrangler dev`, or one left over from an earlier run, would answer in its
-place. CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from CI: a deploy is the operator's,
+place. The evening's moves with `WORKERS_APP_PORT` (`WORKERS_APP_PORT=8797 just workers`) when 8787 is the
+development server's. CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from CI: a deploy is the operator's,
 from their copy of `deploy/cloudflare` ([Cloudflare](../operations/cloudflare.md)), and the dry runs above are
 its gate. A tag `v<version>` runs `just cloudflare-release` and publishes the release with the tarball and its
 checksums, then checks the tarball's digest as GitHub computed it on upload against the build's

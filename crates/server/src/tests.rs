@@ -1683,6 +1683,13 @@ async fn config_js_says_how_the_server_signs_in() {
     // And it applies the saved theme before first paint, which the web app's
     // shell can't do inline under its policy.
     const THEME: &str = super::pages::APPLY_THEME;
+    // Which Rafi, for the footers: the version, its source and its verifier.
+    let build = format!(
+        "\"version\":{:?},\"sourceUrl\":{:?},\"verifierUrl\":{:?}",
+        crate::build_info::VERSION,
+        crate::build_info::source_url(),
+        crate::build_info::verifier_url(),
+    );
     let get = || Request::get("/config.js").body(Body::empty()).unwrap();
 
     let router = routes(app().await);
@@ -1698,7 +1705,7 @@ async fn config_js_says_how_the_server_signs_in() {
     assert_eq!(
         body,
         format!(
-            "window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":{:?}}};\n{THEME}\n",
+            "window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":{:?},{build}}};\n{THEME}\n",
             Config::for_tests().clerk_publishable_key.unwrap()
         )
     );
@@ -1712,7 +1719,58 @@ async fn config_js_says_how_the_server_signs_in() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        format!("window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":null}};\n{THEME}\n")
+        format!("window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":null,{build}}};\n{THEME}\n")
+    );
+}
+
+/// `/.well-known/security.txt` names the operator, Rafi's policy and an
+/// expiry under a year away (RFC 9116).
+#[tokio::test]
+async fn security_txt_names_the_operator() {
+    let app = app().await;
+    let operator = app.cfg.operator.email.clone();
+    let router = routes(app);
+    let (status, headers, body) = send(
+        &router,
+        Request::get("/.well-known/security.txt")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "text/plain; charset=utf-8");
+    assert!(!operator.is_empty());
+    for line in [
+        format!("Contact: mailto:{operator}"),
+        format!("Policy: {}/security/policy", crate::build_info::SOURCE_URL),
+        "Preferred-Languages: en".to_owned(),
+        "Canonical: http://localhost:8080/.well-known/security.txt".to_owned(),
+    ] {
+        assert!(body.lines().any(|l| l == line), "{line}: {body}");
+    }
+    let expires = body
+        .lines()
+        .find_map(|l| l.strip_prefix("Expires: "))
+        .and_then(|e| rafi_lifecycle::dates::Date::parse(&e[..10]))
+        .unwrap();
+    let today = rafi_lifecycle::dates::Date::of_utc(rafi_store::now_ms() as i64 / 1000);
+    let days = expires.days() - today.days();
+    assert!((1..365).contains(&days), "{days} days: {body}");
+}
+
+/// `/healthz` says the server is up and which Rafi it is; the version is the
+/// build's, as the web app's footers and `whoami` have it.
+#[tokio::test]
+async fn healthz_names_the_version() {
+    let router = routes(app().await);
+    let (status, _, body) = send(
+        &router,
+        Request::get("/healthz").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(
+        (status, body),
+        (StatusCode::OK, format!("ok {}", crate::build_info::VERSION))
     );
 }
 

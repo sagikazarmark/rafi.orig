@@ -341,6 +341,7 @@ pub fn page(page: Page<'_>) -> String {
 
     let title = raffle.title;
     let header = header_bar(raffle.test_mode);
+    let source_href = crate::build_info::source_url();
     let body = dioxus::ssr::render_element(rsx! {
         main { class: "mx-auto flex max-w-md flex-col gap-4 px-4 pb-10 pt-4",
             {header}
@@ -350,6 +351,8 @@ pub fn page(page: Page<'_>) -> String {
                 a { class: "link link-hover", href: "{rules_href}", "Rules" }
                 a { class: "link link-hover", href: "{privacy_href}", "Privacy notice" }
                 a { class: "link link-hover", href: "{verify_href}", "Check the draw yourself" }
+                // AGPL §13: the source of the version running.
+                a { class: "link link-hover", href: "{source_href}", rel: "noopener", "Source code" }
             }
         }
     });

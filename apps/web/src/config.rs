@@ -17,6 +17,27 @@ pub fn clerk_publishable_key() -> Option<String> {
     string(&field(&config()?, "clerkPublishableKey")?)
 }
 
+/// Which Rafi the server is, and where its source and its verifier are:
+/// what the footers show and link. `None` from a server before them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Build {
+    pub version: Option<String>,
+    pub source_url: Option<String>,
+    pub verifier_url: Option<String>,
+}
+
+pub fn build() -> Build {
+    let Some(cfg) = config() else {
+        return Build::default();
+    };
+    let get = |name| field(&cfg, name).as_ref().and_then(string);
+    Build {
+        version: get("version"),
+        source_url: get("sourceUrl"),
+        verifier_url: get("verifierUrl"),
+    }
+}
+
 fn config() -> Option<JsValue> {
     field(&js_sys::global(), GLOBAL)
 }

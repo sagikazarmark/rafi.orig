@@ -22,6 +22,14 @@ fn me_from_url() -> Option<String> {
 #[component]
 pub fn Verify(slug: String) -> Element {
     let json_href = format!("/api/r/{slug}/verify.json");
+    // Absolute, so the command runs as shown.
+    let json_url = use_hook(|| {
+        web_sys::window()
+            .and_then(|w| w.location().origin().ok())
+            .unwrap_or_default()
+    }) + &json_href;
+    let build = use_hook(crate::config::build);
+    let verifier = build.verifier_url.clone();
     let me = use_hook(me_from_url);
     let mut query = use_signal(String::new);
     let data = use_resource(move || {
@@ -329,13 +337,24 @@ pub fn Verify(slug: String) -> Element {
                         div { class: "card-body",
                             h2 { class: "card-title", "Check it yourself" }
                             p { class: "text-sm text-base-content/70",
-                                "Download the published data and run the independent verifier, which also re-fetches every drand round from the public relays:"
+                                "Download the published data and run the independent verifier, "
+                                if let Some(url) = &verifier {
+                                    a { class: "link", href: "{url}", target: "_blank", rel: "noopener", "verify.py" }
+                                } else {
+                                    "verify.py"
+                                }
+                                " (Python 3, no dependencies), which also re-fetches every drand round from the public relays:"
                             }
                             div { class: "mockup-code text-xs",
-                                pre { "data-prefix": "$", code { "curl -O {json_href}" } }
+                                pre { "data-prefix": "$", code { "curl -o verify.json {json_url}" } }
                                 pre { "data-prefix": "$", code { "python3 verify.py --fetch verify.json" } }
                             }
-                            a { class: "btn btn-sm btn-outline w-fit", href: "{json_href}", Download { class: "size-4" } "verify.json" }
+                            div { class: "flex flex-wrap gap-2",
+                                a { class: "btn btn-sm btn-outline w-fit", href: "{json_href}", Download { class: "size-4" } "verify.json" }
+                                if let Some(url) = &verifier {
+                                    a { class: "btn btn-sm btn-outline w-fit", href: "{url}", target: "_blank", rel: "noopener", Download { class: "size-4" } "verify.py" }
+                                }
+                            }
                             details { class: "collapse collapse-arrow mt-2 bg-base-200",
                                 summary { class: "collapse-title text-sm font-semibold", "Manifest" }
                                 div { class: "collapse-content",
@@ -359,6 +378,7 @@ pub fn Verify(slug: String) -> Element {
                 }
             }
             main { class: "mx-auto max-w-5xl space-y-6 px-4 py-8", {body} }
+            super::Colophon { info: build }
         }
     }
 }

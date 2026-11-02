@@ -8,7 +8,7 @@
 
 name = "rafi"
 main = "rafi/build/index.js"
-compatibility_date = "2026-05-01"
+compatibility_date = "2026-10-01"
 # Only your domain: no *.workers.dev address, no preview URLs (a preview would
 # share production's database and objects). Add your domain once the Worker
 # exists; it must be the origin RAFI_PUBLIC_URL names and Clerk allows.

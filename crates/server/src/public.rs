@@ -9,7 +9,7 @@ use axum::{
 };
 use rafi_store::RaffleRow;
 
-use super::{AppState, pages, service, view};
+use super::{AppState, build_info, pages, service, view};
 
 pub fn routes() -> Router {
     Router::new()
@@ -18,7 +18,8 @@ pub fn routes() -> Router {
         .route("/api/r/{slug}/verify.json", get(verify_json))
         .route("/api/challenge", get(challenge))
         .route("/config.js", get(config_js))
-        .route("/healthz", get(|| async { "ok" }))
+        .route("/healthz", get(healthz))
+        .route("/.well-known/security.txt", get(security_txt))
 }
 
 /// What the web app needs from the server before it starts: `/config.js`
@@ -31,6 +32,40 @@ struct WebConfig {
     /// Clerk's publishable key when the server verifies Clerk sessions;
     /// `null` under dev auth, when the admin shows that instead of a sign-in.
     clerk_publishable_key: Option<String>,
+    /// Which Rafi this is ([`build_info::VERSION`]), for the footers.
+    version: &'static str,
+    /// Its source ([`build_info::source_url`]), which the footers link.
+    source_url: String,
+    /// Its independent verifier ([`build_info::verifier_url`]), which the
+    /// verification page links.
+    verifier_url: String,
+}
+
+/// How long a `security.txt` says it holds: RFC 9116 wants an expiry,
+/// less than a year away; it is written fresh on every request.
+const SECURITY_TXT_DAYS: i64 = 180;
+
+/// `/.well-known/security.txt` (RFC 9116): whom to tell about a security
+/// problem with this installation (its operator, `RAFI_OPERATOR_EMAIL`), and
+/// Rafi's policy for vulnerabilities in the software itself.
+async fn security_txt(Extension(app): Extension<AppState>) -> Response {
+    let expires = rafi_lifecycle::dates::Date::of_utc(app.clock.now() + SECURITY_TXT_DAYS * 86_400);
+    let mut body = String::new();
+    if !app.cfg.operator.email.is_empty() {
+        body.push_str(&format!("Contact: mailto:{}\n", app.cfg.operator.email));
+    }
+    body.push_str(&format!(
+        "Expires: {}T00:00:00Z\nPolicy: {}/security/policy\nPreferred-Languages: en\nCanonical: {}/.well-known/security.txt\n",
+        expires.iso(),
+        build_info::SOURCE_URL,
+        app.cfg.public_url.trim_end_matches('/'),
+    ));
+    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
+}
+
+/// `ok` and the version: up, and which Rafi ([`build_info::VERSION`]).
+async fn healthz() -> String {
+    format!("ok {}", build_info::VERSION)
 }
 
 /// The web app's configuration ([`WebConfig`]), as a script, and the saved
@@ -42,6 +77,9 @@ async fn config_js(Extension(app): Extension<AppState>) -> Response {
         clerk_publishable_key: (!app.cfg.dev_auth)
             .then(|| app.cfg.clerk_publishable_key.clone())
             .flatten(),
+        version: build_info::VERSION,
+        source_url: build_info::source_url(),
+        verifier_url: build_info::verifier_url(),
     };
     // A JSON object is a JavaScript object literal; as an external script,
     // nothing in it can close a tag.

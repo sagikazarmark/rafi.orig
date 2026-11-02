@@ -1,5 +1,9 @@
 # Rafi
 
+[![CI](https://github.com/sagikazarmark/rafi/actions/workflows/ci.yaml/badge.svg)](https://github.com/sagikazarmark/rafi/actions/workflows/ci.yaml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/sagikazarmark/rafi/badge)](https://securityscorecards.dev/viewer/?uri=github.com/sagikazarmark/rafi)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+
 **Live, verifiable raffles for meetups.**
 
 Attendees scan a QR code and join on their phone with a display name and email, or the organizer adds them, one by
@@ -85,7 +89,8 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 - **Cloudflare Workers** is the production deployment, and needs no toolchain: [`deploy/cloudflare`](deploy/cloudflare)
   deploys a release to your own account (a Deploy to Cloudflare button, or the same by hand) with your
   configuration and legal documents; [the first deploy](docs/operations/cloudflare.md) is documented step by
-  step. CI runs the production shape through a dry deploy, a whole evening under `wrangler dev` and the hourly
+  step. The button's database has no jurisdiction: for personal data kept in the EU, create the database by hand
+  (`--jurisdiction eu`), as the steps say. CI runs the production shape through a dry deploy, a whole evening under `wrangler dev` and the hourly
   housekeeping.
 - **Self-hosting** (native `rafi` and `rafi-restate`) is supported. There are no packaged images yet: you build
   from source. Container images and native packages come later.
@@ -107,7 +112,8 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 **Operating Rafi**
 - [Overview](docs/operations/overview.md): what you deploy, and the topologies
 - [Self-hosting](docs/operations/self-hosting.md) · [Cloudflare Workers](docs/operations/cloudflare.md)
-- [Upgrades](docs/operations/upgrades.md) · [Troubleshooting](docs/operations/troubleshooting.md)
+- [Upgrades](docs/operations/upgrades.md) · [Troubleshooting](docs/operations/troubleshooting.md) ·
+  [Runbook](docs/operations/runbook.md)
 
 **Reference**
 - [Draw algorithm](docs/reference/draw-algorithm.md) (`rafi-draw-v1`)
@@ -116,7 +122,7 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 
 **Developing Rafi**
 - [Getting started](docs/development/getting-started.md) · [Testing](docs/development/testing.md) ·
-  [The web app](docs/development/web-app.md)
+  [The web app](docs/development/web-app.md) · [Releasing](docs/development/releasing.md)
 - [Plans](docs/plans): specs for work in progress or just done, with the reasoning
   ([final pre-release check](docs/plans/final-pre-release-check.md),
   [pre-release review](docs/plans/pre-release-review.md), [marketing opt-in](docs/plans/marketing-opt-in.md))

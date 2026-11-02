@@ -160,7 +160,7 @@ the app's ownership checks. Only `rafi` talks to the ingress.
 
 ## 8. Check
 
-- `GET /healthz` answers `ok`, `/terms` and `/privacy` show your documents with their versions.
+- `GET /healthz` answers `ok` and the version, `/terms` and `/privacy` show your documents with their versions.
 - Create a raffle with **Test mode** on, add fake entrants, freeze, and draw one item. The verification page should
   show **✅ All 1 draws check out**, under a **🧪 TEST MODE** note.
 - Erase it, or delete it.
@@ -191,14 +191,18 @@ being drawn: the engine forgets a raffle when it finishes, and the database is t
 A backup holds personal data that may have been erased since. After a restore:
 
 1. If you can, carry over from the live database what the restore would undo: the `erasures` table (entrant IDs
-   and times only) and, from `raffles`, the `purged_at` and `organizer_left_at` of raffles that were purged or
-   whose organizer left: `sqlite3 live.db ".dump erasures"` or `pg_dump -t erasures`, plus
-   `SELECT id, purged_at, organizer_left_at FROM raffles WHERE purged_at IS NOT NULL`, then import and `UPDATE`.
+   and times only); from `raffles`, the `purged_at` and `organizer_left_at` of raffles that were purged or whose
+   organizer left; the `add_removals` table (people removed at their request, by key, who must stay out of a later
+   add); and the `objected_at` of entrants who took themselves off (set it again with `hidden = 1`):
+   `sqlite3 live.db ".dump erasures" ".dump add_removals"` or `pg_dump -t erasures -t add_removals`, plus
+   `SELECT id, purged_at, organizer_left_at FROM raffles WHERE purged_at IS NOT NULL OR organizer_left_at IS NOT NULL`
+   and `SELECT raffle_id, id, objected_at FROM entrants WHERE objected_at IS NOT NULL`, then import and `UPDATE`.
+   The [runbook](runbook.md#backups-and-restore) has the whole order, raffles being drawn included.
 2. Run `rafi reapply-erasures` with the app's environment. It erases again every entrant the log names, purges
    again every raffle that was purged, blanks again every organizer who removed their data, and runs housekeeping
    once, so whatever came due in the meantime is erased too (the erasure dates are in the raffles themselves, so
    the clock needs no log), whoever took themselves off a raffle that is over is erased, and the removals at their
    request of raffles that are frozen, purged or past their date are deleted. Then start the app.
 
-Erasures the organizer made before the date, purges and organizers who left that aren't in what you restored, are
-the only things the clock won't redo: that is what step 1 is for.
+Erasures the organizer made before the date, purges, organizers who left, removals at a person's request and
+objections that aren't in what you restored are the things the clock won't redo: that is what step 1 is for.

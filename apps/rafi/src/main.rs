@@ -87,7 +87,10 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .with_context(|| format!("listening on {addr}"))?;
-    tracing::info!("listening on http://{addr}");
+    tracing::info!(
+        version = rafi_server::build_info::VERSION,
+        "listening on http://{addr}"
+    );
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown())
         .await?;

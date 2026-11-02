@@ -35,6 +35,12 @@ const _: Asset = asset!(
     "/assets/fonts/bricolage-latin-ext.woff2",
     AssetOptions::builder().with_hash_suffix(false)
 );
+/// The display font's licence (SIL OFL 1.1), which goes wherever the font
+/// files go: served beside them.
+const _: Asset = asset!(
+    "/assets/fonts/OFL.txt",
+    AssetOptions::builder().with_hash_suffix(false)
+);
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
@@ -83,6 +89,24 @@ pub fn Brand(#[props(default = "text-xl".to_string())] size: String) -> Element 
                 Ticket { class: "size-5" }
             }
             "rafi"
+        }
+    }
+}
+
+/// Which Rafi this is and where its source is (AGPL §13: the people using
+/// it over the network are offered the source of the version they use),
+/// from the server's `/config.js`.
+#[component]
+pub fn Colophon(info: crate::config::Build) -> Element {
+    rsx! {
+        footer { class: "mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 py-6 text-xs text-base-content/60",
+            span { "Rafi" if let Some(v) = &info.version { " {v}" } }
+            if let Some(url) = &info.source_url {
+                span { aria_hidden: "true", "·" }
+                a { class: "link link-hover", href: "{url}", target: "_blank", rel: "noopener", "Source code (AGPL-3.0)" }
+            }
+            span { aria_hidden: "true", "·" }
+            a { class: "link link-hover", href: "https://drand.love", target: "_blank", rel: "noopener", "Randomness by drand" }
         }
     }
 }
@@ -232,6 +256,7 @@ fn AdminShell(children: Element, #[props(default = VNode::empty())] trailing: El
                 }
             }
             {children}
+            Colophon { info: use_hook(crate::config::build) }
         }
         }
     }
@@ -503,6 +528,29 @@ mod tests {
     }
 
     const OPEN_AT_THE_TOP: &str = "Open Rafi in its own tab";
+
+    /// The footer names the version and links its source; a server before
+    /// them leaves just the name.
+    #[test]
+    fn the_colophon_links_the_source() {
+        let build = crate::config::Build {
+            version: Some("0.1.0".into()),
+            source_url: Some("https://github.com/example/rafi/tree/v0.1.0".into()),
+            verifier_url: None,
+        };
+        let html = dioxus_ssr::render_element(rsx! { Colophon { info: build } });
+        assert!(
+            html.contains("Rafi 0.1.0")
+                && html.contains(r#"href="https://github.com/example/rafi/tree/v0.1.0""#),
+            "{html}"
+        );
+        let html =
+            dioxus_ssr::render_element(rsx! { Colophon { info: crate::config::Build::default() } });
+        assert!(
+            html.contains("Rafi") && !html.contains("Source code"),
+            "{html}"
+        );
+    }
 
     /// "Offline" when the browser says so, or when the raffle's view has
     /// failed for a while; not for a poll or two lost.

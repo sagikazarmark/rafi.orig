@@ -8,26 +8,26 @@ Building and running Rafi on your machine. To deploy it, see [Operations](../ope
 runs `npm install` in `apps/web` when you enter the shell. CI runs every step in it, and every step is a recipe of
 the [`justfile`](../../justfile): `just` lists them, `just ci` runs the same checks CI does ([Testing](testing.md)).
 
-Without devenv, you need:
+Without devenv, you need each of these, with a way to install it:
 
-- Rust stable with the `wasm32-unknown-unknown` target
-- `dx` **0.7.10**, which must match the Dioxus version:
+| Tool | For | Install |
+|---|---|---|
+| Rust stable, with `wasm32-unknown-unknown` | everything | `rustup target add wasm32-unknown-unknown` ([rustup](https://rustup.rs)) |
+| `just` | every recipe | `cargo install just --locked`, or `brew install just` |
+| `dx` **0.7.10**, matching the Dioxus version | the web app and the participant page | `cargo install dioxus-cli@0.7.10 --locked` |
+| `wasm-bindgen-cli` at `Cargo.lock`'s version | the participant page | `cargo install wasm-bindgen-cli --version 0.2.129 --locked` |
+| `wasm-opt` (binaryen) | the participant page | `brew install binaryen`, or `apt install binaryen` |
+| `tailwindcss` 4 (the standalone CLI) | the stylesheet (`just css`) | `brew install tailwindcss`, or a binary from [its releases](https://github.com/tailwindlabs/tailwindcss/releases) on the path |
+| Node and npm | daisyUI (`apps/web/package.json`), wrangler | [nodejs.org](https://nodejs.org), or `brew install node` |
+| `python3` | `tools/verify.py` | your system's, or `brew install python` |
+| `sqlite3` | inspecting the local database | your system's, or `brew install sqlite` |
+| `restate-server` 1.8 and `restate` | draws (the engine runs under Restate) | `brew install restatedev/tap/restate-server restatedev/tap/restate`, or [Restate's releases](https://github.com/restatedev/restate/releases); the end-to-end tests find the server through `RESTATE_SERVER_BIN` |
+| `wrangler` 4 | Workers | `npm install -g wrangler@4` |
+| `worker-build` 0.8 | Workers | `cargo install worker-build --version ^0.8 --locked` |
+| `cargo-audit`, `cargo-deny` | `just audit`, `just deny` | `cargo install cargo-audit cargo-deny --locked` |
+| a Chromium | the browser checks (`just workers`) | found as `chromium` or `google-chrome` on the path, or named in `CHROMIUM`: devenv installs one on Linux; on macOS, point `CHROMIUM` at your browser |
 
-  ```sh
-  cargo install dioxus-cli@0.7.10 --locked
-  ```
-
-- For the participant page: `wasm-bindgen-cli` at the version in `Cargo.lock`, and `wasm-opt` (binaryen):
-
-  ```sh
-  cargo install wasm-bindgen-cli --version 0.2.129 --locked
-  ```
-
-- Node, for daisyUI (`apps/web/package.json`)
-- For draws: `restate-server` 1.8 ([Restate's releases](https://github.com/restatedev/restate/releases))
-- For Workers: `wrangler` and `worker-build`
-- For the browser checks (`just workers`): a Chromium, found as `chromium` or `google-chrome` on the path, or
-  named in `CHROMIUM`. devenv installs one on Linux; on macOS, point `CHROMIUM` at your browser.
+Then `npm ci` in `apps/web` (`just apps/web/ install`).
 
 ## With devenv
 

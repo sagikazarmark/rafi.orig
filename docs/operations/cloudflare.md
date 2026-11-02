@@ -52,7 +52,7 @@ deploy); `scripts/workers-check.sh` checks that the two agree on the Worker's pa
 The short version is `deploy/cloudflare`'s [README](../../deploy/cloudflare/README.md): the Deploy to Cloudflare
 button, or the same by hand. What follows is the longer one.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sagikazarmark/rafi/tree/main/deploy/cloudflare)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sagikazarmark/rafi/tree/v0.1.0/deploy/cloudflare)
 
 ### 1. The installation
 
@@ -74,7 +74,7 @@ The Worker serves the installation's documents from `legal/`: `terms.md` (with t
 organizers accept by using the service) and `privacy.md` (the operator's own notice, naming the subprocessors:
 Cloudflare, Restate Cloud, Clerk, drand). They ship as engineering drafts marked as templates: fill in the bracketed
 parts, have a lawyer review them, and delete the marker. A document that still carries the template marker makes
-the Worker refuse every request. Their versions (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`) and
+the Worker refuse every request, and `deploy.sh deploy` refuses to deploy it (`--allow-templates` to deploy anyway). Their versions (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`) and
 the operator's name and email (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`) are secrets, next. A changed document is
 a new version, shown with it; a change to the processing agreement is notified to organizers directly, since nothing
 records who read which version. Your record of processing, and what changed in the templates, are in [the
@@ -143,8 +143,8 @@ nothing, silently.
 ### 5. Check
 
 Open `/healthz`, `/terms` and `/privacy`, then run a test-mode raffle end to end, as in
-[Self-hosting](self-hosting.md#8-check). `/healthz` answering `ok` means the Worker has every secret and its
-documents; it does not check the database's schema against the build (apply the migrations first, as above).
+[Self-hosting](self-hosting.md#8-check). `/healthz` answering `ok` and the version means the Worker has every
+secret and its documents (anything missing answers `500 misconfigured`, naming it when that names no value); it does not check the database's schema against the build (apply the migrations first, as above).
 
 Nothing in this repository's CI holds a Cloudflare token: deploys are yours (Workers Builds from your repository,
 or `./deploy.sh`). CI does run the production shape through `wrangler deploy --dry-run`, serves it without
@@ -180,7 +180,8 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
 - Durable Objects come from an EU-jurisdiction namespace (`RAFI_DO_JURISDICTION=eu`, fixed at creation).
 - The automatic per-invocation logs are off, because they would record client IPs and cookies; the application's
   own lines (warnings and errors, with raffle IDs and error text) are kept.
-- D1 Time Travel keeps erased data for up to 30 more days. Say so in your privacy notice (the template does). After
+- D1 Time Travel keeps erased data for up to 30 more days. Say so in your privacy notice (the template does). Time
+  Travel is also the backup: the [runbook](runbook.md#backups-and-restore) has the restore, in order. After
   restoring with Time Travel, re-apply the erasures. The hourly housekeeping erases again whatever is past its date
   on its own (the dates are in the raffles themselves), and whoever took themselves off a raffle that is over, and
   forgets the removals at their request of raffles that are frozen, purged or past their date (the last statement

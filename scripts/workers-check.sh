@@ -35,6 +35,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WRANGLER="${WRANGLER:-wrangler}"
 STATE="$(mktemp -d)"
+# The evening's Worker: 8787, as in development, unless taken (WORKERS_APP_PORT=8797 just workers).
+APP_PORT="${WORKERS_APP_PORT:-8787}"
+APP="http://127.0.0.1:$APP_PORT"
 LOGS="$STATE/logs"
 mkdir -p "$LOGS"
 PIDS=()
@@ -130,19 +133,19 @@ if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev
     exec "$RESTATE_SERVER_BIN") >"$LOGS/restate-server.log" 2>&1 &
   PIDS+=($!)
   # --test-scheduled: the Cron Trigger can be fired by hand (/__scheduled).
-  serve apps/worker 8787 /healthz --env dev --test-scheduled
+  serve apps/worker "$APP_PORT" /healthz --env dev --test-scheduled --var "RAFI_PUBLIC_URL:$APP"
   for _ in $(seq 1 60); do curl -s -m 3 -o /dev/null http://127.0.0.1:19070/health && break; sleep 1; done
   # The engine is the same Worker, under /restate; wrangler dev speaks HTTP/1.1 only.
   curl -s -m 30 -X POST http://127.0.0.1:19070/deployments -H 'content-type: application/json' \
-    -d '{"uri":"http://127.0.0.1:8787/restate","use_http_11":true}' >/dev/null
-  CHROMIUM="$CHROMIUM" APP=http://127.0.0.1:8787 INGRESS=http://127.0.0.1:18080 \
+    -d '{"uri":"'"$APP/restate"'","use_http_11":true}' >/dev/null
+  CHROMIUM="$CHROMIUM" APP="$APP" INGRESS=http://127.0.0.1:18080 \
     node "$ROOT/apps/worker/evening.mjs" "$STATE/chrome-app"
 
   step "housekeeping, fired as the Cron Trigger fires it"
   # The erasure promise rests on this handler running; it records each
   # success in `meta`, which is what the admin's staleness warning reads. A
   # failed run fails the invocation (500 here, an exception in the Cron history).
-  fired="$(curl -s -m 120 -o /dev/null -w '%{http_code}' "http://127.0.0.1:8787/__scheduled?cron=0+*+*+*+*")"
+  fired="$(curl -s -m 120 -o /dev/null -w '%{http_code}' "$APP/__scheduled?cron=0+*+*+*+*")"
   if [ "$fired" != "200" ]; then
     echo "the scheduled handler failed ($fired); log:" >&2
     tail -30 "$LOGS/worker.log" >&2
@@ -159,13 +162,13 @@ if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev
     exit 1
   fi
   echo "ok   housekeeping ran and recorded its success (last_retention_ok_at=$last_ok)"
-  stale="$(curl -s -m 10 -X POST http://127.0.0.1:8787/api/admin/whoami -H 'content-type: application/json' -d '{}' \
+  stale="$(curl -s -m 10 -X POST "$APP/api/admin/whoami" -H 'content-type: application/json' -d '{}' \
     | node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(0, "utf8")).retention_stale))')"
   [ "$stale" = "false" ] || { echo "whoami.retention_stale is $stale after a run" >&2; exit 1; }
   echo "ok   the admin sees automatic erasure as running"
   # Every response through the router has a request ID: the Ray ID that
   # came with the request, or a fresh one where none came (wrangler dev).
-  request_id="$(curl -s -m 10 -o /dev/null -D - -X POST http://127.0.0.1:8787/api/admin/whoami \
+  request_id="$(curl -s -m 10 -o /dev/null -D - -X POST "$APP/api/admin/whoami" \
     -H 'content-type: application/json' -d '{}' \
     | tr -d '\r' | awk -F': ' 'tolower($1) == "x-request-id" { print $2 }')"
   if ! [[ "$request_id" =~ ^[A-Za-z0-9-]{1,64}$ ]]; then

@@ -58,8 +58,9 @@ These never contain emails, tokens or claim codes.
 | `GET /api/r/<slug>/participant` | The participant view, which phones render: state, the current draw, the latest winner's name and prize (and `no_phone`, for the projector, which takes the reveal from here), winners by entrant ID (whether they claimed, and whether the prize is sent later), prizes left |
 | `GET /api/r/<slug>/verify.json` | The manifest, its hash, the event log, display names and the entrants counted by source ([format](draw-algorithm.md#verifyjson)) |
 | `GET /api/challenge` | A proof-of-work challenge for the join form |
-| `GET /config.js` | The web app's configuration, as a script `index.html` loads first (`window.__RAFI_CONFIG__`): Clerk's publishable key, or `null` under dev auth. The server alone decides how organizers sign in; nothing of an installation's is in the web app bundle. It also applies the saved colour scheme before first paint, which `index.html` can't do inline under its policy. |
-| `GET /healthz` | `ok` |
+| `GET /config.js` | The web app's configuration, as a script `index.html` loads first (`window.__RAFI_CONFIG__`): Clerk's publishable key, or `null` under dev auth; the version running, its source and its verifier (`version`, `sourceUrl`, `verifierUrl`), which the footers and the verification page link. The server alone decides how organizers sign in; nothing of an installation's is in the web app bundle. It also applies the saved colour scheme before first paint, which `index.html` can't do inline under its policy. |
+| `GET /healthz` | `ok` and the version running (`ok 0.1.0`) |
+| `GET /.well-known/security.txt` | Whom to tell about a security problem ([RFC 9116](https://www.rfc-editor.org/rfc/rfc9116)): the operator (`RAFI_OPERATOR_EMAIL`), Rafi's security policy, an expiry 180 days on |
 
 ## Admin API
 

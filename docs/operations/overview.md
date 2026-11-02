@@ -107,5 +107,7 @@ records (not legal advice):
 - [Cloudflare Workers](cloudflare.md)
 - [Upgrades](upgrades.md): migrations, re-registering the engine, the deploy freeze
 - [Troubleshooting](troubleshooting.md)
+- [Runbook](runbook.md): the deploy preflight, rotating secrets, rolling back, the engine down during an event,
+  backups and restore, a person's data request, a breach, monitoring, costs
 - [Configuration reference](../reference/configuration.md)
 - [Routes reference](../reference/routes.md)
