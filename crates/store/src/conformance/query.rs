@@ -223,8 +223,11 @@ pub(super) async fn decode_types(db: &Db) -> Outcome {
 }
 
 /// `NULL` parameters: where the column determines their type, and where
-/// nothing does (`?N IS NULL`, `(?N IS NULL OR id = ?N)`), in either order
-/// with values for the same statement, alone and in batches.
+/// nothing does but the SQL's own `CAST` (`CAST(?N AS TEXT) IS NULL`,
+/// `(CAST(?N AS BIGINT) IS NULL OR delivered_at = ?N)`), in either order with
+/// values for the same statement (one typed otherwise for a `NULL` than for
+/// a value too), alone and in batches. The store's SQL types such a
+/// parameter itself: Postgres refuses one that only `IS NULL` would type.
 pub(super) async fn null_params(db: &Db) -> Outcome {
     raffle(db, "r1").await?;
     // Text and integer columns.
@@ -265,28 +268,50 @@ pub(super) async fn null_params(db: &Db) -> Outcome {
         check(got == at, &format!("delivered_at = {at:?}: read {got:?}"))?;
     }
 
-    // Nothing types the parameter but `IS NULL`.
+    // Nothing types the parameter but its cast.
     let matching = |id: Option<&'static str>| {
-        db.query("SELECT COUNT(*) FROM entrants WHERE raffle_id = ?1 AND (?2 IS NULL OR id = ?2)")
-            .bind("r1")
-            .bind(id)
-            .one::<(i64,)>()
+        db.query(
+            "SELECT COUNT(*) FROM entrants
+             WHERE raffle_id = ?1 AND (CAST(?2 AS TEXT) IS NULL OR id = ?2)",
+        )
+        .bind("r1")
+        .bind(id)
+        .one::<(i64,)>()
     };
     for (id, n) in [(None, 3), (Some("b"), 1), (None, 3), (Some("z"), 0)] {
         let (got,) = matching(id).await.map_err(fail)?;
         check(
             got == n,
-            &format!("(?2 IS NULL OR id = ?2) with {id:?}: {got}"),
+            &format!("(CAST(?2 AS TEXT) IS NULL OR id = ?2) with {id:?}: {got}"),
+        )?;
+    }
+    // Only `a` has a `delivered_at`: 9, since the loop above.
+    for (at, n) in [(None, 3), (Some(9), 1), (None, 3), (Some(4), 0)] {
+        let (got,): (i64,) = db
+            .query(
+                "SELECT COUNT(*) FROM entrants
+                 WHERE (CAST(?1 AS BIGINT) IS NULL OR delivered_at = ?1)",
+            )
+            .bind(at)
+            .one()
+            .await
+            .map_err(fail)?;
+        check(
+            got == n,
+            &format!("(CAST(?1 AS BIGINT) IS NULL OR delivered_at = ?1) with {at:?}: {got}"),
         )?;
     }
     for (value, is_null) in [(None, true), (Some("x"), false), (None, true)] {
         let (got,): (bool,) = db
-            .query("SELECT ?1 IS NULL")
+            .query("SELECT CAST(?1 AS TEXT) IS NULL")
             .bind(value)
             .one()
             .await
             .map_err(fail)?;
-        check(got == is_null, &format!("?1 IS NULL with {value:?}"))?;
+        check(
+            got == is_null,
+            &format!("CAST(?1 AS TEXT) IS NULL with {value:?}"),
+        )?;
     }
     let (fallback,): (String,) = db
         .query("SELECT COALESCE(?1, 'fallback')")
@@ -295,6 +320,23 @@ pub(super) async fn null_params(db: &Db) -> Outcome {
         .await
         .map_err(fail)?;
     check(fallback == "fallback", "COALESCE over a NULL parameter")?;
+    // A NULL typed otherwise than a value would be (Postgres infers
+    // `integer` from the literal, where a value is bound as `bigint`), first,
+    // then a value, in one read batch (so on one connection).
+    let coalesce = |value: Option<i64>| db.query("SELECT COALESCE(?1, 5)").bind(value);
+    let sets = db
+        .batch_rows(vec![coalesce(None), coalesce(Some(7)), coalesce(None)])
+        .await
+        .map_err(fail)?;
+    let got: Vec<(i64,)> = sets
+        .into_iter()
+        .map(|mut rows| rows.remove(0).decode())
+        .collect::<Result<_, _>>()
+        .map_err(fail)?;
+    check(
+        got == [(5,), (7,), (5,)],
+        &format!("COALESCE(?1, 5) with NULL, 7, NULL: {got:?}"),
+    )?;
     // `= NULL` matches nothing.
     let (n,): (i64,) = db
         .query("SELECT COUNT(*) FROM entrants WHERE email_norm = ?")
@@ -305,7 +347,7 @@ pub(super) async fn null_params(db: &Db) -> Outcome {
     check(n == 0, "= NULL matches nothing")?;
 
     // In a batch, next to statements without NULLs, and next to a NULL that
-    // only `IS NULL` types. (The column-typed NULL's statement is new here,
+    // only its cast types. (The column-typed NULL's statement is new here,
     // so no backend can have a type for it cached from a run with a value.)
     let changes = db
         .batch(vec![
@@ -314,7 +356,8 @@ pub(super) async fn null_params(db: &Db) -> Outcome {
                 .bind(None::<i64>)
                 .bind("a"),
             db.query(
-                "UPDATE entrants SET hidden = 1 WHERE raffle_id = ?1 AND (?2 IS NULL OR id = ?2)",
+                "UPDATE entrants SET hidden = 1
+                 WHERE raffle_id = ?1 AND (CAST(?2 AS TEXT) IS NULL OR id = ?2)",
             )
             .bind("r1")
             .bind(None::<&str>),
@@ -336,9 +379,9 @@ pub(super) async fn null_params(db: &Db) -> Outcome {
     )?;
     let sets = db
         .batch_rows(vec![
-            db.query("SELECT COUNT(*) FROM entrants WHERE (?1 IS NULL OR id = ?1)")
+            db.query("SELECT COUNT(*) FROM entrants WHERE (CAST(?1 AS TEXT) IS NULL OR id = ?1)")
                 .bind(None::<&str>),
-            db.query("SELECT COUNT(*) FROM entrants WHERE (?1 IS NULL OR id = ?1)")
+            db.query("SELECT COUNT(*) FROM entrants WHERE (CAST(?1 AS TEXT) IS NULL OR id = ?1)")
                 .bind("c"),
         ])
         .await

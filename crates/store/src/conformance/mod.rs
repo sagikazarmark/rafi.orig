@@ -8,8 +8,11 @@
 //!
 //! - **`query.*`, the query layer:** decoding every type rafi reads
 //!   (booleans stored as 0/1, `NULL`s, `NUMERIC` sums), `NULL` parameters
-//!   where the column types them and where nothing does
-//!   (`(?N IS NULL OR …)`), [`Db::batch`]'s atomicity and rollback,
+//!   where the column or the expression types them, before and after values
+//!   for the same statement, and where only the SQL's own cast does
+//!   (`(CAST(?N AS TEXT) IS NULL OR id = ?N)`: the store's SQL types a
+//!   parameter that nothing else would, since Postgres refuses one that only
+//!   `IS NULL` would type), [`Db::batch`]'s atomicity and rollback,
 //!   [`Db::batch_rows`] as one snapshot, unique violations as
 //!   [`Error::Unique`](crate::Error::Unique), zero versus non-zero change
 //!   counts (with triggers), ties in `ORDER BY`, a statement at D1's limit of

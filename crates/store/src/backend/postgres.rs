@@ -7,14 +7,15 @@
 //!   `$` appears in SQL literals.
 //! - **Parameters** are bound as `INT8`, `FLOAT8` or `TEXT`. `NULL` is bound
 //!   untyped, so Postgres infers its type from where it is used
-//!   (`delivered_at = $1`); such statements aren't cached, so a type inferred
-//!   from a `NULL` never sticks to a statement that later binds a value (one
-//!   cached from an earlier run with values is reused, with the values'
-//!   types). Where nothing determines the type (`$2 IS NULL OR id = $2`,
-//!   since Postgres types `$2` at `IS NULL`), Postgres refuses the statement,
-//!   and the operation is run again with that statement's `NULL`s as `TEXT`;
-//!   the other statements of a batch keep theirs inferred. (So one statement
-//!   can't bind both kinds of `NULL`.)
+//!   (`delivered_at = $1`). Every statement is prepared once per connection
+//!   and cached; one that binds `NULL`s is cached apart for each pattern of
+//!   them ([`with_nulls`]), so a type inferred for a `NULL` never sticks to a
+//!   run that binds a value. Where nothing determines the type
+//!   (`$2 IS NULL OR id = $2`, since Postgres types `$2` at `IS NULL`),
+//!   Postgres refuses the statement: the store's SQL types such a parameter
+//!   itself (`CAST(?2 AS TEXT) IS NULL OR id = ?2`), which SQLite and D1 read
+//!   the same, as the conformance suite's `query.null_params` holds every
+//!   backend to.
 //! - **Rows** decode into the store's [`Value`]s: integers of every width and
 //!   booleans as `Int`, `NUMERIC` (what `SUM` returns) as `Int` when integral,
 //!   floats as `Real`, text as `Text`.
@@ -151,18 +152,8 @@ fn placeholders(sql: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// How `NULL` parameters are typed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Nulls {
-    /// Untyped: Postgres infers the type from where the parameter is used.
-    Inferred,
-    /// `TEXT`, for a statement where nothing determines the type (Postgres
-    /// reports an indeterminate type); what an untyped literal would be.
-    Text,
-}
-
-/// A bound value: `INT8`, `FLOAT8`, `TEXT`, or a `NULL`.
-struct Param<'a>(&'a Value, Nulls);
+/// A bound value: `INT8`, `FLOAT8`, `TEXT`, or an untyped `NULL`.
+struct Param<'a>(&'a Value);
 
 /// Postgres infers the type of a parameter declared with OID 0.
 const UNTYPED: PgTypeInfo = PgTypeInfo::with_oid(Oid(0));
@@ -184,29 +175,47 @@ impl Encode<'_, Pg> for Param<'_> {
     }
 
     fn produces(&self) -> Option<PgTypeInfo> {
-        Some(match self {
-            Param(Value::Null, Nulls::Inferred) => UNTYPED,
-            Param(Value::Int(_), _) => <i64 as Type<Pg>>::type_info(),
-            Param(Value::Real(_), _) => <f64 as Type<Pg>>::type_info(),
-            Param(Value::Text(_) | Value::Null, _) => <str as Type<Pg>>::type_info(),
+        Some(match self.0 {
+            Value::Null => UNTYPED,
+            Value::Int(_) => <i64 as Type<Pg>>::type_info(),
+            Value::Real(_) => <f64 as Type<Pg>>::type_info(),
+            Value::Text(_) => <str as Type<Pg>>::type_info(),
         })
     }
 }
 
 /// Statements come from rafi's own code with every value bound as a parameter,
 /// never interpolated, which is what sqlx's audit marker asks for.
-fn prepare(stmt: &Statement, nulls: Nulls) -> sqlx::query::Query<'_, Pg, PgArguments> {
-    let sql = placeholders(&stmt.sql).into_owned();
+fn prepare(stmt: &Statement) -> sqlx::query::Query<'_, Pg, PgArguments> {
+    let sql = with_nulls(placeholders(&stmt.sql), &stmt.params);
     stmt.params
         .iter()
         .fold(sqlx::query(sqlx::AssertSqlSafe(sql)), |q, p| {
-            q.bind(Param(p, nulls))
+            q.bind(Param(p))
         })
-        .persistent(!has_null(stmt))
 }
 
-fn has_null(stmt: &Statement) -> bool {
-    stmt.params.iter().any(|p| matches!(p, Value::Null))
+/// `sql`, followed, if `params` has `NULL`s, by a comment naming them
+/// (`-- NULL: $2 $5`). sqlx caches a prepared statement by its SQL alone,
+/// with the parameter types it was first prepared with, and a `NULL`'s is
+/// whatever Postgres inferred (`integer` in `COALESCE($1, 5)`, where a value
+/// is bound as `bigint`). With the comment, each pattern of `NULL`s is a
+/// statement of its own, so a type inferred for a `NULL` is only reused
+/// where that parameter is `NULL` again.
+fn with_nulls(sql: Cow<'_, str>, params: &[Value]) -> String {
+    let mut sql = sql.into_owned();
+    let mut nulls = params
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| matches!(p, Value::Null))
+        .peekable();
+    if nulls.peek().is_some() {
+        sql.push_str("\n-- NULL:");
+        for (i, _) in nulls {
+            sql.push_str(&format!(" ${}", i + 1));
+        }
+    }
+    sql
 }
 
 fn to_row(row: &PgRow) -> Result<Row> {
@@ -311,56 +320,22 @@ fn sqlstate(e: &sqlx::Error) -> Option<String> {
     }
 }
 
-/// A failed operation, and which of its statements failed, if one did.
-struct Failed {
-    stmt: Option<usize>,
-    error: sqlx::Error,
-}
-
-impl From<sqlx::Error> for Failed {
-    fn from(error: sqlx::Error) -> Self {
-        Self { stmt: None, error }
-    }
-}
-
-impl Failed {
-    /// Blames statement `stmt`.
-    fn at(stmt: usize) -> impl FnOnce(sqlx::Error) -> Self {
-        move |error| Self {
-            stmt: Some(stmt),
-            error,
-        }
-    }
-}
-
-/// Runs `op`, made of `stmts`, until it succeeds or fails with something
-/// other than a serialization failure or deadlock, at most [`ATTEMPTS`]
-/// times. `op` gets how to type each statement's `NULL`s: if a statement
-/// binds `NULL` where nothing determines its type (`?2 IS NULL` alone), the
-/// operation is run again with that statement's `NULL`s typed as `TEXT`, and
-/// the others' left as they were.
-async fn retrying<T, F, Fut>(stmts: &[Statement], mut op: F) -> Result<T>
+/// Runs `op` until it succeeds or fails with something other than a
+/// serialization failure or deadlock, at most [`ATTEMPTS`] times.
+async fn retrying<T, F, Fut>(mut op: F) -> Result<T>
 where
-    F: FnMut(Vec<Nulls>) -> Fut,
-    Fut: Future<Output = Result<T, Failed>>,
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, sqlx::Error>>,
 {
     let mut attempt = 1;
-    let mut nulls = vec![Nulls::Inferred; stmts.len()];
     loop {
-        let Failed { stmt, error } = match op(nulls.clone()).await {
+        let error = match op().await {
             Ok(v) => return Ok(v),
-            Err(failed) => failed,
+            Err(error) => error,
         };
-        match (sqlstate(&error).as_deref(), stmt) {
-            // ambiguous_parameter ("could not determine data type of parameter"),
-            // indeterminate_datatype
-            (Some("42P08" | "42P18"), Some(i))
-                if has_null(&stmts[i]) && nulls[i] == Nulls::Inferred =>
-            {
-                nulls[i] = Nulls::Text;
-            }
+        match sqlstate(&error).as_deref() {
             // serialization_failure, deadlock_detected
-            (Some("40001" | "40P01"), _) if attempt < ATTEMPTS => {
+            Some("40001" | "40P01") if attempt < ATTEMPTS => {
                 // A little jitter, so conflicting writers don't meet again.
                 let jitter = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -385,44 +360,26 @@ impl Postgres {
     }
 
     pub(crate) async fn all(&self, stmt: Statement) -> Result<Vec<Row>> {
-        let (pool, stmts) = (&self.pool, std::slice::from_ref(&stmt));
-        retrying(stmts, |nulls| async move {
-            prepare(&stmts[0], nulls[0])
-                .fetch_all(pool)
-                .await
-                .map_err(Failed::at(0))
-        })
-        .await?
-        .iter()
-        .map(to_row)
-        .collect()
+        let (pool, stmt) = (&self.pool, &stmt);
+        retrying(|| async move { prepare(stmt).fetch_all(pool).await })
+            .await?
+            .iter()
+            .map(to_row)
+            .collect()
     }
 
     pub(crate) async fn run(&self, stmt: Statement) -> Result<u64> {
-        let (pool, stmts) = (&self.pool, std::slice::from_ref(&stmt));
-        retrying(stmts, |nulls| async move {
-            Ok(prepare(&stmts[0], nulls[0])
-                .execute(pool)
-                .await
-                .map_err(Failed::at(0))?
-                .rows_affected())
-        })
-        .await
+        let (pool, stmt) = (&self.pool, &stmt);
+        retrying(|| async move { Ok(prepare(stmt).execute(pool).await?.rows_affected()) }).await
     }
 
     pub(crate) async fn batch(&self, stmts: Vec<Statement>) -> Result<Vec<u64>> {
         let (pool, stmts) = (&self.pool, &stmts);
-        retrying(stmts, |nulls| async move {
+        retrying(|| async move {
             let mut tx = pool.begin().await?;
             let mut changes = Vec::with_capacity(stmts.len());
-            for (i, stmt) in stmts.iter().enumerate() {
-                changes.push(
-                    prepare(stmt, nulls[i])
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(Failed::at(i))?
-                        .rows_affected(),
-                );
+            for stmt in stmts {
+                changes.push(prepare(stmt).execute(&mut *tx).await?.rows_affected());
             }
             tx.commit().await?;
             Ok(changes)
@@ -432,16 +389,11 @@ impl Postgres {
 
     pub(crate) async fn batch_rows(&self, stmts: Vec<Statement>) -> Result<Vec<Vec<Row>>> {
         let (pool, stmts) = (&self.pool, &stmts);
-        let sets = retrying(stmts, |nulls| async move {
+        let sets = retrying(|| async move {
             let mut tx = pool.begin().await?;
             let mut sets = Vec::with_capacity(stmts.len());
-            for (i, stmt) in stmts.iter().enumerate() {
-                sets.push(
-                    prepare(stmt, nulls[i])
-                        .fetch_all(&mut *tx)
-                        .await
-                        .map_err(Failed::at(i))?,
-                );
+            for stmt in stmts {
+                sets.push(prepare(stmt).fetch_all(&mut *tx).await?);
             }
             tx.commit().await?;
             Ok(sets)
@@ -475,6 +427,17 @@ mod tests {
         assert_eq!(
             placeholders("json_extract(x, '$.a') = ?"),
             "json_extract(x, '$.a') = $1"
+        );
+    }
+
+    #[test]
+    fn names_the_nulls_in_the_sql() {
+        let sql = |params: &[Value]| with_nulls(Cow::Borrowed("SELECT $1, $2, $3"), params);
+        let values = [Value::Int(1), Value::Text("a".into()), Value::Real(0.5)];
+        assert_eq!(sql(&values), "SELECT $1, $2, $3");
+        assert_eq!(
+            sql(&[Value::Int(1), Value::Null, Value::Null]),
+            "SELECT $1, $2, $3\n-- NULL: $2 $3"
         );
     }
 

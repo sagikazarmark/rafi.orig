@@ -1319,7 +1319,7 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
   skipped.
 - T7-5's `AddList` state machine. Left (2026-11-02): its states overlap (a new read keeps the last list and its
   disabled Add button on screen, a send can be out while a list is read, the batch ID and the name format outlive a
-  new read), which one `Step` would change. T7-6's Postgres `CAST`s.
+  new read), which one `Step` would change.
 
 ## Release checklist
 

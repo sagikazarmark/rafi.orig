@@ -814,25 +814,29 @@ pub async fn erase(db: &Db, raffle_id: &str, entrant_id: Option<&str>, now: i64)
         before = crate::raffles::states(|s| s.personal_data_erasable(false)),
         past = crate::raffles::states(|s| s.personal_data_erasable(true)),
     );
+    // ?2 is cast: Postgres refuses a parameter only `IS NULL` would type.
     let changed = db
         .batch(vec![
             db.query(format!(
                 "INSERT INTO erasures (raffle_id, entrant_id, at)
                  SELECT raffle_id, id, ?3 FROM entrants
-                 WHERE raffle_id = ?1 AND erased = 0 AND (?2 IS NULL OR id = ?2) AND {erasable}",
+                 WHERE raffle_id = ?1 AND erased = 0 AND (CAST(?2 AS TEXT) IS NULL OR id = ?2)
+                   AND {erasable}",
             ))
             .bind(raffle_id)
             .bind(entrant_id)
             .bind(now),
             db.query(format!(
                 "UPDATE entrants SET {ERASED}
-                 WHERE raffle_id = ?1 AND erased = 0 AND (?2 IS NULL OR id = ?2) AND {erasable}"
+                 WHERE raffle_id = ?1 AND erased = 0 AND (CAST(?2 AS TEXT) IS NULL OR id = ?2)
+                   AND {erasable}"
             ))
             .bind(raffle_id)
             .bind(entrant_id)
             .bind(now),
             db.query(format!(
-                "DELETE FROM add_removals WHERE raffle_id = ?1 AND ?2 IS NULL AND {erasable}"
+                "DELETE FROM add_removals
+                 WHERE raffle_id = ?1 AND CAST(?2 AS TEXT) IS NULL AND {erasable}"
             ))
             .bind(raffle_id)
             .bind(entrant_id)
