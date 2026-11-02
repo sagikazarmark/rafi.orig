@@ -781,7 +781,8 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
    `erase_due` and `erase_objected` read every raffle past its date (purged ones included) and all of their
    entrants, erased or not; they start from a new partial index, `entrants_unerased`; `forget_removals` starts from
    `add_removals`; `live_channels_due` uses a new `raffles_live`; `erase_due`'s raffles to purge drop `ORDER BY id`.
-   The indexes are `0002_housekeeping_indexes.sql` (both dialects; `tests/schemas.rs` now compares every migration).
+   The indexes are in `0001_init.sql` (both dialects; nothing is deployed before the tag, so no `0002_*`;
+   `tests/schemas.rs` compares every migration file regardless).
    Not on the list, left in [#54](https://github.com/sagikazarmark/rafi.orig/issues/54): `oldest_raffle_at`
    (`whoami`) walks `raffles_owner`.
 8. **Microbench** as `#[test] #[ignore]` with `Instant`: `view::of` and `reads::admin` at N = 2000 natively
@@ -1396,8 +1397,8 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
 Since then (2026-11-02, `d4797d2` … `04d8173`): the list import clicked in the evening (T4-5); a double winner's
 phone lists every prize, and the CSV a row per prize (T4-7); the verification page checks a record once, not per
 keystroke (T3-8); the restore rehearsed in `crates/app/tests/restore.rs`, which found and fixed what it brought back
-(T2-7); the web gzip budget and the `EXPLAIN QUERY PLAN` gate, with `0002_housekeeping_indexes.sql` for the 13 scans
-it found (T3-11 1 and 7); `dioxus-primitives` at `9a75825`, without the dialog's `AbortError`; the native server's
+(T2-7); the web gzip budget and the `EXPLAIN QUERY PLAN` gate, with two partial indexes in `0001_init.sql` for the 13
+scans it found (T3-11 1 and 7); `dioxus-primitives` at `9a75825`, without the dialog's `AbortError`; the native server's
 static files precompressed and cached (T3-5).
 
 ### Tickets

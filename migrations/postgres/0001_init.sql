@@ -67,6 +67,11 @@ CREATE INDEX raffles_owner ON raffles (owner_id, created_at, id);
 -- Housekeeping finds what is due to be erased by this.
 CREATE INDEX raffles_erase_at ON raffles (erase_at) WHERE purged_at IS NULL;
 
+-- The raffles whose live updates haven't ended, by when they finished:
+-- ending the channels (housekeeping::live_channels_due) starts here, not
+-- from every raffle the installation ever had.
+CREATE INDEX raffles_live ON raffles (finished_at) WHERE live_ended_at IS NULL;
+
 -- A prize's ID is a random 128-bit hex string, like a raffle's: the raffle's
 -- items in the manifest are `<prize id>-<n>`, one per copy.
 CREATE TABLE prizes (
@@ -134,6 +139,10 @@ CREATE INDEX entrants_raffle ON entrants (raffle_id, created_at);
 CREATE INDEX entrants_token ON entrants (token_hash);
 -- Finding an add's entrants: a retry, an undo, the add's own guard.
 CREATE INDEX entrants_batch ON entrants (raffle_id, batch_id) WHERE batch_id IS NOT NULL;
+-- The entrants whose personal data isn't erased yet, whatever the
+-- installation's age: the erasures (retention::erase_due, erase_objected)
+-- start here.
+CREATE INDEX entrants_unerased ON entrants (raffle_id) WHERE erased = 0;
 
 -- One row while an add is being written, keyed `add:<raffle id>`: the add's
 -- batch inserts it only if the raffle takes the whole add (its state, the
