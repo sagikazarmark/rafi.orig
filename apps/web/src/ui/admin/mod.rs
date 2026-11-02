@@ -43,7 +43,7 @@ use crate::{
 };
 use rafi_api::{
     Access, AdminEntrant, EntrantPatch, LifecycleCommand, Prize, RaffleAdmin as AdminData,
-    RaffleView, StartStep,
+    RaffleSummary, RaffleView, StartStep,
 };
 
 use self::{
@@ -101,18 +101,27 @@ fn StateBadge(state: RaffleState) -> Element {
 
 /// Runs an admin call for an action on the page: on success the page reloads
 /// (`on_change`), on failure the error goes to the page's [`Problems`] (`error`).
-/// What most buttons do.
+/// What most buttons do; what else a success does (a toast) follows on the
+/// value returned.
 async fn act<T>(
     call: impl std::future::Future<Output = Result<T, api::ApiError>>,
     error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
 ) -> Option<T> {
-    let mut error = error;
+    let value = report(call, error).await?;
+    on_change.call(());
+    Some(value)
+}
+
+/// Runs an admin call whose success doesn't reload the page (an export, or
+/// one that leaves it): on failure the error goes to the page's
+/// [`Problems`] (`error`).
+async fn report<T>(
+    call: impl std::future::Future<Output = Result<T, api::ApiError>>,
+    mut error: Signal<Option<Problem>>,
+) -> Option<T> {
     match call.await {
-        Ok(value) => {
-            on_change.call(());
-            Some(value)
-        }
+        Ok(value) => Some(value),
         Err(e) => {
             error.set(Some(e.into()));
             None
@@ -120,12 +129,38 @@ async fn act<T>(
     }
 }
 
+/// Whether a [`Confirm`] (or another dialog asking first) is open: a button
+/// [opens](Self::open) it, the dialog closes it.
+#[derive(Clone, Copy, PartialEq)]
+struct Confirmation(Signal<bool>);
+
+impl Confirmation {
+    /// Asks: opens the dialog.
+    fn open(self) {
+        self.set(true);
+    }
+
+    fn is_open(self) -> bool {
+        (self.0)()
+    }
+
+    fn set(self, open: bool) {
+        let Self(mut signal) = self;
+        signal.set(open);
+    }
+}
+
+/// A dialog that asks first, closed until a button [opens](Confirmation::open) it.
+fn use_confirm() -> Confirmation {
+    Confirmation(use_signal(|| false))
+}
+
 /// A confirmation for an action that cannot be undone. The title and the
 /// body are markup, so a name in them is isolated (`bdi`) like everywhere
 /// else; `note` comes after the body, in a paragraph of its own.
 #[component]
 fn Confirm(
-    open: Signal<bool>,
+    open: Confirmation,
     title: Element,
     body: Element,
     #[props(default = VNode::empty())] note: Element,
@@ -135,7 +170,7 @@ fn Confirm(
 ) -> Element {
     rsx! {
         AlertDialog {
-            open: Some(open()),
+            open: Some(open.is_open()),
             on_open_change: move |next| open.set(next),
             AlertDialogTitle { {title} }
             AlertDialogDescription { {body} }
@@ -170,6 +205,28 @@ fn Panel(
                 {children}
             }
         }
+    }
+}
+
+/// A fetched value as a page shows it (a resource's, read): the loading
+/// dots until it comes (`padding` around them), [`SignInAgain`] if the
+/// session ended, `error` for another failure, `ok` with the value.
+#[component]
+fn Async<T: Clone + PartialEq + 'static>(
+    value: Option<Result<T, api::ApiError>>,
+    #[props(default = "py-16")] padding: &'static str,
+    error: Callback<api::ApiError, Element>,
+    ok: Callback<T, Element>,
+) -> Element {
+    match value {
+        None => rsx! {
+            div { class: "grid place-items-center {padding}", span { class: "loading loading-dots loading-lg text-primary" } }
+        },
+        // The session ended (a long evening, another tab signed out): say
+        // so, with the way back, rather than an error.
+        Some(Err(e)) if e.code == api::codes::UNAUTHORIZED => rsx! { SignInAgain {} },
+        Some(Err(e)) => error.call(e),
+        Some(Ok(value)) => ok.call(value),
     }
 }
 
@@ -213,25 +270,25 @@ pub fn AdminHome() -> Element {
             } else {
                 p { class: "text-sm text-base-content/60", "You run your organization's raffles; an organization admin or manager creates them." }
             }
-            match &*raffles.read() {
-                None => rsx! { div { class: "grid place-items-center py-16", span { class: "loading loading-dots loading-lg text-primary" } } },
-                Some(Err(e)) if e.code == api::codes::UNAUTHORIZED => rsx! { SignInAgain {} },
-                Some(Err(e)) => rsx! {
-                    ErrorAlert { message: e.message.clone(), reference: e.request_id.clone(),
+            Async {
+                value: raffles(),
+                error: move |e: api::ApiError| rsx! {
+                    ErrorAlert { message: e.message, reference: e.request_id,
                         button { class: "btn btn-sm", onclick: move |_| raffles.restart(), "Retry" }
                     }
                 },
-                Some(Ok(list)) if list.is_empty() => rsx! {
-                    div { class: "rounded-box border-2 border-dashed border-base-300 py-16 text-center",
-                        p { class: "text-5xl", "🎁" }
-                        p { class: "mt-3 font-display text-xl font-bold", "No raffles yet" }
-                        p { class: "text-base-content/60", "Create your first one above." }
-                        if let Some(guide) = crate::config::build().guide_url {
-                            a { class: "link link-primary mt-2 inline-block text-sm", href: "{guide}", target: "_blank", rel: "noopener", "How an evening goes, step by step" }
+                ok: move |list: Vec<RaffleSummary>| if list.is_empty() {
+                    rsx! {
+                        div { class: "rounded-box border-2 border-dashed border-base-300 py-16 text-center",
+                            p { class: "text-5xl", "🎁" }
+                            p { class: "mt-3 font-display text-xl font-bold", "No raffles yet" }
+                            p { class: "text-base-content/60", "Create your first one above." }
+                            if let Some(guide) = crate::config::build().guide_url {
+                                a { class: "link link-primary mt-2 inline-block text-sm", href: "{guide}", target: "_blank", rel: "noopener", "How an evening goes, step by step" }
+                            }
                         }
                     }
-                },
-                Some(Ok(list)) => {
+                } else {
                     let erased = list.iter().filter(|r| r.state == RaffleState::Purged).count();
                     let shown: Vec<_> = list
                         .iter()
@@ -268,7 +325,7 @@ pub fn AdminHome() -> Element {
                         }
                     }
                     }
-                }
+                },
             }
             if access.allows(Access::Admin) {
                 YourData { shared, on_removed: move |_| { raffles.restart(); } }
@@ -298,8 +355,8 @@ fn SignInAgain() -> Element {
 /// organization's (every co-host's raffles), by one of its admins.
 #[component]
 fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
-    let mut ask = use_signal(|| false);
-    let mut error = use_signal(|| None::<Problem>);
+    let ask = use_confirm();
+    let error = use_signal(|| None::<Problem>);
     let toast = use_toast();
     let (whose, title) = if shared {
         ("your organization's", "Your organization's data")
@@ -316,7 +373,7 @@ fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
                 } else {
                     p { "Leaving? Remove your data here: raffles that were never frozen are deleted, finished ones lose their entrants' data and your name, and your defaults go. The anonymous draws stay verifiable. Then delete your account in your account settings." }
                 }
-                Button { class: "btn-outline btn-error btn-sm", onclick: move |_| ask.set(true), UserX { class: "size-4" } if shared { "Remove the organization's data" } else { "Remove my data" } }
+                Button { class: "btn-outline btn-error btn-sm", onclick: move |_| ask.open(), UserX { class: "size-4" } if shared { "Remove the organization's data" } else { "Remove my data" } }
                 Problems { error }
             }
         }
@@ -334,12 +391,8 @@ fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
             danger: true,
             on_confirm: move |_| {
                 spawn(async move {
-                    match api::remove_my_data().await {
-                        Ok(()) => {
-                            toast.success("Your data was removed".to_owned(), ToastOptions::new().description("Delete your account in your account settings to finish."));
-                            on_removed.call(());
-                        }
-                        Err(e) => error.set(Some(e.into())),
+                    if act(api::remove_my_data(), error, on_removed).await.is_some() {
+                        toast.success("Your data was removed".to_owned(), ToastOptions::new().description("Delete your account in your account settings to finish."));
                     }
                 });
             },
@@ -374,7 +427,7 @@ pub fn RaffleAdmin(id: String, tab: Option<String>) -> Element {
     // The tab: from the URL, and written back to it (replacing, so Back
     // leaves the raffle rather than stepping through its tabs).
     let shown_tab = tab;
-    let mut tab = use_signal(|| shown_tab.clone().filter(|t| !t.is_empty()));
+    let tab = use_signal(|| shown_tab.clone().filter(|t| !t.is_empty()));
     let route_id = id.clone();
     use_effect(move || {
         let current = tab();
@@ -386,30 +439,35 @@ pub fn RaffleAdmin(id: String, tab: Option<String>) -> Element {
         }
     });
 
-    let read = data.read();
-    let (admin, clock) = match &*read {
-        None => {
-            return rsx! { div { class: "grid place-items-center py-24", span { class: "loading loading-dots loading-lg text-primary" } } };
-        }
-        // The session ended (a long evening, another tab signed out): say
-        // so, with the way back, rather than an error.
-        Some(Err(e)) if e.code == api::codes::UNAUTHORIZED => {
-            return rsx! { SignInAgain {} };
-        }
-        Some(Err(e)) => {
-            let (message, reference) = (e.message.clone(), e.request_id.clone());
-            return rsx! {
+    rsx! {
+        Async {
+            value: data(),
+            padding: "py-24",
+            error: move |e: api::ApiError| rsx! {
                 main { class: "mx-auto max-w-6xl space-y-4 px-4 py-8",
-                    ErrorAlert { message, reference }
+                    ErrorAlert { message: e.message, reference: e.request_id }
                     Link { class: "btn btn-ghost", to: Route::AdminHome {}, ArrowLeft { class: "size-5" } "All raffles" }
                 }
-            };
+            },
+            ok: move |(admin, clock): (AdminData, ServerClock)| rsx! {
+                RafflePage { admin, clock, access, error, tab, on_change: move |_| data.restart() }
+            },
         }
-        Some(Ok((a, clock))) => (a.clone(), *clock),
-    };
-    drop(read);
-    let mut reload = move || data.restart();
+    }
+}
 
+/// One raffle's page, its data loaded ([`RaffleAdmin`]): `tab` is the tab
+/// shown, if one was picked; `on_change` fetches the data again.
+#[component]
+fn RafflePage(
+    admin: AdminData,
+    clock: ServerClock,
+    access: Access,
+    error: Signal<Option<Problem>>,
+    tab: Signal<Option<String>>,
+    on_change: EventHandler<()>,
+) -> Element {
+    let mut tab = tab;
     let state = admin.view.state;
     // The draw console, once the list is frozen (the server says).
     let drawable = admin.actions.draw;
@@ -435,10 +493,10 @@ pub fn RaffleAdmin(id: String, tab: Option<String>) -> Element {
         main { class: "mx-auto max-w-6xl space-y-6 px-4 py-6",
             Link { class: "btn btn-ghost btn-sm -ml-2", to: Route::AdminHome {}, ArrowLeft { class: "size-4" } "All raffles" }
             if state.is_public() {
-                LiveRefresh { key: "{admin.view.slug}", slug: admin.view.slug.clone(), view: admin.view.clone(), on_change: move |_| data.restart() }
+                LiveRefresh { key: "{admin.view.slug}", slug: admin.view.slug.clone(), view: admin.view.clone(), on_change }
             }
             // Frozen just now: the draw is what comes next, whatever tab was open.
-            Header { admin: admin.clone(), access, error, on_change: move |_| reload(), on_frozen: move |_| tab.set(Some("draw".to_owned())) }
+            Header { admin: admin.clone(), access, error, on_change, on_frozen: move |_| tab.set(Some("draw".to_owned())) }
             Problems { error }
             if matches!(state, RaffleState::Draft | RaffleState::Ready) {
                 Checklist { admin: admin.clone(), on_tab: move |t: String| tab.set(Some(t)) }
@@ -458,9 +516,9 @@ pub fn RaffleAdmin(id: String, tab: Option<String>) -> Element {
                     }
                     TabContent { value: value.to_owned(), index, appearance: TabContentAppearance::None, class: "w-full",
                         match value {
-                            "draw" => rsx! { DrawConsole { admin: admin.clone(), clock, error, on_change: move |_| reload() } },
-                            "prizes" => rsx! { Prizes { admin: admin.clone(), error, on_change: move |_| reload() } },
-                            "people" => rsx! { People { admin: admin.clone(), error, on_change: move |_| reload() } },
+                            "draw" => rsx! { DrawConsole { admin: admin.clone(), clock, error, on_change } },
+                            "prizes" => rsx! { Prizes { admin: admin.clone(), error, on_change } },
+                            "people" => rsx! { People { admin: admin.clone(), error, on_change } },
                             _ => rsx! {
                                 Panel { title: "Settings", icon: rsx! { SlidersVertical { class: "size-5" } },
                                     SettingsForm {
@@ -471,7 +529,7 @@ pub fn RaffleAdmin(id: String, tab: Option<String>) -> Element {
                                         retention: admin.retention.clone(),
                                         can_edit: access.allows(Access::Manager),
                                         after_privacy: rsx! { ParagraphToSend { admin: admin.clone() } },
-                                        on_saved: move |_| reload(),
+                                        on_saved: on_change,
                                     }
                                 }
                             },
@@ -796,6 +854,40 @@ mod tests {
         });
         assert!(html.contains("2 prizes to give away"), "{html}");
         assert_eq!(html.matches("step step-primary").count(), 2, "{html}");
+    }
+
+    /// A fetched value's three states, and the session ended: the loading
+    /// dots, the page's own error view, sign in again, the value.
+    #[test]
+    fn a_fetched_value_as_the_page_shows_it() {
+        #[component]
+        fn Shown(value: Option<Result<String, api::ApiError>>) -> Element {
+            rsx! {
+                Async {
+                    value,
+                    padding: "py-24",
+                    error: |e: api::ApiError| rsx! { p { "Failed: {e.message}" } },
+                    ok: |title: String| rsx! { h1 { "{title}" } },
+                }
+            }
+        }
+        let html = dioxus_ssr::render_element(rsx! { Shown { value: None } });
+        assert_eq!(
+            html,
+            r#"<div class="grid place-items-center py-24"><span class="loading loading-dots loading-lg text-primary"></span></div>"#
+        );
+        let failed = api::ApiError::new("internal", "Something went wrong.");
+        let html = dioxus_ssr::render_element(rsx! { Shown { value: Some(Err(failed)) } });
+        assert_eq!(html, "<p>Failed: Something went wrong.</p>");
+        let ended = api::ApiError::new(api::codes::UNAUTHORIZED, "Sign in.");
+        let html = dioxus_ssr::render_element(rsx! { Shown { value: Some(Err(ended)) } });
+        assert!(
+            html.contains("Please sign in again") && !html.contains("Failed"),
+            "{html}"
+        );
+        let html =
+            dioxus_ssr::render_element(rsx! { Shown { value: Some(Ok("Meetup".to_owned())) } });
+        assert_eq!(html, "<h1>Meetup</h1>");
     }
 
     fn view(entrants: usize, draws: serde_json::Value, current: serde_json::Value) -> RaffleView {

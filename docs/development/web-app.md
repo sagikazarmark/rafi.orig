@@ -110,7 +110,10 @@ A failed call shows as an error toast that stays until closed, unless the server
 error's request ID, which the operator finds in the log): then it is an alert in the page (`ui::problem::ErrorAlert`,
 `role="alert"`), with the message, the reference in monospace, a "Copy reference" button and a close button, since the
 vendored toasts take no buttons. Pages hold failures as a `Problem` (message and reference) and show them with
-`Problems`.
+`Problems`. In the admin (`ui/admin`), an action's call goes through `act` (the page reloads on success, a failure
+goes to `Problems`) or `report` (no reload), a toast on success following on the value they return; a confirmation
+is `use_confirm()` with `Confirm`; and a page's fetched data is shown through `Async` (the loading dots, "Please sign
+in again", the page's own error view, the page).
 
 Icons are `dioxus-icons`' Lucide components. Emoji are decoration only: the big glyphs of empty states, the
 projector's hero moments and the phone's celebration. Anything that means something (a state, an item's status, a

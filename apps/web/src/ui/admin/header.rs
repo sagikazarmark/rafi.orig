@@ -21,12 +21,12 @@ pub(super) fn Header(
 ) -> Element {
     let manages = access.allows(Access::Manager);
     let v = admin.view.clone();
-    let mut ask_delete = use_signal(|| false);
-    let mut ask_purge = use_signal(|| false);
-    let mut ask_freeze = use_signal(|| false);
-    let mut ask_end = use_signal(|| false);
-    let mut ask_deliver = use_signal(|| false);
-    let mut ask_unpublish = use_signal(|| false);
+    let ask_delete = use_confirm();
+    let ask_purge = use_confirm();
+    let ask_freeze = use_confirm();
+    let ask_end = use_confirm();
+    let ask_deliver = use_confirm();
+    let ask_unpublish = use_confirm();
     let mut busy = use_signal(|| false);
     let nav = navigator();
     let toast = use_toast();
@@ -34,24 +34,19 @@ pub(super) fn Header(
     let verify_url = format!("{}{}", admin.public_url, rafi_api::routes::verify(&v.slug));
 
     let id = admin.id.clone();
-    let act = move |action: LifecycleCommand| {
+    let lifecycle = move |command: LifecycleCommand| {
         let id = id.clone();
         async move {
             busy.set(true);
-            match api::set_lifecycle(id, action).await {
-                Ok(()) => {
-                    // Closing cuts off phones mid-form: say how to undo it.
-                    if action == LifecycleCommand::Close {
-                        toast.info(
-                            "Registration closed".to_owned(),
-                            ToastOptions::new().description(
-                                "Nobody can join now. A mistake? Reopen registration, here in the header.",
-                            ),
-                        );
-                    }
-                    on_change.call(())
-                }
-                Err(e) => error.set(Some(e.into())),
+            let done = act(api::set_lifecycle(id, command), error, on_change).await;
+            // Closing cuts off phones mid-form: say how to undo it.
+            if done.is_some() && command == LifecycleCommand::Close {
+                toast.info(
+                    "Registration closed".to_owned(),
+                    ToastOptions::new().description(
+                        "Nobody can join now. A mistake? Reopen registration, here in the header.",
+                    ),
+                );
             }
             busy.set(false);
         }
@@ -61,13 +56,9 @@ pub(super) fn Header(
         let id = id.clone();
         async move {
             busy.set(true);
-            match api::start_draw(id).await {
-                Ok(()) => {
-                    toast.success("List frozen — let's draw!".to_owned(), ToastOptions::new());
-                    on_frozen.call(());
-                    on_change.call(());
-                }
-                Err(e) => error.set(Some(e.into())),
+            if act(api::start_draw(id), error, on_change).await.is_some() {
+                toast.success("List frozen — let's draw!".to_owned(), ToastOptions::new());
+                on_frozen.call(());
             }
             busy.set(false);
         }
@@ -79,20 +70,17 @@ pub(super) fn Header(
             // The copy is on the organizer's today.
             let today = dates::today_iso();
             let ends_at = dates::end_of_day_local(&today);
-            match api::duplicate_raffle(id, today, ends_at).await {
-                Ok(new_id) => {
-                    toast.success(
-                        "Duplicated".to_owned(),
-                        ToastOptions::new().description(
-                            "Prizes and settings were copied; entrants were not. The copy is dated today: set its event date.",
-                        ),
-                    );
-                    nav.push(Route::RaffleAdmin {
-                        id: new_id,
-                        tab: None,
-                    });
-                }
-                Err(e) => error.set(Some(e.into())),
+            if let Some(new_id) = report(api::duplicate_raffle(id, today, ends_at), error).await {
+                toast.success(
+                    "Duplicated".to_owned(),
+                    ToastOptions::new().description(
+                        "Prizes and settings were copied; entrants were not. The copy is dated today: set its event date.",
+                    ),
+                );
+                nav.push(Route::RaffleAdmin {
+                    id: new_id,
+                    tab: None,
+                });
             }
         }
     };
@@ -100,12 +88,9 @@ pub(super) fn Header(
     let delete = move || {
         let id = id.clone();
         async move {
-            match api::delete_raffle(id).await {
-                Ok(()) => {
-                    toast.info("Raffle deleted".to_owned(), ToastOptions::new());
-                    nav.push(Route::AdminHome {});
-                }
-                Err(e) => error.set(Some(e.into())),
+            if report(api::delete_raffle(id), error).await.is_some() {
+                toast.info("Raffle deleted".to_owned(), ToastOptions::new());
+                nav.push(Route::AdminHome {});
             }
         }
     };
@@ -113,9 +98,8 @@ pub(super) fn Header(
     let export = move || {
         let id = id.clone();
         async move {
-            match api::export_winners_csv(id).await {
-                Ok(csv) => download("winners.csv", &csv),
-                Err(e) => error.set(Some(e.into())),
+            if let Some(csv) = report(api::export_winners_csv(id), error).await {
+                download("winners.csv", &csv);
             }
         }
     };
@@ -123,12 +107,8 @@ pub(super) fn Header(
     let purge = move || {
         let id = id.clone();
         async move {
-            match api::purge_raffle(id).await {
-                Ok(()) => {
-                    toast.success("Personal data erased".to_owned(), ToastOptions::new());
-                    on_change.call(());
-                }
-                Err(e) => error.set(Some(e.into())),
+            if act(api::purge_raffle(id), error, on_change).await.is_some() {
+                toast.success("Personal data erased".to_owned(), ToastOptions::new());
             }
         }
     };
@@ -136,16 +116,17 @@ pub(super) fn Header(
     let deliver_all = move || {
         let id = id.clone();
         async move {
-            match api::deliver_all_prizes(id).await {
-                Ok(n) => {
-                    toast.success(
-                        if n == 1 { "1 prize marked delivered".to_owned() } else { format!("{n} prizes marked delivered") },
-                        ToastOptions::new()
-                            .description("Those winners' data is erased on the erasure date with everyone else's."),
-                    );
-                    on_change.call(());
-                }
-                Err(e) => error.set(Some(e.into())),
+            if let Some(n) = act(api::deliver_all_prizes(id), error, on_change).await {
+                toast.success(
+                    if n == 1 {
+                        "1 prize marked delivered".to_owned()
+                    } else {
+                        format!("{n} prizes marked delivered")
+                    },
+                    ToastOptions::new().description(
+                        "Those winners' data is erased on the erasure date with everyone else's.",
+                    ),
+                );
             }
         }
     };
@@ -154,12 +135,11 @@ pub(super) fn Header(
         let id = id.clone();
         async move {
             busy.set(true);
-            match api::end_live_updates(id).await {
-                Ok(()) => {
-                    toast.success("Live updates ended".to_owned(), ToastOptions::new());
-                    on_change.call(());
-                }
-                Err(e) => error.set(Some(e.into())),
+            if act(api::end_live_updates(id), error, on_change)
+                .await
+                .is_some()
+            {
+                toast.success("Live updates ended".to_owned(), ToastOptions::new());
             }
             busy.set(false);
         }
@@ -180,8 +160,8 @@ pub(super) fn Header(
     // takes now, with its registration setting, and the freeze when the
     // draw can start.
     let offers = {
-        let lifecycle = admin.actions.lifecycle.clone();
-        move |c: LifecycleCommand| lifecycle.contains(&c)
+        let offered = admin.actions.lifecycle.clone();
+        move |c: LifecycleCommand| offered.contains(&c)
     };
     let can_freeze = admin.actions.start == Some(StartStep::Freeze);
     // From Published (no registration), the freeze checks what opening
@@ -198,9 +178,9 @@ pub(super) fn Header(
         "export" => {
             spawn(exp());
         }
-        "deliver" => ask_deliver.set(true),
-        "purge" => ask_purge.set(true),
-        "delete" => ask_delete.set(true),
+        "deliver" => ask_deliver.open(),
+        "purge" => ask_purge.open(),
+        "delete" => ask_delete.open(),
         _ => {}
     });
     let mut menu: Vec<(&'static str, &'static str, Element)> = Vec::new();
@@ -300,26 +280,26 @@ pub(super) fn Header(
                 }
                 div { class: "flex flex-wrap items-center gap-2",
                     if offers(LifecycleCommand::Publish) {
-                        Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Publish)); } },
+                        Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy(), onclick: { let lifecycle = lifecycle.clone(); move |_| { spawn(lifecycle(LifecycleCommand::Publish)); } },
                             Play { class: "size-5" } "Publish the intro screen"
                         }
                     }
                     if offers(LifecycleCommand::Open) && v.state == RaffleState::Ready {
-                        Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy() || !can_open, title: if can_open { "" } else { "Fill in the organizer and a contact first" }, onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, Ticket { class: "size-5" } "Open registration" }
+                        Button { color: ButtonColor::Success, class: "hover-wiggle", disabled: busy() || !can_open, title: if can_open { "" } else { "Fill in the organizer and a contact first" }, onclick: { let lifecycle = lifecycle.clone(); move |_| { spawn(lifecycle(LifecycleCommand::Open)); } }, Ticket { class: "size-5" } "Open registration" }
                     }
                     if can_freeze {
-                        Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy() || freeze_blocked, title: if freeze_blocked { "Fill in the organizer and a contact first" } else { "" }, onclick: move |_| ask_freeze.set(true), Lock { class: "size-5" } "Freeze list & start the draw" }
+                        Button { color: ButtonColor::Primary, class: "hover-wiggle", disabled: busy() || freeze_blocked, title: if freeze_blocked { "Fill in the organizer and a contact first" } else { "" }, onclick: move |_| ask_freeze.open(), Lock { class: "size-5" } "Freeze list & start the draw" }
                     }
                     if offers(LifecycleCommand::Close) {
-                        Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Close)); } }, "Close registration" }
+                        Button { class: "btn-ghost", disabled: busy(), onclick: { let lifecycle = lifecycle.clone(); move |_| { spawn(lifecycle(LifecycleCommand::Close)); } }, "Close registration" }
                     }
                     if offers(LifecycleCommand::Open) && v.state != RaffleState::Ready {
-                        Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, "Reopen registration" }
+                        Button { class: "btn-ghost", disabled: busy(), onclick: { let lifecycle = lifecycle.clone(); move |_| { spawn(lifecycle(LifecycleCommand::Open)); } }, "Reopen registration" }
                     }
                     if offers(LifecycleCommand::Unpublish) {
                         // With people in, the projector and their pages go
                         // dark: asked first.
-                        Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); let entrants = v.entrant_count; move |_| { if entrants > 0 { ask_unpublish.set(true); } else { spawn(act(LifecycleCommand::Unpublish)); } } }, Undo2 { class: "size-5" } "Unpublish" }
+                        Button { class: "btn-ghost", disabled: busy(), onclick: { let lifecycle = lifecycle.clone(); let entrants = v.entrant_count; move |_| { if entrants > 0 { ask_unpublish.open(); } else { spawn(lifecycle(LifecycleCommand::Unpublish)); } } }, Undo2 { class: "size-5" } "Unpublish" }
                     }
                     match v.state {
                         RaffleState::Frozen if unconfirmed => rsx! {
@@ -329,7 +309,7 @@ pub(super) fn Header(
                             span { class: "badge badge-ghost gap-1", Check { class: "size-3.5" } "Live updates ended" }
                         },
                         RaffleState::Finished | RaffleState::Purged => rsx! {
-                            Button { class: "btn-outline", disabled: busy(), onclick: move |_| ask_end.set(true), Flag { class: "size-5" } "End live updates" }
+                            Button { class: "btn-outline", disabled: busy(), onclick: move |_| ask_end.open(), Flag { class: "size-5" } "End live updates" }
                         },
                         _ => rsx! {},
                     }
@@ -343,7 +323,7 @@ pub(super) fn Header(
             title: rsx! { "Unpublish this raffle?" },
             body: rsx! { "The projector screen and the join link stop working until you publish again. The " if v.entrant_count == 1 { "entrant stays" } else { "{v.entrant_count} entrants stay" } " in." },
             action: "Unpublish",
-            on_confirm: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } },
+            on_confirm: { let lifecycle = lifecycle.clone(); move |_| { spawn(lifecycle(LifecycleCommand::Unpublish)); } },
         }
         Confirm {
             open: ask_end,
@@ -382,7 +362,7 @@ pub(super) fn Header(
 /// a list, the reminder that they must have been told (no checkbox, nothing
 /// recorded: the organizer owes them the notice, and the terms say so).
 #[component]
-fn FreezeDialog(open: Signal<bool>, view: RaffleView, on_confirm: EventHandler<()>) -> Element {
+fn FreezeDialog(open: Confirmation, view: RaffleView, on_confirm: EventHandler<()>) -> Element {
     rsx! {
         Confirm {
             open,

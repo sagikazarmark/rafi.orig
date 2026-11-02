@@ -1317,8 +1317,9 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
   (`npx lighthouse`, which downloads it), on the maintainer's word. T6-1's checks in the evening (the smallest
   font, contrast on computed colours) are left too. T6-6: the toasts' and dialogs' motion (vendored components),
   skipped.
-- T7-5's `use_confirm`, `Async` and `AddList`'s state machine; T7-6's `entrant.rs` and test-file splits and
-  Postgres `CAST`s.
+- T7-5's `AddList` state machine. Left (2026-11-02): its states overlap (a new read keeps the last list and its
+  disabled Add button on screen, a send can be out while a list is read, the batch ID and the name format outlive a
+  new read), which one `Step` would change. T7-6's `entrant.rs` and test-file splits and Postgres `CAST`s.
 
 ## Release checklist
 

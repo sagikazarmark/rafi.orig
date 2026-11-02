@@ -162,7 +162,7 @@ fn UndoLastAdd(
     error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
 ) -> Element {
-    let mut confirm = use_signal(|| false);
+    let confirm = use_confirm();
     let toast = use_toast();
     let people = match undo.count {
         1 => "1 person".to_owned(),
@@ -171,23 +171,19 @@ fn UndoLastAdd(
     let run = move || {
         let (raffle_id, batch_id) = (raffle_id.clone(), undo.batch_id.clone());
         async move {
-            match api::undo_add(raffle_id, batch_id).await {
-                Ok(n) => {
-                    let who = if n == 1 {
-                        "1 person".to_owned()
-                    } else {
-                        format!("{n} people")
-                    };
-                    toast.success(format!("{who} taken off the list"), ToastOptions::new());
-                    on_change.call(());
-                }
-                Err(e) => error.set(Some(e.into())),
+            if let Some(n) = act(api::undo_add(raffle_id, batch_id), error, on_change).await {
+                let who = if n == 1 {
+                    "1 person".to_owned()
+                } else {
+                    format!("{n} people")
+                };
+                toast.success(format!("{who} taken off the list"), ToastOptions::new());
             }
         }
     };
     rsx! {
         div { class: "flex justify-end",
-            button { class: "btn btn-sm btn-ghost", onclick: move |_| confirm.set(true), Undo2 { class: "size-4" } "Undo last add ({people})" }
+            button { class: "btn btn-sm btn-ghost", onclick: move |_| confirm.open(), Undo2 { class: "size-4" } "Undo last add ({people})" }
         }
         Confirm {
             open: confirm,
@@ -228,7 +224,7 @@ fn EntrantRow(
     on_change: EventHandler<()>,
 ) -> Element {
     let mut renaming = use_signal(|| None::<String>);
-    let mut confirm = use_signal(|| false);
+    let confirm = use_confirm();
     let e = entrant.clone();
 
     let patch = {
@@ -246,9 +242,9 @@ fn EntrantRow(
             }
         }
     };
-    let mut confirm_object = use_signal(|| false);
-    let mut confirm_delivered = use_signal(|| false);
-    let mut confirm_unobject = use_signal(|| false);
+    let confirm_object = use_confirm();
+    let confirm_delivered = use_confirm();
+    let confirm_unobject = use_confirm();
     let remove = {
         let (rid, eid) = (raffle_id.clone(), e.id.clone());
         move |at_request: bool| {
@@ -357,7 +353,7 @@ fn EntrantRow(
                             button {
                                 class: "btn btn-ghost sm:btn-xs tooltip",
                                 "data-tip": if e.held_until.is_some() { format!("Their name and email are kept until {}, or until you mark the prize delivered", winners_erase_date) } else { String::new() },
-                                onclick: { let patch = patch.clone(); move |_| { if past_erase_date { confirm_delivered.set(true); } else { spawn(patch(EntrantPatch { delivered: Some(true), ..Default::default() })); } } },
+                                onclick: { let patch = patch.clone(); move |_| { if past_erase_date { confirm_delivered.open(); } else { spawn(patch(EntrantPatch { delivered: Some(true), ..Default::default() })); } } },
                                 "Mark delivered"
                             }
                         }
@@ -365,7 +361,7 @@ fn EntrantRow(
                             button {
                                 class: "btn btn-ghost sm:btn-xs tooltip",
                                 "data-tip": "They asked not to take part",
-                                onclick: move |_| confirm_object.set(true),
+                                onclick: move |_| confirm_object.open(),
                                 UserMinus { class: "size-4" }
                                 "Take off at their request"
                             }
@@ -374,7 +370,7 @@ fn EntrantRow(
                             button {
                                 class: "btn btn-ghost sm:btn-xs tooltip",
                                 "data-tip": "Undo “Took themselves off”",
-                                onclick: move |_| confirm_unobject.set(true),
+                                onclick: move |_| confirm_unobject.open(),
                                 Undo2 { class: "size-4" }
                                 "Undo"
                             }
@@ -384,7 +380,7 @@ fn EntrantRow(
                                 class: "btn btn-ghost btn-square sm:btn-xs tooltip text-error",
                                 "data-tip": match removal { Removal::Delete => "Remove", Removal::Erase => "Erase personal data" },
                                 aria_label: match removal { Removal::Delete => "Remove", Removal::Erase => "Erase personal data" },
-                                onclick: move |_| confirm.set(true),
+                                onclick: move |_| confirm.open(),
                                 Trash { class: "size-4" }
                             }
                         }
@@ -448,7 +444,7 @@ const OBJECT_BODY: &str = "For someone you added who asks, after the freeze, not
 /// real; it says when a later add can't recognize them.
 #[component]
 fn RemoveDialog(
-    open: Signal<bool>,
+    open: Confirmation,
     entrant: AdminEntrant,
     /// Whether people join with the QR code: then they can join again.
     #[props(default = true)]
@@ -460,7 +456,7 @@ fn RemoveDialog(
     // closing: the action's on_click runs after the dialog has closed, and
     // reads it.
     use_effect(move || {
-        if open() {
+        if open.is_open() {
             at_request.set(false);
         }
     });
@@ -468,7 +464,7 @@ fn RemoveDialog(
     let keyed = entrant.email.is_some() || entrant.list_ref.is_some();
     rsx! {
         AlertDialog {
-            open: Some(open()),
+            open: Some(open.is_open()),
             on_open_change: move |next: bool| open.set(next),
             AlertDialogTitle { "Remove " bdi { "{entrant.display_name}" } "?" }
             AlertDialogDescription {

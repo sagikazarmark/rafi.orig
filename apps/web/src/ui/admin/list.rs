@@ -86,7 +86,7 @@ pub(super) fn AddList(
     let mut cleared = use_signal(|| 0u64);
     let mut mapping = use_signal(|| None::<Mapping>);
     let mut format = use_signal(NameFormat::default);
-    let mut decisions = use_signal(Decisions::default);
+    let decisions = use_signal(Decisions::default);
     let mut attempt = use_signal(|| None::<Attempt>);
     // What the server refused, by the line of the list.
     let mut problems = use_signal(Vec::<(usize, String)>::new);
@@ -94,12 +94,26 @@ pub(super) fn AddList(
     let mut sending = use_signal(|| false);
     let toast = use_toast();
 
+    // A new list, or none: the decisions on the last one and what the last
+    // add was told go.
+    let start_over = move || {
+        let (mut decisions, mut problems, mut message) = (decisions, problems, message);
+        decisions.set(Decisions::default());
+        problems.set(Vec::new());
+        message.set(None);
+    };
+    // A list that can't be read: why, where its table would be.
+    let unreadable = move |why: String| {
+        let (mut table, mut mapping, mut reading) = (table, mapping, reading);
+        table.set(Some(Err(why)));
+        mapping.set(None);
+        reading.set(false);
+    };
     // Reads `text` after a moment (so a paste shows the spinner, and typing
     // doesn't read every keystroke), unless something newer came meanwhile.
     let load = move |text: String| {
         let (mut generation, mut reading, mut table, mut mapping) =
             (generation, reading, table, mapping);
-        let (mut decisions, mut problems, mut message) = (decisions, problems, message);
         let this = generation() + 1;
         generation.set(this);
         reading.set(true);
@@ -118,9 +132,7 @@ pub(super) fn AddList(
             } else {
                 Some(read)
             });
-            decisions.set(Decisions::default());
-            problems.set(Vec::new());
-            message.set(None);
+            start_over();
             reading.set(false);
         });
     };
@@ -130,9 +142,7 @@ pub(super) fn AddList(
         table.set(None);
         file.set(None);
         mapping.set(None);
-        decisions.set(Decisions::default());
-        problems.set(Vec::new());
-        message.set(None);
+        start_over();
         reading.set(false);
     };
     let pick = move |e: FormEvent| {
@@ -144,9 +154,7 @@ pub(super) fn AddList(
         generation.set(this);
         // Not read at all if it's too large.
         if picked.size() > MAX_INPUT_BYTES as u64 {
-            table.set(Some(Err(import::ParseError::TooLarge.to_string())));
-            mapping.set(None);
-            reading.set(false);
+            unreadable(import::ParseError::TooLarge.to_string());
             return;
         }
         reading.set(true);
@@ -160,11 +168,7 @@ pub(super) fn AddList(
             }
             match text {
                 Ok(text) => load(text),
-                Err(e) => {
-                    table.set(Some(Err(e)));
-                    mapping.set(None);
-                    reading.set(false);
-                }
+                Err(e) => unreadable(e),
             }
         });
     };

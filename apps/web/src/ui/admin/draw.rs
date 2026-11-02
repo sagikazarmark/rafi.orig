@@ -58,13 +58,13 @@ pub(super) fn DrawConsole(
     let pending = v.current.clone();
     let busy = pending.is_some() || draw_held.is_some();
     let drawable = v.state.drawable();
-    let mut ask_finish = use_signal(|| false);
-    let mut ask_abandon = use_signal(|| false);
-    let mut ask_irreversible = use_signal(|| false);
+    let ask_finish = use_confirm();
+    let ask_abandon = use_confirm();
+    let ask_irreversible = use_confirm();
     let mut irreversible = use_signal(|| None::<Irreversible>);
     let mut confirm_first = move |step: Irreversible| {
         irreversible.set(Some(step));
-        ask_irreversible.set(true);
+        ask_irreversible.open();
     };
     let toast = use_toast();
 
@@ -165,15 +165,14 @@ pub(super) fn DrawConsole(
     let finish = move || {
         let id = id.clone();
         async move {
-            match api::finish_raffle(id, command_id()).await {
-                Ok(()) => {
-                    toast.success(
-                        "That's a wrap!".to_owned(),
-                        ToastOptions::new().description("Thanks for running a fair raffle."),
-                    );
-                    on_change.call(())
-                }
-                Err(e) => error.set(Some(e.into())),
+            if act(api::finish_raffle(id, command_id()), error, on_change)
+                .await
+                .is_some()
+            {
+                toast.success(
+                    "That's a wrap!".to_owned(),
+                    ToastOptions::new().description("Thanks for running a fair raffle."),
+                );
             }
         }
     };
@@ -324,7 +323,7 @@ pub(super) fn DrawConsole(
                                 if draw_held.is_some() { span { class: "loading loading-spinner loading-xs" } }
                                 "Retry round {cur.round}"
                             }
-                            button { class: "btn btn-sm btn-ghost", onclick: move |_| ask_abandon.set(true), "Abandon this draw" }
+                            button { class: "btn btn-sm btn-ghost", onclick: move |_| ask_abandon.open(), "Abandon this draw" }
                         }
                     }
                 }
@@ -370,7 +369,7 @@ pub(super) fn DrawConsole(
                             color: if items_left == 0 { ButtonColor::Secondary } else { ButtonColor::Default },
                             class: if items_left == 0 { "hover-wiggle" } else { "btn-ghost" },
                             disabled: busy,
-                            onclick: move |_| ask_finish.set(true),
+                            onclick: move |_| ask_finish.open(),
                             Flag { class: "size-5" }
                             "Finish the raffle"
                         }
