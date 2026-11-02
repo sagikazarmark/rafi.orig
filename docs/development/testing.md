@@ -74,7 +74,7 @@ not two use cases one after the other. Both tools are in
   in the same file refuse what the test needs refused (`RefusesFinish`).
 
 What two consoles do over HTTP with a stale page (`a_stale_console_cannot_resolve_the_redraw` in
-`crates/server/src/tests.rs`) and what the store must hold whichever order two writes land in
+`crates/server/src/tests/draws.rs`) and what the store must hold whichever order two writes land in
 (`domain.objected_winner`, `domain.delete_guard`, `domain.add_retry_after_undo`, `domain.delivery_snapshot`) are
 tested where those layers are.
 
