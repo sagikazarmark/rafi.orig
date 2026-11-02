@@ -81,7 +81,7 @@ The bindings:
 | `RAFFLE_ROOM` | The per-raffle live channel (`RaffleRoom` Durable Object) |
 | `JOIN_PER_RAFFLE_LIMITER` | 600 joins per minute per raffle (soft, per location) |
 | `JOIN_PER_EMAIL_LIMITER` | 5 joins per minute per raffle and email |
-| `ADD_LIMITER` | 10 adds or undos of the organizer's per minute (per owner) |
+| `ADD_LIMITER` | 20 adds or undos of the organizer's per minute (per owner) |
 | `CONNECT_LIMITER` | 600 live-channel connections per minute |
 | Cron `0 * * * *` | The hourly housekeeping run: erasing personal data on the dates, expired proof-of-work challenges, ending stale live channels |
 

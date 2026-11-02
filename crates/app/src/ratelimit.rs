@@ -32,7 +32,7 @@ impl Limit {
         match self {
             Self::JoinPerRaffle => (600, Duration::from_secs(60)),
             Self::JoinPerEmail => (5, Duration::from_secs(60)),
-            Self::AddPerOwner => (10, Duration::from_secs(60)),
+            Self::AddPerOwner => (20, Duration::from_secs(60)),
         }
     }
 }

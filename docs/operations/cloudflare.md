@@ -219,7 +219,7 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
 
 ## Limits
 
-The rate limits are Workers rate-limiting bindings (600 joins/min per raffle, 5/min per raffle and email, 10 adds
+The rate limits are Workers rate-limiting bindings (600 joins/min per raffle, 5/min per raffle and email, 20 adds
 or undos/min per organizer, 600/min live connections). They are soft, per Cloudflare location. The hard limit is
 `RAFI_MAX_ENTRANTS`, enforced in D1.
 
