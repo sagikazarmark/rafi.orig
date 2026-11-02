@@ -16,7 +16,7 @@ open items become tickets, their Accept lines the definition of done.
 | 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
 | 5. Launch mechanics | **Done locally** (2026-11-02): T2-2, T2-4 … T2-8 as far as the repository goes; T2-1, T2-3, the stranger, the GitHub runs and settings open. Declined: release-note labels and templates, community files, third-party notices, Python in the release. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, `just workers` (the evening on `WORKERS_APP_PORT=8797`, every check ok), two `cloudflare-release.sh 0.1.0` builds byte-identical. |
 | 6. Design and UX | **Done** in the next run: T5-1 … T5-7, T6-1 … T6-6 (with what [What it left](#what-it-left) lists) |
-| 7. Tests | **Done** in the next run: T4-1, T4-3, T4-4, T4-6, T4-11 (with what it left); T4-5, T4-7 … T4-10 to tickets |
+| 7. Tests | **Done** in the next run: T4-1, T4-3, T4-4, T4-6, T4-11 (with what it left); T4-5 since; T4-7 … T4-10 to tickets |
 | 8. Tiers 7 and 8 | **Done** in the next run but what it left; T8-15 done (`0001_init.sql` frozen) |
 
 Proposed (2026-11-01). The last review before the first version is tagged, after
@@ -788,6 +788,14 @@ gaps below are where a bug would ruin an evening, leak personal data or break ve
 - **Accept**: `evening.mjs` → People → Add people → list tab: `Input.insertText` the `semicolon-bom.csv` fixture,
   assert "N to add", click Add, assert the People count; `DOM.setFileInputFiles` with `quoting.csv`; Undo; no CSP
   violation. (½ day)
+- **Done**: in a raffle of its own, at a person's pace (each dialog's transition run out before the next click):
+  the paste (3 to add, added, People counts 3), Undo last add, confirmed (nobody left), and the upload (5 to add,
+  added, by name), as accepted; and a retry: a third list whose add reaches the server and whose reply is failed in
+  the browser (`Fetch.failRequest` at the response stage), so the dialog says adding again is safe, and Add again
+  sends the same batch ID and adds nobody twice. Besides the CSP check, the admin tab must throw nothing but one
+  thing: dioxus-primitives (the pinned rev) doesn't catch a dialog's interrupted exit transition, so the Undo
+  confirmation, taken out of the page as the undo leaves nothing to undo, may log an uncaught `AbortError` (no
+  visible effect; fixed upstream, so it goes when the rev moves).
 
 #### T4-6 · Housekeeping on Workers never runs with anything due
 
@@ -1270,7 +1278,7 @@ gets expensive at the tag first, then by what can go wrong in front of a room. I
    time), T6-3, T6-5, T6-6.
 6. **Tier 7 and Tier 8**, one sweep each: safe after the tag, since none of it changes behaviour.
 
-Not in it: the rest of Tier 3 (the measurements and the CI guards) and T4-5, T4-7 … T4-10, which become tickets
+Not in it: the rest of Tier 3 (the measurements and the CI guards) and T4-7 … T4-10, which become tickets
 at the tag (T4-7 needs a product decision first). The real deploy (T2-3) is best done early, alongside step 1: it
 is the one check whose findings could still change code.
 
@@ -1346,8 +1354,7 @@ The tag is ready when every line is true.
       breach runbook, a cost paragraph, the DSAR recipe, monitoring, a global deploy preflight.
 - [ ] Web gzip budget, `rows_read` assertions, the query-count test and the `EXPLAIN` gate are in CI.
 - [x] `tools/verify.py` fails every tampered vector; the evening's `verify.json` passes it.
-- [ ] `evening.mjs` clicks through a draw on the console, imports a list, and runs housekeeping with due rows.
-      (The draw and housekeeping done; the list import is T4-5's, a ticket.)
+- [x] `evening.mjs` clicks through a draw on the console, imports a list, and runs housekeeping with due rows.
 - [x] The tracing test is in its own binary; `workers-check.sh` refuses an occupied port.
 - [ ] README has a projector screenshot and badges; community profile 100 %; a ruleset on `main`;
       `compatibility_date` bumped; `wrangler` pinned.

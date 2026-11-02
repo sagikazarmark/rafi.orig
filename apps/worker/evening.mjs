@@ -3,7 +3,9 @@
 // Restate (the engine in the same Worker, under /restate), the countdowns on
 // the projector and the draw console, the live channel, and the end, its
 // verify.json through tools/verify.py; then a
-// projector cut off from the server, and one at an address with no raffle.
+// projector cut off from the server, the organizer's list import clicked
+// through (pasted, undone, uploaded, and a retry after a lost reply adding
+// nobody twice), and a projector at an address with no raffle.
 // Step 4 of scripts/workers-check.sh, which runs the Worker with a drand lead
 // of 8 s, so the countdowns have seconds to watch.
 //
@@ -17,7 +19,7 @@
 // a broken page and a report a policy about to break one.
 
 import { spawn, spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const base = process.env.APP ?? "http://127.0.0.1:8787";
@@ -127,9 +129,12 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
   const requests = [];
   // What the page threw or logged as an error.
   const pageErrors = [];
+  // Whoever else wants the tab's DevTools events (`listen`).
+  const listeners = new Set();
   sock.onmessage = (m) => {
     const msg = JSON.parse(m.data);
     if (msg.id && waiting.has(msg.id)) { waiting.get(msg.id)(msg); waiting.delete(msg.id); }
+    for (const l of listeners) l(msg);
     if (watch) violation(name, msg);
     // The status off the wire: a revalidated document is a 304 there, and a
     // 200 (the cached one) to the page.
@@ -172,6 +177,9 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
       }
       return true;
     },
+    // Calls `f` with each DevTools event of the tab, until the function it
+    // returns is called.
+    listen: (f) => { listeners.add(f); return () => listeners.delete(f); },
     close: () => sock.close(),
   };
 }
@@ -541,6 +549,122 @@ const longVerification = await tab("verification page, long names", `${base}/v/$
 check(await until(async () => (await longVerification.text()).includes("1 entrant: 0 joined on their phones, 1 added by the organizer"), 45000),
   "the verification page counts the organizer's list");
 longVerification.close();
+
+// The organizer's list import, clicked through in the Add people dialog: a
+// list pasted, its add undone, a file uploaded, and an add whose reply is
+// lost, added again: nobody twice. Its own raffle, published and not in test
+// mode (a list is refused otherwise), so the raffles above keep their
+// numbers. The names are the ones the native tests read from the fixtures
+// (apps/web/src/import/tests.rs).
+const fixture = (name) => fileURLToPath(new URL(`apps/web/fixtures/import/${name}`, new URL("../..", import.meta.url)));
+const listed = await newRaffle(`Workers evening, a list ${Date.now()}`);
+await api("save_prize", { id: listed, prize: { id: null, name: "Tote bag", sponsor: "", description: "", qty: 1, position: 0 } });
+await api("set_lifecycle", { id: listed, action: "publish" });
+await api("set_lifecycle", { id: listed, action: "open" });
+const listedNames = async () => (await api("get_raffle", { id: listed })).entrants.map((e) => e.display_name);
+const people = await tab("admin, a list", `${base}/admin/r/${listed}?tab=people`);
+const dialog = ".modal-open";
+const dialogText = async () => (await people.js(`document.querySelector(${JSON.stringify(dialog)})?.innerText.replace(/\\s+/g, " ") ?? ""`)) ?? "";
+// At a person's pace: no dialog closing, and the open one's transition run
+// out. The dialogs' primitive (dioxus-primitives' use_animated_open, at the
+// pinned rev) waits for a closing dialog's transitions without catching their
+// rejection, so one cut short (the dialog reopened while it closes, or taken
+// out of the page, as Undo last add's confirmation is when the undo leaves
+// nothing to undo) is an uncaught AbortError ("The user aborted a request.").
+// Upstream catches it since; until the rev moves, that error is the one the
+// admin may throw here.
+const still = () => until(() => people.js(`[...document.querySelectorAll(".modal")]
+  .every((m) => m.classList.contains("modal-open") && m.getAnimations().length === 0)`), 5000);
+const cutShort = (e) => e === "AbortError: The user aborted a request.";
+// Opens Add people on its list tab: a new dialog (a closed one is gone), so
+// nothing is read in it.
+const openList = async () => (await still())
+  && (await until(() => people.click("Add people"), 15000))
+  && (await still())
+  && (await until(() => people.click("Paste or upload a list", 1, `${dialog} button`), 5000))
+  && (await until(() => people.js(`document.querySelector("${dialog} textarea")?.value === ""`), 5000));
+// Waits for the list's preview, its count of people to add and its Add button.
+const previews = (n) => until(async () => new RegExp(`\\b${n} to add\\b`, "i").test(await dialogText())
+  && (await people.js(`[...document.querySelectorAll("${dialog} button")].some((b) => !b.disabled && b.innerText.trim() === "Add ${n} people")`)), 10000);
+const sameNames = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+check(await until(async () => /Add people/.test(await people.text()), 45000), "the People tab is up (the tab in the URL)");
+
+// Pasted: semicolon-separated, with a byte order mark, as Excel saves it.
+const pasted = readFileSync(fixture("semicolon-bom.csv"), "utf8");
+const pastedNames = ["Anna Kovács", "Nagy; Bence", "Csilla Varga"];
+check(pasted.startsWith("\u{FEFF}") && pasted.trim().split(/\r?\n/).length - 1 === pastedNames.length, "the pasted list has its byte order mark and three rows");
+check(await openList(), "the organizer opens Add people on its list tab");
+await people.js(`document.querySelector("${dialog} textarea").focus()`);
+await people.call("Input.insertText", { text: pasted });
+check(await previews(pastedNames.length), `pasted, the preview says ${pastedNames.length} to add`);
+check(await people.click(`Add ${pastedNames.length} people`, 1, `${dialog} button`), "and the organizer adds them");
+let names = [];
+check(await until(async () => sameNames(names = await listedNames(), pastedNames), 15000), `they are in (${names.join(", ")})`);
+check(await until(async () => !(await dialogText()) && new RegExp(`${pastedNames.length} entrants`, "i").test(await people.text()), 15000),
+  "the dialog closes and People counts them");
+
+// Undone.
+await still();
+check(await until(() => people.click(`Undo last add (${pastedNames.length} people)`), 15000), "People offers to undo the last add");
+await still();
+check(await until(() => people.click("Undo add", 1, `${dialog} .modal-action button`), 5000), "and asks first");
+check(await until(async () => (names = await listedNames()).length === 0, 15000), `the add is undone: nobody is in (${names.length})`);
+
+// Uploaded: quoted fields, a line break in a name, a blank row.
+const uploadedNames = ["Kovács, Anna", "Nagy \"Bence\" B", "Szabó Zoé", "TóthEszter", "O\"Brien Pat"];
+check(await openList(), "the organizer opens the list tab again");
+const { root } = (await people.call("DOM.getDocument")).result;
+const input = (await people.call("DOM.querySelector", { nodeId: root.nodeId, selector: `${dialog} input[type=file]` })).result?.nodeId;
+check(!!input, "it has a file input");
+if (input) await people.call("DOM.setFileInputFiles", { nodeId: input, files: [fixture("quoting.csv")] });
+check(await previews(uploadedNames.length), `uploaded, the preview says ${uploadedNames.length} to add`);
+check(await people.click(`Add ${uploadedNames.length} people`, 1, `${dialog} button`), "and the organizer adds them");
+check(await until(async () => sameNames(names = await listedNames(), uploadedNames), 15000), `they are in (${names.join(", ")})`);
+check(await until(async () => !(await dialogText()), 15000), "and the dialog closes");
+
+// An add whose reply is lost (it went in; the page can't know), added again:
+// the same batch ID, so nobody is added twice.
+const retriedNames = ["Dóra Kiss", "Emese Lakatos", "Ferenc Szűts"];
+const retried = `Name,Email\n${retriedNames.map((n) => `${n},${n.split(" ")[0].toLowerCase()}@example.org`).join("\n")}\n`;
+check(await openList(), "the organizer opens the list tab a third time");
+await people.js(`document.querySelector("${dialog} textarea").focus()`);
+await people.call("Input.insertText", { text: retried });
+check(await previews(retriedNames.length), `pasted, the preview says ${retriedNames.length} to add`);
+const batches = [];
+const stopBatches = people.listen((msg) => {
+  if (msg.method === "Network.requestWillBeSent" && msg.params.request.url.includes("/api/admin/add_entrants")) {
+    batches.push(/"batch_id":"([^"]+)"/.exec(msg.params.request.postData ?? "")?.[1] ?? "?");
+  }
+});
+// The reply, once the server has answered, fails in the browser.
+const lost = new Promise((resolve) => {
+  const stop = people.listen(async (msg) => {
+    if (msg.method !== "Fetch.requestPaused") return;
+    stop();
+    await people.call("Fetch.failRequest", { requestId: msg.params.requestId, errorReason: "Failed" });
+    await people.call("Fetch.disable");
+    resolve(msg.params.responseStatusCode);
+  });
+});
+await people.call("Fetch.enable", { patterns: [{ urlPattern: "*/api/admin/add_entrants*", requestStage: "Response" }] });
+check(await people.click(`Add ${retriedNames.length} people`, 1, `${dialog} button`), "the organizer adds them");
+const lostStatus = await Promise.race([lost, sleep(15000).then(() => null)]);
+check(lostStatus === 200, `the server added them, and the reply is lost on the way (${lostStatus})`);
+check(await until(async () => /Adding again is safe: nobody is added twice\./.test(await dialogText()), 10000),
+  "the dialog says it couldn't add, and that adding again is safe");
+check(sameNames(names = await listedNames(), [...uploadedNames, ...retriedNames]), `the add went in all the same (${names.length} in)`);
+check(await until(() => people.click(`Add ${retriedNames.length} people`, 1, `${dialog} button`), 5000), "the organizer adds again");
+check(await until(async () => !(await dialogText()), 15000), "the dialog closes");
+names = await listedNames();
+check(sameNames(names, [...uploadedNames, ...retriedNames]),
+  `nobody is added twice: ${names.length} in, ${uploadedNames.length} + ${retriedNames.length}`);
+stopBatches();
+check(batches.length === 2 && batches[0] === batches[1] && batches[0] !== "?", `the retry sent the same batch ID (${batches.join(", ")})`);
+await still();
+const thrown = people.pageErrors.filter((e) => !cutShort(e));
+const cut = people.pageErrors.length - thrown.length;
+check(thrown.length === 0, `the admin threw nothing${cut ? ` but the dialog primitive's cut-short transitions (${cut})` : ""}${thrown.length ? ": " + thrown.join(" | ") : ""}`);
+people.close();
 
 // A projector at an address with no raffle says so, rather than loading for
 // ever.

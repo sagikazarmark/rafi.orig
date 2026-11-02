@@ -149,7 +149,10 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   a projector cut off from `/view` saying "Reconnecting…" and recovering, and one at an unknown address saying
   there's no raffle there; the verification page's counts by source; a 64-character name the organizer added from a list, in a
   raffle of its own, the projector telling registered people they're in and calling the winner to the front,
-  fitting a projector-sized screen without scrolling sideways in the recent names, at the reveal and on the thanks screen; the security headers of
+  fitting a projector-sized screen without scrolling sideways in the recent names, at the reveal and on the thanks screen; the
+  list import clicked through in the Add people dialog, in a raffle of its own (a fixture pasted with
+  `Input.insertText` and added, the add undone, a fixture uploaded with `DOM.setFileInputFiles`, and an add whose
+  reply is lost added again with the same batch ID, adding nobody twice); the security headers of
   each kind of page and of a static file; and every tab (the phone, the
   projector, the admin, the verification page, a phone without WebAssembly) listens for Content-Security-Policy
   violations, enforced or reported, one of which fails the run. The admin is also reloaded, revalidating its page
