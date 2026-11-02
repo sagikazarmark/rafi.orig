@@ -26,7 +26,9 @@ verifier on the raffle's verify page does. With --fetch it also shows whom
 the committed round of an abandoned draw would have picked.
 """
 
+import contextlib
 import hashlib
+import io
 import json
 
 # The verify.json envelope this script reads (`format` in the file).
@@ -229,6 +231,13 @@ def main(argv):
         print(f"{'ok  ' if ok else 'FAIL'} {len(data['select'])} selection vectors")
         s = data["scenario"]
         ok &= verify(s["manifest"], s["manifest_hash"], s["events"])
+        # Each tampered copy of the scenario must fail, its own report kept
+        # quiet: only whether it failed is the vector's.
+        for t in data.get("tampered", []):
+            with contextlib.redirect_stdout(io.StringIO()):
+                caught = not verify(t["manifest"], t["manifest_hash"], t["events"])
+            print(f"{'ok  ' if caught else 'FAIL'} tampered: {t['what']} {'fails' if caught else 'PASSED'}")
+            ok &= caught
     else:
         if not args:
             print(__doc__)

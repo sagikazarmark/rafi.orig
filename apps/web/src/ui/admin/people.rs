@@ -37,10 +37,15 @@ pub(super) fn People(
             }
         }
     };
+    // How many rows to render: a page at a time, so 2000 entrants don't
+    // make 2000 rows on the phone at the door.
+    let mut limit = use_signal(|| PAGE);
     let q = filter().to_lowercase();
-    let shown: Vec<AdminEntrant> = admin
+    // The latest first: the person at the door is the one who just joined.
+    let matching: Vec<&AdminEntrant> = admin
         .entrants
         .iter()
+        .rev()
         .filter(|e| {
             q.is_empty()
                 || e.display_name.to_lowercase().contains(&q)
@@ -49,8 +54,8 @@ pub(super) fn People(
                     .as_deref()
                     .is_some_and(|c| c.to_lowercase() == q)
         })
-        .cloned()
         .collect();
+    let more = matching.len().saturating_sub(limit());
 
     rsx! {
         Panel {
@@ -89,20 +94,28 @@ pub(super) fn People(
                     Eye { class: "size-4 opacity-50" }
                     input { class: "grow", r#type: "search", placeholder: "Search by name, email or claim code", value: "{filter}", oninput: move |e| filter.set(e.value()) }
                 }
-                div { class: "overflow-x-auto",
-                    table { class: "table",
-                        thead { tr { th { "Name" } th { "Email" } th { "Claim code" } th { "Status" } th {} } }
-                        tbody {
-                            for e in shown.iter() {
-                                EntrantRow { key: "{e.id}", raffle_id: admin.id.clone(), entrant: e.clone(), removal, winners_erase_date: admin.retention.winners_erase_date.clone(), registration: admin.settings.registration, error, on_change }
+                // A table from `sm` up; below it, each row a card (the
+                // People tab is used standing at the door).
+                div { class: "sm:overflow-x-auto",
+                    table { class: "table block sm:table",
+                        thead { class: "hidden sm:table-header-group", tr { th { "Name" } th { "Email" } th { "Claim code" } th { "Status" } th {} } }
+                        tbody { class: "block space-y-2 sm:table-row-group sm:space-y-0",
+                            for e in matching.iter().take(limit()) {
+                                EntrantRow { key: "{e.id}", raffle_id: admin.id.clone(), entrant: (*e).clone(), removal, winners_erase_date: admin.retention.winners_erase_date.clone(), past_erase_date: admin.retention.past_erase_date, registration: admin.settings.registration, error, on_change }
                             }
                         }
                     }
+                }
+                if more > 0 {
+                    button { class: "btn btn-ghost btn-block", onclick: move |_| limit.set(limit() + PAGE), "Show {more.min(PAGE)} more" }
                 }
             }
         }
     }
 }
+
+/// How many people the People tab shows at a time.
+const PAGE: usize = 200;
 
 /// The Add people dialog: one person, by name and optional email, or a
 /// list, pasted or uploaded. Everyone added here is in the draw like
@@ -205,6 +218,10 @@ fn EntrantRow(
     removal: Option<Removal>,
     /// The day held winners are erased at the latest, in words.
     winners_erase_date: String,
+    /// Whether the erasure date has passed: marking a prize delivered then
+    /// erases its winner within the hour, so it asks first.
+    #[props(default)]
+    past_erase_date: bool,
     /// Whether people join with the QR code (the remove dialog says they
     /// can join again).
     #[props(default = true)]
@@ -232,6 +249,7 @@ fn EntrantRow(
         }
     };
     let mut confirm_object = use_signal(|| false);
+    let mut confirm_delivered = use_signal(|| false);
     let mut confirm_unobject = use_signal(|| false);
     let remove = {
         let (rid, eid) = (raffle_id.clone(), e.id.clone());
@@ -279,8 +297,8 @@ fn EntrantRow(
     };
 
     rsx! {
-        tr { class: if e.hidden { "opacity-60" } else { "" },
-            td {
+        tr { class: if e.hidden { "block rounded-box border border-base-300 sm:table-row sm:rounded-none sm:border-0 opacity-60" } else { "block rounded-box border border-base-300 sm:table-row sm:rounded-none sm:border-0" },
+            td { class: "block sm:table-cell",
                 match renaming() {
                     Some(val) => rsx! {
                         // The organizer's limit for anyone they rename, a joiner
@@ -314,34 +332,47 @@ fn EntrantRow(
                     },
                 }
             }
-            td { class: "text-sm text-base-content/70", "{e.email.clone().unwrap_or_default()}" }
-            td { span { class: "claim-code text-sm", "{e.claim_code.clone().unwrap_or_default()}" } }
-            td { if !status.is_empty() { span { class: "badge badge-soft {status_class} whitespace-nowrap", "{status}" } } }
-            td {
+            td { class: "block py-1 text-sm text-base-content/70 empty:hidden sm:table-cell sm:py-3", "{e.email.clone().unwrap_or_default()}" }
+            td { class: "block py-1 empty:hidden sm:table-cell sm:py-3", if let Some(code) = &e.claim_code { span { class: "claim-code text-sm", "{code}" } } }
+            td { class: "block py-1 empty:hidden sm:table-cell sm:py-3", if !status.is_empty() { span { class: "badge badge-soft {status_class} whitespace-nowrap", "{status}" } } }
+            td { class: "block sm:table-cell",
                 if !e.erased {
-                    div { class: "flex justify-end gap-1",
+                    div { class: "flex flex-wrap gap-1 sm:justify-end",
                         // Someone who took themselves off stays hidden: the
                         // server refuses to show them.
                         if !e.objected {
                             button {
-                                class: "btn btn-ghost btn-xs btn-square tooltip",
+                                class: "btn btn-ghost btn-square sm:btn-xs tooltip",
                                 "data-tip": if e.hidden { "Show name on screen" } else { "Hide name on screen" },
+                                aria_label: if e.hidden { "Show name on screen" } else { "Hide name on screen" },
                                 onclick: { let patch = patch.clone(); let hidden = !e.hidden; move |_| patch(EntrantPatch { hidden: Some(hidden), ..Default::default() }) },
                                 if e.hidden { Eye { class: "size-4" } } else { EyeOff { class: "size-4" } }
                             }
                         }
-                        button { class: "btn btn-ghost btn-xs btn-square tooltip", "data-tip": "Rename", onclick: { let n = e.display_name.clone(); move |_| renaming.set(Some(n.clone())) }, Pencil { class: "size-4" } }
-                        if won {
+                        button { class: "btn btn-ghost btn-square sm:btn-xs tooltip", "data-tip": "Rename", aria_label: "Rename", onclick: { let n = e.display_name.clone(); move |_| renaming.set(Some(n.clone())) }, Pencil { class: "size-4" } }
+                        // Delivered is a fact shown, with its own undo; marking
+                        // it after the erasure date erases them within the
+                        // hour, so that asks first.
+                        if won && e.delivered {
+                            span { class: "badge badge-success badge-soft self-center whitespace-nowrap", "✓ delivered" }
                             button {
-                                class: if e.delivered { "btn btn-success btn-xs" } else { "btn btn-ghost btn-xs tooltip" },
+                                class: "btn btn-ghost sm:btn-xs",
+                                title: "Not delivered after all",
+                                onclick: { let patch = patch.clone(); move |_| patch(EntrantPatch { delivered: Some(false), ..Default::default() }) },
+                                Undo2 { class: "size-4" }
+                                "Undo"
+                            }
+                        } else if won {
+                            button {
+                                class: "btn btn-ghost sm:btn-xs tooltip",
                                 "data-tip": if e.held_until.is_some() { format!("Their name and email are kept until {}, or until you mark the prize delivered", winners_erase_date) } else { String::new() },
-                                onclick: { let patch = patch.clone(); let d = !e.delivered; move |_| patch(EntrantPatch { delivered: Some(d), ..Default::default() }) },
-                                if e.delivered { "✓ delivered" } else { "Mark delivered" }
+                                onclick: { let patch = patch.clone(); move |_| { if past_erase_date { confirm_delivered.set(true); } else { spawn(patch(EntrantPatch { delivered: Some(true), ..Default::default() })); } } },
+                                "Mark delivered"
                             }
                         }
                         if e.actions.object {
                             button {
-                                class: "btn btn-ghost btn-xs tooltip",
+                                class: "btn btn-ghost sm:btn-xs tooltip",
                                 "data-tip": "They asked not to take part",
                                 onclick: move |_| confirm_object.set(true),
                                 UserMinus { class: "size-4" }
@@ -350,7 +381,7 @@ fn EntrantRow(
                         }
                         if e.actions.unobject {
                             button {
-                                class: "btn btn-ghost btn-xs tooltip",
+                                class: "btn btn-ghost sm:btn-xs tooltip",
                                 "data-tip": "Undo “Took themselves off”",
                                 onclick: move |_| confirm_unobject.set(true),
                                 Undo2 { class: "size-4" }
@@ -359,8 +390,9 @@ fn EntrantRow(
                         }
                         if let Some(removal) = removal {
                             button {
-                                class: "btn btn-ghost btn-xs btn-square tooltip text-error",
+                                class: "btn btn-ghost btn-square sm:btn-xs tooltip text-error",
                                 "data-tip": match removal { Removal::Delete => "Remove", Removal::Erase => "Erase personal data" },
+                                aria_label: match removal { Removal::Delete => "Remove", Removal::Erase => "Erase personal data" },
                                 onclick: move |_| confirm.set(true),
                                 Trash { class: "size-4" }
                             }
@@ -381,6 +413,16 @@ fn EntrantRow(
                             }
                         },
                         None => rsx! {},
+                    }
+                    if won && !e.delivered && past_erase_date {
+                        Confirm {
+                            open: confirm_delivered,
+                            title: rsx! { "Mark " bdi { "{e.display_name}" } "'s prize delivered?" },
+                            body: rsx! { "The erasure date has passed: their name and email are erased within the hour, for good." },
+                            action: "Mark delivered",
+                            danger: true,
+                            on_confirm: { let patch = patch.clone(); move |_| { spawn(patch(EntrantPatch { delivered: Some(true), ..Default::default() })); } },
+                        }
                     }
                     if e.actions.object {
                         Confirm {

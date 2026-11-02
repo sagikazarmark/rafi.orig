@@ -80,17 +80,30 @@ pub enum Profile {
     Forged,
     /// [`Profile::Instant`] with a store that fails each raffle's first writes.
     FlakyStore,
+    /// Mock drand over HTTP, as the engine fetches a public chain: the first
+    /// relay never answers, the second serves every round, honestly signed.
+    Relayed,
+    /// Mock drand over HTTP from a relay that fails (503) each round's
+    /// fetches for its first [`RELAY_OUTAGE`]: a draw stalls, and a retry
+    /// after it draws on the same round.
+    Recovering,
 }
 
 impl Profile {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::Instant,
         Self::Lead,
         Self::Withheld,
         Self::Forged,
         Self::FlakyStore,
+        Self::Relayed,
+        Self::Recovering,
     ];
 }
+
+/// How long [`Profile::Recovering`]'s relay fails a round, from its first
+/// request for it: longer than a fetch's timeout (1 s), so the draw stalls.
+const RELAY_OUTAGE: Duration = Duration::from_secs(3);
 
 /// Writes the store fails for each raffle before it accepts any.
 const FLAKY_FAILURES: u32 = 2;
@@ -167,6 +180,8 @@ fn scenarios(profile: Profile) -> Vec<(&'static str, Scenario)> {
         ],
         Profile::Forged => vec![scenario!(a_forged_beacon_stalls_the_draw)],
         Profile::FlakyStore => vec![scenario!(every_state_reaches_a_flaky_store)],
+        Profile::Relayed => vec![scenario!(a_draw_completes_over_http_past_a_dead_relay)],
+        Profile::Recovering => vec![scenario!(a_relay_that_recovers_draws_the_same_round)],
     }
 }
 
@@ -187,11 +202,18 @@ impl Fixture {
             Profile::Lead => mock(6),
             Profile::Withheld => quicknet("http://127.0.0.1:9".into()),
             Profile::Forged => quicknet(forging_relay().await?),
+            Profile::Relayed => mock_relayed(vec![
+                "http://127.0.0.1:9".into(),
+                honest_relay(Duration::ZERO).await?,
+            ]),
+            Profile::Recovering => mock_relayed(vec![honest_relay(RELAY_OUTAGE).await?]),
         };
-        let drand = DrandClient::builder(config)
-            .http_transport(ReqwestTransport::default())
-            .build()
-            .map_err(|e| format!("drand: {e:#}"))?;
+        let builder = DrandClient::builder(config).http_transport(ReqwestTransport::default());
+        let builder = match profile {
+            Profile::Relayed | Profile::Recovering => builder.mock_over_http(),
+            _ => builder,
+        };
+        let drand = builder.build().map_err(|e| format!("drand: {e:#}"))?;
         let store = MemoryStore::default();
         let observer = Arc::new(RecordingObserver::default());
         let writes: Arc<dyn Store> = match profile {
@@ -335,15 +357,27 @@ fn quicknet(relay: String) -> DrandConfig {
     }
 }
 
-/// A drand relay for quicknet that serves every round signed by the mock
-/// chain's key instead: well-formed beacons that never verify.
-async fn forging_relay() -> Result<String, String> {
+/// Mock drand asked of `relays` over HTTP (v1, bare URLs), drawing at once.
+fn mock_relayed(relays: Vec<String>) -> DrandConfig {
+    DrandConfig {
+        relays,
+        mock: true,
+        lead_secs: 0,
+        timeout_secs: 1,
+    }
+}
+
+/// A local drand relay (`GET /{chain}/public/{round}`, v1) answering each
+/// round with `answer`: a status and a body.
+async fn relay(
+    what: &str,
+    answer: impl Fn(u64) -> (&'static str, String) + Send + 'static,
+) -> Result<String, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
-        .map_err(|e| format!("binding the forging relay: {e}"))?;
+        .map_err(|e| format!("binding the {what}: {e}"))?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
     tokio::spawn(async move {
-        let forger = rafi_raffle::drand::mock_chain();
         while let Ok((mut socket, _)) = listener.accept().await {
             let mut buf = vec![0u8; 4096];
             let n = socket.read(&mut buf).await.unwrap_or(0);
@@ -356,14 +390,7 @@ async fn forging_relay() -> Result<String, String> {
                 .and_then(|r| r.parse::<u64>().ok())
                 .filter(|r| *r > 0);
             let (status, body) = match round {
-                Some(round) => {
-                    let beacon = forger.sign(round);
-                    let body = serde_json::json!({
-                        "round": round,
-                        "signature": hex(&beacon.signature),
-                    });
-                    ("200 OK", body.to_string())
-                }
+                Some(round) => answer(round),
                 None => ("404 Not Found", String::new()),
             };
             let reply = format!(
@@ -374,6 +401,41 @@ async fn forging_relay() -> Result<String, String> {
         }
     });
     Ok(format!("http://{addr}"))
+}
+
+/// A beacon's JSON as a v1 relay serves it, signed with the mock chain's key.
+fn mock_signed(round: u64) -> String {
+    let beacon = rafi_raffle::drand::mock_chain().sign(round);
+    serde_json::json!({
+        "round": round,
+        "signature": hex(&beacon.signature),
+    })
+    .to_string()
+}
+
+/// A drand relay for quicknet that serves every round signed by the mock
+/// chain's key instead: well-formed beacons that never verify.
+async fn forging_relay() -> Result<String, String> {
+    relay("forging relay", |round| ("200 OK", mock_signed(round))).await
+}
+
+/// A relay for the mock chain, honest: every round signed by its key. For
+/// `outage` from its first request for a round, it answers 503 instead.
+async fn honest_relay(outage: Duration) -> Result<String, String> {
+    let first_asked: Mutex<HashMap<u64, std::time::Instant>> = Mutex::default();
+    relay("honest relay", move |round| {
+        let since = *first_asked
+            .lock()
+            .expect("first_asked lock")
+            .entry(round)
+            .or_insert_with(std::time::Instant::now);
+        if since.elapsed() < outage {
+            ("503 Service Unavailable", String::new())
+        } else {
+            ("200 OK", mock_signed(round))
+        }
+    })
+    .await
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -909,6 +971,68 @@ async fn a_forged_beacon_stalls_the_draw(fx: Arc<Fixture>, id: String) -> Result
     ensure!(
         count(&s, |e| matches!(e, Event::Drawn { .. })) == 0,
         "drawn from a forged beacon"
+    );
+    verified(&doc, &s)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Relayed, Recovering
+// ---------------------------------------------------------------------------
+
+/// Over HTTP, past a relay that never answers: the draw completes from the
+/// next relay, on its committed round, and verifies.
+async fn a_draw_completes_over_http_past_a_dead_relay(
+    fx: Arc<Fixture>,
+    id: String,
+) -> Result<(), String> {
+    let doc = fx.doc(&id, 5, 1);
+    fx.open(&doc).await?;
+    fx.draw(&id, "item-1", "d1").await?;
+    let s = fx.drawn(&id, "item-1").await?;
+    let announced = s.events().iter().find_map(|e| match e {
+        Event::Announced { round, .. } => Some(*round),
+        _ => None,
+    });
+    let drawn = s.events().iter().find_map(|e| match e {
+        Event::Drawn { round, .. } => Some(*round),
+        _ => None,
+    });
+    ensure!(
+        announced.is_some() && announced == drawn,
+        "drawn on another round than announced: {announced:?}, {drawn:?}"
+    );
+    verified(&doc, &s)?;
+    Ok(())
+}
+
+/// A relay failing a round for a while: the draw stalls on it, and a retry
+/// once it answers draws that round, with exactly one announcement.
+async fn a_relay_that_recovers_draws_the_same_round(
+    fx: Arc<Fixture>,
+    id: String,
+) -> Result<(), String> {
+    let doc = fx.doc(&id, 5, 1);
+    fx.open(&doc).await?;
+    fx.draw(&id, "item-1", "d1").await?;
+    let stalled = fx.stalls(&id, 1).await?;
+    let pending = stalled
+        .pending()
+        .cloned()
+        .ok_or("the stalled draw isn't pending")?;
+    tokio::time::sleep(RELAY_OUTAGE).await;
+    fx.draw(&id, "item-1", "d2").await?;
+    let s = fx.drawn(&id, "item-1").await?;
+    ensure!(
+        count(&s, |e| matches!(e, Event::Announced { .. })) == 1,
+        "announced more than once"
+    );
+    ensure!(
+        s.events()
+            .iter()
+            .any(|e| matches!(e, Event::Drawn { round, .. } if *round == pending.round)),
+        "not drawn on the stalled round {}",
+        pending.round
     );
     verified(&doc, &s)?;
     Ok(())

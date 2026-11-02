@@ -19,7 +19,8 @@ everything CI runs except the Workers checks.
 | `just cloudflare-artifact`, `just cloudflare-release <version>` | Not checks: what a release ships (`just artifact` in `apps/worker`), and the release itself (`scripts/cloudflare-release.sh`: the tarball, its checksums, a dry deploy of that tarball through `deploy/cloudflare`), which the release workflow runs on a tag |
 
 The end-to-end tests run the shell's `restate-server` (`RESTATE_SERVER_BIN`). Without it (outside the devenv shell,
-set it to a `restate-server` binary), they skip locally; CI fails them instead.
+set it to a `restate-server` binary), they skip locally, and `just test` ends with a `SKIPPED:` line counting them;
+CI fails them instead.
 
 The recipes are plain `cargo` commands, to run by hand when one is enough:
 
@@ -39,9 +40,9 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 | `rafi-store` | The [storage conformance suite](#storage-conformance) on every backend |
 | `rafi-engine`, `rafi-engine-restate` | The [engine conformance suite](#engine-conformance), on the local runner and on the `Raffle` object |
 | `rafi-app` | Use-case tests ([`crates/app/tests/use_cases.rs`](../../crates/app/tests/use_cases.rs)) |
-| `rafi-server` | HTTP tests, and an end-to-end test of the app, `rafi-restate` and `restate-server` on one database |
+| `rafi-server` | HTTP tests, and an end-to-end test of the app, `rafi-restate` and `restate-server` on one database. What the request log says is a test binary of its own (`tests/trace_log.rs`): its subscriber would otherwise see other tests' events |
 | `rafi-web` | The router, server-rendered natively at a path (`dioxus-ssr`, a `MemoryHistory`): the admin refuses to render inside a frame. Only pages that touch no browser API on their first render can be rendered so; the rest are the evening's. The list tab's parser, column detection and preview, on export fixtures (`apps/web/fixtures/import`), and the tab's static state; a person's row in the People tab; parts of the evening that need no browser: the projector's intro (with registration and without, a list added or not) and "Come to the front!" at the reveal, the draw console's winner (the masked email, "added by you", the check to make) and its "Confirmed: it's them", the freeze's reminder, the verification page's source counts; the projector before its first view (loading, no raffle there, older than the server), its "Reconnecting…", its thank-you screen's verification link, and the admin's "Offline"; the server clock behind the countdowns; every theme colour pair's contrast (`theme_contrast`, reading `tailwind.css`) |
-| `tools/verify.py` | The same vectors as the Rust code ([`testdata/draw-vectors.json`](../../testdata/draw-vectors.json), from real quicknet beacons) |
+| `tools/verify.py` | The same vectors as the Rust code ([`testdata/draw-vectors.json`](../../testdata/draw-vectors.json), from real quicknet beacons), and the scenario tampered six ways (another winner, another index, another round than announced, the pool changed while a draw was pending, an unknown event type, a byte of the manifest), each of which both verifiers must fail |
 | Workers | [`./scripts/workers-check.sh`](#workers) |
 
 ## Time
@@ -109,7 +110,10 @@ database per scenario) and passes the suite. See the module's documentation.
 - **The contract:** idempotency, one command at a time per raffle, asynchronous draws, refusals with their kind, and
   forgetting a raffle once it is finished.
 
-It deploys once per drand profile: instant, with a lead, a withheld relay, a forging relay, and a flaky store. It
+It deploys once per drand profile: instant, with a lead, a withheld relay, a forging relay, a flaky store, and two
+over HTTP from a local relay signing with the mock chain's key (`DrandClientBuilder::mock_over_http`): past a relay
+that never answers, the draw completes from the next; from a relay failing a round for a while, the draw stalls and
+a retry draws the same round. It
 runs on the local runner (`cargo test -p rafi-engine`) and on the `Raffle` object through the app's client
 (`cargo test -p rafi-engine-restate -- --include-ignored`, one `restate-server` per profile).
 
@@ -135,8 +139,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   module that arrives after the fallback started leaving the page to it, and a phone the live channel refuses
   (4403) polling instead
 - a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
-  through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), the projector's
-  and the draw console's countdowns running between fetches (with a drand lead of 8 s), the live channel, the end;
+  through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), drawn, claimed and
+  finished by trusted clicks in the draw console (a double click on Draw drawing once), the projector's and the
+  console's countdowns running between fetches (with a drand lead of 8 s), the live channel, the end;
   a projector cut off from `/view` saying "Reconnecting…" and recovering, and one at an unknown address saying
   there's no raffle there; the verification page's counts by source; a 64-character name the organizer added from a list, in a
   raffle of its own, the projector telling registered people they're in and calling the winner to the front,
@@ -148,7 +153,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   is checked by hand (`--profile clerk`, signing in and out, the organization switcher), and by `rafi-server`'s
   tests for what the header says (`the_web_app_allows_eval_inline_styles_and_clerk`)
 - the hourly housekeeping fired as the Cron Trigger fires it (`wrangler dev --test-scheduled`, `/__scheduled`),
-  checked to have recorded its success, which is what the admin's staleness warning reads
+  checked to have recorded its success, which is what the admin's staleness warning reads; then again with the
+  evening's raffles dated past their erasure date and the winner hold: everyone erased, every raffle purged and its
+  live channel ended, a socket to one refused
 - the production shape: `wrangler deploy --dry-run` of the top level of `wrangler.toml`, built without the `dev`
   feature, against a size budget (2.5 MiB gzipped; Workers allow 3 on the free plan, 10 paid), and the same
   Worker served with no secret at all answering 500 `misconfigured` to everything, so a deploy can't run open;

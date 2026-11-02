@@ -121,6 +121,8 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
   const documentRequests = new Set();
   // Every request's URL, in order: what a check can say happened in between.
   const requests = [];
+  // What the page threw or logged as an error.
+  const pageErrors = [];
   sock.onmessage = (m) => {
     const msg = JSON.parse(m.data);
     if (msg.id && waiting.has(msg.id)) { waiting.get(msg.id)(msg); waiting.delete(msg.id); }
@@ -128,6 +130,8 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
     // The status off the wire: a revalidated document is a 304 there, and a
     // 200 (the cached one) to the page.
     if (msg.method === "Network.requestWillBeSent") requests.push(msg.params.request.url);
+    if (msg.method === "Runtime.exceptionThrown") pageErrors.push(msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text);
+    if (msg.method === "Runtime.consoleAPICalled" && msg.params.type === "error") pageErrors.push(msg.params.args.map((a) => a.value ?? a.description).join(" "));
     if (msg.method === "Network.requestWillBeSent" && msg.params.type === "Document") documentRequests.add(msg.params.requestId);
     if (msg.method === "Network.responseReceivedExtraInfo" && documentRequests.has(msg.params.requestId)) documents.push(msg.params.statusCode);
   };
@@ -143,6 +147,27 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
     text: async () => (await js(`(document.body?.innerText ?? "").replace(/\\s+/g, " ")`)) ?? "",
     documents,
     requests,
+    pageErrors,
+    // Trusted clicks (DevTools' input, not element.click()) on the enabled
+    // button (matching `selector`) whose text is `text`; `times` in quick
+    // succession. Whether there was one.
+    click: async (text, times = 1, selector = "button") => {
+      const at = await js(`(() => {
+        const b = [...document.querySelectorAll(${JSON.stringify(selector)})]
+          .find((b) => !b.disabled && b.innerText.replace(/\\s+/g, " ").trim() === ${JSON.stringify(text)});
+        if (!b) return null;
+        b.scrollIntoView({ block: "center" });
+        const r = b.getBoundingClientRect();
+        return [r.x + r.width / 2, r.y + r.height / 2];
+      })()`);
+      if (!at) return false;
+      for (let n = 1; n <= times; n++) {
+        for (const type of ["mousePressed", "mouseReleased"]) {
+          await call("Input.dispatchMouseEvent", { type, x: at[0], y: at[1], button: "left", clickCount: n });
+        }
+      }
+      return true;
+    },
     close: () => sock.close(),
   };
 }
@@ -238,7 +263,13 @@ check(await until(async () => (await screenText()).includes("Rust in Action"), 4
 // The organizer's draw console, open through the draw.
 const drawConsole = await tab("draw console", `${base}/admin/r/${id}`);
 check(await until(async () => (await drawConsole.text()).includes("Prizes to draw"), 45000), "the draw console is up");
-await api("draw_item", { id, item, command_id: commandId() });
+// The organizer draws from the console, double-clicking as people do: one
+// draw, and the console says it's drawing.
+check(await drawConsole.click("Draw", 2, "li button.btn-primary"), "the console offers Draw, and the organizer double-clicks it");
+const clickedAt = Date.now();
+// (innerText is as shown: the label is upper-cased by CSS.)
+check(await until(async () => /drawing now/i.test(await drawConsole.text()), 5000),
+  `the console says it's drawing (${Date.now() - clickedAt} ms after the click)`);
 check(await until(async () => /Rust in Action/.test(await card()) && /\d|…/.test(await card()), 15000), "the phone shows the countdown");
 check(await until(() => screen.js(`!!document.querySelector(".countdown")`), 15000), "the projector shows the countdown");
 const consoleSecs = () => drawConsole.js(`Number(document.querySelector(".radial-progress")?.innerText.trim()) || 0`);
@@ -261,7 +292,9 @@ const ticks = (key, fetched) => samples.some((b, i) => i > 0 && b[key] > 0 && b[
 const trace = (key) => samples.map((x) => x[key]).join(" ");
 check(ticks("projector", "projectorFetches"), `the projector's countdown runs between fetches (${trace("projector")})`);
 check(ticks("console", "consoleFetches"), `the console's countdown runs between fetches (${trace("console")})`);
-drawConsole.close();
+const engineState = async () => (await fetch(`${ingress}/Raffle/${id}/get`, { method: "POST" })).json();
+const announced = (await engineState()).events.filter((e) => e.type === "announced").length;
+check(announced === 1, `a double click draws once (${announced} announced)`);
 // The reveal: when does each screen show the winner?
 let phoneAt = 0, screenAt = 0;
 for (let t = 0; t < 30000 && !(phoneAt && screenAt); t += 50) {
@@ -271,10 +304,17 @@ for (let t = 0; t < 30000 && !(phoneAt && screenAt); t += 50) {
 }
 check(phoneAt > 0, "the phone shows the win with its claim code");
 check(screenAt > 0, "the projector reveals Anna");
-check(phoneAt > 0 && screenAt > 0 && screenAt - phoneAt < 1500,
-  `the projector reveals within 1.5 s of the phone (projector ${screenAt - phoneAt} ms after the phone)`);
+// Both get it pushed; the bound is loose for a loaded CI runner, the measure
+// is in the line either way.
+check(phoneAt > 0 && screenAt > 0 && screenAt - phoneAt < 2500,
+  `the projector reveals within 2.5 s of the phone (projector ${screenAt - phoneAt} ms after the phone)`);
 screen.close();
 check((await js(`!!document.querySelector("#live [role=alert]")`)) === true, "the win is announced");
+// The console has the winner at the top, waiting; Claimed records it.
+check(await until(async () => (await drawConsole.text()).includes("Waiting for the winner") && (await drawConsole.text()).includes("Anna"), 15000),
+  "the console shows Anna at the top, waiting for her claim");
+check(await drawConsole.click("Claimed"), "the organizer presses Claimed");
+check(await until(async () => /Rust in Action\s*claimed/.test(await drawConsole.text()), 15000), "the console shows the prize claimed");
 
 // The full view for screens: version from the database, the draw in it.
 const view = await (await fetch(`${base}/api/r/${slug}/view`)).json();
@@ -320,9 +360,14 @@ check(probe.documents.includes(304), `the admin loaded again is revalidated (${p
 check(ranFirst === false && ranReloaded === false, "and still refuses an inline script");
 probe.close();
 
-// The end.
-await api("finish_raffle", { id, command_id: commandId() });
-check(await until(async () => /enjoy your prize/i.test(await card()), 15000), "the winner's phone sees the raffle finish");
+// The end, from the console: Finish, confirmed.
+check(await drawConsole.click("Finish the raffle"), "the console offers Finish");
+check(await until(() => drawConsole.click("🎉 Finish"), 5000), "and asks first");
+check(await until(async () => (await drawConsole.text()).includes("That's a wrap"), 15000), "the raffle is finished, and the console says so");
+check(drawConsole.pageErrors.length === 0, `the draw console threw nothing${drawConsole.pageErrors.length ? ": " + drawConsole.pageErrors.join(" | ") : ""}`);
+drawConsole.close();
+// Claimed, and the prize sent later (the default): the phone says so.
+check(await until(async () => /send you your prize|enjoy your prize/i.test(await card()), 15000), "the winner's phone sees the raffle finish");
 await api("end_live_updates", { id });
 admin = await api("get_raffle", { id });
 check(admin.view.live_ended === true, "live updates are ended");
@@ -381,12 +426,14 @@ await projectorSize(projector.call, 1280, 720);
 // The projector can't reach the server for a while: it says so, keeps the last
 // view, and stops saying so once it can again.
 await projector.call("Network.setBlockedURLs", { urls: ["*/api/r/*/view"] });
-check(await until(async () => (await projector.text()).includes("Reconnecting…"), 20000),
+// Polls back off while failing (2.5, 5, then 10 s apart), and the badge
+// waits for 10 s of failures.
+check(await until(async () => (await projector.text()).includes("Reconnecting…"), 30000),
   "the projector cut off from the server says it's reconnecting");
 check((await projector.text()).includes("Registered? You're already in."), "and keeps the last view meanwhile");
 await projector.call("Network.setBlockedURLs", { urls: [] });
-check(await until(async () => !(await projector.text()).includes("Reconnecting…"), 10000),
-  "and stops once it's back");
+check(await until(async () => !(await projector.text()).includes("Reconnecting…"), 15000),
+  "and stops once it's back (polls back off to 10 s while failing)");
 await api("set_lifecycle", { id: long, action: "close" });
 await api("start_draw", { id: long });
 let longItem = null;

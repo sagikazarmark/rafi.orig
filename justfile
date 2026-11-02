@@ -53,6 +53,8 @@ test: css participant
     cargo test --workspace --exclude rafi-server --exclude rafi-web --locked -- --include-ignored
     cargo test -p rafi-server --locked -- --include-ignored
     cargo test -p rafi-web --locked
+    @# The end-to-end tests pass without a server to run against: say so, or a green run proves less than it looks (CI sets the variable, and fails them without it).
+    @[ -n "${RESTATE_SERVER_BIN:-}" ] || echo "SKIPPED: $(grep -rho 'ignore = "needs RESTATE_SERVER_BIN"' crates | wc -l | tr -d ' ') end-to-end tests ran nothing: RESTATE_SERVER_BIN is unset (the devenv shell sets it)"
 
 # Run the independent verifier on the shared test vectors.
 verify:

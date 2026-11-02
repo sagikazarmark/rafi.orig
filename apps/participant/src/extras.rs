@@ -180,9 +180,11 @@ fn proof_of_work(url: String) {
     solve(None);
 
     let (resolve, f) = (solve.clone(), form.clone());
+    // Solved again before the form posts: a solution past its deadline, or
+    // none (the check failed: Join tries again).
     listen_event(&form, "submit", move |e| {
         let stale = POW_DEADLINE.get().is_some_and(|d| now_ms() >= d);
-        if stale && !input.value().is_empty() {
+        if input.value().is_empty() || stale {
             e.prevent_default();
             resolve(Some(f.clone()));
         }
@@ -212,6 +214,9 @@ async fn solve_pow(
     input.set_value("");
     POW_DEADLINE.set(None);
     submit.set_disabled(true);
+    if let Some(status) = by_id::<web_sys::HtmlElement>("pow-status") {
+        status.set_text_content(Some("Checking this isn't a bot… (a few seconds)"));
+    }
     let solved = match dioxus_altcha::fetch_challenge(url).await {
         Ok(challenge) => {
             dioxus_altcha::solve(&challenge, &SolveOptions::new().worker_url(POW_WORKER))
@@ -233,6 +238,16 @@ async fn solve_pow(
     }
     if let Some(label) = submit.get_attribute("data-label") {
         submit.set_inner_html(&label);
+    }
+    // The wait's line: gone once solved, or why it failed.
+    if let Some(status) = by_id::<web_sys::HtmlElement>("pow-status") {
+        let failed = input.value().is_empty();
+        let text = if failed {
+            status.get_attribute("data-failed").unwrap_or_default()
+        } else {
+            String::new()
+        };
+        status.set_text_content(Some(&text));
     }
     submit.set_disabled(false);
     if let Some(form) = then.filter(|_| !input.value().is_empty()) {

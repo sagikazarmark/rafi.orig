@@ -6,6 +6,7 @@ use dioxus_icons::lucide::{
 };
 
 use super::*;
+use crate::ui::grouped;
 
 #[component]
 pub(super) fn Header(
@@ -22,6 +23,7 @@ pub(super) fn Header(
     let mut ask_freeze = use_signal(|| false);
     let mut ask_end = use_signal(|| false);
     let mut ask_deliver = use_signal(|| false);
+    let mut ask_unpublish = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let nav = navigator();
     let toast = use_toast();
@@ -34,7 +36,18 @@ pub(super) fn Header(
         async move {
             busy.set(true);
             match api::set_lifecycle(id, action).await {
-                Ok(()) => on_change.call(()),
+                Ok(()) => {
+                    // Closing cuts off phones mid-form: say how to undo it.
+                    if action == LifecycleCommand::Close {
+                        toast.info(
+                            "Registration closed".to_owned(),
+                            ToastOptions::new().description(
+                                "Nobody can join now. A mistake? Reopen registration, here in the header.",
+                            ),
+                        );
+                    }
+                    on_change.call(())
+                }
                 Err(e) => error.set(Some(err_text(e))),
             }
             busy.set(false);
@@ -306,7 +319,9 @@ pub(super) fn Header(
                         Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Open)); } }, "Reopen registration" }
                     }
                     if offers(LifecycleCommand::Unpublish) {
-                        Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } }, Undo2 { class: "size-5" } "Unpublish" }
+                        // With people in, the projector and their pages go
+                        // dark: asked first.
+                        Button { class: "btn-ghost", disabled: busy(), onclick: { let act = act.clone(); let entrants = v.entrant_count; move |_| { if entrants > 0 { ask_unpublish.set(true); } else { spawn(act(LifecycleCommand::Unpublish)); } } }, Undo2 { class: "size-5" } "Unpublish" }
                     }
                     match v.state {
                         RaffleState::Frozen if unconfirmed => rsx! {
@@ -325,6 +340,13 @@ pub(super) fn Header(
             }
         }
         FreezeDialog { open: ask_freeze, view: v.clone(), on_confirm: move |_| { spawn(start()); } }
+        Confirm {
+            open: ask_unpublish,
+            title: rsx! { "Unpublish this raffle?" },
+            body: rsx! { "The projector screen and the join link stop working until you publish again. The {v.entrant_count} entrant(s) stay in." },
+            action: "Unpublish",
+            on_confirm: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } },
+        }
         Confirm {
             open: ask_end,
             title: rsx! { "End live updates for this raffle?" },
@@ -403,17 +425,6 @@ fn FreezeReminder(list_added: bool) -> Element {
             }
         }
     }
-}
-
-/// A join code in groups of three (`K7Q-2X3`), easier to read out and to
-/// type; the server drops the dash.
-fn grouped(code: &str) -> String {
-    code.chars()
-        .collect::<Vec<_>>()
-        .chunks(3)
-        .map(|c| c.iter().collect::<String>())
-        .collect::<Vec<_>>()
-        .join("-")
 }
 
 fn download(name: &str, content: &str) {

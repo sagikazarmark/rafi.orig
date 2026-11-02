@@ -26,6 +26,41 @@ use rafi_api::RaffleView;
 /// server asks for polling at another interval.
 const POLL_MS: u32 = 2_500;
 
+/// The longest a failing view waits before it is fetched again: a quarter of
+/// the polling's rate, while a screen in front of a room still comes back
+/// within seconds of the server.
+const MAX_BACKOFF_MS: u32 = 10_000;
+
+/// How long to wait before the next poll of the view, every `every_ms` while
+/// it is fine: doubling with each fetch that failed in a row, to
+/// [`MAX_BACKOFF_MS`], so a server in trouble isn't polled at full rate by
+/// every screen; `None` while the page is hidden (it fetches again when shown).
+pub fn next_poll_ms(every_ms: u32, failures: u32, hidden: bool) -> Option<u32> {
+    if hidden {
+        return None;
+    }
+    let backoff = every_ms.saturating_mul(1 << failures.min(10));
+    Some(backoff.min(MAX_BACKOFF_MS.max(every_ms)))
+}
+
+/// `ms`, give or take a fifth, at random: screens polling together drift
+/// apart.
+fn jittered(ms: u32) -> u32 {
+    let spread = f64::from(ms) * 0.2;
+    (f64::from(ms) - spread + 2.0 * spread * js_sys::Math::random()).max(0.0) as u32
+}
+
+/// Whether the page is hidden (another tab, a locked screen).
+fn page_hidden() -> bool {
+    web_sys::window()
+        .and_then(|w| w.document())
+        .is_some_and(|d| d.hidden())
+}
+
+/// How long the page coming back is one wake: focus, visibility and
+/// `pageshow` often come together.
+const WAKE_COALESCE_MS: f64 = 2_000.0;
+
 /// How long fetches of the view fail before the page says it's offline: a
 /// poll or two lost on venue wifi is nothing to show.
 const OFFLINE_AFTER_MS: u64 = 10_000;
@@ -192,6 +227,8 @@ pub fn use_live_view(slug: String) -> LiveView {
     });
     let refresh = use_callback(move |()| fetcher.send(()));
 
+    // Polled while live, with jitter, backing off while fetches fail, and not
+    // at all while the page is hidden (a wake fetches at once).
     use_future(move || async move {
         fetcher.send(());
         loop {
@@ -200,13 +237,27 @@ pub fn use_live_view(slug: String) -> LiveView {
                 .as_ref()
                 .and_then(|v| v.follow.poll_every_ms())
                 .unwrap_or(POLL_MS);
-            gloo_timers::future::TimeoutFuture::new(every).await;
-            if view.peek().as_ref().is_none_or(|v| v.state.is_live()) {
+            let failures = trouble.peek().map_or(0, |t| t.failures);
+            let Some(wait) = next_poll_ms(every, failures, page_hidden()) else {
+                gloo_timers::future::TimeoutFuture::new(1_000).await;
+                continue;
+            };
+            gloo_timers::future::TimeoutFuture::new(jittered(wait)).await;
+            if !page_hidden() && view.peek().as_ref().is_none_or(|v| v.state.is_live()) {
                 fetcher.send(());
             }
         }
     });
-    use_hook(move || Rc::new(wake::listen(move || fetcher.send(()))));
+    use_hook(move || {
+        let last = std::cell::Cell::new(f64::NEG_INFINITY);
+        Rc::new(wake::listen(move || {
+            let now = js_sys::Date::now();
+            if now - last.get() >= WAKE_COALESCE_MS {
+                last.set(now);
+                fetcher.send(());
+            }
+        }))
+    });
 
     LiveView {
         view,
@@ -398,6 +449,20 @@ mod tests {
         let later = Trouble::after(Some(later), TroubleKind::NotFound, 1_000 + OFFLINE_AFTER_MS);
         assert_eq!(later.kind, TroubleKind::NotFound);
         assert!(later.offline());
+    }
+
+    /// The schedule: the interval while all is well, doubling with each
+    /// failure to the ceiling, none while hidden.
+    #[test]
+    fn polls_back_off_and_pause() {
+        assert_eq!(next_poll_ms(2_500, 0, false), Some(2_500));
+        assert_eq!(next_poll_ms(2_500, 1, false), Some(5_000));
+        assert_eq!(next_poll_ms(2_500, 2, false), Some(10_000));
+        assert_eq!(next_poll_ms(2_500, 3, false), Some(MAX_BACKOFF_MS));
+        assert_eq!(next_poll_ms(2_500, 40, false), Some(MAX_BACKOFF_MS));
+        assert_eq!(next_poll_ms(2_500, 0, true), None);
+        // A server asking for a slower interval gets it.
+        assert_eq!(next_poll_ms(60_000, 2, false), Some(60_000));
     }
 
     #[test]

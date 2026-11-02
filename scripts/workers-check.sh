@@ -178,6 +178,40 @@ if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev
     exit 1
   fi
   echo "ok   the Worker's responses carry a request ID ($request_id)"
+  # And with something due: the evening's raffles dated so long ago that
+  # their erasure date and the winner hold have both passed. The next run
+  # erases everyone (the raffle never frozen expires, its entrants deleted),
+  # purges the raffles and ends their live channels, whose sockets are then
+  # refused.
+  d1() {
+    (cd "$ROOT/apps/worker" && $WRANGLER d1 execute rafi --local --env dev --persist-to "$STATE/wrangler" --json \
+      --command "$1") | node -e '
+        const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+        process.stdout.write(JSON.stringify(out[0]?.results ?? []));'
+  }
+  d1 "UPDATE raffles SET event_ends_at = event_ends_at - (retention_days + 400) * 86400" >/dev/null
+  fired="$(curl -s -m 120 -o /dev/null -w '%{http_code}' "$APP/__scheduled?cron=0+*+*+*+*")"
+  [ "$fired" = "200" ] || { echo "the scheduled handler failed with raffles due ($fired)" >&2; tail -30 "$LOGS/worker.log" >&2; exit 1; }
+  left="$(d1 "SELECT
+      (SELECT COUNT(*) FROM entrants WHERE erased = 0) AS unerased,
+      (SELECT COUNT(*) FROM raffles WHERE state <> 'purged') AS unpurged,
+      (SELECT COUNT(*) FROM raffles WHERE live_ended_at IS NULL) AS live,
+      (SELECT COUNT(*) FROM raffles) AS raffles")"
+  if ! echo "$left" | node -e '
+      const [r] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+      process.exit(r.raffles >= 3 && r.unerased === 0 && r.unpurged === 0 && r.live === 0 ? 0 : 1);'; then
+    echo "housekeeping with raffles due left: $left" >&2
+    tail -30 "$LOGS/worker.log" >&2
+    exit 1
+  fi
+  echo "ok   housekeeping with raffles due erased everyone, purged every raffle and ended their channels ($left)"
+  raffle="$(d1 "SELECT id FROM raffles ORDER BY created_at LIMIT 1" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8"))[0].id)')"
+  code="$(APP="$APP" RAFFLE="$raffle" node -e '
+    const ws = new WebSocket(`${process.env.APP.replace(/^http/, "ws")}/partyline/raffle/${process.env.RAFFLE}?v=1`);
+    ws.onclose = (e) => { process.stdout.write(String(e.code)); process.exit(0); };
+    setTimeout(() => { process.stdout.write("none"); process.exit(0); }, 5000);')"
+  [ "$code" = "4403" ] || { echo "a socket to a purged raffle closed with $code, not 4403" >&2; exit 1; }
+  echo "ok   a socket to a purged raffle is refused (4403)"
   # The dev Worker is done: the production shape takes the port's build dir.
   kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
 else

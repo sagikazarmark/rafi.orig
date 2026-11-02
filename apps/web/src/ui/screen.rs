@@ -8,7 +8,7 @@ use dioxus_icons::lucide::{Dice5, Maximize, ShieldCheck, Trophy};
 use rafi_live_client::ParticipantView;
 
 use super::{
-    Brand, ThemeToggle,
+    Brand, ThemeToggle, grouped,
     live::{ServerClock, Trouble, TroubleKind, reload_once, use_clock, use_live_view},
 };
 use rafi_api::{DrawView, RaffleView};
@@ -42,10 +42,13 @@ fn ScreenInner(slug: String) -> Element {
     drop(guard);
     let ahead = live.ahead_of(&v);
     let clock = *live.clock.read();
+    // Dark unless a scheme was picked: a lit room washes out a light screen,
+    // and the presenter's laptop decides "system".
+    let mut dark = use_signal(|| super::stored_theme().is_none());
 
     let body = match v.state {
         RaffleState::Draft => {
-            rsx! { p { class: "text-3xl font-bold text-base-content/60", "{NOT_FOUND}" } }
+            rsx! { p { class: "text-3xl font-bold text-base-content/70", "{NOT_FOUND}" } }
         }
         RaffleState::Ready | RaffleState::Open | RaffleState::Closed => {
             rsx! { Intro { view: v.clone() } }
@@ -58,21 +61,22 @@ fn ScreenInner(slug: String) -> Element {
 
     rsx! {
         document::Title { "{v.title} — Rafi" }
-        main { class: "flex min-h-screen flex-col gap-[2vh] bg-base-100 bg-dots px-[3vw] py-[2.5vh] text-[clamp(16px,1.5vw,34px)]",
+        main { class: "flex min-h-screen flex-col gap-[2vh] bg-base-100 bg-dots px-[3vw] py-[2.5vh] text-[clamp(16px,1.5vw,58px)] text-base-content",
+            "data-theme": if dark() { "rafi-dark" },
             header { class: "flex items-center gap-4",
                 h1 { class: "flex-1 text-[2.2em] font-extrabold leading-tight", "{v.title}" }
                 Connection { trouble }
                 if v.test_mode {
-                    span { class: "badge badge-warning badge-lg font-bold", "🧪 TEST MODE" }
+                    span { class: "inline-flex items-center gap-[0.4em] rounded-full px-[0.9em] py-[0.3em] text-[0.9em] font-bold bg-warning text-warning-content", "🧪 TEST MODE" }
                 }
                 div { class: "flex items-center gap-1 opacity-40 transition hover:opacity-100",
-                    ThemeToggle {}
+                    ThemeToggle { on_change: move |next: String| dark.set(next == "system") }
                     FullscreenButton {}
                 }
             }
             {body}
             {live.subscription()}
-            footer { class: "flex items-center justify-between text-[0.7em] text-base-content/50",
+            footer { class: "flex items-center justify-between text-[0.8em] text-base-content/70",
                 Brand { size: "text-[1.1em]" }
                 span { class: "inline-flex items-center gap-1", ShieldCheck { class: "size-[1.2em]" } "drand · provably fair" }
             }
@@ -93,7 +97,7 @@ const RELOADING: &str = "This screen is older than the server: reloading…";
 fn Waiting(trouble: Option<Trouble>) -> Element {
     let kind = trouble.map(|t| t.kind);
     rsx! {
-        main { class: "grid min-h-screen place-items-center bg-base-100 bg-dots p-6 text-[clamp(16px,1.5vw,34px)]",
+        main { class: "grid min-h-screen place-items-center bg-base-100 bg-dots p-6 text-[clamp(16px,1.5vw,58px)]",
             div { class: "flex flex-col items-center gap-[1em] text-center", role: "status",
                 Brand { size: "text-4xl" }
                 match kind {
@@ -104,7 +108,7 @@ fn Waiting(trouble: Option<Trouble>) -> Element {
                         p { class: "text-[1.4em] font-bold", "{RELOADING}" }
                     },
                     _ => rsx! {
-                        span { class: "loading loading-dots loading-lg text-primary" }
+                        span { class: "loading loading-dots size-[2em] text-primary" }
                         if trouble.is_some_and(|t| t.offline()) {
                             p { class: "text-[1.2em] font-semibold text-base-content/70", "Can't reach the server. Retrying…" }
                         }
@@ -174,7 +178,7 @@ fn qr_svg(url: &str) -> String {
 fn PrizeList(view: RaffleView) -> Element {
     rsx! {
         section { class: "space-y-[0.6em]",
-            h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/50", "Prizes" }
+            h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/70", "Prizes" }
             ul { class: "space-y-[0.5em]",
                 for p in view.prizes.iter() {
                     li {
@@ -183,7 +187,7 @@ fn PrizeList(view: RaffleView) -> Element {
                         span { class: "grid min-w-[2.4em] place-items-center rounded-xl bg-secondary px-[0.4em] py-[0.15em] font-display font-extrabold text-secondary-content", "{p.left}×" }
                         span { class: "flex-1 font-semibold", "{p.name}" }
                         if !p.sponsor.is_empty() {
-                            span { class: "text-[0.75em] text-base-content/50", "{p.sponsor}" }
+                            span { class: "text-[0.8em] text-base-content/70", "{p.sponsor}" }
                         }
                     }
                 }
@@ -263,9 +267,12 @@ fn Intro(view: RaffleView) -> Element {
                         } else {
                             p { class: "font-display text-[1.6em] font-extrabold", "Scan to join" }
                         }
-                        p { class: "text-[1.05em]",
-                            "or visit "
-                            span { class: "rounded-lg bg-base-200 px-[0.4em] py-[0.1em] font-mono font-bold", "{short}" }
+                        // The code is the biggest thing after the QR code: the
+                        // back row reads it off the wall and types it.
+                        p { class: "font-mono text-[3em] font-black leading-none tracking-[0.2em] tabular-nums", aria_label: "Join code {view.join_code}", "{grouped(&view.join_code)}" }
+                        p { class: "text-[1em] text-base-content/70",
+                            "at "
+                            span { class: "font-mono font-bold", "{short}" }
                         }
                     },
                     RaffleState::Closed => rsx! {
@@ -279,13 +286,13 @@ fn Intro(view: RaffleView) -> Element {
                 }
                 div { class: "flex items-baseline gap-[0.4em]",
                     span { key: "{view.entrant_count}", class: "inline-block animate-pop font-display text-[2.6em] font-black leading-none text-primary", "{view.entrant_count}" }
-                    span { class: "text-[1.2em] font-semibold text-base-content/60", if view.entrant_count == 1 { "entrant" } else { "entrants" } }
+                    span { class: "text-[1.2em] font-semibold text-base-content/70", if view.entrant_count == 1 { "entrant" } else { "entrants" } }
                 }
                 // The latest names, a long one cut with "…" (the organizer
                 // gives up to 64 characters) so the others still fit.
                 ul { class: "flex max-h-[11vh] max-w-full flex-wrap justify-center gap-[0.4em] overflow-hidden", aria_hidden: "true",
                     for (i , name) in view.recent_names.iter().enumerate() {
-                        li { key: "{name}-{i}", class: "badge badge-lg animate-pop max-w-[min(100%,18em)] border-base-300 bg-base-200 font-semibold",
+                        li { key: "{name}-{i}", class: "inline-flex animate-pop max-w-[min(100%,18em)] items-center rounded-full border border-base-300 bg-base-200 px-[0.8em] py-[0.25em] text-[0.95em] font-semibold",
                             bdi { class: "truncate", "{name}" }
                         }
                     }
@@ -336,7 +343,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>, clock: ServerClock)
         let secs = ((remaining_ms.max(0) + 999) / 1000).min(99);
         rsx! {
             div { class: "flex flex-col items-center gap-[0.8em] text-center", role: "status",
-                p { class: "badge badge-primary badge-lg gap-2 font-bold uppercase tracking-widest", Dice5 { class: "size-[1.1em]" } "Drawing" }
+                p { class: "inline-flex items-center gap-[0.4em] rounded-full px-[0.9em] py-[0.3em] text-[0.9em] font-bold bg-primary uppercase tracking-widest text-primary-content", Dice5 { class: "size-[1.1em]" } "Drawing" }
                 h2 { class: "text-[2.8em] font-extrabold leading-tight", "{prize_name}" }
                 div { class: "bounce-dots flex gap-[0.5em]", aria_hidden: "true",
                     for i in 0..7 {
@@ -348,12 +355,12 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>, clock: ServerClock)
                         span { style: "--value:{secs};", aria_live: "polite", aria_label: "{secs}", "{secs}" }
                     }
                 } else {
-                    span { class: "loading loading-dots loading-lg text-primary" }
+                    span { class: "loading loading-dots size-[2em] text-primary" }
                 }
                 if view.last_failure.is_some() && view.current.is_some() {
                     p { class: "alert alert-warning alert-soft text-[0.8em]", "⏳ Still fetching drand round {round}" }
                 }
-                p { class: "text-[0.9em] text-base-content/60", "Locking in public randomness · drand round {round}" }
+                p { class: "text-[0.9em] text-base-content/70", "Locking in public randomness · drand round {round}" }
             }
         }
     } else if let Some(reveal) = winner {
@@ -362,8 +369,8 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>, clock: ServerClock)
         rsx! {
             div { class: "flex flex-col items-center gap-[0.6em] text-center",
                 span { class: "animate-float text-[5em]", "🎁" }
-                p { class: "font-display text-[3em] font-black", "{left} " span { class: "text-base-content/60", if left == 1 { "prize left" } else { "prizes left" } } }
-                p { class: "text-[1.2em] text-base-content/60", if view.entrant_count == 1 { "1 entrant" } else { "{view.entrant_count} entrants" } }
+                p { class: "font-display text-[3em] font-black", "{left} " span { class: "text-base-content/70", if left == 1 { "prize left" } else { "prizes left" } } }
+                p { class: "text-[1.2em] text-base-content/70", if view.entrant_count == 1 { "1 entrant" } else { "{view.entrant_count} entrants" } }
                 if let Some(f) = &view.last_failure {
                     p { class: "alert alert-warning alert-soft text-[0.8em]", "⚠ {f}" }
                 }
@@ -375,7 +382,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>, clock: ServerClock)
         // `min-w-0`: a long name wraps or is cut inside its column rather
         // than widening it past the screen.
         div { class: "grid flex-1 gap-[3vw] lg:grid-cols-[2fr_1fr]",
-            div { class: "card grid min-w-0 place-items-center bg-base-200/60 p-[3vh] ring-1 ring-base-300",
+            div { class: "card grid min-w-0 place-items-center bg-base-200 p-[3vh] ring-1 ring-base-300",
                 div { class: "w-full min-w-0", aria_live: "polite", {stage} }
             }
             aside { class: "min-w-0 space-y-[2em]",
@@ -410,7 +417,7 @@ fn Winner(reveal: Reveal) -> Element {
                     span { key: "{i}", style: "--i: {i}" }
                 }
             }
-            span { class: "badge badge-secondary badge-lg gap-2 font-bold", Trophy { class: "size-[1.1em]" } "{reveal.prize_name}" }
+            span { class: "inline-flex items-center gap-[0.4em] rounded-full px-[0.9em] py-[0.3em] text-[0.9em] font-bold bg-secondary text-secondary-content", Trophy { class: "size-[1.1em]" } "{reveal.prize_name}" }
             h2 { class: "gradient-text animate-reveal max-w-full py-[0.1em] font-black leading-[1.05] text-balance wrap-anywhere {reveal_size(&reveal.display_name)}",
                 bdi { "{reveal.display_name}" }
             }
@@ -420,7 +427,7 @@ fn Winner(reveal: Reveal) -> Element {
                 p { class: "animate-pop font-display text-[2.2em] font-extrabold text-primary", "Come to the front!" }
             }
             if let Some(round) = reveal.round {
-                p { class: "text-[0.9em] text-base-content/60",
+                p { class: "text-[0.9em] text-base-content/70",
                     "drand round {round}"
                 }
             }
@@ -451,7 +458,7 @@ fn History(draws: Vec<DrawView>) -> Element {
     }
     rsx! {
         section { class: "space-y-[0.6em]",
-            h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/50", "Winners" }
+            h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/70", "Winners" }
             ul { class: "space-y-[0.4em]",
                 for d in draws.iter().rev() {
                     li { key: "{d.k}", class: "flex items-center gap-[0.5em]",
@@ -463,10 +470,10 @@ fn History(draws: Vec<DrawView>) -> Element {
                             }
                         }
                         bdi { class: if matches!(d.outcome, Outcome::NotHere | Outcome::Declined) { "min-w-0 truncate font-bold line-through opacity-50" } else { "min-w-0 truncate font-bold" }, "{d.display_name}" }
-                        span { class: "truncate text-[0.85em] text-base-content/60", "{d.prize_name}" }
+                        span { class: "truncate text-[0.85em] text-base-content/70", "{d.prize_name}" }
                         match d.outcome {
-                            Outcome::NotHere => rsx! { span { class: "badge badge-ghost badge-sm", "not here" } },
-                            Outcome::Declined => rsx! { span { class: "badge badge-ghost badge-sm", "declined" } },
+                            Outcome::NotHere => rsx! { span { class: "shrink-0 rounded-full bg-base-300 px-[0.6em] py-[0.1em] text-[0.8em] font-semibold", "not here" } },
+                            Outcome::Declined => rsx! { span { class: "shrink-0 rounded-full bg-base-300 px-[0.6em] py-[0.1em] text-[0.8em] font-semibold", "declined" } },
                             _ => rsx! {},
                         }
                     }
@@ -509,7 +516,7 @@ fn Finished(view: RaffleView) -> Element {
                         // push the others off the screen.
                         div { key: "{d.k}", class: "card max-w-[min(100%,24em)] bg-base-200 px-[1em] py-[0.6em] ring-1 ring-base-300",
                             p { class: "truncate font-display text-[1.2em] font-extrabold", "🏆 " bdi { "{d.display_name}" } }
-                            p { class: "truncate text-[0.8em] text-base-content/60", "{d.prize_name}" }
+                            p { class: "truncate text-[0.8em] text-base-content/70", "{d.prize_name}" }
                         }
                     }
                 }

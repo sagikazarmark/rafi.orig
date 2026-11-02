@@ -255,20 +255,20 @@ pub fn page(page: Page<'_>) -> String {
                         if let Some(err) = error {
                             div { class: "alert alert-error alert-soft my-2", role: "alert", "{err}" }
                         }
-                        fieldset { class: "fieldset",
-                            legend { class: "fieldset-legend text-sm", "Name shown on the screen (optional)" }
+                        div { class: "fieldset",
+                            label { class: "fieldset-legend text-sm", r#for: "name", "Name shown on the screen (optional)" }
                             div { class: "join w-full",
-                                input { class: "input input-lg join-item w-full", id: "name", name: "name", maxlength: "{rafi_lifecycle::entrant::MAX_NAME_CHARS}", autocomplete: "nickname", value: "{name}" }
+                                input { class: "input input-lg join-item w-full", id: "name", name: "name", maxlength: "{rafi_lifecycle::entrant::MAX_NAME_CHARS}", autocomplete: "nickname", aria_describedby: "name-hint", value: "{name}" }
                                 // Enabled by the WebAssembly (or the fallback):
                                 // fills in the next of `name_ideas`.
                                 button { class: "btn btn-lg join-item", r#type: "button", id: "name-dice", disabled: true, title: "Suggest a name", aria_label: "Suggest a name", "🎲" }
                             }
-                            p { class: "label whitespace-normal", "A first name or nickname is enough. Leave it blank and we'll pick one for you, like Brave Otter." }
+                            p { class: "label whitespace-normal", id: "name-hint", "A first name or nickname is enough. Leave it blank and we'll pick one for you, like Brave Otter." }
                         }
-                        fieldset { class: "fieldset",
-                            legend { class: "fieldset-legend text-sm", "Email" }
-                            input { class: "input input-lg w-full", id: "email", name: "email", r#type: "email", required: true, autocomplete: "email", inputmode: "email", value: "{email}" }
-                            p { class: "label whitespace-normal", "Only to tell entries apart and to deliver prizes. Never shown." }
+                        div { class: "fieldset",
+                            label { class: "fieldset-legend text-sm", r#for: "email", "Email" }
+                            input { class: "input input-lg w-full", id: "email", name: "email", r#type: "email", required: true, autocomplete: "email", inputmode: "email", aria_describedby: "email-hint", value: "{email}" }
+                            p { class: "label whitespace-normal", id: "email-hint", "Only to tell entries apart and to deliver prizes. Never shown." }
                         }
                         label { class: "mt-3 flex items-start gap-3",
                             input { class: "checkbox checkbox-primary mt-0.5", r#type: "checkbox", name: "rules", value: "on", required: true }
@@ -286,9 +286,18 @@ pub fn page(page: Page<'_>) -> String {
                         input { r#type: "hidden", name: "proof", id: "proof" }
                         // Enabled by the WebAssembly (or the fallback) once the
                         // proof-of-work is solved; it then shows `data-label`.
-                        button { class: "btn btn-primary btn-lg btn-block mt-4 rounded-full", r#type: "submit", id: "submit", disabled: true, "data-label": "Join 🎟️",
+                        button { class: "btn btn-primary btn-lg btn-block mt-4 rounded-full", r#type: "submit", id: "submit", disabled: true, "data-label": "Join 🎟️", aria_describedby: "pow-status",
                             span { class: "loading loading-spinner loading-md" }
                             "Getting ready…"
+                        }
+                        // What the wait is, said aloud too: the button above
+                        // is disabled meanwhile, and a disabled button says
+                        // nothing. The scripts clear it once solved, or say
+                        // `data-failed` when the check couldn't run (Join
+                        // then tries again).
+                        p { id: "pow-status", class: "min-h-5 text-center text-sm text-base-content/70", role: "status", aria_live: "polite",
+                            "data-failed": "Couldn't reach the server for the bot check. Tap Join to try again.",
+                            "Checking this isn't a bot… (a few seconds)"
                         }
                     }
                 }

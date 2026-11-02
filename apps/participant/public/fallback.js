@@ -225,6 +225,8 @@
     input.value = "";
     powDeadline = null;
     submit.disabled = true;
+    var waiting = document.getElementById("pow-status");
+    if (waiting) waiting.textContent = "Checking this isn't a bot… (a few seconds)";
     var value = "", deadline = null;
     try {
       if (window.isSecureContext && window.crypto && crypto.subtle) {
@@ -247,6 +249,8 @@
     powDeadline = deadline;
     var label = submit.getAttribute("data-label");
     if (label) submit.innerHTML = label;
+    var status = document.getElementById("pow-status");
+    if (status) status.textContent = value ? "" : (status.getAttribute("data-failed") || "");
     submit.disabled = false;
     if (then && value) {
       if (then.requestSubmit) then.requestSubmit(); else then.submit();
@@ -313,7 +317,8 @@
   // before the form posts.
   if (form && cfg.needs_pow) form.addEventListener("submit", function (e) {
     var input = document.getElementById("proof");
-    if (powDeadline != null && performance.now() >= powDeadline && input && input.value) {
+    // A solution past its deadline, or none (the check failed): solved again first.
+    if (input && (!input.value || (powDeadline != null && performance.now() >= powDeadline))) {
       e.preventDefault();
       solvePow(form);
     }

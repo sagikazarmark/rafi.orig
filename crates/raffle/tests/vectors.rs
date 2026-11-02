@@ -39,11 +39,89 @@ struct Scenario {
     events: serde_json::Value,
 }
 
+/// The scenario with one thing changed: every verifier must fail it.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct Tampered {
+    /// What was changed.
+    what: String,
+    manifest: String,
+    manifest_hash: String,
+    events: serde_json::Value,
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct Vectors {
     algo: String,
     select: Vec<SelectVector>,
     scenario: Scenario,
+    tampered: Vec<Tampered>,
+}
+
+/// The scenario's tamperings, each a log no honest raffle writes: what the
+/// Rust verifier's own tamper tests change, on the shared scenario.
+fn tamper(scenario: &Scenario) -> Vec<Tampered> {
+    let events = scenario.events.as_array().unwrap().clone();
+    let drawn: Vec<usize> = events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e["type"] == "drawn")
+        .map(|(i, _)| i)
+        .collect();
+    let with = |what: &str, change: &dyn Fn(&mut Vec<serde_json::Value>)| {
+        let mut events = events.clone();
+        change(&mut events);
+        Tampered {
+            what: what.into(),
+            manifest: scenario.manifest.clone(),
+            manifest_hash: scenario.manifest_hash.clone(),
+            events: serde_json::Value::Array(events),
+        }
+    };
+    let last = *drawn.last().unwrap();
+    let first = drawn[0];
+    let mut list = vec![
+        with("another winner", &|e| {
+            let other = if e[last]["entrant"] == e[first]["entrant"] {
+                last - 1
+            } else {
+                first
+            };
+            e[last]["entrant"] = e[other]["entrant"].clone();
+        }),
+        with("another index", &|e| {
+            let i = e[last]["index"].as_u64().unwrap();
+            e[last]["index"] = (i + 1).into();
+        }),
+        with("another round than announced", &|e| {
+            let r = e[first]["round"].as_u64().unwrap();
+            e[first]["round"] = (r + 1).into();
+        }),
+        with("the pool changed while a draw was pending", &|e| {
+            // "Not here" for the first draw, while the next one is announced
+            // and not yet drawn.
+            let announced = e
+                .iter()
+                .position(|x| x["type"] == "announced" && x["k"] == 2)
+                .unwrap();
+            e.insert(
+                announced + 1,
+                serde_json::json!({"type": "resolved", "k": 1, "resolution": "declined"}),
+            );
+        }),
+        with("an event type nobody knows", &|e| {
+            e.push(serde_json::json!({"type": "swapped", "k": 1}));
+        }),
+    ];
+    // A byte of the manifest: its hash no longer matches.
+    let mut manifest = scenario.manifest.clone();
+    manifest = manifest.replacen("Voucher", "Vaucher", 1);
+    list.push(Tampered {
+        what: "a byte of the manifest".into(),
+        manifest,
+        manifest_hash: scenario.manifest_hash.clone(),
+        events: scenario.events.clone(),
+    });
+    list
 }
 
 fn h(label: &str) -> [u8; 32] {
@@ -165,14 +243,16 @@ fn generate() -> Vectors {
     decide(&mut s, resolve("book-2", Resolution::Claimed));
     decide(&mut s, Decision::Finish);
 
+    let scenario = Scenario {
+        manifest: doc.canonical_json(),
+        manifest_hash: s.manifest_hash().to_string(),
+        events: serde_json::to_value(s.events()).unwrap(),
+    };
     Vectors {
         algo: algorithm::ALGO.into(),
         select,
-        scenario: Scenario {
-            manifest: doc.canonical_json(),
-            manifest_hash: s.manifest_hash().to_string(),
-            events: serde_json::to_value(s.events()).unwrap(),
-        },
+        tampered: tamper(&scenario),
+        scenario,
     }
 }
 
@@ -209,6 +289,17 @@ fn vectors_match() {
         &events,
     );
     assert!(report.ok(), "{report:#?}");
+
+    // Every tampering fails: a log that doesn't read (an unknown event type)
+    // fails closed.
+    for t in &stored.tampered {
+        let failed = match serde_json::from_value::<Vec<Event>>(t.events.clone()) {
+            Ok(events) => !verify_public(&t.manifest, &t.manifest_hash, &events).ok(),
+            Err(_) => true,
+        };
+        assert!(failed, "tampered ({}) passed", t.what);
+    }
+    assert_eq!(stored.tampered.len(), 6);
 }
 
 /// After every event of the scenario, the entrants of claimed draws are the

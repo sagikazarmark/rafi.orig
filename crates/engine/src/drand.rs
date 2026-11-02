@@ -158,6 +158,8 @@ pub struct DrandClient {
 pub struct DrandClientBuilder {
     cfg: DrandConfig,
     transport: Option<Arc<dyn HttpTransport>>,
+    /// The mock chain asked of the relays over HTTP, not served in process.
+    mock_over_http: bool,
 }
 
 impl DrandClientBuilder {
@@ -168,18 +170,32 @@ impl DrandClientBuilder {
         self
     }
 
+    /// With the mock chain, asks the configured relays for it over HTTP
+    /// instead of serving it in process: tests of the fetching itself (a
+    /// relay down, a relay failing and then answering) against a local relay
+    /// that signs with the mock chain's key. Needs the `mock-drand` feature.
+    #[cfg(feature = "mock-drand")]
+    pub fn mock_over_http(mut self) -> Self {
+        self.mock_over_http = true;
+        self
+    }
+
     /// Validates the configuration and builds the client (fails at startup on
     /// bad settings, a mock request without the `mock-drand` feature, relays
     /// without a transport, or an unverifiable chain).
     pub fn build(self) -> anyhow::Result<DrandClient> {
-        let Self { cfg, transport } = self;
+        let Self {
+            cfg,
+            transport,
+            mock_over_http,
+        } = self;
         cfg.validate()?;
         let chain = cfg.chain()?;
         let builder = Client::builder(chain)
             .strategy(Strategy::default())
             .request_timeout(Duration::from_secs(5))
             .user_agent("rafi (+https://github.com/sagikazarmark/rafi)");
-        let client = if cfg.mock {
+        let client = if cfg.mock && !mock_over_http {
             #[cfg(feature = "mock-drand")]
             {
                 builder.test_transport(mock_chain()).build()?
@@ -205,6 +221,7 @@ impl DrandClient {
         DrandClientBuilder {
             cfg,
             transport: None,
+            mock_over_http: false,
         }
     }
 

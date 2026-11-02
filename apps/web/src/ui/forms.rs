@@ -258,18 +258,22 @@ pub fn DeliveryPicker(
     #[props(into, default = String::from("How the winner gets the prize"))]
     label: String,
 ) -> Element {
+    // Native radios, styled as buttons (daisyUI shows their aria-label): the
+    // browser gives them the keyboard (arrow keys within the group) and says
+    // which is checked.
+    let name = use_hook(|| format!("delivery-{}", uuid::Uuid::new_v4().simple()));
     rsx! {
         div { class: "join", role: "radiogroup", aria_label: label,
             for d in [Delivery::OnTheSpot, Delivery::Later] {
-                button {
+                input {
                     key: "{d.as_str()}",
-                    r#type: "button",
-                    role: "radio",
-                    aria_checked: if value == Some(d) { "true" } else { "false" },
-                    class: if value == Some(d) { "btn join-item {size} btn-active btn-secondary" } else { "btn join-item {size}" },
+                    r#type: "radio",
+                    name: "{name}",
+                    class: "btn join-item {size} checked:btn-secondary",
+                    aria_label: delivery_label(d),
+                    checked: value == Some(d),
                     disabled,
-                    onclick: move |_| on_pick.call(d),
-                    "{delivery_label(d)}"
+                    onchange: move |_| on_pick.call(d),
                 }
             }
         }

@@ -57,10 +57,37 @@ stylesheet, so a colour that doesn't fails `cargo test -p rafi-web`.
   (`Trouble`): before any view, the projector says there is no raffle at the address (a 404) or that the server
   can't be reached; over one, a "Reconnecting…" badge after ten seconds. A reply the page can't read
   (`codes::UNREADABLE`) is a page older than the server: the projector reloads, once a minute at most. The admin's
-  header shows "Offline" from `navigator.onLine` and the same count.
+  header shows "Offline" from `navigator.onLine` and the same count. Polls are jittered (±20 %), back off while they
+  fail (doubling to 10 s), and stop while the page is hidden; the page coming back fetches at once (one fetch for
+  the events that come together). `Follow::Poll { every_ms }` is the server's knob for slowing every screen down.
+- **The admin's data** (`get_raffle`, every entrant) is fetched again when the live view moves: at once for a moment
+  of the evening (the state, a draw pending or decided, a failure, the channel ended), otherwise at most every
+  10 s, so a room joining doesn't refetch the list with each join.
+- **The projector** is dark unless a scheme was picked with its toggle (a lit room washes out a light screen); its
+  type is in `em` of a root that grows with the screen, chips included (no daisyUI badges, which are rem-sized).
 - **Phones** follow the live channel; one the server refuses or closes for good (4403) polls the participant view
   instead, and tries the channel again after 5 s, doubling to a minute. A WebAssembly module that arrives after the
   loader started `fallback.js` doesn't start: the fallback has the page.
+
+## What can't be taken back
+
+Every action that deletes, erases, cuts people off or can't be undone asks first or offers an undo:
+
+| Action | Where | Guard |
+|---|---|---|
+| Delete a raffle | the header's menu | a confirmation naming what goes |
+| Erase personal data now | the header's menu | a confirmation |
+| All prizes delivered | the header's menu | a confirmation (their data is then erased with everyone's) |
+| Freeze and start the draw | the header | a confirmation (what it publishes, the list reminder) |
+| Close registration | the header | a toast saying how to reopen; Reopen registration is the next button |
+| Unpublish | the header | a confirmation once anyone is in |
+| End live updates | the header | a confirmation |
+| Remove a prize | the Prizes tab | a confirmation |
+| Remove or erase an entrant | the People tab | a confirmation (at their request or not) |
+| Took themselves off, and its undo | the People tab | a confirmation each way |
+| Mark delivered | the People tab | an Undo beside "✓ delivered"; past the erasure date, a confirmation (they are erased within the hour) |
+| Undo last add | the People tab | a confirmation |
+| Not here, Declined, Withdraw, Abandon, Finish | the draw console | a confirmation each |
 
 ## Forms and components
 

@@ -65,8 +65,9 @@ fn PrizeRow(
 ) -> Element {
     let mut editing = use_signal(|| false);
     let mut saving = use_signal(|| false);
+    let mut ask_remove = use_signal(|| false);
     let (rid, iid) = (raffle_id.clone(), prize.id.clone());
-    let remove = move |_| {
+    let remove = move || {
         let (rid, iid) = (rid.clone(), iid.clone());
         async move {
             match api::delete_prize(rid, iid).await {
@@ -135,8 +136,16 @@ fn PrizeRow(
             }
             if editable {
                 button { class: "btn btn-ghost btn-sm btn-square", title: "Edit", aria_label: "Edit {prize.name}", onclick: move |_| editing.set(true), Pencil { class: "size-4" } }
-                button { class: "btn btn-ghost btn-sm btn-square text-error", title: "Remove", aria_label: "Remove {prize.name}", onclick: remove, Trash { class: "size-4" } }
+                button { class: "btn btn-ghost btn-sm btn-square text-error", title: "Remove", aria_label: "Remove {prize.name}", onclick: move |_| ask_remove.set(true), Trash { class: "size-4" } }
             }
+        }
+        Confirm {
+            open: ask_remove,
+            title: rsx! { "Remove the {prize.name}?" },
+            body: rsx! { if prize.qty == 1 { "It won't be drawn." } else { "All {prize.qty} copies go, and none is drawn." } " Add it again if you change your mind." },
+            action: "Remove",
+            danger: true,
+            on_confirm: move |_| { spawn(remove()); },
         }
     }
 }

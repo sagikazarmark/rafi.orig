@@ -225,5 +225,946 @@
         "type": "finished"
       }
     ]
-  }
+  },
+  "tampered": [
+    {
+      "what": "another winner",
+      "manifest": "{\"algo\":\"rafi-draw-v1\",\"raffle\":\"raffle-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"book-1\",\"name\":\"Book\"},{\"id\":\"book-2\",\"name\":\"Book\"},{\"id\":\"voucher-1\",\"name\":\"Voucher\"},{\"id\":\"mug-1\",\"name\":\"Mug\"}]}",
+      "manifest_hash": "4c415cf2e358054c438ef3ccae56791cf639cec93ff3e6090db62b530f8b942c",
+      "events": [
+        {
+          "item": "voucher-1",
+          "k": 1,
+          "round": 1000,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+          "index": 1,
+          "item": "voucher-1",
+          "k": 1,
+          "pass": 1,
+          "pool_size": 12,
+          "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
+          "round": 1000,
+          "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39",
+          "type": "drawn"
+        },
+        {
+          "k": 1,
+          "resolution": "not_here",
+          "type": "resolved"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1003,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "abandoned by the organizer",
+          "round": 1003,
+          "type": "abandoned"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1005,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "drand unavailable",
+          "round": 1005,
+          "type": "stalled"
+        },
+        {
+          "entrant": "514fd5455cdd9fd3fbb20606fa906d11",
+          "index": 5,
+          "item": "voucher-1",
+          "k": 2,
+          "pass": 1,
+          "pool_size": 11,
+          "randomness": "f9cf57940dfd9b61e980576f5f9c095d8596208d337a924bf06c1ab04a3796fa",
+          "round": 1005,
+          "signature": "b896a4e9ebdb143601d1cdb39aa9357ef27b48d7d3c1c614e14110243850a9ea21fd96e016a5b64c2a2960d1c73abad8",
+          "type": "drawn"
+        },
+        {
+          "k": 2,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 3,
+          "round": 1010,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "6eb793315b90afb8bbddafe5f3abcf67",
+          "index": 5,
+          "item": "book-1",
+          "k": 3,
+          "pass": 1,
+          "pool_size": 10,
+          "randomness": "70b604d40183d07425c86176196a94decd915d5fc1e35841eb25032e6c406c7e",
+          "round": 1010,
+          "signature": "8bea13e7e5f9c9c51cd061ecf09b33fb1cfc23e7bd947c669e16fb56a15c090908c69a19750d659a12ee3c25692792bd",
+          "type": "drawn"
+        },
+        {
+          "k": 3,
+          "resolution": "declined",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 4,
+          "round": 1012,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "cec0f5b79f0b01d34f7481a9c9be2ca7",
+          "index": 7,
+          "item": "book-1",
+          "k": 4,
+          "pass": 1,
+          "pool_size": 9,
+          "randomness": "e66f9bc889657e76d70a49e8f7bff3ae4a807e0ee4bc35b3f1e835162c108a3c",
+          "round": 1012,
+          "signature": "af176bfcdd76db41f832282db70e135dcb94deb21c29103ea10a0145cb271eb157ae4bdb33be0ea593e3ed0fb164673c",
+          "type": "drawn"
+        },
+        {
+          "k": 4,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "mug-1",
+          "type": "voided"
+        },
+        {
+          "item": "book-2",
+          "k": 5,
+          "round": 1020,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+          "index": 0,
+          "item": "book-2",
+          "k": 5,
+          "pass": 1,
+          "pool_size": 8,
+          "randomness": "2fb65482b8bb669be0f791624f6f9febb3234063254275908744a76039b2d3b7",
+          "round": 1020,
+          "signature": "a2954ec8148428ea29c24477bff6e7a58459d3a546d429950ab9ae8b0b7d4297b60a87322b1964407c71440362011248",
+          "type": "drawn"
+        },
+        {
+          "k": 5,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "type": "finished"
+        }
+      ]
+    },
+    {
+      "what": "another index",
+      "manifest": "{\"algo\":\"rafi-draw-v1\",\"raffle\":\"raffle-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"book-1\",\"name\":\"Book\"},{\"id\":\"book-2\",\"name\":\"Book\"},{\"id\":\"voucher-1\",\"name\":\"Voucher\"},{\"id\":\"mug-1\",\"name\":\"Mug\"}]}",
+      "manifest_hash": "4c415cf2e358054c438ef3ccae56791cf639cec93ff3e6090db62b530f8b942c",
+      "events": [
+        {
+          "item": "voucher-1",
+          "k": 1,
+          "round": 1000,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+          "index": 1,
+          "item": "voucher-1",
+          "k": 1,
+          "pass": 1,
+          "pool_size": 12,
+          "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
+          "round": 1000,
+          "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39",
+          "type": "drawn"
+        },
+        {
+          "k": 1,
+          "resolution": "not_here",
+          "type": "resolved"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1003,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "abandoned by the organizer",
+          "round": 1003,
+          "type": "abandoned"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1005,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "drand unavailable",
+          "round": 1005,
+          "type": "stalled"
+        },
+        {
+          "entrant": "514fd5455cdd9fd3fbb20606fa906d11",
+          "index": 5,
+          "item": "voucher-1",
+          "k": 2,
+          "pass": 1,
+          "pool_size": 11,
+          "randomness": "f9cf57940dfd9b61e980576f5f9c095d8596208d337a924bf06c1ab04a3796fa",
+          "round": 1005,
+          "signature": "b896a4e9ebdb143601d1cdb39aa9357ef27b48d7d3c1c614e14110243850a9ea21fd96e016a5b64c2a2960d1c73abad8",
+          "type": "drawn"
+        },
+        {
+          "k": 2,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 3,
+          "round": 1010,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "6eb793315b90afb8bbddafe5f3abcf67",
+          "index": 5,
+          "item": "book-1",
+          "k": 3,
+          "pass": 1,
+          "pool_size": 10,
+          "randomness": "70b604d40183d07425c86176196a94decd915d5fc1e35841eb25032e6c406c7e",
+          "round": 1010,
+          "signature": "8bea13e7e5f9c9c51cd061ecf09b33fb1cfc23e7bd947c669e16fb56a15c090908c69a19750d659a12ee3c25692792bd",
+          "type": "drawn"
+        },
+        {
+          "k": 3,
+          "resolution": "declined",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 4,
+          "round": 1012,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "cec0f5b79f0b01d34f7481a9c9be2ca7",
+          "index": 7,
+          "item": "book-1",
+          "k": 4,
+          "pass": 1,
+          "pool_size": 9,
+          "randomness": "e66f9bc889657e76d70a49e8f7bff3ae4a807e0ee4bc35b3f1e835162c108a3c",
+          "round": 1012,
+          "signature": "af176bfcdd76db41f832282db70e135dcb94deb21c29103ea10a0145cb271eb157ae4bdb33be0ea593e3ed0fb164673c",
+          "type": "drawn"
+        },
+        {
+          "k": 4,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "mug-1",
+          "type": "voided"
+        },
+        {
+          "item": "book-2",
+          "k": 5,
+          "round": 1020,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "181a4a87fd2513b3ddbb203b838c953a",
+          "index": 1,
+          "item": "book-2",
+          "k": 5,
+          "pass": 1,
+          "pool_size": 8,
+          "randomness": "2fb65482b8bb669be0f791624f6f9febb3234063254275908744a76039b2d3b7",
+          "round": 1020,
+          "signature": "a2954ec8148428ea29c24477bff6e7a58459d3a546d429950ab9ae8b0b7d4297b60a87322b1964407c71440362011248",
+          "type": "drawn"
+        },
+        {
+          "k": 5,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "type": "finished"
+        }
+      ]
+    },
+    {
+      "what": "another round than announced",
+      "manifest": "{\"algo\":\"rafi-draw-v1\",\"raffle\":\"raffle-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"book-1\",\"name\":\"Book\"},{\"id\":\"book-2\",\"name\":\"Book\"},{\"id\":\"voucher-1\",\"name\":\"Voucher\"},{\"id\":\"mug-1\",\"name\":\"Mug\"}]}",
+      "manifest_hash": "4c415cf2e358054c438ef3ccae56791cf639cec93ff3e6090db62b530f8b942c",
+      "events": [
+        {
+          "item": "voucher-1",
+          "k": 1,
+          "round": 1000,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+          "index": 1,
+          "item": "voucher-1",
+          "k": 1,
+          "pass": 1,
+          "pool_size": 12,
+          "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
+          "round": 1001,
+          "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39",
+          "type": "drawn"
+        },
+        {
+          "k": 1,
+          "resolution": "not_here",
+          "type": "resolved"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1003,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "abandoned by the organizer",
+          "round": 1003,
+          "type": "abandoned"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1005,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "drand unavailable",
+          "round": 1005,
+          "type": "stalled"
+        },
+        {
+          "entrant": "514fd5455cdd9fd3fbb20606fa906d11",
+          "index": 5,
+          "item": "voucher-1",
+          "k": 2,
+          "pass": 1,
+          "pool_size": 11,
+          "randomness": "f9cf57940dfd9b61e980576f5f9c095d8596208d337a924bf06c1ab04a3796fa",
+          "round": 1005,
+          "signature": "b896a4e9ebdb143601d1cdb39aa9357ef27b48d7d3c1c614e14110243850a9ea21fd96e016a5b64c2a2960d1c73abad8",
+          "type": "drawn"
+        },
+        {
+          "k": 2,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 3,
+          "round": 1010,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "6eb793315b90afb8bbddafe5f3abcf67",
+          "index": 5,
+          "item": "book-1",
+          "k": 3,
+          "pass": 1,
+          "pool_size": 10,
+          "randomness": "70b604d40183d07425c86176196a94decd915d5fc1e35841eb25032e6c406c7e",
+          "round": 1010,
+          "signature": "8bea13e7e5f9c9c51cd061ecf09b33fb1cfc23e7bd947c669e16fb56a15c090908c69a19750d659a12ee3c25692792bd",
+          "type": "drawn"
+        },
+        {
+          "k": 3,
+          "resolution": "declined",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 4,
+          "round": 1012,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "cec0f5b79f0b01d34f7481a9c9be2ca7",
+          "index": 7,
+          "item": "book-1",
+          "k": 4,
+          "pass": 1,
+          "pool_size": 9,
+          "randomness": "e66f9bc889657e76d70a49e8f7bff3ae4a807e0ee4bc35b3f1e835162c108a3c",
+          "round": 1012,
+          "signature": "af176bfcdd76db41f832282db70e135dcb94deb21c29103ea10a0145cb271eb157ae4bdb33be0ea593e3ed0fb164673c",
+          "type": "drawn"
+        },
+        {
+          "k": 4,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "mug-1",
+          "type": "voided"
+        },
+        {
+          "item": "book-2",
+          "k": 5,
+          "round": 1020,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "181a4a87fd2513b3ddbb203b838c953a",
+          "index": 0,
+          "item": "book-2",
+          "k": 5,
+          "pass": 1,
+          "pool_size": 8,
+          "randomness": "2fb65482b8bb669be0f791624f6f9febb3234063254275908744a76039b2d3b7",
+          "round": 1020,
+          "signature": "a2954ec8148428ea29c24477bff6e7a58459d3a546d429950ab9ae8b0b7d4297b60a87322b1964407c71440362011248",
+          "type": "drawn"
+        },
+        {
+          "k": 5,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "type": "finished"
+        }
+      ]
+    },
+    {
+      "what": "the pool changed while a draw was pending",
+      "manifest": "{\"algo\":\"rafi-draw-v1\",\"raffle\":\"raffle-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"book-1\",\"name\":\"Book\"},{\"id\":\"book-2\",\"name\":\"Book\"},{\"id\":\"voucher-1\",\"name\":\"Voucher\"},{\"id\":\"mug-1\",\"name\":\"Mug\"}]}",
+      "manifest_hash": "4c415cf2e358054c438ef3ccae56791cf639cec93ff3e6090db62b530f8b942c",
+      "events": [
+        {
+          "item": "voucher-1",
+          "k": 1,
+          "round": 1000,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+          "index": 1,
+          "item": "voucher-1",
+          "k": 1,
+          "pass": 1,
+          "pool_size": 12,
+          "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
+          "round": 1000,
+          "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39",
+          "type": "drawn"
+        },
+        {
+          "k": 1,
+          "resolution": "not_here",
+          "type": "resolved"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1003,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "k": 1,
+          "resolution": "declined",
+          "type": "resolved"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "abandoned by the organizer",
+          "round": 1003,
+          "type": "abandoned"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1005,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "drand unavailable",
+          "round": 1005,
+          "type": "stalled"
+        },
+        {
+          "entrant": "514fd5455cdd9fd3fbb20606fa906d11",
+          "index": 5,
+          "item": "voucher-1",
+          "k": 2,
+          "pass": 1,
+          "pool_size": 11,
+          "randomness": "f9cf57940dfd9b61e980576f5f9c095d8596208d337a924bf06c1ab04a3796fa",
+          "round": 1005,
+          "signature": "b896a4e9ebdb143601d1cdb39aa9357ef27b48d7d3c1c614e14110243850a9ea21fd96e016a5b64c2a2960d1c73abad8",
+          "type": "drawn"
+        },
+        {
+          "k": 2,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 3,
+          "round": 1010,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "6eb793315b90afb8bbddafe5f3abcf67",
+          "index": 5,
+          "item": "book-1",
+          "k": 3,
+          "pass": 1,
+          "pool_size": 10,
+          "randomness": "70b604d40183d07425c86176196a94decd915d5fc1e35841eb25032e6c406c7e",
+          "round": 1010,
+          "signature": "8bea13e7e5f9c9c51cd061ecf09b33fb1cfc23e7bd947c669e16fb56a15c090908c69a19750d659a12ee3c25692792bd",
+          "type": "drawn"
+        },
+        {
+          "k": 3,
+          "resolution": "declined",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 4,
+          "round": 1012,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "cec0f5b79f0b01d34f7481a9c9be2ca7",
+          "index": 7,
+          "item": "book-1",
+          "k": 4,
+          "pass": 1,
+          "pool_size": 9,
+          "randomness": "e66f9bc889657e76d70a49e8f7bff3ae4a807e0ee4bc35b3f1e835162c108a3c",
+          "round": 1012,
+          "signature": "af176bfcdd76db41f832282db70e135dcb94deb21c29103ea10a0145cb271eb157ae4bdb33be0ea593e3ed0fb164673c",
+          "type": "drawn"
+        },
+        {
+          "k": 4,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "mug-1",
+          "type": "voided"
+        },
+        {
+          "item": "book-2",
+          "k": 5,
+          "round": 1020,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "181a4a87fd2513b3ddbb203b838c953a",
+          "index": 0,
+          "item": "book-2",
+          "k": 5,
+          "pass": 1,
+          "pool_size": 8,
+          "randomness": "2fb65482b8bb669be0f791624f6f9febb3234063254275908744a76039b2d3b7",
+          "round": 1020,
+          "signature": "a2954ec8148428ea29c24477bff6e7a58459d3a546d429950ab9ae8b0b7d4297b60a87322b1964407c71440362011248",
+          "type": "drawn"
+        },
+        {
+          "k": 5,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "type": "finished"
+        }
+      ]
+    },
+    {
+      "what": "an event type nobody knows",
+      "manifest": "{\"algo\":\"rafi-draw-v1\",\"raffle\":\"raffle-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"book-1\",\"name\":\"Book\"},{\"id\":\"book-2\",\"name\":\"Book\"},{\"id\":\"voucher-1\",\"name\":\"Voucher\"},{\"id\":\"mug-1\",\"name\":\"Mug\"}]}",
+      "manifest_hash": "4c415cf2e358054c438ef3ccae56791cf639cec93ff3e6090db62b530f8b942c",
+      "events": [
+        {
+          "item": "voucher-1",
+          "k": 1,
+          "round": 1000,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+          "index": 1,
+          "item": "voucher-1",
+          "k": 1,
+          "pass": 1,
+          "pool_size": 12,
+          "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
+          "round": 1000,
+          "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39",
+          "type": "drawn"
+        },
+        {
+          "k": 1,
+          "resolution": "not_here",
+          "type": "resolved"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1003,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "abandoned by the organizer",
+          "round": 1003,
+          "type": "abandoned"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1005,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "drand unavailable",
+          "round": 1005,
+          "type": "stalled"
+        },
+        {
+          "entrant": "514fd5455cdd9fd3fbb20606fa906d11",
+          "index": 5,
+          "item": "voucher-1",
+          "k": 2,
+          "pass": 1,
+          "pool_size": 11,
+          "randomness": "f9cf57940dfd9b61e980576f5f9c095d8596208d337a924bf06c1ab04a3796fa",
+          "round": 1005,
+          "signature": "b896a4e9ebdb143601d1cdb39aa9357ef27b48d7d3c1c614e14110243850a9ea21fd96e016a5b64c2a2960d1c73abad8",
+          "type": "drawn"
+        },
+        {
+          "k": 2,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 3,
+          "round": 1010,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "6eb793315b90afb8bbddafe5f3abcf67",
+          "index": 5,
+          "item": "book-1",
+          "k": 3,
+          "pass": 1,
+          "pool_size": 10,
+          "randomness": "70b604d40183d07425c86176196a94decd915d5fc1e35841eb25032e6c406c7e",
+          "round": 1010,
+          "signature": "8bea13e7e5f9c9c51cd061ecf09b33fb1cfc23e7bd947c669e16fb56a15c090908c69a19750d659a12ee3c25692792bd",
+          "type": "drawn"
+        },
+        {
+          "k": 3,
+          "resolution": "declined",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 4,
+          "round": 1012,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "cec0f5b79f0b01d34f7481a9c9be2ca7",
+          "index": 7,
+          "item": "book-1",
+          "k": 4,
+          "pass": 1,
+          "pool_size": 9,
+          "randomness": "e66f9bc889657e76d70a49e8f7bff3ae4a807e0ee4bc35b3f1e835162c108a3c",
+          "round": 1012,
+          "signature": "af176bfcdd76db41f832282db70e135dcb94deb21c29103ea10a0145cb271eb157ae4bdb33be0ea593e3ed0fb164673c",
+          "type": "drawn"
+        },
+        {
+          "k": 4,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "mug-1",
+          "type": "voided"
+        },
+        {
+          "item": "book-2",
+          "k": 5,
+          "round": 1020,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "181a4a87fd2513b3ddbb203b838c953a",
+          "index": 0,
+          "item": "book-2",
+          "k": 5,
+          "pass": 1,
+          "pool_size": 8,
+          "randomness": "2fb65482b8bb669be0f791624f6f9febb3234063254275908744a76039b2d3b7",
+          "round": 1020,
+          "signature": "a2954ec8148428ea29c24477bff6e7a58459d3a546d429950ab9ae8b0b7d4297b60a87322b1964407c71440362011248",
+          "type": "drawn"
+        },
+        {
+          "k": 5,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "type": "finished"
+        },
+        {
+          "k": 1,
+          "type": "swapped"
+        }
+      ]
+    },
+    {
+      "what": "a byte of the manifest",
+      "manifest": "{\"algo\":\"rafi-draw-v1\",\"raffle\":\"raffle-vectors\",\"beacon\":{\"drand\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\"},\"entrants\":[\"181a4a87fd2513b3ddbb203b838c953a\",\"1b10848fd312afbb7afe82eec74fc1c7\",\"381c03af5422411cde3faf643f68584b\",\"427d1ecf2ccd2f644a5e9cb51114fc9c\",\"4a9036e8027f57e1ae64a1d399dcd095\",\"4d81a0ebb2bc7469598bc83b76b062d1\",\"514fd5455cdd9fd3fbb20606fa906d11\",\"6eb793315b90afb8bbddafe5f3abcf67\",\"7ce73e0728d9b67e49eaf098ca4581b0\",\"c81b7ae6ac4055879066cd2177a0ab53\",\"cec0f5b79f0b01d34f7481a9c9be2ca7\",\"fb8211d765bcdbc2144555dd222ad8cb\"],\"items\":[{\"id\":\"book-1\",\"name\":\"Book\"},{\"id\":\"book-2\",\"name\":\"Book\"},{\"id\":\"voucher-1\",\"name\":\"Vaucher\"},{\"id\":\"mug-1\",\"name\":\"Mug\"}]}",
+      "manifest_hash": "4c415cf2e358054c438ef3ccae56791cf639cec93ff3e6090db62b530f8b942c",
+      "events": [
+        {
+          "item": "voucher-1",
+          "k": 1,
+          "round": 1000,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "1b10848fd312afbb7afe82eec74fc1c7",
+          "index": 1,
+          "item": "voucher-1",
+          "k": 1,
+          "pass": 1,
+          "pool_size": 12,
+          "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
+          "round": 1000,
+          "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39",
+          "type": "drawn"
+        },
+        {
+          "k": 1,
+          "resolution": "not_here",
+          "type": "resolved"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1003,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "abandoned by the organizer",
+          "round": 1003,
+          "type": "abandoned"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "round": 1005,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "item": "voucher-1",
+          "k": 2,
+          "reason": "drand unavailable",
+          "round": 1005,
+          "type": "stalled"
+        },
+        {
+          "entrant": "514fd5455cdd9fd3fbb20606fa906d11",
+          "index": 5,
+          "item": "voucher-1",
+          "k": 2,
+          "pass": 1,
+          "pool_size": 11,
+          "randomness": "f9cf57940dfd9b61e980576f5f9c095d8596208d337a924bf06c1ab04a3796fa",
+          "round": 1005,
+          "signature": "b896a4e9ebdb143601d1cdb39aa9357ef27b48d7d3c1c614e14110243850a9ea21fd96e016a5b64c2a2960d1c73abad8",
+          "type": "drawn"
+        },
+        {
+          "k": 2,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 3,
+          "round": 1010,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "6eb793315b90afb8bbddafe5f3abcf67",
+          "index": 5,
+          "item": "book-1",
+          "k": 3,
+          "pass": 1,
+          "pool_size": 10,
+          "randomness": "70b604d40183d07425c86176196a94decd915d5fc1e35841eb25032e6c406c7e",
+          "round": 1010,
+          "signature": "8bea13e7e5f9c9c51cd061ecf09b33fb1cfc23e7bd947c669e16fb56a15c090908c69a19750d659a12ee3c25692792bd",
+          "type": "drawn"
+        },
+        {
+          "k": 3,
+          "resolution": "declined",
+          "type": "resolved"
+        },
+        {
+          "item": "book-1",
+          "k": 4,
+          "round": 1012,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "cec0f5b79f0b01d34f7481a9c9be2ca7",
+          "index": 7,
+          "item": "book-1",
+          "k": 4,
+          "pass": 1,
+          "pool_size": 9,
+          "randomness": "e66f9bc889657e76d70a49e8f7bff3ae4a807e0ee4bc35b3f1e835162c108a3c",
+          "round": 1012,
+          "signature": "af176bfcdd76db41f832282db70e135dcb94deb21c29103ea10a0145cb271eb157ae4bdb33be0ea593e3ed0fb164673c",
+          "type": "drawn"
+        },
+        {
+          "k": 4,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "item": "mug-1",
+          "type": "voided"
+        },
+        {
+          "item": "book-2",
+          "k": 5,
+          "round": 1020,
+          "round_time": 0,
+          "type": "announced"
+        },
+        {
+          "entrant": "181a4a87fd2513b3ddbb203b838c953a",
+          "index": 0,
+          "item": "book-2",
+          "k": 5,
+          "pass": 1,
+          "pool_size": 8,
+          "randomness": "2fb65482b8bb669be0f791624f6f9febb3234063254275908744a76039b2d3b7",
+          "round": 1020,
+          "signature": "a2954ec8148428ea29c24477bff6e7a58459d3a546d429950ab9ae8b0b7d4297b60a87322b1964407c71440362011248",
+          "type": "drawn"
+        },
+        {
+          "k": 5,
+          "resolution": "claimed",
+          "type": "resolved"
+        },
+        {
+          "type": "finished"
+        }
+      ]
+    }
+  ]
 }

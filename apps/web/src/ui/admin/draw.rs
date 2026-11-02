@@ -1,6 +1,7 @@
 //! The draw console: drawing each prize and deciding its winner.
 
-use dioxus_icons::lucide::{Check, Dice5, Flag, Lock, TriangleAlert};
+use dioxus_icons::lucide::{Check, Dice5, Flag, Lock, TriangleAlert, Trophy};
+use rafi_api::ItemView;
 use rafi_lifecycle::prize::Delivery;
 
 use super::*;
@@ -18,12 +19,10 @@ pub(super) fn DrawConsole(
     on_change: EventHandler<()>,
 ) -> Element {
     let v: RaffleView = admin.view.clone();
-    let now = use_clock(250);
-    let by_id: HashMap<String, AdminEntrant> = admin
-        .entrants
-        .iter()
-        .map(|e| (e.id.clone(), e.clone()))
-        .collect();
+    let clock_ms = use_clock(250);
+    // Borrowed, not cloned: the console renders often while it counts down.
+    let by_id: HashMap<&str, &AdminEntrant> =
+        admin.entrants.iter().map(|e| (e.id.as_str(), e)).collect();
     let deliveries: HashMap<&str, Delivery> = admin
         .prizes
         .iter()
@@ -33,6 +32,16 @@ pub(super) fn DrawConsole(
     // off meanwhile, or a second click would go out against a stale view.
     let drawing = use_signal(|| None::<Sent>);
     let claiming = use_signal(|| None::<Sent>);
+    // The clock is read (and the console redrawn with it) only while
+    // something runs on time: a draw pending, or a command held.
+    let ticking = v.current.is_some() || drawing.read().is_some() || claiming.read().is_some();
+    let now = move || {
+        if ticking {
+            clock_ms()
+        } else {
+            *clock_ms.peek()
+        }
+    };
     let held = |sent: Signal<Option<Sent>>| {
         sent.read()
             .as_ref()
@@ -42,8 +51,8 @@ pub(super) fn DrawConsole(
     let draw_held = held(drawing);
     let claim_held = held(claiming);
     let shown = |sent: Signal<Option<Sent>>| sent.read().as_ref().is_some_and(|s| s.shown(&v));
-    use_settle(drawing, shown(drawing), now, error);
-    use_settle(claiming, shown(claiming), now, error);
+    use_settle(drawing, shown(drawing), clock_ms, error);
+    use_settle(claiming, shown(claiming), clock_ms, error);
     let pending = v.current.clone();
     let busy = pending.is_some() || draw_held.is_some();
     let drawable = v.state.drawable();
@@ -186,6 +195,95 @@ pub(super) fn DrawConsole(
         .is_some_and(|c| clock.now(now()) > c.round_time as i64 * 1000 + 90_000);
     let stalled = pending.is_some() && (v.last_failure.is_some() || overdue);
 
+    // One prize's row: a drawn one waiting for its winner (in the panel at
+    // the top), or one in the queue below, where the copies of a prize still
+    // to be drawn are one row (`group`: how many are left of how many).
+    // `named`: more than one winner waits, so Claimed says whose it is.
+    let item_row = |u: &ItemView, group: Option<(usize, usize)>, named: bool| -> Element {
+        let winner = u
+            .entrant
+            .as_ref()
+            .and_then(|id| by_id.get(id.as_str()).copied());
+        // Took themselves off: declined only (the server
+        // refuses the rest).
+        let objected = winner.is_some_and(|w| w.objected);
+        // No phone tells them, and no code to show: the
+        // organizer checks it is them.
+        let no_phone = winner.is_some_and(|w| w.no_phone);
+        let uid = u.item.clone();
+        let k = drawn_k(&v, &u.item);
+        let winner_name =
+            winner.map_or_else(|| "The winner".to_owned(), |w| w.display_name.clone());
+        let prize = u.prize_name.clone();
+        let on_the_spot = deliveries
+            .get(u.prize_id.as_str())
+            .is_some_and(|d| d.delivered_on_claim());
+        let row = match u.status {
+            ItemStatus::Drawn => "border-success/50 bg-success/10",
+            ItemStatus::Claimed => "border-base-300 bg-base-200/60",
+            ItemStatus::Voided => "border-base-300 opacity-50",
+            ItemStatus::Available => "border-base-300",
+        };
+        let is_current = pending.as_ref().is_some_and(|p| p.item == u.item);
+        let claiming_this = claim_held.as_ref() == Some(&u.item);
+        let emoji = match u.status {
+            ItemStatus::Available if is_current => "🎲",
+            ItemStatus::Available => "🎁",
+            ItemStatus::Drawn => "🎉",
+            ItemStatus::Claimed => "✅",
+            ItemStatus::Voided => "🚫",
+        };
+        rsx! {
+            li { key: "{u.item}", class: "flex flex-wrap items-center gap-3 rounded-box border-2 p-3 transition {row}",
+                span { class: "text-2xl", "{emoji}" }
+                div { class: "min-w-40 flex-1",
+                    p { class: "font-semibold", "{u.prize_name}" }
+                    p { class: "text-sm text-base-content/60",
+                        if let Some((left, total)) = group { "{left} of {total} left to draw" } else { "{status_label(u.status)}" }
+                    }
+                }
+                if let Some(w) = winner {
+                    WinnerCard { key: "{w.id}", winner: w.clone(), to_check: u.status == ItemStatus::Drawn }
+                }
+                div { class: "flex flex-wrap gap-2",
+                    match u.status {
+                        ItemStatus::Available if drawable => rsx! {
+                            button { class: "btn btn-primary hover-wiggle", disabled: busy, onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone()) },
+                                if draw_held.as_ref() == Some(&u.item) { span { class: "loading loading-spinner loading-sm" } } else { Dice5 { class: "size-5" } }
+                                "Draw"
+                            }
+                            button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let item = uid.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Withdraw { item: item.clone(), prize: prize.clone() }) }, "Withdraw" }
+                        },
+                        ItemStatus::Drawn if drawable && objected => rsx! {
+                            button { class: "btn btn-warning", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "They took themselves off the raffle: the prize is drawn again" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), k, winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
+                        },
+                        ItemStatus::Drawn if drawable => rsx! {
+                            // The resolution is "claimed" either way: with no
+                            // phone, the organizer's check stands for the code.
+                            ClaimButton { no_phone, held: claiming_this, name: named.then(|| winner_name.clone()), onclick: { let claim = claim.clone(); let uid = uid.clone(); move |_| { spawn(claim(uid.clone(), k)); } } }
+                            if on_the_spot {
+                                span { class: "text-xs text-base-content/60", title: "{claimed_means(no_phone)} This prize is handed over on the spot (Prizes tab), so claiming it also marks it delivered.", "Handed over now: claiming marks it delivered." }
+                            } else {
+                                span { class: "text-xs text-base-content/60", title: "{claimed_means(no_phone)} This prize is sent later (Prizes tab): mark it delivered in the People tab once it reached them.", "Sent later? Mark it delivered in People." }
+                            }
+                            button { class: "btn btn-ghost", disabled: busy || claiming_this, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::NotHere { item: item.clone(), k, winner: winner.clone(), prize: prize.clone() }) }, "Not here" }
+                            button { class: "btn btn-ghost", disabled: busy || claiming_this, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), k, winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
+                        },
+                        _ => rsx! {},
+                    }
+                }
+            }
+        }
+    };
+    // Waiting for their winners: what the organizer acts on next, first.
+    let waiting: Vec<&ItemView> = v
+        .items
+        .iter()
+        .filter(|u| u.status == ItemStatus::Drawn)
+        .collect();
+    let several = waiting.len() > 1;
+    let queue = queue(&v.items, pending.as_ref().map(|p| &p.item));
+
     rsx! {
         div { class: "space-y-4",
             if let Some(cur) = &pending {
@@ -237,6 +335,17 @@ pub(super) fn DrawConsole(
                     p { "The last draw ended without its beacon: {f}" }
                 }
             }
+            if !waiting.is_empty() {
+                Panel {
+                    title: if several { "Waiting for their winners" } else { "Waiting for the winner" },
+                    icon: rsx! { Trophy { class: "size-5" } },
+                    ul { class: "space-y-2",
+                        for u in waiting.iter() {
+                            {item_row(u, None, several)}
+                        }
+                    }
+                }
+            }
             Panel {
                 title: "Prizes to draw",
                 icon: rsx! { Dice5 { class: "size-5" } },
@@ -248,75 +357,8 @@ pub(super) fn DrawConsole(
                     }
                 },
                 ul { class: "space-y-2",
-                    for u in v.items.iter() {
-                        {
-                            let winner = u.entrant.as_ref().and_then(|id| by_id.get(id.as_str()));
-                            // Took themselves off: declined only (the server
-                            // refuses the rest).
-                            let objected = winner.is_some_and(|w| w.objected);
-                            // No phone tells them, and no code to show: the
-                            // organizer checks it is them.
-                            let no_phone = winner.is_some_and(|w| w.no_phone);
-                            let uid = u.item.clone();
-                            let k = drawn_k(&v, &u.item);
-                            let winner_name = winner.map_or_else(|| "The winner".to_owned(), |w| w.display_name.clone());
-                            let prize = u.prize_name.clone();
-                            let on_the_spot = deliveries.get(u.prize_id.as_str()).is_some_and(|d| d.delivered_on_claim());
-                            let row = match u.status {
-                                ItemStatus::Drawn => "border-success/50 bg-success/10",
-                                ItemStatus::Claimed => "border-base-300 bg-base-200/60",
-                                ItemStatus::Voided => "border-base-300 opacity-50",
-                                ItemStatus::Available => "border-base-300",
-                            };
-                            let is_current = pending.as_ref().is_some_and(|p| p.item == u.item);
-                            let claiming_this = claim_held.as_ref() == Some(&u.item);
-                            let emoji = match u.status {
-                                ItemStatus::Available if is_current => "🎲",
-                                ItemStatus::Available => "🎁",
-                                ItemStatus::Drawn => "🎉",
-                                ItemStatus::Claimed => "✅",
-                                ItemStatus::Voided => "🚫",
-                            };
-                            rsx! {
-                                li { key: "{u.item}", class: "flex flex-wrap items-center gap-3 rounded-box border-2 p-3 transition {row}",
-                                    span { class: "text-2xl", "{emoji}" }
-                                    div { class: "min-w-40 flex-1",
-                                        p { class: "font-semibold", "{u.prize_name}" }
-                                        p { class: "text-sm text-base-content/60", "{status_label(u.status)}" }
-                                    }
-                                    if let Some(w) = winner {
-                                        WinnerCard { key: "{w.id}", winner: w.clone(), to_check: u.status == ItemStatus::Drawn }
-                                    }
-                                    div { class: "flex flex-wrap gap-2",
-                                        match u.status {
-                                            ItemStatus::Available if drawable => rsx! {
-                                                button { class: "btn btn-primary hover-wiggle", disabled: busy, onclick: { let draw = draw.clone(); let uid = uid.clone(); move |_| draw(uid.clone()) },
-                                                    if draw_held.as_ref() == Some(&u.item) { span { class: "loading loading-spinner loading-sm" } } else { Dice5 { class: "size-5" } }
-                                                    "Draw"
-                                                }
-                                                button { class: "btn btn-ghost btn-sm", disabled: busy, title: "Withdraw this prize (e.g. it isn't available)", onclick: { let item = uid.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Withdraw { item: item.clone(), prize: prize.clone() }) }, "Withdraw" }
-                                            },
-                                            ItemStatus::Drawn if drawable && objected => rsx! {
-                                                button { class: "btn btn-warning", disabled: busy, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "They took themselves off the raffle: the prize is drawn again" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), k, winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
-                                            },
-                                            ItemStatus::Drawn if drawable => rsx! {
-                                                // The resolution is "claimed" either way: with no
-                                                // phone, the organizer's check stands for the code.
-                                                ClaimButton { no_phone, held: claiming_this, onclick: { let claim = claim.clone(); let uid = uid.clone(); move |_| { spawn(claim(uid.clone(), k)); } } }
-                                                if on_the_spot {
-                                                    span { class: "text-xs text-base-content/60", title: "{claimed_means(no_phone)} This prize is handed over on the spot (Prizes tab), so claiming it also marks it delivered.", "Handed over now: claiming marks it delivered." }
-                                                } else {
-                                                    span { class: "text-xs text-base-content/60", title: "{claimed_means(no_phone)} This prize is sent later (Prizes tab): mark it delivered in the People tab once it reached them.", "Sent later? Mark it delivered in People." }
-                                                }
-                                                button { class: "btn btn-ghost", disabled: busy || claiming_this, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::NotHere { item: item.clone(), k, winner: winner.clone(), prize: prize.clone() }) }, "Not here" }
-                                                button { class: "btn btn-ghost", disabled: busy || claiming_this, title: if busy { "Wait for the current draw to finish: this could change who it can pick" } else { "" }, onclick: { let item = uid.clone(); let winner = winner_name.clone(); let prize = prize.clone(); move |_| confirm_first(Irreversible::Declined { item: item.clone(), k, winner: winner.clone(), prize: prize.clone() }) }, "Declined" }
-                                            },
-                                            _ => rsx! {},
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    for (u , group) in queue.iter() {
+                        {item_row(u, *group, false)}
                     }
                 }
                 if drawable {
@@ -374,6 +416,40 @@ pub(super) fn DrawConsole(
             }
         }
     }
+}
+
+/// The Draw tab's queue: every prize but those waiting for their winner (the
+/// panel above has them), in order, with the copies of a prize still to be
+/// drawn as one row at the first of them, counted (left, of how many). The
+/// row draws the copy being drawn, if one is, else the first left.
+fn queue<'a>(
+    items: &'a [ItemView],
+    drawing: Option<&ItemId>,
+) -> Vec<(&'a ItemView, Option<(usize, usize)>)> {
+    let mut rows: Vec<(&ItemView, Option<(usize, usize)>)> = Vec::new();
+    let mut grouped: Vec<&str> = Vec::new();
+    for u in items {
+        match u.status {
+            ItemStatus::Drawn => {}
+            ItemStatus::Available => {
+                if grouped.contains(&u.prize_id.as_str()) {
+                    continue;
+                }
+                grouped.push(&u.prize_id);
+                let copies = || items.iter().filter(|c| c.prize_id == u.prize_id);
+                let left: Vec<&ItemView> = copies()
+                    .filter(|c| c.status == ItemStatus::Available)
+                    .collect();
+                let first = drawing
+                    .and_then(|d| left.iter().find(|c| &c.item == d))
+                    .unwrap_or(&left[0]);
+                let total = copies().count();
+                rows.push((first, (total > 1).then_some((left.len(), total))));
+            }
+            ItemStatus::Claimed | ItemStatus::Voided => rows.push((u, None)),
+        }
+    }
+    rows
 }
 
 /// The draw holding `item` undecided, as the page shows it: the latest of
@@ -474,11 +550,19 @@ fn WinnerCard(winner: AdminEntrant, to_check: bool) -> Element {
 /// whom the organizer checked. The resolution is `claimed` either way.
 /// `held` while a claim sent from it isn't on the page yet.
 #[component]
-fn ClaimButton(no_phone: bool, #[props(default)] held: bool, onclick: EventHandler<()>) -> Element {
+fn ClaimButton(
+    no_phone: bool,
+    #[props(default)] held: bool,
+    /// The winner's name, said on the button when more than one waits.
+    #[props(default)]
+    name: Option<String>,
+    onclick: EventHandler<()>,
+) -> Element {
     rsx! {
         button { class: "btn btn-success", disabled: held, onclick: move |_| onclick.call(()),
             if held { span { class: "loading loading-spinner loading-sm" } } else { Check { class: "size-5" } }
             if no_phone { "Confirmed: it's them" } else { "Claimed" }
+            if let Some(name) = name { " · " bdi { "{name}" } }
         }
     }
 }
@@ -844,6 +928,57 @@ mod tests {
         assert!(claim.shown(&view("claimed", false)));
         // Put back to be drawn (declined): no longer the claim's to wait for.
         assert!(claim.shown(&view("available", false)));
+    }
+
+    fn item(id: &str, prize: &str, status: &str) -> ItemView {
+        serde_json::from_value(serde_json::json!({
+            "item": id, "prize_id": prize, "prize_name": prize, "status": status,
+            "entrant": null, "display_name": null
+        }))
+        .unwrap()
+    }
+
+    /// The queue: a prize's copies still to be drawn are one row, counted,
+    /// drawing the copy being drawn if one is; drawn items are the panel
+    /// above's; claimed and withdrawn ones stay, one by one.
+    #[test]
+    fn the_queue_groups_copies() {
+        let items = [
+            item("shirt-1", "shirt", "claimed"),
+            item("shirt-2", "shirt", "available"),
+            item("shirt-3", "shirt", "available"),
+            item("book-1", "book", "drawn"),
+            item("mug-1", "mug", "available"),
+            item("pen-1", "pen", "voided"),
+        ];
+        let rows = |drawing: Option<&str>| -> Vec<(String, Option<(usize, usize)>)> {
+            let drawing = drawing.map(ItemId::from);
+            queue(&items, drawing.as_ref())
+                .into_iter()
+                .map(|(u, g)| (u.item.to_string(), g))
+                .collect()
+        };
+        assert_eq!(
+            rows(None),
+            [
+                ("shirt-1".into(), None),
+                ("shirt-2".into(), Some((2, 3))),
+                ("mug-1".into(), None),
+                ("pen-1".into(), None),
+            ]
+        );
+        assert_eq!(rows(Some("shirt-3"))[1], ("shirt-3".into(), Some((2, 3))));
+    }
+
+    /// With more than one winner waiting, Claimed says whose it is.
+    #[test]
+    fn a_claim_button_names_the_winner() {
+        #[component]
+        fn Named() -> Element {
+            rsx! { ClaimButton { no_phone: false, name: Some("Anna".to_owned()), onclick: |_| {} } }
+        }
+        let html = dioxus_ssr::render_element(rsx! { Named {} });
+        assert!(html.contains("Claimed · <bdi>Anna</bdi>"), "{html}");
     }
 
     #[test]

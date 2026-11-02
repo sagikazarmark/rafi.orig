@@ -115,7 +115,12 @@ pub fn Colophon(info: crate::config::Build) -> Element {
 /// `localStorage` and applied before paint by `/config.js`, which
 /// `index.html` loads in its head.
 #[component]
-pub fn ThemeToggle(#[props(default)] class: String) -> Element {
+pub fn ThemeToggle(
+    #[props(default)] class: String,
+    /// Told the scheme picked (`system`, `rafi`, `rafi-dark`).
+    #[props(default)]
+    on_change: Option<EventHandler<String>>,
+) -> Element {
     let mut mode = use_signal(|| "system".to_owned());
     use_effect(move || {
         spawn(async move {
@@ -143,6 +148,9 @@ pub fn ThemeToggle(#[props(default)] class: String) -> Element {
                 );
                 document::eval(&js);
                 mode.set(next.to_owned());
+                if let Some(on_change) = on_change {
+                    on_change.call(next.to_owned());
+                }
             },
             {icon}
         }
@@ -370,6 +378,28 @@ fn AdminBehindSignIn() -> Element {
             }
         },
     }
+}
+
+/// A join code in groups of three (`K7Q-2X3`), easier to read out and to
+/// type; the server drops the dash.
+pub fn grouped(code: &str) -> String {
+    code.chars()
+        .collect::<Vec<_>>()
+        .chunks(3)
+        .map(|c| c.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// The colour scheme picked with the toggle (`localStorage rafi-theme`), if
+/// one was.
+pub fn stored_theme() -> Option<String> {
+    web_sys::window()?
+        .local_storage()
+        .ok()??
+        .get_item("rafi-theme")
+        .ok()?
+        .filter(|t| !t.is_empty())
 }
 
 /// Copies text to the clipboard (best effort).
