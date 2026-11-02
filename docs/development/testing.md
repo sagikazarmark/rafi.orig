@@ -37,7 +37,7 @@ python3 tools/verify.py --vectors testdata/draw-vectors.json
 |---|---|
 | `rafi-raffle` | Unit, property and vector tests. They include a chi-square bias test of the selection, and properties that whatever `Raffle::admit` allows, the engine can apply. |
 | `rafi-lifecycle` | The lifecycle's rules, including exhaustive tables for its transitions and for starting the draw (`start::next`), with registration and without |
-| `rafi-store` | The [storage conformance suite](#storage-conformance) on every backend |
+| `rafi-store` | The [storage conformance suite](#storage-conformance) on every backend; the [query plans](#regression-guards) of its hot statements; the SQLite and Postgres migrations declaring the same schema (`tests/schemas.rs`) |
 | `rafi-engine`, `rafi-engine-restate` | The [engine conformance suite](#engine-conformance), on the local runner and on the `Raffle` object |
 | `rafi-app` | Use-case tests ([`crates/app/tests/use_cases.rs`](../../crates/app/tests/use_cases.rs)); the runbook's restore on SQLite files, with the SQL read from the runbook and the Cloudflare page (`a_restore_puts_nobody_back`, [`crates/app/tests/restore.rs`](../../crates/app/tests/restore.rs)) |
 | `rafi-server` | HTTP tests, and an end-to-end test of the app, `rafi-restate` and `restate-server` on one database. What the request log says is a test binary of its own (`tests/trace_log.rs`): its subscriber would otherwise see other tests' events |
@@ -99,6 +99,21 @@ is reported as ignored, with the reason.
 
 A new backend implements `rafi_store::conformance::Harness` (a name, its capabilities, and a fresh, migrated
 database per scenario) and passes the suite. See the module's documentation.
+
+## Regression guards
+
+Two checks fail what would otherwise only get slower or bigger:
+
+- **The web app's gzip budget**: `just check` in `apps/web` builds the bundle and fails when the module and its glue
+  (`rafi-web_bg-*.wasm` and `rafi-web-*.js`) are over 1,100,000 bytes `gzip -9`, or `tailwind.css` over 40 KB. The
+  `web` recipe runs it, so `just clippy` (its `clippy-wasm` half, a CI job) and `just doc` do. The participant page
+  has its own, 280 KB, the same way (`just check` in `apps/participant`, the `participant` recipe).
+- **The query plans** (`query_plans` in `crates/store/src`, a test of `cargo test -p rafi-store`, so `just test`):
+  the hot use cases (the screens', the admin's and phones' reads, the join and its lookups, the engine's write,
+  housekeeping's sweeps) run on an in-memory SQLite, and every statement they sent is put through `EXPLAIN QUERY
+  PLAN`. A `SCAN` of `entrants`, `raffles` or `raffle_events`, through an index or not, fails it, and so does a
+  `SEARCH` of one without a constraint (a whole index walked); a partial index whose rows are what is left to do
+  (`entrants_unerased`) may be walked. A new hot statement goes in the test's list.
 
 ## Engine conformance
 

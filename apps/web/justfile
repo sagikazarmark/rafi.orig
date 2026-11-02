@@ -1,10 +1,12 @@
 # The web app (admin, projector, verification page), a Dioxus app dx builds.
 # `just build` bundles it into target/dx/rafi-web/release/web/public, which
 # the native server serves (RAFI_PUBLIC_DIR) and apps/worker copies into its
-# static files; `just serve` runs it with hot reload against the server on
-# :8788 (Dioxus.toml proxies the server's paths to it). The stylesheet is
-# Tailwind with daisyUI from npm: dx compiles it itself, and `just css` does
-# for a plain cargo build or clippy, whose asset!() needs it to exist.
+# static files; `just check` builds it and holds it to its gzip budget (the
+# repository's `web` recipe runs that, and so CI); `just serve` runs it with
+# hot reload against the server on :8788 (Dioxus.toml proxies the server's
+# paths to it). The stylesheet is Tailwind with daisyUI from npm: dx compiles
+# it itself, and `just css` does for a plain cargo build or clippy, whose
+# asset!() needs it to exist.
 
 public := "../../target/dx/rafi-web/release/web/public"
 
@@ -24,6 +26,39 @@ css: install
 # Bundle the web app into target/dx/rafi-web/release/web/public (without the DWARF sections dx's release defaults keep in).
 build: install clean
     dx bundle --platform web --release --debug-symbols false
+
+# Build, then hold the bundle to its budget: 1,100,000 B for the module and its glue, 40 KB for the stylesheet, gzip -9.
+check: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s nullglob
+    budget=1100000
+    css_budget=40960
+    wasm=({{ public }}/assets/rafi-web_bg-*.wasm)
+    js=({{ public }}/assets/rafi-web-*.js)
+    css={{ public }}/assets/tailwind.css
+    if [ "${#wasm[@]}" -ne 1 ] || [ "${#js[@]}" -ne 1 ] || [ ! -f "$css" ]; then
+        echo "rafi-web: not the expected layout in {{ public }}/assets:" >&2
+        ls {{ public }}/assets >&2
+        exit 1
+    fi
+    # What the admin's laptop and the projector download first, compressed
+    # as a server would send it. Ratchet it down when the projector and the
+    # verification page are split out (T3-9). dx ships the unoptimised
+    # module when wasm-opt fails; this catches that too.
+    wasm_gz=$(gzip -9 -c "${wasm[0]}" | wc -c | tr -d ' ')
+    js_gz=$(gzip -9 -c "${js[0]}" | wc -c | tr -d ' ')
+    css_gz=$(gzip -9 -c "$css" | wc -c | tr -d ' ')
+    total=$((wasm_gz + js_gz))
+    echo "rafi-web: wasm ${wasm_gz} B + js ${js_gz} B = ${total} B, tailwind.css ${css_gz} B, gzip -9"
+    if [ "$total" -gt "$budget" ]; then
+        echo "rafi-web: over the ${budget} B budget for the module and its glue" >&2
+        exit 1
+    fi
+    if [ "$css_gz" -gt "$css_budget" ]; then
+        echo "rafi-web: tailwind.css over its ${css_budget} B budget" >&2
+        exit 1
+    fi
 
 # Serve the web app with hot reload at http://127.0.0.1:8787 (`just serve 0.0.0.0` for phones on the LAN), with the server on :8788.
 serve addr="127.0.0.1": install

@@ -61,6 +61,8 @@ pub mod live;
 pub mod pow;
 pub mod prizes;
 mod query;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod query_plans;
 pub mod raffles;
 mod redact;
 pub mod retention;

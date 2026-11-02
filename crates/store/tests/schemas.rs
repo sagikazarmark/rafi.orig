@@ -3,12 +3,30 @@
 //! differing only where the dialects do: integer types (`BIGINT`), the
 //! identity column, and the triggers (which each dialect writes its own way,
 //! and the conformance suite checks by behaviour). A column added to one
-//! migration and not the other fails here, before a backend does.
+//! migration and not the other fails here, before a backend does; so does a
+//! migration file in one directory only.
 
 use std::collections::BTreeMap;
 
-const SQLITE: &str = include_str!("../../../migrations/sqlite/0001_init.sql");
-const POSTGRES: &str = include_str!("../../../migrations/postgres/0001_init.sql");
+/// A dialect's migrations (`migrations/<dialect>`): their file names, and
+/// every file's SQL in the order they apply.
+fn migrations(dialect: &str) -> (Vec<String>, String) {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../migrations")
+        .join(dialect);
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|name| name.ends_with(".sql"))
+        .collect();
+    names.sort();
+    let sql = names
+        .iter()
+        .map(|name| std::fs::read_to_string(dir.join(name)).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+    (names, sql)
+}
 
 /// The schema's tables and indexes, by name: each statement without
 /// comments, whitespace collapsed, the dialects' differences mapped to one
@@ -61,7 +79,10 @@ fn shape(sql: &str) -> BTreeMap<String, String> {
 
 #[test]
 fn the_sqlite_and_postgres_schemas_agree() {
-    let (sqlite, postgres) = (shape(SQLITE), shape(POSTGRES));
+    let ((sqlite_files, sqlite), (postgres_files, postgres)) =
+        (migrations("sqlite"), migrations("postgres"));
+    assert_eq!(sqlite_files, postgres_files, "the same migrations, by name");
+    let (sqlite, postgres) = (shape(&sqlite), shape(&postgres));
     assert!(sqlite.len() > 10, "{:?}", sqlite.keys());
     let names: Vec<_> = sqlite.keys().chain(postgres.keys()).collect();
     for name in names {
@@ -91,5 +112,8 @@ fn both_schemas_have_triggers_on_the_same_tables() {
         on.dedup();
         on
     };
-    assert_eq!(tables(SQLITE), tables(POSTGRES));
+    assert_eq!(
+        tables(&migrations("sqlite").1),
+        tables(&migrations("postgres").1)
+    );
 }

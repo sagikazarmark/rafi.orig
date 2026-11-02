@@ -20,9 +20,9 @@ css:
 participant:
     {{ just_executable() }} apps/participant/ check
 
-# Bundle the web app (apps/web); rafi-worker compiles its index.html in.
+# Bundle the web app (apps/web) and check its budget; rafi-worker compiles its index.html in.
 web:
-    {{ just_executable() }} apps/web/ build
+    {{ just_executable() }} apps/web/ check
 
 # Run clippy, natively and on wasm32.
 clippy: clippy-native clippy-wasm

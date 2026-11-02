@@ -12,7 +12,7 @@ open items become tickets, their Accept lines the definition of done.
 |---|---|
 | 1. Tier 0 | **Done** (`cf56888`). `0001_init.sql` gained `draws.delivery` and `add_batches`. Verified: fmt, `just clippy` (native and wasm32), `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, the D1 conformance testbed (every scenario ok). `just workers` ran later, with Tier 2 (the evening on another port): every check ok, so `evening.mjs` exercised the stricter admin API. |
 | 2. Tier 1 | **Done**, with the `evening.mjs` parts of the Accepts (the countdowns sampled between fetches, `/view` blocked, a projector at an unknown slug), `just workers` green. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`; the D1 conformance testbed, the live channel's scenario and the participant smoke (steps 1–3 of `workers-check.sh`), every check ok. |
-| 3. Schema and query shapes | **Done**: T3-1, T3-7, T7-6's `erasures` index, T3-9's manifest row measured (natively) and kept. The `rows_read` counter and the `EXPLAIN` gate (T3-11) not built. |
+| 3. Schema and query shapes | **Done**: T3-1, T3-7, T7-6's `erasures` index, T3-9's manifest row measured (natively) and kept. The `EXPLAIN` gate built (T3-11 7); the `rows_read` counter not ([#54](https://github.com/sagikazarmark/rafi.orig/issues/54)). |
 | 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
 | 5. Launch mechanics | **Done locally** (2026-11-02): T2-2, T2-4 … T2-8 as far as the repository goes; T2-1, T2-3, the stranger, the GitHub runs and settings open. Declined: release-note labels and templates, community files, third-party notices, Python in the release. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, `just workers` (the evening on `WORKERS_APP_PORT=8797`, every check ok), two `cloudflare-release.sh 0.1.0` builds byte-identical. |
 | 6. Design and UX | **Done** in the next run: T5-1 … T5-7, T6-1 … T6-6 (with what [What it left](#what-it-left) lists) |
@@ -588,7 +588,8 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
   `public_raffle` and in the batch, where it keeps the version and the content one snapshot). The count still visits
   each entrant row once (`COUNT` over `entrants_raffle`, with `erased` and `source` from the table): about N rows a
   poll rather than 2N plus N decoded. Test: `domain.view_summary` (SQLite, embedded Postgres, D1). Open: the
-  `rows_read` counter and the per-request statement count (T3-11 2, 3).
+  `rows_read` counter and the per-request statement count (T3-11 2, 3;
+  [#54](https://github.com/sagikazarmark/rafi.orig/issues/54)).
 
 #### T3-2 · The admin re-downloads the full entrant list on every join
 
@@ -672,7 +673,8 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
 - **Accept**: an `EXPLAIN QUERY PLAN` gate (`just test` runs `sqlite3 :memory:` over the store's hot queries and
   fails on `SCAN entrants|raffles|raffle_events`) passes; the retention conformance scenarios still pass.
 - **Done**: as changed, and `due`'s winner-hold term rewritten the same way. Checked by hand: both now `SEARCH raffles
-  USING INDEX raffles_erase_at (erase_at<?)`. Open: the gate (T3-11 7).
+  USING INDEX raffles_erase_at (erase_at<?)`. The gate: done with T3-11 7, which found `erase_due`'s list of raffles
+  to purge (`ORDER BY id`) walking every raffle by its key rather than searching `raffles_erase_at`.
 
 #### T3-8 · The verification page re-verifies every beacon on each keystroke
 
@@ -746,6 +748,9 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
 1. **Web app gzip budget** in `apps/web/justfile` mirroring the participant's `check`: `wasm.gz + js.gz ≤
    1,100,000 B` (now 1,016,039), `tailwind.css.gz ≤ 40 KB`; run from `clippy-wasm`/`web`. Ratchet down with
    T3-9's split. **Accept**: CI fails when the budget is exceeded (tested once by lowering it).
+   **Done**: `just check` in `apps/web`, which the root `web` recipe runs (so `clippy-wasm`, a CI job, and `doc`):
+   1,062,771 B today (wasm 1,047,532 + js 15,239; the module grew since the 1,016,039 above), `tailwind.css` 30,585 B.
+   Lowered to 1,000,000, and the stylesheet's to 30,000, each failed the recipe.
 2. **D1 `rows_read` assertions** in `testbeds/store-d1` (T3-1's counter) for `view::build`, `live::snapshot`,
    a join, and a housekeeping erase of M entrants (≤ k·M).
 3. **Per-request query count** in `crates/server/src/tests.rs` via a counting `Db` wrapper: `/view` ≤ 2 round
@@ -755,7 +760,21 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
 5. **Draw latency** logged and bounded in `evening.mjs` (T3-9).
 6. **Worker startup**: `workers-check.sh` times the first `/healthz` after `serve` and fails above 3 s; T2-3
    records the real `Worker Startup Time` and `cloudflare.md` sets an alert at 200 ms.
-7. **`EXPLAIN QUERY PLAN` gate** (T3-7).
+7. **`EXPLAIN QUERY PLAN` gate** (T3-7). **Done**: `query_plans` in `crates/store/src` (a test of `cargo test -p
+   rafi-store`, so `just test`) runs the hot use cases on an in-memory SQLite with the migrations (the reads of
+   `raffles::get`, `by_slug`, `by_join_code`, `drawn`, `view::Lite` and `Full`, `live::snapshot`; the join with
+   `pow::redeem` and its lookups; `save_raffle` storing a claim; `live_channels_due`, `expire_due`, `erase_objected`,
+   `erase_due`, `forget_removals`, `unfinished_at_ceiling`, `purge_unfinished`), on data that takes each down its
+   whole path, and explains every statement they sent (a test-only capture in the query layer sees a batch's every
+   statement). It fails on a `SCAN` of `entrants`, `raffles` or `raffle_events`, through an index or not, and on a
+   `SEARCH` of one without a constraint (SQLite prints that for a whole index walked as for a `MIN` seek), except
+   through a partial index whose rows are what is left to do. It found 13 scans, all housekeeping's, now gone:
+   `erase_due` and `erase_objected` read every raffle past its date (purged ones included) and all of their
+   entrants, erased or not; they start from a new partial index, `entrants_unerased`; `forget_removals` starts from
+   `add_removals`; `live_channels_due` uses a new `raffles_live`; `erase_due`'s raffles to purge drop `ORDER BY id`.
+   The indexes are `0002_housekeeping_indexes.sql` (both dialects; `tests/schemas.rs` now compares every migration).
+   Not on the list, left in [#54](https://github.com/sagikazarmark/rafi.orig/issues/54): `oldest_raffle_at`
+   (`whoami`) walks `raffles_owner`.
 8. **Microbench** as `#[test] #[ignore]` with `Instant`: `view::of` and `reads::admin` at N = 2000 natively
    (< 5 ms), `Raffle::restore` at E = 200.
 
@@ -1374,7 +1393,9 @@ screenshots, T4-9 ([#48](https://github.com/sagikazarmark/rafi.orig/issues/48));
 the projector bundle split and the rest of T3-9 and T3-10 ([#49](https://github.com/sagikazarmark/rafi.orig/issues/49)); `AddList`'s state as two
 enums, T7-5 ([#50](https://github.com/sagikazarmark/rafi.orig/issues/50)); three guarded writes answering wrongly when the row is gone, from T7-2
 ([#51](https://github.com/sagikazarmark/rafi.orig/issues/51)); refusing a `Resolve` without `k` one release after the tag, T0-1
-([#52](https://github.com/sagikazarmark/rafi.orig/issues/52)).
+([#52](https://github.com/sagikazarmark/rafi.orig/issues/52)); the rest of T3-11's regression guards (D1 `rows_read`, the
+query count, payloads, Worker startup, microbenchmarks) and `oldest_raffle_at`'s walk of `raffles_owner`
+([#54](https://github.com/sagikazarmark/rafi.orig/issues/54)).
 
 ## Release checklist
 
@@ -1399,7 +1420,9 @@ The tag is ready when every line is true.
       `verify.py`.
 - [x] `docs/operations` has backup/restore (rehearsed once), rotation, rollback, "Restate is down tonight", the
       breach runbook, a cost paragraph, the DSAR recipe, monitoring, a global deploy preflight.
-- [ ] Web gzip budget, `rows_read` assertions, the query-count test and the `EXPLAIN` gate are in CI.
+- [ ] Web gzip budget, `rows_read` assertions, the query-count test and the `EXPLAIN` gate are in CI. (The gzip
+      budget and the `EXPLAIN` gate are; the `rows_read` assertions and the query count are
+      [#54](https://github.com/sagikazarmark/rafi.orig/issues/54).)
 - [x] `tools/verify.py` fails every tampered vector; the evening's `verify.json` passes it.
 - [x] `evening.mjs` clicks through a draw on the console, imports a list, and runs housekeeping with due rows.
 - [x] The tracing test is in its own binary; `workers-check.sh` refuses an occupied port.

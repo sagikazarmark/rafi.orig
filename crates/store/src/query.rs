@@ -54,9 +54,14 @@ impl Db {
         }
     }
 
-    async fn before(&self, sql: &str) {
-        if let Some(hook) = &self.hook {
-            hook(sql).await;
+    /// Before `stmts` (one statement, or a batch) are sent: the hook, with
+    /// the first one's SQL; in this crate's tests, the capture
+    /// ([`capture`]) sees each of them.
+    async fn before(&self, stmts: &[Statement]) {
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        capture::record(stmts);
+        if let (Some(hook), Some(first)) = (&self.hook, stmts.first()) {
+            hook(&first.sql).await;
         }
     }
 
@@ -84,9 +89,7 @@ impl Db {
     /// several writes atomic. Use it for every write that spans statements.
     pub async fn batch(&self, queries: Vec<Query<'_>>) -> Result<Vec<u64>> {
         let stmts: Vec<Statement> = queries.into_iter().map(|q| q.stmt).collect();
-        if let Some(first) = stmts.first() {
-            self.before(&first.sql).await;
-        }
+        self.before(&stmts).await;
         self.backend.batch(stmts).await
     }
 
@@ -97,9 +100,7 @@ impl Db {
     /// change counts can't give, since they include triggers' writes).
     pub async fn batch_rows(&self, queries: Vec<Query<'_>>) -> Result<Vec<Vec<Row>>> {
         let stmts: Vec<Statement> = queries.into_iter().map(|q| q.stmt).collect();
-        if let Some(first) = stmts.first() {
-            self.before(&first.sql).await;
-        }
+        self.before(&stmts).await;
         self.backend.batch_rows(stmts).await
     }
 }
@@ -150,13 +151,44 @@ impl Query<'_> {
     /// Only rely on zero versus non-zero: D1 also counts rows that triggers
     /// changed (every raffle write bumps `raffles.version`), SQLite does not.
     pub async fn run(self) -> Result<u64> {
-        self.db.before(&self.stmt.sql).await;
+        self.db.before(std::slice::from_ref(&self.stmt)).await;
         self.db.backend.run(self.stmt).await
     }
 
     /// The raw rows.
     pub async fn rows(self) -> Result<Vec<Row>> {
-        self.db.before(&self.stmt.sql).await;
+        self.db.before(std::slice::from_ref(&self.stmt)).await;
         self.db.backend.all(self.stmt).await
+    }
+}
+
+/// What a test of this crate's ran: every statement sent while
+/// [`capture::statements`] awaits a future on this thread (a
+/// `#[tokio::test]` runs on one), each batch's whole, for
+/// `query_plans`.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod capture {
+    use std::cell::RefCell;
+
+    use super::Statement;
+
+    thread_local! {
+        static SENT: RefCell<Option<Vec<Statement>>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn record(stmts: &[Statement]) {
+        SENT.with_borrow_mut(|sent| {
+            if let Some(sent) = sent {
+                sent.extend_from_slice(stmts);
+            }
+        });
+    }
+
+    /// Awaits `run`, and returns what it gave and the statements it sent.
+    pub(crate) async fn statements<T>(run: impl Future<Output = T>) -> (T, Vec<Statement>) {
+        SENT.with_borrow_mut(|sent| *sent = Some(Vec::new()));
+        let out = run.await;
+        let sent = SENT.with_borrow_mut(Option::take).unwrap_or_default();
+        (out, sent)
     }
 }

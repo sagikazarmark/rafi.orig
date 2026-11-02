@@ -74,16 +74,15 @@ pub async fn expire_due(db: &Db, now: i64) -> Result<Vec<String>> {
 /// either not a winner (the entrant of a claimed draw), or a winner whose
 /// prize was delivered, or anyone once the hold has passed too.
 ///
-/// The leading `raffle_id IN (…)` says nothing the `EXISTS` doesn't, but it
-/// lets the planner start from the few raffles that are due and reach their
-/// entrants through `entrants_raffle`, instead of scanning every entrant of
-/// every raffle on each hourly run (`SCAN entrants` → `SEARCH entrants USING
-/// INDEX`, for the `SELECT`s and the `UPDATE` alike). Purged raffles stay in
-/// the set on purpose: a restored backup can bring their entrants back.
+/// It starts from the entrants not erased yet (`entrants_unerased`), and
+/// reaches each one's raffle by its key: the hourly run reads what is left
+/// to erase, not every raffle past its erasure date and all of their
+/// entrants, erased or not, which grow with the installation (the
+/// `EXPLAIN QUERY PLAN` gate holds it, `query_plans`). Purged raffles stay
+/// in the set on purpose: a restored backup can bring their entrants back.
 fn due() -> String {
     format!(
-        "entrants.raffle_id IN (SELECT id FROM raffles WHERE state IN ({frozen}) AND erase_at <= ?1)
-         AND entrants.erased = 0 AND EXISTS (
+        "entrants.erased = 0 AND EXISTS (
             SELECT 1 FROM raffles r
             WHERE r.id = entrants.raffle_id
               AND r.state IN ({frozen}) AND r.erase_at <= ?1
@@ -137,14 +136,15 @@ pub async fn erase_due(db: &Db, now: i64, winner_hold_secs: i64) -> Result<Erase
         .bind(winner_hold_secs)
         .all()
         .await?;
-    let purged: Vec<(String,)> = db
-        .query(format!(
-            "SELECT id FROM raffles WHERE {ceiling} ORDER BY id"
-        ))
+    // Sorted here: `ORDER BY id` would have the planner walk every raffle
+    // by its key rather than search `raffles_erase_at`.
+    let mut purged: Vec<(String,)> = db
+        .query(format!("SELECT id FROM raffles WHERE {ceiling}"))
         .bind(now)
         .bind(winner_hold_secs)
         .all()
         .await?;
+    purged.sort();
     if count == 0 && purged.is_empty() {
         return Ok(Erased::default());
     }
@@ -201,8 +201,8 @@ pub async fn erase_due(db: &Db, now: i64, winner_hold_secs: i64) -> Result<Erase
 /// owed to them. They are on the winners' clock ([`due`]) instead.
 fn objected_due() -> String {
     format!(
-        "entrants.raffle_id IN (SELECT id FROM raffles WHERE state IN ({over}))
-         AND entrants.erased = 0 AND entrants.objected_at IS NOT NULL
+        "entrants.erased = 0 AND entrants.objected_at IS NOT NULL
+         AND EXISTS (SELECT 1 FROM raffles r WHERE r.id = entrants.raffle_id AND r.state IN ({over}))
          AND NOT EXISTS (SELECT 1 FROM draws
                          WHERE draws.raffle_id = entrants.raffle_id
                            AND draws.entrant_id = entrants.id AND draws.outcome = '{claimed}')",
@@ -254,8 +254,10 @@ pub async fn erase_objected(db: &Db, now: i64) -> Result<Erased> {
 /// The raffles whose removals at their request (`add_removals`) serve
 /// nothing at `?1`: no add will come, since the list is frozen for good
 /// (a manifest), the raffle is purged, or its erasure date has passed.
-const REMOVALS_DONE: &str = "raffle_id IN (SELECT id FROM raffles
-    WHERE manifest IS NOT NULL OR purged_at IS NOT NULL OR erase_at <= ?1)";
+/// From the removals (few: only raffles still taking adds keep theirs) to
+/// each one's raffle by its key, not from every raffle.
+const REMOVALS_DONE: &str = "EXISTS (SELECT 1 FROM raffles r WHERE r.id = add_removals.raffle_id
+    AND (r.manifest IS NOT NULL OR r.purged_at IS NOT NULL OR r.erase_at <= ?1))";
 
 /// Forgets, at `now`, who was removed at their request from every raffle
 /// that can't take an add any more: its list frozen for good (a manifest),
