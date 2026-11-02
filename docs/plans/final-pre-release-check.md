@@ -1421,6 +1421,10 @@ enums, T7-5 ([#50](https://github.com/sagikazarmark/rafi.orig/issues/50)); three
 query count, payloads, Worker startup, microbenchmarks) and `oldest_raffle_at`'s walk of `raffles_owner`
 ([#54](https://github.com/sagikazarmark/rafi.orig/issues/54)).
 
+Enforcing the audit identifiers' period ([#22](https://github.com/sagikazarmark/rafi.orig/issues/22)) waits too.
+Meanwhile the privacy template no longer reads as if Rafi deletes them: the operator names a period and runs the
+runbook's "Organizers who left" (SQL checked on SQLite and Postgres) on that schedule.
+
 ## Release checklist
 
 The tag is ready when every line is true.

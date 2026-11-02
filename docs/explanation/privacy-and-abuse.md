@@ -184,7 +184,9 @@ them, and Rafi doesn't reach them: the organizer tells them, before the event.
   other raffles' personal data and takes their name and contacts off them, and deletes their defaults, all in one
   write that does nothing while a raffle of theirs is being drawn. The anonymous draws stay verifiable. What stays
   besides: the account's identifiers on its raffles and in the audit log (the owner, and the member who acted) as
-  the operator's record of what was done, for the period the operator's notice names; and the raffles' titles,
+  the operator's record of what was done, for the period the operator's notice names (the operator deletes them,
+  with the runbook's [Organizers who left](../operations/runbook.md#organizers-who-left-their-account-ids): Rafi
+  doesn't yet, [#22](https://github.com/sagikazarmark/rafi.orig/issues/22)); and the raffles' titles,
   descriptions, rules and prize sponsors, which the organizer wrote and may want to blank before leaving if they
   name anyone. The account itself is deleted in Clerk.
 

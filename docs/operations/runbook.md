@@ -178,6 +178,33 @@ Removals at a person's request are kept by the same key, with no other data:
 raffle's organizer (`contact_email`), who decides and acts; erasing on their behalf is the organizer's instruction
 to give. Answer within the month the GDPR allows, and note what you did.
 
+## Organizers who left: their account IDs
+
+"Remove my data" keeps the account's identifiers (Clerk IDs: the owner, and the member who acted) on the
+organizer's raffles and in the audit log, as your record of what was done. Your privacy notice names how long
+(`legal/privacy.md`, Retention). Rafi doesn't delete them when that period ends
+([#22](https://github.com/sagikazarmark/rafi.orig/issues/22)): you do, by running this on a schedule you can keep,
+say monthly, with your period in days for `365`. It blanks the owner on every raffle whose organizer left more
+than the period ago, and the owner and member on every audit row of that owner up to their leaving (an
+organization that removed its data and carried on keeps its later rows). Running it again changes nothing; run it
+again after a restore.
+
+```sh
+wrangler d1 execute rafi --remote --command "
+  UPDATE raffles SET owner_id = ''
+  WHERE owner_id <> '' AND organizer_left_at <= CAST(strftime('%s', 'now') AS INTEGER) - 365 * 86400;
+  UPDATE audit SET actor = '', user_id = ''
+  WHERE actor <> '' AND EXISTS (
+    SELECT 1 FROM audit l
+    WHERE l.detail = 'owner left' AND l.actor = audit.actor AND audit.at <= l.at
+      AND l.at <= CAST(strftime('%s', 'now') AS INTEGER) - 365 * 86400)"
+```
+
+Natively, the same statements through `sqlite3 rafi.db`; on Postgres through `psql`, with
+`EXTRACT(EPOCH FROM now())::bigint` for `CAST(strftime('%s', 'now') AS INTEGER)`. An organizer who deleted their
+account without "Remove my data" first isn't covered: Rafi doesn't learn of it
+([#31](https://github.com/sagikazarmark/rafi.orig/issues/31)), so they're among the requests you handle by hand.
+
 ## A personal-data breach
 
 The terms promise organizers to be told without undue delay; they, as controllers, have 72 hours from becoming

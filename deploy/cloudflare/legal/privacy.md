@@ -30,8 +30,8 @@ contract with the organizer (Art. 6(1)(b)) and our legitimate interest in runnin
 
 An organizer can remove their own data from the admin ("Remove my data"): their defaults go, their name and
 contacts are taken off their raffles, and their raffles' personal data is erased. The anonymous draws stay
-verifiable; the account's identifier stays with them and in the audit log. The account itself is deleted in
-Clerk.
+verifiable; the account's identifier stays with them and in the audit log, for the period under Retention. The
+account itself is deleted in Clerk.
 
 ## Providers we rely on (subprocessors)
 
@@ -57,7 +57,10 @@ every recorded erasure.
 
 Entrants' data is erased on the dates each raffle's notice shows: by default 7 days after the event for
 non-winners, and for winners once their prize is marked delivered, at the latest 90 days after that.
-Organizers' audit logs are kept for **[period]** after the account is removed.
+When an organizer removes their data, the account's identifiers on their raffles and in the audit log are kept
+for **[period]** as our record of what was done, and deleted by us within **[a month]** after that. **[Rafi
+doesn't delete them by itself: name a period you will keep, and run the runbook's "Organizers who left" on that
+schedule. Delete this hint.]**
 
 ## Your rights
 
