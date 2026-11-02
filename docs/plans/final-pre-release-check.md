@@ -1317,8 +1317,8 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
   (`npx lighthouse`, which downloads it), on the maintainer's word. T6-1's checks in the evening (the smallest
   font, contrast on computed colours) are left too. T6-6: the toasts' and dialogs' motion (vendored components),
   skipped.
-- T7-2's other guarded writes (the entrant ones each re-read the entrant, not the raffle); T7-5's `use_confirm`,
-  `Async` and `AddList`'s state machine; T7-6's `entrant.rs` and test-file splits and Postgres `CAST`s.
+- T7-5's `use_confirm`, `Async` and `AddList`'s state machine; T7-6's `entrant.rs` and test-file splits and
+  Postgres `CAST`s.
 
 ## Release checklist
 

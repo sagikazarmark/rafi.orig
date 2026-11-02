@@ -13,7 +13,7 @@ use rafi_lifecycle::{
 use rafi_store::{EntrantRow, RaffleRow, audit, entrants, raffles};
 
 use crate::{
-    Actor, App, Error, Limit, Refusal, Result, error::Unfinished, ids, owned, pow,
+    Actor, App, Error, Limit, Refusal, Result, error::Unfinished, ids, owned, pow, unwritten,
     view::NAME_DELAY_SECS,
 };
 
@@ -713,14 +713,12 @@ pub async fn add_fakes(app: &App, actor: Actor<'_>, raffle_id: &str, n: u32) -> 
     .await?;
     if !added {
         // Frozen, out of test mode, or full since the read above.
-        let current = raffles::get(&app.db, raffle_id)
-            .await?
-            .ok_or(Error::NotFound)?;
-        return Err(match entrant::fakes(current.test_mode, current.state, n) {
-            Err(refusal) => Refusal::Fakes(refusal),
-            Ok(_) => Refusal::Full,
-        }
-        .into());
+        let refuses = |r: &RaffleRow| {
+            entrant::fakes(r.test_mode, r.state, n)
+                .err()
+                .map(Refusal::Fakes)
+        };
+        return Err(unwritten(app, raffle_id, refuses, Refusal::Full.into()).await);
     }
     audit::record(
         &app.db,
@@ -902,33 +900,25 @@ pub async fn object_entrant(
     let entrant = entrants::get(&app.db, raffle_id, entrant_id)
         .await?
         .ok_or(Error::NotFound)?;
-    if entrant.erased {
-        return Err(Refusal::Erased.into());
-    }
-    if entrant.objected_at.is_some() {
+    if !objecting(app, &raffle, &entrant).await? {
         return Ok(());
     }
-    let claimed = claimed_a_prize(app, &raffle, entrant_id).await?;
-    entrant::may_object(raffle.state, entrant.source, claimed).map_err(Refusal::Objection)?;
     let now = app.clock.now();
     if !entrants::object(&app.db, raffle_id, entrant_id, now).await? {
         // Something changed since the read above: say what the rules say
-        // now, or that it changed.
+        // now (nothing to do if they took themselves off meanwhile), or
+        // that it changed.
         let raffle = raffles::get(&app.db, raffle_id)
             .await?
             .ok_or(Error::NotFound)?;
         let entrant = entrants::get(&app.db, raffle_id, entrant_id)
             .await?
             .ok_or(Error::NotFound)?;
-        if entrant.erased {
-            return Err(Refusal::Erased.into());
-        }
-        if entrant.objected_at.is_some() {
-            return Ok(());
-        }
-        let claimed = claimed_a_prize(app, &raffle, entrant_id).await?;
-        entrant::may_object(raffle.state, entrant.source, claimed).map_err(Refusal::Objection)?;
-        return Err(Refusal::Changed.into());
+        return if objecting(app, &raffle, &entrant).await? {
+            Err(Refusal::Changed.into())
+        } else {
+            Ok(())
+        };
     }
     audit::record(
         &app.db,
@@ -942,6 +932,22 @@ pub async fn object_entrant(
     // A drawn entrant's name is on the screens and the phones.
     app.live_updates.notify(raffle_id).await;
     Ok(())
+}
+
+/// Whether `entrant` is to be taken off in `raffle` as they are:
+/// `Ok(false)` if they already are (nothing to do), a refusal if they're
+/// erased or [`entrant::may_object`] says no. What [`object_entrant`]
+/// checks before its write, and again to explain one that didn't happen.
+async fn objecting(app: &App, raffle: &RaffleRow, entrant: &EntrantRow) -> Result<bool> {
+    if entrant.erased {
+        return Err(Refusal::Erased.into());
+    }
+    if entrant.objected_at.is_some() {
+        return Ok(false);
+    }
+    let claimed = claimed_a_prize(app, raffle, &entrant.id).await?;
+    entrant::may_object(raffle.state, entrant.source, claimed).map_err(Refusal::Objection)?;
+    Ok(true)
 }
 
 /// Whether `entrant_id` claimed a prize in `raffle`, as drawn.

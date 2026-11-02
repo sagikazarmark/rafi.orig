@@ -199,6 +199,19 @@ fn fixed_of(r: &RaffleRow) -> settings::Fixed<'_> {
     }
 }
 
+/// Why settings `s` can't be saved over raffle `r` in its state, whatever
+/// else they change: test mode switched after the freeze, or registration
+/// while it can't be ([`update_settings`]).
+fn locked(r: &RaffleRow, s: &RaffleSettings) -> Option<Refusal> {
+    if r.test_mode != s.test_mode && !r.state.test_mode_editable() {
+        Some(Refusal::TestModeLocked)
+    } else if r.registration != s.registration && !r.state.registration_editable() {
+        Some(Refusal::RegistrationLocked)
+    } else {
+        None
+    }
+}
+
 /// Saves a raffle's settings. Switching test mode off removes the raffle's
 /// fake entrants in the same write. A fixed setting (the rules, the event
 /// date, the retention period, the privacy text or link) can't change once
@@ -237,11 +250,8 @@ pub async fn update_settings(
         },
         now,
     )?;
-    if raffle.test_mode != s.test_mode && !raffle.state.test_mode_editable() {
-        return Err(Refusal::TestModeLocked.into());
-    }
-    if raffle.registration != s.registration && !raffle.state.registration_editable() {
-        return Err(Refusal::RegistrationLocked.into());
+    if let Some(refusal) = locked(&raffle, &s) {
+        return Err(refusal.into());
     }
     // For the audit log: how many fakes switching test mode off removes.
     let fakes = if raffle.test_mode && !s.test_mode {
@@ -254,26 +264,22 @@ pub async fn update_settings(
     if !write.written {
         // Test mode changed after a freeze since the read above,
         // registration after it opened or froze, or a fixed setting after
-        // a real entrant came in.
+        // a real entrant came in: the pre-check's refusal as the raffle is
+        // now, or the fixed settings this would change (none named if the
+        // raffle is gone).
         let current = raffles::get(&app.db, id).await?;
-        let frozen = current
+        let refusal = current
             .as_ref()
-            .is_some_and(|r| r.test_mode != s.test_mode && !r.state.test_mode_editable());
-        let registration = current
-            .as_ref()
-            .is_some_and(|r| r.registration != s.registration && !r.state.registration_editable());
-        return Err(if frozen {
-            Refusal::TestModeLocked
-        } else if registration {
-            Refusal::RegistrationLocked
-        } else {
-            let changed = current
-                .as_ref()
-                .map(|r| normalized.fixed().changed_from(&fixed_of(r)))
-                .unwrap_or_default();
-            Refusal::SettingsFixed(changed)
-        }
-        .into());
+            .and_then(|r| locked(r, &s))
+            .unwrap_or_else(|| {
+                Refusal::SettingsFixed(
+                    current
+                        .as_ref()
+                        .map(|r| normalized.fixed().changed_from(&fixed_of(r)))
+                        .unwrap_or_default(),
+                )
+            });
+        return Err(refusal.into());
     }
     if write.fakes_removed {
         audit::record(
