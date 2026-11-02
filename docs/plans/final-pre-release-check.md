@@ -3,9 +3,9 @@
 **Status: Tier 0 and T4-2 done (`cf56888`, 2026-11-02); Tier 1, the schema and query shapes, and the contract notes
 done (2026-11-02), with their browser checks in `evening.mjs`; Tier 2's repository side done (2026-11-02);
 Tiers 3–8 otherwise proposed.** Each finding
-below that is done says what shipped, under **Done**, where it differs from its **Change**. Next, per
-[Order of work](#order-of-work): Tier 2's GitHub and Cloudflare side (the rename, a dispatch dry run and
-`v0.1.0-rc.1`, a real deploy, a stranger's deploy); then design and UX.
+below that is done says what shipped, under **Done**, where it differs from its **Change**. Next: the
+[next run](#the-next-run), in its order; Tier 2's GitHub and Cloudflare side (the rename, a dispatch dry run and
+`v0.1.0-rc.1`, a real deploy, a stranger's deploy) is the maintainer's, alongside.
 
 ### Progress
 
@@ -1242,6 +1242,38 @@ two justified sites (`engine-restate/src/client.rs:64`, `apps/web/src/main.rs:9`
 
 Each step ends with `just ci` and `just workers`. The tag is cut when Tiers 0, 1 and 2 are green and the rest are
 either done or ticketed with their Accept lines as the ticket's definition of done.
+
+### The next run
+
+Agreed on 2026-11-02, after steps 1 to 5 (Tier 2's repository side): the rest of the order above, re-sorted by what
+gets expensive at the tag first, then by what can go wrong in front of a room. In this order:
+
+1. **What is cheap only before the tag** (about a day). After it, `0001_init.sql` is frozen and the admin API's
+   fields and what the engine stores are in use: a change then costs a migration or a compatibility shim.
+   - T8-4, T8-5, T8-6: drop or settle the admin API's unused fields (`missing_for_open`, `past_event`,
+     `dev_auth`, the two `created_at`).
+   - T7-6: the test that the SQLite and Postgres schemas match, before a second migration exists; the audit
+     action enum (its strings are written into the database); T8-14's schema-comment fix.
+   - T8-15: mark `0001_init.sql` frozen, as part of the tag.
+   - T3-2(b), decided: if the admin is to fetch entrants page by page, its API changes now; otherwise T3-2(a),
+     refetching less often.
+2. **What breaks or embarrasses an evening** (two to three days): T4-1 (the console clicked through a whole draw in
+   a browser); T5-1 (the winner panel at the top of the Draw tab); T5-2 (the People tab on a phone); T5-5 (confirm
+   or undo on destructive actions); T6-1 and T6-4 (the projector dark by default, readable badges, a big join
+   code); T3-6 (polling backoff, paused in hidden tabs, on the projector and the admin); T3-4 (the console's map of
+   entrants built once per change); T5-4 (accessibility on the join form and the People tab).
+3. **Tests that protect verifiability and personal data** (one to two days): T4-4 (`verify.py` failing on tampered
+   records); T4-6 (housekeeping on Workers with raffles due); T4-3 (drand over real HTTP, relay failover,
+   stall-then-recover); T4-11's rest (the flaky tracing test; tests that pass silently without
+   `RESTATE_SERVER_BIN`).
+4. **The rest of Tier 5**: T5-3 (the first-run checklist), T5-6 and T5-7 (flow and copy).
+5. **The rest of Tier 6**: T6-2 (link previews for shared join links, the most visible: before the tag if there is
+   time), T6-3, T6-5, T6-6.
+6. **Tier 7 and Tier 8**, one sweep each: safe after the tag, since none of it changes behaviour.
+
+Not in it: the rest of Tier 3 (the measurements and the CI guards) and T4-5, T4-7 … T4-10, which become tickets
+at the tag (T4-7 needs a product decision first). The real deploy (T2-3) is best done early, alongside step 1: it
+is the one check whose findings could still change code.
 
 ## Release checklist
 
