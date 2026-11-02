@@ -1329,6 +1329,16 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
   disabled Add button on screen, a send can be out while a list is read, the batch ID and the name format outlive a
   new read), which one `Step` would change.
 
+### Tickets
+
+Filed 2026-11-02 for what goes past v0.1.0: the Worker over real HTTP relays, T4-3 ([#46](https://github.com/sagikazarmark/rafi.orig/issues/46));
+the concurrency scenarios on a SQLite file and D1, T4-8 ([#47](https://github.com/sagikazarmark/rafi.orig/issues/47)); WebKit, mobile, axe and
+screenshots, T4-9 ([#48](https://github.com/sagikazarmark/rafi.orig/issues/48)); Clerk on Workers, T4-10 ([#33](https://github.com/sagikazarmark/rafi.orig/issues/33));
+the projector bundle split and the rest of T3-9 and T3-10 ([#49](https://github.com/sagikazarmark/rafi.orig/issues/49)); `AddList`'s state as two
+enums, T7-5 ([#50](https://github.com/sagikazarmark/rafi.orig/issues/50)); three guarded writes answering wrongly when the row is gone, from T7-2
+([#51](https://github.com/sagikazarmark/rafi.orig/issues/51)); refusing a `Resolve` without `k` one release after the tag, T0-1
+([#52](https://github.com/sagikazarmark/rafi.orig/issues/52)).
+
 ## Release checklist
 
 The tag is ready when every line is true.
