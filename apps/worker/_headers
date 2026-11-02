@@ -12,7 +12,11 @@
 # The participant's assets are named by their hash (apps/participant),
 # so phones keep them for good; its fallback keeps a fixed name, so phones
 # revalidate it, which Assets does by default (max-age=0, must-revalidate,
-# with an ETag): this says so.
+# with an ETag): this says so. The web app's module and its glue are named by
+# their hash too (rafi-web-dxh….js, rafi-web_bg-dxh….wasm); its other files
+# (the stylesheet, the fonts, the icons) keep their names and Assets' default.
+# A rule takes one splat, so dx's other hashed names (focus-trap-dxh….js,
+# 1 KB) keep the default here; the native server keeps them for good.
 
 /*
   X-Content-Type-Options: nosniff
@@ -25,3 +29,6 @@
 
 /participant/fallback.js
   Cache-Control: no-cache
+
+/assets/rafi-web*
+  Cache-Control: public, max-age=31536000, immutable

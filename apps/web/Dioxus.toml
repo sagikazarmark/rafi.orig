@@ -6,6 +6,12 @@ asset_dir = "assets"
 [web.app]
 title = "Rafi"
 
+# Brotli next to the assets; `just build` adds gzip (the native server serves
+# whichever the browser accepts; Cloudflare compresses at the edge, and
+# apps/worker leaves both out of its files).
+[web]
+pre_compress = true
+
 [web.watcher]
 watch_path = ["src", "assets"]
 

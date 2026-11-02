@@ -143,6 +143,7 @@ Workers Assets serves, the live channel and the engine's endpoint don't pass the
 
 | Path | What |
 |---|---|
+| `/assets/` | The web app's files (`RAFI_PUBLIC_DIR` natively): its WebAssembly and glue, named by their hash and served `immutable` (on Workers `rafi-web*` only); the stylesheet, fonts and icons, revalidated |
 | `/participant/assets/` | The participant page's WebAssembly and its glue, named by their hash and served `immutable` (`RAFI_PARTICIPANT_DIR` natively) |
 | `/participant/fallback.js` | Its JavaScript fallback, revalidated |
 | `/participant/pow-worker.js` | The proof-of-work solver, served from the `dioxus-altcha` version built into the server |

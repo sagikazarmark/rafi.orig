@@ -34,9 +34,10 @@ assets:
     cp -R ../participant/dist/public/assets worker-assets/participant/assets
     cp ../participant/dist/public/fallback.js worker-assets/participant/
     cp "$docs/terms.md" "$docs/privacy.md" worker-assets/legal/
-    # Cloudflare compresses at the edge; the precompressed variants are for
-    # the native server and would only be served as files here.
-    find worker-assets/participant -type f \( -name '*.gz' -o -name '*.br' \) -delete
+    # Cloudflare compresses at the edge; the precompressed variants (the web
+    # app's and the participant's) are for the native server and would only
+    # be served as files here.
+    find worker-assets -type f \( -name '*.gz' -o -name '*.br' \) -delete
     cp _headers worker-assets/
 
 # Build the Worker as `wrangler deploy` builds it (`just build dev` as `wrangler dev --env dev` does).

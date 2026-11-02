@@ -122,11 +122,12 @@ IP=127.0.0.1 PORT=8081 \
 ```
 
 - Run it from the repository root, or set `RAFI_PUBLIC_DIR` and `RAFI_PARTICIPANT_DIR` to where you put the web
-  bundle and the participant build (`dist/public`, as it is). The build's module and glue are named by their
-  hash and served `Cache-Control: immutable`, so phones keep them and a deploy links new names; the fallback is
-  revalidated (`no-cache`, with an `ETag`). They are served precompressed (`.br` and `.gz`) when the browser
-  accepts it: no compressing proxy is needed in front of them. The binary was compiled against one participant
-  build, and refuses to start on another: ship the two together.
+  bundle and the participant build (`dist/public`, as it is). The builds' modules and glue are named by their
+  hash and served `Cache-Control: immutable`, so browsers and phones keep them and a deploy links new names; the
+  rest (the web app's page, stylesheet, fonts and icons, the participant's fallback) is revalidated (`no-cache`,
+  with an `ETag`). They are served precompressed (`.br` and `.gz`, which the two `just build` recipes write) when
+  the browser accepts it: no compressing proxy is needed in front of them. The binary was compiled against one
+  participant build, and refuses to start on another: ship the two together.
 - Set `RAFI_POW_KEY` to a fixed secret. Otherwise it is random per start, and a restart during registration
   invalidates the challenges phones are solving. Don't rotate it during an event.
 - Keep `RAFI_ENGINE_TIMEOUT_SECS` (90) above the engine's `lead_secs + timeout_secs` (66 by default).
@@ -140,9 +141,10 @@ two hours (counted from the first raffle), every organizer's admin shows a warni
 ## 7. Reverse proxy
 
 Put a TLS-terminating proxy (Caddy, nginx, …) in front of `rafi` and pass every path through. `rafi` serves the
-APIs, the participant pages and the static files itself ([routes](../reference/routes.md)). If the proxy talks plain
-HTTP to `rafi` but `RAFI_PUBLIC_URL` is `https://`, the participant cookie is already `Secure`. Set
-`RAFI_COOKIE_SECURE` only to override that.
+APIs, the participant pages and the static files itself ([routes](../reference/routes.md)), the files compressed
+and with their caching headers (above); a caching proxy or CDN in front is still welcome, if it keeps those
+headers. If the proxy talks plain HTTP to `rafi` but `RAFI_PUBLIC_URL` is `https://`, the participant cookie is
+already `Secure`. Set `RAFI_COOKIE_SECURE` only to override that.
 
 Don't rate-limit by IP aggressively: a whole venue shares one address. Rafi limits joins per raffle and per email.
 

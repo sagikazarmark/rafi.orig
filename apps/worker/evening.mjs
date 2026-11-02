@@ -194,7 +194,7 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: listenForViolation
 // files' from _headers; and no single-page fallback among those files.
 const headersOf = async (path) => {
   const res = await fetch(`${base}${path}`);
-  return { status: res.status, csp: res.headers.get("content-security-policy") ?? "", xfo: res.headers.get("x-frame-options"), nosniff: res.headers.get("x-content-type-options") === "nosniff" };
+  return { status: res.status, csp: res.headers.get("content-security-policy") ?? "", xfo: res.headers.get("x-frame-options"), nosniff: res.headers.get("x-content-type-options") === "nosniff", cacheControl: res.headers.get("cache-control") ?? "" };
 };
 const byHash = (csp) => /script-src [^;]*'sha256-/.test(csp) && !csp.includes("'unsafe-eval'") && csp.includes("frame-ancestors 'none'");
 for (const path of [`/j/${code}`, `/rules/${slug}`, `/privacy/${slug}`, "/j/NOSUCHCODE"]) {
@@ -216,6 +216,14 @@ for (const path of [`/s/${slug}`, `/v/${slug}`]) {
 }
 let h = await headersOf("/assets/tailwind.css");
 check(h.status === 200 && h.nosniff && h.csp === "frame-ancestors 'none'", "a static file has _headers' headers");
+check(!h.cacheControl.includes("immutable"), `the stylesheet keeps its name, so it is revalidated (${h.cacheControl})`);
+// The module and its glue are named by their hash: kept for good.
+const glue = (await (await fetch(`${base}/`)).text()).match(/assets\/(rafi-web-dxh[0-9a-f]+\.js)/)?.[1];
+const wasm = glue && (await (await fetch(`${base}/assets/${glue}`)).text()).match(/rafi-web_bg-dxh[0-9a-f]+\.wasm/)?.[0];
+for (const file of [glue, wasm]) {
+  h = await headersOf(`/assets/${file}`);
+  check(!!file && h.status === 200 && h.cacheControl === "public, max-age=31536000, immutable", `${file}: kept for good (${h.cacheControl})`);
+}
 h = await headersOf("/assets/rafi-web-dxh-missing.js");
 check(h.status === 404, `a missing static file is a 404, not the shell (${h.status})`);
 

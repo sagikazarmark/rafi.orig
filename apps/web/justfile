@@ -23,9 +23,24 @@ install:
 css: install
     tailwindcss -i tailwind.css -o assets/tailwind.css --minify
 
-# Bundle the web app into target/dx/rafi-web/release/web/public (without the DWARF sections dx's release defaults keep in).
+# Bundle the web app into target/dx/rafi-web/release/web/public (without the DWARF sections dx's release defaults keep in), gzipped next to dx's brotli.
 build: install clean
+    #!/usr/bin/env bash
+    set -euo pipefail
     dx bundle --platform web --release --debug-symbols false
+    # gzip next to dx's brotli (Dioxus.toml's pre_compress), for the native
+    # server (tower-http serves `x.br` or `x.gz` for `x` when the browser
+    # accepts it; Cloudflare compresses at the edge). A variant no smaller
+    # than its file (the fonts are compressed already) is left out, so the
+    # file is served as it is.
+    for f in {{ public }}/assets/*; do
+        case "$f" in *.br | *.gz) continue ;; esac
+        gzip -9 -k -n -f "$f"
+        size=$(wc -c <"$f")
+        for v in "$f.br" "$f.gz"; do
+            if [ -f "$v" ] && [ "$(wc -c <"$v")" -ge "$size" ]; then rm "$v"; fi
+        done
+    done
 
 # Build, then hold the bundle to its budget: 1,100,000 B for the module and its glue, 40 KB for the stylesheet, gzip -9.
 check: build

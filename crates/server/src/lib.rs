@@ -295,9 +295,44 @@ impl Dirs {
     }
 }
 
-/// `Cache-Control` for the participant's hashed assets: kept for good.
+/// `Cache-Control` for the hashed assets (the participant's, the web app's): kept for good.
 #[cfg(not(target_arch = "wasm32"))]
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+
+/// Whether the file at `path` is named by its content hash, as dx names the
+/// modules and scripts it bundles: `<name>-dxh<hex>.<extension>`.
+#[cfg(not(target_arch = "wasm32"))]
+fn hashed(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let stem = name.split('.').next().unwrap_or(name);
+    stem.rsplit_once("-dxh")
+        .is_some_and(|(_, hash)| !hash.is_empty() && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// The `Cache-Control` of the web app's files: [`IMMUTABLE`] for a
+/// [`hashed`] one (a deploy links new names), `no-cache` for the rest (the
+/// stylesheet, the fonts, the icons keep their names, so a browser
+/// revalidates them, with the `ETag` `ServeDir` derives). Only on a file
+/// that was found, never on a 404.
+#[cfg(not(target_arch = "wasm32"))]
+async fn web_asset_cache(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{HeaderValue, StatusCode, header::CACHE_CONTROL};
+    let value = if hashed(req.uri().path()) {
+        IMMUTABLE
+    } else {
+        "no-cache"
+    };
+    let mut resp = next.run(req).await;
+    if resp.status().is_success() || resp.status() == StatusCode::NOT_MODIFIED {
+        resp.headers_mut()
+            .entry(CACHE_CONTROL)
+            .or_insert(HeaderValue::from_static(value));
+    }
+    resp
+}
 
 /// The complete HTTP router: [`routes`], the participant build's files at
 /// `/participant/`, the web app's files at `/assets/` (from [`Dirs::public`]),
@@ -311,9 +346,12 @@ const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// fallback keeps a fixed name, so a phone must revalidate it (`no-cache`,
 /// with the `ETag` `ServeDir` derives from the file). Either header goes on
 /// a file that was found, never on a 404, which a browser could otherwise
-/// keep. The files are served precompressed where the build left a
-/// `.br` or `.gz`: the module crosses venue wifi, where the uncompressed
-/// size would be felt.
+/// keep. The web app's files are cached alike ([`web_asset_cache`]), and
+/// its shell is `no-cache` too. The files are served precompressed where
+/// the build left a `.br` or `.gz` (with `Vary: Accept-Encoding`): the
+/// modules cross venue wifi, where the uncompressed size would be felt, and
+/// compressing them once at build time costs no CPU per request.
+/// Nothing else is compressed: no API reply, nor the live channel.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn build_router(
     app: AppState,
@@ -338,8 +376,15 @@ pub fn build_router(
         }
     }
 
+    let web_assets = Router::new()
+        .fallback_service(
+            ServeDir::new(dirs.public.join("assets"))
+                .precompressed_br()
+                .precompressed_gzip(),
+        )
+        .layer(axum::middleware::from_fn(web_asset_cache));
     let web_app = Router::new()
-        .nest_service("/assets", ServeDir::new(dirs.public.join("assets")))
+        .nest("/assets", web_assets)
         .fallback_service(shell_routes(&app, shell));
     let web_app = secured(web_app, &app);
     let assets = Router::new()

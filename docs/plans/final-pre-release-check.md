@@ -647,6 +647,15 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
 - **Size**: small.
 - **Accept**: `curl -sI -H 'Accept-Encoding: br' http://localhost:8787/assets/rafi-web_bg-*.wasm` shows
   `content-encoding: br` and `immutable` natively; `evening.mjs` asserts the same headers on the Worker.
+- **Done**: as changed, precompressed rather than a `CompressionLayer` (no CPU per request; nothing else is
+  compressed). `apps/web/justfile build` gzips every asset next to dx's brotli and drops a variant no smaller than
+  its file (the fonts); `apps/worker`'s `assets` deletes both from all of `worker-assets/`. Natively every dx-hashed
+  name (`-dxh<hex>`, so `focus-trap-dxh*.js` too) is `immutable` and every other `/assets/` file `no-cache`, only on
+  a file found; the shell was `no-cache` already. Workers gets `/assets/rafi-web*` `immutable` (one splat per rule,
+  so `focus-trap` keeps Assets' default) and the stylesheet and fonts keep Assets' `max-age=0, must-revalidate`
+  rather than an explicit `no-cache`, which a second matching rule would join onto `immutable`. Natively the wasm
+  is 2,696,221 B, 1,047,889 gzip, 785,123 br. `the_web_apps_files_are_compressed_and_cached` (rafi-server); the
+  evening checks the glue and the module are `immutable` and the stylesheet isn't.
 
 #### T3-6 · Polling has no jitter, no backoff and ignores tab visibility
 
