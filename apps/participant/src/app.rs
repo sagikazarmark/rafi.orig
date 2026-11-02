@@ -39,15 +39,11 @@ fn retry_ms(tried: u32) -> u32 {
     5_000u32.saturating_mul(1 << tried.min(4)).min(60_000)
 }
 
-fn won(view: &ParticipantView, me: Option<&str>) -> bool {
-    me.is_some_and(|me| view.win_of(me).is_some())
-}
-
 /// Fetches the current view; newer ones replace the card's.
 async fn fetch_view(
     url: String,
     mut view: Signal<ParticipantView>,
-    mut announce: Signal<bool>,
+    mut announce: Signal<u32>,
     me: Option<String>,
 ) {
     let sent_at = clock::local_ms();
@@ -63,18 +59,20 @@ async fn fetch_view(
 }
 
 /// Takes a view if it's newer. A win that happens now (not one the page was
-/// loaded with) is announced: alert, pop, chime and vibration.
+/// loaded with) is announced: alert, pop, chime and vibration. So is each
+/// prize won after it (pass 2 draws earlier winners again when there are
+/// more prizes than people). `announce` counts the wins announced.
 fn apply(
     fresh: ParticipantView,
     view: &mut Signal<ParticipantView>,
-    announce: &mut Signal<bool>,
+    announce: &mut Signal<u32>,
     me: Option<&str>,
 ) {
     if fresh.v <= view.peek().v {
         return;
     }
-    if !won(&view.peek(), me) && won(&fresh, me) {
-        announce.set(true);
+    if me.is_some_and(|me| fresh.won_since(&view.peek(), me)) {
+        *announce.write() += 1;
         extras::announce_win();
     }
     view.set(fresh);
@@ -111,7 +109,7 @@ fn App() -> Element {
     let cfg: PageConfig = use_context();
     let me = cfg.entrant_id.clone();
     let view = use_signal(|| cfg.view.clone());
-    let announce = use_signal(|| false);
+    let announce = use_signal(|| 0u32);
     let mut now = use_signal(clock::now_ms);
 
     // The countdown ticks only while a draw is pending.
@@ -218,14 +216,19 @@ fn App() -> Element {
     };
     let me_for_live = me.clone();
     rsx! {
-        Card {
-            view: current,
-            me: me.clone(),
-            claim_code: cfg.claim_code.clone(),
-            page_state: cfg.page_state,
-            now_ms: now(),
-            strings: cfg.strings.clone(),
-            announce: announce(),
+        // Keyed by the wins announced: a new one mounts the card afresh, so
+        // its pop and its alert play again for a second prize.
+        for announced in [announce()] {
+            Card {
+                key: "{announced}",
+                view: current.clone(),
+                me: me.clone(),
+                claim_code: cfg.claim_code.clone(),
+                page_state: cfg.page_state,
+                now_ms: now(),
+                strings: cfg.strings.clone(),
+                announce: announced > 0,
+            }
         }
         if let Some(base_url) = subscription {
             ChannelSubscription {

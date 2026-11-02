@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "card")]
 use crate::{
-    screen::{Screen, screen},
+    screen::{Screen, WonPrize, screen},
     view::{ParticipantView, Phase},
 };
 
@@ -71,6 +71,9 @@ impl Default for CardStrings {
 /// - `now_ms` is the server-synced clock, in Unix milliseconds;
 /// - `announce` adds `role="alert"` and the pop animation to a win. Set it
 ///   only when the win happens live, never on page load.
+///
+/// A winner of more than one prize (more prizes than people) gets "YOU
+/// WON!" once, then each prize with its own note, then the claim code once.
 #[cfg(feature = "card")]
 #[component]
 pub fn Card(
@@ -85,36 +88,60 @@ pub fn Card(
     let s = &strings;
     match screen(&view, me.as_deref(), page_state, now_ms) {
         Screen::Reload | Screen::Blank => rsx! {},
-        Screen::Won {
-            prize_name,
-            claimed,
-            sent_later,
-            done,
-        } => {
+        Screen::Won { prizes, done } => {
             let class = if announce {
                 format!("{WON} animate-pop")
             } else {
                 WON.to_owned()
             };
-            let note = if claimed && sent_later {
-                &s.sent_later
-            } else if claimed || done {
-                &s.thanks_won
-            } else {
-                &s.go_to_organizer
+            let note = |p: &WonPrize| {
+                if p.claimed && p.sent_later {
+                    &s.sent_later
+                } else if p.claimed || done {
+                    &s.thanks_won
+                } else {
+                    &s.go_to_organizer
+                }
             };
-            rsx! {
-                div { class, role: if announce { "alert" },
-                    p { class: "text-5xl", "🏆" }
-                    p { class: "font-display text-5xl font-black tracking-tight", "{s.you_won}" }
-                    p { class: "text-lg font-semibold", "{prize_name}" }
-                    if let Some(code) = claim_code {
-                        span { class: "claim-code mt-1 rounded-2xl bg-base-content px-5 py-2 text-4xl text-base-100 shadow-sm",
-                            "{code}"
+            let code = claim_code.map(|code| {
+                rsx! {
+                    span { class: "claim-code mt-1 rounded-2xl bg-base-content px-5 py-2 text-4xl text-base-100 shadow-sm",
+                        "{code}"
+                    }
+                }
+            });
+            match prizes.as_slice() {
+                [prize] => {
+                    let note = note(prize);
+                    rsx! {
+                        div { class, role: if announce { "alert" },
+                            p { class: "text-5xl", "🏆" }
+                            p { class: "font-display text-5xl font-black tracking-tight", "{s.you_won}" }
+                            p { class: "text-lg font-semibold", "{prize.prize_name}" }
+                            {code}
+                            p { class: "text-sm opacity-90", "{note}" }
                         }
                     }
-                    p { class: "text-sm opacity-90", "{note}" }
                 }
+                // More prizes than people: pass 2 drew them again. Each
+                // prize with where it stands, the claim code once.
+                prizes => rsx! {
+                    div { class, role: if announce { "alert" },
+                        p { class: "text-5xl", "🏆" }
+                        p { class: "font-display text-5xl font-black tracking-tight", "{s.you_won}" }
+                        ul { class: "won-prizes flex w-full flex-col gap-2",
+                            for (i , prize) in prizes.iter().enumerate() {
+                                li {
+                                    key: "{i}",
+                                    class: "rounded-box bg-success-content/10 px-4 py-2",
+                                    p { class: "text-lg font-semibold", "{prize.prize_name}" }
+                                    p { class: "text-sm opacity-90", "{note(prize)}" }
+                                }
+                            }
+                        }
+                        {code}
+                    }
+                },
             }
         }
         Screen::Thanks => rsx! {

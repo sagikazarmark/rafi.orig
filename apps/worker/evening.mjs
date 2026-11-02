@@ -384,10 +384,25 @@ for (let n = 1; n <= 3; n++) {
     annaWon = true;
     check(await until(async () => (await card()).includes(claim), 15000), "the phone shows the win with its claim code");
     check((await js(`!!document.querySelector("#live [role=alert]")`)) === true, "the win is announced");
+    // Marked, to tell the second win's card from this one.
+    await js(`(() => { const a = document.querySelector("#live [role=alert]"); if (a) a.__rafiFirstWin = true; })()`);
+  } else {
+    // Pass 2: Anna's second prize, added to her card and announced afresh.
+    check(await until(async () => (await card()).includes(prize), 15000), `the phone adds the ${prize} to Anna's win`);
+    check(await until(() => js(`(() => { const a = document.querySelector("#live [role=alert]");
+      return !!a && !a.__rafiFirstWin && a.classList.contains("animate-pop"); })()`), 5000),
+      "the second prize is announced too");
   }
   check(await until(() => drawConsole.click("Claimed"), 5000), `the organizer presses Claimed for the ${prize}`);
   check(await until(async () => new RegExp(`${prize}\\s*claimed`).test(await drawConsole.text()), 15000), `the console shows the ${prize} claimed`);
 }
+
+// More prizes than people: Anna's phone lists both, the claim code once.
+const won = await card();
+check(won.includes("Rust in Action") && won.includes("Ferris plush") && won.split(claim).length === 2
+  && (await js(`document.querySelectorAll("#live .claim-code").length`)) === 1
+  && (await js(`document.querySelectorAll("#live li").length`)) === 2,
+  `Anna's phone lists both prizes and the claim code once (${won})`);
 
 // The full view for screens: version from the database, the draws in it.
 const view = await (await fetch(`${base}/api/r/${slug}/view`)).json();

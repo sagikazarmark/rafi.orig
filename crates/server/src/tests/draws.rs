@@ -1,5 +1,5 @@
 //! Draws: the engine's chain, stalls, claims while a draw waits, stale
-//! consoles, delivery.
+//! consoles, delivery, more prizes than people.
 
 use super::*;
 
@@ -497,4 +497,182 @@ async fn a_stale_console_cannot_resolve_the_redraw() {
     .await;
     assert_eq!(outcome(1).await.unwrap().0, "not_here");
     assert_eq!(outcome(2).await.unwrap().0, "claimed");
+}
+
+/// More prizes than people (T4-7): two entrants, four items. Pass 1 gives
+/// the book and the mug (handed over on the spot) one each; pass 2 gives
+/// the voucher (sent later) to one of them again. Their phone lists both
+/// prizes, the CSV has a row per prize, and the voucher's claim takes back
+/// the delivery the first prize's claim recorded, as the voucher is still
+/// to be sent. The sticker goes to the other one in pass 2, who declines
+/// it; then nobody is left to draw it from.
+#[tokio::test]
+async fn more_prizes_than_people() {
+    use rafi_lifecycle::prize::Delivery;
+
+    let prizes = [("Book", 1), ("Mug", 1), ("Voucher", 1), ("Sticker", 1)];
+    let (app, router, raffle) = dev_raffle_with(Config::for_tests(), &prizes).await;
+    let id = raffle.id.as_str();
+    let dev = service::Actor::solo("dev");
+    let prize_ids: Vec<String> = prizes::list(&app.db, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|p| p.id)
+        .collect();
+    for prize in &prize_ids[..2] {
+        service::set_prize_delivery(&app, dev, id, prize, Delivery::OnTheSpot)
+            .await
+            .unwrap();
+    }
+    for name in ["Anna", "Bence"] {
+        add_one(&app, dev, id, name, None).await.unwrap();
+    }
+    service::start_draw(&app, dev, id).await.unwrap();
+    let r = wait_for(&app, id, |r| r.raffle.opened()).await;
+    let items: Vec<_> = r
+        .drawn
+        .as_ref()
+        .unwrap()
+        .items()
+        .iter()
+        .map(|u| u.id.clone())
+        .collect();
+    assert_eq!(items.len(), 4);
+
+    let first = draw_and_claim_as(&app, dev, id, &items[0]).await;
+    let second = draw_and_claim_as(&app, dev, id, &items[1]).await;
+    assert_ne!(first, second, "pass 1 draws everyone once");
+    let twice = draw_and_claim_as(&app, dev, id, &items[2]).await;
+    assert!([&first, &second].contains(&&twice), "pass 2: {twice}");
+    let once = if twice == first { &second } else { &first };
+    let r = full(&app, id).await;
+    let drawn = r.drawn.as_ref().unwrap();
+    let passes: Vec<u8> = drawn.draws().iter().map(|d| d.pass).collect();
+    assert_eq!(passes, [1, 1, 2]);
+
+    // Their phone has both prizes, in the order drawn, each as it stands.
+    let (status, _, view) = get_json(&router, &format!("/api/r/{}/participant", raffle.slug)).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let view: rafi_live_client::ParticipantView = serde_json::from_value(view).unwrap();
+    let wins = |who: &str| -> Vec<(String, bool, bool)> {
+        view.wins_of(who)
+            .iter()
+            .map(|w| (w.prize_name.clone(), w.claimed, w.sent_later))
+            .collect()
+    };
+    let earlier = if twice == first { "Book" } else { "Mug" };
+    let later = if twice == first { "Mug" } else { "Book" };
+    assert_eq!(
+        wins(&twice),
+        [
+            (earlier.to_owned(), true, false),
+            ("Voucher".to_owned(), true, true)
+        ]
+    );
+    assert_eq!(wins(once), [(later.to_owned(), true, false)]);
+    let me = rafi_live_client::screen(&view, Some(&twice), view.state, 0);
+    assert!(
+        matches!(&me, rafi_live_client::Screen::Won { prizes, .. } if prizes.len() == 2),
+        "{me:?}"
+    );
+
+    // A row per prize: three.
+    let csv = service::export_csv(&app, dev, id).await.unwrap();
+    let rows: Vec<&str> = csv.lines().skip(1).collect();
+    assert_eq!(rows.len(), 3, "{csv}");
+    assert_eq!(
+        rows.iter().filter(|l| l.contains(&twice)).count(),
+        2,
+        "{csv}"
+    );
+    assert!(
+        rows.iter()
+            .any(|l| l.contains(&twice) && l.contains("\"claimed\",\"Voucher\"")),
+        "{csv}"
+    );
+
+    // The on-the-spot prize's claim delivered; the voucher's takes it back,
+    // as it is still to be sent. The other winner stays delivered.
+    let audit = audit_of(&app, id).await;
+    let deliveries: Vec<(&str, &str)> = audit
+        .iter()
+        .filter(|(action, _)| action == "deliver" || action == "undeliver")
+        .map(|(a, d)| (a.as_str(), d.as_str()))
+        .collect();
+    let mut expected = vec![("deliver", first.as_str()), ("deliver", second.as_str())];
+    expected.push(("undeliver", twice.as_str()));
+    assert_eq!(deliveries, expected);
+    let delivered = |who: String| {
+        let app = app.clone();
+        async move {
+            entrants::get(&app.db, id, &who)
+                .await
+                .unwrap()
+                .unwrap()
+                .delivered_at
+                .is_some()
+        }
+    };
+    assert!(!delivered(twice.clone()).await, "the voucher is owed");
+    assert!(delivered(once.clone()).await);
+
+    // The sticker: the other winner, the last one pass 2 hasn't drawn, who
+    // declines it; drawn again, there is nobody left.
+    let call = |name: &'static str, args: serde_json::Value| {
+        let router = router.clone();
+        async move {
+            let (status, _, body) = send(&router, admin_call(name, &args.to_string())).await;
+            (status, body)
+        }
+    };
+    let sticker = items[3].clone();
+    let (status, body) = call(
+        "draw_item",
+        serde_json::json!({ "id": id, "item": sticker, "command_id": "sticker-1" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let r = wait_for(&app, id, |r| {
+        r.drawn
+            .as_ref()
+            .is_some_and(|s| s.item(&sticker).unwrap().status() == ItemStatus::Drawn)
+    })
+    .await;
+    let s = r.drawn.as_ref().unwrap();
+    assert_eq!(s.item(&sticker).unwrap().winner().unwrap().as_str(), once);
+    let (status, body) = call(
+        "resolve_item",
+        serde_json::json!({
+            "id": id, "item": sticker, "resolution": "declined", "command_id": "sticker-declined",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    wait_for(&app, id, |r| {
+        r.drawn
+            .as_ref()
+            .is_some_and(|s| s.item(&sticker).unwrap().status() == ItemStatus::Available)
+    })
+    .await;
+    let (status, body) = call(
+        "draw_item",
+        serde_json::json!({ "id": id, "item": sticker, "command_id": "sticker-2" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let error: rafi_api::admin::ApiError = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        error.message, "There are no eligible entrants left.",
+        "{body}"
+    );
+
+    // Declining a second prize leaves the first: still three rows, and the
+    // phone still lists what each holds.
+    let csv = service::export_csv(&app, dev, id).await.unwrap();
+    assert_eq!(csv.lines().count(), 1 + 3, "{csv}");
+    let (_, _, view) = get_json(&router, &format!("/api/r/{}/participant", raffle.slug)).await;
+    let view: rafi_live_client::ParticipantView = serde_json::from_value(view).unwrap();
+    assert_eq!(view.wins_of(&twice).len(), 2);
+    assert_eq!(view.wins_of(once).len(), 1);
 }

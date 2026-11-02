@@ -87,7 +87,9 @@ pub struct ParticipantView {
     /// The latest draw that holds its prize: no-shows and declines are
     /// skipped. Its name is the only display name a phone receives.
     pub last: Option<LastDraw>,
-    /// Entrants holding a prize (drawn or claimed), so a phone can tell it won.
+    /// The prizes held (drawn or claimed), one entry each, so a phone can
+    /// tell it won and what: an entrant pass 2 drew again (more prizes than
+    /// people) is in it once per prize ([`wins_of`](Self::wins_of)).
     pub winners: Vec<Winner>,
     /// Prizes still to be won.
     pub prizes_left: u32,
@@ -116,7 +118,7 @@ pub struct LastDraw {
     pub no_phone: bool,
 }
 
-/// An entrant holding a prize.
+/// A prize held, and by whom.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Winner {
     pub entrant_id: String,
@@ -224,12 +226,26 @@ impl ParticipantView {
             && *prizes_left == other.prizes_left
     }
 
-    /// The latest prize `entrant_id` holds, if any.
-    pub fn win_of(&self, entrant_id: &str) -> Option<&Winner> {
+    /// Every prize `entrant_id` holds, in the order they were drawn. More
+    /// than one when there were more prizes than people: pass 2 draws the
+    /// earlier winners again.
+    pub fn wins_of(&self, entrant_id: &str) -> Vec<&Winner> {
         self.winners
             .iter()
-            .rev()
-            .find(|w| w.entrant_id == entrant_id)
+            .filter(|w| w.entrant_id == entrant_id)
+            .collect()
+    }
+
+    /// Whether `entrant_id` holds a prize here they didn't in `before`: a
+    /// win to announce, the first or one more. Prizes are told apart by
+    /// name, counted, so a second copy of the same prize is a new win too.
+    pub fn won_since(&self, before: &Self, entrant_id: &str) -> bool {
+        let before = before.wins_of(entrant_id);
+        let now = self.wins_of(entrant_id);
+        let count =
+            |wins: &[&Winner], name: &str| wins.iter().filter(|w| w.prize_name == name).count();
+        now.iter()
+            .any(|w| count(&now, &w.prize_name) > count(&before, &w.prize_name))
     }
 }
 
@@ -326,8 +342,62 @@ mod tests {
             }),
             "the no-show and the decline are skipped"
         );
-        assert_eq!(v.win_of("a").map(|w| w.claimed), Some(true));
-        assert!(v.win_of("c").is_none());
+        let claimed: Vec<_> = v.wins_of("a").iter().map(|w| w.claimed).collect();
+        assert_eq!(claimed, [true]);
+        assert!(v.wins_of("c").is_empty());
+    }
+
+    /// More prizes than people: pass 2 draws "a" again, and the view keeps
+    /// both of their prizes, each with its own state, in draw order.
+    #[test]
+    fn a_winner_of_two_holds_both() {
+        let v = ParticipantView::new(
+            9,
+            Phase::Drawing,
+            None,
+            [
+                draw("a", "Book", DrawOutcome::Claimed),
+                draw("b", "Mug", DrawOutcome::Claimed),
+                DrawInput {
+                    sent_later: true,
+                    ..draw("a", "Voucher", DrawOutcome::Drawn)
+                },
+                draw("b", "Shirt", DrawOutcome::NotHere),
+            ],
+            1,
+        );
+        let wins: Vec<_> = v
+            .wins_of("a")
+            .iter()
+            .map(|w| (w.prize_name.as_str(), w.claimed, w.sent_later))
+            .collect();
+        assert_eq!(wins, [("Book", true, false), ("Voucher", false, true)]);
+        let wins: Vec<_> = v.wins_of("b").iter().map(|w| &w.prize_name).collect();
+        assert_eq!(wins, ["Mug"], "a forfeited pass-2 draw isn't held");
+    }
+
+    #[test]
+    fn a_win_is_new_if_its_prize_wasnt_held() {
+        let view = |draws: Vec<DrawInput>| ParticipantView::new(1, Phase::Drawing, None, draws, 1);
+        let none = view(vec![]);
+        let one = view(vec![draw("a", "Book", DrawOutcome::Drawn)]);
+        let claimed = view(vec![draw("a", "Book", DrawOutcome::Claimed)]);
+        let two = view(vec![
+            draw("a", "Book", DrawOutcome::Claimed),
+            draw("b", "Mug", DrawOutcome::Claimed),
+            draw("a", "Voucher", DrawOutcome::Drawn),
+        ]);
+        let twice = view(vec![
+            draw("a", "Book", DrawOutcome::Claimed),
+            draw("a", "Book", DrawOutcome::Drawn),
+        ]);
+        assert!(one.won_since(&none, "a"), "the first win");
+        assert!(!one.won_since(&none, "b"), "someone else's");
+        assert!(!claimed.won_since(&one, "a"), "a claim isn't a new win");
+        assert!(two.won_since(&claimed, "a"), "a second prize is");
+        assert!(!two.won_since(&two, "a"));
+        assert!(twice.won_since(&claimed, "a"), "so is a second copy of one");
+        assert!(!none.won_since(&two, "a"), "losing one isn't");
     }
 
     #[test]

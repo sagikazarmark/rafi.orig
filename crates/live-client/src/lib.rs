@@ -30,7 +30,7 @@ pub use card::{CARD, CardStrings, WON};
 pub use card::{Card, CardProps};
 pub use follow::{DEFAULT_POLL_MS, Follow};
 pub use page::PageConfig;
-pub use screen::{Screen, screen};
+pub use screen::{Screen, WonPrize, screen};
 pub use view::{
     Current, DrawInput, DrawOutcome, HIDDEN_NAME, LastDraw, ParticipantView, Phase, Winner,
     public_name,

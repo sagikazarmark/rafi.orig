@@ -228,8 +228,10 @@ fn admin_entrants(full: &Full, drawn: Option<&Raffle>, winners_erase_at: i64) ->
         .collect()
 }
 
-/// The drawn entrants as CSV: who won what, and how to reach them. Every
-/// export is audited (who, when, how many rows), never stored.
+/// The drawn entrants as CSV: who won what, and how to reach them; a row
+/// per prize held, so a winner pass 2 drew again (more prizes than people)
+/// has one for each. Every export is audited (who, when, how many rows),
+/// never stored.
 ///
 /// The format (also in `docs/reference/routes.md`): UTF-8 with a byte order
 /// mark (Excel on Windows reads accented names wrong without one), one header
@@ -247,27 +249,47 @@ pub async fn export_csv(app: &App, actor: Actor<'_>, id: &str) -> Result<String>
     let mut out = String::from(
         "\u{FEFF}entrant_id,display_name,email,source,claim_code,outcome,prize,delivered\n",
     );
+    // The prizes each entrant holds (drawn or claimed), in draw order: more
+    // than one for a winner pass 2 drew again.
+    let mut held: HashMap<String, Vec<(Outcome, String)>> = HashMap::new();
+    if let Some(drawn) = full.drawn.as_ref() {
+        for d in drawn.draws() {
+            if matches!(d.outcome, Outcome::Drawn | Outcome::Claimed) {
+                let prize = drawn.item(&d.item).map(|i| i.name.clone());
+                held.entry(d.entrant.into_string())
+                    .or_default()
+                    .push((d.outcome, prize.unwrap_or_default()));
+            }
+        }
+    }
     let mut rows = 0;
     for e in admin_entrants(&full, full.drawn.as_ref(), hold)
         .iter()
         .filter(|e| e.outcome.is_some())
     {
-        rows += 1;
-        let outcome = e.outcome.map_or("", Outcome::as_str);
-        out.push_str(
-            &[
-                esc(&e.id),
-                esc(&e.display_name),
-                esc(e.email.as_deref().unwrap_or("")),
-                esc(e.source.as_str()),
-                esc(e.claim_code.as_deref().unwrap_or("")),
-                esc(outcome),
-                esc(e.prize.as_deref().unwrap_or("")),
-                esc(if e.delivered { "yes" } else { "no" }),
-            ]
-            .join(","),
-        );
-        out.push('\n');
+        // One row per prize held; one with how their turn ended for an
+        // entrant who holds none (not here, declined).
+        let lines: Vec<(Option<Outcome>, String)> = match held.get(&e.id) {
+            Some(prizes) => prizes.iter().map(|(o, p)| (Some(*o), p.clone())).collect(),
+            None => vec![(e.outcome, e.prize.clone().unwrap_or_default())],
+        };
+        for (outcome, prize) in lines {
+            rows += 1;
+            out.push_str(
+                &[
+                    esc(&e.id),
+                    esc(&e.display_name),
+                    esc(e.email.as_deref().unwrap_or("")),
+                    esc(e.source.as_str()),
+                    esc(e.claim_code.as_deref().unwrap_or("")),
+                    esc(outcome.map_or("", Outcome::as_str)),
+                    esc(&prize),
+                    esc(if e.delivered { "yes" } else { "no" }),
+                ]
+                .join(","),
+            );
+            out.push('\n');
+        }
     }
     audit::record(
         &app.db,

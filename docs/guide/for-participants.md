@@ -62,7 +62,8 @@ Then, for each prize:
 
 **If you win, go to the organizer and show your claim code.** You must be in the room: if you're not, the prize is
 drawn again and you're out. Once the organizer has checked your code, your phone says whether you take the prize
-with you or the organizer sends it to you later.
+with you or the organizer sends it to you later. With more prizes than people, a winner may win more than once: the
+phone lists every prize they won, each with where it stands, and the claim code once.
 
 Each person can win at most one prize, unless there are more prizes than people.
 

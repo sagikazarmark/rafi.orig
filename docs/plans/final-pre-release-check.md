@@ -16,7 +16,7 @@ open items become tickets, their Accept lines the definition of done.
 | 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
 | 5. Launch mechanics | **Done locally** (2026-11-02): T2-2, T2-4 … T2-8 as far as the repository goes; T2-1, T2-3, the stranger, the GitHub runs and settings open. Declined: release-note labels and templates, community files, third-party notices, Python in the release. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, `just workers` (the evening on `WORKERS_APP_PORT=8797`, every check ok), two `cloudflare-release.sh 0.1.0` builds byte-identical. |
 | 6. Design and UX | **Done** in the next run: T5-1 … T5-7, T6-1 … T6-6 (with what [What it left](#what-it-left) lists) |
-| 7. Tests | **Done** in the next run: T4-1, T4-3, T4-4, T4-6, T4-11 (with what it left); T4-5 since; T4-7 … T4-10 to tickets |
+| 7. Tests | **Done** in the next run: T4-1, T4-3, T4-4, T4-6, T4-11 (with what it left); T4-5 and T4-7 since; T4-8 … T4-10 to tickets |
 | 8. Tiers 7 and 8 | **Done** in the next run but what it left; T8-15 done (`0001_init.sql` frozen) |
 
 Proposed (2026-11-01). The last review before the first version is tagged, after
@@ -815,6 +815,19 @@ gaps below are where a bug would ruin an evening, leak personal data or break ve
   (after deciding what the phone shows for two), the CSV has 3 rows, the audit has `undeliver` when a sent-later
   prize follows an on-the-spot one, and a fourth draw returns 409 with "There are no eligible entrants left."
   (2 h + a product decision)
+- **Done**: the decision: the phone lists every prize its entrant holds, each with its own note (to collect, enjoy,
+  or sent later), under one "YOU WON!" and above one claim code; one prize renders as before. `wins_of` replaces
+  `win_of`, `Screen::Won` carries the prizes, and `Card` and `fallback.js` render them alike; a prize not held
+  before is announced (`won_since`, by name, counted), a second one too: the WebAssembly remounts the card for it,
+  `fallback.js` no longer announces once only. The view's wire format is unchanged (it already had one entry per
+  prize). The CSV had one row per entrant, so a double winner's first prize was missing: it now has a row per prize
+  held (`routes.md` says so). `draws::more_prizes_than_people` has 2 entrants and 4 items, not 3: book and mug on
+  the spot, then the voucher (sent later) to one of them in pass 2: `/participant` lists 2 prizes for them, the CSV
+  has 3 rows, the audit has `deliver` for both claims on the spot and `undeliver` for the voucher's; the sticker
+  goes to the other in pass 2, who declines it, and drawn again it is refused 409 "There are no eligible entrants
+  left." (with 3 items a fourth draw has no item to name). The Workers evening checks Anna's phone lists "Rust in
+  Action" and "Ferris plush" with the code once, the second announced afresh. The thanks screen and the admin's
+  People row (one prize per entrant) are unchanged.
 
 #### T4-8 · Concurrency scenarios run on Postgres only
 
@@ -1278,8 +1291,8 @@ gets expensive at the tag first, then by what can go wrong in front of a room. I
    time), T6-3, T6-5, T6-6.
 6. **Tier 7 and Tier 8**, one sweep each: safe after the tag, since none of it changes behaviour.
 
-Not in it: the rest of Tier 3 (the measurements and the CI guards) and T4-7 … T4-10, which become tickets
-at the tag (T4-7 needs a product decision first). The real deploy (T2-3) is best done early, alongside step 1: it
+Not in it: the rest of Tier 3 (the measurements and the CI guards) and T4-8 … T4-10, which become tickets
+at the tag. The real deploy (T2-3) is best done early, alongside step 1: it
 is the one check whose findings could still change code.
 
 **Done** (2026-11-02, `bfdcc44`, `5756fe8`, `4077857` and the Tier 7/8 sweep after them), each verified with `just

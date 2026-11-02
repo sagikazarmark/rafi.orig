@@ -9,13 +9,11 @@ pub enum Screen {
     /// A visitor's page predates registration opening: reload it to get the
     /// join form. The card renders nothing; the WASM reloads.
     Reload,
-    /// This phone's entrant holds a prize.
+    /// This phone's entrant holds a prize, or more than one (pass 2 draws
+    /// earlier winners again when there are more prizes than people).
     Won {
-        prize_name: String,
-        /// The winner claimed the prize (present, their code checked).
-        claimed: bool,
-        /// The prize is sent to them after the raffle.
-        sent_later: bool,
+        /// Every prize they hold, in the order they were drawn; never empty.
+        prizes: Vec<WonPrize>,
         /// The raffle is over.
         done: bool,
     },
@@ -41,6 +39,16 @@ pub enum Screen {
     Blank,
 }
 
+/// A prize this phone's entrant holds, as [`Screen::Won`] shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WonPrize {
+    pub prize_name: String,
+    /// The winner claimed the prize (present, their code checked).
+    pub claimed: bool,
+    /// The prize is sent to them after the raffle.
+    pub sent_later: bool,
+}
+
 /// Picks the card for `view`.
 ///
 /// - `me` is the entrant ID from the page's cookie, if any;
@@ -50,11 +58,17 @@ pub fn screen(view: &ParticipantView, me: Option<&str>, page_state: Phase, now_m
     if me.is_none() && view.state == Phase::Open && page_state != Phase::Open {
         return Screen::Reload;
     }
-    if let Some(w) = me.and_then(|me| view.win_of(me)) {
+    let wins = me.map(|me| view.wins_of(me)).unwrap_or_default();
+    if !wins.is_empty() {
         return Screen::Won {
-            prize_name: w.prize_name.clone(),
-            claimed: w.claimed,
-            sent_later: w.sent_later,
+            prizes: wins
+                .into_iter()
+                .map(|w| WonPrize {
+                    prize_name: w.prize_name.clone(),
+                    claimed: w.claimed,
+                    sent_later: w.sent_later,
+                })
+                .collect(),
             done: view.state.is_over(),
         };
     }
@@ -106,6 +120,21 @@ mod tests {
 
     fn view(state: Phase, current: Option<Current>, draws: Vec<DrawInput>) -> ParticipantView {
         ParticipantView::new(1, state, current, draws, 2)
+    }
+
+    /// [`Screen::Won`] with `(prize_name, claimed, sent_later)` each.
+    fn won(prizes: &[(&str, bool, bool)], done: bool) -> Screen {
+        Screen::Won {
+            prizes: prizes
+                .iter()
+                .map(|&(name, claimed, sent_later)| WonPrize {
+                    prize_name: name.into(),
+                    claimed,
+                    sent_later,
+                })
+                .collect(),
+            done,
+        }
     }
 
     fn current() -> Option<Current> {
@@ -168,31 +197,16 @@ mod tests {
         let v = view(Phase::Drawing, None, draws());
         assert_eq!(
             screen(&v, Some("a"), Phase::Drawing, 0),
-            Screen::Won {
-                prize_name: "Book".into(),
-                claimed: false,
-                sent_later: false,
-                done: false
-            }
+            won(&[("Book", false, false)], false)
         );
         assert_eq!(
             screen(&v, Some("b"), Phase::Drawing, 0),
-            Screen::Won {
-                prize_name: "Mug".into(),
-                claimed: true,
-                sent_later: false,
-                done: false
-            },
+            won(&[("Mug", true, false)], false),
             "a claimed winner isn't sent to the organizer"
         );
         assert_eq!(
             screen(&v, Some("c"), Phase::Drawing, 0),
-            Screen::Won {
-                prize_name: "Voucher".into(),
-                claimed: true,
-                sent_later: true,
-                done: false
-            },
+            won(&[("Voucher", true, true)], false),
             "a prize sent later says so"
         );
         // A win outranks a draw in progress for someone else.
@@ -204,12 +218,32 @@ mod tests {
         let v = view(Phase::Finished, None, draws());
         assert_eq!(
             screen(&v, Some("a"), Phase::Drawing, 0),
-            Screen::Won {
-                prize_name: "Book".into(),
-                claimed: false,
-                sent_later: false,
-                done: true
-            }
+            won(&[("Book", false, false)], true)
+        );
+    }
+
+    /// More prizes than people: "a" won twice, and the card lists both.
+    #[test]
+    fn won_twice() {
+        let v = view(
+            Phase::Drawing,
+            None,
+            vec![
+                draw("a", "Book", DrawOutcome::Claimed),
+                draw("b", "Mug", DrawOutcome::Claimed),
+                DrawInput {
+                    sent_later: true,
+                    ..draw("a", "Voucher", DrawOutcome::Drawn)
+                },
+            ],
+        );
+        assert_eq!(
+            screen(&v, Some("a"), Phase::Drawing, 0),
+            won(&[("Book", true, false), ("Voucher", false, true)], false)
+        );
+        assert_eq!(
+            screen(&v, Some("b"), Phase::Drawing, 0),
+            won(&[("Mug", true, false)], false)
         );
     }
 

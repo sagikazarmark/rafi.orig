@@ -116,8 +116,9 @@ resolves whichever draw holds the item.
 field double-quoted (`"` doubled), a field starting with `=`, `+`, `-`, `@`, a tab or a carriage return prefixed
 with `'` so a spreadsheet doesn't run it as a formula, columns
 `entrant_id,display_name,email,source,claim_code,outcome,prize,delivered`
-(`outcome` is `drawn`, `claimed`, `not_here` or `declined`; `delivered` is `yes` or `no`). Every export is
-audited with its row count.
+(`outcome` is `drawn`, `claimed`, `not_here` or `declined`; `delivered` is `yes` or `no`), one row per prize an
+entrant holds (a winner drawn again in pass 2 has one for each) or, for one who holds none, one with how their turn
+ended. Every export is audited with its row count.
 
 A failed call answers with a non-2xx status and `{"code": "…", "message": "…"}`: the `code` is a stable
 `snake_case` name a program can act on (a refusal's kind, such as `settings_fixed` or `forbidden`, or `not_found`,

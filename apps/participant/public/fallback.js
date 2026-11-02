@@ -18,7 +18,6 @@
   var live = document.getElementById("live");
   var t0 = window.__rafiT0 || Date.now();
   var clockOffset = (cfg.server_now_ms || t0) - t0;
-  var wonAnnounced = false;
   var audioCtx = null;
   var countdownTimer = null;
 
@@ -41,19 +40,37 @@
     if (!me && v.state === "open" && cfg.page_state !== "open") { location.reload(); return; }
     if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
     live.textContent = "";
-    var win = null;
-    (v.winners || []).forEach(function (w) { if (w.entrant_id === me) win = w; });
+    var wins = winsOf(v);
 
-    if (win) {
+    if (wins.length) {
       var won = el("div", WON + (announce ? " animate-pop" : ""));
       if (announce) won.setAttribute("role", "alert");
       won.appendChild(el("p", "text-5xl", "🏆"));
       won.appendChild(el("p", "font-display text-5xl font-black tracking-tight", S.you_won));
-      won.appendChild(el("p", "text-lg font-semibold", win.prize_name));
-      if (cfg.claim_code) won.appendChild(el("span", "claim-code mt-1 rounded-2xl bg-base-content px-5 py-2 text-4xl text-base-100 shadow-sm", cfg.claim_code));
-      won.appendChild(el("p", "text-sm opacity-90",
-        win.claimed && win.sent_later ? S.sent_later
-          : win.claimed || isOver(v.state) ? S.thanks_won : S.go_to_organizer));
+      var note = function (w) {
+        return w.claimed && w.sent_later ? S.sent_later
+          : w.claimed || isOver(v.state) ? S.thanks_won : S.go_to_organizer;
+      };
+      var code = cfg.claim_code
+        ? el("span", "claim-code mt-1 rounded-2xl bg-base-content px-5 py-2 text-4xl text-base-100 shadow-sm", cfg.claim_code)
+        : null;
+      if (wins.length === 1) {
+        won.appendChild(el("p", "text-lg font-semibold", wins[0].prize_name));
+        if (code) won.appendChild(code);
+        won.appendChild(el("p", "text-sm opacity-90", note(wins[0])));
+      } else {
+        // More prizes than people: pass 2 drew them again. Each prize with
+        // where it stands, the claim code once.
+        var list = el("ul", "won-prizes flex w-full flex-col gap-2");
+        wins.forEach(function (w) {
+          var li = el("li", "rounded-box bg-success-content/10 px-4 py-2");
+          li.appendChild(el("p", "text-lg font-semibold", w.prize_name));
+          li.appendChild(el("p", "text-sm opacity-90", note(w)));
+          list.appendChild(li);
+        });
+        won.appendChild(list);
+        if (code) won.appendChild(code);
+      }
       live.appendChild(won);
       return;
     }
@@ -95,13 +112,27 @@
     live.appendChild(card);
   }
 
+  // The prizes this phone's entrant holds, in the order drawn (more than one
+  // when there are more prizes than people), as ParticipantView::wins_of.
+  function winsOf(v) {
+    return me && v ? (v.winners || []).filter(function (w) { return w.entrant_id === me; }) : [];
+  }
+  // Whether `v` has a prize this entrant didn't hold in `before`: the first
+  // win or one more, by name, counted (as ParticipantView::won_since).
+  function wonSince(v, before) {
+    var was = Object.create(null);
+    winsOf(before).forEach(function (w) { was[w.prize_name] = (was[w.prize_name] || 0) + 1; });
+    return winsOf(v).some(function (w) {
+      if (was[w.prize_name]) { was[w.prize_name]--; return false; }
+      return true;
+    });
+  }
+
   function apply(v) {
     if (!v || (view && v.v <= view.v)) return;
-    var wasWin = view && (view.winners || []).some(function (w) { return w.entrant_id === me; });
-    var isWin = me && (v.winners || []).some(function (w) { return w.entrant_id === me; });
+    var announce = wonSince(v, view);
     view = v;
-    var announce = !wasWin && isWin && !wonAnnounced;
-    if (announce) { wonAnnounced = true; chime(); if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); }
+    if (announce) { chime(); if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); }
     render(v, announce);
   }
 

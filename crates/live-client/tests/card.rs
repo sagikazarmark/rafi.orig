@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 use rafi_live_client::{
     CARD, Card, CardStrings, Current, DrawInput, DrawOutcome, ParticipantView, Phase, Screen, WON,
-    screen,
+    WonPrize, screen,
 };
 
 const T: u64 = 1_700_000_000;
@@ -35,6 +35,21 @@ fn draw(id: &str, prize: &str, outcome: DrawOutcome) -> DrawInput {
         outcome,
         sent_later: false,
         no_phone: false,
+    }
+}
+
+/// [`Screen::Won`] with `(prize_name, claimed, sent_later)` each.
+fn won(prizes: &[(&str, bool, bool)], done: bool) -> Screen {
+    Screen::Won {
+        prizes: prizes
+            .iter()
+            .map(|&(name, claimed, sent_later)| WonPrize {
+                prize_name: name.into(),
+                claimed,
+                sent_later,
+            })
+            .collect(),
+        done,
     }
 }
 
@@ -166,14 +181,7 @@ fn won_live() {
     )
     .me("a");
     c.announce = true;
-    assert!(matches!(
-        c.screen(),
-        Screen::Won {
-            claimed: false,
-            done: false,
-            ..
-        }
-    ));
+    assert_eq!(c.screen(), won(&[("Book", false, false)], false));
     let html = c.render();
     single_root(&html, &format!("{WON} animate-pop"));
     for s in [
@@ -211,28 +219,14 @@ fn won_claimed_or_done_says_thanks() {
         vec![draw("a", "Book", DrawOutcome::Claimed)],
     )
     .me("a");
-    assert!(matches!(
-        claimed.screen(),
-        Screen::Won {
-            claimed: true,
-            done: false,
-            ..
-        }
-    ));
+    assert_eq!(claimed.screen(), won(&[("Book", true, false)], false));
     let done = Case::new(
         Phase::Finished,
         None,
         vec![draw("a", "Book", DrawOutcome::Drawn)],
     )
     .me("a");
-    assert!(matches!(
-        done.screen(),
-        Screen::Won {
-            claimed: false,
-            done: true,
-            ..
-        }
-    ));
+    assert_eq!(done.screen(), won(&[("Book", false, false)], true));
     for c in [claimed, done] {
         let html = c.render();
         single_root(&html, WON);
@@ -256,18 +250,96 @@ fn won_a_prize_sent_later() {
     );
     for state in [Phase::Drawing, Phase::Finished] {
         let claimed = Case::new(state, None, vec![later(DrawOutcome::Claimed)]).me("a");
-        assert!(matches!(
+        assert_eq!(
             claimed.screen(),
-            Screen::Won {
-                claimed: true,
-                sent_later: true,
-                ..
-            }
-        ));
+            won(&[("Voucher", true, true)], state.is_over())
+        );
         let html = claimed.render();
         single_root(&html, WON);
         assert!(html.contains("[sent_later]"), "{state:?}: {html}");
         assert!(!html.contains("[thanks_won]"), "{state:?}: {html}");
+    }
+}
+
+/// One prize: the prize, the code and the note, and no list.
+#[test]
+fn won_one_prize_has_no_list() {
+    let c = Case::new(
+        Phase::Drawing,
+        None,
+        vec![draw("a", "Book", DrawOutcome::Claimed)],
+    )
+    .me("a");
+    let html = c.render();
+    single_root(&html, WON);
+    assert!(!html.contains("<ul"), "{html}");
+    assert_eq!(html.matches("[you_won]").count(), 1, "{html}");
+    assert_eq!(html.matches(">AB12<").count(), 1, "{html}");
+}
+
+/// More prizes than people: pass 2 drew "a" again. "YOU WON!" and the
+/// claim code once; each prize with its own note, in the order drawn.
+#[test]
+fn won_two_prizes() {
+    let mut c = Case::new(
+        Phase::Drawing,
+        None,
+        vec![
+            draw("a", "Book", DrawOutcome::Claimed),
+            draw("b", "Mug", DrawOutcome::Claimed),
+            DrawInput {
+                sent_later: true,
+                ..draw("a", "Voucher", DrawOutcome::Drawn)
+            },
+        ],
+    )
+    .me("a");
+    c.announce = true;
+    assert_eq!(
+        c.screen(),
+        won(&[("Book", true, false), ("Voucher", false, true)], false)
+    );
+    let html = c.render();
+    single_root(&html, &format!("{WON} animate-pop"));
+    assert_eq!(html.matches("role=\"alert\"").count(), 1, "{html}");
+    assert_eq!(html.matches("[you_won]").count(), 1, "{html}");
+    assert_eq!(html.matches("claim-code").count(), 1, "{html}");
+    assert_eq!(html.matches(">AB12<").count(), 1, "{html}");
+    assert_eq!(html.matches("<li").count(), 2, "{html}");
+    assert!(!html.contains("Mug"), "someone else's prize: {html}");
+    let book = html.find(">Book<").expect("the book");
+    let thanks = html.find("[thanks_won]").expect("the book is claimed");
+    let voucher = html.find(">Voucher<").expect("the voucher");
+    let go = html
+        .find("[go_to_organizer]")
+        .expect("the voucher is to claim");
+    let code = html.find(">AB12<").unwrap();
+    assert!(
+        book < thanks && thanks < voucher && voucher < go && go < code,
+        "each prize with its note, then the code: {html}"
+    );
+
+    // Both claimed, the voucher sent later; then the raffle is over.
+    for state in [Phase::Drawing, Phase::Finished] {
+        let c = Case::new(
+            state,
+            None,
+            vec![
+                draw("a", "Book", DrawOutcome::Claimed),
+                draw("b", "Mug", DrawOutcome::Claimed),
+                DrawInput {
+                    sent_later: true,
+                    ..draw("a", "Voucher", DrawOutcome::Claimed)
+                },
+            ],
+        )
+        .me("a");
+        let html = c.render();
+        single_root(&html, WON);
+        assert!(!html.contains("role="), "{html}");
+        assert_eq!(html.matches("[thanks_won]").count(), 1, "{state:?}: {html}");
+        assert_eq!(html.matches("[sent_later]").count(), 1, "{state:?}: {html}");
+        assert!(!html.contains("[go_to_organizer]"), "{state:?}: {html}");
     }
 }
 
