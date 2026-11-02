@@ -524,7 +524,7 @@ fn Finished(view: RaffleView) -> Element {
         .collect();
     // From a server before `verify_url`: the path alone.
     let (verify, qr) = if view.verify_url.is_empty() {
-        (format!("/v/{}", view.slug), String::new())
+        (rafi_api::routes::verify(&view.slug), String::new())
     } else {
         (
             without_scheme(&view.verify_url).to_owned(),

@@ -197,7 +197,7 @@ pub fn rules(r: &Rules<'_>) -> String {
         ));
     }
     let title = format!("Rules — {}", r.raffle.title);
-    text_page(&title, format!("/j/{}", r.raffle.join_code), sections)
+    text_page(&title, rafi_api::routes::join(r.raffle.join_code), sections)
 }
 
 /// The raffle's privacy notice, as HTML: the controller, what is collected
@@ -289,7 +289,7 @@ pub fn privacy(p: &Privacy<'_>) -> String {
         sections.push(("From the organizer".into(), own));
     }
     let title = format!("Privacy notice — {}", raffle.title);
-    text_page(&title, format!("/j/{}", raffle.join_code), sections)
+    text_page(&title, rafi_api::routes::join(raffle.join_code), sections)
 }
 
 /// The notice's section for the people the organizer adds (one by one, or

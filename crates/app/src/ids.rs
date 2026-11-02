@@ -55,18 +55,11 @@ pub fn generated_name_besides(taken: &std::collections::HashSet<String>) -> Stri
 
 /// A URL slug derived from a title plus a random suffix.
 pub fn slug(title: &str) -> String {
-    let mut base: String = title
-        .to_lowercase()
+    // Accents folded in any language ("Málaga Ünnep" is "malaga-unnep"),
+    // anything else not ASCII a dash.
+    let mut base: String = rafi_lifecycle::names::fold_accents(&title.to_lowercase())
         .chars()
-        .map(|c| match c {
-            'á' => 'a',
-            'é' => 'e',
-            'í' => 'i',
-            'ó' | 'ö' | 'ő' => 'o',
-            'ú' | 'ü' | 'ű' => 'u',
-            c if c.is_ascii_alphanumeric() => c,
-            _ => '-',
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
     while base.contains("--") {
         base = base.replace("--", "-");
@@ -107,5 +100,8 @@ mod tests {
         let s = super::slug("Árvíztűrő tükörfúrógép");
         assert!(s.starts_with("arvizturo-tukorfurogep-"), "{s}");
         assert_eq!(super::slug("!!!").len(), 4);
+        // Any language's accents, not one's.
+        let s = super::slug("Málaga Ünnep Łódź Çağrı");
+        assert!(s.starts_with("malaga-unnep-odz-cagr"), "{s}");
     }
 }

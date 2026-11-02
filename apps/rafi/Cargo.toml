@@ -22,10 +22,10 @@ dev = []
 mock-drand = ["rafi-server/mock-drand"]
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
 dioxus-clerk = { version = "0.8", features = ["server"] }
 rafi-server = { workspace = true }
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
-tracing = "0.1"
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal"] }
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

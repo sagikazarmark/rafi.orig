@@ -46,7 +46,7 @@ pub use entrants::{
     end_live, join, name_ideas, object_entrant, patch_entrant, purge, remove_entrant, undo_add,
     unobject_entrant,
 };
-pub use error::{Error, Refusal, Result, Unfinished};
+pub use error::{Error, Kind as RefusalKind, Refusal, Result, Unfinished};
 pub use owners::{reapply_erasures, remove_owner_data};
 pub use pow::ProofOfWork;
 pub use prizes::{delete_prize, set_prize_delivery, upsert_prize};
@@ -56,7 +56,6 @@ pub use raffles::{
 };
 pub use rafi_lifecycle::settings::RetentionPolicy;
 pub use rafi_store::Clock;
-pub use rafi_store::audit::Actor;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ratelimit::Limiter;
 pub use ratelimit::{Limit, RateLimit};
@@ -124,13 +123,80 @@ impl App {
     }
 }
 
-/// Who is acting, from who is calling the admin API: the owner the raffles
-/// belong to and the user acting for it, both recorded with every audited
-/// action.
+/// Who acts: the owner key the raffles belong to (a Clerk organization, or
+/// else the user), the user acting for it, both recorded with every audited
+/// action, and what the user may do for the owner, which the use cases that
+/// need a tier check ([`Actor::allow`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Actor<'a> {
+    pub owner: &'a str,
+    pub user: &'a str,
+    pub access: rafi_api::Access,
+}
+
+impl<'a> Actor<'a> {
+    /// A personal account, or a test's owner: the user is the owner, and may
+    /// do everything.
+    pub const fn solo(owner: &'a str) -> Self {
+        Self {
+            owner,
+            user: owner,
+            access: rafi_api::Access::Admin,
+        }
+    }
+
+    /// The same user with another tier (a test's organization member).
+    pub const fn with_access(self, access: rafi_api::Access) -> Self {
+        Self { access, ..self }
+    }
+
+    /// Refuses unless this actor's tier allows what `needs`. Running a raffle
+    /// needs nothing beyond membership; the tiers guard creating, configuring
+    /// and deleting raffles ([`Access::Manager`](rafi_api::Access::Manager))
+    /// and removing the owner's data ([`Access::Admin`](rafi_api::Access::Admin)).
+    pub fn allow(&self, needs: rafi_api::Access) -> Result<()> {
+        if self.access.allows(needs) {
+            Ok(())
+        } else {
+            Err(Refusal::Forbidden(needs).into())
+        }
+    }
+}
+
+/// The audit log's actor: who, without the tier.
+impl<'a> From<Actor<'a>> for rafi_store::audit::Actor<'a> {
+    fn from(a: Actor<'a>) -> Self {
+        Self {
+            owner: a.owner,
+            user: a.user,
+        }
+    }
+}
+
+/// Why a write guarded on the raffle's state changed nothing: the raffle as
+/// it is now, asked of `refuses` (the use case's own pre-check, as it reads
+/// the raffle now) for the refusal; when it has none, `otherwise` (what else
+/// the guard could have failed on: the row gone, or simply "it changed").
+/// A raffle gone is not found.
+pub(crate) async fn unwritten(
+    app: &App,
+    raffle_id: &str,
+    refuses: impl FnOnce(&RaffleRow) -> Option<Refusal>,
+    otherwise: Error,
+) -> Error {
+    match store::get(&app.db, raffle_id).await {
+        Ok(Some(raffle)) => refuses(&raffle).map_or(otherwise, Into::into),
+        Ok(None) => Error::NotFound,
+        Err(e) => e.into(),
+    }
+}
+
+/// Who is acting, from who is calling the admin API.
 pub fn actor(c: &rafi_api::Caller) -> Actor<'_> {
     Actor {
         owner: &c.owner,
         user: &c.user,
+        access: c.access,
     }
 }
 

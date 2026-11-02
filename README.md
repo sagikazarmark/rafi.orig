@@ -125,7 +125,7 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
   [The web app](docs/development/web-app.md) · [Releasing](docs/development/releasing.md)
 - [Plans](docs/plans): specs for work in progress or just done, with the reasoning
   ([final pre-release check](docs/plans/final-pre-release-check.md),
-  [pre-release review](docs/plans/pre-release-review.md), [marketing opt-in](docs/plans/marketing-opt-in.md))
+  [marketing opt-in](docs/plans/marketing-opt-in.md))
 - [Design history](docs/history): the notes written during development, with the reasoning behind decisions.
   These are historical: the code is the source of truth.
 

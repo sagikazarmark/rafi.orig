@@ -208,7 +208,7 @@ async fn page(
         return not_found();
     };
     if raffle.join_code != code {
-        return Redirect::to(&format!("/j/{}", raffle.join_code)).into_response();
+        return Redirect::to(&rafi_api::routes::join(&raffle.join_code)).into_response();
     }
     let entrant = current_entrant(&app, &raffle, &headers).await;
     let Some(live) = participant(&app, &raffle).await else {
@@ -237,7 +237,7 @@ async fn submit(
 
     // Already joined on this device: just show the page.
     if current_entrant(&app, &raffle, &headers).await.is_some() {
-        return Redirect::to(&format!("/j/{}", raffle.join_code)).into_response();
+        return Redirect::to(&rafi_api::routes::join(&raffle.join_code)).into_response();
     }
 
     let (notice, status) = match try_join(&app, &raffle, &form).await {
@@ -255,7 +255,7 @@ async fn submit(
                 "{}={token}; Path=/j/; Max-Age={COOKIE_MAX_AGE}; HttpOnly; SameSite=Lax{secure}",
                 cookie_name(&raffle.id)
             );
-            let mut resp = Redirect::to(&format!("/j/{}", raffle.join_code)).into_response();
+            let mut resp = Redirect::to(&rafi_api::routes::join(&raffle.join_code)).into_response();
             if let Ok(v) = HeaderValue::from_str(&cookie) {
                 resp.headers_mut().append(header::SET_COOKIE, v);
             }

@@ -202,9 +202,8 @@ const HUNGARIAN_NAMES: &[&str] = &["nev", "teljes nev", "neved", "teljes neved"]
 /// digits and `#` a single space ("E-mail cím" is "e mail cim", "api_id"
 /// is "api id", "Order #" is "order #").
 pub fn fold(header: &str) -> String {
-    use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
     let mut out = String::with_capacity(header.len());
-    for c in header.nfd().filter(|c| !is_combining_mark(*c)) {
+    for c in rafi_lifecycle::names::fold_accents(header).chars() {
         if c.is_alphanumeric() || c == '#' {
             out.extend(c.to_lowercase());
         } else if !out.is_empty() && !out.ends_with(' ') {

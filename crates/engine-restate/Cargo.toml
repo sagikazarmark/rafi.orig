@@ -8,13 +8,13 @@ description = "The Rafi raffle engine on Restate: the `Raffle` virtual object, a
 publish = false
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 rafi-raffle = { workspace = true }
 restate-drand = { workspace = true }
 rafi-engine = { workspace = true, features = ["drand"] }
 restate-sdk = { workspace = true }
 serde_json = { workspace = true }
-tracing = "0.1"
+tracing = { workspace = true }
 
 # The app's client: the SDK's generated ingress clients over reqwest.
 bytes = "1"
@@ -31,4 +31,4 @@ drand = { workspace = true, features = ["reqwest", "rustls"] }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
 rafi-engine = { workspace = true, features = ["conformance"] }
 restate-e2e-harness = "0.3"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

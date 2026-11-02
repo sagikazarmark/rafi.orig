@@ -13,8 +13,8 @@ use axum::{
 use dioxus_clerk::server::ClerkAuth;
 
 use rafi_api::{
-    Access, AddRequest, AddResult, Caller, EntrantPatch, LifecycleCommand, Me, PrizeInput,
-    RaffleAdmin, RaffleDefaults, RaffleSettings, RaffleSummary,
+    AddRequest, AddResult, Caller, EntrantPatch, LifecycleCommand, Me, PrizeInput, RaffleAdmin,
+    RaffleDefaults, RaffleSettings, RaffleSummary,
     admin::{self, Admin, ApiError, Delivery, ItemId, Resolution, codes},
 };
 use rafi_raffle::{Decision, DrawRequest};
@@ -123,14 +123,15 @@ fn app_error(name: &str, e: DispatchError) -> Response {
             let body = ApiError::new(r.code(), r.to_string()).with_rows(rows.clone());
             return reply(StatusCode::BAD_REQUEST, body);
         }
-        DispatchError::App(Error::Refused(r)) if r.invalid() => (StatusCode::BAD_REQUEST, r.code()),
-        DispatchError::App(Error::Refused(r @ service::Refusal::Forbidden(_))) => {
-            (StatusCode::FORBIDDEN, r.code())
+        DispatchError::App(Error::Refused(r)) => {
+            let status = match r.kind() {
+                service::RefusalKind::Invalid => StatusCode::BAD_REQUEST,
+                service::RefusalKind::Forbidden => StatusCode::FORBIDDEN,
+                service::RefusalKind::Limited => StatusCode::TOO_MANY_REQUESTS,
+                service::RefusalKind::State => StatusCode::CONFLICT,
+            };
+            (status, r.code())
         }
-        DispatchError::App(Error::Refused(r @ service::Refusal::Limited)) => {
-            (StatusCode::TOO_MANY_REQUESTS, r.code())
-        }
-        DispatchError::App(Error::Refused(r)) => (StatusCode::CONFLICT, r.code()),
         DispatchError::App(Error::Unavailable) => {
             (StatusCode::SERVICE_UNAVAILABLE, codes::UNAVAILABLE)
         }
@@ -164,18 +165,6 @@ fn reply(status: StatusCode, body: ApiError) -> Response {
     (status, [(header::CACHE_CONTROL, "no-store")], Json(body)).into_response()
 }
 
-/// Refuses unless the caller's tier allows what `needs`. Running a raffle
-/// needs nothing beyond membership; what the gate guards is creating,
-/// configuring and deleting raffles ([`Access::Manager`]) and removing the
-/// owner's data ([`Access::Admin`]).
-fn allow(c: &Caller, needs: Access) -> service::Result<()> {
-    if c.access.allows(needs) {
-        Ok(())
-    } else {
-        Err(service::Refusal::Forbidden(needs).into())
-    }
-}
-
 impl Admin for AppState {
     type Error = Error;
 
@@ -198,7 +187,6 @@ impl Admin for AppState {
     }
 
     async fn save_defaults(&self, c: &Caller, defaults: RaffleDefaults) -> service::Result<()> {
-        allow(c, Access::Manager)?;
         service::save_defaults(self, service::actor(c), defaults).await
     }
 
@@ -209,7 +197,6 @@ impl Admin for AppState {
         event_date: String,
         event_ends_at: Option<i64>,
     ) -> service::Result<String> {
-        allow(c, Access::Manager)?;
         let event = service::EventDate {
             date: event_date,
             ends_at: event_ends_at,
@@ -227,12 +214,10 @@ impl Admin for AppState {
         id: String,
         settings: RaffleSettings,
     ) -> service::Result<()> {
-        allow(c, Access::Manager)?;
         service::update_settings(self, service::actor(c), &id, settings).await
     }
 
     async fn delete_raffle(&self, c: &Caller, id: String) -> service::Result<()> {
-        allow(c, Access::Manager)?;
         service::delete(self, service::actor(c), &id).await
     }
 
@@ -243,7 +228,6 @@ impl Admin for AppState {
         event_date: String,
         event_ends_at: Option<i64>,
     ) -> service::Result<String> {
-        allow(c, Access::Manager)?;
         let event = service::EventDate {
             date: event_date,
             ends_at: event_ends_at,
@@ -436,7 +420,6 @@ impl Admin for AppState {
     }
 
     async fn remove_my_data(&self, c: &Caller) -> service::Result<()> {
-        allow(c, Access::Admin)?;
         service::remove_owner_data(self, service::actor(c)).await
     }
 }

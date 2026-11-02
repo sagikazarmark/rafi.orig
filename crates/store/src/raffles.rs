@@ -275,7 +275,7 @@ fn insert_query<'a>(db: &'a Db, r: &NewRaffle<'_>, s: &Settings<'_>, now: i64) -
 pub struct SettingsWrite {
     /// The settings were written: `false` if they changed a fixed setting
     /// (the rules, the event date, the retention period, the privacy text or
-    /// link) after someone accepted them, test mode once the list is
+    /// link) once an entrant locks them, test mode once the list is
     /// frozen, or registration while it is open or once the list is frozen.
     pub written: bool,
     /// Whether fake entrants went with test mode. (Change counts are only
@@ -525,7 +525,8 @@ pub struct Left {
 /// raffle frozen since the caller looked leaves everything as it was
 /// ([`Left::refused`]). The anonymous raffles stay verifiable. What was
 /// touched is read back after the batch.
-pub async fn owner_leaves(db: &Db, actor: Actor<'_>, now: i64) -> Result<Left> {
+pub async fn owner_leaves<'a>(db: &Db, actor: impl Into<Actor<'a>>, now: i64) -> Result<Left> {
+    let actor = actor.into();
     let owner = actor.owner;
     let before = rows_by_owner(db, owner).await?;
     let (expiring, over) = (states(RaffleState::expires), states(RaffleState::is_over));

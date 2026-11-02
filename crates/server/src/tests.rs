@@ -1987,11 +1987,11 @@ async fn a_freeze_interrupted_before_its_commit_can_still_start() {
     assert_eq!(again.manifest, r.manifest);
 }
 
-/// The additional rules are fixed once someone accepted them: fakes don't
+/// The additional rules are fixed once an entrant locks them: fakes don't
 /// count, a person added by hand does, and the rest of the settings still
 /// save.
 #[tokio::test]
-async fn rules_are_fixed_once_accepted() {
+async fn rules_are_fixed_once_an_entrant_locks_them() {
     let app = app().await;
     let raffle = setup_open(&app, &[("Book", 1)]).await;
     let save = |rules: &str, test_mode: bool| {
@@ -2011,7 +2011,7 @@ async fn rules_are_fixed_once_accepted() {
     add_one(&app, ACTOR, &raffle.id, "No Phone", None)
         .await
         .unwrap();
-    let refused = save("Changed after someone accepted.", true).await;
+    let refused = save("Changed after an entrant locked them.", true).await;
     assert!(
         matches!(
             &refused,

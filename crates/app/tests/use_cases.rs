@@ -799,7 +799,7 @@ async fn invalid_adds_are_refused_whole_with_their_rows() {
             ],
         }
     );
-    assert!(refused.invalid());
+    assert_eq!(refused.kind(), app::RefusalKind::Invalid);
     assert!(
         refused.to_string().starts_with(
             "4 rows can't be added, so nothing was: row 2: not an email address; row 3: "
@@ -1066,7 +1066,7 @@ async fn added_names_are_unique() {
         },
         "against who is in, joined or added, and the earlier rows; composed first"
     );
-    assert!(refused.invalid());
+    assert_eq!(refused.kind(), app::RefusalKind::Invalid);
     assert!(
         refused.to_string().starts_with(
             "4 rows can't be added, so nothing was: row 2: someone is already shown as “Anna K.”; row 3: someone is already shown as “Bence Nagy”; row 5: an earlier row is shown as “Csilla” too; and 1 more."
@@ -2287,4 +2287,34 @@ async fn ceiling_finishes_take_turns() {
         "the next run starts with the two left"
     );
     assert_eq!(second[2..], ids[..3], "then around again");
+}
+
+/// The tiers are the use cases' to check: a member can't create a raffle, a
+/// manager can't remove the owner's data; an admin can do both.
+#[tokio::test]
+async fn the_tiers_are_checked_by_the_use_cases() {
+    use rafi_api::Access;
+    let app = app().await;
+    let member = ACTOR.with_access(Access::Member);
+    let manager = ACTOR.with_access(Access::Manager);
+    let refused = app::create(&app, member, "Meetup", &EventDate::today(&app)).await;
+    assert!(
+        matches!(
+            refused,
+            Err(Error::Refused(Refusal::Forbidden(Access::Manager)))
+        ),
+        "{refused:?}"
+    );
+    app::create(&app, manager, "Meetup", &EventDate::today(&app))
+        .await
+        .unwrap();
+    let refused = app::remove_owner_data(&app, manager).await;
+    assert!(
+        matches!(
+            refused,
+            Err(Error::Refused(Refusal::Forbidden(Access::Admin)))
+        ),
+        "{refused:?}"
+    );
+    app::remove_owner_data(&app, ACTOR).await.unwrap();
 }

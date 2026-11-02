@@ -42,8 +42,8 @@ script has to come from the server's origin (or Clerk's), never inline:
 The UI uses **Tailwind CSS v4 and daisyUI 5**, with custom light (`rafi`) and dark (`rafi-dark`) themes defined in
 [`apps/web/tailwind.css`](../../apps/web/tailwind.css). `dx` compiles it automatically with its own standalone
 Tailwind CLI. daisyUI comes from npm (`apps/web/package.json`). A plain `cargo build` or `clippy` of the web app
-needs the compiled stylesheet too: on a fresh checkout, run `dx build` once, or
-`tailwindcss -i tailwind.css -o assets/tailwind.css` in `apps/web`.
+needs the compiled stylesheet too: on a fresh checkout, run `just css` (which `just clippy` and `just test` do
+first).
 
 Every colour and its `-content`, and `base-content` on each base, reads at 4.5:1 or more in both themes, and so do
 the stops of the light theme's `.gradient-text` (the winner's name): `theme_contrast` in `rafi-web` checks the

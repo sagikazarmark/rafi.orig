@@ -19,7 +19,7 @@ rafi-engine = { workspace = true, features = ["drand"] }
 rafi-engine-restate = { workspace = true }
 rafi-store = { workspace = true }
 
-anyhow = "1"
+anyhow = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 figment = { version = "0.10", features = ["env", "json", "toml"] }
 restate-config = "0.3"
@@ -28,8 +28,8 @@ restate-ext = { version = "0.3", features = ["shutdown"] }
 # `tracing-span-filter` provides the filter that drops log lines re-emitted on replay.
 restate-sdk = { workspace = true, features = ["http_server", "rust_crypto", "tracing-span-filter"] }
 serde = { workspace = true }
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
-tracing = "0.1"
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [features]

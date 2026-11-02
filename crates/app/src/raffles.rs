@@ -1,7 +1,7 @@
 //! Raffles: creating, configuring, copying, deleting and moving them
 //! through the lifecycle.
 
-use rafi_api::{LifecycleCommand, RaffleDefaults, RaffleSettings, RaffleSummary};
+use rafi_api::{Access, LifecycleCommand, RaffleDefaults, RaffleSettings, RaffleSummary};
 use rafi_engine::EngineError;
 use rafi_lifecycle::{self as lifecycle, dates::Date, settings};
 use rafi_raffle::{Decision, ErrorKind, RaffleId};
@@ -68,6 +68,7 @@ fn normalized<'a>(
 /// A new draft raffle titled `title` on `event`, with a copy of the owner's
 /// defaults; returns its ID.
 pub async fn create(app: &App, actor: Actor<'_>, title: &str, event: &EventDate) -> Result<String> {
+    actor.allow(Access::Manager)?;
     let title = settings::title(title).ok_or(Refusal::Title)?;
     let now = app.clock.now();
     let d = defaults::get(&app.db, actor.owner)
@@ -136,6 +137,7 @@ pub async fn get_defaults(app: &App, owner: &str) -> Result<RaffleDefaults> {
 
 /// Saves what `owner`'s new raffles start with. Existing raffles keep theirs.
 pub async fn save_defaults(app: &App, actor: Actor<'_>, d: RaffleDefaults) -> Result<()> {
+    actor.allow(Access::Manager)?;
     let max = app.policy.retention.max_days;
     let registration = d.registration;
     let d = settings::Defaults {
@@ -209,6 +211,7 @@ pub async fn update_settings(
     id: &str,
     s: RaffleSettings,
 ) -> Result<()> {
+    actor.allow(Access::Manager)?;
     let raffle = owned(app, actor.owner, id).await?;
     let now = app.clock.now();
     let normalized = normalized(
@@ -369,6 +372,7 @@ fn stored(s: settings::Settings<'_>, test_mode: bool, registration: bool) -> raf
 /// itself is guarded on no draw having been announced, so a draw the
 /// engine stored meanwhile keeps the raffle too.
 pub async fn delete(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
+    actor.allow(Access::Manager)?;
     let raffle = owned(app, actor.owner, id).await?;
     let drawn = raffles::drawn(&app.db, &raffle).await?;
     if !lifecycle::raffle::deletable(drawn.as_ref()) {
@@ -427,6 +431,7 @@ pub async fn delete(app: &App, actor: Actor<'_>, id: &str) -> Result<()> {
 /// `event` (the organizer's today, as a rule), in one write: a copy is whole
 /// or not there.
 pub async fn duplicate(app: &App, actor: Actor<'_>, id: &str, event: &EventDate) -> Result<String> {
+    actor.allow(Access::Manager)?;
     let raffle = owned(app, actor.owner, id).await?;
     let now = app.clock.now();
     let title = settings::copy_title(&raffle.title);
@@ -521,7 +526,15 @@ pub async fn lifecycle(
     // Guarded on the setting too: switched since the read, the move may
     // not hold any more.
     if !raffles::transition(&app.db, id, from, to, raffle.registration, now).await? {
-        return Err(Refusal::Changed.into());
+        // Moved by someone else since the read above: what the lifecycle
+        // says now, or that it changed.
+        let moved = |r: &RaffleRow| {
+            (r.state != from).then_some(Refusal::Lifecycle {
+                command,
+                from: r.state,
+            })
+        };
+        return Err(crate::unwritten(app, id, moved, Refusal::Changed.into()).await);
     }
     audit::record(&app.db, id, actor, audit::Action::To(to), "", now).await?;
     app.live_updates.notify(id).await;

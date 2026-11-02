@@ -671,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    fn rules_are_fixed_once_accepted() {
+    fn rules_are_fixed_once_an_entrant_locks_them() {
         assert!(rules_editable([]));
         assert!(rules_editable([Source::Fake, Source::Fake]));
         assert!(!rules_editable([Source::Fake, Source::SelfService]));

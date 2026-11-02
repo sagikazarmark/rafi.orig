@@ -13,9 +13,6 @@ macro_rules! client_side {
     )*) => {
         $(
             $(#[$meta])*
-            // The client covers the whole admin API; the UI needn't call every
-            // function (it never calls `whoami`).
-            #[allow(dead_code)]
             pub async fn $name($($arg: $ty),*) -> Result<$ret, ApiError> {
                 #[derive(serde::Serialize)]
                 struct Args { $($arg: $ty),* }
@@ -31,14 +28,14 @@ rafi_api::admin_functions!(client_side);
 /// Public: data for the verification page (`/api/r/<slug>/verify.json`, no session needed).
 pub async fn get_verify(slug: String) -> Result<VerifyData, ApiError> {
     let slug = String::from(js_sys::encode_uri_component(&slug));
-    client::get(&format!("/api/r/{slug}/verify.json")).await
+    client::get(&rafi_api::routes::verify_json(&slug)).await
 }
 
 /// Public: a raffle's full view (`/api/r/<slug>/view`), which the projector and
 /// the admin poll.
 pub async fn get_view(slug: String) -> Result<RaffleView, ApiError> {
     let slug = String::from(js_sys::encode_uri_component(&slug));
-    client::get(&format!("/api/r/{slug}/view")).await
+    client::get(&rafi_api::routes::view(&slug)).await
 }
 
 /// Same-origin requests, so the browser sends Clerk's session cookie.

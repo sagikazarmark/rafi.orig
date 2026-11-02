@@ -70,10 +70,7 @@ fn PrizeRow(
     let remove = move || {
         let (rid, iid) = (rid.clone(), iid.clone());
         async move {
-            match api::delete_prize(rid, iid).await {
-                Ok(()) => on_change.call(()),
-                Err(e) => error.set(Some(err_text(e))),
-            }
+            act(api::delete_prize(rid, iid), error, on_change).await;
         }
     };
     let (rid, iid) = (raffle_id.clone(), prize.id.clone());

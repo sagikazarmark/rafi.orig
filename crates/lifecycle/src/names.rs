@@ -13,6 +13,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::entrant::{MAX_ADDED_NAME_CHARS, RowError, tidy};
 
+/// `s` without its accents: decomposed (NFD), the combining marks dropped
+/// ("Kovács Ősz" is "Kovacs Osz"). For matching and for slugs, never for a
+/// name shown.
+pub fn fold_accents(s: &str) -> String {
+    use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
+    s.nfd().filter(|c| !is_combining_mark(*c)).collect()
+}
+
 /// How the names on a list are shown: the organizer's choice for one add.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -32,10 +32,7 @@ pub(super) fn People(
     let fakes = move |_| {
         let id = id.clone();
         async move {
-            match api::add_fake_entrants(id, 25).await {
-                Ok(()) => on_change.call(()),
-                Err(e) => error.set(Some(err_text(e))),
-            }
+            act(api::add_fake_entrants(id, 25), error, on_change).await;
         }
     };
     // How many rows to render: a page at a time, so 2000 entrants don't
@@ -257,10 +254,7 @@ fn EntrantRow(
         move |at_request: bool| {
             let (rid, eid) = (rid.clone(), eid.clone());
             async move {
-                match api::remove_entrant(rid, eid, at_request).await {
-                    Ok(()) => on_change.call(()),
-                    Err(e) => error.set(Some(err_text(e))),
-                }
+                act(api::remove_entrant(rid, eid, at_request), error, on_change).await;
             }
         }
     };
@@ -270,14 +264,10 @@ fn EntrantRow(
         move |object: bool| {
             let (rid, eid) = (rid.clone(), eid.clone());
             async move {
-                let done = if object {
-                    api::object_entrant(rid, eid).await
+                if object {
+                    act(api::object_entrant(rid, eid), error, on_change).await;
                 } else {
-                    api::unobject_entrant(rid, eid).await
-                };
-                match done {
-                    Ok(()) => on_change.call(()),
-                    Err(e) => error.set(Some(err_text(e))),
+                    act(api::unobject_entrant(rid, eid), error, on_change).await;
                 }
             }
         }

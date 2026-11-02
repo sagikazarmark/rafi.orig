@@ -98,7 +98,7 @@ notice says so.
   consent and when. The text's version is the entry's `consent_version`; the join form's texts are versioned
   together.
 - The join form shows the box only when the raffle has the opt-in on. The label names the organizer: "Yes,
-  *Budapest Rust Meetup* may email me about future meetups. Optional." Unticked. Manual and fake entrants never
+  *Budapest Rust Meetup* may email me about future meetups. Optional." Unticked. Entrants added by the organizer, and fake ones never
   consent.
 - The participant page, while the entry cookie is valid, shows the consent and a one-tap withdrawal. The cookie is
   the entrant's proof of identity, as it is for seeing the claim code.

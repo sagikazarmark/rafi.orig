@@ -1,6 +1,8 @@
 -- Rafi schema for SQLite and D1. Times are unix seconds unless noted.
--- Nothing is deployed yet, so schema changes edit this file; once a database
--- exists, they become numbered migrations after it.
+-- Frozen with the first release (v0.1.0): databases exist with it, so a
+-- change is a new migration, 0002_* onward, never an edit here (sqlx checks
+-- each applied file's checksum). migrations/postgres changes with it, and
+-- crates/store/tests/schemas.rs holds the two together.
 
 CREATE TABLE raffles (
     id TEXT PRIMARY KEY NOT NULL,

@@ -3,9 +3,9 @@
 
 use rafi_api::PrizeInput;
 use rafi_lifecycle::{prize::Delivery, settings, start};
-use rafi_store::{audit, prizes};
+use rafi_store::{RaffleRow, audit, prizes};
 
-use crate::{Actor, App, Error, Refusal, Result, ids, owned};
+use crate::{Actor, App, Error, Refusal, Result, ids, owned, unwritten};
 
 /// Adds a prize, or changes `input.id`; returns its ID.
 pub async fn upsert_prize(
@@ -46,7 +46,7 @@ pub async fn upsert_prize(
     let id = match &input.id {
         Some(id) => {
             if !prizes::update(&app.db, id, raffle_id, &fields).await? {
-                return Err(frozen_or_gone(app, raffle_id).await);
+                return Err(unwritten(app, raffle_id, frozen, Error::NotFound).await);
             }
             id.clone()
         }
@@ -75,7 +75,7 @@ pub async fn delete_prize(
     }
     if !prizes::delete(&app.db, prize_id, raffle_id).await? {
         // Already gone is fine; frozen meanwhile is not.
-        if let Error::Refused(r) = frozen_or_gone(app, raffle_id).await {
+        if let Error::Refused(r) = unwritten(app, raffle_id, frozen, Error::NotFound).await {
             return Err(r.into());
         }
     }
@@ -101,10 +101,10 @@ pub async fn set_prize_delivery(
     }
     if !prizes::set_delivery(&app.db, prize_id, raffle_id, delivery).await? {
         // Over since the read above, or no such prize.
-        return Err(match rafi_store::raffles::get(&app.db, raffle_id).await? {
-            Some(r) if !r.state.prize_delivery_editable() => Refusal::PrizeDeliveryFixed.into(),
-            _ => Error::NotFound,
-        });
+        let fixed = |r: &RaffleRow| {
+            (!r.state.prize_delivery_editable()).then_some(Refusal::PrizeDeliveryFixed)
+        };
+        return Err(unwritten(app, raffle_id, fixed, Error::NotFound).await);
     }
     let detail = format!("{prize_id} {}", delivery.as_str());
     let now = app.clock.now();
@@ -122,12 +122,8 @@ pub async fn set_prize_delivery(
     Ok(())
 }
 
-/// Why a guarded prize write changed nothing: the prizes froze meanwhile,
-/// or there is no such prize.
-async fn frozen_or_gone(app: &App, raffle_id: &str) -> Error {
-    match rafi_store::raffles::get(&app.db, raffle_id).await {
-        Ok(Some(r)) if !r.state.prizes_editable() => Refusal::PrizesFrozen.into(),
-        Ok(_) => Error::NotFound,
-        Err(e) => e.into(),
-    }
+/// Why a prize write was refused, if the raffle's state is why: its prizes
+/// froze.
+fn frozen(r: &RaffleRow) -> Option<Refusal> {
+    (!r.state.prizes_editable()).then_some(Refusal::PrizesFrozen)
 }

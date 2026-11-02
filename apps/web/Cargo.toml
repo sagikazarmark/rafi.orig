@@ -17,7 +17,7 @@ dioform = { version = "0.9", features = ["dioxus-field"] }
 futures-util = "0.3"
 gloo-net = { version = "0.7", default-features = false, features = ["http", "json"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
-js-sys = "0.3"
+js-sys = { workspace = true }
 partyline-dioxus = "0.3"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rafi-lifecycle = { workspace = true }
@@ -26,10 +26,8 @@ rafi-api = { workspace = true }
 rafi-raffle = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# Folds accents in a list's headers (rafi-lifecycle has it already).
-unicode-normalization = { version = "0.1", default-features = false }
 uuid = { version = "1", features = ["v4", "js"] }
-wasm-bindgen = "0.2"
+wasm-bindgen = { workspace = true }
 web-sys = { version = "0.3", features = ["Window", "Document", "EventTarget", "Location", "Navigator", "Storage", "VisibilityState"] }
 
 [dev-dependencies]

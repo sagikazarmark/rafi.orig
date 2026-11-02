@@ -8,7 +8,7 @@ description = "The server side of live updates: the notifier a deployment pushes
 publish = false
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 rafi-engine = { workspace = true }
 rafi-lifecycle = { workspace = true }
 rafi-live-client = { workspace = true }
@@ -16,4 +16,4 @@ rafi-raffle = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

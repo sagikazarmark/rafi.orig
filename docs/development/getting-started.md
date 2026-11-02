@@ -111,7 +111,8 @@ build), so `rafi-server`, `rafi` and the Worker don't build without it: run it f
 Draws need Restate (below). For everything else, run without Clerk, in two terminals:
 
 ```sh
-# the server; dx proxies /api/, /j/, /rules/, /privacy/ and /participant/ to it (apps/web/Dioxus.toml).
+# the server; dx proxies the server's paths to it (/api/, /j/, /rules/, /privacy/, /participant/,
+# /config.js, /terms, /healthz, /.well-known/: apps/web/Dioxus.toml lists them).
 # `--features dev` is what allows RAFI_DEV_AUTH: a build without it refuses to start with the flag.
 RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 PORT=8788 cargo run -p rafi --features dev
 

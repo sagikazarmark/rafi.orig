@@ -82,8 +82,9 @@ impl From<EngineError> for Error {
 }
 
 /// Why the rules refuse a request. Its text is for the organizer (the admin
-/// page is in English); [`invalid`](Self::invalid) tells a request that can
-/// never succeed from one the raffle's state refuses.
+/// page is in English); its [`kind`](Self::kind) tells a request that can
+/// never succeed from one the raffle's state refuses, the caller's tier or a
+/// rate limit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     // Settings and prizes.
@@ -214,10 +215,33 @@ pub enum Unfinished {
     EndLive,
 }
 
+/// What kind of refusal it is: what the HTTP status says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// The request itself can never succeed (400).
+    Invalid,
+    /// The caller's tier doesn't allow it (403).
+    Forbidden,
+    /// Over a rate limit (429).
+    Limited,
+    /// Refused in the raffle's current state (409).
+    State,
+}
+
 impl Refusal {
+    /// What kind of refusal it is.
+    pub fn kind(&self) -> Kind {
+        match self {
+            Self::Forbidden(_) => Kind::Forbidden,
+            Self::Limited => Kind::Limited,
+            _ if self.invalid() => Kind::Invalid,
+            _ => Kind::State,
+        }
+    }
+
     /// Whether the request itself is invalid (it can never succeed), rather
     /// than refused in the raffle's current state.
-    pub fn invalid(&self) -> bool {
+    fn invalid(&self) -> bool {
         match self {
             Self::Title
             | Self::Texts
@@ -580,4 +604,32 @@ fn raffle_refusal(command: Option<&Command>, e: &RaffleError) -> String {
         _ => return e.to_string(),
     };
     message.to_owned()
+}
+
+#[cfg(test)]
+mod code_tests {
+    use super::*;
+
+    /// Every refusal's code is a stable snake_case name, as programs read it.
+    #[test]
+    fn codes_are_snake_case() {
+        let some = [
+            Refusal::Title,
+            Refusal::Drawn,
+            Refusal::Limited,
+            Refusal::NotOver(Unfinished::Purge),
+            Refusal::Add(AddRefusal::TestMode),
+            Refusal::Objection(ObjectionRefusal::Claimed),
+        ];
+        for r in some {
+            let code = r.code();
+            assert!(
+                !code.is_empty() && code.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "{code}"
+            );
+        }
+        assert_eq!(Refusal::Limited.kind(), Kind::Limited);
+        assert_eq!(Refusal::Title.kind(), Kind::Invalid);
+        assert_eq!(Refusal::Drawn.kind(), Kind::State);
+    }
 }

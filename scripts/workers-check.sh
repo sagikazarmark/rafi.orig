@@ -289,7 +289,7 @@ if command -v dx >/dev/null; then
   # Worker's file is compared up to [env.dev], which repeats the bindings.
   shape() {
     sed '/^\[env\.dev\]/q' "$1" | sed -n \
-      -e '/^compatibility_date/p' -e '/^run_worker_first/p' -e '/^not_found_handling/p' -e '/^binding = /p' \
+      -e '/^compatibility_date/p' -e '/^binding = /p' \
       -e '/^database_name/p' -e '/^name = "/p' -e '/^class_name/p' -e '/^new_sqlite_classes/p' -e '/^tag = /p' \
       -e '/^namespace_id/p' -e '/^simple = /p' -e '/^crons/p' -e '/^invocation_logs/p' -e '/^RAFI_/p' \
       -e '/^required = \[$/,/^\]/p'

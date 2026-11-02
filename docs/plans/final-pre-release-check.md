@@ -1,11 +1,10 @@
 # Final pre-release check
 
-**Status: Tier 0 and T4-2 done (`cf56888`, 2026-11-02); Tier 1, the schema and query shapes, and the contract notes
-done (2026-11-02), with their browser checks in `evening.mjs`; Tier 2's repository side done (2026-11-02);
-Tiers 3–8 otherwise proposed.** Each finding
-below that is done says what shipped, under **Done**, where it differs from its **Change**. Next: the
-[next run](#the-next-run), in its order; Tier 2's GitHub and Cloudflare side (the rename, a dispatch dry run and
-`v0.1.0-rc.1`, a real deploy, a stranger's deploy) is the maintainer's, alongside.
+**Status (2026-11-02): Tiers 0 and 1 done; Tier 2's repository side done; [the next run](#the-next-run) done, but
+what [What it left](#what-it-left) lists; `0001_init.sql` frozen.** Findings done before the next run say what
+shipped under **Done**; the next run's are summarized under it. Before the tag: Tier 2's GitHub and Cloudflare side
+(the rename, a dispatch dry run and `v0.1.0-rc.1`, a real deploy, a stranger's deploy), the maintainer's; then the
+open items become tickets, their Accept lines the definition of done.
 
 ### Progress
 
@@ -16,12 +15,12 @@ below that is done says what shipped, under **Done**, where it differs from its 
 | 3. Schema and query shapes | **Done**: T3-1, T3-7, T7-6's `erasures` index, T3-9's manifest row measured (natively) and kept. The `rows_read` counter and the `EXPLAIN` gate (T3-11) not built. |
 | 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
 | 5. Launch mechanics | **Done locally** (2026-11-02): T2-2, T2-4 … T2-8 as far as the repository goes; T2-1, T2-3, the stranger, the GitHub runs and settings open. Declined: release-note labels and templates, community files, third-party notices, Python in the release. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, `just workers` (the evening on `WORKERS_APP_PORT=8797`, every check ok), two `cloudflare-release.sh 0.1.0` builds byte-identical. |
-| 6. Design and UX | Not started |
-| 7. Tests | T4-2 done; T4-11's occupied port done; the rest not started |
-| 8. Tiers 7 and 8 | Not started |
+| 6. Design and UX | **Done** in the next run: T5-1 … T5-7, T6-1 … T6-6 (with what [What it left](#what-it-left) lists) |
+| 7. Tests | **Done** in the next run: T4-1, T4-3, T4-4, T4-6, T4-11 (with what it left); T4-5, T4-7 … T4-10 to tickets |
+| 8. Tiers 7 and 8 | **Done** in the next run but what it left; T8-15 done (`0001_init.sql` frozen) |
 
 Proposed (2026-11-01). The last review before the first version is tagged, after
-[pre-release-review.md](pre-release-review.md) (done 2026-10-27) and the entrants-from-a-list feature
+[pre-release-review.md](../history/pre-release-review.md) (done 2026-10-27) and the entrants-from-a-list feature
 ([entrant-import.md](../history/entrant-import.md), done 2026-11-01). Two independent reviews, each with five to
 seven parallel passes over the code (dead code, architecture, tests, performance, UX, visual design, release
 mechanics; and a second set on concurrency, security and operations), merged here. Every finding in Tier 0 and
@@ -1275,6 +1274,48 @@ Not in it: the rest of Tier 3 (the measurements and the CI guards) and T4-5, T4-
 at the tag (T4-7 needs a product decision first). The real deploy (T2-3) is best done early, alongside step 1: it
 is the one check whose findings could still change code.
 
+**Done** (2026-11-02, `bfdcc44`, `5756fe8`, `4077857` and the Tier 7/8 sweep after them), each verified with `just
+clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_APP_PORT=8797`, every check ok):
+
+1. `missing_for_open`, `past_event` and `dev_auth` dropped; `RaffleSummary` has `event_date` (shown on the cards)
+   for `created_at`; `AdminEntrant.created_at` kept and read. `crates/store/tests/schemas.rs` holds the two schemas
+   together. `rafi_store::audit::Action`, its strings in the store's SQL too. The consent example fixed. T3-2(b)
+   decided against (the admin API is the deployment's own: paging can come without a migration); T3-2(a) instead:
+   the admin refetches at once for a moment of the evening, otherwise every 10 s at most, which also fixed
+   `LiveRefresh` refetching on every poll once anything had changed.
+2. The console's top panel and grouped queue (T5-1); People as cards below `sm`, newest first, 200 a page (T5-2);
+   confirms and undos, with a table in `web-app.md` (T5-5); labels, hints, the proof-of-work status line and retry,
+   native radios (T5-4); the projector dark, em chips, a bigger join code (T6-1, T6-4); the console's map borrowed
+   and its clock read only while something runs on time (T3-4); polls jittered, backing off to 10 s, paused while
+   hidden (T3-6); the evening clicks Draw (twice), Claimed and Finish in the console (T4-1).
+3. Six tampered vectors both verifiers fail (T4-4); housekeeping on Workers with everything due (T4-6); the engine
+   suite over HTTP relays, past a dead one and recovering on the same round (T4-3, 16 scenarios); the request log's
+   test in its own binary, `SKIPPED:` from `just test` without `RESTATE_SERVER_BIN`, the reveal's bound 2.5 s
+   (T4-11).
+4. The "Before doors open" checklist and the guide link (T5-3); landing on Draw, permanent error toasts, the wifi
+   wording, a sign-in card, "Not you?", the projector's overflow, the thanks line, the QR's quiet zone, titles, the
+   tab in the URL (T5-6); the copy table and plurals (T5-7).
+5. Favicon, home-screen icon, theme-color, a link preview on the join page (T6-2); a loading screen in `index.html`
+   and the font preloaded (T6-3); emoji as decoration only (T6-5); selection, autofill, tabular figures, print,
+   safe areas, the home footer (T6-6).
+6. Tier 7: `Refusal::kind` and one match for the status (T7-4); the tiers checked in the use cases
+   (`rafi_app::Actor` carries `access`; `admin.rs` has no `allow`) (T7-3); `unwritten`, for the prize and lifecycle
+   writes (T7-2, partly); `act`, for the console's and People's simple calls (T7-5, partly); `rafi_api::routes`
+   (T7-6); `anyhow`, `tokio`, `tracing`, `js-sys`, `wasm-bindgen` and `worker` in `[workspace.dependencies]` (T7-6).
+   Tier 8: T8-1, T8-2, T8-3, T8-7, T8-8 (`names::fold_accents`), T8-9, T8-10, T8-11 (`pre-release-review.md` in
+   `docs/history`), T8-12, T8-13, T8-14, T8-15, T8-16, T8-17, T8-18; `base64` 0.23 in rafi-server.
+
+### What it left
+
+- T4-1: "Not here → Draw again" is still the API's in the evening, not a click. T4-3: the evening on the Worker over
+  real HTTP relays. T4-4: the evening's own `verify.json` through `verify.py`.
+- T5-6: a Copy button for an error's reference (the vendored toasts take no actions). T6-1's checks in the evening (the
+  smallest font, contrast on computed colours) and T6-2's previews checked by hand in Slack; T6-3's Lighthouse run.
+  T6-6: the toasts' and dialogs' motion (vendored components), the one-`btn-primary`-per-view rule (the console's
+  Draw buttons are each primary).
+- T7-2's other guarded writes (the entrant ones each re-read the entrant, not the raffle); T7-5's `use_confirm`,
+  `Async` and `AddList`'s state machine; T7-6's `entrant.rs` and test-file splits and Postgres `CAST`s.
+
 ## Release checklist
 
 The tag is ready when every line is true.
@@ -1299,13 +1340,15 @@ The tag is ready when every line is true.
 - [ ] `docs/operations` has backup/restore (rehearsed once), rotation, rollback, "Restate is down tonight", the
       breach runbook, a cost paragraph, the DSAR recipe, monitoring, a global deploy preflight.
 - [ ] Web gzip budget, `rows_read` assertions, the query-count test and the `EXPLAIN` gate are in CI.
-- [ ] `tools/verify.py` fails every tampered vector; the evening's `verify.json` passes it.
+- [ ] `tools/verify.py` fails every tampered vector; the evening's `verify.json` passes it. (The vectors done; the
+      evening's file not yet.)
 - [ ] `evening.mjs` clicks through a draw on the console, imports a list, and runs housekeeping with due rows.
-- [ ] The tracing test is in its own binary; `workers-check.sh` refuses an occupied port (done).
+      (The draw and housekeeping done; the list import is T4-5's, a ticket.)
+- [x] The tracing test is in its own binary; `workers-check.sh` refuses an occupied port.
 - [ ] README has a projector screenshot and badges; community profile 100 %; a ruleset on `main`;
       `compatibility_date` bumped; `wrangler` pinned.
 - [ ] `pre-release-review.md` moved to `docs/history/`; this plan's status line says what shipped and what was
-      ticketed; `0001_init.sql`'s header says it is frozen.
+      ticketed; `0001_init.sql`'s header says it is frozen. (Moved and frozen; the tickets not yet made.)
 - [ ] `just ci` and `just workers` green on the tagged commit.
 
 ## Not doing, with reasons

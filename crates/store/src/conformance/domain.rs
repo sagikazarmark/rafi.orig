@@ -807,9 +807,9 @@ fn settings_with(rules: &str) -> raffles::Settings<'_> {
     }
 }
 
-/// The rules change only until someone accepted them (fakes don't); the
+/// The rules change only until an entrant locks them (fakes don't); the
 /// other settings always do.
-pub(super) async fn rules_are_fixed_once_accepted(db: &Db) -> Outcome {
+pub(super) async fn rules_are_fixed_once_an_entrant_locks_them(db: &Db) -> Outcome {
     raffle_in(db, "r1", RaffleState::Open).await?;
     let save = async |s: &raffles::Settings<'_>| {
         raffles::update_settings(db, "r1", s, NOW)

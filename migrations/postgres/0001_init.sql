@@ -1,8 +1,8 @@
 -- Rafi schema for PostgreSQL (self-hosting). Equivalent to
 -- ../sqlite/0001_init.sql, which SQLite and D1 use: integers are BIGINT, flags
 -- stay 0/1 integers, so the store's SQL is the same on both. Times are unix
--- seconds unless noted. Nothing is deployed yet, so schema changes edit this
--- file; once a database exists, they become numbered migrations after it.
+-- seconds unless noted. Frozen with the first release (v0.1.0): a change is a new
+-- migration, 0002_* onward, in both directories, never an edit here.
 
 CREATE TABLE raffles (
     id TEXT PRIMARY KEY NOT NULL,

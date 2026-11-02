@@ -103,7 +103,6 @@ in
 
         cargo-audit
         cargo-deny
-        cargo-watch
 
         lld
 

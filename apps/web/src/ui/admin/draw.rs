@@ -151,20 +151,14 @@ pub(super) fn DrawConsole(
     let void = move |item: ItemId| {
         let id = id.clone();
         async move {
-            match api::void_item(id, item, command_id()).await {
-                Ok(()) => on_change.call(()),
-                Err(e) => error.set(Some(err_text(e))),
-            }
+            act(api::void_item(id, item, command_id()), error, on_change).await;
         }
     };
     let id = admin.id.clone();
     let abandon = move |item: ItemId| {
         let id = id.clone();
         async move {
-            match api::abandon_draw(id, item, command_id()).await {
-                Ok(()) => on_change.call(()),
-                Err(e) => error.set(Some(err_text(e))),
-            }
+            act(api::abandon_draw(id, item, command_id()), error, on_change).await;
         }
     };
     let id = admin.id.clone();

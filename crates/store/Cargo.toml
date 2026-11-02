@@ -26,7 +26,7 @@ hooks = []
 embedded-postgres = ["postgres", "conformance", "dep:oliphaunt"]
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 rafi-lifecycle = { workspace = true }
 rafi-raffle = { workspace = true }
 rafi-engine = { workspace = true }
@@ -40,23 +40,23 @@ futures-util = { version = "0.3", default-features = false, features = ["alloc"]
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 # Postgres retries a serialization failure after a short sleep.
-tokio = { version = "1", features = ["time"], optional = true }
+tokio = { workspace = true, features = ["time"], optional = true }
 # The embedded Postgres for tests (`embedded-postgres`): prebuilt native
 # PostgreSQL. Young and fast-moving, so pinned exactly.
 oliphaunt = { version = "=0.3.2", optional = true }
 
 # Cloudflare Workers: D1.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-worker = { version = "0.8.7", features = ["d1"] }
-js-sys = "0.3"
-wasm-bindgen = "0.2"
+worker = { workspace = true, features = ["d1"] }
+js-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
 # Itself with the conformance suite, for `tests/conformance.rs`.
 rafi-store = { path = ".", default-features = false, features = ["conformance", "embedded-postgres"] }
 libtest-mimic = "0.8.2"
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time"] }
 
 # One test per backend and scenario (`<backend>::<scenario>`), from the
 # conformance suite's registry.

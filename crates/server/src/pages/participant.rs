@@ -235,8 +235,8 @@ pub fn page(page: Page<'_>) -> String {
     let phase = view.state;
     let strings = CardStrings::default();
     let code = raffle.join_code;
-    let rules_href = format!("/rules/{}", raffle.slug);
-    let privacy_href = format!("/privacy/{}", raffle.slug);
+    let rules_href = rafi_api::routes::rules(raffle.slug);
+    let privacy_href = rafi_api::routes::privacy(raffle.slug);
     let error = match notice {
         Notice::Error(why) => Some(why),
         _ => None,
@@ -245,8 +245,8 @@ pub fn page(page: Page<'_>) -> String {
     // The verification page finds this entrant in the frozen list. After the
     // `#`, their ID stays out of requests and server logs.
     let verify_href = match &me {
-        Some(id) => format!("/v/{}#me={id}", raffle.slug),
-        None => format!("/v/{}", raffle.slug),
+        Some(id) => format!("{}#me={id}", rafi_api::routes::verify(raffle.slug)),
+        None => rafi_api::routes::verify(raffle.slug),
     };
     let claim_code = entrant.map(|e| e.claim_code.to_owned());
     let joining = entrant.is_none() && raffle.joinable && notice != Notice::AlreadyIn;
@@ -420,7 +420,7 @@ pub fn page(page: Page<'_>) -> String {
         page_state: phase,
         view: view.clone(),
         strings,
-        participant_url: format!("/api/r/{}/participant", raffle.slug),
+        participant_url: rafi_api::routes::participant(raffle.slug),
         server_now_ms: now_ms,
         follow,
         needs_pow: joining,

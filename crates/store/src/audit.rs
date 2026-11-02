@@ -166,14 +166,15 @@ impl std::fmt::Display for Action {
 }
 
 /// Records that `actor` did `action` (with `detail`) to the raffle at `now`.
-pub async fn record(
+pub async fn record<'a>(
     db: &Db,
     raffle_id: &str,
-    actor: Actor<'_>,
+    actor: impl Into<Actor<'a>>,
     action: Action,
     detail: &str,
     now: i64,
 ) -> Result<()> {
+    let actor = actor.into();
     db.query(
         "INSERT INTO audit (raffle_id, at, actor, user_id, action, detail) VALUES (?, ?, ?, ?, ?, ?)",
     )

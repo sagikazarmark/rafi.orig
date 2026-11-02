@@ -13,6 +13,11 @@ devenv.local.yaml
 target/
 
 .env
+.env.local
+.env.*.local
+
+# Agents' local state
+.claude/
 
 # Rafi
 *.db

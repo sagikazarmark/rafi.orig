@@ -13,4 +13,4 @@ crate-type = ["cdylib", "rlib"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rafi-store = { workspace = true, features = ["conformance"] }
 serde_json = { workspace = true }
-worker = "0.8.7"
+worker = { workspace = true }

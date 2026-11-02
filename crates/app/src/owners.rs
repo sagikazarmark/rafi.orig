@@ -14,6 +14,7 @@ use crate::{Actor, App, Refusal, Result};
 /// raffles is frozen or drawing: the event is live. The Clerk account is
 /// deleted in Clerk.
 pub async fn remove_owner_data(app: &App, actor: Actor<'_>) -> Result<()> {
+    actor.allow(rafi_api::Access::Admin)?;
     let rows = raffles::rows_by_owner(&app.db, actor.owner).await?;
     if rows.iter().any(|r| r.state.drawable()) {
         return Err(Refusal::EventLive.into());

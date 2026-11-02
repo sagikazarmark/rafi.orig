@@ -21,7 +21,7 @@ fn me_from_url() -> Option<String> {
 
 #[component]
 pub fn Verify(slug: String) -> Element {
-    let json_href = format!("/api/r/{slug}/verify.json");
+    let json_href = rafi_api::routes::verify_json(&slug);
     // Absolute, so the command runs as shown.
     let json_url = use_hook(|| {
         web_sys::window()

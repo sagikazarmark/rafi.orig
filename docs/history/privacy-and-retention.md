@@ -7,7 +7,7 @@ back, redesigned; the legal surfaces the hosted instance needs are added; the ma
 its own plan ([docs/plans/marketing-opt-in.md](../plans/marketing-opt-in.md)). What the software does is in
 [docs/explanation/privacy-and-abuse.md](../explanation/privacy-and-abuse.md); this document is the reasoning.
 
-> **Amended before the first release** ([docs/plans/pre-release-review.md](../plans/pre-release-review.md), SCH-3): the recorded
+> **Amended before the first release** ([docs/history/pre-release-review.md](pre-release-review.md), SCH-3): the recorded
 > acceptance of the terms (`legal_acceptances`, the gate on creating a raffle, the admin's "I accept") was removed.
 > `/terms` and `/privacy` stay, with their versions; acceptance is by use. The reasoning and the consequences are
 > in that document's §Accepted risks. §Terms and the processing agreement below describes the removed design.
@@ -410,7 +410,7 @@ Workers CI job starts it under `wrangler dev`; a cron smoke test there is welcom
 
 Recorded here so they aren't lost; none blocks the hosted launch.
 
-- **Audit actor.** Done before the release ([docs/plans/pre-release-review.md](../plans/pre-release-review.md), SCH-1): every audit
+- **Audit actor.** Done before the release ([docs/history/pre-release-review.md](pre-release-review.md), SCH-1): every audit
   row carries `actor` (the owner key) and `user_id` (the signed-in user acting for it), so members of one
   organization are told apart.
 - **Account deletion.** Deleting a Clerk account or organization doesn't remove the organizer's data here; the

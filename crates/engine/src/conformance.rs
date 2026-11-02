@@ -84,7 +84,7 @@ pub enum Profile {
     /// relay never answers, the second serves every round, honestly signed.
     Relayed,
     /// Mock drand over HTTP from a relay that fails (503) each round's
-    /// fetches for its first [`RELAY_OUTAGE`]: a draw stalls, and a retry
+    /// fetches for its first few seconds (longer than a fetch waits): a draw stalls, and a retry
     /// after it draws on the same round.
     Recovering,
 }

@@ -98,6 +98,27 @@ fn StateBadge(state: RaffleState) -> Element {
     }
 }
 
+/// Runs an admin call for an action on the page: on success the page reloads
+/// (`on_change`), on failure the error goes to the page's toasts (`error`).
+/// What most buttons do.
+async fn act<T>(
+    call: impl std::future::Future<Output = Result<T, api::ApiError>>,
+    error: Signal<Option<String>>,
+    on_change: EventHandler<()>,
+) -> Option<T> {
+    let mut error = error;
+    match call.await {
+        Ok(value) => {
+            on_change.call(());
+            Some(value)
+        }
+        Err(e) => {
+            error.set(Some(err_text(e)));
+            None
+        }
+    }
+}
+
 /// Shows errors reported by any action on this page as toasts.
 #[component]
 fn ErrorToasts(error: Signal<Option<String>>) -> Element {

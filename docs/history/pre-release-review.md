@@ -1,5 +1,9 @@
 # Pre-release review
 
+> **Historical document.** The review before the first release and the remediation it decided, kept for the
+> reasoning behind its decisions. Its §Deferred items are tracked as issues; the last review before the tag is
+> [the final pre-release check](../plans/final-pre-release-check.md).
+
 **Status: done (2026-10-27).** The review before the first stable release, and the remediation it decided, all
 of it carried out in seven commits (one per step of §Order of work); what remains is in §Deferred. Five passes over the code, each on its own axis: the Cloudflare Workers deployment, the privacy and
 retention features against [privacy-and-retention.md](../history/privacy-and-retention.md), dead code and stale references,
@@ -972,7 +976,8 @@ Worth doing, not before the release. Each is an issue on the tracker, collected 
 [#36](https://github.com/sagikazarmark/rafi.orig/issues/36); the issues carry the design notes below and are where
 the state is kept from here on.
 
-- **Content-hashed participant scripts with `immutable`** ([#21](https://github.com/sagikazarmark/rafi.orig/issues/21)). Design: `scripts/participant.sh` hashes the wasm,
+- **Content-hashed participant scripts with `immutable`** ([#21](https://github.com/sagikazarmark/rafi.orig/issues/21)). **Done** (`5d5efd9`: dx builds the participant
+  as a binary and names its module and glue by their hash). Design: `scripts/participant.sh` hashes the wasm,
   rewrites the reference in `rafi_participant.js` (the glue resolves `rafi_participant_bg.wasm` relative to
   `import.meta.url`, which is why a `?v=` on the import alone can't work), hashes the JS and `fallback.js`,
   writes `manifest.json`; `rafi-server` reads it at startup natively (`Dirs::participant`) and the Worker fetches
@@ -1017,7 +1022,7 @@ the state is kept from here on.
 - **A Worker path for `reapply-erasures`** ([#29](https://github.com/sagikazarmark/rafi.orig/issues/29)), or generating `cloudflare.md`'s D1 SQL from `rafi_store`, so the two
   can't drift.
 - **`DrandClient::wait_for` uses `std::time::SystemTime`** ([#30](https://github.com/sagikazarmark/rafi.orig/issues/30); `crates/engine/src/drand.rs:256`); only `LocalEngine`
-  calls it, but it is compiled on wasm32. Gate it or use `web_time`.
+  calls it, but it is compiled on wasm32. Gate it or use `web_time`. **Done** (`47b52b8`: drand's `SystemClock`).
 - **Clerk deletion webhook** ([#31](https://github.com/sagikazarmark/rafi.orig/issues/31); `user.deleted`, `organization.deleted` → `remove_my_data`): the terms and the admin
   say to remove data first; the webhook needs Svix verification and an ID mapping.
 - **`RAFI_ALTCHA_*`, `/api/altcha`, `altcha_used`, `/participant/altcha-worker.js`** ([#32](https://github.com/sagikazarmark/rafi.orig/issues/32)) bake a library's name into
@@ -1040,7 +1045,7 @@ So nobody re-audits them.
   by a sub-ID alone; tiers (`Admin`, `Manager`, member) gate what the plan says. The Clerk layer fails closed (401
   on none, 503 on an unavailable JWKS), RS256 only, `kid`-pinned, `typ=JWT`, `sid` required, 5 s skew, Bearer
   preferred over the cookie. The Worker refuses to build without `CLERK_SECRET_KEY`, `RAFI_POW_KEY`,
-  `RESTATE_INGRESS_URL`, `RESTATE_IDENTITY_KEYS` (non-dev), or with `RAFI_DEV_AUTH` without `dev`.
+  `RAFI_ENGINE_INGRESS_URL`, `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` (non-dev), or with `RAFI_DEV_AUTH` without `dev`.
 - **The join**: ALTCHA signatures cover every parameter, 20-minute TTL, single redemption by primary-key insert
   (race-safe across instances), payload ≤ 8 KiB, rate limits before the proof-of-work; the cookie is `HttpOnly;
   SameSite=Lax; Secure` over HTTPS, 3 days, 128-bit token, SHA-256 at rest, lookup by `(raffle_id, token_hash)`;
@@ -1071,9 +1076,9 @@ So nobody re-audits them.
   `EngineInfo`; `open-<manifest_hash>` is a stable idempotency key; command IDs are UUIDv4 per click; the
   committed round is journaled before the sleep; the engine writes only `raffles` (guarded columns),
   `raffle_events` and `draws`.
-- **Workers**: D1 `DB` with `migrations_dir` shared with sqlx; `RAFFLE_ROOM` with `new_sqlite_classes`; three
+- **Workers**: D1 `DB` with `migrations_dir` shared with sqlx; `RAFFLE_ROOM` with `new_sqlite_classes`; four
   `[[ratelimits]]` matching the code; cron `0 * * * *`; `workers_dev` and `preview_urls` off; `[env.dev]` repeats
-  the non-inheritable bindings; `run_worker_first` covers every server route; no stale `script_name` or
+  the non-inheritable bindings; no `run_worker_first` (since #23 the Worker serves every path that isn't a file); no stale `script_name` or
   `restate-worker` reference outside `docs/history`. wasm hygiene: getrandom backends enabled for 0.2/0.3/0.4,
   clocks through `js_sys::Date` and `web-time`, the `Instant` limiter is `cfg(not(wasm32))`, tokio on wasm is
   `sync`/`time`/`rt` only with no runtime started, the ingress calls race a `gloo-timers` timeout, drand goes

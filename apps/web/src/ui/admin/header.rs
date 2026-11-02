@@ -30,8 +30,8 @@ pub(super) fn Header(
     let mut busy = use_signal(|| false);
     let nav = navigator();
     let toast = use_toast();
-    let screen_url = format!("{}/s/{}", admin.public_url, v.slug);
-    let verify_url = format!("{}/v/{}", admin.public_url, v.slug);
+    let screen_url = format!("{}{}", admin.public_url, rafi_api::routes::screen(&v.slug));
+    let verify_url = format!("{}{}", admin.public_url, rafi_api::routes::verify(&v.slug));
 
     let id = admin.id.clone();
     let act = move |action: LifecycleCommand| {

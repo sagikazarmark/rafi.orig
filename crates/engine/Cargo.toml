@@ -26,7 +26,7 @@ local = ["dep:tokio", "dep:tracing", "drand"]
 conformance = ["dep:tokio", "dep:serde_json", "mock-drand", "drand/reqwest", "drand/rustls"]
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 rafi-raffle = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
@@ -35,8 +35,8 @@ thiserror = { workspace = true }
 drand = { workspace = true, features = ["client", "bls12-381"], optional = true }
 
 # local, conformance
-tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net", "io-util"], optional = true }
-tracing = { version = "0.1", optional = true }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "net", "io-util"], optional = true }
+tracing = { workspace = true, optional = true }
 
 # conformance
 serde_json = { workspace = true, optional = true }
@@ -44,4 +44,4 @@ serde_json = { workspace = true, optional = true }
 [dev-dependencies]
 rafi-engine = { path = ".", features = ["local", "conformance"] }
 serde_json = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

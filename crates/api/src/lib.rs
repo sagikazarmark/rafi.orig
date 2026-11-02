@@ -3,6 +3,50 @@
 
 pub mod admin;
 
+/// The public paths, built in one place: the server's pages and redirects,
+/// the app's absolute URLs and the web app's links all use these.
+pub mod routes {
+    /// The join page (`/j/<code>`).
+    pub fn join(code: &str) -> String {
+        format!("/j/{code}")
+    }
+
+    /// The raffle's rules (`/rules/<slug>`).
+    pub fn rules(slug: &str) -> String {
+        format!("/rules/{slug}")
+    }
+
+    /// The raffle's privacy notice (`/privacy/<slug>`).
+    pub fn privacy(slug: &str) -> String {
+        format!("/privacy/{slug}")
+    }
+
+    /// The verification page (`/v/<slug>`).
+    pub fn verify(slug: &str) -> String {
+        format!("/v/{slug}")
+    }
+
+    /// The projector screen (`/s/<slug>`).
+    pub fn screen(slug: &str) -> String {
+        format!("/s/{slug}")
+    }
+
+    /// The full view the screens poll (`/api/r/<slug>/view`).
+    pub fn view(slug: &str) -> String {
+        format!("/api/r/{slug}/view")
+    }
+
+    /// The participant view phones poll (`/api/r/<slug>/participant`).
+    pub fn participant(slug: &str) -> String {
+        format!("/api/r/{slug}/participant")
+    }
+
+    /// What verifiers download (`/api/r/<slug>/verify.json`).
+    pub fn verify_json(slug: &str) -> String {
+        format!("/api/r/{slug}/verify.json")
+    }
+}
+
 use rafi_lifecycle::RaffleState;
 pub use rafi_lifecycle::entrant::{Origin, RowError};
 pub use rafi_lifecycle::names::NameFormat;
@@ -658,7 +702,7 @@ pub struct AdminActions {
     pub purge: bool,
     /// Whether the fixed settings (the additional rules, the event date, the
     /// retention period, the privacy text and link) can still change: not
-    /// once an entrant has accepted them.
+    /// once an entrant locks them (one who joined, or the organizer added).
     #[serde(default)]
     pub edit_rules: bool,
     /// How an entrant is removed from the list now, if they can be.

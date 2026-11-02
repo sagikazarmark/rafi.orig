@@ -18,19 +18,31 @@ use crate::App;
 pub const NAME_DELAY_SECS: i64 = 5;
 
 pub fn join_url(app: &App, join_code: &str) -> String {
-    format!("{}/j/{join_code}", app.policy.public_url)
+    format!(
+        "{}{}",
+        app.policy.public_url,
+        rafi_api::routes::join(join_code)
+    )
 }
 
 /// The raffle's privacy notice, absolute: what the projector shows the
 /// people on the organizer's list.
 pub fn privacy_url(app: &App, slug: &str) -> String {
-    format!("{}/privacy/{slug}", app.policy.public_url)
+    format!(
+        "{}{}",
+        app.policy.public_url,
+        rafi_api::routes::privacy(slug)
+    )
 }
 
 /// The raffle's verification page, absolute: where the projector's thank-you
 /// screen sends the room to check the draw.
 pub fn verify_url(app: &App, slug: &str) -> String {
-    format!("{}/v/{slug}", app.policy.public_url)
+    format!(
+        "{}{}",
+        app.policy.public_url,
+        rafi_api::routes::verify(slug)
+    )
 }
 
 /// The full view of a raffle, or `None` if it doesn't exist. Its `v` is the
