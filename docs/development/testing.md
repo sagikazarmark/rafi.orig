@@ -135,8 +135,10 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   module that arrives after the fallback started leaving the page to it, and a phone the live channel refuses
   (4403) polling instead
 - a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
-  through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), the live channel,
-  the end; the verification page's counts by source; a 64-character name the organizer added from a list, in a
+  through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), the projector's
+  and the draw console's countdowns running between fetches (with a drand lead of 8 s), the live channel, the end;
+  a projector cut off from `/view` saying "Reconnecting…" and recovering, and one at an unknown address saying
+  there's no raffle there; the verification page's counts by source; a 64-character name the organizer added from a list, in a
   raffle of its own, the projector telling registered people they're in and calling the winner to the front,
   fitting a projector-sized screen without scrolling sideways in the recent names, at the reveal and on the thanks screen; the security headers of
   each kind of page and of a static file; and every tab (the phone, the

@@ -1,7 +1,10 @@
 // A whole evening against Rafi on Workers, locally: the admin API (dev auth),
 // a phone in headless Chromium joining through the real form, draws through
-// Restate (the engine in the same Worker, under /restate), the live channel,
-// and the end. Step 4 of scripts/workers-check.sh.
+// Restate (the engine in the same Worker, under /restate), the countdowns on
+// the projector and the draw console, the live channel, and the end; then a
+// projector cut off from the server, and one at an address with no raffle.
+// Step 4 of scripts/workers-check.sh, which runs the Worker with a drand lead
+// of 8 s, so the countdowns have seconds to watch.
 //
 //   node apps/worker/evening.mjs "$(mktemp -d)"
 //
@@ -116,12 +119,15 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
   const waiting = new Map();
   const documents = [];
   const documentRequests = new Set();
+  // Every request's URL, in order: what a check can say happened in between.
+  const requests = [];
   sock.onmessage = (m) => {
     const msg = JSON.parse(m.data);
     if (msg.id && waiting.has(msg.id)) { waiting.get(msg.id)(msg); waiting.delete(msg.id); }
     if (watch) violation(name, msg);
     // The status off the wire: a revalidated document is a 304 there, and a
     // 200 (the cached one) to the page.
+    if (msg.method === "Network.requestWillBeSent") requests.push(msg.params.request.url);
     if (msg.method === "Network.requestWillBeSent" && msg.params.type === "Document") documentRequests.add(msg.params.requestId);
     if (msg.method === "Network.responseReceivedExtraInfo" && documentRequests.has(msg.params.requestId)) documents.push(msg.params.statusCode);
   };
@@ -136,6 +142,7 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
     js,
     text: async () => (await js(`(document.body?.innerText ?? "").replace(/\\s+/g, " ")`)) ?? "",
     documents,
+    requests,
     close: () => sock.close(),
   };
 }
@@ -228,9 +235,33 @@ const screen = await tab("projector", `${base}/s/${slug}`);
 // Read defensively: the projector loads the web app first (a large bundle).
 const screenText = screen.text;
 check(await until(async () => (await screenText()).includes("Rust in Action"), 45000), "the projector shows the raffle");
+// The organizer's draw console, open through the draw.
+const drawConsole = await tab("draw console", `${base}/admin/r/${id}`);
+check(await until(async () => (await drawConsole.text()).includes("Prizes to draw"), 45000), "the draw console is up");
 await api("draw_item", { id, item, command_id: commandId() });
 check(await until(async () => /Rust in Action/.test(await card()) && /\d|…/.test(await card()), 15000), "the phone shows the countdown");
 check(await until(() => screen.js(`!!document.querySelector(".countdown")`), 15000), "the projector shows the countdown");
+const consoleSecs = () => drawConsole.js(`Number(document.querySelector(".radial-progress")?.innerText.trim()) || 0`);
+check(await until(async () => (await consoleSecs()) > 0, 15000), "the console shows the countdown");
+// Both count down between fetches, not only when a fetch brings the server's
+// time again: sampled for a few seconds, the seconds drop between two
+// samples with no fetch of what the screen shows in between (the
+// projector's view, the console's raffle).
+const projectorSecs = () => screen.js(`Number(document.querySelector(".countdown span")?.getAttribute("aria-label")) || 0`);
+const fetches = (t, pattern) => t.requests.filter((u) => pattern.test(u)).length;
+const samples = [];
+for (let t = 0; t < 3500; t += 250) {
+  samples.push({
+    projector: await projectorSecs(), projectorFetches: fetches(screen, /\/api\/r\/[^/]+\/view/),
+    console: await consoleSecs(), consoleFetches: fetches(drawConsole, /\/api\/admin\/get_raffle/),
+  });
+  await sleep(250);
+}
+const ticks = (key, fetched) => samples.some((b, i) => i > 0 && b[key] > 0 && b[key] < samples[i - 1][key] && b[fetched] === samples[i - 1][fetched]);
+const trace = (key) => samples.map((x) => x[key]).join(" ");
+check(ticks("projector", "projectorFetches"), `the projector's countdown runs between fetches (${trace("projector")})`);
+check(ticks("console", "consoleFetches"), `the console's countdown runs between fetches (${trace("console")})`);
+drawConsole.close();
 // The reveal: when does each screen show the winner?
 let phoneAt = 0, screenAt = 0;
 for (let t = 0; t < 30000 && !(phoneAt && screenAt); t += 50) {
@@ -347,6 +378,15 @@ check(await fits(), "in the recent names, it fits a 1280×720 projector");
 await projectorSize(projector.call, 1920, 1080);
 check(await until(fits, 2000), "and a 1920×1080 one");
 await projectorSize(projector.call, 1280, 720);
+// The projector can't reach the server for a while: it says so, keeps the last
+// view, and stops saying so once it can again.
+await projector.call("Network.setBlockedURLs", { urls: ["*/api/r/*/view"] });
+check(await until(async () => (await projector.text()).includes("Reconnecting…"), 20000),
+  "the projector cut off from the server says it's reconnecting");
+check((await projector.text()).includes("Registered? You're already in."), "and keeps the last view meanwhile");
+await projector.call("Network.setBlockedURLs", { urls: [] });
+check(await until(async () => !(await projector.text()).includes("Reconnecting…"), 10000),
+  "and stops once it's back");
 await api("set_lifecycle", { id: long, action: "close" });
 await api("start_draw", { id: long });
 let longItem = null;
@@ -366,6 +406,14 @@ const longVerification = await tab("verification page, long names", `${base}/v/$
 check(await until(async () => (await longVerification.text()).includes("1 entrant: 0 joined on their phones, 1 added by the organizer"), 45000),
   "the verification page counts the organizer's list");
 longVerification.close();
+
+// A projector at an address with no raffle says so, rather than loading for
+// ever.
+const startedAt = Date.now();
+const nowhere = await tab("projector, no raffle", `${base}/s/no-such-raffle-${Date.now()}`);
+const said = await until(async () => (await nowhere.text()).includes("No raffle at this address, or it isn't published yet."), 15000);
+check(said, `a projector at an unknown address says there's no raffle there (${Date.now() - startedAt} ms)`);
+nowhere.close();
 
 const real = errors.filter((e) => !/WebSocket|4403|ERR_/i.test(e));
 check(real.length === 0, `no console errors${real.length ? ": " + real.join(" | ") : ""}`);

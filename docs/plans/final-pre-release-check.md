@@ -1,18 +1,18 @@
 # Final pre-release check
 
 **Status: Tier 0 and T4-2 done (`cf56888`, 2026-11-02); Tier 1, the schema and query shapes, and the contract notes
-done (2026-11-02), their browser checks in `evening.mjs` still open; Tier 2's repository side done (2026-11-02);
+done (2026-11-02), with their browser checks in `evening.mjs`; Tier 2's repository side done (2026-11-02);
 Tiers 3–8 otherwise proposed.** Each finding
 below that is done says what shipped, under **Done**, where it differs from its **Change**. Next, per
 [Order of work](#order-of-work): Tier 2's GitHub and Cloudflare side (the rename, a dispatch dry run and
-`v0.1.0-rc.1`, a real deploy, a stranger's deploy); the `evening.mjs` checks Tier 1 left open; then design and UX.
+`v0.1.0-rc.1`, a real deploy, a stranger's deploy); then design and UX.
 
 ### Progress
 
 | Step | State |
 |---|---|
 | 1. Tier 0 | **Done** (`cf56888`). `0001_init.sql` gained `draws.delivery` and `add_batches`. Verified: fmt, `just clippy` (native and wasm32), `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, the D1 conformance testbed (every scenario ok). `just workers` ran later, with Tier 2 (the evening on another port): every check ok, so `evening.mjs` exercised the stricter admin API. |
-| 2. Tier 1 | **Done**, but for the `evening.mjs` parts of the Accepts (the countdown read twice, `/view` blocked, a projector at an unknown slug), not written. The evening runs green with Tier 1 in (Tier 2's `just workers`). Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`; the D1 conformance testbed, the live channel's scenario and the participant smoke (steps 1–3 of `workers-check.sh`), every check ok. |
+| 2. Tier 1 | **Done**, with the `evening.mjs` parts of the Accepts (the countdowns sampled between fetches, `/view` blocked, a projector at an unknown slug), `just workers` green. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`; the D1 conformance testbed, the live channel's scenario and the participant smoke (steps 1–3 of `workers-check.sh`), every check ok. |
 | 3. Schema and query shapes | **Done**: T3-1, T3-7, T7-6's `erasures` index, T3-9's manifest row measured (natively) and kept. The `rows_read` counter and the `EXPLAIN` gate (T3-11) not built. |
 | 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
 | 5. Launch mechanics | **Done locally** (2026-11-02): T2-2, T2-4 … T2-8 as far as the repository goes; T2-1, T2-3, the stranger, the GitHub runs and settings open. Declined: release-note labels and templates, community files, third-party notices, Python in the release. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, `just workers` (the evening on `WORKERS_APP_PORT=8797`, every check ok), two `cloudflare-release.sh 0.1.0` builds byte-identical. |
@@ -249,7 +249,10 @@ sequential tests.
   asserts both decreased; a `rafi-web` unit test of the offset helper.
 - **Done**: `live::ServerClock`, the offset taken when a view arrives: `LiveView.clock` for the projector, and the
   admin's `get_raffle` resource carries one with its reply for the console (the console reads `admin.view`, not the
-  live view). Test: `the_server_clock_runs_from_the_view`. Open: the `evening.mjs` check.
+  live view). Test: `the_server_clock_runs_from_the_view`. In `evening.mjs` (the evening's drand lead is 8 s, not
+  development's 3, so there is a countdown to watch): the projector's and the console's seconds are sampled every
+  250 ms for 3.5 s, and must drop between two samples with no fetch of the view (the projector) or the raffle (the
+  console) in between, which the old code couldn't: its digit moved only when a fetch brought the server's time.
 
 #### T1-2 · A phone refused by the live channel goes dark
 
@@ -319,7 +322,9 @@ sequential tests.
   shows a connection message for a network failure rather than that card. The admin's header shows "Offline" from
   `navigator.onLine` and the raffle's live view (`AdminConnection`, set by `LiveRefresh`). No `x-rafi-build` header.
   Tests: `what_the_screen_says_before_a_view`, `the_screen_says_when_it_is_stale`, `the_admin_says_when_it_is_offline`,
-  `trouble_counts_failures_in_a_row`, `the_kind_of_a_failure`. Open: the `evening.mjs` checks.
+  `trouble_counts_failures_in_a_row`, `the_kind_of_a_failure`. In `evening.mjs`: the long-names projector, its
+  `/view` blocked (`Network.setBlockedURLs`), says "Reconnecting…" and keeps the intro, then stops once unblocked; a
+  projector at an unknown slug says there's no raffle there (147 ms with the bundle cached).
 
 #### T1-5 · The thanks screen tells the room to visit a relative path
 
@@ -1244,10 +1249,10 @@ The tag is ready when every line is true.
 
 - [x] Tier 0: all seven findings closed with their interleaving tests; `0001_init.sql` carries `draws.delivery`
       and `add_batches` (or the alternatives are recorded here with the reason). (`cf56888`)
-- [ ] Tier 1: the countdown decreases between polls on both screens; a 4403'd phone shows the win; a 9 s wasm
+- [x] Tier 1: the countdown decreases between polls on both screens; a 4403'd phone shows the win; a 9 s wasm
       doesn't double-render; the projector shows offline/404/newer-server states; the thanks screen names the
-      host; every theme pair ≥ 4.5:1. (All built and tested natively or in the participant smoke; the countdown and
-      the offline states not yet checked in `evening.mjs`.)
+      host; every theme pair ≥ 4.5:1. (The newer-server state by SSR test only; the light theme's won card not yet
+      looked at by eye.)
 - [ ] `gh repo view sagikazarmark/rafi` resolves; `rg -o 'github.com/sagikazarmark/[a-z.]+' | sort -u` is one
       name.
 - [ ] One `workflow_dispatch` dry run and one `v0.1.0-rc.1` pre-release exist; the release job depends on CI.

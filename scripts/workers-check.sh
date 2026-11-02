@@ -133,7 +133,9 @@ if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev
     exec "$RESTATE_SERVER_BIN") >"$LOGS/restate-server.log" 2>&1 &
   PIDS+=($!)
   # --test-scheduled: the Cron Trigger can be fired by hand (/__scheduled).
-  serve apps/worker "$APP_PORT" /healthz --env dev --test-scheduled --var "RAFI_PUBLIC_URL:$APP"
+  # A lead of 8 s, not development's 3: the evening watches the countdowns run.
+  serve apps/worker "$APP_PORT" /healthz --env dev --test-scheduled --var "RAFI_PUBLIC_URL:$APP" \
+    --var RAFI_DRAND_LEAD_SECS:8
   for _ in $(seq 1 60); do curl -s -m 3 -o /dev/null http://127.0.0.1:19070/health && break; sleep 1; done
   # The engine is the same Worker, under /restate; wrangler dev speaks HTTP/1.1 only.
   curl -s -m 30 -X POST http://127.0.0.1:19070/deployments -H 'content-type: application/json' \
