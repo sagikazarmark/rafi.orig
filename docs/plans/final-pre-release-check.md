@@ -514,6 +514,24 @@ copy → announce.
   runbook's now save and put back `add_removals` and `objected_at`. The runbook's SQL runs on the schema. The cost
   figures are from Cloudflare's allowances as remembered, not checked against a bill. Open: the restore rehearsed
   against a copy.
+- **Done** (the rehearsal, 2026-11-02): `a_restore_puts_nobody_back` (`crates/app/tests/restore.rs`) runs the
+  runbook's restore on SQLite files, a backup taken before an organizer's early erase, a purge, a raffle deleted,
+  an organizer leaving (a raffle purged, one deleted, their defaults), removals at a person's request and not, an
+  objection after the freeze, a hidden name and an expired raffle: the SQL is read from the runbook and from
+  `cloudflare.md`, re-applied natively (`reapply_erasures`) and with the D1 SQL, twice; nobody's data is back,
+  what the backup had is as it is live, a later add leaves the removed person out, and the DSAR query finds one
+  email in two raffles, the preflight and step 5's queries list what they should. By hand: `sqlite3`, the `rafi
+  reapply-erasures` binary, a local D1 (the test's two databases loaded with `wrangler d1 execute --local`, step
+  1's query and the restore SQL run there, the result read back: the same as `sqlite3`'s), and Postgres on a few
+  rows. Found and fixed: the restore brought back
+  raffles deleted since (by their organizer, or the never-frozen ones of an organizer who left) with everyone in
+  them, people removed since (at their request too: the removal was put back, their entry with it), the defaults
+  of an organizer who left, and names hidden since; "insert the `erasures` rows" collided with the backup's IDs,
+  and the put-back was prose, not SQL. Step 1 is now one query per kind writing the statements that put it all
+  back (deleting what live no longer has, by `audit`'s `delete` rows and each raffle's entrant IDs), run on D1 or
+  `sqlite3` (with `PRAGMA foreign_keys = ON`: without, a deleted raffle's entrants stay) or `psql`; a single
+  compound `SELECT` of seven terms ran on SQLite and failed on D1. `cloudflare.md`'s organizer statement now has
+  the store's condition (`reapply_organizer_left`).
 
 #### T2-8 · Public face
 
@@ -1379,7 +1397,7 @@ The tag is ready when every line is true.
 - [ ] `gh attestation verify` passes on the tarball; two builds of the tag are byte-identical.
 - [x] `OFL.txt` beside the fonts; the admin footer links the source and shows the version; `/v/<slug>` links
       `verify.py`.
-- [ ] `docs/operations` has backup/restore (rehearsed once), rotation, rollback, "Restate is down tonight", the
+- [x] `docs/operations` has backup/restore (rehearsed once), rotation, rollback, "Restate is down tonight", the
       breach runbook, a cost paragraph, the DSAR recipe, monitoring, a global deploy preflight.
 - [ ] Web gzip budget, `rows_read` assertions, the query-count test and the `EXPLAIN` gate are in CI.
 - [x] `tools/verify.py` fails every tampered vector; the evening's `verify.json` passes it.

@@ -186,9 +186,9 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
   on its own (the dates are in the raffles themselves), and whoever took themselves off a raffle that is over, and
   forgets the removals at their request of raffles that are frozen, purged or past their date (the last statement
   below does the same at once). What it can't know is what organizers erased before the
-  date, or who removed their data: for those, carry the live `erasures` table and the `organizer_left_at` values
-  over if you can, and run the restore tool's statements against D1 (the same SQL `rafi reapply-erasures` runs
-  natively, see [Self-hosting](self-hosting.md#backups)):
+  date, or who removed their data: for those, put back what the live database had (the runbook's steps 1 and 3:
+  the `erasures` log, `purged_at` and `organizer_left_at`, and the rest), then run the restore tool's statements
+  against D1 (the same SQL `rafi reapply-erasures` runs natively, see [Self-hosting](self-hosting.md#backups)):
 
   ```sh
   wrangler d1 execute rafi --remote --command "
@@ -211,7 +211,8 @@ just cloudflare-artifact /path/to/your/installation/rafi            # the Worker
       AND (r.purged_at IS NOT NULL OR r.organizer_left_at IS NOT NULL));
     UPDATE raffles SET state = 'purged' WHERE purged_at IS NOT NULL AND state <> 'purged';
     UPDATE raffles SET organizer_name = '', contact_email = '', privacy_email = '', privacy_text = '',
-      privacy_url = '' WHERE organizer_left_at IS NOT NULL;
+      privacy_url = '' WHERE organizer_left_at IS NOT NULL AND (organizer_name <> '' OR contact_email <> ''
+      OR privacy_email <> '' OR privacy_text <> '' OR privacy_url <> '');
     -- Removals at their request no add can need any more.
     DELETE FROM add_removals WHERE raffle_id IN (SELECT id FROM raffles
       WHERE manifest IS NOT NULL OR purged_at IS NOT NULL OR erase_at <= unixepoch());"

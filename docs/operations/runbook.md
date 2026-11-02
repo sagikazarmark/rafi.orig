@@ -82,27 +82,58 @@ wrangler d1 time-travel info rafi                                # the bookmark 
 wrangler d1 time-travel restore rafi --timestamp=<unix seconds>  # or --bookmark=<bookmark>
 ```
 
-A restore brings back what was true then, including personal data erased since, people who took themselves off
-since (their objection), and removals at a person's request recorded since. In this order:
+A restore brings back what was true then, including personal data erased since, people removed since (at their
+request or not, with their whole entry), raffles deleted since (by their organizer, or as the organizer left, with
+everyone in them), organizers' defaults since removed, names hidden since, people who took themselves off since
+(their objection), and removals at a person's request recorded since. In this order:
 
-1. **Before restoring, save what the restore would undo**, from the live database: the erasure log, the purged
-   raffles and the organizers who left, the removals at their request, and the objections:
+1. **Before restoring, save what the restore would undo**, from the live database, as the statements that put it
+   back: the erasure log, the raffles purged or whose organizer left, the raffles, entrants and organizers'
+   defaults deleted, the removals at a person's request, and the hidden names and objections. Run it right before
+   the restore (what changes in between is lost with the restore anyway):
 
    ```sh
-   for q in "SELECT * FROM erasures" \
-            "SELECT id, purged_at, organizer_left_at FROM raffles WHERE purged_at IS NOT NULL OR organizer_left_at IS NOT NULL" \
-            "SELECT * FROM add_removals" \
-            "SELECT raffle_id, id, objected_at FROM entrants WHERE objected_at IS NOT NULL"; do
-     wrangler d1 execute rafi --remote --json --command "$q"
-   done >before-restore.json
+   wrangler d1 execute rafi --remote --json --command "
+     -- The erasure log.
+     SELECT 'INSERT INTO erasures (raffle_id, entrant_id, at) SELECT ' || quote(raffle_id) || ', '
+         || quote(entrant_id) || ', ' || at || ' WHERE NOT EXISTS (SELECT 1 FROM erasures WHERE raffle_id = '
+         || quote(raffle_id) || ' AND entrant_id = ' || quote(entrant_id) || ');' AS sql
+       FROM erasures;
+     -- Raffles purged, or whose organizer left.
+     SELECT 'UPDATE raffles SET purged_at = ' || quote(purged_at) || ', organizer_left_at = '
+         || quote(organizer_left_at) || ' WHERE id = ' || quote(id) || ';' AS sql
+       FROM raffles WHERE purged_at IS NOT NULL OR organizer_left_at IS NOT NULL;
+     -- Raffles deleted, by their organizer or as they left, with everything in them.
+     SELECT 'DELETE FROM raffles WHERE id = ' || quote(raffle_id) || ';' AS sql FROM audit WHERE action = 'delete';
+     -- Entrants deleted: removed, an add undone, a raffle expired.
+     SELECT 'DELETE FROM entrants WHERE raffle_id = ' || quote(r.id) || ' AND id NOT IN (' || quote('')
+         || COALESCE((SELECT group_concat(', ' || quote(e.id), '') FROM entrants e WHERE e.raffle_id = r.id), '')
+         || ');' AS sql
+       FROM raffles r;
+     -- The defaults of organizers who left.
+     SELECT 'DELETE FROM owner_defaults WHERE owner_id NOT IN (' || quote('')
+         || COALESCE((SELECT group_concat(', ' || quote(owner_id), '') FROM owner_defaults), '') || ');' AS sql;
+     -- Removals at a person's request.
+     SELECT 'INSERT INTO add_removals (raffle_id, email_norm, list_ref, removed_at) SELECT ' || quote(raffle_id)
+         || ', ' || quote(email_norm) || ', ' || quote(list_ref) || ', ' || removed_at
+         || ' WHERE EXISTS (SELECT 1 FROM raffles WHERE id = ' || quote(raffle_id) || ') ON CONFLICT DO NOTHING;' AS sql
+       FROM add_removals;
+     -- Hidden names, and who took themselves off.
+     SELECT 'UPDATE entrants SET hidden = 1, objected_at = ' || quote(objected_at) || ' WHERE id = ' || quote(id)
+         || ';' AS sql
+       FROM entrants WHERE hidden = 1" | jq -r '.[].results[].sql' >put-back.sql
    ```
 
 2. **Restore** (above).
-3. **Put back what step 1 saved**: insert the `erasures` rows, set `purged_at` and `organizer_left_at`, insert the
-   `add_removals` rows (`INSERT OR IGNORE`), and set `objected_at` (and `hidden = 1`) on those entrants.
+3. **Put back what step 1 saved**: `wrangler d1 execute rafi --remote --file=put-back.sql`. Every statement can run
+   twice, so run the file again if it stops halfway. Undone since, and back with the restore: a removal at a
+   person's request the organizer lifted, and a name the organizer showed again; the organizer does it again. A
+   raffle's `DELETE FROM entrants` lists everyone in it: with `RAFI_MAX_ENTRANTS` above about 2,700 it can pass
+   D1's 100 KB per statement.
 4. **Re-apply the erasures**: the SQL in [Cloudflare Workers](cloudflare.md#data-residency) (natively,
    `rafi reapply-erasures`). It erases everyone the log names and everyone in a purged raffle or one whose
-   organizer left; the next hourly housekeeping erases whatever came due meanwhile.
+   organizer left; the next hourly housekeeping erases whatever came due meanwhile, and whoever took themselves
+   off a raffle that is over.
 5. **Check the engine against the database** for raffles that were drawing: a raffle the restore took back to
    before a draw the engine has already made disagrees with it. The engine is the authority for the draw. Its next
    write for the raffle (the organizer's next decision, or Finish) brings the database's log up to its state, as
@@ -118,6 +149,12 @@ since (their objection), and removals at a person's request recorded since. In t
    and projectors poll. Nothing to do.
 
 Self-hosting has the same steps with its own tools ([Self-hosting](self-hosting.md#backups)).
+
+Rehearsed on 2026-11-02, against copies: `a_restore_puts_nobody_back` ([`crates/app/tests/restore.rs`](../../crates/app/tests/restore.rs))
+runs these steps on SQLite files, with this page's queries and the Cloudflare page's SQL read from the pages, so CI
+keeps them working; and once by hand, with `sqlite3`, `rafi reapply-erasures`, a local D1
+(`wrangler d1 execute --local`), and on Postgres for step 1's query and its statements (a few rows). D1 caps the
+terms of a compound `SELECT`: step 1's queries stay separate statements.
 
 ## A person asks for their data
 

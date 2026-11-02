@@ -188,21 +188,35 @@ Note each review and what you did about it: that record is part of showing the h
 Back up the database (the SQLite file, or Postgres as usual). Restate's own state only matters while a raffle is
 being drawn: the engine forgets a raffle when it finishes, and the database is the record.
 
-A backup holds personal data that may have been erased since. After a restore:
+A backup holds personal data that may have been erased since. Restore with the app stopped, in this order (the
+[runbook](runbook.md#backups-and-restore) has why, and raffles being drawn):
 
-1. If you can, carry over from the live database what the restore would undo: the `erasures` table (entrant IDs
-   and times only); from `raffles`, the `purged_at` and `organizer_left_at` of raffles that were purged or whose
-   organizer left; the `add_removals` table (people removed at their request, by key, who must stay out of a later
-   add); and the `objected_at` of entrants who took themselves off (set it again with `hidden = 1`):
-   `sqlite3 live.db ".dump erasures" ".dump add_removals"` or `pg_dump -t erasures -t add_removals`, plus
-   `SELECT id, purged_at, organizer_left_at FROM raffles WHERE purged_at IS NOT NULL OR organizer_left_at IS NOT NULL`
-   and `SELECT raffle_id, id, objected_at FROM entrants WHERE objected_at IS NOT NULL`, then import and `UPDATE`.
-   The [runbook](runbook.md#backups-and-restore) has the whole order, raffles being drawn included.
+1. Keep the live database, and write from it the statements that put back what the restore would undo (the
+   erasure log, purges, organizers who left, raffles, entrants and defaults deleted, removals at a person's
+   request, hidden names and objections), with the runbook's query (step 1, the SQL between the quotes, saved as
+   `save.sql`):
+
+   ```sh
+   sqlite3 rafi.db "VACUUM INTO 'live.db'"
+   sqlite3 live.db "$(cat save.sql)" >put-back.sql
+   ```
+
+   Then restore the backup to `rafi.db`, and run the statements with foreign keys on (without them, the entrants
+   of a deleted raffle stay):
+
+   ```sh
+   sqlite3 -cmd 'PRAGMA foreign_keys = ON' rafi.db <put-back.sql
+   ```
+
+   On Postgres, keep the live database under another name, write the statements with
+   `psql -At -d rafi_live -f save.sql >put-back.sql`, with `quote` spelled `quote_nullable` and `group_concat`
+   spelled `string_agg` in `save.sql`, and run them with `psql -d rafi -f put-back.sql` after the restore.
 2. Run `rafi reapply-erasures` with the app's environment. It erases again every entrant the log names, purges
    again every raffle that was purged, blanks again every organizer who removed their data, and runs housekeeping
    once, so whatever came due in the meantime is erased too (the erasure dates are in the raffles themselves, so
    the clock needs no log), whoever took themselves off a raffle that is over is erased, and the removals at their
    request of raffles that are frozen, purged or past their date are deleted. Then start the app.
 
-Erasures the organizer made before the date, purges, organizers who left, removals at a person's request and
-objections that aren't in what you restored are the things the clock won't redo: that is what step 1 is for.
+Erasures the organizer made before the date, purges, organizers who left, deletions, removals at a person's
+request, hidden names and objections that aren't in what you restored are the things the clock won't redo: that is
+what step 1 is for.
