@@ -4,6 +4,7 @@ mod admin;
 pub mod dates;
 mod forms;
 mod live;
+mod problem;
 mod screen;
 mod verify;
 

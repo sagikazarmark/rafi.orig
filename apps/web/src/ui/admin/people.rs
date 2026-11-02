@@ -19,7 +19,7 @@ use super::{
 #[component]
 pub(super) fn People(
     admin: AdminData,
-    error: Signal<Option<String>>,
+    error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
 ) -> Element {
     let editable = admin.view.state.entrants_editable();
@@ -159,7 +159,7 @@ fn AddPeople(open: Signal<bool>, admin: AdminData, on_added: EventHandler<()>) -
 fn UndoLastAdd(
     raffle_id: String,
     undo: UndoBatch,
-    error: Signal<Option<String>>,
+    error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
 ) -> Element {
     let mut confirm = use_signal(|| false);
@@ -181,7 +181,7 @@ fn UndoLastAdd(
                     toast.success(format!("{who} taken off the list"), ToastOptions::new());
                     on_change.call(());
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
         }
     };
@@ -224,7 +224,7 @@ fn EntrantRow(
     /// can join again).
     #[props(default = true)]
     registration: bool,
-    error: Signal<Option<String>>,
+    error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
 ) -> Element {
     let mut renaming = use_signal(|| None::<String>);
@@ -241,7 +241,7 @@ fn EntrantRow(
                         error.set(None);
                         on_change.call(());
                     }
-                    Err(e) => error.set(Some(err_text(e))),
+                    Err(e) => error.set(Some(e.into())),
                 }
             }
         }
@@ -525,7 +525,7 @@ mod tests {
 
     #[component]
     fn Row(entrant: AdminEntrant) -> Element {
-        let error = use_signal(|| None::<String>);
+        let error = use_signal(|| None::<Problem>);
         rsx! {
             table { tbody {
                 EntrantRow { raffle_id: "r1", entrant, removal: None, winners_erase_date: String::new(), error, on_change: |_| {} }

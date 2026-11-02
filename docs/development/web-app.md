@@ -106,6 +106,12 @@ dx components add <name> --path <registry checkout>
 
 **Treat `apps/web/src/components/` as vendored**: update it by re-installing (`--force`), not by editing.
 
+A failed call shows as an error toast that stays until closed, unless the server gave it a reference (a server
+error's request ID, which the operator finds in the log): then it is an alert in the page (`ui::problem::ErrorAlert`,
+`role="alert"`), with the message, the reference in monospace, a "Copy reference" button and a close button, since the
+vendored toasts take no buttons. Pages hold failures as a `Problem` (message and reference) and show them with
+`Problems`.
+
 Icons are `dioxus-icons`' Lucide components. Emoji are decoration only: the big glyphs of empty states, the
 projector's hero moments and the phone's celebration. Anything that means something (a state, an item's status, a
 delivery, a button, a toast's title) is a Lucide icon or words.

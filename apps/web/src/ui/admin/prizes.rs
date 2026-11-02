@@ -13,7 +13,7 @@ use crate::ui::forms::{DeliveryPicker, delivery_hint, delivery_label};
 #[component]
 pub(super) fn Prizes(
     admin: AdminData,
-    error: Signal<Option<String>>,
+    error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
 ) -> Element {
     let editable = admin.view.state.prizes_editable();
@@ -60,7 +60,7 @@ fn PrizeRow(
     prize: Prize,
     editable: bool,
     delivery_editable: bool,
-    error: Signal<Option<String>>,
+    error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
 ) -> Element {
     let mut editing = use_signal(|| false);
@@ -89,7 +89,7 @@ fn PrizeRow(
                     error.set(None);
                     on_change.call(());
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
         });
     };

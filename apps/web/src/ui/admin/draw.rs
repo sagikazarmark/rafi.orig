@@ -17,7 +17,7 @@ pub(super) fn DrawConsole(
     admin: AdminData,
     /// The server's clock, as of `admin`.
     clock: ServerClock,
-    error: Signal<Option<String>>,
+    error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
 ) -> Element {
     let v: RaffleView = admin.view.clone();
@@ -92,7 +92,7 @@ pub(super) fn DrawConsole(
                 }
                 Err(e) => {
                     drawing.set(None);
-                    error.set(Some(err_text(e)));
+                    error.set(Some(e.into()));
                 }
             }
         }
@@ -111,7 +111,7 @@ pub(super) fn DrawConsole(
                     true
                 }
                 Err(e) => {
-                    error.set(Some(err_text(e)));
+                    error.set(Some(e.into()));
                     false
                 }
             }
@@ -173,7 +173,7 @@ pub(super) fn DrawConsole(
                     );
                     on_change.call(())
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
         }
     };
@@ -735,7 +735,7 @@ fn use_settle(
     mut sent: Signal<Option<Sent>>,
     shown: bool,
     now: Signal<u64>,
-    mut error: Signal<Option<String>>,
+    mut error: Signal<Option<Problem>>,
 ) {
     use_effect(use_reactive((&shown,), move |(shown,)| {
         let Some(s) = sent.read().clone() else {
@@ -744,7 +744,7 @@ fn use_settle(
         if let Some(over) = s.over(shown, now()) {
             sent.set(None);
             if let Some(notice) = s.notice(over) {
-                error.set(Some(notice.to_owned()));
+                error.set(Some(Problem::notice(notice)));
             }
         }
     }));

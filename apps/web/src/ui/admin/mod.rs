@@ -22,6 +22,7 @@ use super::{
     Route, command_id, copy_to_clipboard, dates,
     forms::{AddPersonForm, CreateRaffleForm, PrizeForm, SettingsForm, err_text},
     live::{AdminConnection, ServerClock, use_clock, use_live_view},
+    problem::{ErrorAlert, Problem, Problems},
 };
 use crate::{
     api,
@@ -99,11 +100,11 @@ fn StateBadge(state: RaffleState) -> Element {
 }
 
 /// Runs an admin call for an action on the page: on success the page reloads
-/// (`on_change`), on failure the error goes to the page's toasts (`error`).
+/// (`on_change`), on failure the error goes to the page's [`Problems`] (`error`).
 /// What most buttons do.
 async fn act<T>(
     call: impl std::future::Future<Output = Result<T, api::ApiError>>,
-    error: Signal<Option<String>>,
+    error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
 ) -> Option<T> {
     let mut error = error;
@@ -113,28 +114,10 @@ async fn act<T>(
             Some(value)
         }
         Err(e) => {
-            error.set(Some(err_text(e)));
+            error.set(Some(e.into()));
             None
         }
     }
-}
-
-/// Shows errors reported by any action on this page as toasts.
-#[component]
-fn ErrorToasts(error: Signal<Option<String>>) -> Element {
-    let toast = use_toast();
-    use_effect(move || {
-        if let Some(msg) = error() {
-            // Stays until closed: an error with a reference is read out to
-            // whoever runs the installation, and five seconds isn't enough.
-            toast.error(
-                "That didn't work".to_owned(),
-                ToastOptions::new().description(msg).permanent(true),
-            );
-            error.set(None);
-        }
-    });
-    rsx! {}
 }
 
 /// A confirmation for an action that cannot be undone. The title and the
@@ -234,9 +217,7 @@ pub fn AdminHome() -> Element {
                 None => rsx! { div { class: "grid place-items-center py-16", span { class: "loading loading-dots loading-lg text-primary" } } },
                 Some(Err(e)) if e.code == api::codes::UNAUTHORIZED => rsx! { SignInAgain {} },
                 Some(Err(e)) => rsx! {
-                    div { role: "alert", class: "alert alert-error alert-soft",
-                        TriangleAlert { class: "size-5" }
-                        span { "{err_text(e.clone())}" }
+                    ErrorAlert { message: e.message.clone(), reference: e.request_id.clone(),
                         button { class: "btn btn-sm", onclick: move |_| raffles.restart(), "Retry" }
                     }
                 },
@@ -318,6 +299,7 @@ fn SignInAgain() -> Element {
 #[component]
 fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
     let mut ask = use_signal(|| false);
+    let mut error = use_signal(|| None::<Problem>);
     let toast = use_toast();
     let (whose, title) = if shared {
         ("your organization's", "Your organization's data")
@@ -335,6 +317,7 @@ fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
                     p { "Leaving? Remove your data here: raffles that were never frozen are deleted, finished ones lose their entrants' data and your name, and your defaults go. The anonymous draws stay verifiable. Then delete your account in your account settings." }
                 }
                 Button { class: "btn-outline btn-error btn-sm", onclick: move |_| ask.set(true), UserX { class: "size-4" } if shared { "Remove the organization's data" } else { "Remove my data" } }
+                Problems { error }
             }
         }
         Confirm {
@@ -356,7 +339,7 @@ fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
                             toast.success("Your data was removed".to_owned(), ToastOptions::new().description("Delete your account in your account settings to finish."));
                             on_removed.call(());
                         }
-                        Err(e) => toast.error(err_text(e), ToastOptions::new()),
+                        Err(e) => error.set(Some(e.into())),
                     }
                 });
             },
@@ -387,7 +370,7 @@ pub fn RaffleAdmin(id: String, tab: Option<String>) -> Element {
         Some(Ok(me)) => me.access,
         _ => Access::Admin,
     };
-    let error = use_signal(|| None::<String>);
+    let error = use_signal(|| None::<Problem>);
     // The tab: from the URL, and written back to it (replacing, so Back
     // leaves the raffle rather than stepping through its tabs).
     let shown_tab = tab;
@@ -414,10 +397,10 @@ pub fn RaffleAdmin(id: String, tab: Option<String>) -> Element {
             return rsx! { SignInAgain {} };
         }
         Some(Err(e)) => {
-            let msg = err_text(e.clone());
+            let (message, reference) = (e.message.clone(), e.request_id.clone());
             return rsx! {
                 main { class: "mx-auto max-w-6xl space-y-4 px-4 py-8",
-                    div { role: "alert", class: "alert alert-error alert-soft", TriangleAlert { class: "size-5" } span { "{msg}" } }
+                    ErrorAlert { message, reference }
                     Link { class: "btn btn-ghost", to: Route::AdminHome {}, ArrowLeft { class: "size-5" } "All raffles" }
                 }
             };
@@ -456,7 +439,7 @@ pub fn RaffleAdmin(id: String, tab: Option<String>) -> Element {
             }
             // Frozen just now: the draw is what comes next, whatever tab was open.
             Header { admin: admin.clone(), access, error, on_change: move |_| reload(), on_frozen: move |_| tab.set(Some("draw".to_owned())) }
-            ErrorToasts { error }
+            Problems { error }
             if matches!(state, RaffleState::Draft | RaffleState::Ready) {
                 Checklist { admin: admin.clone(), on_tab: move |t: String| tab.set(Some(t)) }
             }

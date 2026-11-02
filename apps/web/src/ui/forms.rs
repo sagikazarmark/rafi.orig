@@ -22,7 +22,10 @@ use crate::{
         textarea::TextareaField,
         toast::{ToastOptions, use_toast},
     },
-    ui::{command_id, dates},
+    ui::{
+        command_id, dates,
+        problem::{Problem, Problems},
+    },
 };
 use rafi_api::{
     AddRequest, AddRow, PrizeInput, RaffleDefaults, RaffleSettings, RemovedAtRequest, Retention,
@@ -721,6 +724,8 @@ pub fn SettingsForm(
     let as_defaults = form.clone();
     let from_defaults = form.clone();
     let mut saving_defaults = use_signal(|| false);
+    // Loading or saving the defaults failed: shown by the buttons.
+    let mut defaults_error = use_signal(|| None::<Problem>);
     // Fills the organizer, contact and rules (unless they're fixed) from the
     // owner's defaults, to save with the rest.
     let fill_defaults = move |_| {
@@ -747,7 +752,7 @@ pub fn SettingsForm(
                         form.set_field(f.registration(), d.registration);
                     }
                 }
-                Err(e) => toast.error(err_text(e), ToastOptions::new()),
+                Err(e) => defaults_error.set(Some(e.into())),
             }
         });
     };
@@ -774,7 +779,7 @@ pub fn SettingsForm(
                     "📌 New raffles will start with this organizer, contacts, privacy text, rules, retention period and registration".to_owned(),
                     ToastOptions::new(),
                 ),
-                Err(e) => toast.error(err_text(e), ToastOptions::new()),
+                Err(e) => defaults_error.set(Some(e.into())),
             };
         });
     };
@@ -940,6 +945,7 @@ pub fn SettingsForm(
                     "Use my defaults"
                 }
                 FormErrors { errors: form_err }
+                Problems { error: defaults_error }
             }
         }
     }

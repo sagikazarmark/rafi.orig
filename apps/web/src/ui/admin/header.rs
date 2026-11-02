@@ -13,7 +13,7 @@ pub(super) fn Header(
     admin: AdminData,
     /// The signed-in user's tier: duplicating and deleting need a manager.
     access: Access,
-    error: Signal<Option<String>>,
+    error: Signal<Option<Problem>>,
     on_change: EventHandler<()>,
     /// The list was frozen: the draw is next.
     #[props(default)]
@@ -51,7 +51,7 @@ pub(super) fn Header(
                     }
                     on_change.call(())
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
             busy.set(false);
         }
@@ -67,7 +67,7 @@ pub(super) fn Header(
                     on_frozen.call(());
                     on_change.call(());
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
             busy.set(false);
         }
@@ -92,7 +92,7 @@ pub(super) fn Header(
                         tab: None,
                     });
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
         }
     };
@@ -105,7 +105,7 @@ pub(super) fn Header(
                     toast.info("Raffle deleted".to_owned(), ToastOptions::new());
                     nav.push(Route::AdminHome {});
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
         }
     };
@@ -115,7 +115,7 @@ pub(super) fn Header(
         async move {
             match api::export_winners_csv(id).await {
                 Ok(csv) => download("winners.csv", &csv),
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
         }
     };
@@ -128,7 +128,7 @@ pub(super) fn Header(
                     toast.success("Personal data erased".to_owned(), ToastOptions::new());
                     on_change.call(());
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
         }
     };
@@ -145,7 +145,7 @@ pub(super) fn Header(
                     );
                     on_change.call(());
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
         }
     };
@@ -159,7 +159,7 @@ pub(super) fn Header(
                     toast.success("Live updates ended".to_owned(), ToastOptions::new());
                     on_change.call(());
                 }
-                Err(e) => error.set(Some(err_text(e))),
+                Err(e) => error.set(Some(e.into())),
             }
             busy.set(false);
         }
