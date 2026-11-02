@@ -1307,8 +1307,7 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
 
 ### What it left
 
-- T4-1: "Not here → Draw again" is still the API's in the evening, not a click. T4-3: the evening on the Worker over
-  real HTTP relays. T4-4: the evening's own `verify.json` through `verify.py`.
+- T4-3: the evening on the Worker over real HTTP relays. T4-4: the evening's own `verify.json` through `verify.py`.
 - T5-6: a Copy button for an error's reference (the vendored toasts take no actions). T6-1's checks in the evening (the
   smallest font, contrast on computed colours) and T6-2's previews checked by hand in Slack; T6-3's Lighthouse run.
   T6-6: the toasts' and dialogs' motion (vendored components), the one-`btn-primary`-per-view rule (the console's

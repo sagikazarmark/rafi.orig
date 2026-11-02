@@ -38,7 +38,7 @@ async function api(name, args = {}) {
 }
 const commandId = () => `cmd-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-// The organizer sets up a raffle dated today with one prize, names
+// The organizer sets up a raffle dated today with two prizes, names
 // themselves (registration won't open otherwise) and opens registration.
 const me = await api("whoami");
 check(me.owner_id === "dev", "dev auth signs the organizer in");
@@ -51,6 +51,7 @@ async function newRaffle(title) {
 }
 const id = await newRaffle(`Workers evening ${Date.now()}`);
 await api("save_prize", { id, prize: { id: null, name: "Rust in Action", sponsor: "Sponsor Kft.", description: "", qty: 1, position: 0 } });
+await api("save_prize", { id, prize: { id: null, name: "Ferris plush", sponsor: "", description: "", qty: 1, position: 1 } });
 await api("set_lifecycle", { id, action: "publish" });
 await api("set_lifecycle", { id, action: "open" });
 let admin = await api("get_raffle", { id });
@@ -250,6 +251,11 @@ check((await card()).includes("Waiting"), "the card waits for the draw");
 const cfg = await js(`JSON.parse(document.getElementById("rafi-config").textContent)`);
 check(cfg.follow?.kind === "partyline", "the page subscribes over partyline");
 
+// The organizer adds Bence, who has no phone, with the one-person form: a
+// second entrant, so a "Not here" leaves someone to draw again.
+const bence = await api("add_entrants", { id, add: { batch_id: `bence-${Date.now()}`, origin: "one", rows: [{ name: "Bence" }] } });
+check(bence.added.length === 1, "the organizer adds Bence, who has no phone");
+
 // The draw, through Restate; the phone follows over the live channel.
 await api("set_lifecycle", { id, action: "close" });
 await api("start_draw", { id });
@@ -295,38 +301,93 @@ check(ticks("console", "consoleFetches"), `the console's countdown runs between 
 const engineState = async () => (await fetch(`${ingress}/Raffle/${id}/get`, { method: "POST" })).json();
 const announced = (await engineState()).events.filter((e) => e.type === "announced").length;
 check(announced === 1, `a double click draws once (${announced} announced)`);
-// The reveal: when does each screen show the winner?
-let phoneAt = 0, screenAt = 0;
+// The reveal: when does each screen show the first draw? Either may win it:
+// Anna's phone shows the win with its claim code, or "Not this time"; the
+// projector, the winner's name.
+let phoneAt = 0, screenAt = 0, revealed = "";
 for (let t = 0; t < 30000 && !(phoneAt && screenAt); t += 50) {
-  if (!phoneAt && (await card()).includes(claim)) phoneAt = Date.now();
-  if (!screenAt && (await screenText()).includes("Anna")) screenAt = Date.now();
+  if (!phoneAt) { const c = await card(); if (c.includes(claim) || /not this time/i.test(c)) phoneAt = Date.now(); }
+  if (!screenAt) {
+    revealed = (await screen.js(`document.querySelector("h2.animate-reveal bdi")?.textContent.trim() ?? ""`)) ?? "";
+    if (revealed) screenAt = Date.now();
+  }
   await sleep(50);
 }
-check(phoneAt > 0, "the phone shows the win with its claim code");
-check(screenAt > 0, "the projector reveals Anna");
+check(phoneAt > 0, "the phone shows the draw's outcome");
+check(revealed === "Anna" || revealed === "Bence", `the projector reveals the winner (${revealed || "nobody"})`);
 // Both get it pushed; the bound is loose for a loaded CI runner, the measure
 // is in the line either way.
 check(phoneAt > 0 && screenAt > 0 && screenAt - phoneAt < 2500,
   `the projector reveals within 2.5 s of the phone (projector ${screenAt - phoneAt} ms after the phone)`);
 screen.close();
-check((await js(`!!document.querySelector("#live [role=alert]")`)) === true, "the win is announced");
-// The console has the winner at the top, waiting; Claimed records it.
-check(await until(async () => (await drawConsole.text()).includes("Waiting for the winner") && (await drawConsole.text()).includes("Anna"), 15000),
-  "the console shows Anna at the top, waiting for her claim");
-check(await drawConsole.click("Claimed"), "the organizer presses Claimed");
-check(await until(async () => /Rust in Action\s*claimed/.test(await drawConsole.text()), 15000), "the console shows the prize claimed");
 
-// The full view for screens: version from the database, the draw in it.
+// Every draw, from the console: the winner shows at the top, waiting; Anna
+// claims, and Bence isn't here, so the organizer presses Not here and the
+// prize is back to be drawn, Draw enabled again, and drawn again. Bence is
+// drawn once (pass 1 draws everyone once) and every draw after his Not here
+// goes to Anna (pass 2: the pass-1 winners who didn't forfeit), so whoever
+// the first draw picks, there are three draws and Anna claims both prizes.
+const viewDraws = async () => (await (await fetch(`${base}/api/r/${slug}/view`)).json()).draws ?? [];
+// The console's "Waiting for the winner" panel, as shown ("" without one).
+const waitingPanel = async () => (await drawConsole.js(`[...document.querySelectorAll("section")]
+  .find((s) => /waiting for the/i.test(s.querySelector("h2")?.innerText ?? ""))?.innerText.replace(/\\s+/g, " ") ?? ""`)) ?? "";
+// Whether the queue's row for `prize` has its Draw button, enabled.
+const offersDraw = (prize) => drawConsole.js(`[...document.querySelectorAll("li")].some((li) => li.innerText.includes(${JSON.stringify(prize)})
+  && [...li.querySelectorAll("button.btn-primary")].some((b) => !b.disabled && b.innerText.trim() === "Draw"))`);
+let notHere = null, annaWon = false;
+for (let n = 1; n <= 3; n++) {
+  // The first draw is the double click's; then the queue's first Draw,
+  // the prize put back first.
+  if (n > 1) check(await until(() => drawConsole.click("Draw", 1, "li button.btn-primary"), 10000), `draw ${n}: the organizer clicks Draw`);
+  let d = null;
+  await until(async () => { d = (await viewDraws())[n - 1] ?? null; return !!d; }, 30000);
+  if (!d) { check(false, `draw ${n} is decided`); break; }
+  const prize = d.prize_name, who = d.display_name;
+  check(await until(async () => { const p = await waitingPanel(); return p.includes(prize) && p.includes(who); }, 15000),
+    `draw ${n}: the console shows ${who} for the ${prize} at the top, waiting`);
+  if (who === "Bence") {
+    check(notHere === null, "Bence is drawn once");
+    notHere = d;
+    check(await until(() => drawConsole.click("Not here", 1, "li button"), 5000), "Bence isn't here: the organizer presses Not here");
+    check(await until(() => drawConsole.click("Not here", 1, ".modal-open .modal-action button"), 5000), "and confirms it");
+    check(await until(async () => (await waitingPanel()) === "" && (await offersDraw(prize)), 15000),
+      `the ${prize} is back to be drawn, Draw enabled again`);
+    const outcome = (await viewDraws()).find((x) => x.k === d.k)?.outcome;
+    check(outcome === "not_here", `the draw is recorded as not here (${outcome})`);
+    continue;
+  }
+  check(who === "Anna", `draw ${n} picks Anna or Bence (${who})`);
+  if (notHere?.item === d.item) {
+    const again = (await viewDraws()).filter((x) => x.item === d.item);
+    check(again.length === 2 && again[0].outcome === "not_here" && again[1].k === d.k,
+      `the ${prize} is drawn a second time, the first draw not here (${again.map((x) => x.outcome).join(", ")})`);
+  }
+  if (!annaWon) {
+    annaWon = true;
+    check(await until(async () => (await card()).includes(claim), 15000), "the phone shows the win with its claim code");
+    check((await js(`!!document.querySelector("#live [role=alert]")`)) === true, "the win is announced");
+  }
+  check(await until(() => drawConsole.click("Claimed"), 5000), `the organizer presses Claimed for the ${prize}`);
+  check(await until(async () => new RegExp(`${prize}\\s*claimed`).test(await drawConsole.text()), 15000), `the console shows the ${prize} claimed`);
+}
+
+// The full view for screens: version from the database, the draws in it.
 const view = await (await fetch(`${base}/api/r/${slug}/view`)).json();
-check(view.draws.length === 1 && view.follow?.kind === "partyline", "the full view has the draw and says to follow over partyline");
+check(view.draws.length === 3 && view.follow?.kind === "partyline", `the full view has the three draws and says to follow over partyline (${view.draws.length})`);
+check(view.draws.filter((x) => x.outcome === "not_here").map((x) => x.display_name).join() === "Bence"
+  && view.draws.filter((x) => x.outcome === "claimed" && x.display_name === "Anna").length === 2,
+  "Bence was not here, Anna claimed both prizes");
 const round = view.draws[0]?.round;
 check(Number.isInteger(round) && round > 0, `the draw committed to a drand round (${round})`);
 // The engine's own record of the raffle, in Restate.
 const state = await (await fetch(`${ingress}/Raffle/${id}/get`, { method: "POST" })).json();
-check(state?.events?.some((e) => e.type === "drawn"), "Restate's own state has the draw");
+const drawnEvents = state?.events?.filter((e) => e.type === "drawn").length;
+check(drawnEvents === 3 && state.events.some((e) => e.type === "resolved" && e.resolution === "not_here"),
+  `Restate's own state has the draws (${drawnEvents}) and the Not here`);
 const participant = await (await fetch(`${base}/api/r/${slug}/participant`)).json();
-check(participant.winners.length === 1 && !JSON.stringify(participant).includes("anna@example.com"),
-  "the participant view has the winner and no email");
+const anna = view.draws.find((x) => x.display_name === "Anna")?.entrant;
+check(participant.winners.length === 2 && participant.winners.every((w) => w.entrant_id === anna) && !JSON.stringify(participant).includes("anna@example.com"),
+  "the participant view has the winner, twice, and no email");
 
 // The organizer's admin and the verification page, under the web app's
 // policy.
@@ -337,7 +398,7 @@ check(await until(async () => (await adminTab.text()).includes("Workers evening"
 adminTab.close();
 const verification = await tab("verification page", `${base}/v/${slug}`);
 check(await until(async () => (await verification.text()).includes("Rust in Action"), 45000), "the verification page shows the draw");
-check((await verification.text()).includes("1 entrant: 1 joined on their phone, 0 added by the organizer"),
+check((await verification.text()).includes("2 entrants: 1 joined on their phone, 1 added by the organizer"),
   "and counts the list by source");
 verification.close();
 // Loaded again, the admin is revalidated (a 304: the admin tab above has it
@@ -377,7 +438,7 @@ check(closed === 4403, `a socket after the end is refused (${closed})`);
 
 // A phone without WebAssembly joins through fallback.js, which solves with
 // the same worker script (/participant/pow-worker.js). Its own raffle, so
-// the draw above keeps one entrant.
+// the draws above keep their two entrants.
 const other = await newRaffle(`Workers evening, no wasm ${Date.now()}`);
 await api("save_prize", { id: other, prize: { id: null, name: "Sticker", sponsor: "", description: "", qty: 1, position: 0 } });
 await api("set_lifecycle", { id: other, action: "publish" });
