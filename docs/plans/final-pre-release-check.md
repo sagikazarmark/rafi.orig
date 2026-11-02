@@ -835,10 +835,9 @@ gaps below are where a bug would ruin an evening, leak personal data or break ve
   the paste (3 to add, added, People counts 3), Undo last add, confirmed (nobody left), and the upload (5 to add,
   added, by name), as accepted; and a retry: a third list whose add reaches the server and whose reply is failed in
   the browser (`Fetch.failRequest` at the response stage), so the dialog says adding again is safe, and Add again
-  sends the same batch ID and adds nobody twice. Besides the CSP check, the admin tab must throw nothing but one
-  thing: dioxus-primitives (the pinned rev) doesn't catch a dialog's interrupted exit transition, so the Undo
-  confirmation, taken out of the page as the undo leaves nothing to undo, may log an uncaught `AbortError` (no
-  visible effect; fixed upstream, so it goes when the rev moves).
+  sends the same batch ID and adds nobody twice. Besides the CSP check, the admin tab must throw nothing. (It once
+  tolerated an uncaught `AbortError` from the Undo confirmation, taken out of the page during its exit transition:
+  dioxus-primitives at bf007c1 didn't catch it; gone since the rev moved to 9a75825, which has the upstream fix.)
 
 #### T4-6 · Housekeeping on Workers never runs with anything due
 

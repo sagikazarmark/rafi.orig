@@ -581,16 +581,9 @@ const people = await tab("admin, a list", `${base}/admin/r/${listed}?tab=people`
 const dialog = ".modal-open";
 const dialogText = async () => (await people.js(`document.querySelector(${JSON.stringify(dialog)})?.innerText.replace(/\\s+/g, " ") ?? ""`)) ?? "";
 // At a person's pace: no dialog closing, and the open one's transition run
-// out. The dialogs' primitive (dioxus-primitives' use_animated_open, at the
-// pinned rev) waits for a closing dialog's transitions without catching their
-// rejection, so one cut short (the dialog reopened while it closes, or taken
-// out of the page, as Undo last add's confirmation is when the undo leaves
-// nothing to undo) is an uncaught AbortError ("The user aborted a request.").
-// Upstream catches it since; until the rev moves, that error is the one the
-// admin may throw here.
+// out.
 const still = () => until(() => people.js(`[...document.querySelectorAll(".modal")]
   .every((m) => m.classList.contains("modal-open") && m.getAnimations().length === 0)`), 5000);
-const cutShort = (e) => e === "AbortError: The user aborted a request.";
 // Opens Add people on its list tab: a new dialog (a closed one is gone), so
 // nothing is read in it.
 const openList = async () => (await still())
@@ -676,9 +669,7 @@ check(sameNames(names, [...uploadedNames, ...retriedNames]),
 stopBatches();
 check(batches.length === 2 && batches[0] === batches[1] && batches[0] !== "?", `the retry sent the same batch ID (${batches.join(", ")})`);
 await still();
-const thrown = people.pageErrors.filter((e) => !cutShort(e));
-const cut = people.pageErrors.length - thrown.length;
-check(thrown.length === 0, `the admin threw nothing${cut ? ` but the dialog primitive's cut-short transitions (${cut})` : ""}${thrown.length ? ": " + thrown.join(" | ") : ""}`);
+check(people.pageErrors.length === 0, `the admin threw nothing${people.pageErrors.length ? ": " + people.pageErrors.join(" | ") : ""}`);
 people.close();
 
 // A projector at an address with no raffle says so, rather than loading for
