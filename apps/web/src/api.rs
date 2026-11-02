@@ -63,7 +63,13 @@ mod client {
     use super::codes;
 
     fn network(e: gloo_net::Error) -> ApiError {
-        ApiError::new(codes::CLIENT, format!("Could not reach the server: {e}"))
+        // The browser's own error ("TypeError: Failed to fetch") says nothing
+        // to an organizer at the venue.
+        let _ = e;
+        ApiError::new(
+            codes::CLIENT,
+            "Couldn't reach Rafi. Check the venue wifi and try again.",
+        )
     }
 
     /// The reply's value, or why there is none. A server error (5xx) carries

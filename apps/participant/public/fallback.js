@@ -85,7 +85,7 @@
         card.appendChild(el("p", "text-3xl", "🥁"));
         card.appendChild(el("p", "text-xl font-bold", S.draw_starting));
       }
-      card.appendChild(el("span", "badge badge-secondary badge-soft mt-1", v.prizes_left + " " + S.prizes_left));
+      card.appendChild(el("span", "badge badge-secondary badge-soft mt-1 tabular-nums", v.prizes_left + " " + S.prizes_left));
     } else if (me) {
       card.appendChild(el("p", "text-3xl animate-float", "⏳"));
       card.appendChild(el("p", "text-lg font-semibold", S.waiting));

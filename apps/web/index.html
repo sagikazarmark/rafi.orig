@@ -6,6 +6,14 @@
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
         <meta charset="UTF-8">
         <meta name="color-scheme" content="light dark">
+        <meta name="theme-color" content="#fffdf8" media="(prefers-color-scheme: light)">
+        <meta name="theme-color" content="#17131f" media="(prefers-color-scheme: dark)">
+        <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+        <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+        <meta property="og:title" content="Rafi">
+        <meta property="og:description" content="Live raffles for meetups, provably fair. Join from your phone: no app, no account.">
+        <meta property="og:image" content="/assets/og.png">
+        <meta name="twitter:card" content="summary_large_image">
         <!-- The server's configuration for the app (rafi-server's public::config_js), which also applies
              the saved theme before first paint: a plain script, so it has run before the app's module
              starts. No inline scripts here: the server serves this file under a Content-Security-Policy
@@ -13,8 +21,18 @@
         <script src="/config.js"></script>
         <!-- Styled first paint, before the app loads (rafi-server's pages::style::STYLESHEET_URL). -->
         <link rel="stylesheet" href="/assets/tailwind.css">
+        <!-- The display font, wanted by the first heading: fetched with the stylesheet, not once the app runs. -->
+        <link rel="preload" href="/assets/bricolage-latin.woff2" as="font" type="font/woff2" crossorigin>
     </head>
     <body>
         <div id="main"></div>
+        <!-- What shows while the app's WebAssembly loads, until the app renders into #main (tailwind.css hides
+             it then): markup, no script. -->
+        <div id="boot" class="grid min-h-screen place-items-center bg-base-100 bg-dots">
+            <div class="flex flex-col items-center gap-4">
+                <span class="brand text-4xl"><img src="/assets/favicon.svg" alt="" class="size-12">rafi</span>
+                <span class="loading loading-dots loading-lg text-primary"></span>
+            </div>
+        </div>
     </body>
 </html>

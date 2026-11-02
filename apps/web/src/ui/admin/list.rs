@@ -26,7 +26,7 @@ pub(super) fn list_refusal_text(refusal: Option<AddRefusal>) -> &'static str {
             "Publish the raffle first: the paragraph you send the people on the list links its rules and privacy notice, which are online once it's published. Until then, add people one by one."
         }
         Some(AddRefusal::TestMode) => {
-            "Not in test mode: a rehearsal's draws are public, and real people from a list would be drawn in it. Rehearse with fake entrants, then switch test mode off in the settings to add your list."
+            "Lists can't be added while test mode is on: a rehearsal's draws are public, and real people from a list would be drawn in it. Rehearse with fake entrants, then switch test mode off in the settings to add your list."
         }
         Some(AddRefusal::ErasureDatePassed) => {
             "The erasure date has passed: the raffle's entrants are being deleted."
@@ -277,7 +277,7 @@ pub(super) fn AddList(
                     };
                     toast.success(
                         format!(
-                            "🙋 Added {} ({skipped} already in{removed})",
+                            "Added {} ({skipped} already in{removed})",
                             people(result.added.len())
                         ),
                         ToastOptions::new(),
@@ -944,6 +944,9 @@ mod tests {
             list_refusal_text(Some(AddRefusal::Unpublished))
                 .starts_with("Publish the raffle first")
         );
-        assert!(list_refusal_text(Some(AddRefusal::TestMode)).starts_with("Not in test mode"));
+        assert!(
+            list_refusal_text(Some(AddRefusal::TestMode))
+                .starts_with("Lists can't be added while test mode is on")
+        );
     }
 }

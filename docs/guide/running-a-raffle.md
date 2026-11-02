@@ -238,8 +238,8 @@ raffle without registration). It asks first, because this step is final:
   their name again yourself.
 - The raffle is handed to the raffle engine.
 
-If handing over fails (for example, the engine is briefly unreachable), the admin offers **Retry handing the list
-to the raffle engine**. That picks up where it stopped. If nobody has entered, the freeze is undone: the raffle goes
+If handing over fails (for example, the engine is briefly unreachable), the admin offers **Retry starting the
+draw**. That picks up where it stopped. If nobody has entered, the freeze is undone: the raffle goes
 back to Registration closed (or, without registration, to Published).
 
 ## Drawing

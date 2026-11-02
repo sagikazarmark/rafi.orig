@@ -1,7 +1,8 @@
 //! The people tab: entrants, adding and editing them.
 
 use dioxus_icons::lucide::{
-    Check, ClipboardList, Eye, EyeOff, Pencil, Trash, Undo2, UserMinus, UserPlus, Users,
+    Check, ClipboardList, Eye, EyeOff, FlaskConical, Pencil, Trash, Undo2, UserMinus, UserPlus,
+    Users,
 };
 use rafi_api::UndoBatch;
 use rafi_lifecycle::entrant::{MAX_ADDED_NAME_CHARS, Removal};
@@ -66,7 +67,7 @@ pub(super) fn People(
                     if admin.entrants.len() == 1 { "1 entrant" } else { "{admin.entrants.len()} entrants" }
                 }
                 if admin.settings.test_mode && editable {
-                    button { class: "btn btn-sm btn-warning btn-soft", onclick: fakes, "🧪 Add 25 fake entrants" }
+                    button { class: "btn btn-sm btn-warning btn-soft", onclick: fakes, FlaskConical { class: "size-4" } "Add 25 fake entrants" }
                 }
                 if editable {
                     button { class: "btn btn-sm btn-secondary", onclick: move |_| adding.set(true), UserPlus { class: "size-4" } "Add people" }
@@ -180,7 +181,7 @@ fn UndoLastAdd(
                     } else {
                         format!("{n} people")
                     };
-                    toast.success(format!("↩️ {who} taken off the list"), ToastOptions::new());
+                    toast.success(format!("{who} taken off the list"), ToastOptions::new());
                     on_change.call(());
                 }
                 Err(e) => error.set(Some(err_text(e))),
@@ -282,8 +283,8 @@ fn EntrantRow(
         }
     };
     let (status, status_class) = match (e.outcome, &e.prize) {
-        (Some(Outcome::Claimed), Some(p)) => (format!("🏆 won {p}"), "badge-success"),
-        (Some(Outcome::Drawn), Some(p)) => (format!("🎉 drawn for {p}"), "badge-primary"),
+        (Some(Outcome::Claimed), Some(p)) => (format!("won {p}"), "badge-success"),
+        (Some(Outcome::Drawn), Some(p)) => (format!("drawn for {p}"), "badge-primary"),
         (Some(Outcome::NotHere), _) => ("not here".to_owned(), "badge-ghost"),
         (Some(Outcome::Declined), _) => ("declined".to_owned(), "badge-ghost"),
         _ if e.erased => ("erased".to_owned(), "badge-neutral"),
@@ -376,7 +377,7 @@ fn EntrantRow(
                                 "data-tip": "They asked not to take part",
                                 onclick: move |_| confirm_object.set(true),
                                 UserMinus { class: "size-4" }
-                                "Took themselves off"
+                                "Take off at their request"
                             }
                         }
                         if e.actions.unobject {
@@ -429,7 +430,7 @@ fn EntrantRow(
                             open: confirm_object,
                             title: rsx! { bdi { "{e.display_name}" } " took themselves off?" },
                             body: rsx! { "{OBJECT_BODY}" },
-                            action: "Took themselves off",
+                            action: "Take them off",
                             danger: true,
                             on_confirm: { let objection = objection.clone(); move |_| { spawn(objection(true)); } },
                         }
@@ -545,7 +546,7 @@ mod tests {
     #[test]
     fn taking_oneself_off() {
         let html = dioxus_ssr::render_element(rsx! { Row { entrant: entrant(false) } });
-        assert!(html.contains("Took themselves off"), "{html}");
+        assert!(html.contains("Take off at their request"), "{html}");
         assert!(html.contains("Hide name on screen"), "{html}");
         assert!(
             !html.contains("took themselves off"),
@@ -560,7 +561,7 @@ mod tests {
             !html.contains("Show name on screen"),
             "their name stays hidden: {html}"
         );
-        assert!(!html.contains(">Took themselves off<"), "{html}");
+        assert!(!html.contains("Take off at their request"), "{html}");
     }
 
     /// Took themselves off and claimed, both (pressed within the engine's

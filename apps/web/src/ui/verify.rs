@@ -369,6 +369,7 @@ pub fn Verify(slug: String) -> Element {
     };
 
     rsx! {
+        document::Title { "Check the draw — Rafi" }
         div { class: "min-h-screen bg-base-200",
             header { class: "border-b border-base-300 bg-base-100/85 backdrop-blur",
                 div { class: "mx-auto flex max-w-5xl items-center gap-2 px-4 py-2.5",

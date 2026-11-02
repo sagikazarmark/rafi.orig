@@ -61,7 +61,7 @@ pub(super) fn ParagraphToSend(
                     title: "Copy the paragraph",
                     onclick: move |_| {
                         copy_to_clipboard(copied.clone());
-                        toast.info("📋 Paragraph copied".to_owned(), ToastOptions::new());
+                        toast.info("Paragraph copied".to_owned(), ToastOptions::new());
                     },
                     Copy { class: "size-4" }
                     "Copy"

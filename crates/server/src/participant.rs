@@ -180,6 +180,7 @@ fn render_page(
         now_ms: rafi_store::now_ms(),
         retention: retention_of(app, raffle),
         min_age: app.cfg.min_age,
+        public_url: &app.cfg.public_url,
     })
 }
 
@@ -299,7 +300,7 @@ fn join_error(e: service::JoinError) -> &'static str {
     use rafi_lifecycle::entrant::NameError;
     use service::JoinError as E;
     match e {
-        E::Closed => "Registration is closed.",
+        E::Closed => "Joining has closed.",
         E::Name(NameError::Invalid) => {
             "Please choose a name of at most 24 characters, or leave it blank for a generated one."
         }
@@ -307,8 +308,9 @@ fn join_error(e: service::JoinError) -> &'static str {
         E::Email => "Please enter a valid email address.",
         E::Rules => "You need to accept the rules to take part.",
         E::Full => "Sorry, this raffle is full: it has reached its maximum number of entrants.",
-        E::Limited | E::Failed => "Too many attempts. Please wait a minute.",
-        E::Proof => "Could not verify that you are human. Please reload the page and try again.",
+        E::Limited => "Too many attempts. Please wait a minute.",
+        E::Failed => "Something went wrong on our side. Please try again in a moment.",
+        E::Proof => "The bot check didn't complete. Please tap Join again.",
     }
 }
 
@@ -404,4 +406,21 @@ async fn pow_worker(headers: HeaderMap) -> Response {
             dioxus_altcha::WORKER_JS,
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use rafi_lifecycle::entrant::{MAX_NAME_CHARS, NameError};
+
+    use super::*;
+
+    /// The join form's words name the limit the rules apply.
+    #[test]
+    fn a_long_name_is_refused_with_the_limit() {
+        let text = join_error(service::JoinError::Name(NameError::Invalid));
+        assert!(
+            text.contains(&format!(" {MAX_NAME_CHARS} characters")),
+            "{text}"
+        );
+    }
 }

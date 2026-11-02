@@ -24,6 +24,7 @@ pub struct Build {
     pub version: Option<String>,
     pub source_url: Option<String>,
     pub verifier_url: Option<String>,
+    pub guide_url: Option<String>,
 }
 
 pub fn build() -> Build {
@@ -35,10 +36,15 @@ pub fn build() -> Build {
         version: get("version"),
         source_url: get("sourceUrl"),
         verifier_url: get("verifierUrl"),
+        guide_url: get("guideUrl"),
     }
 }
 
 fn config() -> Option<JsValue> {
+    // Natively (the tests' server-side rendering) there is no page to ask.
+    if !cfg!(target_arch = "wasm32") {
+        return None;
+    }
     field(&js_sys::global(), GLOBAL)
 }
 

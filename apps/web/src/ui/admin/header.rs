@@ -1,8 +1,8 @@
 //! The raffle's header: its state, the next lifecycle step and the menu.
 
 use dioxus_icons::lucide::{
-    Check, Copy, Download, Ellipsis, Flag, Lock, Monitor, PackageCheck, Play, QrCode, ShieldCheck,
-    Ticket, Trash, TriangleAlert, Undo2, Zap,
+    Check, Copy, Download, Ellipsis, Flag, FlaskConical, Lock, Monitor, PackageCheck, Play, QrCode,
+    ShieldCheck, Ticket, Trash, Undo2, Zap,
 };
 
 use super::*;
@@ -15,6 +15,9 @@ pub(super) fn Header(
     access: Access,
     error: Signal<Option<String>>,
     on_change: EventHandler<()>,
+    /// The list was frozen: the draw is next.
+    #[props(default)]
+    on_frozen: EventHandler<()>,
 ) -> Element {
     let manages = access.allows(Access::Manager);
     let v = admin.view.clone();
@@ -60,10 +63,8 @@ pub(super) fn Header(
             busy.set(true);
             match api::start_draw(id).await {
                 Ok(()) => {
-                    toast.success(
-                        "🔒 List frozen — let's draw!".to_owned(),
-                        ToastOptions::new(),
-                    );
+                    toast.success("List frozen — let's draw!".to_owned(), ToastOptions::new());
+                    on_frozen.call(());
                     on_change.call(());
                 }
                 Err(e) => error.set(Some(err_text(e))),
@@ -86,7 +87,10 @@ pub(super) fn Header(
                             "Prizes and settings were copied; entrants were not. The copy is dated today: set its event date.",
                         ),
                     );
-                    nav.push(Route::RaffleAdmin { id: new_id });
+                    nav.push(Route::RaffleAdmin {
+                        id: new_id,
+                        tab: None,
+                    });
                 }
                 Err(e) => error.set(Some(err_text(e))),
             }
@@ -121,7 +125,7 @@ pub(super) fn Header(
         async move {
             match api::purge_raffle(id).await {
                 Ok(()) => {
-                    toast.success("🧹 Personal data erased".to_owned(), ToastOptions::new());
+                    toast.success("Personal data erased".to_owned(), ToastOptions::new());
                     on_change.call(());
                 }
                 Err(e) => error.set(Some(err_text(e))),
@@ -135,7 +139,7 @@ pub(super) fn Header(
             match api::deliver_all_prizes(id).await {
                 Ok(n) => {
                     toast.success(
-                        format!("📦 {n} prize(s) marked delivered"),
+                        if n == 1 { "1 prize marked delivered".to_owned() } else { format!("{n} prizes marked delivered") },
                         ToastOptions::new()
                             .description("Those winners' data is erased on the erasure date with everyone else's."),
                     );
@@ -241,8 +245,8 @@ pub(super) fn Header(
                         h1 { class: "text-3xl font-extrabold leading-tight", "{v.title}" }
                         div { class: "flex flex-wrap items-center gap-2",
                             StateBadge { state: v.state }
-                            if v.test_mode { span { class: "badge badge-warning gap-1 font-semibold", "🧪 test mode" } }
-                            if !v.verifiable { span { class: "badge badge-warning gap-1", title: "Draws use the mock drand chain: nobody can verify them", Zap { class: "size-3.5" } "mock drand" } }
+                            if v.test_mode { span { class: "badge badge-warning gap-1 font-semibold", FlaskConical { class: "size-3.5" } "test mode" } }
+                            if !v.verifiable { span { class: "badge badge-warning gap-1", title: "Draws use the mock drand chain: nobody can verify them", Zap { class: "size-3.5" } "Test randomness (not verifiable)" } }
                         }
                     }
                     DropdownMenu { align: DropdownMenuAlign::End,
@@ -262,19 +266,13 @@ pub(super) fn Header(
                         }
                     }
                 }
+                // What the settings lack is the checklist's to say, under
+                // the header (Draft and Published, the only states it lacks
+                // anything in).
                 Steps { state: v.state, registration }
-                if !can_open {
-                    div { role: "alert", class: "alert alert-warning alert-soft text-sm",
-                        TriangleAlert { class: "size-5" }
-                        span {
-                            if registration { "Before registration can open" } else { "Before the list can be frozen" }
-                            ", fill in {missing.join(\" and \")} in the settings: the privacy notice must name the data controller and how to reach them."
-                        }
-                    }
-                }
                 if v.state.is_public() {
                     div { class: "flex flex-wrap items-center gap-2",
-                        a { class: "btn btn-neutral btn-sm", href: "{screen_url}", target: "_blank", Monitor { class: "size-4" } "Projector screen" }
+                        a { class: "btn btn-outline btn-sm", href: "{screen_url}", target: "_blank", Monitor { class: "size-4" } "Projector screen" }
                         // Without registration nobody joins: no link or code to share.
                         if registration {
                             div { class: "join",
@@ -288,7 +286,7 @@ pub(super) fn Header(
                                     title: "Copy the join link",
                                     onclick: move |_| {
                                         copy_to_clipboard(join_url.clone());
-                                        toast.info("📋 Join link copied".to_owned(), ToastOptions::new());
+                                        toast.info("Join link copied".to_owned(), ToastOptions::new());
                                     },
                                     Copy { class: "size-4" }
                                 }
@@ -325,7 +323,7 @@ pub(super) fn Header(
                     }
                     match v.state {
                         RaffleState::Frozen if unconfirmed => rsx! {
-                            Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Undo2 { class: "size-5" } "Retry handing the list to the raffle engine" }
+                            Button { color: ButtonColor::Warning, disabled: busy(), onclick: { let start = start.clone(); move |_| { spawn(start()); } }, Undo2 { class: "size-5" } "Retry starting the draw" }
                         },
                         RaffleState::Finished | RaffleState::Purged if v.live_ended => rsx! {
                             span { class: "badge badge-ghost gap-1", Check { class: "size-3.5" } "Live updates ended" }
@@ -343,7 +341,7 @@ pub(super) fn Header(
         Confirm {
             open: ask_unpublish,
             title: rsx! { "Unpublish this raffle?" },
-            body: rsx! { "The projector screen and the join link stop working until you publish again. The {v.entrant_count} entrant(s) stay in." },
+            body: rsx! { "The projector screen and the join link stop working until you publish again. The " if v.entrant_count == 1 { "entrant stays" } else { "{v.entrant_count} entrants stay" } " in." },
             action: "Unpublish",
             on_confirm: { let act = act.clone(); move |_| { spawn(act(LifecycleCommand::Unpublish)); } },
         }
@@ -357,7 +355,7 @@ pub(super) fn Header(
         Confirm {
             open: ask_deliver,
             title: rsx! { "Mark every prize delivered?" },
-            body: rsx! { "{admin.retention.held_winners} winner(s) still have their name and email kept so you can deliver their prize. Once marked delivered, their data is erased with everyone else's. Only do this when no prize is still on its way." },
+            body: rsx! { if admin.retention.held_winners == 1 { "1 winner still has their name and email kept" } else { "{admin.retention.held_winners} winners still have their name and email kept" } " so you can deliver their prize. Once marked delivered, their data is erased with everyone else's. Only do this when no prize is still on its way." },
             action: "All prizes delivered",
             on_confirm: move |_| { spawn(deliver_all()); },
         }
@@ -391,7 +389,7 @@ fn FreezeDialog(open: Signal<bool>, view: RaffleView, on_confirm: EventHandler<(
             title: rsx! { "Freeze the list and start the draw?" },
             body: rsx! { FreezeBody { registration: view.registration, count: view.entrant_count } },
             note: rsx! { FreezeReminder { list_added: view.list_added } },
-            action: "🔒 Freeze & start",
+            action: "Freeze & start",
             on_confirm: move |_| on_confirm.call(()),
         }
     }

@@ -12,7 +12,8 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use dioxus_icons::lucide::{
-    ArrowLeft, CalendarClock, Dice5, Gift, SlidersVertical, TriangleAlert, Trophy, UserX, Users,
+    ArrowLeft, CalendarClock, Dice5, FlaskConical, Gift, SlidersVertical, TriangleAlert, Trophy,
+    UserX, Users,
 };
 use rafi_lifecycle::{RaffleState, entrant::Source};
 use rafi_raffle::{ItemId, ItemStatus, Outcome, Resolution};
@@ -73,23 +74,27 @@ fn state_badge(s: RaffleState) -> &'static str {
     }
 }
 
-fn state_emoji(s: RaffleState) -> &'static str {
+/// A state's icon, at `class`'s size.
+fn state_icon(s: RaffleState, class: &'static str) -> Element {
+    use dioxus_icons::lucide::{
+        BrushCleaning, FilePen, Lock, Megaphone, PartyPopper, Pause, Ticket,
+    };
     match s {
-        RaffleState::Draft => "📝",
-        RaffleState::Ready => "📣",
-        RaffleState::Open => "🎟️",
-        RaffleState::Closed => "⏸️",
-        RaffleState::Frozen => "🔒",
-        RaffleState::Drawing => "🎲",
-        RaffleState::Finished => "🎉",
-        RaffleState::Purged => "🧹",
+        RaffleState::Draft => rsx! { FilePen { class } },
+        RaffleState::Ready => rsx! { Megaphone { class } },
+        RaffleState::Open => rsx! { Ticket { class } },
+        RaffleState::Closed => rsx! { Pause { class } },
+        RaffleState::Frozen => rsx! { Lock { class } },
+        RaffleState::Drawing => rsx! { Dice5 { class } },
+        RaffleState::Finished => rsx! { PartyPopper { class } },
+        RaffleState::Purged => rsx! { BrushCleaning { class } },
     }
 }
 
 #[component]
 fn StateBadge(state: RaffleState) -> Element {
     rsx! {
-        span { class: "badge badge-soft {state_badge(state)} gap-1 font-semibold", "{state_emoji(state)} {state_label(state)}" }
+        span { class: "badge badge-soft {state_badge(state)} gap-1 font-semibold", {state_icon(state, "size-3.5")} "{state_label(state)}" }
     }
 }
 
@@ -99,9 +104,11 @@ fn ErrorToasts(error: Signal<Option<String>>) -> Element {
     let toast = use_toast();
     use_effect(move || {
         if let Some(msg) = error() {
+            // Stays until closed: an error with a reference is read out to
+            // whoever runs the installation, and five seconds isn't enough.
             toast.error(
                 "That didn't work".to_owned(),
-                ToastOptions::new().description(msg),
+                ToastOptions::new().description(msg).permanent(true),
             );
             error.set(None);
         }
@@ -181,6 +188,7 @@ pub fn AdminHome() -> Element {
     };
 
     rsx! {
+        document::Title { "Your raffles — Rafi" }
         main { class: "mx-auto max-w-6xl space-y-8 px-4 py-8",
             div { class: "space-y-2",
                 h1 { class: "text-4xl font-extrabold", "Your raffles " span { class: "inline-block animate-float", "🎟️" } }
@@ -189,13 +197,13 @@ pub fn AdminHome() -> Element {
             if retention_stale {
                 div { role: "alert", class: "alert alert-warning alert-soft",
                     TriangleAlert { class: "size-5" }
-                    span { "Automatic erasure of personal data hasn't run in the last two hours. Entrants were promised erasure dates; check the scheduled job (the Cron Trigger on Workers)." }
+                    span { "Automatic data erasure seems to have stopped. Tell whoever runs this Rafi installation." }
                 }
             }
             if access.allows(Access::Manager) {
                 div { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
                     div { class: "card-body",
-                        CreateRaffleForm { on_created: move |id| { nav.push(Route::RaffleAdmin { id }); } }
+                        CreateRaffleForm { on_created: move |id| { nav.push(Route::RaffleAdmin { id, tab: None }); } }
                     }
                 }
             } else {
@@ -203,6 +211,7 @@ pub fn AdminHome() -> Element {
             }
             match &*raffles.read() {
                 None => rsx! { div { class: "grid place-items-center py-16", span { class: "loading loading-dots loading-lg text-primary" } } },
+                Some(Err(e)) if e.code == api::codes::UNAUTHORIZED => rsx! { SignInAgain {} },
                 Some(Err(e)) => rsx! {
                     div { role: "alert", class: "alert alert-error alert-soft",
                         TriangleAlert { class: "size-5" }
@@ -215,6 +224,9 @@ pub fn AdminHome() -> Element {
                         p { class: "text-5xl", "🎁" }
                         p { class: "mt-3 font-display text-xl font-bold", "No raffles yet" }
                         p { class: "text-base-content/60", "Create your first one above." }
+                        if let Some(guide) = crate::config::build().guide_url {
+                            a { class: "link link-primary mt-2 inline-block text-sm", href: "{guide}", target: "_blank", rel: "noopener", "How an evening goes, step by step" }
+                        }
                     }
                 },
                 Some(Ok(list)) => {
@@ -235,11 +247,11 @@ pub fn AdminHome() -> Element {
                             Link {
                                 key: "{r.id}",
                                 class: "card bg-base-100 shadow-sm ring-1 ring-base-300 transition hover:-translate-y-1 hover:shadow-lg hover:ring-primary/40",
-                                to: Route::RaffleAdmin { id: r.id.clone() },
+                                to: Route::RaffleAdmin { id: r.id.clone(), tab: None },
                                 div { class: "card-body gap-3",
                                     div { class: "flex items-start justify-between gap-2",
-                                        span { class: "text-3xl", "{state_emoji(r.state)}" }
-                                        if r.test_mode { span { class: "badge badge-warning badge-sm", "test" } }
+                                        span { class: "grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary", {state_icon(r.state, "size-6")} }
+                                        if r.test_mode { span { class: "badge badge-warning badge-sm gap-1", FlaskConical { class: "size-3" } "test" } }
                                     }
                                     h2 { class: "card-title text-lg leading-snug", "{r.title}" }
                                     div { class: "flex flex-wrap items-center gap-2 text-sm",
@@ -258,6 +270,23 @@ pub fn AdminHome() -> Element {
             }
             if access.allows(Access::Admin) {
                 YourData { shared, on_removed: move |_| { raffles.restart(); } }
+            }
+        }
+    }
+}
+
+/// What a page shows when the session ended: signing in again is reloading
+/// the page, which shows Clerk's sign-in.
+#[component]
+fn SignInAgain() -> Element {
+    rsx! {
+        main { class: "mx-auto max-w-md px-4 py-20",
+            div { class: "card bg-base-100 shadow-lg ring-1 ring-base-300",
+                div { class: "card-body items-center text-center",
+                    h2 { class: "card-title text-2xl", "Please sign in again" }
+                    p { class: "text-base-content/70", "Your session ended. Nothing you did was lost." }
+                    button { class: "btn btn-primary mt-2", onclick: move |_| { document::eval("location.reload()"); }, "Sign in again" }
+                }
             }
         }
     }
@@ -319,8 +348,9 @@ fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
 // ---------------------------------------------------------------------------
 
 #[component]
-pub fn RaffleAdmin(id: String) -> Element {
+pub fn RaffleAdmin(id: String, tab: Option<String>) -> Element {
     let id_for_load = id.clone();
+    let nav = navigator();
     // With the server's clock as of the reply, for the draw's countdown.
     let mut data = use_resource(move || {
         let id = id_for_load.clone();
@@ -337,12 +367,30 @@ pub fn RaffleAdmin(id: String) -> Element {
         _ => Access::Admin,
     };
     let error = use_signal(|| None::<String>);
-    let mut tab = use_signal(|| None::<String>);
+    // The tab: from the URL, and written back to it (replacing, so Back
+    // leaves the raffle rather than stepping through its tabs).
+    let shown_tab = tab;
+    let mut tab = use_signal(|| shown_tab.clone().filter(|t| !t.is_empty()));
+    let route_id = id.clone();
+    use_effect(move || {
+        let current = tab();
+        if current.is_some() {
+            nav.replace(Route::RaffleAdmin {
+                id: route_id.clone(),
+                tab: current,
+            });
+        }
+    });
 
     let read = data.read();
     let (admin, clock) = match &*read {
         None => {
             return rsx! { div { class: "grid place-items-center py-24", span { class: "loading loading-dots loading-lg text-primary" } } };
+        }
+        // The session ended (a long evening, another tab signed out): say
+        // so, with the way back, rather than an error.
+        Some(Err(e)) if e.code == api::codes::UNAUTHORIZED => {
+            return rsx! { SignInAgain {} };
         }
         Some(Err(e)) => {
             let msg = err_text(e.clone());
@@ -361,6 +409,7 @@ pub fn RaffleAdmin(id: String) -> Element {
     let state = admin.view.state;
     // The draw console, once the list is frozen (the server says).
     let drawable = admin.actions.draw;
+
     let default_tab = if drawable { "draw" } else { "prizes" };
     let current = tab().unwrap_or_else(|| default_tab.to_owned());
     let mut tabs: Vec<(&'static str, &'static str, Element)> = Vec::new();
@@ -384,8 +433,12 @@ pub fn RaffleAdmin(id: String) -> Element {
             if state.is_public() {
                 LiveRefresh { key: "{admin.view.slug}", slug: admin.view.slug.clone(), view: admin.view.clone(), on_change: move |_| data.restart() }
             }
-            Header { admin: admin.clone(), access, error, on_change: move |_| reload() }
+            // Frozen just now: the draw is what comes next, whatever tab was open.
+            Header { admin: admin.clone(), access, error, on_change: move |_| reload(), on_frozen: move |_| tab.set(Some("draw".to_owned())) }
             ErrorToasts { error }
+            if matches!(state, RaffleState::Draft | RaffleState::Ready) {
+                Checklist { admin: admin.clone(), on_tab: move |t: String| tab.set(Some(t)) }
+            }
             Stats { admin: admin.clone() }
             RetentionCard { admin: admin.clone() }
             Tabs {
@@ -513,6 +566,63 @@ fn LiveRefresh(slug: String, view: RaffleView, on_change: EventHandler<()>) -> E
     live.subscription()
 }
 
+/// Before doors open: what is left to do, from what the server says (the
+/// prizes, what the settings lack, the state), each a step with where to do
+/// it. Shown in Draft and Published.
+#[component]
+fn Checklist(admin: AdminData, on_tab: EventHandler<String>) -> Element {
+    let prizes: u32 = admin.prizes.iter().map(|p| p.qty).sum();
+    let missing = admin.actions.missing.clone();
+    let published = admin.view.state != RaffleState::Draft;
+    let registration = admin.settings.registration;
+    let step = |done: bool| if done { "step step-primary" } else { "step" };
+    rsx! {
+        section { class: "card bg-base-100 shadow-sm ring-1 ring-base-300",
+            div { class: "card-body gap-3",
+                h2 { class: "card-title text-lg", "Before doors open" }
+                ul { class: "steps steps-vertical",
+                    li { class: step(prizes > 0),
+                        div { class: "flex flex-wrap items-center gap-2 text-left",
+                            if prizes > 0 {
+                                span { if prizes == 1 { "1 prize to give away" } else { "{prizes} prizes to give away" } }
+                            } else {
+                                span { "Add a prize" }
+                            }
+                            button { class: "btn btn-ghost btn-xs", onclick: move |_| on_tab.call("prizes".into()), "Prizes" }
+                        }
+                    }
+                    li { class: step(missing.is_empty()),
+                        div { class: "flex flex-wrap items-center gap-2 text-left",
+                            if missing.is_empty() {
+                                span { "The organizer and a contact, for the privacy notice" }
+                            } else {
+                                span { "Fill in {missing.join(\" and \")}: the privacy notice names who runs the raffle and how to reach them" }
+                            }
+                            button { class: "btn btn-ghost btn-xs", onclick: move |_| on_tab.call("settings".into()), "Settings" }
+                        }
+                    }
+                    li { class: step(admin.settings.test_mode),
+                        div { class: "flex flex-wrap items-center gap-2 text-left",
+                            span { "Optional: rehearse with Test mode (Settings), fake entrants and a draw, then duplicate the raffle for the evening" }
+                        }
+                    }
+                    li { class: step(published),
+                        span { class: "text-left",
+                            if !published {
+                                "Publish the intro screen (above), and put the projector screen up"
+                            } else if registration {
+                                "Published: open registration when people arrive"
+                            } else {
+                                "Published: freeze the list when everyone is in"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn Stats(admin: AdminData) -> Element {
     let v = &admin.view;
@@ -539,7 +649,7 @@ fn Stats(admin: AdminData) -> Element {
             div { class: "stat",
                 div { class: "stat-figure text-secondary", Gift { class: "size-8" } }
                 div { class: "stat-title", "Prizes left" }
-                div { class: "stat-value text-secondary", "{left}" }
+                div { class: "stat-value", "{left}" }
                 div { class: "stat-desc", "of {total}" }
             }
             div { class: "stat",
@@ -567,22 +677,22 @@ fn RetentionCard(admin: AdminData) -> Element {
                 } else if admin.view.state == RaffleState::Purged {
                     p { "Personal data erased. The anonymous draw stays verifiable." }
                 } else if r.expires_unfrozen && r.past_erase_date {
-                    p { class: "text-warning", "⚠ The erasure date (end of {erase}) has passed and the list was never frozen. The raffle expires within the hour: its entrants are deleted. If the event was postponed, move the event date (possible until someone joins) or duplicate the raffle." }
+                    p { class: "text-warning", TriangleAlert { class: "mr-1 inline size-4 align-text-bottom" } "The erasure date (end of {erase}) has passed and the list was never frozen. The raffle expires within the hour: its entrants are deleted. If the event was postponed, move the event date (possible until someone joins) or duplicate the raffle." }
                 } else if r.expires_unfrozen {
-                    p { class: "text-warning", "⚠ The event day has passed and the list was never frozen. The raffle expires at the end of {erase}: its entrants are deleted. Postponed? Move the event date while nobody has joined, or duplicate the raffle." }
+                    p { class: "text-warning", TriangleAlert { class: "mr-1 inline size-4 align-text-bottom" } "The event day has passed and the list was never frozen. The raffle expires at the end of {erase}: its entrants are deleted. Postponed? Move the event date while nobody has joined, or duplicate the raffle." }
                 } else if r.past_erase_date {
                     p { "Non-winners' data was erased at the end of {erase}." }
                 } else {
                     p { "Entrants' names and emails are erased at the end of " strong { "{erase}" } ", whatever else happens to this raffle. You can erase earlier from the menu once it has finished." }
                 }
                 if r.held_winners > 0 {
-                    p { "{r.held_winners} winner(s)' data is kept until you mark their prize delivered, at the latest until the end of " strong { "{winners}" } ". Everything delivered? Use “All prizes delivered” in the menu." }
+                    p { if r.held_winners == 1 { "1 winner's data is kept" } else { "{r.held_winners} winners' data is kept" } " until you mark their prize delivered, at the latest until the end of " strong { "{winners}" } ". Everything delivered? Use “All prizes delivered” in the menu." }
                 }
                 if r.unfinished_past_event {
-                    p { class: "text-warning", "⚠ Not finished, and the event day has passed. Entrants' data is erased on the date regardless; finish the raffle so its data can be erased for good." }
+                    p { class: "text-warning", TriangleAlert { class: "mr-1 inline size-4 align-text-bottom" } "Not finished, and the event day has passed. Entrants' data is erased on the date regardless; finish the raffle so its data can be erased for good." }
                 }
                 if r.erasure_imminent {
-                    p { class: "text-warning", "⚠ Erasure is at the end of {erase}, less than a day away: nobody can join or be added after it, and everyone who didn't win is erased on the hour after. An evening that runs past midnight needs the list frozen and the draws done before it." }
+                    p { class: "text-warning", TriangleAlert { class: "mr-1 inline size-4 align-text-bottom" } "Erasure is at the end of {erase}, less than a day away: nobody can join or be added after it, and everyone who didn't win is erased on the hour after. An evening that runs past midnight needs the list frozen and the draws done before it." }
                 }
             }
         }
@@ -628,6 +738,61 @@ fn Steps(state: RaffleState, registration: bool) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn draft(prizes: serde_json::Value, missing: serde_json::Value) -> AdminData {
+        serde_json::from_value(serde_json::json!({
+            "id": "r1",
+            "settings": {
+                "title": "Meetup", "description": "", "organizer_name": "", "contact_email": "",
+                "rules": "", "event_date": "2026-11-05", "test_mode": false
+            },
+            "prizes": prizes,
+            "entrants": [],
+            "view": {
+                "v": 1, "follow": { "kind": "poll", "every_ms": 2500 }, "raffle_id": "r1",
+                "slug": "meetup", "title": "Meetup", "description": "", "state": "draft",
+                "join_code": "ABCD", "join_url": "", "entrant_count": 0,
+                "recent_names": [], "prizes": [], "items": [], "current": null, "draws": [],
+                "last_failure": null, "manifest_hash": null, "server_now_ms": 0,
+                "test_mode": false, "verifiable": true
+            },
+            "public_url": "https://rafi.example",
+            "actions": { "start": null, "draw": false, "export": false, "purge": false, "missing": missing }
+        }))
+        .unwrap()
+    }
+
+    /// A new raffle's path: a prize, the organizer and a contact, an
+    /// optional rehearsal, publishing; what's done is marked, what the
+    /// settings lack named.
+    #[test]
+    fn a_draft_has_a_checklist() {
+        #[component]
+        fn Shown(admin: AdminData) -> Element {
+            rsx! { Checklist { admin, on_tab: |_| {} } }
+        }
+        let html = dioxus_ssr::render_element(rsx! {
+            Shown { admin: draft(serde_json::json!([]), serde_json::json!(["the organizer's name"])) }
+        });
+        for expected in [
+            "Before doors open",
+            "Add a prize",
+            "Fill in the organizer&#39;s name",
+            "Publish the intro screen",
+        ] {
+            assert!(html.contains(expected), "{expected}: {html}");
+        }
+        assert!(!html.contains("step-primary"), "nothing done yet: {html}");
+        let prize = serde_json::json!([{
+            "id": "p1", "name": "Book", "sponsor": "", "description": "", "qty": 2, "position": 0,
+            "delivery": "later"
+        }]);
+        let html = dioxus_ssr::render_element(rsx! {
+            Shown { admin: draft(prize, serde_json::json!([])) }
+        });
+        assert!(html.contains("2 prizes to give away"), "{html}");
+        assert_eq!(html.matches("step step-primary").count(), 2, "{html}");
+    }
 
     fn view(entrants: usize, draws: serde_json::Value, current: serde_json::Value) -> RaffleView {
         serde_json::from_value(serde_json::json!({

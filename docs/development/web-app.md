@@ -103,7 +103,14 @@ dx components add <name> --path <registry checkout>
 
 **Treat `apps/web/src/components/` as vendored**: update it by re-installing (`--force`), not by editing.
 
-Icons are `dioxus-icons`' Lucide components.
+Icons are `dioxus-icons`' Lucide components. Emoji are decoration only: the big glyphs of empty states, the
+projector's hero moments and the phone's celebration. Anything that means something (a state, an item's status, a
+delivery, a button, a toast's title) is a Lucide icon or words.
+
+Every page links the favicon (`assets/favicon.svg`) and the home-screen icon; the join page also has a link preview
+(Open Graph: the raffle's title, a line, `assets/og.png`), so a join link pasted into a chat previews as the raffle.
+`index.html` shows the brand and a loader while the WebAssembly downloads (`#boot`, hidden by the stylesheet once the
+app renders into `#main`), and preloads the display font, as the server's pages do.
 
 ## The UI derives no rules
 

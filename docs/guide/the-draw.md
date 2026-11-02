@@ -119,7 +119,7 @@ Winners who joined with the QR code show their code as always, and their button 
 
 ### Someone who took themselves off
 
-Someone you added who asked, after the freeze, not to take part ("Took themselves off" in the People tab) is
+Someone you added who asked, after the freeze, not to take part ("Take off at their request" in the People tab) is
 still in the draw by their anonymous ID: removing it would break the verification. If they are drawn, the console
 says **"Took themselves off: decline"** and offers **Declined** only: they claim nothing, and "Not here" would
 record an absence that isn't what happened (the server refuses both). The prize goes back to be drawn again, as

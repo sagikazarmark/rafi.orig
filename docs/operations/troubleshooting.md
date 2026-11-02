@@ -20,14 +20,14 @@ foreground. On Workers, check that `RAFFLE_ROOM` is bound, and `wrangler tail` f
 
 ## Starting the draw
 
-**"Freeze list & start the draw" fails, or "Retry handing the list to the raffle engine" appears.**
+**"Freeze list & start the draw" fails, or "Retry starting the draw" appears.**
 The list froze, but the raffle couldn't be opened in the engine. Check that:
 - `RAFI_ENGINE_INGRESS_URL` (and `RAFI_ENGINE_API_KEY` for Restate Cloud) is set on the app. Without it, draws can't start,
   and the app logs this at startup.
 - Restate is up, and the engine is registered with it (`curl localhost:9070/deployments` on a self-hosted Restate).
 - The engine is up and can write to the database.
 
-Then press **Retry handing the list to the raffle engine**. It picks up where it stopped.
+Then press **Retry starting the draw**. It picks up where it stopped.
 
 **The engine is on a different drand chain.** The app's `RAFI_DRAND_CHAIN` and the engine's chain (`drand.mock` /
 `RAFI_DRAND_MOCK`) must match. The app refuses to start a draw otherwise, and the engine refuses raffles committed
@@ -56,7 +56,7 @@ every command has an ID and applies once.
 
 **The verification page says "Test chain: not publicly verifiable."** The raffle committed to the mock chain: the
 app ran with `RAFI_DRAND_CHAIN=mock` in a `mock-drand` (or Workers `dev`) build. Never use such a build for a real
-event. The admin shows a "mock drand" badge on such raffles.
+event. The admin shows a "Test randomness (not verifiable)" badge on such raffles.
 
 **"This raffle hasn't been frozen yet, or it doesn't exist."** The verification data is published at the freeze.
 

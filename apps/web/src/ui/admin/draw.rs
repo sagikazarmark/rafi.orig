@@ -1,6 +1,8 @@
 //! The draw console: drawing each prize and deciding its winner.
 
-use dioxus_icons::lucide::{Check, Dice5, Flag, Lock, TriangleAlert, Trophy};
+use dioxus_icons::lucide::{
+    Ban, Check, CircleCheck, Dice5, Flag, Gift, Lock, PartyPopper, TriangleAlert, Trophy,
+};
 use rafi_api::ItemView;
 use rafi_lifecycle::prize::Delivery;
 
@@ -172,7 +174,7 @@ pub(super) fn DrawConsole(
             match api::finish_raffle(id, command_id()).await {
                 Ok(()) => {
                     toast.success(
-                        "🎉 That's a wrap!".to_owned(),
+                        "That's a wrap!".to_owned(),
                         ToastOptions::new().description("Thanks for running a fair raffle."),
                     );
                     on_change.call(())
@@ -226,16 +228,16 @@ pub(super) fn DrawConsole(
         };
         let is_current = pending.as_ref().is_some_and(|p| p.item == u.item);
         let claiming_this = claim_held.as_ref() == Some(&u.item);
-        let emoji = match u.status {
-            ItemStatus::Available if is_current => "🎲",
-            ItemStatus::Available => "🎁",
-            ItemStatus::Drawn => "🎉",
-            ItemStatus::Claimed => "✅",
-            ItemStatus::Voided => "🚫",
+        let icon = match u.status {
+            ItemStatus::Available if is_current => rsx! { Dice5 { class: "size-6 text-primary" } },
+            ItemStatus::Available => rsx! { Gift { class: "size-6 text-base-content/70" } },
+            ItemStatus::Drawn => rsx! { PartyPopper { class: "size-6 text-success" } },
+            ItemStatus::Claimed => rsx! { CircleCheck { class: "size-6 text-success" } },
+            ItemStatus::Voided => rsx! { Ban { class: "size-6 text-base-content/70" } },
         };
         rsx! {
             li { key: "{u.item}", class: "flex flex-wrap items-center gap-3 rounded-box border-2 p-3 transition {row}",
-                span { class: "text-2xl", "{emoji}" }
+                span { class: "grid size-8 place-items-center", aria_hidden: "true", {icon} }
                 div { class: "min-w-40 flex-1",
                     p { class: "font-semibold", "{u.prize_name}" }
                     p { class: "text-sm text-base-content/60",
@@ -300,7 +302,7 @@ pub(super) fn DrawConsole(
                                 div { class: "space-y-1",
                                     p { class: "text-sm font-semibold uppercase tracking-widest opacity-80", if stalled { "Retrying round {cur.round}" } else { "Drawing now" } }
                                     p { class: "font-display text-2xl font-extrabold", "{cur.prize_name}" }
-                                    p { class: "text-sm opacity-80", "Waiting for public drand round {cur.round}, committed before it exists." }
+                                    p { class: "text-sm opacity-80", "Waiting for public randomness (drand round {cur.round}) that doesn't exist yet, so nobody can know the result." }
                                 }
                             }
                         }
@@ -364,7 +366,8 @@ pub(super) fn DrawConsole(
                 if drawable {
                     div { class: "flex flex-wrap items-center gap-3 border-t border-base-300 pt-4",
                         p { class: "flex-1 text-sm text-base-content/60",
-                            "{items_left} prize(s) left. “Not here” and “Declined” take that person out and put the prize back for a new draw."
+                            if items_left == 1 { "1 prize left." } else { "{items_left} prizes left." }
+                            " “Not here” and “Declined” take that person out and put the prize back for a new draw."
                         }
                         Button {
                             color: if items_left == 0 { ButtonColor::Secondary } else { ButtonColor::Default },
@@ -379,9 +382,9 @@ pub(super) fn DrawConsole(
             }
             Confirm {
                 open: ask_finish,
-                title: rsx! { if items_left == 0 { "Finish the raffle?" } else { "Finish with {items_left} prize(s) left?" } },
+                title: rsx! { if items_left == 0 { "Finish the raffle?" } else if items_left == 1 { "Finish with 1 prize left?" } else { "Finish with {items_left} prizes left?" } },
                 body: rsx! { "The thank-you screen goes up and nothing more can be drawn. Personal data is erased on the dates entrants were shown; mark prizes delivered as they reach their winners, or erase earlier from the raffle's menu." },
-                action: "🎉 Finish",
+                action: "Finish",
                 on_confirm: move |_| { spawn(finish()); },
             }
             if let Some(cur) = &pending {

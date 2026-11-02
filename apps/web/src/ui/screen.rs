@@ -4,7 +4,10 @@ use dioxus::prelude::*;
 use rafi_lifecycle::RaffleState;
 use rafi_raffle::Outcome;
 
-use dioxus_icons::lucide::{Dice5, Maximize, ShieldCheck, Trophy};
+use dioxus_icons::lucide::{
+    Dice5, FlaskConical, Hourglass, Maximize, Minus, PartyPopper, ShieldCheck, TriangleAlert,
+    Trophy,
+};
 use rafi_live_client::ParticipantView;
 
 use super::{
@@ -67,7 +70,7 @@ fn ScreenInner(slug: String) -> Element {
                 h1 { class: "flex-1 text-[2.2em] font-extrabold leading-tight", "{v.title}" }
                 Connection { trouble }
                 if v.test_mode {
-                    span { class: "inline-flex items-center gap-[0.4em] rounded-full px-[0.9em] py-[0.3em] text-[0.9em] font-bold bg-warning text-warning-content", "🧪 TEST MODE" }
+                    span { class: "inline-flex items-center gap-[0.4em] rounded-full px-[0.9em] py-[0.3em] text-[0.9em] font-bold bg-warning text-warning-content", FlaskConical { class: "size-[1em]" } "TEST MODE" }
                 }
                 div { class: "flex items-center gap-1 opacity-40 transition hover:opacity-100",
                     ThemeToggle { on_change: move |next: String| dark.set(next == "system") }
@@ -166,7 +169,9 @@ fn qr_svg(url: &str) -> String {
         .map(|code| {
             code.render::<svg::Color>()
                 .min_dimensions(320, 320)
-                .quiet_zone(false)
+                // The four modules of white the spec asks for: a phone
+                // across the room finds the code by its margin.
+                .quiet_zone(true)
                 .dark_color(svg::Color("#211b33"))
                 .light_color(svg::Color("#ffffff"))
                 .build()
@@ -174,13 +179,26 @@ fn qr_svg(url: &str) -> String {
         .unwrap_or_default()
 }
 
+/// How many prizes the projector lists before the ones already won fold
+/// into a count: nobody scrolls a projector.
+const PRIZES_SHOWN: usize = 8;
+
 #[component]
 fn PrizeList(view: RaffleView) -> Element {
+    // Past eight, the prizes all given away are counted, not listed.
+    let crowded = view.prizes.len() > PRIZES_SHOWN;
+    let shown: Vec<_> = view
+        .prizes
+        .iter()
+        .filter(|p| !crowded || p.left > 0)
+        .take(PRIZES_SHOWN)
+        .collect();
+    let folded = view.prizes.len() - shown.len();
     rsx! {
         section { class: "space-y-[0.6em]",
             h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/70", "Prizes" }
             ul { class: "space-y-[0.5em]",
-                for p in view.prizes.iter() {
+                for p in shown.into_iter() {
                     li {
                         key: "{p.prize_id}",
                         class: if p.left == 0 { "flex items-center gap-[0.6em] rounded-box bg-base-200/70 px-[0.8em] py-[0.5em] opacity-40 line-through" } else { "flex items-center gap-[0.6em] rounded-box bg-base-200/70 px-[0.8em] py-[0.5em]" },
@@ -191,6 +209,9 @@ fn PrizeList(view: RaffleView) -> Element {
                         }
                     }
                 }
+            }
+            if folded > 0 {
+                p { class: "text-[0.9em] text-base-content/70", "+{folded} more" }
             }
         }
     }
@@ -255,7 +276,7 @@ fn Intro(view: RaffleView) -> Element {
                         div { class: "relative",
                             div { class: "absolute -inset-3 rounded-[2rem] bg-gradient-to-br from-primary via-secondary to-accent opacity-80 blur-xl" }
                             div {
-                                class: "relative w-[min(26vw,38vh)] rotate-2 rounded-[1.6rem] bg-white p-[1.1vw] shadow-2xl transition hover:rotate-0",
+                                class: "relative w-[min(26vw,38vh)] rounded-[1.6rem] bg-white p-[0.4vw] shadow-2xl",
                                 div { class: "[&>svg]:h-auto [&>svg]:w-full", dangerous_inner_html: "{qr}" }
                             }
                         }
@@ -285,7 +306,7 @@ fn Intro(view: RaffleView) -> Element {
                     },
                 }
                 div { class: "flex items-baseline gap-[0.4em]",
-                    span { key: "{view.entrant_count}", class: "inline-block animate-pop font-display text-[2.6em] font-black leading-none text-primary", "{view.entrant_count}" }
+                    span { key: "{view.entrant_count}", class: "inline-block animate-pop font-display text-[2.6em] font-black leading-none tabular-nums text-primary", "{view.entrant_count}" }
                     span { class: "text-[1.2em] font-semibold text-base-content/70", if view.entrant_count == 1 { "entrant" } else { "entrants" } }
                 }
                 // The latest names, a long one cut with "…" (the organizer
@@ -358,7 +379,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>, clock: ServerClock)
                     span { class: "loading loading-dots size-[2em] text-primary" }
                 }
                 if view.last_failure.is_some() && view.current.is_some() {
-                    p { class: "alert alert-warning alert-soft text-[0.8em]", "⏳ Still fetching drand round {round}" }
+                    p { class: "alert alert-warning alert-soft text-[0.8em]", Hourglass { class: "size-[1em]" } "Still fetching drand round {round}" }
                 }
                 p { class: "text-[0.9em] text-base-content/70", "Locking in public randomness · drand round {round}" }
             }
@@ -372,7 +393,7 @@ fn Drawing(view: RaffleView, ahead: Option<ParticipantView>, clock: ServerClock)
                 p { class: "font-display text-[3em] font-black", "{left} " span { class: "text-base-content/70", if left == 1 { "prize left" } else { "prizes left" } } }
                 p { class: "text-[1.2em] text-base-content/70", if view.entrant_count == 1 { "1 entrant" } else { "{view.entrant_count} entrants" } }
                 if let Some(f) = &view.last_failure {
-                    p { class: "alert alert-warning alert-soft text-[0.8em]", "⚠ {f}" }
+                    p { class: "alert alert-warning alert-soft text-[0.8em]", TriangleAlert { class: "size-[1em]" } "{f}" }
                 }
             }
         }
@@ -451,22 +472,26 @@ fn reveal_size(name: &str) -> &'static str {
     }
 }
 
+/// How many of the latest draws the projector lists.
+const HISTORY_SHOWN: usize = 5;
+
 #[component]
 fn History(draws: Vec<DrawView>) -> Element {
     if draws.is_empty() {
         return rsx! {};
     }
+    let earlier = draws.len().saturating_sub(HISTORY_SHOWN);
     rsx! {
         section { class: "space-y-[0.6em]",
             h2 { class: "text-[0.8em] font-bold uppercase tracking-[0.2em] text-base-content/70", "Winners" }
             ul { class: "space-y-[0.4em]",
-                for d in draws.iter().rev() {
+                for d in draws.iter().rev().take(HISTORY_SHOWN) {
                     li { key: "{d.k}", class: "flex items-center gap-[0.5em]",
-                        span { class: "text-[1.1em]",
+                        span { class: "shrink-0", aria_hidden: "true",
                             match d.outcome {
-                                Outcome::Claimed => "🏆",
-                                Outcome::Drawn => "🎉",
-                                _ => "👻",
+                                Outcome::Claimed => rsx! { Trophy { class: "size-[1.1em] text-success" } },
+                                Outcome::Drawn => rsx! { PartyPopper { class: "size-[1.1em] text-primary" } },
+                                _ => rsx! { Minus { class: "size-[1.1em] text-base-content/70" } },
                             }
                         }
                         bdi { class: if matches!(d.outcome, Outcome::NotHere | Outcome::Declined) { "min-w-0 truncate font-bold line-through opacity-50" } else { "min-w-0 truncate font-bold" }, "{d.display_name}" }
@@ -479,9 +504,15 @@ fn History(draws: Vec<DrawView>) -> Element {
                     }
                 }
             }
+            if earlier > 0 {
+                p { class: "text-[0.9em] text-base-content/70", "+{earlier} earlier" }
+            }
         }
     }
 }
+
+/// How many winners the thank-you screen lists, the rest counted.
+const WINNERS_SHOWN: usize = 12;
 
 #[component]
 fn Finished(view: RaffleView) -> Element {
@@ -510,15 +541,19 @@ fn Finished(view: RaffleView) -> Element {
             p { class: "text-[4em]", "🎉" }
             h2 { class: "gradient-text text-[3.5em] font-black leading-none", "Thanks for playing!" }
             if !winners.is_empty() {
+                p { class: "text-[1.1em] font-semibold", "Winners: your phone says how you get your prize. No phone? See the organizer." }
                 div { class: "flex max-w-[70vw] flex-wrap justify-center gap-[0.6em]",
-                    for d in winners {
+                    for d in winners.iter().take(WINNERS_SHOWN) {
                         // A long name is cut with "…", so one winner doesn't
                         // push the others off the screen.
                         div { key: "{d.k}", class: "card max-w-[min(100%,24em)] bg-base-200 px-[1em] py-[0.6em] ring-1 ring-base-300",
-                            p { class: "truncate font-display text-[1.2em] font-extrabold", "🏆 " bdi { "{d.display_name}" } }
+                            p { class: "truncate font-display text-[1.2em] font-extrabold", Trophy { class: "mr-[0.3em] inline size-[1em] align-[-0.1em] text-success" } bdi { "{d.display_name}" } }
                             p { class: "truncate text-[0.8em] text-base-content/70", "{d.prize_name}" }
                         }
                     }
+                }
+                if winners.len() > WINNERS_SHOWN {
+                    p { class: "text-[0.9em] text-base-content/70", "and {winners.len() - WINNERS_SHOWN} more: see the verification page" }
                 }
             }
             div { class: "flex items-center gap-[0.8em]",

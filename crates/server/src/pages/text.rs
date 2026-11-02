@@ -144,7 +144,7 @@ fn text_page(title: &str, back: String, sections: Vec<(String, Vec<Para>)>) -> S
             }
         }
     });
-    document(title, body, None)
+    document(title, body, None, None)
 }
 
 /// The raffle rules page, as HTML.
@@ -342,7 +342,7 @@ pub fn legal(title: &str, version: &str, markdown_text: &str) -> String {
             }
         }
     });
-    document(title, body, None)
+    document(title, body, None, None)
 }
 
 /// Whether a link may point there: a web page, a mail address or a place on

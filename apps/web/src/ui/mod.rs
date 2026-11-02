@@ -9,7 +9,7 @@ mod verify;
 
 use dioxus::prelude::*;
 use dioxus_icons::lucide::{
-    Dice5, Monitor, Moon, QrCode, ShieldCheck, Sparkles, Sun, Ticket, Trophy, WifiOff,
+    BookOpen, Dice5, Monitor, Moon, QrCode, ShieldCheck, Sparkles, Sun, Ticket, Trophy, WifiOff,
 };
 
 use admin::{AdminHome, RaffleAdmin};
@@ -24,15 +24,30 @@ const TAILWIND_CSS: Asset = asset!(
     "/assets/tailwind.css",
     AssetOptions::builder().with_hash_suffix(false)
 );
-/// The display font's Latin subset, preloaded. Both subsets are served at a
-/// stable path because the stylesheet references them by URL.
-const DISPLAY_FONT: Asset = asset!(
+/// The display font's Latin subset, preloaded by `index.html` and the
+/// server's pages. Both subsets are served at a stable path because the
+/// stylesheet references them by URL.
+const _: Asset = asset!(
     "/assets/fonts/bricolage-latin.woff2",
     AssetOptions::builder().with_hash_suffix(false)
 );
 /// Its Latin Extended subset, which the stylesheet loads only for those letters.
 const _: Asset = asset!(
     "/assets/fonts/bricolage-latin-ext.woff2",
+    AssetOptions::builder().with_hash_suffix(false)
+);
+/// The icon (the tilted ticket), the home-screen icon and the link preview's
+/// image, at stable paths: the server's pages and `index.html` link them.
+const _: Asset = asset!(
+    "/assets/favicon.svg",
+    AssetOptions::builder().with_hash_suffix(false)
+);
+const _: Asset = asset!(
+    "/assets/apple-touch-icon.png",
+    AssetOptions::builder().with_hash_suffix(false)
+);
+const _: Asset = asset!(
+    "/assets/og.png",
     AssetOptions::builder().with_hash_suffix(false)
 );
 /// The display font's licence (SIL OFL 1.1), which goes wherever the font
@@ -51,8 +66,10 @@ pub enum Route {
         #[layout(AdminLayout)]
             #[route("/")]
             AdminHome {},
-            #[route("/r/:id")]
-            RaffleAdmin { id: String },
+            // The tab in the URL (`?tab=people`): a reload mid-evening comes
+            // back to it.
+            #[route("/r/:id?:tab")]
+            RaffleAdmin { id: String, tab: Option<String> },
         #[end_layout]
     #[end_nest]
     #[route("/s/:slug")]
@@ -68,13 +85,6 @@ pub fn App() -> Element {
     use_context_provider(|| Framed(in_a_frame()));
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
-        document::Link {
-            rel: "preload",
-            href: DISPLAY_FONT,
-            r#as: "font",
-            r#type: "font/woff2",
-            crossorigin: "anonymous",
-        }
         document::Title { "Rafi" }
         Router::<Route> {}
     }
@@ -210,11 +220,16 @@ fn Home() -> Element {
                     }
                 }
             }
-            section { class: "mx-auto grid max-w-6xl gap-4 px-5 pb-24 md:grid-cols-3",
+            section { class: "mx-auto grid max-w-6xl gap-4 px-5 pb-16 md:grid-cols-3",
                 Feature { icon: rsx! { QrCode { class: "size-6" } }, title: "Scan & join", body: "No app, no account. A name and an email on any phone, even on shaky venue wifi." }
                 Feature { icon: rsx! { Dice5 { class: "size-6" } }, title: "Drawn in public", body: "Every prize commits to a future drand round first. The countdown is the suspense." }
                 Feature { icon: rsx! { ShieldCheck { class: "size-6" } }, title: "Check it yourself", body: "Anyone can re-run every draw in the browser afterwards. Personal data is erased on a date entrants see before they join." }
             }
+            nav { class: "flex justify-center gap-4 text-sm text-base-content/70",
+                a { class: "link link-hover", href: "/terms", "Terms" }
+                a { class: "link link-hover", href: "/privacy", "Privacy" }
+            }
+            Colophon { info: use_hook(crate::config::build) }
         }
     }
 }
@@ -249,6 +264,7 @@ fn NotFound(segments: Vec<String>) -> Element {
 #[component]
 fn AdminShell(children: Element, #[props(default = VNode::empty())] trailing: Element) -> Element {
     let connection = use_context_provider(|| live::AdminConnection(Signal::new(None)));
+    let guide = use_hook(|| crate::config::build().guide_url);
     let online = live::use_online();
     rsx! {
         ToastProvider { block: ToastBlock::Top, class: "z-50 pt-16",
@@ -259,6 +275,9 @@ fn AdminShell(children: Element, #[props(default = VNode::empty())] trailing: El
                     span { class: "badge badge-ghost badge-sm ml-1 hidden sm:inline-flex", "organizer" }
                     span { class: "flex-1" }
                     OfflineBadge { online: online(), trouble: connection.0() }
+                    if let Some(guide) = guide.clone() {
+                        a { class: "btn btn-ghost btn-sm", href: "{guide}", target: "_blank", rel: "noopener", BookOpen { class: "size-4" } span { class: "hidden sm:inline", "Guide" } }
+                    }
                     ThemeToggle {}
                     {trailing}
                 }
@@ -567,6 +586,7 @@ mod tests {
             version: Some("0.1.0".into()),
             source_url: Some("https://github.com/example/rafi/tree/v0.1.0".into()),
             verifier_url: None,
+            guide_url: None,
         };
         let html = dioxus_ssr::render_element(rsx! { Colophon { info: build } });
         assert!(

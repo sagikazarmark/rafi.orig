@@ -169,7 +169,7 @@ pub fn Card(
                     p { class: "text-3xl", "🥁" }
                     p { class: "text-xl font-bold", "{s.draw_starting}" }
                 }
-                span { class: "badge badge-secondary badge-soft mt-1", "{prizes_left} {s.prizes_left}" }
+                span { class: "badge badge-secondary badge-soft mt-1 tabular-nums", "{prizes_left} {s.prizes_left}" }
             }
         },
         Screen::Waiting => rsx! {

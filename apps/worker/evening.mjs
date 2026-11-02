@@ -362,7 +362,7 @@ probe.close();
 
 // The end, from the console: Finish, confirmed.
 check(await drawConsole.click("Finish the raffle"), "the console offers Finish");
-check(await until(() => drawConsole.click("🎉 Finish"), 5000), "and asks first");
+check(await until(() => drawConsole.click("Finish"), 5000), "and asks first");
 check(await until(async () => (await drawConsole.text()).includes("That's a wrap"), 15000), "the raffle is finished, and the console says so");
 check(drawConsole.pageErrors.length === 0, `the draw console threw nothing${drawConsole.pageErrors.length ? ": " + drawConsole.pageErrors.join(" | ") : ""}`);
 drawConsole.close();

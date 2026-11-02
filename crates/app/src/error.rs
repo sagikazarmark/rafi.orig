@@ -400,11 +400,15 @@ impl fmt::Display for Refusal {
                 "Your data can't be removed while one of your raffles is being drawn. Finish it first.",
             ),
             Self::Forbidden(needs) => write!(f, "Only {} can do this.", needs.who()),
-            Self::Lifecycle { command, from } => {
-                write!(f, "Cannot {command:?} a raffle that is {}.", from.as_str())
-            }
+            Self::Lifecycle { command: _, from } => write!(
+                f,
+                "This raffle is already {}. Reload the page to see where it is.",
+                from.as_str()
+            ),
             Self::Changed => f.write_str("The raffle changed in the meantime; reload and try again."),
-            Self::NoEngine => f.write_str("Restate is not configured on this server."),
+            Self::NoEngine => f.write_str(
+                "This server has no raffle engine set up, so draws can't run. Contact whoever runs it.",
+            ),
             Self::BeaconMismatch { engine, raffles } => write!(
                 f,
                 "The raffle engine draws from {engine}, but raffles here commit to {raffles}. Fix the configuration before starting the draw."
@@ -426,7 +430,7 @@ impl fmt::Display for Refusal {
             ),
             Self::NotDrawing => f.write_str("The draw has not started (or is already over)."),
             Self::NotOpened => f.write_str(
-                "The raffle engine has not confirmed the frozen list yet; press “Retry handing the list to the raffle engine”.",
+                "The raffle engine has not confirmed the frozen list yet; press “Retry starting the draw”.",
             ),
             Self::Raffle { command, error } => f.write_str(&raffle_refusal(command.as_ref(), error)),
             Self::Engine { message, .. } => f.write_str(message),
@@ -440,7 +444,7 @@ impl fmt::Display for Refusal {
             ),
             Self::Name(NameError::Blocked) => f.write_str("Please choose a different name."),
             Self::BatchId => {
-                f.write_str("This add has no valid batch ID. Reload the page and try again.")
+                f.write_str("Something went wrong with this add. Reload and try again; nobody was added twice.")
             }
             Self::RowCount(Origin::One) => f.write_str("Add one person at a time here."),
             Self::RowCount(Origin::List) => write!(
@@ -494,10 +498,10 @@ impl fmt::Display for Refusal {
                 f.write_str("Only a winner who claimed their prize can get it delivered.")
             }
             Self::NotOver(Unfinished::Purge) => {
-                f.write_str("Personal data can be erased at once once the raffle has finished.")
+                f.write_str("Personal data can be erased early once the raffle has finished.")
             }
             Self::NotOver(Unfinished::DeliverAll) => f.write_str(
-                "All prizes can be marked delivered at once once the raffle has finished. One winner's prize can be marked delivered any time after they claimed it.",
+                "All prizes can be marked delivered together once the raffle has finished. One winner's prize can be marked delivered any time after they claimed it.",
             ),
             Self::NotOver(Unfinished::EndLive) => {
                 f.write_str("Live updates can end once the raffle has finished.")

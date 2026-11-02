@@ -226,8 +226,8 @@ fn prize_form(namespace: String, initial: Prize) -> FormHandle<Prize> {
 /// How a prize reaches its winner, in the organizer's words.
 pub fn delivery_label(d: Delivery) -> &'static str {
     match d {
-        Delivery::OnTheSpot => "🤝 On the spot",
-        Delivery::Later => "📨 Sent later",
+        Delivery::OnTheSpot => "On the spot",
+        Delivery::Later => "Sent later",
     }
 }
 
@@ -235,7 +235,7 @@ pub fn delivery_label(d: Delivery) -> &'static str {
 pub fn delivery_hint(d: Option<Delivery>) -> &'static str {
     match d {
         Some(Delivery::OnTheSpot) => {
-            "Handed over when the winner shows their code: “Claimed” also marks it delivered, and their data goes on the non-winners' erasure clock."
+            "Handed over at the event when the winner shows their code. Pressing Claimed also marks it delivered."
         }
         Some(Delivery::Later) => {
             "Sent after the raffle, like a voucher by email: mark it delivered in People once it reached them. Their data is kept until then."
@@ -342,7 +342,7 @@ pub fn PrizeForm(
                             if prize_id.is_none() {
                                 reset.reinitialize(Prize::default());
                                 picked.set(None);
-                                toast.success(format!("🎁 {} added", v.name), ToastOptions::new());
+                                toast.success(format!("{} added", v.name), ToastOptions::new());
                             }
                             on_saved.call(());
                             SubmitErrors::none()
@@ -508,7 +508,7 @@ pub fn AddPersonForm(
                         Ok(_) => {
                             reset.reinitialize(Person::default());
                             batch_id.set(command_id());
-                            toast.success(format!("🙋 {name} is in"), ToastOptions::new());
+                            toast.success(format!("{name} is in"), ToastOptions::new());
                             on_added.call(());
                             SubmitErrors::none()
                         }
@@ -912,7 +912,7 @@ pub fn SettingsForm(
             div { class: "mt-2 rounded-box bg-warning/10 p-4 md:col-span-2",
                 SwitchField {
                     context: form.field(f.test_mode()),
-                    label: "🧪 Test mode",
+                    label: "Test mode",
                     disabled: !can_edit,
                     description: "Rehearse with fake entrants; a TEST badge shows on every screen. Switching it off removes the fake entrants. It can't change once the list is frozen.",
                     color: SwitchColor::Warning,

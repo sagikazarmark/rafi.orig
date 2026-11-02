@@ -924,6 +924,14 @@ impl Access {
 mod tests {
     use super::*;
 
+    /// The limits the words give are the limits the rules apply.
+    #[test]
+    fn row_errors_name_the_limits() {
+        use rafi_lifecycle::entrant::{MAX_ADDED_NAME_CHARS, MAX_LIST_REF_CHARS};
+        assert!(row_error_text(RowError::Name).contains(&format!("1–{MAX_ADDED_NAME_CHARS} ")));
+        assert!(row_error_text(RowError::ListRef).contains(&format!("1–{MAX_LIST_REF_CHARS} ")));
+    }
+
     fn to_send(format: NameFormat) -> ToSend<'static> {
         ToSend {
             title: "Cloud Native Budapest #12",

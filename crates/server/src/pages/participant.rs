@@ -79,6 +79,8 @@ pub struct Page<'a> {
     pub retention: ErasureDates,
     /// The youngest an entrant may be: the join form says so too.
     pub min_age: u32,
+    /// The installation's public origin, for the link preview's image.
+    pub public_url: &'a str,
 }
 
 /// [`APPLY_THEME`]'s source, a macro so that [`HEAD_SCRIPT`] can `concat!` it.
@@ -121,17 +123,55 @@ pub(crate) fn embedded_scripts() -> Vec<&'static str> {
     scripts
 }
 
-/// A whole document: `tail` is raw HTML appended to the body (scripts).
-pub(crate) fn document(title: &str, body: String, tail: Option<String>) -> String {
+/// What a link to a page shows when it's pasted into a chat (Open Graph):
+/// the raffle's title, the line under it, and the image, absolute.
+#[derive(Debug, Clone)]
+pub(crate) struct Preview<'a> {
+    pub title: &'a str,
+    pub description: &'a str,
+    /// The installation's public origin (`RAFI_PUBLIC_URL`).
+    pub public_url: &'a str,
+}
+
+impl Preview<'_> {
+    fn meta(&self) -> String {
+        let origin = self.public_url.trim_end_matches('/');
+        format!(
+            "<meta property=\"og:type\" content=\"website\"><meta property=\"og:title\" content=\"{}\">\
+             <meta property=\"og:description\" content=\"{}\">\
+             <meta property=\"og:image\" content=\"{}/assets/og.png\">\
+             <meta property=\"og:image:width\" content=\"1200\"><meta property=\"og:image:height\" content=\"630\">\
+             <meta name=\"twitter:card\" content=\"summary_large_image\">",
+            escape(self.title),
+            escape(self.description),
+            escape(origin),
+        )
+    }
+}
+
+/// A whole document: `tail` is raw HTML appended to the body (scripts);
+/// `preview`, what a link to it shows in a chat.
+pub(crate) fn document(
+    title: &str,
+    body: String,
+    tail: Option<String>,
+    preview: Option<Preview<'_>>,
+) -> String {
     let title = escape(title);
     let css = escape(STYLESHEET_URL);
     let tail = tail.unwrap_or_default();
+    let preview = preview.map(|p| p.meta()).unwrap_or_default();
     format!(
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\
          <meta name=\"robots\" content=\"noindex\"><meta name=\"color-scheme\" content=\"light dark\">\
+         <meta name=\"theme-color\" content=\"#fffdf8\" media=\"(prefers-color-scheme: light)\">\
+         <meta name=\"theme-color\" content=\"#17131f\" media=\"(prefers-color-scheme: dark)\">\
+         <link rel=\"icon\" href=\"/assets/favicon.svg\" type=\"image/svg+xml\">\
+         <link rel=\"apple-touch-icon\" href=\"/assets/apple-touch-icon.png\">{preview}\
          <script>{HEAD_SCRIPT}</script>\
          <link rel=\"stylesheet\" href=\"{css}\">\
+         <link rel=\"preload\" href=\"/assets/bricolage-latin.woff2\" as=\"font\" type=\"font/woff2\" crossorigin>\
          <title>{title}</title></head><body class=\"min-h-dvh bg-base-200 bg-dots\">{body}{tail}</body></html>"
     )
 }
@@ -188,6 +228,7 @@ pub fn page(page: Page<'_>) -> String {
         now_ms,
         retention,
         min_age,
+        public_url,
     } = page;
     let erasure = erasure_sentence(&retention);
     let age = super::text::age_line(min_age);
@@ -325,12 +366,17 @@ pub fn page(page: Page<'_>) -> String {
                     "⏳",
                     "Registration is not open yet. Keep an eye on the screen!",
                 ),
-                _ => ("🔒", "Registration is closed."),
+                _ => ("🔒", "Joining has closed."),
             };
             rsx! {
                 section { class: "{card} items-center gap-2 p-6 text-center",
                     span { class: "text-4xl", "{emoji}" }
                     p { class: "text-lg font-semibold", role: "status", "{msg}" }
+                    // Someone who mistyped their email (or shares a phone)
+                    // gets the form back.
+                    if notice == Notice::AlreadyIn && raffle.joinable {
+                        a { class: "link link-primary text-sm", href: "/j/{code}", "Not you? Join with another email" }
+                    }
                     // What someone on the organizer's list reads: the rules
                     // they are in under, the notice, and the frozen list.
                     if !raffle.registration {
@@ -352,7 +398,8 @@ pub fn page(page: Page<'_>) -> String {
     let header = header_bar(raffle.test_mode);
     let source_href = crate::build_info::source_url();
     let body = dioxus::ssr::render_element(rsx! {
-        main { class: "mx-auto flex max-w-md flex-col gap-4 px-4 pb-10 pt-4",
+        // Clear of a notch or rounded corner in landscape (viewport-fit=cover).
+        main { class: "mx-auto flex max-w-md flex-col gap-4 pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(2.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]",
             {header}
             h1 { class: "text-2xl font-extrabold leading-tight", "{title}" }
             {main}
@@ -390,7 +437,12 @@ pub fn page(page: Page<'_>) -> String {
         "<script type=\"application/json\" id=\"rafi-config\">{}</script>{LOADER}",
         script_json(&config)
     );
-    document(raffle.title, body, Some(tail))
+    let preview = Preview {
+        title: raffle.title,
+        description: "Join the raffle from your phone: no app, no account.",
+        public_url,
+    };
+    document(raffle.title, body, Some(tail), Some(preview))
 }
 
 /// The page for a raffle that isn't there (or isn't public), as HTML.
@@ -401,5 +453,5 @@ pub fn not_found() -> String {
             p { class: "text-xl font-bold", "This raffle does not exist." }
         }
     });
-    document("Rafi", body, None)
+    document("Rafi", body, None, None)
 }

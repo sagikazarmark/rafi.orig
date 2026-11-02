@@ -8,6 +8,7 @@
 @import "tailwindcss" source(none);
 
 @source "./src/**/*.rs";
+@source "./index.html";
 /* The server-rendered public pages (participant, rules, privacy). */
 @source "../../crates/server/src/pages/**/*.rs";
 /* The participant page's card, its WebAssembly and its JavaScript fallback. */
@@ -147,6 +148,15 @@
   html {
     -webkit-text-size-adjust: 100%;
   }
+  ::selection {
+    background: color-mix(in oklab, var(--color-primary) 30%, transparent);
+  }
+  /* The browser's autofill colour, in the theme's instead. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--color-base-100) inset;
+    -webkit-text-fill-color: var(--color-base-content);
+  }
   body {
     @apply bg-base-200 text-base-content font-sans antialiased;
   }
@@ -202,6 +212,11 @@
     }
   }
 
+  /* index.html's loading screen, until the app renders. */
+  #main:not(:empty) + #boot {
+    display: none;
+  }
+
   .hover-wiggle:hover {
     animation: var(--animate-wiggle);
   }
@@ -239,6 +254,16 @@
 @keyframes burst {
   0% { opacity: 1; transform: rotate(calc(var(--i) * 15deg)) translateY(0); }
   100% { opacity: 0; transform: rotate(calc(var(--i) * 15deg)) translateY(-42vh) rotate(220deg); }
+}
+
+/* The verification page, printed: the record, without the page's chrome. */
+@media print {
+  header, footer, button, .btn, [data-toast], .toast {
+    display: none !important;
+  }
+  .bg-dots {
+    background: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

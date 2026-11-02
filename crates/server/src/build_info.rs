@@ -19,6 +19,11 @@ pub fn source_url() -> String {
     format!("{SOURCE_URL}/tree/{SOURCE_REF}")
 }
 
+/// The organizers' guide to an evening, for this version.
+pub fn guide_url() -> String {
+    format!("{SOURCE_URL}/blob/{SOURCE_REF}/docs/guide/running-a-raffle.md")
+}
+
 /// The independent verifier (`tools/verify.py`) of this version.
 pub fn verifier_url() -> String {
     format!("{SOURCE_URL}/blob/{SOURCE_REF}/tools/verify.py")

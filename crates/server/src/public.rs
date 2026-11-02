@@ -39,6 +39,8 @@ struct WebConfig {
     /// Its independent verifier ([`build_info::verifier_url`]), which the
     /// verification page links.
     verifier_url: String,
+    /// The organizers' guide ([`build_info::guide_url`]), which the admin links.
+    guide_url: String,
 }
 
 /// How long a `security.txt` says it holds: RFC 9116 wants an expiry,
@@ -80,6 +82,7 @@ async fn config_js(Extension(app): Extension<AppState>) -> Response {
         version: build_info::VERSION,
         source_url: build_info::source_url(),
         verifier_url: build_info::verifier_url(),
+        guide_url: build_info::guide_url(),
     };
     // A JSON object is a JavaScript object literal; as an external script,
     // nothing in it can close a tag.

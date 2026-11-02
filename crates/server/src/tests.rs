@@ -926,7 +926,7 @@ async fn join_requires_proof_of_work_and_consent() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(page.contains("human"));
+    assert!(page.contains("bot check"));
     let proof = solved_pow(&router).await;
     let (status, _, page) = send(
         &router,
@@ -993,7 +993,7 @@ async fn draws_need_restate() {
     let err = service::start_draw(&app, ACTOR, &raffle.id)
         .await
         .unwrap_err();
-    assert!(err.to_string().contains("Restate"), "{err}");
+    assert!(err.to_string().contains("no raffle engine"), "{err}");
     assert_eq!(
         raffles::get(&app.db, &raffle.id)
             .await
@@ -1684,10 +1684,11 @@ async fn config_js_says_how_the_server_signs_in() {
     const THEME: &str = super::pages::APPLY_THEME;
     // Which Rafi, for the footers: the version, its source and its verifier.
     let build = format!(
-        "\"version\":{:?},\"sourceUrl\":{:?},\"verifierUrl\":{:?}",
+        "\"version\":{:?},\"sourceUrl\":{:?},\"verifierUrl\":{:?},\"guideUrl\":{:?}",
         crate::build_info::VERSION,
         crate::build_info::source_url(),
         crate::build_info::verifier_url(),
+        crate::build_info::guide_url(),
     );
     let get = || Request::get("/config.js").body(Body::empty()).unwrap();
 
@@ -1755,6 +1756,30 @@ async fn security_txt_names_the_operator() {
     let today = rafi_lifecycle::dates::Date::of_utc(rafi_store::now_ms() as i64 / 1000);
     let days = expires.days() - today.days();
     assert!((1..365).contains(&days), "{days} days: {body}");
+}
+
+/// A join link pasted into a chat previews as the raffle: its title, a line,
+/// the image (absolute), and the icons every page links.
+#[tokio::test]
+async fn a_join_link_previews_as_the_raffle() {
+    let app = app().await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let (status, _, page) = send(&router, get(&format!("/j/{}", raffle.join_code))).await;
+    assert_eq!(status, StatusCode::OK);
+    let title = raffles::get(&app.db, &raffle.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .title;
+    for expected in [
+        format!("<meta property=\"og:title\" content=\"{title}\">"),
+        "<meta property=\"og:image\" content=\"http://localhost:8080/assets/og.png\">".to_owned(),
+        "<meta name=\"twitter:card\" content=\"summary_large_image\">".to_owned(),
+        "<link rel=\"icon\" href=\"/assets/favicon.svg\" type=\"image/svg+xml\">".to_owned(),
+    ] {
+        assert!(page.contains(&expected), "{expected}: {page}");
+    }
 }
 
 /// `/healthz` says the server is up and which Rafi it is; the version is the
@@ -2454,7 +2479,7 @@ async fn proof_of_work_replays_are_refused() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     let (status, _, page) = send(&router, post("Bot", "bot@example.com")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(page.contains("human"), "{page}");
+    assert!(page.contains("bot check"), "{page}");
     assert_eq!(entrants::list(&app.db, &raffle.id).await.unwrap().len(), 1);
 
     let payload = service::pow::decode(&proof).unwrap();
@@ -3609,7 +3634,7 @@ async fn all_prizes_delivered() {
     );
     assert_eq!(
         refused.unwrap_err().to_string(),
-        "All prizes can be marked delivered at once once the raffle has finished. One winner's prize can be marked delivered any time after they claimed it."
+        "All prizes can be marked delivered together once the raffle has finished. One winner's prize can be marked delivered any time after they claimed it."
     );
     service::command(&app, ACTOR, &raffle.id, Decision::Finish, "fin")
         .await
@@ -4895,7 +4920,7 @@ async fn nobody_joins_past_the_erasure_date() {
     let (status, cookie, body) = join(&router, &raffle.join_code, "Anna", "anna@example.com").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert!(cookie.is_none());
-    assert!(body.contains("Registration is closed."), "{body}");
+    assert!(body.contains("Joining has closed."), "{body}");
     assert!(
         entrants::list(&app.db, &raffle.id)
             .await
