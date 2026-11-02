@@ -1307,7 +1307,7 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
 
 ### What it left
 
-- T4-3: the evening on the Worker over real HTTP relays. T4-4: the evening's own `verify.json` through `verify.py`.
+- T4-3: the evening on the Worker over real HTTP relays.
 - T5-6: a Copy button for an error's reference (the vendored toasts take no actions). T6-1's checks in the evening (the
   smallest font, contrast on computed colours) and T6-2's previews checked by hand in Slack; T6-3's Lighthouse run.
   T6-6: the toasts' and dialogs' motion (vendored components), the one-`btn-primary`-per-view rule (the console's
@@ -1339,8 +1339,7 @@ The tag is ready when every line is true.
 - [ ] `docs/operations` has backup/restore (rehearsed once), rotation, rollback, "Restate is down tonight", the
       breach runbook, a cost paragraph, the DSAR recipe, monitoring, a global deploy preflight.
 - [ ] Web gzip budget, `rows_read` assertions, the query-count test and the `EXPLAIN` gate are in CI.
-- [ ] `tools/verify.py` fails every tampered vector; the evening's `verify.json` passes it. (The vectors done; the
-      evening's file not yet.)
+- [x] `tools/verify.py` fails every tampered vector; the evening's `verify.json` passes it.
 - [ ] `evening.mjs` clicks through a draw on the console, imports a list, and runs housekeeping with due rows.
       (The draw and housekeeping done; the list import is T4-5's, a ticket.)
 - [x] The tracing test is in its own binary; `workers-check.sh` refuses an occupied port.

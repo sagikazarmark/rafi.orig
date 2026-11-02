@@ -1,7 +1,8 @@
 // A whole evening against Rafi on Workers, locally: the admin API (dev auth),
 // a phone in headless Chromium joining through the real form, draws through
 // Restate (the engine in the same Worker, under /restate), the countdowns on
-// the projector and the draw console, the live channel, and the end; then a
+// the projector and the draw console, the live channel, and the end, its
+// verify.json through tools/verify.py; then a
 // projector cut off from the server, and one at an address with no raffle.
 // Step 4 of scripts/workers-check.sh, which runs the Worker with a drand lead
 // of 8 s, so the countdowns have seconds to watch.
@@ -15,7 +16,9 @@
 // RAFI_CSP=report-only, would have): one is a failure, since a refusal means
 // a broken page and a report a policy about to break one.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const base = process.env.APP ?? "http://127.0.0.1:8787";
 const ingress = process.env.INGRESS ?? "http://127.0.0.1:18080";
@@ -427,6 +430,23 @@ check(await until(() => drawConsole.click("Finish"), 5000), "and asks first");
 check(await until(async () => (await drawConsole.text()).includes("That's a wrap"), 15000), "the raffle is finished, and the console says so");
 check(drawConsole.pageErrors.length === 0, `the draw console threw nothing${drawConsole.pageErrors.length ? ": " + drawConsole.pageErrors.join(" | ") : ""}`);
 drawConsole.close();
+// The evening is its own record: its verify.json, as anyone downloads it,
+// passes tools/verify.py with --test-chain (the evening draws from the mock
+// chain), and fails it without, so the option is what lets it pass.
+const verifyFile = `${process.argv[2]}/verify.json`;
+const verifyRes = await fetch(`${base}/api/r/${slug}/verify.json`);
+writeFileSync(verifyFile, await verifyRes.text());
+const verifier = fileURLToPath(new URL("../../tools/verify.py", import.meta.url));
+const verifyPy = (...args) => {
+  const r = spawnSync("python3", [verifier, ...args, verifyFile], { encoding: "utf8" });
+  return { status: r.status, last: (r.stdout ?? "").trim().split("\n").pop() ?? "", out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+};
+const verified = verifyPy("--test-chain");
+check(verifyRes.ok && verified.status === 0 && verified.last === "VERIFIED (test chain: not publicly verifiable)",
+  `the evening's verify.json passes tools/verify.py --test-chain (${verified.last})${verified.status === 0 ? "" : "\n" + verified.out}`);
+const strict = verifyPy();
+check(strict.status === 1 && strict.last === "VERIFICATION FAILED",
+  `and fails it without, the mock chain not being public (exit ${strict.status}: ${strict.last})`);
 // Claimed, and the prize sent later (the default): the phone says so.
 check(await until(async () => /send you your prize|enjoy your prize/i.test(await card()), 15000), "the winner's phone sees the raffle finish");
 await api("end_live_updates", { id });

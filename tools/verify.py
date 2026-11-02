@@ -5,6 +5,9 @@ Usage:
     verify.py verify.json              # file downloaded from /api/r/<slug>/verify.json
     verify.py https://host/api/r/<slug>/verify.json
     verify.py --fetch verify.json      # also re-fetch every beacon from drand
+    verify.py --test-chain verify.json # a raffle on a test chain (a rehearsal,
+                                       # development): checked in full, but its
+                                       # randomness is not publicly verifiable
     verify.py --vectors testdata/draw-vectors.json
 
 Standard library only. The algorithm:
@@ -83,7 +86,15 @@ def fetch_beacon(chain, round_):
     return None
 
 
-def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> bool:
+def on_test_chain(manifest: str) -> bool:
+    """Whether the manifest's beacon is a drand chain that isn't public."""
+    chain = json.loads(manifest)["beacon"].get("drand")
+    return chain is not None and chain not in PUBLIC_CHAINS
+
+
+def verify(manifest: str, expected_manifest_hash: str, events, fetch=False, test_chain=False) -> bool:
+    """Checks the raffle. A test chain fails it unless `test_chain` is set,
+    which downgrades that failure (and only that) to a note."""
     ok = True
     manifest_hash = sha256(manifest.encode())
     if manifest_hash.hex() != expected_manifest_hash.lower():
@@ -120,8 +131,11 @@ def verify(manifest: str, expected_manifest_hash: str, events, fetch=False) -> b
         return False
     name = PUBLIC_CHAINS.get(chain)
     print(f"     {len(entrants)} entrants, {len(doc['items'])} items, drand chain {chain[:12]}… ({name or 'NOT a public drand chain'})")
-    if name is None:
-        print("FAIL draws use a test chain: their randomness is not publicly verifiable")
+    if name is None and test_chain:
+        print("note draws use a test chain: their randomness is not publicly verifiable; checked as asked (--test-chain)")
+    elif name is None:
+        print("FAIL draws use a test chain: their randomness is not publicly verifiable"
+              " (--test-chain checks such a raffle all the same)")
         ok = False
 
     def would_have_picked(k, round_, what):
@@ -219,6 +233,9 @@ def load(src):
 
 def main(argv):
     fetch = "--fetch" in argv
+    test_chain = "--test-chain" in argv
+    # Whether a VERIFIED is for a test chain's raffle: never a public one.
+    tested = False
     args = [a for a in argv if not a.startswith("--")]
     if "--vectors" in argv:
         data = load(args[0])
@@ -249,8 +266,14 @@ def main(argv):
         if fmt != VERIFY_FORMAT:
             print(f"FAIL verify.json format {fmt}: this verifier knows format {VERIFY_FORMAT}")
             return 1
-        ok = verify(data["manifest"], data["manifest_hash"], data["events"], fetch=fetch)
-    print("VERIFIED" if ok else "VERIFICATION FAILED")
+        ok = verify(data["manifest"], data["manifest_hash"], data["events"], fetch=fetch, test_chain=test_chain)
+        tested = test_chain and on_test_chain(data["manifest"])
+    if not ok:
+        print("VERIFICATION FAILED")
+    elif tested:
+        print("VERIFIED (test chain: not publicly verifiable)")
+    else:
+        print("VERIFIED")
     return 0 if ok else 1
 
 

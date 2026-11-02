@@ -69,6 +69,10 @@ VERIFIED
 
 It exits with `0` when everything verifies and `1` otherwise.
 
+A raffle on a test chain fails it: its randomness isn't public. For rehearsals and development, `--test-chain` checks
+such a raffle all the same (the manifest, every draw, the log's rules), notes the test chain instead of failing on it,
+and ends with `VERIFIED (test chain: not publicly verifiable)`. A real event never needs it.
+
 ## What to look for
 
 A green result proves the draws followed the rules from the published list and the public randomness. A few things

@@ -142,7 +142,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   through Restate (a local `restate-server` calling the engine in the Worker, under `/restate`), drawn, claimed and
   finished by trusted clicks in the draw console (a double click on Draw drawing once; a winner the organizer added
   marked Not here, confirmed, and the prize drawn again from its re-enabled Draw), the projector's and the
-  console's countdowns running between fetches (with a drand lead of 8 s), the live channel, the end;
+  console's countdowns running between fetches (with a drand lead of 8 s), the live channel, the end, and the
+  raffle's own `verify.json` through `tools/verify.py`, passing with `--test-chain` and failing without (the evening
+  draws from the mock chain);
   a projector cut off from `/view` saying "Reconnecting…" and recovering, and one at an unknown address saying
   there's no raffle there; the verification page's counts by source; a 64-character name the organizer added from a list, in a
   raffle of its own, the projector telling registered people they're in and calling the winner to the front,
