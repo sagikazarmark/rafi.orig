@@ -1,26 +1,27 @@
 name: Release
 
 # A tag v<version> builds the Cloudflare release (scripts/cloudflare-release.sh):
-# the artifact, its tarball and checksums, and a dry deploy of that tarball
-# through deploy/cloudflare, fetched the way an installation fetches it.
+# the artifact as worker.tar.gz, and a dry deploy of it through
+# deploy/cloudflare, downloaded and put in place by the template's own
+# `npm run build`, as an installation does it.
 #
 # The release job needs CI (ci.yaml, called here on the tag's commit): a
 # commit whose checks fail is never released; the job is skipped, not failed.
-# It publishes in three steps: a draft with the tarball and SHA256SUMS; the
-# tarball's digest as GitHub computed it on upload checked against the one the
-# build computed (what an installation pins as RAFI_SHA256: an upload gone
-# wrong would otherwise be found by the first installation to upgrade); then
-# the draft published. The tarball has a build provenance attestation
-# (`gh attestation verify rafi-cloudflare-<version>.tar.gz -R <repository>`),
-# and is packed reproducibly (apps/worker's `just release`: sorted, fixed
-# times and owners), so another build of the tag can be compared with it.
+# It publishes in three steps: a draft with worker.tar.gz, its one asset; the
+# tarball's digest as GitHub computed it on upload (the one the release page
+# shows next to the asset) checked against the build's own sha256 (an upload
+# gone wrong would otherwise be found by the first installation to upgrade);
+# then the draft published. The tarball has a build provenance attestation
+# (`gh attestation verify worker.tar.gz -R <repository>`), and is packed
+# reproducibly (apps/worker's `just release`: sorted, fixed times and
+# owners), so another build of the tag can be compared with it.
 #
 # A tag with a pre-release suffix (v0.1.0-rc.1) is published as a pre-release.
 # The notes are generated from the merged pull requests.
 #
-# deploy/cloudflare pins the version it fetches (RAFI_VERSION in deploy.sh),
-# and the script refuses a release it doesn't pin, so the template on main
-# always names a release that exists.
+# deploy/cloudflare pins the version it downloads (config.rafi_version in its
+# package.json), and the script refuses a release it doesn't pin, so the
+# template on main always names a release that exists.
 #
 # Run by hand (workflow_dispatch), it rehearses: CI, the build and the dry
 # deploy of the version given (by default the one deploy/cloudflare pins),
@@ -87,7 +88,7 @@ jobs:
             publish=true
           else
             version="${INPUT_VERSION#v}"
-            [ -n "$version" ] || version="$(sed -n 's/^RAFI_VERSION=//p' deploy/cloudflare/deploy.sh)"
+            [ -n "$version" ] || version="$(node -p "require('./deploy/cloudflare/package.json').config.rafi_version")"
             if [ "$INPUT_DRY_RUN" = false ]; then publish=true; else publish=false; fi
           fi
           case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
@@ -108,7 +109,7 @@ jobs:
         if: steps.release.outputs.publish == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-checksums: target/cloudflare/SHA256SUMS
+          subject-path: target/cloudflare/worker.tar.gz
 
       - name: Create the release as a draft
         if: steps.release.outputs.publish == 'true'
@@ -121,26 +122,23 @@ jobs:
           if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
           gh release create "$TAG" --verify-tag --draft --generate-notes "${flags[@]}" \
             --title "$TAG" \
-            target/cloudflare/rafi-cloudflare-*.tar.gz target/cloudflare/SHA256SUMS
+            target/cloudflare/worker.tar.gz
 
       - name: Check the uploaded tarball against the build
         if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
-          VERSION: ${{ steps.release.outputs.version }}
         run: |
-          tarball="rafi-cloudflare-$VERSION.tar.gz"
-          built="$(grep " $tarball\$" target/cloudflare/SHA256SUMS | cut -d' ' -f1)"
+          built="$(sha256sum target/cloudflare/worker.tar.gz | cut -d' ' -f1)"
           # A draft isn't found by its tag; the list has it.
           uploaded="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            --jq ".[] | select(.tag_name == \"$TAG\") | .assets[] | select(.name == \"$tarball\") | .digest")"
+            --jq ".[] | select(.tag_name == \"$TAG\") | .assets[] | select(.name == \"worker.tar.gz\") | .digest")"
           if [ "$uploaded" != "sha256:$built" ]; then
-            echo "GitHub says $tarball is '$uploaded'; the build says sha256:$built. The draft stays a draft." >&2
+            echo "GitHub says worker.tar.gz is '$uploaded'; the build says sha256:$built. The draft stays a draft." >&2
             exit 1
           fi
-          echo "RAFI_VERSION=$VERSION"
-          echo "RAFI_SHA256=$built"
+          echo "worker.tar.gz: sha256:$built"
 
       - name: Publish the release
         if: steps.release.outputs.publish == 'true'

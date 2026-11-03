@@ -58,15 +58,16 @@ dry-run:
     wrangler deploy --dry-run
 
 # Build what a Cloudflare deployment is made of, into one directory: build/ (the Worker), worker-assets/ (the static files, without legal/), migrations/sqlite/ (D1) and VERSION (RAFI_VERSION, or git describe).
-artifact out="../../target/cloudflare/rafi": assets build
+artifact out="../../target/cloudflare/worker": assets build
     #!/usr/bin/env bash
     set -euo pipefail
     # Nothing of an installation's is in it: its legal documents go into
     # worker-assets/legal/ and its values into secrets at deploy time, which is
     # deploy/cloudflare's job (its wrangler.toml points into this layout as
-    # rafi/). A release's tarball is this directory (scripts/cloudflare-release.sh,
-    # which .github/workflows/release.yaml runs); building from source is this
-    # and pointing deploy/cloudflare at the result (docs/operations/cloudflare.md).
+    # worker/, where its `npm run build` unpacks a release). A release's
+    # tarball is this directory (scripts/cloudflare-release.sh, which
+    # .github/workflows/release.yaml runs); building from source is this into
+    # deploy/cloudflare's worker/ (docs/operations/cloudflare.md).
     out="{{ out }}"
     version="${RAFI_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo unknown)}"
     rm -rf "${out:?}"
@@ -80,24 +81,20 @@ artifact out="../../target/cloudflare/rafi": assets build
     echo "$version" >"$out/VERSION"
     echo "rafi-cloudflare: Rafi $version, $(du -sh "$out" | cut -f1) in $out"
 
-# Package a release of `version`: the artifact as rafi-cloudflare-<version>.tar.gz (packed reproducibly, with GNU tar) with its SHA256SUMS, in `out` (what scripts/cloudflare-release.sh then proves, and .github/workflows/release.yaml publishes).
+# Package a release of `version`: the artifact as worker.tar.gz, its files at the top level (packed reproducibly, with GNU tar), in `out` (what scripts/cloudflare-release.sh then proves, and .github/workflows/release.yaml publishes as the release's one asset).
 release version out="../../target/cloudflare":
     #!/usr/bin/env bash
     set -euo pipefail
     out="{{ out }}"
-    tarball="rafi-cloudflare-{{ version }}.tar.gz"
-    RAFI_VERSION="{{ version }}" {{ just_executable() }} artifact "$out/rafi"
-    rm -f "$out/$tarball" "$out/SHA256SUMS"
+    RAFI_VERSION="{{ version }}" {{ just_executable() }} artifact "$out/worker"
+    rm -f "$out/worker.tar.gz"
     # The same bytes from the same files (sorted, every time SOURCE_DATE_EPOCH
     # or the commit's, no owner, gzip without a name or a time): two builds
-    # of a tag can be compared. GNU tar (the devenv shell's).
+    # of a tag can be compared. GNU tar (the devenv shell's). No leading
+    # directory: an installation unpacks it into its worker/ as it is.
     epoch="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || echo 0)}"
-    (cd "$out" && tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
+    tar -C "$out/worker" --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
         --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
-        -cf - rafi | gzip -9 -n >"$tarball")
-    if command -v sha256sum >/dev/null; then
-        (cd "$out" && sha256sum "$tarball" >SHA256SUMS)
-    else
-        (cd "$out" && shasum -a 256 "$tarball" >SHA256SUMS)
-    fi
-    echo "rafi-cloudflare: release {{ version }}: $out/$tarball, $(cut -d' ' -f1 "$out/SHA256SUMS")"
+        -cf - VERSION build migrations worker-assets | gzip -9 -n >"$out/worker.tar.gz"
+    if command -v sha256sum >/dev/null; then sum="sha256sum"; else sum="shasum -a 256"; fi
+    echo "rafi-cloudflare: release {{ version }}: $out/worker.tar.gz, sha256:$($sum "$out/worker.tar.gz" | cut -d' ' -f1)"

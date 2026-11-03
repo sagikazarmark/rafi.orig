@@ -79,9 +79,9 @@ workers:
     ./scripts/workers-check.sh
 
 # Build what a Cloudflare deployment deploys (apps/worker): what a release ships.
-cloudflare-artifact out="target/cloudflare/rafi":
+cloudflare-artifact out="target/cloudflare/worker":
     {{ just_executable() }} apps/worker/ artifact {{ absolute_path(out) }}
 
-# Build and prove a Cloudflare release (scripts/cloudflare-release.sh): the tarball, its checksums, a dry deploy through deploy/cloudflare.
+# Build and prove a Cloudflare release (scripts/cloudflare-release.sh): worker.tar.gz, and a dry deploy of it through deploy/cloudflare.
 cloudflare-release version:
     ./scripts/cloudflare-release.sh {{ version }}

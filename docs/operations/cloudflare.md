@@ -33,14 +33,14 @@ deploys the same shape from [`deploy/cloudflare/`](../../deploy/cloudflare/), be
 ## What an installation is
 
 Nothing of an installation's is compiled in: one build of the Worker and the web app serves every installation.
-The build is a release's tarball (`rafi-cloudflare-<version>.tar.gz`, with `SHA256SUMS`, built by
-`.github/workflows/release.yaml` from `just cloudflare-artifact`): the Worker, the static files and the D1
-migrations. The installation is [`deploy/cloudflare/`](../../deploy/cloudflare/), a directory of yours:
+The build is a release's one asset, `worker.tar.gz` (built by `.github/workflows/release.yaml` from
+`just cloudflare-artifact`): the Worker, the static files and the D1 migrations. The installation is
+[`deploy/cloudflare/`](../../deploy/cloudflare/), a directory of yours:
 
 - `wrangler.toml`, the Worker's shape with your database ID and domain;
-- `deploy.sh`, naming the release you deploy (`RAFI_VERSION`, and `RAFI_SHA256`, the tarball's hash as the release
-  page shows it, once you pin one): it fetches it, checked against that hash (or, unpinned, against the release's
-  own checksums), puts `legal/` in place, applies the D1 migrations and deploys;
+- `package.json`, naming the release you deploy (`config.rafi_version`; a `RAFI_VERSION` variable overrides it):
+  `npm run build` downloads it into `worker/` and copies `legal/` into its static files, `npm run deploy` applies
+  the D1 migrations and deploys;
 - `legal/terms.md` and `legal/privacy.md`, your legal documents, which the Worker reads from its static files;
 - your secrets (`.dev.vars.example` lists them), set on the Worker, never in a file you track.
 
@@ -64,8 +64,8 @@ wrangler d1 create rafi --jurisdiction eu   # note the database_id it prints
 
 and put the ID into `wrangler.toml`. The quick way is the button, which copies the directory into a repository of
 yours, creates the database and the Durable Object, asks for the secrets, and deploys from that repository on every
-push ([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), running `deploy.sh fetch` as the
-build and `deploy.sh deploy` as the deploy). Its database has no jurisdiction; if personal data must stay in the EU,
+push ([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), running `npm run build` as the
+build and `npm run deploy` as the deploy). Its database has no jurisdiction; if personal data must stay in the EU,
 create one as above afterwards, put its ID in, push, and delete the button's.
 
 ### 2. The legal documents and the operator
@@ -74,7 +74,7 @@ The Worker serves the installation's documents from `legal/`: `terms.md` (with t
 organizers accept by using the service) and `privacy.md` (the operator's own notice, naming the subprocessors:
 Cloudflare, Restate Cloud, Clerk, drand). They ship as engineering drafts marked as templates: fill in the bracketed
 parts, have a lawyer review them, and delete the marker. A document that still carries the template marker makes
-the Worker refuse every request, and `deploy.sh deploy` refuses to deploy it (`--allow-templates` to deploy anyway). Their versions (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`) and
+the Worker refuse every request. Their versions (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`) and
 the operator's name and email (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`) are secrets, next. A changed document is
 a new version, shown with it; a change to the processing agreement is notified to organizers directly, since nothing
 records who read which version. Your record of processing, and what changed in the templates, are in [the
@@ -106,23 +106,22 @@ RAFI_PRIVACY_VERSION=2026-10
 installation's, so it travels with the others. Then:
 
 ```sh
-./deploy.sh fetch                  # the release into rafi/, checked against RAFI_SHA256 (unpinned: its SHA256SUMS)
-wrangler deploy                    # the first time: creates the Worker and stops at the missing secrets
-wrangler secret bulk .dev.vars
-./deploy.sh deploy                 # legal/ into place, the D1 migrations, then the deploy
+npm install                        # wrangler, at the version the release was checked with
+npm run build                      # the release into worker/, with legal/ copied in
+npx wrangler deploy                # the first time: creates the Worker and stops at the missing secrets
+npx wrangler secret bulk .dev.vars
+npm run deploy                     # the D1 migrations, then the deploy
 ```
 
 The very first `deploy` creates the Worker and stops at the missing secrets (there is no Worker to hold them yet);
 `secret bulk` then sets them, and the deploy is run again. From then on, a deploy that is missing one refuses, and
-`./deploy.sh` is every deploy: the release, the migrations, the Worker. Never rotate `RAFI_POW_KEY` during an
-event.
+`npm run build && npm run deploy` is every deploy: the release, the migrations, the Worker. Never rotate
+`RAFI_POW_KEY` during an event.
 
-Pin the release while you are at it: `RAFI_SHA256` in `deploy.sh`, the tarball's SHA256 as the release page shows
-it next to the asset (GitHub computes one for every upload, and the release workflow checks it is the build's).
-Pinned, `fetch` checks the download against your copy's hash, not against checksums served next to the tarball,
-so your repository says which bytes you deploy and an asset that changed under its version is refused. The
-template ships the pin empty, because it can't know the hash of a release that hasn't been built yet; an upgrade
-is then the two lines, version and hash ([Upgrades](upgrades.md#database-migrations)).
+The release page shows `worker.tar.gz`'s SHA256 digest next to it (GitHub computes one for every upload, and the
+release workflow checks it is the build's); releases are immutable once published, so the asset under a version
+doesn't change. `gh attestation verify worker.tar.gz -R sagikazarmark/rafi` checks that GitHub built it from the
+tag. An upgrade is the version in `package.json` ([Upgrades](upgrades.md#database-migrations)).
 
 The Worker refuses every request without its documents, `RAFI_POW_KEY`, `RAFI_ENGINE_INGRESS_URL`,
 `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, the operator and the document
@@ -147,7 +146,7 @@ Open `/healthz`, `/terms` and `/privacy`, then run a test-mode raffle end to end
 secret and its documents (anything missing answers `500 misconfigured`, naming it when that names no value); it does not check the database's schema against the build (apply the migrations first, as above).
 
 Nothing in this repository's CI holds a Cloudflare token: deploys are yours (Workers Builds from your repository,
-or `./deploy.sh`). CI does run the production shape through `wrangler deploy --dry-run`, serves it without
+or `npm run deploy`). CI does run the production shape through `wrangler deploy --dry-run`, serves it without
 secrets, and deploys (dry) the artifact through `deploy/cloudflare` ([Testing](../development/testing.md#workers)),
 so what a release ships has been built and validated the way `wrangler deploy` builds and validates it.
 
@@ -168,11 +167,14 @@ What only a real deploy can check, so check it on the first one:
 Instead of a release, build the artifact here and point your copy of `deploy/cloudflare` at it:
 
 ```sh
-just cloudflare-artifact /path/to/your/installation/rafi            # the Worker, the static files, the migrations
-(cd /path/to/your/installation && ./deploy.sh deploy)
+just cloudflare-artifact /path/to/your/installation/worker          # the Worker, the static files, the migrations
+cd /path/to/your/installation
+mkdir -p worker/worker-assets/legal && cp legal/terms.md legal/privacy.md worker/worker-assets/legal/
+npm run deploy
 ```
 
-`just cloudflare-artifact` is what the release workflow runs; `deploy.sh deploy` alone skips the fetch.
+`just cloudflare-artifact` is what the release workflow packs; `npm run build` would replace it with the download,
+so copy `legal/` in by hand and deploy.
 
 ## Data residency
 

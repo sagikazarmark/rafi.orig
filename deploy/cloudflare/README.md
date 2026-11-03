@@ -1,15 +1,23 @@
 # Rafi on Cloudflare Workers
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sagikazarmark/rafi/tree/v0.1.0/deploy/cloudflare)
+
 One installation of [Rafi](https://github.com/sagikazarmark/rafi), the verifiable raffle for in-person events,
 on your own Cloudflare account: one Worker and one D1 database, with [Restate Cloud](https://cloud.restate.dev)
-running the raffle engine and [Clerk](https://clerk.com) signing organizers in. Nothing here is built: `deploy.sh`
-fetches a release of Rafi and deploys it with your configuration.
+running the raffle engine and [Clerk](https://clerk.com) signing organizers in. Nothing here is compiled:
+`npm run build` downloads a release of Rafi and puts your legal documents into it, and `npm run deploy` deploys it
+with your configuration. The button does both from a repository of yours ([the quick way](#the-quick-way)); the
+steps below do the same by hand.
+
+The button deploys the template as it is at the release this README is from (`v0.1.0`), so the template and the
+release it downloads always agree.
 
 ```
 wrangler.toml       the Worker's shape, with your database ID and domain
 legal/              your terms and privacy notice
 .dev.vars.example   your secrets: what each is, and how to set them
-deploy.sh           fetch the release it names (and pins), put legal/ in place, migrate, deploy
+package.json        the release it deploys (config.rafi_version), and the build and deploy scripts
+worker/             what `npm run build` downloads (the release, with legal/ copied in); not tracked
 ```
 
 ## You'll need
@@ -21,7 +29,8 @@ deploy.sh           fetch the release it names (and pins), put legal/ in place, 
   ([install](https://docs.restate.dev/develop/local_dev#running-restate-server--cli-locally));
 - a [Clerk](https://clerk.com) account;
 - your legal documents (below), reviewed, and the name and email of the operator (you);
-- `wrangler` ([install](https://developers.cloudflare.com/workers/wrangler/install-and-update/)), `curl`, `tar`.
+- [Node.js](https://nodejs.org) with npm (`npm install` brings the `wrangler` the release was checked with),
+  `curl`, `tar`.
 
 ## Deploy
 
@@ -48,86 +57,91 @@ before it gave you):
 4. **The database.**
 
    ```sh
-   wrangler d1 create rafi --jurisdiction eu   # paste the database_id it prints into wrangler.toml
+   npm install
+   npx wrangler d1 create rafi --jurisdiction eu   # paste the database_id it prints into wrangler.toml
    ```
 
-5. **Your legal documents**: [below](#your-legal-documents). `deploy.sh deploy` refuses to deploy the templates.
+5. **Your legal documents**: [below](#your-legal-documents). The Worker refuses every request while one is still
+   the template.
 6. **The secrets.** `cp .dev.vars.example .dev.vars` and fill it in (`.dev.vars` is ignored by git): the URL, the
    Restate and Clerk values above, a proof-of-work key (`openssl rand -hex 32`), the operator and the documents'
    versions.
 7. **Deploy.**
 
    ```sh
-   ./deploy.sh fetch                # the release -> rafi/, checked against its checksums
-   wrangler deploy                  # the first time: creates the Worker, stops at the missing secrets
-   wrangler secret bulk .dev.vars
-   ./deploy.sh deploy               # legal/ into place, the D1 migrations, the deploy
+   npm run build                    # the release -> worker/, with legal/ copied in
+   npx wrangler deploy              # the first time: creates the Worker, stops at the missing secrets
+   npx wrangler secret bulk .dev.vars
+   npm run deploy                   # the D1 migrations, then the deploy
    ```
 
    Open `https://<your domain>/healthz`: it answers `ok` and the version. Anything else answers `misconfigured`
-   with the reason (`wrangler tail` has the whole of it).
+   with the reason (`npx wrangler tail` has the whole of it).
 8. **Register the raffle engine** with Restate, once the Worker answers:
 
    ```sh
    restate deployments register https://raffle.example.org/restate
    ```
 
-Every later deploy is `./deploy.sh`.
+Every later deploy is `npm run build && npm run deploy`. (`npm install` writes a `package-lock.json`; commit it,
+it pins wrangler's own dependencies.)
 
-**The quick way.** The button copies this directory into a repository of yours, creates the database and the
-Durable Object, asks for the secrets, and deploys from that repository on every push
-([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)); `package.json` is there so it picks
-`./deploy.sh fetch` as the build command and `./deploy.sh deploy` as the deploy command (check them on the setup
+### The quick way
+
+The button copies this directory into a repository of yours, creates the database and the Durable Object, asks for
+the secrets, and deploys from that repository on every push
+([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)), with `npm run build` as the build
+command and `npm run deploy` as the deploy command, which it takes from `package.json` (check them on the setup
 page). You still need steps 1 to 3 and 8. Two things differ:
 
 - **its database is not in the EU**: the button creates one without a jurisdiction. If personal data must stay in
   the EU, create one with `--jurisdiction eu` as above, put its ID in `wrangler.toml`, push, and delete the
   button's;
-- **its first deploy fails** on the template documents: fill in `legal/` in the repository it made (below) and
-  push, which deploys.
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sagikazarmark/rafi/tree/v0.1.0/deploy/cloudflare)
-
-The button deploys the template as it is at the release this README is from (`v0.1.0`), so the template and the
-release it fetches always agree.
+- **its first deploy serves nothing**: the Worker refuses every request while `legal/` holds the templates. Fill
+  them in in the repository it made (below) and push, which deploys.
 
 ## Your legal documents
 
 The Worker serves your terms (with the data processing agreement organizers accept by using the service) and
 your privacy notice (naming you and the subprocessors: Cloudflare, Restate Cloud, Clerk, drand) from
-[`legal/terms.md`](legal/terms.md) and [`legal/privacy.md`](legal/privacy.md). They ship as engineering drafts
-marked **Template.**: fill in the bracketed parts, have a lawyer review them, delete the marker. `deploy.sh deploy`
-refuses a document that still carries it (`--allow-templates` deploys anyway, and the Worker then refuses every
-request, saying why). Their versions are the `RAFI_TERMS_VERSION` and `RAFI_PRIVACY_VERSION` secrets (e.g.
-`2026-10`); a changed document is a new version.
+[`legal/terms.md`](legal/terms.md) and [`legal/privacy.md`](legal/privacy.md), which `npm run build` copies into
+`worker/worker-assets/legal/`. They ship as engineering drafts marked **Template.**: fill in the bracketed parts,
+have a lawyer review them, delete the marker. While a document still carries it, the Worker refuses every request,
+saying why. Their versions are the `RAFI_TERMS_VERSION` and `RAFI_PRIVACY_VERSION` secrets (e.g. `2026-10`); a
+changed document is a new version.
 
 ## Upgrading
 
-Change the two lines at the top of [`deploy.sh`](deploy.sh), `RAFI_VERSION` and `RAFI_SHA256`, and deploy. The
-hash is the tarball's SHA256 as the release page shows it next to the asset (GitHub computes one for every upload;
-the release workflow checks it is the one the build produced). Pinned, it is what `deploy.sh fetch` checks the
-download against, so your repository says which bytes you deploy, and a release asset that changed under its
-version is refused; the template ships it empty (it can't know the hash of a release not yet built), and until you
-pin one the download is checked against the release's own `SHA256SUMS`, which catches a corrupt download and
-nothing else.
+Change `config.rafi_version` in [`package.json`](package.json) to the new release and push (Workers Builds then
+builds and deploys it), or run `npm run build && npm run deploy`. A `RAFI_VERSION` build variable (in Workers
+Builds, among the Worker's build settings; by hand, `RAFI_VERSION=<version> npm run build`) overrides the version
+`package.json` names.
 
-The tarball's provenance is attested: GitHub built it from the tag, in the release workflow. To check it before
-pinning (with the GitHub CLI):
+A release has one asset, `worker.tar.gz`. GitHub shows its SHA256 digest next to it on the release page (computed
+on upload; the release workflow checks it is the one the build produced, and the repository's releases are
+immutable, so the asset can't change under its tag once published). Its provenance is attested: GitHub built it
+from the tag, in the release workflow. To check both (with the GitHub CLI):
 
 ```sh
-curl -fsSLO https://github.com/sagikazarmark/rafi/releases/download/v<version>/rafi-cloudflare-<version>.tar.gz
-gh attestation verify rafi-cloudflare-<version>.tar.gz -R sagikazarmark/rafi
+curl -fsSLO https://github.com/sagikazarmark/rafi/releases/download/v<version>/worker.tar.gz
+sha256sum worker.tar.gz                                     # the digest the release page shows
+gh attestation verify worker.tar.gz -R sagikazarmark/rafi
 ```
 
 `/healthz` answers `ok` and the version running, so you can tell which release a Worker is on.
 
-The release notes say when `wrangler.toml` or `.dev.vars.example` changed shape, or when an upgrade needs a step
-of yours; compare yours with the template at that release's tag then.
+The release notes say when `wrangler.toml`, `package.json` or `.dev.vars.example` changed shape, or when an
+upgrade needs a step of yours; compare yours with the template at that release's tag then.
 
 ## From source
 
-In the Rafi repository, `just cloudflare-artifact /path/to/your/copy/rafi` builds what a release holds,
-into this directory's `rafi/`; then `./deploy.sh deploy` here.
+In the Rafi repository, `just cloudflare-artifact /path/to/your/copy/worker` builds what a release holds, into
+this directory's `worker/`; then, here, put `legal/` in place and deploy without downloading:
+
+```sh
+mkdir -p worker/worker-assets/legal && cp legal/terms.md legal/privacy.md worker/worker-assets/legal/
+npm run deploy
+```
 
 The full operations guide, with what to check after the first deploy:
 [docs/operations/cloudflare.md](https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md).

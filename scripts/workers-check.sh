@@ -24,12 +24,13 @@
 #   6. deploy/cloudflare, what an installation deploys: its wrangler.toml
 #      agrees with the Worker's on the paths and the required secrets, and
 #      the release of the version it pins is rehearsed the way a tag releases
-#      it (scripts/cloudflare-release.sh): packaged, fetched by a copy of the
-#      template with its own deploy.sh, and deployed (dry).
+#      it (scripts/cloudflare-release.sh): packaged, downloaded and put in
+#      place by a copy of the template with its own `npm run build`, and
+#      deployed (dry).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node, just,
 # dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the
-# participant page), python3 and curl (the release rehearsal).
+# participant page), npm and curl (the release rehearsal).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -300,12 +301,12 @@ if command -v dx >/dev/null; then
   fi
   echo "ok   the template's shape is the Worker's"
   # The release of the version the template pins, as a tag releases it: the
-  # same script, so a broken fetch, checksum or tarball shows here, not on
+  # same script, so a broken download, tarball or dry deploy shows here, not on
   # the tag.
-  pinned="$(sed -n 's/^RAFI_VERSION=//p' "$ROOT/deploy/cloudflare/deploy.sh")"
+  pinned="$(node -p "require('$ROOT/deploy/cloudflare/package.json').config.rafi_version")"
   WRANGLER="$WRANGLER" "$ROOT/scripts/cloudflare-release.sh" "$pinned" "$STATE/release" >"$LOGS/release.log" 2>&1 \
     || { tail -30 "$LOGS/release.log" >&2; exit 1; }
-  echo "ok   deploy/cloudflare fetches and deploys the release of $pinned (dry run)"
+  echo "ok   deploy/cloudflare builds and deploys the release of $pinned (dry run)"
 else
   step "the production shape: skipped (needs dx for the assets)"
 fi

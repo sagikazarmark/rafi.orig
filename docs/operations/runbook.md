@@ -49,9 +49,9 @@ wrangler versions list          # the versions, newest first
 wrangler rollback <version-id>  # the one before
 ```
 
-Then set `RAFI_VERSION` and `RAFI_SHA256` in `deploy.sh` back to the release you rolled back to, so the next
-`./deploy.sh` doesn't undo the rollback. `/healthz` answers the version running. Natively, start the previous
-binaries.
+Then set `config.rafi_version` in your installation's `package.json` back to the release you rolled back to, so
+the next build and deploy don't undo the rollback. `/healthz` answers the version running. Natively, start the
+previous binaries.
 
 ## When the raffle engine is down during an event
 

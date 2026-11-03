@@ -1,13 +1,15 @@
 # Rafi on Cloudflare Workers: one installation's configuration. This is the
 # Worker's shape as the Rafi repository ships it (apps/worker/wrangler.toml),
-# pointed at a release's files in rafi/ (deploy.sh puts them there), with
-# your database and domain in place of the placeholders. Everything else of
-# yours is a secret (.dev.vars.example lists them) or a file in legal/.
+# pointed at a release's files in worker/ (`npm run build` unpacks them there,
+# with legal/ copied in), with your database and domain in place of the
+# placeholders. Everything else of yours is a secret (.dev.vars.example lists
+# them) or a file in legal/. The release is the one package.json names
+# (config.rafi_version); `npm run deploy` applies the D1 migrations, then deploys.
 #
 # Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
 
 name = "rafi"
-main = "rafi/build/index.js"
+main = "worker/build/index.js"
 compatibility_date = "2026-10-01"
 # Only your domain: no *.workers.dev address, no preview URLs (a preview would
 # share production's database and objects). Add your domain once the Worker
@@ -17,23 +19,23 @@ preview_urls = false
 # routes = [{ pattern = "raffle.example.org", custom_domain = true }]
 
 # The web app's files, the participant scripts and your legal documents
-# (legal/, copied in by deploy.sh). A path that isn't a file goes to the
+# (legal/, copied in by `npm run build`). A path that isn't a file goes to the
 # Worker, which serves the web app's page itself (with a Content-Security-Policy
 # naming your Clerk host). The binding is how the Worker reads the legal
 # documents. (/__scheduled is how `wrangler dev --test-scheduled` fires the
 # Cron Trigger; deployed, it is a path like any other.)
 [assets]
-directory = "rafi/worker-assets"
+directory = "worker/worker-assets"
 binding = "ASSETS"
 
 # Your database. Deploy to Cloudflare creates it and fills the ID in; by
 # hand: `wrangler d1 create rafi --jurisdiction eu`, and paste the ID here.
-# The migrations run before each deploy (deploy.sh).
+# The migrations run before each deploy (`npm run deploy`).
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000"
-migrations_dir = "rafi/migrations/sqlite"
+migrations_dir = "worker/migrations/sqlite"
 
 # One live channel per raffle, in the jurisdiction RAFI_DO_JURISDICTION names.
 [[durable_objects.bindings]]

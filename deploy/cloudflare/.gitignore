@@ -1,4 +1,5 @@
-# What deploy.sh fetches (a release of Rafi) or a build from source puts here.
-rafi/
+# The release `npm run build` unpacks (or a build from source), with legal/ copied in.
+worker/
+node_modules/
 .dev.vars
 .wrangler/

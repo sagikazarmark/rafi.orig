@@ -463,6 +463,15 @@ copy → announce.
   README's Upgrading shows `gh attestation verify`. `just release` packs with GNU tar (`--sort=name`,
   `--mtime=@$SOURCE_DATE_EPOCH`, no owner, `gzip -n`): two local builds of 0.1.0 gave the same SHA256. Open: two CI
   builds compared, the attestation verified.
+- **Since** (2026-11-03): the template's `deploy.sh` is gone, replaced by `package.json` scripts: `npm run build`
+  downloads the release `config.rafi_version` names (`RAFI_VERSION` overrides it) into `worker/` and copies
+  `legal/` in, `npm run deploy` applies the D1 migrations and deploys. A release is one asset, `worker.tar.gz`
+  (the artifact at the top level, still packed reproducibly), with no `SHA256SUMS` and no `RAFI_SHA256` pin:
+  GitHub's digest of the asset (checked against the build's before the draft is published), immutable releases
+  and the attestation (now `subject-path`) stand for them. Nothing refuses unedited templates at deploy time any
+  more (T2-4's `--allow-templates` went with `deploy.sh`); the Worker refuses every request while one carries
+  the marker. T2-8's wrangler pin is the template's devDependency, `wrangler` 4.148.0. Read `./deploy.sh fetch`
+  above as `npm run build`, and `rafi-cloudflare-0.1.0.tar.gz` as `worker.tar.gz`.
 
 #### T2-6 · Licensing and attribution
 
@@ -1440,8 +1449,8 @@ The tag is ready when every line is true.
 - [ ] One `workflow_dispatch` dry run and one `v0.1.0-rc.1` pre-release exist; the release job depends on CI.
 - [ ] One real Cloudflare deploy from the rehearsal tarball drew a raffle end to end with real drand; the six
       "first deploy" items in `cloudflare.md` are dated; startup time recorded.
-- [ ] `./deploy.sh fetch && ./deploy.sh deploy` from a clean copy of `deploy/cloudflare` with edited templates
-      reaches `/healthz` → `ok 0.1.0`; with unedited templates it refuses.
+- [ ] `npm install && npm run build && npm run deploy` from a clean copy of `deploy/cloudflare` with edited
+      templates reaches `/healthz` → `ok 0.1.0`; with unedited templates the Worker refuses every request.
 - [ ] A stranger deployed from the README in under an hour; their notes are folded in.
 - [ ] `gh attestation verify` passes on the tarball; two builds of the tag are byte-identical.
 - [x] `OFL.txt` beside the fonts; the admin footer links the source and shows the version; `/v/<slug>` links
