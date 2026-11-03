@@ -17,7 +17,7 @@ name: Deploy
 #      repository's configurations against the release or each other;
 #   2. migrate: the D1 migrations;
 #   3. live: the live Worker (the raffles' live channels), only when its
-#      code or live.wrangler.toml changed (a deploy of it drops every phone's
+#      code or wrangler.live.toml changed (a deploy of it drops every phone's
 #      live connection);
 #   4. app and engine, side by side: the app Worker's new version uploaded,
 #      not serving yet (on a first install, deployed directly), and this
@@ -67,7 +67,7 @@ on:
       - VERSION
       - "VERSION.*"
       - "legal/**"
-      - "*.wrangler.toml"
+      - "wrangler.*.toml"
   workflow_dispatch:
 
 permissions:

@@ -7,20 +7,21 @@ name: Restate cleanup
 # finishes every invocation on the deployment it started on, so an earlier
 # release's engine keeps serving until nothing is pinned to it any more.
 #
-# The work is deploy.sh cleanup, of the release named in the version file
-# (VERSION, or VERSION.<environment>; downloaded and verified as deploy.yaml
-# does): only this installation's engine deployments (by the metadata
-# deploy.sh registers them with: the app Worker's name and the account) that
-# Restate reports Drained are touched, each deployment removed from Restate,
-# then its Worker deleted. Those still draining are listed with their pinned
+# One job: the release named in the version file (VERSION, or
+# VERSION.<environment>) downloaded and verified as deploy.yaml does,
+# unpacked into release/, the tools installed, then its deploy.sh cleanup:
+# only this installation's engine deployments (by the metadata deploy.sh
+# registers them with: the app Worker's name and the account) that Restate
+# reports Drained are touched, each deployment removed from Restate, then
+# its Worker deleted. Those still draining are listed with their pinned
 # invocations: a paused one waits for you (restate invocations resume <id>
-# --deployment latest, or restate invocations kill <id>). Engine Workers no
-# Restate deployment refers to are listed, never deleted, and so are
-# deployments that aren't this installation's, never touched. The report
-# is the run's summary; the JSON deploy.sh read and wrote (with
-# cleanup.json, the cleanup's summary) is kept as an artifact of the run,
-# cleanup-json-<job>-<attempt>, for 14 days. The tools come from
-# package.json, as in deploy.yaml.
+# --deployment latest, or restate invocations kill <id>). Engine Workers
+# (<engine name>-v...) none of this installation's deployments refers to are
+# listed, never deleted, and so are deployments that aren't this
+# installation's, never touched. The report is the run's summary; the JSON
+# deploy.sh read and wrote (with cleanup.json, the cleanup's summary) is
+# kept as an artifact of the run, cleanup-json-<job>-<attempt>, for 14 days.
+# The tools come from package.json, as in deploy.yaml.
 #
 # Upgrading and several installations in one repository: see deploy.yaml
 # (copy this file with it, the same CLOUDFLARE_ENV, concurrency group and
@@ -49,14 +50,15 @@ defaults:
     shell: bash
 
 jobs:
-  # Downloads and verifies the release, as deploy.yaml's prepare job does,
-  # without running anything of it: the cleanup job runs its deploy.sh.
-  prepare:
-    name: Prepare the release
+  cleanup:
+    name: Remove drained engine deployments
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      sha256: ${{ steps.download.outputs.sha256 }}
+    # A GitHub environment (Settings > Environments) holding the secrets, as
+    # deploy.yaml's jobs may name it.
+    # environment: production
+    timeout-minutes: 20
+    env:
+      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
 
     steps:
       - name: Checkout repository
@@ -83,7 +85,6 @@ jobs:
           echo "Rafi $version ($file) from $RAFI_REPOSITORY"
 
       - name: Download the release
-        id: download
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -91,9 +92,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/rafi"
           mkdir -p "$RUNNER_TEMP/rafi"
           gh release download "v$VERSION" -R "$RAFI_REPOSITORY" -p worker.tar.gz -D "$RUNNER_TEMP/rafi"
-          sha256="$(sha256sum "$RUNNER_TEMP/rafi/worker.tar.gz" | cut -d' ' -f1)"
-          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
-          echo "worker.tar.gz: sha256:$sha256"
+          echo "worker.tar.gz: sha256:$(sha256sum "$RUNNER_TEMP/rafi/worker.tar.gz" | cut -d' ' -f1)"
 
       # As in deploy.yaml: release.yaml, at the tag v<version>, in the Rafi
       # repository, on a GitHub-hosted runner, or nothing runs.
@@ -108,30 +107,12 @@ jobs:
             --source-ref "refs/tags/v$VERSION" \
             --deny-self-hosted-runners
 
-      - name: Hand it to the cleanup
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: rafi-release
-          path: ${{ runner.temp }}/rafi/worker.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+      - name: Unpack it into release/
+        run: |
+          rm -rf release
+          mkdir release
+          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
 
-  cleanup:
-    name: Remove drained engine deployments
-    needs: prepare
-    runs-on: ubuntu-latest
-    # A GitHub environment (Settings > Environments) holding the secrets, as
-    # deploy.yaml's jobs may name it.
-    # environment: production
-    timeout-minutes: 20
-    env:
-      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -142,19 +123,6 @@ jobs:
       # npx -y); a committed package-lock.json pins their versions.
       - name: Install wrangler and the Restate CLI
         run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-      - name: Get the release
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: rafi-release
-          path: ${{ runner.temp }}/rafi
-      - name: Unpack it into release/
-        env:
-          SHA256: ${{ needs.prepare.outputs.sha256 }}
-        run: |
-          echo "$SHA256  $RUNNER_TEMP/rafi/worker.tar.gz" | sha256sum -c -
-          rm -rf release
-          mkdir release
-          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
 
       - name: Remove the drained engine deployments and their Workers
         env:

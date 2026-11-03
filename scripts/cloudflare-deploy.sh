@@ -10,7 +10,7 @@
 # GitHub Actions.
 #
 # Usage, from the root of an installation's repository (a copy of deploy/cloudflare: VERSION,
-# package.json, app.wrangler.toml, engine.wrangler.toml, live.wrangler.toml, legal/), with the
+# package.json, wrangler.app.toml, wrangler.engine.toml, wrangler.live.toml, legal/), with the
 # release unpacked into release/ (the directory this script is in is the release; the
 # configurations point into it as release/...):
 #
@@ -65,7 +65,7 @@
 #   or the configurations have their files, or searches for the template's placeholders: a
 #   missing file or a placeholder left fails where wrangler or Cloudflare meets it. Then, but
 #   for migrate, the Workers' names: `wrangler deploy --dry-run` of each configuration
-#   (live.wrangler.toml, engine.wrangler.toml, app.wrangler.toml, for CLOUDFLARE_ENV's
+#   (wrangler.live.toml, wrangler.engine.toml, wrangler.app.toml, for CLOUDFLARE_ENV's
 #   environment: wrangler refuses a configuration that doesn't deploy, an environment it lacks
 #   among others), each name the worker_name of the dry run's deploy entry in wrangler's
 #   ND-JSON output; this release's engine Worker is <engine name>-v<version>. Nothing compares
@@ -83,13 +83,13 @@
 #     key or token that doesn't work, fails it. Reads only.
 #   migrate: `wrangler d1 migrations apply DB --remote` (the app's configuration).
 #   deploy-live: the live Worker's fingerprint is the sha256 of its bundle's files
-#     (release/live/build), live.wrangler.toml's bytes and CLOUDFLARE_ENV; its tag,
+#     (release/live/build), wrangler.live.toml's bytes and CLOUDFLARE_ENV; its tag,
 #     live-<32 hex digits of it>, is the version annotation (workers/tag) of each live Worker
 #     version this deploys. When the Worker's current deployment is one version at 100% with
 #     that tag (Cloudflare's API: the script's latest deployment, then that version's
 #     annotations), nothing is deployed: the live channels' connections are kept. Otherwise
 #     `wrangler deploy` (the class's Durable Object migrations need it); any edit of
-#     live.wrangler.toml, a comment too, deploys it.
+#     wrangler.live.toml, a comment too, deploys it.
 #   upload-app: legal/terms.md and legal/privacy.md copied into the app's static files
 #     (release/app/assets/legal/); then, if the app Worker has ever run a release's code (a
 #     version tagged v<version>, in its current deployment or among its recent versions),
@@ -125,9 +125,11 @@
 #     Reported (and summarized in cleanup.json): what was removed and deleted; those still
 #     draining, with their active and paused invocations (a paused one waits for a human:
 #     resume it on the latest deployment or kill it); the Workers left behind, those whose
-#     deletion failed and the account's <engine name>-v... Workers no Restate deployment refers
-#     to (never deleted here: delete them by hand); and every deployment that isn't this
-#     installation's (never touched).
+#     deletion failed and the account's <engine name>-v... Workers none of this installation's
+#     Restate deployments refers to (by its address or its metadata's worker; another
+#     installation's deployment doesn't count; this release's own engine, not registered yet,
+#     excepted; never deleted here: delete them by hand); and every deployment that isn't
+#     this installation's (never touched).
 #   dry-run: legal/ copied in, and the three `wrangler deploy --dry-run` that read the names
 #     (the live Worker, the engine Worker, the app Worker); no credentials.
 #
@@ -287,9 +289,9 @@ engine_worker_name() {
 # Sets RELEASE, VERSION and the configurations' paths.
 read_release() {
   RELEASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-  APP_CONFIG="$PWD/app.wrangler.toml"
-  ENGINE_CONFIG="$PWD/engine.wrangler.toml"
-  LIVE_CONFIG="$PWD/live.wrangler.toml"
+  APP_CONFIG="$PWD/wrangler.app.toml"
+  ENGINE_CONFIG="$PWD/wrangler.engine.toml"
+  LIVE_CONFIG="$PWD/wrangler.live.toml"
   step "release $RELEASE"
   VERSION="$(read_version "$RELEASE/VERSION" "is $RELEASE an unpacked Rafi release?")" || exit 1
   say "Rafi $VERSION (the release's VERSION)"
@@ -473,7 +475,7 @@ sha256() {
 }
 
 # The live Worker's tag: live-<the first 32 hex digits of the sha256 of its bundle's files (each
-# one's path, size and content, in path order), live.wrangler.toml (its size and bytes) and
+# one's path, size and content, in path order), wrangler.live.toml (its size and bytes) and
 # CLOUDFLARE_ENV>.
 live_tag() {
   local build="$RELEASE/live/build" rel hash
@@ -483,7 +485,7 @@ live_tag() {
         printf 'build/%s\0%s\0' "$rel" "$(wc -c <"$build/$rel" | tr -d '[:space:]')"
         cat "$build/$rel"
       done < <(cd "$build" && find . -type f -print | sed 's|^\./||' | LC_ALL=C sort)
-      printf 'live.wrangler.toml\0%s\0' "$(wc -c <"$LIVE_CONFIG" | tr -d '[:space:]')"
+      printf 'wrangler.live.toml\0%s\0' "$(wc -c <"$LIVE_CONFIG" | tr -d '[:space:]')"
       cat "$LIVE_CONFIG"
       printf 'CLOUDFLARE_ENV\0%s\0' "${CLOUDFLARE_ENV:-}"
     } | sha256
@@ -503,7 +505,7 @@ cmd_deploy_live() {
   require_env CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
   step "live Worker $LIVE_NAME"
   tag="$(live_tag)" || die "couldn't fingerprint the live Worker"
-  say "this release's live Worker: $tag (its bundle and live.wrangler.toml)"
+  say "this release's live Worker: $tag (its bundle and wrangler.live.toml)"
   cf_deployed "$LIVE_NAME"
   if [ "$WORKER_EXISTS" = no ]; then
     say "not deployed yet"
@@ -530,7 +532,7 @@ cmd_upload_app() {
   step "app Worker $APP_NAME"
   cf_deployed "$APP_NAME"
   if [ "$WORKER_EXISTS" = no ]; then
-    die "the app Worker $APP_NAME doesn't exist on the account: before the first deploy, create it with its secrets (${CLOUDFLARE_ENV:+CLOUDFLARE_ENV=$CLOUDFLARE_ENV }npx -y wrangler secret bulk .dev.vars -c app.wrangler.toml, from .dev.vars.example)"
+    die "the app Worker $APP_NAME doesn't exist on the account: before the first deploy, create it with its secrets (${CLOUDFLARE_ENV:+CLOUDFLARE_ENV=$CLOUDFLARE_ENV }npx -y wrangler secret bulk .dev.vars -c wrangler.app.toml, from .dev.vars.example)"
   fi
   # A release's code has run here when a version tagged v<version> is deployed, or was (a secret
   # changed since makes a new version, untagged).
@@ -722,13 +724,17 @@ Version \`$RAFI_APP_VERSION_ID\` (Rafi v$VERSION) deployed at 100%, with its rou
 # per leftover Worker:
 #   ours <status> <id> <worker> <active invocations>
 #   other <id> <address> <why>
-#   leftover <worker>      an <engine name>-v<version> Worker no Restate deployment refers to
+#   leftover <worker>      an <engine name>-v<version> Worker none of this installation's Restate
+#                          deployments (app rafi, instance the app Worker's name, this account)
+#                          refers to by its address or its metadata's worker; another
+#                          installation's deployment referring to it doesn't count
 cleanup_plan() {
   jq -nr --arg base "$ENGINE_BASE" --arg instance "$APP_NAME" --arg account "$CLOUDFLARE_ACCOUNT_ID" \
     --slurpfile admin "$ARTIFACTS/restate-deployments.json" \
     --slurpfile cli "$ARTIFACTS/restate-deployments-list.json" \
     --slurpfile workers "$ARTIFACTS/cloudflare-workers.json" '
     def clean: if . == null then "" else tostring end | gsub("[\t\n\r]"; " ");
+    def mine($m): $m.app == "rafi" and $m.instance == $instance and $m.cloudflare_account == $account;
     def why($d; $m):
       if $m.app != "rafi" then "not a Rafi deployment (no app=rafi metadata)"
       elif $m.instance != $instance then "another installation (\($m.instance | clean))"
@@ -751,7 +757,8 @@ cleanup_plan() {
         | if $why != null then ["other", .id, ((.uri // .arn // "?") | clean), $why]
           else ["ours", ($status[.id].status // "Unknown" | clean), .id, $m.worker,
             ($status[.id].active_invocations // "?" | clean)] end ] as $rows
-    | ([ $deps[] | (.uri // "") | tostring | capture("^https://(?<host>[a-z0-9-]+)\\.").host ]
+    | ([ $deps[] | select(mine(.metadata // {}))
+         | (.uri // "") | tostring | capture("^https://(?<host>[a-z0-9-]+)\\.").host ]
        + [ $rows[] | select(.[0] == "ours") | .[3] ]) as $referred
     | ($rows[] | @tsv),
       ([ $scripts[] | .id ] | sort | .[]
@@ -824,8 +831,8 @@ cmd_cleanup() {
           say "the Worker $a, this release's engine, isn't registered with Restate: a deploy registers it (register-engine)"
           continue
         fi
-        say "the Worker $a: no Restate deployment refers to it; left as it is"
-        leftovers+=("\`$a\`: no Restate deployment refers to it")
+        say "the Worker $a: no Restate deployment of this installation refers to it; left as it is"
+        leftovers+=("\`$a\`: no Restate deployment of this installation refers to it")
         note leftover '{ worker: $w }' --arg w "$a"
         continue
         ;;
@@ -911,7 +918,7 @@ cmd_cleanup() {
     for line in "${draining[@]}"; do text+=$'\n'"- $line"; done
     text+=$'\n\n'"A paused invocation waits for you: resume it on the latest deployment (\`restate invocations resume <id> --deployment latest\`) or kill it (\`restate invocations kill <id>\`)."
   fi
-  text+=$'\n\n'"**Workers left behind** (engine Workers no Restate deployment refers to any more: the cleanup neither deletes them nor retries a failed deletion; delete one by hand from the repository with \`CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npx -y wrangler delete <worker>\`, or on the dashboard):"
+  text+=$'\n\n'"**Workers left behind** (engine Workers no Restate deployment of this installation refers to any more: the cleanup neither deletes them nor retries a failed deletion; delete one by hand from the repository with \`CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npx -y wrangler delete <worker>\`, or on the dashboard):"
   if [ "${#behind[@]}" -eq 0 ] && [ "${#leftovers[@]}" -eq 0 ]; then
     text+=$'\n'"- none"
   else

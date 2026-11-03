@@ -4,13 +4,16 @@
 # installation copies at the release's tag, names this release (its VERSION),
 # has the package.json its workflows install wrangler and the Restate CLI
 # from and the .dev.vars.example its secrets are set from (.dev.vars
-# git-ignored), and that its two workflows (.github/workflows/deploy.yaml and
+# git-ignored), the three configurations as wrangler.<app|engine|live>.toml
+# (deploy.yaml running on a change to wrangler.*.toml), and that its two
+# workflows (.github/workflows/deploy.yaml and
 # restate-cleanup.yaml) name one Rafi repository (RAFI_REPOSITORY), verify the
 # attestation release.yaml makes, download the release the version file names
 # (VERSION.<CLOUDFLARE_ENV> when it exists, VERSION otherwise), no longer call
 # `deploy.sh check` (gone), and in each job that runs deploy.sh install the
 # tools (npm ci or npm install) and keep deploy.sh's JSON (RAFI_ARTIFACTS_DIR,
-# uploaded whatever happened), and that release.yaml makes it. Then deploy.sh's
+# uploaded whatever happened), the cleanup one job of its own, and that
+# release.yaml makes it. Then deploy.sh's
 # own checks (scripts/cloudflare-deploy-test.sh: each subcommand against a
 # stubbed wrangler and Restate CLI and a fake Cloudflare and Restate API).
 # Then the release (`just cloudflare-tarball`: worker.tar.gz, its files at the
@@ -74,6 +77,15 @@ echo "ok   deploy/cloudflare/package.json: wrangler and the Restate CLI"
 grep -qx '\.dev\.vars' "$template/.gitignore" || fail "deploy/cloudflare/.gitignore doesn't ignore .dev.vars (the secrets, filled in)"
 [ ! -e "$template/.prod.vars.example" ] || fail "deploy/cloudflare/.prod.vars.example is back: it is .dev.vars.example"
 echo "ok   deploy/cloudflare/.dev.vars.example, and .dev.vars git-ignored"
+# The three configurations, as deploy.sh reads them (-c wrangler.<Worker>.toml),
+# and the deploy's paths filter that matches them.
+for key in app engine live; do
+  [ -f "$template/wrangler.$key.toml" ] || fail "no deploy/cloudflare/wrangler.$key.toml"
+  [ ! -e "$template/$key.wrangler.toml" ] || fail "deploy/cloudflare/$key.wrangler.toml is back: it is wrangler.$key.toml"
+done
+grep -qx '      - "wrangler\.\*\.toml"' "$template/.github/workflows/deploy.yaml" \
+  || fail "deploy.yaml doesn't run on a change to wrangler.*.toml"
+echo "ok   deploy/cloudflare/wrangler.{app,engine,live}.toml, and deploy.yaml runs on their changes"
 upstream=
 for workflow in deploy.yaml restate-cleanup.yaml; do
   file="$template/.github/workflows/$workflow"
@@ -116,6 +128,14 @@ for workflow in deploy.yaml restate-cleanup.yaml; do
   [ "$runs" -gt 0 ] || fail "$workflow: no job runs deploy.sh"
   echo "ok   $workflow: releases of $repository attested by release.yaml, the one the version file names; in each job that runs deploy.sh ($runs) the tools installed and its JSON kept"
 done
+# The cleanup is one job: it downloads, verifies and runs the release itself,
+# nothing handed over between jobs.
+cleanup_jobs="$(awk '/^jobs:$/ { inside = 1; next } inside && /^  [A-Za-z0-9_-]+:$/ { n++ } END { print n + 0 }' \
+  "$template/.github/workflows/restate-cleanup.yaml")"
+[ "$cleanup_jobs" = 1 ] || fail "restate-cleanup.yaml has $cleanup_jobs jobs, not one"
+! grep -qE 'actions/download-artifact@|needs:|name: rafi-release$' "$template/.github/workflows/restate-cleanup.yaml" \
+  || fail "restate-cleanup.yaml hands the release between jobs: it is one job"
+echo "ok   restate-cleanup.yaml: one job, the release downloaded and verified in it"
 grep -q 'uses: actions/attest-build-provenance@' "$ROOT/.github/workflows/release.yaml" \
   || fail "release.yaml doesn't attest the tarball: the workflows would refuse every release"
 echo "ok   deploy/cloudflare/VERSION is $VERSION"
@@ -193,9 +213,9 @@ check_dry_run() {
   grep -qF "app Worker: $app_name (" <<<"$DRY" || fail "deploy.sh didn't name the app Worker $app_name"
   grep -qF "engine Worker: $engine_name (" <<<"$DRY" || fail "deploy.sh didn't name the engine Worker $engine_name"
   echo "ok   the dry runs name them $live_name, $engine_base (this release's: $engine_name) and $app_name"
-  live="$(section "live Worker (live.wrangler.toml)")"
-  app="$(section "app Worker (app.wrangler.toml)")"
-  engine="$(section "engine Worker (engine.wrangler.toml)")"
+  live="$(section "live Worker (wrangler.live.toml)")"
+  app="$(section "app Worker (wrangler.app.toml)")"
+  engine="$(section "engine Worker (wrangler.engine.toml)")"
   [ -n "$live" ] || { echo "$DRY" | tail -40 >&2; fail "no dry deploy of the live Worker"; }
   [ -n "$app" ] || { echo "$DRY" | tail -40 >&2; fail "no dry deploy of the app Worker"; }
   [ -n "$engine" ] || { echo "$DRY" | tail -40 >&2; fail "no dry deploy of the engine Worker"; }
@@ -266,11 +286,11 @@ step "deploy/cloudflare deploys it as a Wrangler environment (CLOUDFLARE_ENV=eu,
 # deploys the release it is part of).
 dir="$OUT/installation-eu"
 installation "$dir"
-secrets="$(sed -n '/^\[secrets\]$/,/^\]$/p' "$dir/app.wrangler.toml" | sed '1d')"
-[ -n "$secrets" ] || fail "app.wrangler.toml has no [secrets] required list"
-keys="$(sed -n 's/^RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = \(".*"\)$/\1/p' "$dir/engine.wrangler.toml")"
-[ -n "$keys" ] || fail "engine.wrangler.toml has no RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS"
-database="$(sed -n 's/^database_id = \(".*"\)$/\1/p' "$dir/app.wrangler.toml")"
+secrets="$(sed -n '/^\[secrets\]$/,/^\]$/p' "$dir/wrangler.app.toml" | sed '1d')"
+[ -n "$secrets" ] || fail "wrangler.app.toml has no [secrets] required list"
+keys="$(sed -n 's/^RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = \(".*"\)$/\1/p' "$dir/wrangler.engine.toml")"
+[ -n "$keys" ] || fail "wrangler.engine.toml has no RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS"
+database="$(sed -n 's/^database_id = \(".*"\)$/\1/p' "$dir/wrangler.app.toml")"
 {
   printf '\n[env.eu]\n'
   printf '[[env.eu.d1_databases]]\nbinding = "DB"\ndatabase_name = "rafi"\ndatabase_id = %s\nmigrations_dir = "release/migrations"\n' "$database"
@@ -282,19 +302,19 @@ database="$(sed -n 's/^database_id = \(".*"\)$/\1/p' "$dir/app.wrangler.toml")"
   done
   printf '[env.eu.vars]\nRAFI_DO_JURISDICTION = "eu"\n'
   printf '[env.eu.secrets]\n%s\n' "$secrets"
-} >>"$dir/app.wrangler.toml"
+} >>"$dir/wrangler.app.toml"
 {
   printf '\n[env.eu]\n'
   printf '[[env.eu.d1_databases]]\nbinding = "DB"\ndatabase_name = "rafi"\ndatabase_id = %s\n' "$database"
   printf '[[env.eu.durable_objects.bindings]]\nname = "RAFFLE_ROOM"\nclass_name = "RaffleRoom"\nscript_name = "rafi-live-eu"\n'
   printf '[env.eu.vars]\nRAFI_DO_JURISDICTION = "eu"\nRAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = %s\n' "$keys"
-} >>"$dir/engine.wrangler.toml"
+} >>"$dir/wrangler.engine.toml"
 {
   printf '\n[env.eu]\n'
   printf '[[env.eu.d1_databases]]\nbinding = "DB"\ndatabase_name = "rafi"\ndatabase_id = %s\n' "$database"
   printf '[[env.eu.durable_objects.bindings]]\nname = "RAFFLE_ROOM"\nclass_name = "RaffleRoom"\n'
   printf '[env.eu.vars]\nRAFI_DO_JURISDICTION = "eu"\n'
-} >>"$dir/live.wrangler.toml"
+} >>"$dir/wrangler.live.toml"
 # The environment's version file is this release; the top level's another.
 echo "$VERSION" >"$dir/VERSION.eu"
 echo "0.0.0" >"$dir/VERSION"

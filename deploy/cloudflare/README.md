@@ -8,11 +8,11 @@ Rafi release that `VERSION` names, as Rafi's release workflow built and attested
 
 ```
 VERSION                                 the Rafi release you deploy (0.1.0)
-app.wrangler.toml                       the app Worker, rafi-app (web app, API, phones' sockets, hourly
+wrangler.app.toml                       the app Worker, rafi-app (web app, API, phones' sockets, hourly
                                         housekeeping): your database ID and domain
-engine.wrangler.toml                    the raffle engine Worker, one per release (rafi-engine-v0-1-0), which
+wrangler.engine.toml                    the raffle engine Worker, one per release (rafi-engine-v0-1-0), which
                                         Restate calls: your database ID and your Restate environment's public key
-live.wrangler.toml                      the live Worker, rafi-live (the raffles' live channels): your database ID
+wrangler.live.toml                      the live Worker, rafi-live (the raffles' live channels): your database ID
 legal/                                  your terms and privacy notice
 package.json, package-lock.json        wrangler and the Restate CLI: the workflows install them (npm ci),
                                         deploy.sh runs them (npx -y); the lockfile pins them
@@ -58,7 +58,7 @@ done
 ```
 
 A change to a configuration is yours to make: compare yours with the template's at the new tag (`gh api -H
-'Accept: application/vnd.github.raw' "repos/sagikazarmark/rafi/contents/deploy/cloudflare/app.wrangler.toml?ref=v0.2.0"`,
+'Accept: application/vnd.github.raw' "repos/sagikazarmark/rafi/contents/deploy/cloudflare/wrangler.app.toml?ref=v0.2.0"`,
 and the other two), keeping your names, IDs, domain and keys.
 
 wrangler and the Restate CLI move apart from Rafi's releases, when you choose: `npm update --no-audit --no-fund`,
@@ -81,7 +81,7 @@ Deploy workflow's jobs, each on a fresh runner with the same verified release:
    touches production. Nothing checks your configurations against the release or against each other;
 2. **D1 migrations**: applies the release's migrations;
 3. **Live Worker**: deploys `rafi-live` (the `RaffleRoom` Durable Objects), only when its code or
-   `live.wrangler.toml` changed;
+   `wrangler.live.toml` changed;
 4. **App Worker (upload)** and **Engine Worker**, side by side: the app's new version uploaded, not serving yet
    (on the first deploy it is deployed directly), and this release's engine Worker, `rafi-engine-v0-1-0`, deployed
    at `https://rafi-engine-v0-1-0.<subdomain>.workers.dev/restate`;
@@ -91,7 +91,7 @@ Deploy workflow's jobs, each on a fresh runner with the same verified release:
 
 A deploy doesn't check whether a raffle is live; you choose when to deploy. What it does to live raffles:
 
-- **The live Worker** is redeployed only when its code or `live.wrangler.toml` changed (the release notes say when
+- **The live Worker** is redeployed only when its code or `wrangler.live.toml` changed (the release notes say when
   its code did; any edit of the file counts, a comment too). That restarts every live channel: phones and
   projectors lose their connection, reconnect and catch up, but the moment on the screen is lost.
 - **The app** switches to the new version: requests go to it from then on.
@@ -117,8 +117,9 @@ have every step.
   - **Still draining**: each older deployment with its active and paused invocation counts and the paused ones'
     IDs, and the commands to resume or kill a paused one ([Cleanup](#cleanup));
   - **Workers left behind**: an engine Worker whose deletion failed after its deployment was removed, and every
-    `rafi-engine-v…` Worker on the account that no Restate deployment refers to, with the `wrangler delete` command
-    to remove one by hand. The cleanup never deletes these itself;
+    `rafi-engine-v…` Worker on the account that none of this installation's Restate deployments refers to (another
+    installation's don't count), with the `wrangler delete` command to remove one by hand. The cleanup never deletes
+    these itself;
   - **Not this installation's**: deployments in the Restate environment with other metadata, never touched.
 
 Each job also keeps the JSON `deploy.sh` read and wrote as an artifact of the run (on the run's page under
@@ -158,9 +159,10 @@ their metadata:
 - deployments that aren't this installation's: listed, never touched.
 
 It also lists, and never deletes, the account's `rafi-engine-v…` Workers (this installation's engine name, then
-`-v`) that no Restate deployment refers to: one left behind by a failed deletion, or an earlier release's that a
-deploy stopped before registering (the current release's is left out: its deploy registers it). Once you're sure
-nothing needs it, delete it by hand:
+`-v`) that none of this installation's Restate deployments refers to: one left behind by a failed deletion, or an
+earlier release's that a deploy stopped before registering (the current release's is left out: its deploy registers
+it). Another installation's deployments don't count, so a Worker of another installation whose name starts the same
+is listed too: leave that one to its installation. Once you're sure nothing needs one of yours, delete it by hand:
 
 ```sh
 CLOUDFLARE_API_TOKEN=<a token with Workers Scripts Write> CLOUDFLARE_ACCOUNT_ID=<your account's ID> \
@@ -180,9 +182,9 @@ Between events, never during one, and one at a time, checking `/healthz` after e
 has each, with its order. In short:
 
 - **The app Worker's secrets** (`.dev.vars.example` lists them): `npx -y wrangler secret put <NAME> -c
-  app.wrangler.toml` from your repository (`CLOUDFLARE_ENV=<name>` first for a Wrangler environment's); deploys keep
+  wrangler.app.toml` from your repository (`CLOUDFLARE_ENV=<name>` first for a Wrangler environment's); deploys keep
   it. Never `RAFI_POW_KEY` during an event.
-- **The engine's identity keys** (`RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` in `engine.wrangler.toml`, a
+- **The engine's identity keys** (`RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` in `wrangler.engine.toml`, a
   comma-separated list): add the new public key beside the old one and push; once the cleanup has removed any older
   engine still draining (it keeps the list it was deployed with, the old key alone), have Restate sign with the new
   key; later remove the old one and push again.

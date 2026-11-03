@@ -63,15 +63,15 @@ each reading its own settings:
 
 | Worker | Reads | Where an installation sets them |
 |---|---|---|
-| The app, `rafi-app` (`rafi-worker-app`) | The app's variables above (Workers ones only: not `IP`, `PORT`, `RAFI_PUBLIC_DIR`, `RAFI_PARTICIPANT_DIR`, `RAFI_DATABASE_URL`, `RAFI_DOCS_DIR`, `RUST_LOG`), and `RAFI_DO_JURISDICTION` | Secrets on the Worker, listed under `[secrets] required` in `app.wrangler.toml`: set once before the first deploy with `wrangler secret bulk .dev.vars -c app.wrangler.toml` (`.dev.vars.example`), then `wrangler secret put <NAME> -c app.wrangler.toml`; deploys keep them. `RAFI_DO_JURISDICTION`, when set, is a var in `app.wrangler.toml`. |
-| The engine, `rafi-engine-v<version>` (`rafi-worker-engine`), one per release | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, `RAFI_DO_JURISDICTION`, the drand settings below | Vars in `engine.wrangler.toml`; no secrets. A change deploys (the release's engine Worker, the same code with the vars as they are then). |
-| The live channels, `rafi-live` (`rafi-worker-live`) | Nothing but its bindings (an installation that sets `RAFI_DO_JURISDICTION` sets it here too, so the three files say the same) | `live.wrangler.toml` |
+| The app, `rafi-app` (`rafi-worker-app`) | The app's variables above (Workers ones only: not `IP`, `PORT`, `RAFI_PUBLIC_DIR`, `RAFI_PARTICIPANT_DIR`, `RAFI_DATABASE_URL`, `RAFI_DOCS_DIR`, `RUST_LOG`), and `RAFI_DO_JURISDICTION` | Secrets on the Worker, listed under `[secrets] required` in `wrangler.app.toml`: set once before the first deploy with `wrangler secret bulk .dev.vars -c wrangler.app.toml` (`.dev.vars.example`), then `wrangler secret put <NAME> -c wrangler.app.toml`; deploys keep them. `RAFI_DO_JURISDICTION`, when set, is a var in `wrangler.app.toml`. |
+| The engine, `rafi-engine-v<version>` (`rafi-worker-engine`), one per release | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, `RAFI_DO_JURISDICTION`, the drand settings below | Vars in `wrangler.engine.toml`; no secrets. A change deploys (the release's engine Worker, the same code with the vars as they are then). |
+| The live channels, `rafi-live` (`rafi-worker-live`) | Nothing but its bindings (an installation that sets `RAFI_DO_JURISDICTION` sets it here too, so the three files say the same) | `wrangler.live.toml` |
 
 Their shapes are [`apps/worker-app/wrangler.toml`](../../apps/worker-app/wrangler.toml),
 [`apps/worker-engine/wrangler.toml`](../../apps/worker-engine/wrangler.toml) and
 [`apps/worker-live/wrangler.toml`](../../apps/worker-live/wrangler.toml), which an installation deploys from its
-copy of [`deploy/cloudflare`](../../deploy/cloudflare) (`app.wrangler.toml`, `engine.wrangler.toml`,
-`live.wrangler.toml`) with its database ID in them. The Worker names are the template's; an installation may name
+copy of [`deploy/cloudflare`](../../deploy/cloudflare) (`wrangler.app.toml`, `wrangler.engine.toml`,
+`wrangler.live.toml`) with its database ID in them. The Worker names are the template's; an installation may name
 its own, and one of several in a repository is a Wrangler environment (`[env.<name>]`), which repeats the vars, the
 bindings and the required secrets, since environments don't inherit them
 ([Several installations](../operations/cloudflare.md#several-installations)). A Worker reads vars and secrets

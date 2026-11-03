@@ -115,9 +115,10 @@ deployments (by the metadata they were registered with: the installation's app W
   The Restate CLI runs against your environment with `RESTATE_ADMIN_URL` and `RESTATE_AUTH_TOKEN` (an Admin-role
   key) set as in the workflows, or after `restate cloud login` and `restate cloud env configure`.
 
-The cleanup also reports, and never deletes, the account's engine Workers of this installation's name that no
-Restate deployment refers to (a deletion that failed, a deploy that stopped before registering), with the
-`wrangler delete` command to remove one by hand ([Cloudflare Workers](cloudflare.md#the-restate-cleanup)).
+The cleanup also reports, and never deletes, the account's engine Workers of this installation's name that none
+of this installation's Restate deployments refers to (a deletion that failed, a deploy that stopped before
+registering; another installation's deployments don't count), with the `wrangler delete` command to remove one by
+hand ([Cloudflare Workers](cloudflare.md#the-restate-cleanup)).
 
 ### Natively: by hand
 

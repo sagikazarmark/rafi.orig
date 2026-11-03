@@ -48,7 +48,7 @@ To keep them, and Restate's copy of the draws, in the EU:
   A D1 database's jurisdiction is fixed when it is created: moving one later is a new database and its data copied
   over (the [runbook's restore](https://github.com/sagikazarmark/rafi/blob/main/docs/operations/runbook.md)).
 - **The live channels' Durable Objects**: uncomment `RAFI_DO_JURISDICTION = "eu"` in all three configurations
-  (`app.wrangler.toml`, `engine.wrangler.toml`, `live.wrangler.toml`), and in every `[env.<name>.vars]` section
+  (`wrangler.app.toml`, `wrangler.engine.toml`, `wrangler.live.toml`), and in every `[env.<name>.vars]` section
   if you use [Wrangler environments](#one-repository-wrangler-environments) (environments don't inherit vars),
   before the first deploy. The app and the engine create each raffle's object in that jurisdiction; an object stays
   where it was created, so changing the setting later moves the live channels to new objects, the old ones left
@@ -71,7 +71,7 @@ these Workers (the engine is reached on workers.dev, not on your zone), is for C
 
 A latency option, not a data-residency control, and not tied to the first deploy (change it whenever you like).
 By default Cloudflare runs the app Worker's request handling in the data center nearest each visitor, which then
-reaches the D1 database and Restate Cloud from there, a round trip each. `app.wrangler.toml` has a commented-out
+reaches the D1 database and Restate Cloud from there, a round trip each. `wrangler.app.toml` has a commented-out
 `[placement]` block that runs it near them instead; uncomment `[placement]` and one of its two lines, which exclude
 each other:
 
@@ -246,8 +246,8 @@ From your repository (with `CLOUDFLARE_ACCOUNT_ID` still set, so wrangler picks 
 npx -y wrangler login
 npx -y wrangler d1 create rafi    # prints the database_id; for the EU, read "Keeping data in the EU" first
 id=<the database_id it printed>
-sed -i.bak "s/00000000-0000-0000-0000-000000000000/$id/" app.wrangler.toml engine.wrangler.toml live.wrangler.toml
-rm app.wrangler.toml.bak engine.wrangler.toml.bak live.wrangler.toml.bak
+sed -i.bak "s/00000000-0000-0000-0000-000000000000/$id/" wrangler.app.toml wrangler.engine.toml wrangler.live.toml
+rm wrangler.app.toml.bak wrangler.engine.toml.bak wrangler.live.toml.bak
 ```
 
 All three Workers use the one database (the app reads and writes it, the engine writes the draws, the live
@@ -257,16 +257,16 @@ can only be chosen here, when the database is created.
 
 ## 4. Your domain
 
-Produces: the app's hostname in `app.wrangler.toml`, and the value of `RAFI_PUBLIC_URL` (step 8).
+Produces: the app's hostname in `wrangler.app.toml`, and the value of `RAFI_PUBLIC_URL` (step 8).
 
 Pick the hostname organizers and phones will use, on your zone, with no DNS record of its own yet: each deploy
 attaches it to the app Worker as a custom domain (Cloudflare creates its DNS record and certificate), and from a
 workflow it takes over an existing record or custom domain of that name without asking. Uncomment `routes` in
-[`app.wrangler.toml`](app.wrangler.toml) with it:
+[`wrangler.app.toml`](wrangler.app.toml) with it:
 
 ```sh
-sed -i.bak 's|^# routes = .*|routes = [{ pattern = "raffle.example.org", custom_domain = true }]|' app.wrangler.toml
-rm app.wrangler.toml.bak
+sed -i.bak 's|^# routes = .*|routes = [{ pattern = "raffle.example.org", custom_domain = true }]|' wrangler.app.toml
+rm wrangler.app.toml.bak
 ```
 
 `RAFI_PUBLIC_URL` is that origin with no trailing slash, `https://raffle.example.org`: QR codes and links use it,
@@ -285,7 +285,7 @@ instance's **API keys** are `pk_live_…` (publishable) and `sk_live_…` (secre
 ## 6. Restate Cloud
 
 Produces: the app's `RAFI_ENGINE_INGRESS_URL` and `RAFI_ENGINE_API_KEY` (step 8), the GitHub secrets
-`RESTATE_ADMIN_URL` and `RESTATE_AUTH_TOKEN` (step 9), and the identity key in `engine.wrangler.toml`.
+`RESTATE_ADMIN_URL` and `RESTATE_AUTH_TOKEN` (step 9), and the identity key in `wrangler.engine.toml`.
 
 In [Restate Cloud](https://cloud.restate.dev), create an environment, in the EU region if the data must stay there
 ([Keeping data in the EU](#keeping-data-in-the-eu); the region is part of every URL below). On its **Developers** page:
@@ -303,12 +303,12 @@ In [Restate Cloud](https://cloud.restate.dev), create an environment, in the EU 
   secret `RESTATE_ADMIN_URL`.
 - **The request identity's public key** (**Security > HTTP endpoints**, `publickeyv1_…`): the engine refuses
   every request not signed with the matching private key. It is public, so it goes into
-  [`engine.wrangler.toml`](engine.wrangler.toml), committed:
+  [`wrangler.engine.toml`](wrangler.engine.toml), committed:
 
   ```sh
   key=<the publickeyv1_... key>
-  sed -i.bak "s/^RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = .*/RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = \"$key\"/" engine.wrangler.toml
-  rm engine.wrangler.toml.bak
+  sed -i.bak "s/^RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = .*/RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = \"$key\"/" wrangler.engine.toml
+  rm wrangler.engine.toml.bak
   ```
 
 Nothing is registered by hand: each deploy registers its release's engine Worker with Restate.
@@ -337,12 +337,12 @@ The deploy refuses to create the app Worker itself: its secrets come first (wran
 cp .dev.vars.example .dev.vars
 openssl rand -hex 32          # for RAFI_POW_KEY
 $EDITOR .dev.vars             # fill in every value
-npx -y wrangler secret bulk .dev.vars -c app.wrangler.toml
+npx -y wrangler secret bulk .dev.vars -c wrangler.app.toml
 rm .dev.vars
 ```
 
 Wrangler sees no Worker `rafi-app` yet and creates it with the secrets (it asks first when run in a terminal). One
-at a time instead: `npx -y wrangler secret put <NAME> -c app.wrangler.toml`, which prompts for the value.
+at a time instead: `npx -y wrangler secret put <NAME> -c wrangler.app.toml`, which prompts for the value.
 Later changes are `secret put` too; deploys keep the secrets. `.dev.vars` is in `.gitignore`: never commit it, and
 delete it once the secrets are set. (The name is wrangler's: it also reads `.dev.vars` as the local values for
 `wrangler dev`, which nothing in this repository runs, so that's harmless here.)
@@ -360,7 +360,7 @@ delete it once the secrets are set. (The name is wrangler's: it also reads `.dev
 
 The optional settings (retention, the entrant cap, the minimum age and the others, with their defaults) are in the
 [configuration reference](https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md): the
-app's are secrets too when you change them; the engine's (drand) are vars in `engine.wrangler.toml`.
+app's are secrets too when you change them; the engine's (drand) are vars in `wrangler.engine.toml`.
 
 ## 9. GitHub repository secrets
 
@@ -461,12 +461,12 @@ each file's `name`, the live Worker's name as `script_name` in the app's and the
 installation called `acme`:
 
 ```sh
-sed -i.bak 's/^name = "rafi-app"$/name = "acme-app"/' app.wrangler.toml
-sed -i.bak 's/^name = "rafi-engine"$/name = "acme-engine"/' engine.wrangler.toml
-sed -i.bak 's/"rafi-live"$/"acme-live"/' app.wrangler.toml engine.wrangler.toml live.wrangler.toml
-sed -i.bak 's/^database_name = "rafi"$/database_name = "acme"/' app.wrangler.toml engine.wrangler.toml live.wrangler.toml
-sed -i.bak 's/^namespace_id = "100\([1-4]\)"$/namespace_id = "300\1"/' app.wrangler.toml
-rm app.wrangler.toml.bak engine.wrangler.toml.bak live.wrangler.toml.bak
+sed -i.bak 's/^name = "rafi-app"$/name = "acme-app"/' wrangler.app.toml
+sed -i.bak 's/^name = "rafi-engine"$/name = "acme-engine"/' wrangler.engine.toml
+sed -i.bak 's/"rafi-live"$/"acme-live"/' wrangler.app.toml wrangler.engine.toml wrangler.live.toml
+sed -i.bak 's/^database_name = "rafi"$/database_name = "acme"/' wrangler.app.toml wrangler.engine.toml wrangler.live.toml
+sed -i.bak 's/^namespace_id = "100\([1-4]\)"$/namespace_id = "300\1"/' wrangler.app.toml
+rm wrangler.app.toml.bak wrangler.engine.toml.bak wrangler.live.toml.bak
 ```
 
 Its Workers are then `acme-app`, `acme-live` and `acme-engine-v0-1-0`, and its database `acme` (`wrangler d1 create
@@ -487,7 +487,7 @@ rate limits) or the required secrets: repeat those under `[env.<name>]`. The dep
 binding or var deploys (an engine without its identity keys refuses Restate, so its registration fails; the first
 test-mode raffle shows the rest). For an environment `eu`, add to the end of each configuration:
 
-`app.wrangler.toml` (the routes too: inherited, the top level's domain would be claimed twice):
+`wrangler.app.toml` (the routes too: inherited, the top level's domain would be claimed twice):
 
 ```toml
 [env.eu]
@@ -543,7 +543,7 @@ required = [
 ]
 ```
 
-`engine.wrangler.toml` (the eu installation's Restate environment's public key):
+`wrangler.engine.toml` (the eu installation's Restate environment's public key):
 
 ```toml
 [env.eu]
@@ -563,7 +563,7 @@ script_name = "rafi-live-eu"
 RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = "publickeyv1_<the eu Restate environment's>"
 ```
 
-`live.wrangler.toml`:
+`wrangler.live.toml`:
 
 ```toml
 [env.eu]
@@ -592,7 +592,7 @@ Its Workers are `rafi-app-eu`, `rafi-live-eu` and, for 0.1.0, `rafi-engine-eu-v0
    into `[env.eu.vars]`), and its app Worker's secrets, set with the environment chosen:
 
    ```sh
-   CLOUDFLARE_ENV=eu npx -y wrangler secret bulk .dev.vars -c app.wrangler.toml   # creates rafi-app-eu
+   CLOUDFLARE_ENV=eu npx -y wrangler secret bulk .dev.vars -c wrangler.app.toml   # creates rafi-app-eu
    ```
 
    (`--env eu` instead of `CLOUDFLARE_ENV=eu` does the same; so for `secret put`.) Step 10's dry run takes it
@@ -615,9 +615,9 @@ Its Workers are `rafi-app-eu`, `rafi-live-eu` and, for 0.1.0, `rafi-engine-eu-v0
    runs with the other's.
 5. **The paths** each deploy runs on: in `deploy-eu.yaml`, `VERSION.eu` instead of `VERSION` and `"VERSION.*"`
    (keep `VERSION` while there is no `VERSION.eu`); in `deploy.yaml`, drop `"VERSION.*"`, so that changing
-   `VERSION.eu` doesn't run the top-level installation's deploy too. Both keep `legal/**` and `*.wrangler.toml`: a
+   `VERSION.eu` doesn't run the top-level installation's deploy too. Both keep `legal/**` and `wrangler.*.toml`: a
    change there may be either's, and deploying the release an installation already runs again is harmless (the
-   same code again), but for the live Worker: any edit of `live.wrangler.toml`, another installation's section
+   same code again), but for the live Worker: any edit of `wrangler.live.toml`, another installation's section
    included, redeploys every installation's live Worker on its next deploy, dropping its phones' connections, so
    edit it between events.
 

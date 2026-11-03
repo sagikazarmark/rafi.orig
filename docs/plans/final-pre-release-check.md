@@ -542,6 +542,13 @@ copy → announce.
   not residency), and its docs are split: `deploy/cloudflare/INSTALL.md` is the first deploy (with "Keeping data in
   the EU", "Placement" and "Several installations"), `README.md` the day-to-day. Read "the README" above, for the
   first deploy, as `INSTALL.md`.
+- **Since** (2026-11-04): the template's configurations are `wrangler.app.toml`, `wrangler.live.toml` and
+  `wrangler.engine.toml` (read `app.wrangler.toml`, `live.wrangler.toml` and `engine.wrangler.toml` above as
+  these; the deploy's `paths` filter is `wrangler.*.toml`; the apps' own `wrangler.toml` keep their names).
+  `restate-cleanup.yaml` is one job (version file, download, attestation, unpack, tools, `deploy.sh cleanup`, the
+  JSON uploaded), with no release handed between jobs. The cleanup's leftover report counts only this
+  installation's Restate deployments: an `<engine name>-v…` Worker that only another installation's deployment
+  refers to is now reported (still never deleted).
 
 #### T2-6 · Licensing and attribution
 

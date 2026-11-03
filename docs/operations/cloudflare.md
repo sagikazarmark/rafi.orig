@@ -20,7 +20,7 @@ implements them over Workers bindings.
 |---|---|---|---|
 | Worker (the template's names) | `rafi-app` | `rafi-engine-v<version, dashed>` (`rafi-engine-v0-1-0`), one per release | `rafi-live` |
 | Built from | `apps/worker-app` | `apps/worker-engine` | `apps/worker-live` |
-| Configuration | `app.wrangler.toml` | `engine.wrangler.toml` (named `rafi-engine` there) | `live.wrangler.toml` |
+| Configuration | `wrangler.app.toml` | `wrangler.engine.toml` (named `rafi-engine` there) | `wrangler.live.toml` |
 | Address | your domain only (a custom domain; no workers.dev, no preview URLs) | `https://<it>.<subdomain>.workers.dev/restate` | none |
 | Serves | the web app and its API, the static files, phones' live-channel sockets (gated, then handed to the raffle's object), `/healthz`; 404 under `/restate` | the Restate endpoint (`Raffle`, `EngineInfo`) under `/restate`; 404 elsewhere | 404 to every request: its objects are reached through the bindings |
 | Bindings | `ASSETS`, `DB`, `RAFFLE_ROOM` (`script_name = "rafi-live"`), four rate limiters, Cron `0 * * * *` | `DB`, `RAFFLE_ROOM` (`script_name = "rafi-live"`) | `DB`, `RAFFLE_ROOM` (its own class `RaffleRoom`, migration `v1`) |
@@ -42,7 +42,7 @@ to the latest, and, re-registering a URI it knows, keeps the handlers it discove
 ([Upgrades](upgrades.md#registering-the-raffle-engine)). A draw sleeping until its drand round is an invocation in
 flight, and it must finish on the code that started it. So each release's engine is a Worker of its own at an
 address of its own, registered as a new deployment, and only ever running that release's code: a later deploy of
-the same release redeploys it with the same code (with `engine.wrangler.toml`'s vars as they are then), and a
+the same release redeploys it with the same code (with `wrangler.engine.toml`'s vars as they are then), and a
 deploy of another release never touches it. The previous release's engine keeps serving what is pinned to it until
 Restate reports it drained; the [cleanup](#the-restate-cleanup) then removes it.
 
@@ -55,7 +55,7 @@ they can't ([Releasing](../development/releasing.md#before-the-tag)).
 The raffles' live channels are `RaffleRoom` Durable Objects, one per raffle, holding phones' sockets. Deploying the
 Worker that defines a Durable Object class restarts its objects, which drops every connection; and a new class or
 migration needs `wrangler deploy` (a version upload refuses a pending Durable Object migration). In a Worker of its
-own, the class is deployed only when its code or `live.wrangler.toml` changed (the deploy compares a
+own, the class is deployed only when its code or `wrangler.live.toml` changed (the deploy compares a
 fingerprint, below), so most releases keep every phone connected, and the app Worker, which has no class, is uploaded as a
 version and switched to only once the engine is registered.
 
@@ -71,7 +71,7 @@ environment's private key, which the Restate SDK checks against `RAFI_RESTATE_EN
 routing, discovery included; anything else is refused, and every other path is a 404. The engine holds no secrets
 (the identity keys are public keys, the drand settings vars), and it sees anonymous IDs only. Your zone's rules (WAF,
 Bot Fight Mode) don't apply to workers.dev, so none of them can challenge Restate's calls either. Its name is at
-most 63 characters (a DNS label), so the engine's name in `engine.wrangler.toml` leaves room for `-v<version>`.
+most 63 characters (a DNS label), so the engine's name in `wrangler.engine.toml` leaves room for `-v<version>`.
 
 ## What an installation is
 
@@ -83,7 +83,7 @@ The installation is the operator's repository, a copy of `deploy/cloudflare` at 
 
 - `VERSION`: the release it deploys (`VERSION.<environment>` for an installation that is a Wrangler environment,
   when that file exists);
-- `app.wrangler.toml`, `engine.wrangler.toml`, `live.wrangler.toml`: the three Workers' shapes as this repository
+- `wrangler.app.toml`, `wrangler.engine.toml`, `wrangler.live.toml`: the three Workers' shapes as this repository
   ships them (`apps/worker-app/wrangler.toml` and the others; `scripts/workers-check.sh` checks they agree),
   pointed at `release/`, with the operator's database ID, domain and Restate public key;
 - `legal/terms.md` and `legal/privacy.md`, which the deploy copies into the app's static files;
@@ -96,7 +96,7 @@ The installation is the operator's repository, a copy of `deploy/cloudflare` at 
 - `.github/workflows/deploy.yaml` and `restate-cleanup.yaml`;
 - `INSTALL.md` (the first deploy) and `README.md` (the rest).
 
-**The installation is its app Worker's name**, as wrangler's dry run of `app.wrangler.toml` reports it. Unique
+**The installation is its app Worker's name**, as wrangler's dry run of `wrangler.app.toml` reports it. Unique
 in the account, it is the `instance` in the metadata each engine is registered with in Restate (`app` `rafi`,
 `instance`, `version`, `cloudflare_account`, `worker`), and the downgrade check and the cleanup act only on
 deployments whose metadata names this instance and this account.
@@ -159,7 +159,7 @@ wrangler and the Restate CLI from the installation's `package.json` first (`npm 
 `npx -y @restatedev/restate`), and can each name a GitHub environment (`environment: production`, commented out)
 for required reviewers or its secrets.
 
-**`deploy.yaml`** runs on a push to `main` that changes `VERSION`, `VERSION.*`, `legal/**` or a `*.wrangler.toml`,
+**`deploy.yaml`** runs on a push to `main` that changes `VERSION`, `VERSION.*`, `legal/**` or a `wrangler.*.toml`,
 and by hand (**Actions > Deploy > Run workflow**, `gh workflow run deploy.yaml`). Its jobs, each on a fresh runner:
 
 | Job | Runs | Needs |
@@ -178,8 +178,10 @@ that don't work), before anything touches production; the migrations before any 
 engine registered before the app that calls it switches over, so the app never calls a handler the engine Restate
 runs lacks.
 
-**`restate-cleanup.yaml`** runs daily at 04:37 UTC and by hand: a prepare job that downloads and verifies the
-release as deploy's does and runs nothing of it, then `deploy.sh cleanup` ([below](#the-restate-cleanup)).
+**`restate-cleanup.yaml`** runs daily at 04:37 UTC and by hand, one job: it reads the version file, downloads and
+verifies the release as deploy's prepare job does (`gh release download`, `gh attestation verify` with the same
+flags), unpacks it into `release/`, installs the tools and runs `deploy.sh cleanup` ([below](#the-restate-cleanup)),
+then uploads the JSON. Nothing is handed between jobs.
 
 The two share a concurrency group (`rafi` in the template; one per installation when a repository holds several)
 without cancelling: one deploy or cleanup at a time, a run waiting for the one in progress. GitHub keeps one waiting
@@ -206,7 +208,7 @@ each configuration for `CLOUDFLARE_ENV` ([above](#what-an-installation-is)); in 
 |---|---|---|
 | `check-remote` | Before anything is deployed, the downgrade check `register-engine` makes (below): a release older than the one Restate runs is refused; nothing registered (a first install) passes. Then the token reads the account's workers.dev subdomain. Restate unreachable, or a key or token that doesn't work, fails it. Reads only. | |
 | `migrate` | `wrangler d1 migrations apply DB --remote` (the app's configuration) | |
-| `deploy-live` | Fingerprints the live Worker (sha256 over its bundle, `live.wrangler.toml`'s bytes and `CLOUDFLARE_ENV`, so any edit of the file, a comment or another environment's section too, redeploys it; the tag `live-<32 hex>`) and reads what the Worker serves (its latest deployment's versions and their `workers/tag` annotations). One version at 100 % with this tag: nothing deployed, the live channels keep their connections. Anything else (no Worker, another tag, a gradual deployment): `wrangler deploy --tag <it>`, which applies the class's migrations. | |
+| `deploy-live` | Fingerprints the live Worker (sha256 over its bundle, `wrangler.live.toml`'s bytes and `CLOUDFLARE_ENV`, so any edit of the file, a comment or another environment's section too, redeploys it; the tag `live-<32 hex>`) and reads what the Worker serves (its latest deployment's versions and their `workers/tag` annotations). One version at 100 % with this tag: nothing deployed, the live channels keep their connections. Anything else (no Worker, another tag, a gradual deployment): `wrangler deploy --tag <it>`, which applies the class's migrations. | |
 | `upload-app` | Copies `legal/` into the app's static files. Refuses an app Worker that doesn't exist (its secrets come first). If a release has run on it (a version tagged `v<version>`, deployed or among its recent versions): `wrangler versions upload --tag v<version>`, not serving yet. Otherwise, a first install: `wrangler deploy`. | `app_version_id`, or `app_promoted=true` |
 | `deploy-engine` | Looks up the account's workers.dev subdomain, then `wrangler deploy --name <engine name>-v<version> --tag v<version>` (`rafi-engine-v0-1-0`), every time (the same release is the same code). | `engine_worker`, `engine_url` |
 | `register-engine` | Refuses a downgrade (again, after `check-remote`, for a release registered since): if the deployment Restate routes new `Raffle` and `EngineInfo` invocations to is this installation's (its metadata) and of a newer release, it stops. Then `POST /deployments` of the engine's URL, `"force": false`, with the metadata `app` (`rafi`), `instance` (the app Worker's name), `version`, `cloudflare_account` and `worker`; 200 (Restate had it) and 201 succeed, a 5xx or no answer is retried five times (a Worker deployed a moment ago), anything else fails. | |
@@ -255,9 +257,11 @@ For each:
 - **Active**: kept.
 
 Deployments that aren't this installation's (one registered by hand, or with other metadata) are listed and never
-touched. The account's `<engine name>-v<version>` Workers that no Restate deployment refers to (one left behind
-by a failed deletion, or one a failed deploy never registered; this release's own excepted, which its deploy
-registers) are reported with the command to delete them by hand (`npx -y wrangler delete <worker>`), and never
+touched. The account's `<engine name>-v<version>` Workers that none of this installation's Restate deployments
+(`app` `rafi`, `instance` the app Worker's name, `cloudflare_account` this account) refers to, by the deployment's
+address or its metadata's `worker` (one left behind by a failed deletion, or one a failed deploy never registered;
+this release's own excepted, which its deploy registers; another installation's deployment referring to one doesn't
+count), are reported with the command to delete them by hand (`npx -y wrangler delete <worker>`), and never
 deleted by the cleanup: nothing tells it whether one is still needed.
 
 The report (the run's summary) lists what was removed and deleted, what Restate refused to remove, what still
@@ -323,10 +327,10 @@ The engine's `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` is the environment's request
 ## The app Worker's secrets
 
 The installation's values are the app Worker's secrets, set once before the first deploy (`wrangler secret bulk
-.dev.vars -c app.wrangler.toml`, which creates the Worker holding only them; `upload-app` refuses a Worker that
-doesn't exist) and changed with `wrangler secret put <NAME> -c app.wrangler.toml`; deploys keep them. For an
+.dev.vars -c wrangler.app.toml`, which creates the Worker holding only them; `upload-app` refuses a Worker that
+doesn't exist) and changed with `wrangler secret put <NAME> -c wrangler.app.toml`; deploys keep them. For an
 installation that is a Wrangler environment, either with `CLOUDFLARE_ENV=<environment>` (or `--env`).
-`app.wrangler.toml` lists them under `[secrets] required` (an environment, under `[env.<name>.secrets]`), and
+`wrangler.app.toml` lists them under `[secrets] required` (an environment, under `[env.<name>.secrets]`), and
 wrangler refuses to deploy the app while one is missing. What each is:
 [`.dev.vars.example`](../../deploy/cloudflare/.dev.vars.example) and the
 [configuration reference](../reference/configuration.md). The Worker refuses every request without its documents,
@@ -455,7 +459,7 @@ Workers run inside a region is Cloudflare's
 centers); Rafi neither needs nor configures it, and what it would cover of these Workers (the engine is on
 workers.dev, not the installation's zone) is Cloudflare's to say.
 
-**Placement** is a latency option, not a residency control: `app.wrangler.toml` has a commented-out
+**Placement** is a latency option, not a residency control: `wrangler.app.toml` has a commented-out
 `[placement]` block with its two choices, which exclude each other, `mode = "smart"` (Cloudflare picks a faster
 location from the Worker's own traffic) and `region = "aws:eu-central-1"` (the data center nearest that cloud
 region; Restate Cloud's, say), so the app's request handling runs near the D1 database and Restate Cloud instead of
@@ -527,14 +531,14 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 | **Install wrangler and the Restate CLI** fails | `npm ci` refuses a `package-lock.json` that doesn't match `package.json`: run `npm install` and commit the lockfile. Otherwise npm couldn't reach its registry: run it again. |
 | Prepare fails at **Download the release** or **Verify its provenance** | No release `v<VERSION>` (a typo, or a version not released yet), or a tarball that Rafi's release workflow didn't build from that tag on GitHub's runners: never work around this. |
 | **App Worker (upload)**: `the app Worker rafi-app doesn't exist on the account` | Its secrets come first: [INSTALL.md step 8](../../deploy/cloudflare/INSTALL.md#8-the-app-workers-secrets) (with `CLOUDFLARE_ENV=<name>` for an environment's Worker). |
-| **App Worker**: wrangler names missing secrets | One of `[secrets] required` isn't set: `wrangler secret put <NAME> -c app.wrangler.toml`. |
+| **App Worker**: wrangler names missing secrets | One of `[secrets] required` isn't set: `wrangler secret put <NAME> -c wrangler.app.toml`. |
 | **Engine Worker**: `the account's workers.dev subdomain: HTTP …` | The account has no workers.dev subdomain (register it on the dashboard's **Workers & Pages** page), or the token lacks Workers Scripts. |
 | Any Cloudflare step: `Authentication error` (10000) or 403 | The token is missing a permission or the zone (above), expired, or rolled: replace the `CLOUDFLARE_API_TOKEN` secret. |
 | **Prepare the release** at **Check it against Restate and Cloudflare**: `refusing to deploy an older release (a downgrade)` | The version file is older than the release Restate runs; nothing was deployed. Set it to that release or later; never roll back. |
 | **Prepare the release** at **Check it against Restate and Cloudflare**: `no answer from …`, 401 or 403 | `RESTATE_ADMIN_URL` isn't the environment's admin API (`:9070`), `RESTATE_AUTH_TOKEN` isn't an Admin-role key of it, or the Cloudflare token or account ID is wrong (the workers.dev subdomain lookup): fix the secret, run it again. |
 | **Register the engine**: `refusing to register an older engine (a downgrade)` | A newer release was registered after this run's first job checked: set the version file to that release or later; never roll back. |
 | **Register the engine**: 401 or 403 | `RESTATE_AUTH_TOKEN` isn't an Admin-role key of this environment, or `RESTATE_ADMIN_URL` is another environment's (or the ingress, `:8080`). |
-| **Register the engine**: Restate couldn't discover the engine (at once, or after five attempts) | Restate couldn't reach the engine (workers.dev not serving it yet), or the engine refused the discovery because the identity key in `engine.wrangler.toml` isn't this environment's (still the template's `publickeyv1_…`, say: nothing looks for it; or, in a Wrangler environment, its `[env.<name>.vars]` has none: vars aren't inherited): check the engine Worker's logs, fix, re-run the failed jobs. |
+| **Register the engine**: Restate couldn't discover the engine (at once, or after five attempts) | Restate couldn't reach the engine (workers.dev not serving it yet), or the engine refused the discovery because the identity key in `wrangler.engine.toml` isn't this environment's (still the template's `publickeyv1_…`, say: nothing looks for it; or, in a Wrangler environment, its `[env.<name>.vars]` has none: vars aren't inherited): check the engine Worker's logs, fix, re-run the failed jobs. |
 | A deploy shows as cancelled | A newer run replaced it while it waited (the concurrency group): run it again. |
 | `/healthz` answers `500 misconfigured` | Missing secrets or documents, or a document still a template: the reason is in the answer when it names no value, and in the app Worker's logs. |
 | The admin says the raffle engine can't be reached | `RAFI_ENGINE_INGRESS_URL` or `RAFI_ENGINE_API_KEY` wrong, or Restate Cloud down: the [runbook](runbook.md#when-the-raffle-engine-is-down-during-an-event). |
@@ -543,7 +547,7 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 | The cleanup fails: `… couldn't be listed: nothing removed or deleted`, or `listing Restate's deployments: …` | A listing failed (the token, the Restate key or admin URL, or either service down), so it touched nothing: fix the secret, or run it again later. |
 | The cleanup fails `in part`: **Not removed** in its report | Restate refused to remove a deployment it had reported drained (its answer is in the job's log): its Worker is untouched, and the next run tries again. |
 | The cleanup fails `in part`: **Workers left behind** | A deployment was removed but deleting its Worker failed (the token, or Cloudflare): nothing refers to that Worker any more, so later runs only report it. Delete it by hand with the command in the report. |
-| The cleanup reports a Worker left behind that no deployment refers to | An engine Worker of this installation's name that Restate doesn't know: one a failed deletion left, or an earlier deploy deployed and never registered. Delete it by hand once you're sure nothing needs it (`npx -y wrangler delete <worker>`). |
+| The cleanup reports a Worker left behind that no deployment of this installation refers to | An engine Worker of this installation's name (`<engine name>-v…`) that none of its Restate deployments refers to: one a failed deletion left, or an earlier deploy deployed and never registered. Delete it by hand once you're sure nothing needs it (`npx -y wrangler delete <worker>`). Only this installation's deployments count, so another installation's Worker whose name starts the same is reported too: leave that one to its installation. |
 | The cleanup doesn't run | Scheduled runs happen on the default branch only, and a public repository's are disabled after 60 days without activity: enable it again (**Actions > Restate cleanup**). |
 
 Logs: each deploy and cleanup is a run in the installation's **Actions**, its summary page with the reports; each

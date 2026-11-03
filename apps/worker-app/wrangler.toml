@@ -9,8 +9,9 @@
 # The Worker's shape, for building and a dry deploy (`just dry-run`): nothing
 # of an installation's is in it. The static files are the combined Worker's
 # (`just assets`, apps/worker/worker-assets), the same files. An
-# installation's configuration of the three Workers is its copy of
-# deploy/cloudflare (docs/operations/cloudflare.md).
+# installation's configuration of this Worker is wrangler.app.toml in its
+# copy of deploy/cloudflare (docs/operations/cloudflare.md), whose shape
+# scripts/workers-check.sh compares with this file's.
 
 name = "rafi-app"
 main = "build/index.js"

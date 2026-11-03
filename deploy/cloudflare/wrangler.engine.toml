@@ -20,7 +20,7 @@
 #
 # No secrets: the Restate environment's identity keys are public keys, and
 # the drand settings are vars. In a Wrangler environment ([env.<name>], see
-# app.wrangler.toml), repeat the vars (environments don't inherit them, and
+# wrangler.app.toml), repeat the vars (environments don't inherit them, and
 # deploy.sh doesn't check: an engine without its identity keys refuses every
 # request Restate makes) and the bindings, RAFFLE_ROOM's script_name the
 # environment's live Worker.
@@ -36,14 +36,14 @@ compatibility_date = "2026-10-01"
 workers_dev = true
 preview_urls = false
 
-# Your database, the app's (app.wrangler.toml): the same database_id.
+# Your database, the app's (wrangler.app.toml): the same database_id.
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000"
 
 # The raffles' live channels, nudged after each write. The class is the live
-# Worker's: script_name is its name (live.wrangler.toml's name).
+# Worker's: script_name is its name (wrangler.live.toml's name).
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
@@ -58,7 +58,7 @@ enabled = true
 invocation_logs = false
 
 # RAFI_DO_JURISDICTION: optional, the live channels' jurisdiction, the live
-# Worker's and the app's (live.wrangler.toml, app.wrangler.toml); unset, none
+# Worker's and the app's (wrangler.live.toml, wrangler.app.toml); unset, none
 # (INSTALL.md, "Keeping data in the EU").
 # RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS: your Restate environment's public key
 # (publickeyv1_..., in Restate Cloud's environment settings), or several,

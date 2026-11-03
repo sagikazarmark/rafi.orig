@@ -16,7 +16,7 @@
 #     CLOUDFLARE_ENV; the tools' defaults (npx -y wrangler, npx -y @restatedev/restate) and
 #     their overrides;
 #   - migrate; deploy-live skipping when the deployed version's tag is the fingerprint and
-#     deploying when the bundle or live.wrangler.toml changed, or nothing, or two versions, are
+#     deploying when the bundle or wrangler.live.toml changed, or nothing, or two versions, are
 #     deployed; upload-app's first install (deployed directly, app_promoted) and upgrade (a
 #     version uploaded, app_version_id from wrangler's ND-JSON output), a missing Worker
 #     refused; deploy-engine's name and URL; register-engine's downgrade guard (semantic
@@ -28,9 +28,10 @@
 #   - cleanup: filtering by metadata (the app Worker's name and the account), each drained
 #     deployment removed from Restate before its Worker is deleted, a Worker already gone, a
 #     deletion failing (the Worker left behind, the run failing), a removal refused (the
-#     Worker untouched), the account's leftover engine Workers reported and never deleted,
-#     any listing failing stopping it before anything is removed or deleted, and its report;
-#     the same in a Wrangler environment;
+#     Worker untouched), the account's leftover engine Workers (none of this installation's
+#     deployments referring to them; another installation's don't count) reported and never
+#     deleted, any listing failing stopping it before anything is removed or deleted, and its
+#     report; the same in a Wrangler environment;
 #   - the artifacts (RAFI_ARTIFACTS_DIR): wrangler's ND-JSON per call, Restate's listings, the
 #     registration's answer, the Workers listing and cleanup.json, and no token among them.
 #
@@ -253,9 +254,9 @@ echo 'wasm' >"$RELEASE/live/build/index_bg.wasm"
 cp "$ROOT"/migrations/sqlite/*.sql "$RELEASE/migrations/"
 cp "$SCRIPT" "$RELEASE/deploy.sh"
 echo "0.1.0" >"$RELEASE/VERSION"
-APP="$INSTALL/app.wrangler.toml"
-ENGINE="$INSTALL/engine.wrangler.toml"
-LIVE="$INSTALL/live.wrangler.toml"
+APP="$INSTALL/wrangler.app.toml"
+ENGINE="$INSTALL/wrangler.engine.toml"
+LIVE="$INSTALL/wrangler.live.toml"
 DB_ID=6f1c2a90-3b7e-4d2a-9c41-0e5b8a7d2f13
 KEY=publickeyv1_ChjENKeMvCtRnqG2mrBK1HmPKufgFUc98K8B3ZgXonQQ
 
@@ -446,15 +447,15 @@ in_order "WRANGLER overrides it, with its arguments" "wrangler --stub-arg d1 mig
 not_logged "no npx when WRANGLER is given" "npx"
 
 echo "== the names"
-ds dry-run STUB_DRY_NAMES="app.wrangler.toml=raffles-app live.wrangler.toml=raffles-live engine.wrangler.toml=raffles-engine"
+ds dry-run STUB_DRY_NAMES="wrangler.app.toml=raffles-app wrangler.live.toml=raffles-live wrangler.engine.toml=raffles-engine"
 ran "the names are the dry runs' worker_name, not read from the files" 0 "app Worker: raffles-app (" \
   "live Worker: raffles-live (" "engine Worker: raffles-engine-v0-1-0 ("
 ds dry-run STUB_WRANGLER_FAIL="$APP"
-ran "a dry run failing: refused" 1 "wrangler deploy --dry-run -c app.wrangler.toml failed (above): the configuration doesn't deploy"
+ran "a dry run failing: refused" 1 "wrangler deploy --dry-run -c wrangler.app.toml failed (above): the configuration doesn't deploy"
 ds dry-run STUB_DRY_NO_NAME=1
-ran "a dry run without a deploy entry: refused" 1 "wrangler's dry run of live.wrangler.toml reported no Worker's name"
-ds dry-run STUB_DRY_NAMES="engine.wrangler.toml=Not_A_Name"
-ran "a name that isn't a Worker's: refused" 1 "wrangler's dry run of engine.wrangler.toml reported no Worker's name (its deploy entry's worker_name: 'Not_A_Name')"
+ran "a dry run without a deploy entry: refused" 1 "wrangler's dry run of wrangler.live.toml reported no Worker's name"
+ds dry-run STUB_DRY_NAMES="wrangler.engine.toml=Not_A_Name"
+ran "a name that isn't a Worker's: refused" 1 "wrangler's dry run of wrangler.engine.toml reported no Worker's name (its deploy entry's worker_name: 'Not_A_Name')"
 
 echo "== Wrangler environments (CLOUDFLARE_ENV)"
 # add_env <env> [<the app's own name>]: an [env.<env>] in each configuration, as the README's
@@ -488,7 +489,7 @@ ran "no CLOUDFLARE_ENV: the top level, other environments ignored" 0 "environmen
   "live Worker: rafi-live (" "engine Worker: rafi-engine-v0-1-0 ("
 ds dry-run CLOUDFLARE_ENV=eu
 ran "CLOUDFLARE_ENV naming an environment the configurations lack: wrangler refuses it" 1 \
-  "No environment found in configuration with name \"eu\"" "wrangler deploy --dry-run -c live.wrangler.toml (CLOUDFLARE_ENV=eu) failed"
+  "No environment found in configuration with name \"eu\"" "wrangler deploy --dry-run -c wrangler.live.toml (CLOUDFLARE_ENV=eu) failed"
 ds dry-run CLOUDFLARE_ENV='e u'
 ran "CLOUDFLARE_ENV not an environment's name: refused" 1 "not an environment's name"
 restore
@@ -570,12 +571,12 @@ in_order "the live Worker deployed over a gradual one" "wrangler deploy -c $LIVE
 live_state "$TAG"
 echo "# a comment" >>"$LIVE"
 ds deploy-live
-ran "a comment added to live.wrangler.toml: deployed (its bytes are in the fingerprint)" 0 "it serves: 100 $TAG"
+ran "a comment added to wrangler.live.toml: deployed (its bytes are in the fingerprint)" 0 "it serves: 100 $TAG"
 not_logged "a comment: another tag" "--tag $TAG "
 restore
 sed -i.orig 's/^compatibility_date = .*/compatibility_date = "2026-10-02"/' "$LIVE"
 ds deploy-live
-ran "live.wrangler.toml changed: deployed" 0
+ran "wrangler.live.toml changed: deployed" 0
 not_logged "with another tag" "--tag $TAG "
 in_order "the live Worker deployed after its configuration changed" "wrangler deploy -c $LIVE --tag live-"
 restore
@@ -606,7 +607,7 @@ echo "== upload-app"
 rm -rf "$RELEASE/app/assets/legal"
 echo '{}' | state
 ds upload-app
-ran "no app Worker: refused, its secrets first" 1 "the app Worker rafi-app doesn't exist" "secret bulk .dev.vars -c app.wrangler.toml"
+ran "no app Worker: refused, its secrets first" 1 "the app Worker rafi-app doesn't exist" "secret bulk .dev.vars -c wrangler.app.toml"
 not_logged "nothing uploaded without an app Worker" "--tag" "versions upload"
 # app_state <tag of the deployed version> <tag of an older version> [<Worker>]: the app Worker.
 app_state() {
@@ -864,7 +865,7 @@ echo "== cleanup"
 meta() { printf '{ "app": "rafi", "instance": "%s", "cloudflare_account": "%s", "version": "0.0.1", "worker": "%s" }' "$1" "$2" "$3"; }
 state <<EOF
 { "scripts": { "rafi-engine-v0-0-8": {}, "rafi-engine-v0-0-9": {}, "rafi-engine-v0-1-0": {}, "rafi-engine-v0-0-6": {},
-               "rafi-engine-v0-0-5": {}, "rafi-engine-v0-0-4": {}, "rafi-engine-eu-v0-0-4": {}, "rafi-engine-old": {},
+               "rafi-engine-v0-0-5": {}, "rafi-engine-v0-0-4": {}, "rafi-engine-v0-0-3": {}, "rafi-engine-eu-v0-0-4": {}, "rafi-engine-old": {},
                "rafi-app": {}, "rafi-live": {} },
   "query": [ { "id": "inv_1", "status": "paused" }, { "id": "inv_2", "status": "suspended" } ],
   "deployments": [
@@ -876,7 +877,8 @@ state <<EOF
     { "id": "dp_otherinst", "uri": "https://rafi-engine-eu-v0-0-5.acme.workers.dev/restate", "metadata": $(meta rafi-app-eu acct123 rafi-engine-eu-v0-0-5) },
     { "id": "dp_otheracct", "uri": "https://rafi-engine-v0-0-5.acme.workers.dev/restate", "metadata": $(meta rafi-app acct999 rafi-engine-v0-0-5) },
     { "id": "dp_appworker", "uri": "https://rafi-app.acme.workers.dev/restate", "metadata": $(meta rafi-app acct123 rafi-app) },
-    { "id": "dp_elsewhere", "uri": "https://evil.acme.workers.dev/restate", "metadata": $(meta rafi-app acct123 rafi-engine-v0-0-6) }
+    { "id": "dp_elsewhere", "uri": "https://evil.acme.workers.dev/restate", "metadata": $(meta rafi-app acct123 rafi-engine-v0-0-6) },
+    { "id": "dp_otherapp", "uri": "https://rafi-engine-v0-0-3.acme.workers.dev/restate", "metadata": $(meta acme-app acct123 rafi-engine-v0-0-3) }
   ] }
 EOF
 cat >"$TMP/list.json" <<'EOF'
@@ -889,7 +891,8 @@ cat >"$TMP/list.json" <<'EOF'
   { "deployment_id": "dp_otherinst", "endpoint": "https://rafi-engine-eu-v0-0-5.acme.workers.dev/restate", "status": "Drained", "active_invocations": 0, "services": [] },
   { "deployment_id": "dp_otheracct", "endpoint": "https://rafi-engine-v0-0-5.acme.workers.dev/restate", "status": "Drained", "active_invocations": 0, "services": [] },
   { "deployment_id": "dp_appworker", "endpoint": "https://rafi-app.acme.workers.dev/restate", "status": "Drained", "active_invocations": 0, "services": [] },
-  { "deployment_id": "dp_elsewhere", "endpoint": "https://evil.acme.workers.dev/restate", "status": "Drained", "active_invocations": 0, "services": [] }
+  { "deployment_id": "dp_elsewhere", "endpoint": "https://evil.acme.workers.dev/restate", "status": "Drained", "active_invocations": 0, "services": [] },
+  { "deployment_id": "dp_otherapp", "endpoint": "https://rafi-engine-v0-0-3.acme.workers.dev/restate", "status": "Drained", "active_invocations": 0, "services": [] }
 ] }
 EOF
 cp "$TMP/state.json" "$TMP/cleanup.json"
@@ -905,8 +908,8 @@ ran "cleanup" 0 "dp_drained (rafi-engine-v0-0-8) is drained" "deleted the Worker
   "dp_active (rafi-engine-v0-1-0) is active" \
   "dp_nometa at https://raffle.example.org/restate: not a Rafi deployment" "dp_otherinst at" "another installation (rafi-app-eu)" \
   "dp_otheracct at" "another Cloudflare account" "dp_appworker at" "its worker is not a rafi-engine-v... engine Worker (rafi-app)" \
-  "dp_elsewhere at" "its address is not the workers.dev one of rafi-engine-v0-0-6" \
-  "the Worker rafi-engine-v0-0-4: no Restate deployment refers to it" "2 drained engine deployment(s) removed"
+  "dp_elsewhere at" "its address is not the workers.dev one of rafi-engine-v0-0-6" "dp_otherapp at" "another installation (acme-app)" \
+  "the Worker rafi-engine-v0-0-4: no Restate deployment of this installation refers to it" "2 drained engine deployment(s) removed"
 in_order "every listing first, then each drained deployment removed from Restate before its Worker is deleted" \
   "http GET /restate/deployments" "restate deployments list --extra --json" "http GET /cf/accounts/acct123/workers/scripts" \
   "restate deployments remove dp_drained --yes" "http DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-v0-0-8" \
@@ -921,18 +924,24 @@ fi
 not_logged "nothing else deleted or removed" "scripts/rafi-engine-v0-0-9" "DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-v0-1-0" \
   "DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-v0-0-5" "DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-v0-0-6" \
   "DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-v0-0-4" "DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-eu" \
+  "DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-v0-0-3" \
   "remove dp_draining" "remove dp_active" "remove dp_nometa" \
-  "remove dp_otherinst" "remove dp_otheracct" "remove dp_appworker" "remove dp_elsewhere" "--force"
+  "remove dp_otherinst" "remove dp_otheracct" "remove dp_appworker" "remove dp_elsewhere" "remove dp_otherapp" "--force"
 if grep -qE '^http DELETE /cf/accounts/acct123/workers/scripts/rafi-(app|live)$' "$LOG"; then fail "the app or live Worker deleted"; else pass "the app and live Workers never deleted"; fi
 reported "the cleanup's report" "### Restate cleanup: \`rafi-app\` (Rafi v0.1.0)" \
   "\`dp_drained\`: removed, its Worker \`rafi-engine-v0-0-8\` deleted" "\`dp_gone\`: removed, its Worker \`rafi-engine-v0-0-7\` already gone" \
   "**Still draining**" "\`dp_draining\` (\`rafi-engine-v0-0-9\`): 2 active, 1 paused invocation(s); paused: \`inv_1\`" \
   "restate invocations resume <id> --deployment latest" "restate invocations kill <id>" \
-  "**Workers left behind**" "\`rafi-engine-v0-0-4\`: no Restate deployment refers to it" \
-  "\`rafi-engine-v0-0-6\`: no Restate deployment refers to it" "delete <worker>" \
-  "**Not this installation's** (never touched)" "\`dp_otherinst\`" "\`dp_nometa\`"
-not_reported "leftovers: only this installation's engine Workers, not those referred to" \
-  "\`rafi-engine-eu-v0-0-4\`" "\`rafi-engine-v0-0-5\`:" "\`rafi-engine-v0-1-0\`:" "\`rafi-engine-v0-0-9\`:" "rafi-engine-old" "\`rafi-app\`:" "\`rafi-live\`:"
+  "**Workers left behind**" "\`rafi-engine-v0-0-4\`: no Restate deployment of this installation refers to it" \
+  "\`rafi-engine-v0-0-6\`: no Restate deployment of this installation refers to it" "delete <worker>" \
+  "**Not this installation's** (never touched)" "\`dp_otherinst\`" "\`dp_nometa\`" "\`dp_otherapp\`"
+# A Worker of the engine's name that only another installation's deployment refers to (another app
+# Worker's, another account's) is a leftover of this one's all the same.
+reported "a Worker only another installation's deployment refers to: reported" \
+  "\`rafi-engine-v0-0-3\`: no Restate deployment of this installation refers to it" \
+  "\`rafi-engine-v0-0-5\`: no Restate deployment of this installation refers to it"
+not_reported "leftovers: only the engine name's Workers, not those this installation's deployments refer to" \
+  "\`rafi-engine-eu-v0-0-4\`" "\`rafi-engine-v0-1-0\`:" "\`rafi-engine-v0-0-9\`:" "rafi-engine-old" "\`rafi-app\`:" "\`rafi-live\`:"
 cleanup_state '{ "status": { "DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-v0-0-8": 500 } }'
 ds cleanup
 ran "a Worker's deletion failing: left behind, the rest go on, failed" 1 \
@@ -986,11 +995,11 @@ echo '{ "deployments": [
   { "deployment_id": "dp_drained", "status": "Drained", "active_invocations": 0 } ] }' >"$TMP/list.json"
 ds cleanup CLOUDFLARE_ENV=eu
 ran "an environment's cleanup" 0 "installation rafi-app-eu" "dp_drained at" "another installation (rafi-app)" \
-  "the Worker rafi-engine-eu-v0-0-4: no Restate deployment refers to it"
+  "the Worker rafi-engine-eu-v0-0-4: no Restate deployment of this installation refers to it"
 in_order "the environment's drained deployment removed, then its Worker deleted" \
   "restate deployments remove dp_eu --yes" "http DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-eu-v0-0-8"
 not_logged "the top level's untouched" "remove dp_drained" "scripts/rafi-engine-v0-0-8"
-reported "the environment's report" "### Restate cleanup: \`rafi-app-eu\`" "\`rafi-engine-eu-v0-0-4\`: no Restate deployment refers to it"
+reported "the environment's report" "### Restate cleanup: \`rafi-app-eu\`" "\`rafi-engine-eu-v0-0-4\`: no Restate deployment of this installation refers to it"
 not_reported "the top level's Workers not the environment's leftovers" "\`rafi-engine-v0-0-4\`"
 cp "$TMP/list.good" "$TMP/list.json"
 restore
@@ -1043,9 +1052,9 @@ cp "$TMP/cleanup.json" "$TMP/state.json"
 ds cleanup RAFI_ARTIFACTS_DIR=rafi-artifacts
 ran "cleanup with a relative RAFI_ARTIFACTS_DIR" 0
 C="$INSTALL/rafi-artifacts/cleanup"
-json_is "cleanup: Restate's deployments" "$C/restate-deployments.json" '.deployments | length == 9'
-json_is "cleanup: the CLI's listing" "$C/restate-deployments-list.json" '.deployments | length == 9'
-json_is "cleanup: the account's Workers" "$C/cloudflare-workers.json" '.result | length == 10'
+json_is "cleanup: Restate's deployments" "$C/restate-deployments.json" '.deployments | length == 10'
+json_is "cleanup: the CLI's listing" "$C/restate-deployments-list.json" '.deployments | length == 10'
+json_is "cleanup: the account's Workers" "$C/cloudflare-workers.json" '.result | length == 11'
 json_is "cleanup.json: removed" "$C/cleanup.json" '.removed == [
   { "deployment": "dp_drained", "worker": "rafi-engine-v0-0-8", "worker_status": "deleted" },
   { "deployment": "dp_gone", "worker": "rafi-engine-v0-0-7", "worker_status": "already_gone" } ]'
@@ -1053,10 +1062,10 @@ json_is "cleanup.json: deleted" "$C/cleanup.json" '.deleted == ["rafi-engine-v0-
 json_is "cleanup.json: draining, with the paused invocations" "$C/cleanup.json" '.draining == [
   { "deployment": "dp_draining", "worker": "rafi-engine-v0-0-9", "active_invocations": 2, "paused_invocations": ["inv_1"] } ]'
 json_is "cleanup.json: kept" "$C/cleanup.json" '.kept == [ { "deployment": "dp_active", "worker": "rafi-engine-v0-1-0", "status": "Active" } ]'
-json_is "cleanup.json: leftovers" "$C/cleanup.json" '.leftover == ["rafi-engine-v0-0-4", "rafi-engine-v0-0-6"]'
+json_is "cleanup.json: leftovers" "$C/cleanup.json" '.leftover == ["rafi-engine-v0-0-3", "rafi-engine-v0-0-4", "rafi-engine-v0-0-5", "rafi-engine-v0-0-6"]'
 json_is "cleanup.json: nothing left behind, not failed" "$C/cleanup.json" '.left_behind == [] and .not_removed == [] and .failed == false'
 json_is "cleanup.json: not ours" "$C/cleanup.json" \
-  '[.not_ours[].deployment] == ["dp_nometa", "dp_otherinst", "dp_otheracct", "dp_appworker", "dp_elsewhere"]
+  '[.not_ours[].deployment] == ["dp_nometa", "dp_otherinst", "dp_otheracct", "dp_appworker", "dp_elsewhere", "dp_otherapp"]
    and (.not_ours[1].reason == "another installation (rafi-app-eu)")'
 json_is "cleanup.json: the installation" "$C/cleanup.json" \
   '.installation == "rafi-app" and .version == "0.1.0" and .cloudflare_account == "acct123"'

@@ -184,15 +184,16 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   by then it has read `legal/terms.md` and `legal/privacy.md` through the assets binding (the refusal is a
   secret's, not theirs), and served without `legal/` it refuses naming them, from the 404 Workers Assets
   answers, which only the real runtime can show
-- `deploy/cloudflare`, what an installation deploys: its `app.wrangler.toml`, `engine.wrangler.toml` and
-  `live.wrangler.toml` agree with the production Workers' (`apps/worker-app`, `apps/worker-engine`,
+- `deploy/cloudflare`, what an installation deploys: its `wrangler.app.toml`, `wrangler.engine.toml` and
+  `wrangler.live.toml` agree with the production Workers' (`apps/worker-app`, `apps/worker-engine`,
   `apps/worker-live`) on the bindings, limits, Durable Object migrations and required secrets, and a release (of the
   version `deploy/cloudflare/VERSION` names) is rehearsed the way a tag releases it (`scripts/cloudflare-release.sh`):
   first that the template's `VERSION` names it, that it has `.dev.vars.example` (and git-ignores `.dev.vars`), that
   its two workflows (`.github/workflows/deploy.yaml` and `restate-cleanup.yaml`) name one Rafi repository, verify
   the attestation `release.yaml` makes (its signer), download the release `VERSION.<CLOUDFLARE_ENV>` names when it
-  exists and call no `deploy.sh check`, and that each of their jobs that runs `deploy.sh` installs the tools from
-  the template's `package.json` (`npm ci`, or `npm install`) and uploads `RAFI_ARTIFACTS_DIR` whatever happened; then the deploy script's own checks
+  exists and call no `deploy.sh check`, that each of their jobs that runs `deploy.sh` installs the tools from the
+  template's `package.json` (`npm ci`, or `npm install`) and uploads `RAFI_ARTIFACTS_DIR` whatever happened, and
+  that `restate-cleanup.yaml` is one job (nothing handed between jobs); then the deploy script's own checks
   (`scripts/cloudflare-deploy-test.sh`: each subcommand run from a copy of the template with a release laid out in
   `release/`, against a stubbed wrangler and Restate CLI and a fake Cloudflare and Restate admin API, a local node
   server; the wrangler stub's dry runs write a `deploy` entry with the Worker's name into its ND-JSON output, as
@@ -201,17 +202,18 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   say, a dry run failing or naming no Worker, the engine Worker's versioned name, `jq` missing, the tools' defaults
   `npx -y wrangler` and `npx -y @restatedev/restate` and their overrides, and Wrangler environments: none, one
   without a name of its own, one with, one wrangler refuses), `migrate`, `deploy-live` skipping an unchanged
-  fingerprint (an edit of `live.wrangler.toml`, a comment too, changes it), `upload-app`'s first install and upgrade,
+  fingerprint (an edit of `wrangler.live.toml`, a comment too, changes it), `upload-app`'s first install and upgrade,
   `deploy-engine`'s name and address, `register-engine`'s downgrade guard, metadata (`instance` the app Worker's
   name), `"force": false` and retries, `check-remote`'s same guard before anything is deployed (a first install,
   the same or a newer release passing, an older refused, an unreachable Restate or a bad key or token failing,
   nothing but reads), `promote-app`, the outputs (`RAFI_OUTPUT_FILE`) and reports (`RAFI_REPORT_FILE`), and
   `cleanup`'s filtering by metadata, its order (each drained deployment removed from Restate before its Worker is
   deleted; a deletion failing leaves the Worker behind and fails the run, a removal refused leaves the Worker
-  alone), the leftover engine Workers it reports and never deletes, and stopping before anything is removed or
-  deleted when a listing fails, and the artifacts (`RAFI_ARTIFACTS_DIR`: wrangler's ND-JSON, Restate's listings,
-  the registration's answer, the Workers listing and `cleanup.json`'s lists, with no token among them); the fake
-  server is stopped on exit and on a signal); then `worker.tar.gz`, its layout
+  alone), the leftover engine Workers it reports and never deletes (those none of this installation's deployments
+  refers to: a Worker only another installation's deployment refers to is reported), and stopping before anything
+  is removed or deleted when a listing fails, and the artifacts (`RAFI_ARTIFACTS_DIR`: wrangler's ND-JSON,
+  Restate's listings, the registration's answer, the Workers listing and `cleanup.json`'s lists, with no token among
+  them); the fake server is stopped on exit and on a signal); then `worker.tar.gz`, its layout
   and each Worker's exports checked, unpacked into a copy of the template's `release/`, whose `release/deploy.sh
   dry-run` (with the devenv's wrangler through `WRANGLER`, nothing installed, nothing asked of the network) copies
   `legal/` in and dry-deploys the live Worker `rafi-live` (`DB`, `RAFFLE_ROOM` its own), the engine Worker

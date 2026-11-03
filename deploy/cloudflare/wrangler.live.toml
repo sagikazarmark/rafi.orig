@@ -1,8 +1,8 @@
 # Rafi on Cloudflare Workers: one installation's configuration of the live
 # Worker, the raffles' live channels: one RaffleRoom Durable Object per
 # raffle, which pushes what phones see. The class is this Worker's, with its
-# Durable Object migrations; the app Worker (app.wrangler.toml) and the
-# engine Worker (engine.wrangler.toml) bind it by this Worker's name (their
+# Durable Object migrations; the app Worker (wrangler.app.toml) and the
+# engine Worker (wrangler.engine.toml) bind it by this Worker's name (their
 # script_name). This is the live Worker's shape as the Rafi repository ships
 # it (apps/worker-live/wrangler.toml), pointed at a release's files in
 # release/.
@@ -13,7 +13,7 @@
 # Workers binding it, and only when its code or this file changed (any edit,
 # a comment or another environment's section too): deploying it drops every
 # phone's live connection. In a Wrangler environment ([env.<name>], see
-# app.wrangler.toml), repeat the vars and the bindings; the migrations are
+# wrangler.app.toml), repeat the vars and the bindings; the migrations are
 # inherited.
 #
 # Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
@@ -24,7 +24,7 @@ compatibility_date = "2026-10-01"
 workers_dev = false
 preview_urls = false
 
-# Your database, the app's (app.wrangler.toml): the same database_id. Each live
+# Your database, the app's (wrangler.app.toml): the same database_id. Each live
 # channel reads its raffle from it.
 [[d1_databases]]
 binding = "DB"
@@ -49,7 +49,7 @@ enabled = true
 invocation_logs = false
 
 # Optional: the jurisdiction of the live channels' Durable Objects ("eu"),
-# as app.wrangler.toml and engine.wrangler.toml say; unset, none. Before the
+# as wrangler.app.toml and wrangler.engine.toml say; unset, none. Before the
 # first deploy only: INSTALL.md, "Keeping data in the EU".
 [vars]
 # RAFI_DO_JURISDICTION = "eu"

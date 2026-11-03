@@ -98,7 +98,7 @@ cloudflare-artifact out="target/cloudflare/release":
     #!/usr/bin/env bash
     set -euo pipefail
     # Nothing of an installation's is in it: its configuration (deploy/cloudflare's
-    # app.wrangler.toml, engine.wrangler.toml and live.wrangler.toml, which point
+    # wrangler.app.toml, wrangler.engine.toml and wrangler.live.toml, which point
     # into this layout as release/) and its legal documents, which deploy.sh
     # copies into app/assets/legal/, are its own.
     out="{{ absolute_path(out) }}"

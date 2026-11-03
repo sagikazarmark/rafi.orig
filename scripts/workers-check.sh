@@ -21,8 +21,8 @@
 #      can't run open; it has read the legal documents through the assets
 #      binding by then, and served without legal/ it refuses naming them.
 #      Needs dx too (the dry run uploads the assets);
-#   6. deploy/cloudflare, what an installation deploys: its app.wrangler.toml,
-#      engine.wrangler.toml and live.wrangler.toml agree with the production
+#   6. deploy/cloudflare, what an installation deploys: its wrangler.app.toml,
+#      wrangler.engine.toml and wrangler.live.toml agree with the production
 #      Workers' (apps/worker-app, apps/worker-engine, apps/worker-live) on
 #      the bindings, limits, Durable Object migrations and required secrets,
 #      and a release (of the version deploy/cloudflare/VERSION names) is
@@ -304,7 +304,7 @@ if command -v dx >/dev/null; then
       -e '/^invocation_logs/p' -e 's/^\(RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS\) = .*/\1/p' -e '/^RAFI_[A-Z_]* = /p' \
       -e '/^required = \[$/,/^\]/p' "$1"
   }
-  for pair in worker-app:app.wrangler.toml worker-engine:engine.wrangler.toml worker-live:live.wrangler.toml; do
+  for pair in worker-app:wrangler.app.toml worker-engine:wrangler.engine.toml worker-live:wrangler.live.toml; do
     worker="apps/${pair%%:*}/wrangler.toml"
     template="deploy/cloudflare/${pair#*:}"
     if ! diff <(shape "$ROOT/$worker") <(shape "$ROOT/$template"); then
