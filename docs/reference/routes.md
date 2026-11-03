@@ -155,8 +155,8 @@ Workers Assets serves, the live channel and the engine's endpoint don't pass the
 
 | Path | What |
 |---|---|
-| `/partyline/raffle/<id>` | The raffle's live channel (WebSocket, through the `RaffleRoom` Durable Object). Available while the raffle is public and not over. |
-| `/restate`, `/restate/*` | The raffle engine's Restate endpoint (`/restate/discover`, `/restate/invoke/…`), called by Restate with signed requests, which the SDK verifies before anything else. Not for browsers. In production it is the engine Worker's alone (each release's own, at `https://rafi-engine-<version>.<subdomain>.workers.dev/restate`), and the app Worker answers 404 here; the local combined Worker (`apps/worker`) serves it beside the app. |
+| `/partyline/raffle/<id>` | The raffle's live channel (WebSocket): the app Worker checks the raffle and the rate limit, then hands the socket to the raffle's `RaffleRoom` Durable Object, which lives in the rooms Worker (`rafi-rooms`, which has no address of its own). Available while the raffle is public and not over. |
+| `/restate`, `/restate/*` | The raffle engine's Restate endpoint (`/restate/discover`, `/restate/invoke/…`), called by Restate with signed requests, which the SDK verifies before anything else. Not for browsers. In production it is the engine Worker's alone (each release's own, at `https://rafi-engine-v<version, dashed>.<subdomain>.workers.dev/restate`), and the app Worker answers 404 here; the local combined Worker (`apps/worker`) serves it beside the app. |
 
 On Workers, Workers Assets answers the paths that are files (`/assets/…`, `/participant/assets/…`,
 `/participant/fallback.js`, `/legal/…`) and the Worker every other one, the web app's `index.html` included: it is

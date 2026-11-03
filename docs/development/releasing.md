@@ -38,17 +38,29 @@ commit it was. Installations' deploys download the asset by its tag and verify i
 
 Name the release in `deploy/cloudflare/VERSION` (`0.2.0`, or `0.2.0-rc.1` for a pre-release). The rehearsal refuses
 a release that file doesn't name (an installation copied at the tag would deploy another release), and CI's
-rehearsal and the Release workflow's manual run are of the version it names.
+rehearsal and the Release workflow's manual run are of the version it names. The template's README names the
+release in its commands too (the tarball it copies, `/healthz`'s answer, the engine Worker's name): change them with
+`VERSION` (`rg -n '0\.1\.0|0-1-0' deploy/cloudflare/README.md`); nothing checks those.
 
 When a change to `scripts/cloudflare-deploy.sh` changes how it is driven (a subcommand, its environment or outputs,
 what it expects of the installation's repository), increment its `DEPLOY_VERSION`, change the template's workflows
 to fit and set their `RAFI_DEPLOY_VERSION` (both of them) to it: the rehearsal refuses workflows whose
-`RAFI_DEPLOY_VERSION` isn't `deploy.sh`'s, and the release notes then tell operators to copy the workflows.
+`RAFI_DEPLOY_VERSION` isn't `deploy.sh`'s, and the release notes then tell operators to copy the workflows. The
+template's README names it too, in its optional local check (`RAFI_DEPLOY_VERSION=1 release/deploy.sh check`):
+change it there.
 
 The release notes are generated from the merged pull requests; edit them on the release when an operator has to
-act (a migration, a new secret, a setting in `deploy/cloudflare`'s configurations, a new `DEPLOY_VERSION`: copy the
-workflows, or a change to their secrets), and say when a migration or the live channel would break the previous
-release's engine while it drains ([Upgrades](../operations/upgrades.md#what-a-deploy-does-to-a-raffle-in-flight)).
+act or should know:
+
+- a migration, a new secret, a setting in `deploy/cloudflare`'s configurations or `.prod.vars.example`;
+- a new `DEPLOY_VERSION`: "copy `.github/workflows/deploy.yaml` and `restate-cleanup.yaml` from
+  `deploy/cloudflare` at this tag before changing `VERSION`" (the deploy's check says the same), or a change to the
+  workflows' secrets;
+- whether the rooms Worker changed (its `rooms/build` differs from the previous release's): a deploy of a release
+  that changes it drops every live connection, so say so;
+- when a migration or the live channel would break the previous release's engine while it drains
+  ([Upgrades](../operations/upgrades.md#what-a-deploy-does-to-a-raffle-in-flight)), or a change to the rooms
+  Worker's requests would break the previous app's or engine's (a change to them takes two releases).
 
 CI's `workers` job rehearses a release (of the version `deploy/cloudflare/VERSION` names) on every push.
 

@@ -9,8 +9,8 @@ Every Rafi deployment has the same four parts:
 
 | Part | Native (self-hosting) | Cloudflare Workers |
 |---|---|---|
-| **App**: admin, projector, participant and verification pages, APIs | `rafi` (`apps/rafi`) | The app Worker, `rafi` (`apps/worker-app`), which also hosts the live channels (`RaffleRoom`) |
-| **Raffle engine**: runs the draws | `rafi-restate` (`apps/restate`) | The engine Worker (`apps/worker-engine`), one per release, `rafi-engine-<version>` on workers.dev |
+| **App**: admin, projector, participant and verification pages, APIs | `rafi` (`apps/rafi`) | The app Worker, `rafi` (`apps/worker-app`), on your domain; with the rooms Worker, `rafi-rooms` (`apps/worker-rooms`), holding the raffles' live channels (`RaffleRoom`) |
+| **Raffle engine**: runs the draws | `rafi-restate` (`apps/restate`) | The engine Worker (`apps/worker-engine`), one per release, `rafi-engine-v<version>` on workers.dev |
 | **Restate**: durable execution for the engine | A self-hosted `restate-server`, or Restate Cloud | Restate Cloud |
 | **Database**: shared by the app and the engine | SQLite (one file, one machine) or PostgreSQL | D1 |
 
@@ -43,9 +43,9 @@ Clients poll for updates. There is no push channel natively.
 ```mermaid
 flowchart LR
     users[Browsers] -->|HTTPS, your domain| app[app Worker rafi<br/>+ static assets]
-    users <-->|WebSocket| room[RaffleRoom<br/>Durable Objects]
+    users <-->|WebSocket, through the app| room[rooms Worker rafi-rooms<br/>RaffleRoom Durable Objects]
     app -->|ingress, API key| rc[Restate Cloud]
-    rc -->|signed requests to /restate| engine[engine Worker<br/>rafi-engine-version<br/>on workers.dev]
+    rc -->|signed requests to /restate| engine[engine Worker per release<br/>rafi-engine-v0-1-0, …<br/>on workers.dev]
     engine -->|HTTPS| drand[drand relays]
     app --> d1[(D1)]
     engine --> d1
@@ -55,11 +55,11 @@ flowchart LR
     app -->|HTTPS| clerk[Clerk]
 ```
 
-Two Workers sharing the D1 database and the app's Durable Objects: the app Worker on your domain, and each
-release's engine Worker, which Restate calls on workers.dev with signed requests and which stays until the
-invocations that started on it have finished ([Cloudflare Workers](cloudflare.md#the-two-workers)). Your
-repository's GitHub Actions workflow deploys both. Locally they are one Worker (`apps/worker`), the engine under
-`/restate`.
+Three Workers sharing the D1 database: the app Worker on your domain; the rooms Worker, with no address, whose
+`RaffleRoom` Durable Objects the other two reach through their bindings; and each release's engine Worker, which
+Restate calls on workers.dev with signed requests and which stays until the invocations that started on it have
+finished ([Cloudflare Workers](cloudflare.md#the-three-workers)). Your repository's GitHub Actions workflows deploy
+them and delete the drained engines. Locally they are one Worker (`apps/worker`), the engine under `/restate`.
 
 ## Choosing
 
@@ -85,7 +85,7 @@ repository's GitHub Actions workflow deploys both. Locally they are one Worker (
 
 You are every organizer's processor (the data processing agreement in your terms) and the controller of their
 accounts; your documents are set up in [Self-hosting](self-hosting.md#5-legal-documents-and-the-operator) or
-[Cloudflare Workers](cloudflare.md#5-the-legal-documents-and-the-operator). What the software implies for your
+[Cloudflare Workers](cloudflare.md#the-legal-documents-and-the-operator). What the software implies for your
 records (not legal advice):
 
 - **Your record of processing** as a processor (GDPR Art. 30(2)) lists, for the organizers you serve, the entrant
@@ -109,10 +109,11 @@ records (not legal advice):
 ## Guides
 
 - [Self-hosting](self-hosting.md): `rafi` and `rafi-restate` on your own machine
-- [Cloudflare Workers](cloudflare.md)
-- [Upgrades](upgrades.md): migrations, re-registering the engine, the deploy freeze
+- [Cloudflare Workers](cloudflare.md), and the first deploy step by step in
+  [`deploy/cloudflare`'s README](../../deploy/cloudflare/README.md)
+- [Upgrades](upgrades.md): migrations, registering the engine, the deploy freeze
 - [Troubleshooting](troubleshooting.md)
-- [Runbook](runbook.md): the deploy preflight, rotating secrets, rolling back, the engine down during an event,
-  backups and restore, a person's data request, a breach, monitoring, costs
+- [Runbook](runbook.md): the deploy preflight, rotating secrets, rolling back (don't), the engine down during an
+  event, backups and restore, a person's data request, a breach, where the logs are, monitoring, costs
 - [Configuration reference](../reference/configuration.md)
 - [Routes reference](../reference/routes.md)

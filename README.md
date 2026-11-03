@@ -74,7 +74,7 @@ flowchart LR
 
 | Component | What it does | Native | Cloudflare Workers |
 |---|---|---|---|
-| **App** | The HTTP server and the web app: pages, APIs, every use case. Keeps no state between requests. | `rafi` | the app Worker, `rafi-worker-app` |
+| **App** | The HTTP server and the web app: pages, APIs, every use case. Keeps no state between requests. | `rafi` | the app Worker, `rafi-worker-app`, and the rooms Worker, `rafi-worker-rooms`, with the raffles' live channels |
 | **Raffle engine** | Owns each raffle from freeze to finish and runs its draws, as a [Restate](https://restate.dev) virtual object. Sees only anonymous IDs. | `rafi-restate` | the engine Worker, `rafi-worker-engine`, one per release |
 | **Database** | The record, shared by the app and the engine | SQLite or Postgres | D1 |
 | **Web app** | Admin, projector, verification page (Dioxus) | `rafi-web` | same |
@@ -87,10 +87,11 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 ## Status
 
 - **Cloudflare Workers** is the production deployment, and needs no toolchain: copy
-  [`deploy/cloudflare`](deploy/cloudflare) into a repository of yours, and its GitHub Actions workflow deploys a
-  release to your own account (the app Worker, and each release's raffle engine Worker, registered with Restate
-  Cloud) with your configuration and legal documents, after checking the release's provenance;
-  [the first deploy](docs/operations/cloudflare.md) is documented step by step. CI runs the production shape
+  [`deploy/cloudflare`](deploy/cloudflare) into a repository of yours, and its GitHub Actions workflows deploy a
+  release to your own account (the app Worker, the rooms Worker with the live channels, and each release's raffle
+  engine Worker, registered with Restate Cloud and deleted once drained) with your configuration and legal
+  documents, after checking the release's provenance. [The first deploy](deploy/cloudflare/README.md) is documented
+  step by step, and [the reference](docs/operations/cloudflare.md) explains it. CI runs the production shape
   through a dry deploy, a whole evening under `wrangler dev` and the hourly housekeeping.
 - **Self-hosting** (native `rafi` and `rafi-restate`) is supported. There are no packaged images yet: you build
   from source. Container images and native packages come later.
@@ -111,7 +112,8 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 
 **Operating Rafi**
 - [Overview](docs/operations/overview.md): what you deploy, and the topologies
-- [Self-hosting](docs/operations/self-hosting.md) · [Cloudflare Workers](docs/operations/cloudflare.md)
+- [Self-hosting](docs/operations/self-hosting.md) · [Cloudflare Workers](docs/operations/cloudflare.md) (its first
+  deploy: [`deploy/cloudflare`](deploy/cloudflare/README.md))
 - [Upgrades](docs/operations/upgrades.md) · [Troubleshooting](docs/operations/troubleshooting.md) ·
   [Runbook](docs/operations/runbook.md)
 

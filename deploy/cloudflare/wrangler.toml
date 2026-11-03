@@ -114,9 +114,10 @@ RAFI_DO_JURISDICTION = "eu"
 # environment's identity keys are the engine's (engine.wrangler.toml), not
 # this Worker's.
 # Optional settings with defaults (RAFI_RETENTION_DAYS, RAFI_RETENTION_MAX_DAYS,
-# RAFI_RETENTION_WINNERS_DAYS, RAFI_MIN_AGE, RAFI_DRAND_RELAYS,
-# RAFI_DRAND_LEAD_SECS, RAFI_DRAND_TIMEOUT_SECS) are secrets too when you
-# change them: https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
+# RAFI_RETENTION_WINNERS_DAYS, RAFI_MIN_AGE, RAFI_MAX_ENTRANTS and the
+# others) are secrets too when you change them; the drand settings are the
+# engine's, vars in engine.wrangler.toml:
+# https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
 [secrets]
 required = [
   "RAFI_PUBLIC_URL",

@@ -7,8 +7,8 @@
 # combined Worker (apps/worker).
 #
 # The Worker's shape, for building and a dry deploy (`just dry-run`): nothing
-# of an installation's is in it. An installation's configuration comes with
-# the release (docs/operations/cloudflare.md).
+# of an installation's is in it. An installation's configuration is its
+# copy of deploy/cloudflare (docs/operations/cloudflare.md).
 
 name = "rafi-engine"
 main = "build/index.js"

@@ -156,8 +156,9 @@ RAFI_RESTATE_DRAND__MOCK=true … cargo run -p rafi-restate --features mock-dran
 ### Cloudflare Workers
 
 Locally the app and the raffle engine are one Worker, `apps/worker` (`rafi-worker`), which dispatches to the same
-libraries production's two Workers are made of: the app's (`rafi-cloudflare-app`, deployed as `apps/worker-app`) and
-the engine's (`rafi-cloudflare-engine` under `/restate`, deployed as `apps/worker-engine`); see
+libraries production's three Workers are made of: the app's (`rafi-cloudflare-app`, deployed as `apps/worker-app`),
+the engine's (`rafi-cloudflare-engine` under `/restate`, deployed as `apps/worker-engine`) and the live channels'
+`RaffleRoom` class (`rafi-cloudflare`, deployed as `apps/worker-rooms`); see
 [Crates and apps](../reference/crates.md). `wasm-bindgen-cli` must match `Cargo.lock`. `--persist-to` keeps the
 Worker's local state (D1, Durable Objects) across restarts:
 

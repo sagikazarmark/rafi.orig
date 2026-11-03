@@ -489,6 +489,21 @@ copy → announce.
   checks the template's `uses: …@v<version>` and `version:` name the release. T2-1's rename touches
   `RAFI_REPOSITORY` in `deploy-cloudflare.yml` and the template's `uses:` (the rehearsal checks they agree);
   T2-3's real deploy and T2-4's stranger follow the new README.
+- **Since** (2026-11-03, last): production is three Workers (`6d921f0`): the app (`rafi`), a rooms Worker
+  (`apps/worker-rooms`, `rafi-rooms`) that alone defines the `RaffleRoom` Durable Objects and is redeployed only
+  when its code or configuration changed, and an engine Worker per release, now `rafi-engine-v<version dashed>`;
+  local development keeps the combined Worker. The deploy (`8425a52`) is two workflows of the installation's own,
+  `deploy/cloudflare/.github/workflows/deploy.yaml` and `restate-cleanup.yaml`, copied with the template; the
+  reusable `deploy-cloudflare.yml` is gone. They download and verify the release `VERSION` names and run its bundled
+  `deploy.sh` one subcommand per job (`check`, `migrate`, `deploy-rooms`, `upload-app` ∥ `deploy-engine`,
+  `register-engine`, `promote-app`; `cleanup` daily); `DEPLOY_VERSION` (1) is the interface between the two, and a
+  release that changes it tells operators to copy the workflows. Each engine is registered with metadata (`app`,
+  `instance`, `version`, `cloudflare_account`, `worker`), never over a newer release's, and the cleanup deletes this
+  installation's drained engine Workers, then their Restate deployments. No Deploy button, no Workers Builds, no
+  `RAFI_SECRETS` (the app's secrets are set once with `wrangler secret bulk .prod.vars`), and, for now, no
+  live-raffle check in the deploy (`RAFI_DEPLOY_WHILE_LIVE` is gone; the runbook's query is the operator's). The
+  template's README is the first-deploy manual (the API token with `cf`, the keys, the secrets, each step's
+  output), `docs/operations/cloudflare.md` the reference.
 
 #### T2-6 · Licensing and attribution
 
@@ -1464,11 +1479,12 @@ The tag is ready when every line is true.
 - [ ] `gh repo view sagikazarmark/rafi` resolves; `rg -o 'github.com/sagikazarmark/[a-z.]+' | sort -u` is one
       name.
 - [ ] One `workflow_dispatch` dry run and one `v0.1.0-rc.1` pre-release exist; the release job depends on CI.
-- [ ] One real Cloudflare deploy from the rehearsal tarball drew a raffle end to end with real drand; the six
-      "first deploy" items in `cloudflare.md` are dated; startup time recorded.
-- [ ] The template's workflow deploys from a clean repository (a copy of `deploy/cloudflare` with edited templates
-      and the GitHub secrets) and reaches `/healthz` → `ok 0.1.0`; with unedited templates the Worker refuses
-      every request; a second release's deploy drains and deletes the first engine Worker.
+- [ ] One real Cloudflare deploy drew a raffle end to end with real drand; the items under "What only a real
+      deploy can check" in `cloudflare.md` are dated; startup time recorded.
+- [ ] A first install from a clean repository, following `deploy/cloudflare/README.md` step by step, reaches
+      `/healthz` → `ok 0.1.0`; with unedited templates the Worker refuses every request.
+- [ ] A second release's deploy registers its engine, and the Restate cleanup deletes the first engine Worker
+      (and its Restate deployment) once drained.
 - [ ] A stranger deployed from the README in under an hour; their notes are folded in.
 - [ ] `gh attestation verify` passes on the tarball; two builds of the tag are byte-identical.
 - [x] `OFL.txt` beside the fonts; the admin footer links the source and shows the version; `/v/<slug>` links
