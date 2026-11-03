@@ -1,14 +1,15 @@
 # Runbook
 
 What an operator does when something happens: before a deploy, during an event, after a restore, after a breach.
-The commands are for Cloudflare Workers (`npx wrangler`, from your installation's repository, your copy of
-`deploy/cloudflare`); natively the same SQL runs against your SQLite file or Postgres database, and the secrets are
-the app's environment. They use the template's names: the database `rafi` (its `database_name`) and the Workers
-`rafi-app`, `rafi-live` and `rafi-engine-v…`; an installation with names of its own, or one of several in a
-repository as a Wrangler environment (`rafi-eu`, `rafi-app-eu`; `CLOUDFLARE_ENV=eu` for the `-c app.wrangler.toml`
-commands), uses its own. On Cloudflare the deploys and the Restate cleanups are your repository's GitHub Actions
-runs (**Actions > Deploy**, **Actions > Restate cleanup**): each run's log is that run's, step by step, and its
-summary page says what it did.
+The commands are for Cloudflare Workers (`wrangler` is `npx -y wrangler` from your installation's repository, your
+copy of `deploy/cloudflare`, its `package.json`'s after `npm install`); natively the same SQL runs against your
+SQLite file or Postgres database, and the secrets are the app's environment. They use the template's names: the
+database `rafi` (its `database_name`) and the Workers `rafi-app`, `rafi-live` and `rafi-engine-v…`; an
+installation with names of its own, or one of several in a repository as a Wrangler environment (`rafi-eu`,
+`rafi-app-eu`; `CLOUDFLARE_ENV=eu` for the `-c app.wrangler.toml` commands), uses its own. On Cloudflare the
+deploys and the Restate cleanups are your repository's GitHub Actions runs (**Actions > Deploy**, **Actions >
+Restate cleanup**): each run's log is that run's, step by step, its summary page says what it did, and its
+artifacts hold the JSON `deploy.sh` read and wrote (`cleanup.json` among the cleanup's).
 
 ## Before a deploy: is anything live?
 
@@ -76,8 +77,8 @@ engine can't be reached"), or a draw that stays on its countdown. What the organ
    it isn't Rafi's verifiable draw, and withdraw those prizes in the console afterwards so the record doesn't
    claim them.
 
-The operator checks the [Restate Cloud status](https://status.restate.dev), the engine Worker's log (`npx wrangler
-tail rafi-engine-v<version, dashed>`: each release's engine is its own Worker), the app Worker's (`npx wrangler tail
+The operator checks the [Restate Cloud status](https://status.restate.dev), the engine Worker's log (`npx -y wrangler
+tail rafi-engine-v<version, dashed>`: each release's engine is its own Worker), the app Worker's (`npx -y wrangler tail
 rafi-app`) and, for a self-hosted Restate, `restate-server`'s.
 
 ## Backups and restore
@@ -242,7 +243,7 @@ aware of it to notify their supervisory authority (GDPR Art. 33), so your notice
 - **Deploys and cleanups** (Cloudflare): your repository's **Actions**, one run each, every step printed (`gh run
   list`, `gh run view <run-id> --log`), and on each run's summary page what it did.
 - **The Workers**: Workers Logs, one per Worker (the dashboard's **Workers & Pages >** the Worker **> Logs**, or live
-  with `npx wrangler tail <Worker>`): `rafi-app` (the app and the hourly housekeeping), `rafi-live` (the live
+  with `npx -y wrangler tail <Worker>`): `rafi-app` (the app and the hourly housekeeping), `rafi-live` (the live
   channels) and each release's engine, `rafi-engine-v0-1-0` and so on, whose log stays until the cleanup deletes
   the Worker. Only the application's own lines are kept: warnings and errors with raffle IDs and error text,
   never personal data, and no per-request records (`invocation_logs = false`).

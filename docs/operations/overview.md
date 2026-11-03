@@ -69,7 +69,7 @@ they are one Worker (`apps/worker`), the engine under `/restate`.
 |---|---|---|
 | Status | Supported for self-hosting. No packaged images yet: build from source. | The production deployment; CI dry-deploys the production shape on every change. |
 | Live updates | Polling (every few seconds) | Pushed over WebSockets |
-| Database | SQLite or Postgres | D1, EU jurisdiction |
+| Database | SQLite or Postgres | D1 (in the EU jurisdiction if the installation chooses it) |
 | Restate | Self-hosted or Cloud | Cloud |
 | Scaling | One machine (SQLite) or more (Postgres) | Managed |
 

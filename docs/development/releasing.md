@@ -22,10 +22,12 @@ Wrangler environment and that file exists: several installations in one reposito
 repository, verify its attestation (signed by `release.yaml`, from a run on the tag `v<version>`) and run its
 `deploy.sh`, one subcommand per job (`check` and `check-remote`, `migrate`, `deploy-live`, `upload-app` and
 `deploy-engine`, `register-engine` and `promote-app`; `cleanup` daily). The workflows are thin and the
-installation's own; nothing in `deploy.sh` is GitHub's: it reads the three configurations as wrangler resolves
-them (wrangler's own reader, for `CLOUDFLARE_ENV`), writes its outputs to `RAFI_OUTPUT_FILE` and its Markdown
-report to `RAFI_REPORT_FILE` (the workflows give it `$GITHUB_OUTPUT` and `$GITHUB_STEP_SUMMARY`), and installs
-the wrangler it pins into `RAFI_TOOLS_DIR` unless `WRANGLER` and `RAFI_WRANGLER_PKG` name one. An installation is
+installation's own; nothing in `deploy.sh` is GitHub's: it reads the Workers' names from wrangler's dry run of
+each configuration (for `CLOUDFLARE_ENV`), writes its outputs to `RAFI_OUTPUT_FILE`, its Markdown report to
+`RAFI_REPORT_FILE` and the JSON it read and wrote to `RAFI_ARTIFACTS_DIR` (the workflows give it `$GITHUB_OUTPUT`,
+`$GITHUB_STEP_SUMMARY` and a directory they upload), and installs nothing: it runs `npx -y wrangler` and `npx -y
+@restatedev/restate`, which take the versions the installation's `package.json` (and its committed lockfile)
+installed with `npm ci` (or `WRANGLER` and `RESTATE`), and reads JSON with `jq`. An installation is
 its app Worker's name: Restate's deployment metadata names it as `instance`. So an installation that copies
 `deploy/cloudflare` at a tag deploys that tag, and upgrading is changing `VERSION`.
 
@@ -59,6 +61,8 @@ act or should know:
 - a change to the workflows: "copy `.github/workflows/deploy.yaml` and `restate-cleanup.yaml` from
   `deploy/cloudflare` at this tag before changing `VERSION`" (for each installation, with its `CLOUDFLARE_ENV`), or
   a change to the workflows' secrets;
+- a wrangler or Restate CLI `deploy.sh` now needs newer than an installation's `package-lock.json` may pin
+  (operators run `npm update` and commit the lockfile), or a change to the template's `package.json`;
 - whether the live Worker changed (its `live/build` differs from the previous release's): a deploy of a release
   that changes it drops every live connection, so say so;
 - when a migration or the live channel would break the previous release's engine while it drains
@@ -72,8 +76,9 @@ CI's `workers` job rehearses a release (of the version `deploy/cloudflare/VERSIO
 Run the Release workflow by hand (**Actions > Release > Run workflow**): it runs CI, builds the release of the
 version given (by default the one `deploy/cloudflare/VERSION` names), checks that the template's `VERSION` names it
 and that its workflows read the version file as `deploy.sh` does, and runs its `deploy.sh dry-run` from a copy of
-`deploy/cloudflare` with the release unpacked into `release/`, at the configurations' top level and as a Wrangler
-environment (`[env.eu]` added to each configuration, `VERSION.eu`, `CLOUDFLARE_ENV=eu`), publishing nothing. `dry_run` off publishes a tag that already exists, to finish a release whose run failed: run it
+`deploy/cloudflare` with the release unpacked into `release/` (the devenv's wrangler, the Workers' names read from
+its dry runs), at the configurations' top level and as a Wrangler environment (`[env.eu]` added to each
+configuration, with `RAFI_DO_JURISDICTION = "eu"`, `VERSION.eu`, `CLOUDFLARE_ENV=eu`), publishing nothing. `dry_run` off publishes a tag that already exists, to finish a release whose run failed: run it
 on the tag (**Use workflow from**: the tag, or `gh workflow run release.yaml --ref v<version> -f dry_run=false`),
 since the attestation names the ref the run was on and installations require the tag; from a branch it refuses.
 

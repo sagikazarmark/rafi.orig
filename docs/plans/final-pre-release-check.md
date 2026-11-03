@@ -519,6 +519,18 @@ copy → announce.
   The cleanup now removes a drained deployment from Restate first and then deletes its Worker, and reports, never
   deletes, engine Workers no deployment refers to. The operator docs follow (the README's "Several installations"
   and "What each run reports").
+- **Since** (2026-11-03, latest): `deploy.sh` no longer reads the configurations: no wrangler reader, no
+  `.rafi-tools`, and none of the cross-file checks (one `database_id`, one jurisdiction, `script_name`, the
+  engine's identity keys per environment), which the README now asks the operator to keep and the first test-mode
+  raffle shows. It checks the versions, the release's files and the template's placeholders (a literal search), and
+  reads the Workers' names from `wrangler deploy --dry-run` of each configuration (the ND-JSON `deploy` entry). The
+  tools come from the template's `package.json` (`npm ci` in each job; `npx -y wrangler`, `npx -y
+  @restatedev/restate`), JSON is read with `jq`, and each job uploads the JSON it read and wrote
+  (`RAFI_ARTIFACTS_DIR`, `cleanup.json` among it). The EU jurisdiction is optional and off by default:
+  `RAFI_DO_JURISDICTION` unset is the plain namespace, D1 is created without `--jurisdiction` unless the operator
+  chooses the README's "Keeping data in the EU" before the first deploy. T2-3's "the Durable Object's EU
+  jurisdiction" item applies only to such an installation; the live Worker's fingerprint is its file's bytes now,
+  so any edit of `live.wrangler.toml` redeploys it.
 
 #### T2-6 · Licensing and attribution
 

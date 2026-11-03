@@ -63,9 +63,9 @@ each reading its own settings:
 
 | Worker | Reads | Where an installation sets them |
 |---|---|---|
-| The app, `rafi-app` (`rafi-worker-app`) | The app's variables above (Workers ones only: not `IP`, `PORT`, `RAFI_PUBLIC_DIR`, `RAFI_PARTICIPANT_DIR`, `RAFI_DATABASE_URL`, `RAFI_DOCS_DIR`, `RUST_LOG`), and `RAFI_DO_JURISDICTION` | Secrets on the Worker, listed under `[secrets] required` in `app.wrangler.toml`: set once before the first deploy with `wrangler secret bulk .prod.vars -c app.wrangler.toml` (`.prod.vars.example`), then `wrangler secret put <NAME> -c app.wrangler.toml`; deploys keep them. `RAFI_DO_JURISDICTION` is a var in `app.wrangler.toml`. |
+| The app, `rafi-app` (`rafi-worker-app`) | The app's variables above (Workers ones only: not `IP`, `PORT`, `RAFI_PUBLIC_DIR`, `RAFI_PARTICIPANT_DIR`, `RAFI_DATABASE_URL`, `RAFI_DOCS_DIR`, `RUST_LOG`), and `RAFI_DO_JURISDICTION` | Secrets on the Worker, listed under `[secrets] required` in `app.wrangler.toml`: set once before the first deploy with `wrangler secret bulk .prod.vars -c app.wrangler.toml` (`.prod.vars.example`), then `wrangler secret put <NAME> -c app.wrangler.toml`; deploys keep them. `RAFI_DO_JURISDICTION`, when set, is a var in `app.wrangler.toml`. |
 | The engine, `rafi-engine-v<version>` (`rafi-worker-engine`), one per release | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, `RAFI_DO_JURISDICTION`, the drand settings below | Vars in `engine.wrangler.toml`; no secrets. A change deploys (the release's engine Worker, the same code with the vars as they are then). |
-| The live channels, `rafi-live` (`rafi-worker-live`) | Nothing but its bindings (`RAFI_DO_JURISDICTION` is there for the deploy's check that all three agree) | `live.wrangler.toml` |
+| The live channels, `rafi-live` (`rafi-worker-live`) | Nothing but its bindings (an installation that sets `RAFI_DO_JURISDICTION` sets it here too, so the three files say the same) | `live.wrangler.toml` |
 
 Their shapes are [`apps/worker-app/wrangler.toml`](../../apps/worker-app/wrangler.toml),
 [`apps/worker-engine/wrangler.toml`](../../apps/worker-engine/wrangler.toml) and
@@ -82,7 +82,7 @@ them.
 | Variable | Worker | Default | |
 |---|---|---|---|
 | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | engine | required | Restate's request signing keys (`publickeyv1_…`, comma separated), under the native engine's name for the same setting. Without them the engine refuses every request, except in a `dev` build. |
-| `RAFI_DO_JURISDICTION` | all three | `eu` | The Durable Objects' jurisdiction, or `none` (which local development needs: workerd has no jurisdictions). The three Workers must say the same (the deploy checks), and it can't change once objects exist. |
+| `RAFI_DO_JURISDICTION` | all three | none | The Durable Objects' jurisdiction (`eu`, `fedramp`): set, the app and the engine create the objects' IDs with `ns.jurisdiction(<it>)`; unset or empty, in the plain namespace (Cloudflare places the objects). Optional, and decided before the first deploy: an object keeps the jurisdiction it was created in, so a later change moves the live channels to new objects. The three Workers say the same, which nothing checks ([Keeping data in the EU](../../deploy/cloudflare/README.md#keeping-data-in-the-eu)). Leave it unset locally: workerd has no jurisdictions. |
 | `RAFI_DRAND_RELAYS` | engine | as `drand.relays` below | Relays the engine asks, in order, comma separated |
 | `RAFI_DRAND_LEAD_SECS` | engine | `6` | As `drand.lead_secs` below |
 | `RAFI_DRAND_TIMEOUT_SECS` | engine | `60` | As `drand.timeout_secs` below |

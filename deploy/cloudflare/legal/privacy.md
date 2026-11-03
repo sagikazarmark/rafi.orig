@@ -37,8 +37,8 @@ account itself is deleted in Clerk.
 
 | Provider | What for | What it sees |
 |---|---|---|
-| **[Hosting: e.g. Cloudflare, Inc. (USA; DPF, SCCs); the database (D1) and the live channels (Durable Objects) in the EU jurisdiction, the application code running wherever the user is]** | Running the application and storing its database | Everything the service stores. D1's point-in-time recovery keeps erased data for up to 30 more days. |
-| **Restate** ([Restate Cloud, EU] or self-hosted) | The raffle engine: it runs each draw against the public randomness round it committed to | Anonymous entrant IDs and prize names only; its journal is kept for about an hour and a raffle is forgotten when it finishes |
+| **[Hosting: e.g. Cloudflare, Inc. (USA; DPF, SCCs); the database (D1) and the live channels (Durable Objects) [in the EU jurisdiction / wherever Cloudflare places them], the application code running wherever the user is]** | Running the application and storing its database | Everything the service stores. D1's point-in-time recovery keeps erased data for up to 30 more days. |
+| **Restate** ([Restate Cloud, in its EU region / in another region] or self-hosted) | The raffle engine: it runs each draw against the public randomness round it committed to | Anonymous entrant IDs and prize names only; its journal is kept for about an hour and a raffle is forgotten when it finishes |
 | **Clerk, Inc.** (USA; DPF) | Organizer sign-in | Organizers' account details; never entrants' data |
 | **drand / League of Entropy** | Public randomness | Nothing: we only download public beacons |
 

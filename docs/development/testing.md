@@ -190,15 +190,18 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   version `deploy/cloudflare/VERSION` names) is rehearsed the way a tag releases it (`scripts/cloudflare-release.sh`):
   first that the template's `VERSION` names it, that its two workflows (`.github/workflows/deploy.yaml` and
   `restate-cleanup.yaml`) name one Rafi repository, verify the attestation `release.yaml` makes (its signer) and
-  read `VERSION.<CLOUDFLARE_ENV>` when it exists, as `deploy.sh` does; then the deploy script's own checks
+  read `VERSION.<CLOUDFLARE_ENV>` when it exists, as `deploy.sh` does, and that each of their jobs installs the
+  tools from the template's `package.json` (`npm ci`, or `npm install`) and uploads `RAFI_ARTIFACTS_DIR` whatever
+  happened; then the deploy script's own checks
   (`scripts/cloudflare-deploy-test.sh`: each subcommand run from a copy of the template with a release laid out in
   `release/`, against a stubbed wrangler and Restate CLI and a fake Cloudflare and Restate admin API, a local node
-  server, with the configurations read by the devenv wrangler's own reader (`RAFI_WRANGLER_PKG`): `check` (the
-  release's and the installation's version file, `VERSION.<env>` or `VERSION`, the engine Worker's versioned name,
-  the tools installed once when not given, the three configurations and broken copies of them, placeholders, and
-  Wrangler environments: none, one without a name of its own, one with, missing vars such as the engine's identity
-  keys, rate limits, required secrets or bindings refused), `migrate`, `deploy-live` skipping an unchanged
-  fingerprint (a comment or another environment doesn't change it), `upload-app`'s first install and upgrade,
+  server; the wrangler stub's dry runs write a `deploy` entry with the Worker's name into its ND-JSON output, as
+  wrangler does: `check` (the release's and the installation's version file, `VERSION.<env>` or `VERSION`, the
+  release's files, the placeholders found by a literal search, the names read from the dry runs whatever the files
+  say, a dry run failing or naming no Worker, the engine Worker's versioned name, `jq` missing, the tools' defaults
+  `npx -y wrangler` and `npx -y @restatedev/restate` and their overrides, and Wrangler environments: none, one
+  without a name of its own, one with, one wrangler refuses), `migrate`, `deploy-live` skipping an unchanged
+  fingerprint (an edit of `live.wrangler.toml`, a comment too, changes it), `upload-app`'s first install and upgrade,
   `deploy-engine`'s name and address, `register-engine`'s downgrade guard, metadata (`instance` the app Worker's
   name), `"force": false` and retries, `check-remote`'s same guard before anything is deployed (a first install,
   the same or a newer release passing, an older refused, an unreachable Restate or a bad key or token failing,
@@ -206,14 +209,18 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   `cleanup`'s filtering by metadata, its order (each drained deployment removed from Restate before its Worker is
   deleted; a deletion failing leaves the Worker behind and fails the run, a removal refused leaves the Worker
   alone), the leftover engine Workers it reports and never deletes, and stopping before anything is removed or
-  deleted when a listing fails; the fake server is stopped on exit and on a signal); then `worker.tar.gz`, its layout
+  deleted when a listing fails, and the artifacts (`RAFI_ARTIFACTS_DIR`: wrangler's ND-JSON, Restate's listings,
+  the registration's answer, the Workers listing and `cleanup.json`'s lists, with no token among them); the fake
+  server is stopped on exit and on a signal); then `worker.tar.gz`, its layout
   and each Worker's exports checked, unpacked into a copy of the template's `release/`, whose `release/deploy.sh
-  dry-run` (with the devenv's wrangler, nothing installed) copies `legal/` in and dry-deploys the live Worker
-  `rafi-live` (`DB`, `RAFFLE_ROOM` its own, the jurisdiction), the engine Worker under its versioned name (`DB`,
-  `RAFFLE_ROOM` defined in `rafi-live`, the jurisdiction and the identity keys) and the app Worker `rafi-app`
-  (`ASSETS`, `DB`, `RAFFLE_ROOM` defined in `rafi-live`, the four rate limiters, the jurisdiction); then the same
-  for a copy with an `[env.eu]` in each configuration and a `VERSION.eu`, with `CLOUDFLARE_ENV=eu`: `rafi-live-eu`,
-  `rafi-engine-eu-v<version>` and `rafi-app-eu`, bound to `rafi-live-eu`. What `deploy.sh` does against the real
+  dry-run` (with the devenv's wrangler through `WRANGLER`, nothing installed, nothing asked of the network) copies
+  `legal/` in and dry-deploys the live Worker `rafi-live` (`DB`, `RAFFLE_ROOM` its own), the engine Worker
+  `rafi-engine`, this release's `rafi-engine-v<version>` (`DB`, `RAFFLE_ROOM` defined in `rafi-live`, the identity
+  keys) and the app Worker `rafi-app` (`ASSETS`, `DB`, `RAFFLE_ROOM` defined in `rafi-live`, the four rate
+  limiters), the names read from the dry runs' ND-JSON and no `RAFI_DO_JURISDICTION` (the template's default);
+  then the same for a copy with an `[env.eu]` in each configuration (with `RAFI_DO_JURISDICTION = "eu"`) and a
+  `VERSION.eu`, with `CLOUDFLARE_ENV=eu`: `rafi-live-eu`, `rafi-engine-eu-v<version>` and `rafi-app-eu`, bound to
+  `rafi-live-eu`, each with the jurisdiction. What `deploy.sh` does against the real
   Cloudflare and Restate Cloud (the API's answers, wrangler's uploads and deploys, the registration, the removals
   and deletions, the Workers listing) needs an account and is not run here
 

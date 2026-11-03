@@ -23,6 +23,7 @@ Without devenv, you need each of these, with a way to install it:
 | `sqlite3` | inspecting the local database | your system's, or `brew install sqlite` |
 | `restate-server` 1.8 and `restate` | draws (the engine runs under Restate) | `brew install restatedev/tap/restate-server restatedev/tap/restate`, or [Restate's releases](https://github.com/restatedev/restate/releases); the end-to-end tests find the server through `RESTATE_SERVER_BIN` |
 | `wrangler` 4 | Workers | `npm install -g wrangler@4` |
+| `jq` | the deploy script and its checks (`scripts/cloudflare-deploy-test.sh`, `just cloudflare-release`, `just workers`) | your system's, or `brew install jq` |
 | `worker-build` 0.8 | Workers | `cargo install worker-build --version ^0.8 --locked` |
 | `cargo-audit`, `cargo-deny` | `just audit`, `just deny` | `cargo install cargo-audit cargo-deny --locked` |
 | a Chromium | the browser checks (`just workers`) | found as `chromium` or `google-chrome` on the path, or named in `CHROMIUM`: devenv installs one on Linux; on macOS, point `CHROMIUM` at your browser |
