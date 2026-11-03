@@ -472,6 +472,23 @@ copy → announce.
   more (T2-4's `--allow-templates` went with `deploy.sh`); the Worker refuses every request while one carries
   the marker. T2-8's wrangler pin is the template's devDependency, `wrangler` 4.148.0. Read `./deploy.sh fetch`
   above as `npm run build`, and `rafi-cloudflare-0.1.0.tar.gz` as `worker.tar.gz`.
+- **Since** (2026-11-03, later): the Cloudflare path moved to GitHub Actions and two Workers; the `package.json`
+  scripts, the Deploy to Cloudflare button and Workers Builds are gone. Production is the app Worker
+  (`apps/worker-app`, `rafi`) and a raffle engine Worker per release (`apps/worker-engine`, deployed as
+  `rafi-engine-<version dashed>` on workers.dev), split in `f7e070f`; local development keeps the combined
+  `apps/worker`. A release (`f37134d`) is still one asset, `worker.tar.gz`, now `VERSION`, `app/`, `engine/`,
+  `migrations/sqlite/` and `deploy.sh` (`scripts/cloudflare-deploy.sh`), which checks the two configurations, runs
+  the "is anything live?" preflight itself, applies the migrations, deploys the engine and registers it with
+  Restate automatically (without `force`), deploys the app, and prunes drained engine deployments and their Workers;
+  the manual `restate deployments register` step and the `RESTATE_PREFIX` path change for changed handlers are gone
+  (every release is a new URI). An installation is a repository copied from `deploy/cloudflare`, whose
+  `.github/workflows/deploy.yml` calls this repository's `.github/workflows/deploy-cloudflare.yml` at the tag: it
+  downloads `worker.tar.gz`, verifies its attestation (`gh attestation verify` with `--signer-workflow
+  …/release.yaml` and `--source-ref refs/tags/v<version>`; `release.yaml` now refuses to publish from a run not on
+  the tag) and runs `release/deploy.sh` with the operator's secrets (`RAFI_SECRETS` optional). The rehearsal
+  checks the template's `uses: …@v<version>` and `version:` name the release. T2-1's rename touches
+  `RAFI_REPOSITORY` in `deploy-cloudflare.yml` and the template's `uses:` (the rehearsal checks they agree);
+  T2-3's real deploy and T2-4's stranger follow the new README.
 
 #### T2-6 · Licensing and attribution
 
@@ -1449,8 +1466,9 @@ The tag is ready when every line is true.
 - [ ] One `workflow_dispatch` dry run and one `v0.1.0-rc.1` pre-release exist; the release job depends on CI.
 - [ ] One real Cloudflare deploy from the rehearsal tarball drew a raffle end to end with real drand; the six
       "first deploy" items in `cloudflare.md` are dated; startup time recorded.
-- [ ] `npm install && npm run build && npm run deploy` from a clean copy of `deploy/cloudflare` with edited
-      templates reaches `/healthz` → `ok 0.1.0`; with unedited templates the Worker refuses every request.
+- [ ] The template's workflow deploys from a clean repository (a copy of `deploy/cloudflare` with edited templates
+      and the GitHub secrets) and reaches `/healthz` → `ok 0.1.0`; with unedited templates the Worker refuses
+      every request; a second release's deploy drains and deletes the first engine Worker.
 - [ ] A stranger deployed from the README in under an hour; their notes are folded in.
 - [ ] `gh attestation verify` passes on the tarball; two builds of the tag are byte-identical.
 - [x] `OFL.txt` beside the fonts; the admin footer links the source and shows the version; `/v/<slug>` links

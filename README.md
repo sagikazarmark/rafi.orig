@@ -64,18 +64,18 @@ redraw ("Not here", "Declined") and every abandoned draw is in the public log.
 
 ```mermaid
 flowchart LR
-    browsers["Projector, phones,<br/>admin, verification page"] --> app["App<br/>rafi / rafi-worker"]
+    browsers["Projector, phones,<br/>admin, verification page"] --> app["App<br/>rafi / rafi-worker-app"]
     app --> db[(Database)]
     app -->|ingress| restate["Restate"]
-    restate --> engine["Raffle engine<br/>rafi-restate / rafi-worker under /restate"]
+    restate --> engine["Raffle engine<br/>rafi-restate / rafi-worker-engine"]
     engine -->|fetch and verify beacons| drand["drand"]
     engine -->|write each raffle| db
 ```
 
 | Component | What it does | Native | Cloudflare Workers |
 |---|---|---|---|
-| **App** | The HTTP server and the web app: pages, APIs, every use case. Keeps no state between requests. | `rafi` | `rafi-worker` |
-| **Raffle engine** | Owns each raffle from freeze to finish and runs its draws, as a [Restate](https://restate.dev) virtual object. Sees only anonymous IDs. | `rafi-restate` | `rafi-worker`, under `/restate` |
+| **App** | The HTTP server and the web app: pages, APIs, every use case. Keeps no state between requests. | `rafi` | the app Worker, `rafi-worker-app` |
+| **Raffle engine** | Owns each raffle from freeze to finish and runs its draws, as a [Restate](https://restate.dev) virtual object. Sees only anonymous IDs. | `rafi-restate` | the engine Worker, `rafi-worker-engine`, one per release |
 | **Database** | The record, shared by the app and the engine | SQLite or Postgres | D1 |
 | **Web app** | Admin, projector, verification page (Dioxus) | `rafi-web` | same |
 | **Participant script** | Keeps the participant page live (WebAssembly, with a JavaScript fallback) | `rafi-participant` | same |
@@ -86,12 +86,12 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 
 ## Status
 
-- **Cloudflare Workers** is the production deployment, and needs no toolchain: [`deploy/cloudflare`](deploy/cloudflare)
-  deploys a release to your own account (a Deploy to Cloudflare button, or the same by hand) with your
-  configuration and legal documents; [the first deploy](docs/operations/cloudflare.md) is documented step by
-  step. The button's database has no jurisdiction: for personal data kept in the EU, create the database by hand
-  (`--jurisdiction eu`), as the steps say. CI runs the production shape through a dry deploy, a whole evening under `wrangler dev` and the hourly
-  housekeeping.
+- **Cloudflare Workers** is the production deployment, and needs no toolchain: copy
+  [`deploy/cloudflare`](deploy/cloudflare) into a repository of yours, and its GitHub Actions workflow deploys a
+  release to your own account (the app Worker, and each release's raffle engine Worker, registered with Restate
+  Cloud) with your configuration and legal documents, after checking the release's provenance;
+  [the first deploy](docs/operations/cloudflare.md) is documented step by step. CI runs the production shape
+  through a dry deploy, a whole evening under `wrangler dev` and the hourly housekeeping.
 - **Self-hosting** (native `rafi` and `rafi-restate`) is supported. There are no packaged images yet: you build
   from source. Container images and native packages come later.
 - The UI is in English only.

@@ -5,29 +5,39 @@
 **Don't deploy while a draw is pending or a room is live**: from the moment registration opens at the venue until
 the raffle finishes and the thank-you screen is up. The admin shows each organizer only their raffles; before you
 deploy, ask the database about everyone's ([the preflight](runbook.md#before-a-deploy-is-anything-live)): nothing
-should be Open, Closed or Drawing.
+should be Open, Closed or Drawing. On Cloudflare the deploy asks itself, and stops, listing the live raffles,
+unless it is run with `deploy_while_live`.
 
 A raffle that is merely *frozen* and waiting (an event that didn't happen, an organizer who walked away) doesn't
 stop a deploy: see [What a deploy does to a raffle in flight](#what-a-deploy-does-to-a-raffle-in-flight).
 
 What a deploy during an event breaks:
 
-- On Workers, a deploy restarts the Durable Objects, which drops every phone's live connection. Phones reconnect
-  and re-fetch, but the moment is lost.
+- On Workers, deploying the app Worker restarts the Durable Objects, which drops every phone's live connection.
+  Phones reconnect and re-fetch, but the moment is lost.
 - Natively, restarting `rafi` interrupts requests, and a random `RAFI_POW_KEY` (if you didn't set one)
   invalidates the challenges phones are solving.
-- Restarting the engine (`rafi-restate` natively; on Workers it's the same deploy) while a draw waits for its round
-  makes Restate retry the draw. The committed round is journaled, so a retry **cannot** pick another round; but
-  the retry runs on the new code (see below), and until it succeeds the draw shows as stalled.
+- Natively, restarting the engine (`rafi-restate`) while a draw waits for its round makes Restate retry the draw.
+  The committed round is journaled, so a retry **cannot** pick another round; but the retry runs on the new code
+  (see below), and until it succeeds the draw shows as stalled. On Workers each release's engine is a Worker of
+  its own, and the previous one keeps running what started on it.
 
 ## What a deploy does to a raffle in flight
 
 Restate pins each invocation to the deployment it started on and routes new invocations to the latest one. A
-draw that sleeps until its round is an invocation in flight. Natively, if the old `rafi-restate` keeps running
-until it drains, the draw finishes on the old code. **On Workers the old code is gone the moment the new one is
-live**, so the draw replays on the new code. That replay is safe only if the new code journals the same steps in
-the same order as the old (`crates/engine-restate/src/service.rs`, the `draw` handler). Releases keep that
-sequence unless they say otherwise; when one changes it, its notes say so, and the deploy freeze is the safeguard.
+draw that sleeps until its round is an invocation in flight.
+
+- **On Workers** each release deploys its engine as a new Worker, registered as a new deployment, and leaves the
+  previous release's engine Worker as it was: a draw in flight finishes on the code it started on, and the next
+  call goes to the new engine. Once Restate reports the old deployment drained, a later deploy removes it and
+  deletes its Worker ([below](#registering-the-raffle-engine)). While it drains, that old engine writes to the
+  database the new release migrated and nudges the new app Worker's live channels, so a release's migrations and
+  its live channel stay compatible with the previous release's engine, and its notes say so when they can't.
+- **Natively**, if the old `rafi-restate` keeps running until it drains, the draw finishes on the old code;
+  stopped first, the draw replays on the new code. That replay is safe only if the new code journals the same steps
+  in the same order as the old (`crates/engine-restate/src/service.rs`, the `draw` handler). Releases keep that
+  sequence unless they say otherwise; when one changes it, its notes say so, and the deploy freeze is the
+  safeguard.
 
 The raffle's state in Restate, like its event log in the database and `verify.json`, is the JSON the
 [draw algorithm](../reference/draw-algorithm.md#versions-and-compatibility) specifies. It is held from the freeze
@@ -39,14 +49,10 @@ anything else), not the freeze.
 ## Database migrations
 
 The app applies migrations on start: `migrations/sqlite` for SQLite, `migrations/postgres` for Postgres. On D1,
-apply them with wrangler before deploying the Worker, which is what `deploy/cloudflare`'s `npm run deploy` does
-(the release's migrations come with its artifact, in `worker/migrations/sqlite`). An upgrade there is the version in
-its `package.json`, `config.rafi_version`, pushed (Workers Builds builds and deploys it), or by hand:
-
-```sh
-npm run build      # the new release into worker/, with legal/ copied in
-npm run deploy     # wrangler d1 migrations apply DB --remote, then wrangler deploy
-```
+the deploy applies them (`wrangler d1 migrations apply DB --remote`, from the release's `migrations/sqlite/`)
+before it deploys either Worker. An upgrade there is the release named in the installation's
+`.github/workflows/deploy.yml`, in both places (`uses: …/deploy-cloudflare.yml@v<version>` and `version:`),
+pushed: the workflow deploys it ([Cloudflare Workers](cloudflare.md#upgrading)).
 
 Natively, deploy the app before (or together with) the engine. Until the schema is current, the engine's writes
 fail and Restate retries them.
@@ -58,19 +64,7 @@ in [Rolling back a deploy](runbook.md#rolling-back-a-deploy).
 
 ## Registering the raffle engine
 
-Restate keeps a record of each *deployment*: a URI, and the services and handlers it discovered there. Register
-without `force`:
-
-```sh
-# self-hosted Restate: its admin API
-curl -X POST http://localhost:9070/deployments -H 'content-type: application/json' \
-  -d '{"uri": "http://<engine host>:9080"}'
-```
-
-On Restate Cloud, register the URL as a deployment in the console or the CLI. On Workers that URL is the
-Worker's, with `/restate`: `https://<the Worker's hostname>/restate`.
-
-What Restate does with that request, and what it means for you:
+Restate keeps a record of each *deployment*: a URI, and the services and handlers it discovered there.
 
 - **A new URI** is discovered and becomes the latest deployment of its services. New invocations go there.
 - **A URI that is already registered** answers `200`, and Restate **keeps the services and handlers it already
@@ -81,13 +75,55 @@ What Restate does with that request, and what it means for you:
 - **`force: true`** overwrites the deployment behind the URI. Don't: it "can lead in-flight invocations to an
   unrecoverable error state" (Restate's words), and the state it leaves behind is the kind nobody can fix.
 
-So the rule is: **a changed engine is registered at a new URI.** Natively that is a new host or port for the new
-`rafi-restate`; on Workers it is a new path, which a release that changes the handlers ships as a change to
-`RESTATE_PREFIX` in `crates/cloudflare/src/lib.rs` (the Worker keeps accepting everything under `/restate/`, so
-invocations pinned to the old URI still arrive). The release notes say when a registration is needed; a release
-that doesn't change the handlers needs none.
+So the rule is: **a changed engine is registered at a new URI, without `force`.**
 
-After registering the new URI, leave the old deployment registered until it has drained:
+### On Workers: automatic
+
+Each release's engine is its own Worker, `rafi-engine-<version>`, at its own URI,
+`https://rafi-engine-<version>.<subdomain>.workers.dev/restate`, which the deploy registers with Restate Cloud
+(without `force`) before it deploys the app Worker. Nothing is registered by hand, and every release is a new URI,
+so a release that changes the handlers needs nothing of yours. A registered engine Worker is never deployed again.
+
+Each deploy then looks at the older engine deployments:
+
+- **drained** (no invocation pinned to it any more): removed from Restate (`restate deployments remove`, never
+  forced), then its Worker deleted;
+- **draining**: listed in the deploy's log with the invocations still pinned to it, and pruned by a later deploy
+  once drained. A draw in flight usually drains it within minutes;
+- an invocation that is **paused** (Restate stopped retrying it, as its retry policy says, and waits for a human)
+  keeps its deployment draining. Find out why it failed (the engine Worker's log, `wrangler tail
+  rafi-engine-<version>`, and `restate invocations describe <id>`), then either resume it on the latest
+  deployment, if the new engine can carry it on:
+
+  ```sh
+  restate invocations resume <id> --deployment latest
+  ```
+
+  or kill it, which ends it where it stopped, without running the rest:
+
+  ```sh
+  restate invocations kill <id>
+  ```
+
+  The Restate CLI runs against your environment with `RESTATE_ADMIN_URL` and `RESTATE_AUTH_TOKEN` set as in the
+  workflow, or after `restate cloud login` and `restate cloud env configure`.
+
+### Natively: by hand
+
+Register the engine without `force`:
+
+```sh
+# self-hosted Restate: its admin API
+curl -X POST http://localhost:9070/deployments -H 'content-type: application/json' \
+  -d '{"uri": "http://<engine host>:9080"}'
+```
+
+On Restate Cloud, register the engine's public URL as a deployment in the console or the CLI. A new
+`rafi-restate` whose handlers changed runs at a new URI (a new host or port), registered beside the old one; the
+release notes say when a registration is needed, and a release that doesn't change the handlers needs none.
+
+After registering the new URI, leave the old deployment registered, and the old `rafi-restate` running, until it
+has drained:
 
 ```sh
 restate deployments list
@@ -99,12 +135,16 @@ Never remove a deployment with `--force` while a draw is in flight on it.
 
 ## Order of operations
 
+On Cloudflare the deploy does it all, in this order: the preflight, the D1 migrations, the release's engine Worker
+deployed and registered, the app Worker, the drained engines pruned. Run a test-mode draw afterwards.
+
+Natively:
+
 1. Check that no raffle is live ([the preflight](runbook.md#before-a-deploy-is-anything-live)).
-2. Apply migrations (D1), or let the new app apply them on start (native).
-3. Deploy the app (on Workers, that's the engine too).
-4. Natively, deploy the engine. If the release changed the engine's handlers, register its new URI with Restate
-   and drain the old one.
-5. Run a test-mode draw.
+2. Deploy the app; it applies the migrations on start.
+3. Deploy the engine. If the release changed the engine's handlers, start it at a new URI, register that with
+   Restate and drain the old one.
+4. Run a test-mode draw.
 
 ## Data
 

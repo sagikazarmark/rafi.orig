@@ -1,5 +1,7 @@
-# This installation's secrets. Copy to .dev.vars (ignored by git), fill it in,
-# `wrangler secret bulk .dev.vars`: the app Worker's (the engine Worker has none).
+# This installation's secrets: the app Worker's (the engine Worker has none).
+# Copy to .dev.vars (ignored by git) and fill it in; then either put the whole
+# file's content into the RAFI_SECRETS GitHub secret (every deploy sets them),
+# or run `npx wrangler secret bulk .dev.vars` once, before the first deploy.
 # The reference, with the optional settings and their defaults:
 # https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
 

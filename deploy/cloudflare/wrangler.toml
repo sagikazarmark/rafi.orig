@@ -5,8 +5,9 @@
 # (apps/worker-app/wrangler.toml), pointed at a release's files in release/
 # (the release unpacked there, its deploy.sh copying legal/ in), with your
 # database and domain in place of the placeholders. Everything else of yours
-# is a secret or a file in legal/. `release/deploy.sh` checks this file
-# against engine.wrangler.toml and the release, applies the D1 migrations and
+# is a secret or a file in legal/. `release/deploy.sh` (which
+# .github/workflows/deploy.yml runs on every push) checks this file against
+# engine.wrangler.toml and the release, applies the D1 migrations and
 # deploys both Workers; write the keys it reads (name, main, directory,
 # binding, database_id, migrations_dir, class_name, RAFI_DO_JURISDICTION) as
 # `key = "value"` on one line, as they are here.
@@ -17,8 +18,9 @@ name = "rafi"
 main = "release/app/build/index.js"
 compatibility_date = "2026-10-01"
 # Only your domain: no *.workers.dev address, no preview URLs (a preview would
-# share production's database and objects). Add your domain once the Worker
-# exists; it must be the origin RAFI_PUBLIC_URL names and Clerk allows.
+# share production's database and objects). Your domain, which each deploy
+# attaches as the Worker's custom domain: the origin RAFI_PUBLIC_URL names and
+# Clerk allows.
 workers_dev = false
 preview_urls = false
 # routes = [{ pattern = "raffle.example.org", custom_domain = true }]
@@ -95,8 +97,10 @@ invocation_logs = false
 [vars]
 RAFI_DO_JURISDICTION = "eu"
 
-# What this installation sets before its first deploy (`wrangler secret bulk
-# <file>` or `wrangler secret put <NAME>`):
+# What this installation sets, as secrets (.dev.vars.example): in the
+# RAFI_SECRETS GitHub secret, which every deploy sets, or once with
+# `wrangler secret bulk .dev.vars` before the first deploy (then `wrangler
+# secret put <NAME>`):
 #   RAFI_PUBLIC_URL                        the public origin, no trailing slash
 #   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL (EU)
 #   RAFI_ENGINE_API_KEY                    a Restate Cloud API key with ingress access
@@ -105,8 +109,9 @@ RAFI_DO_JURISDICTION = "eu"
 #   CLERK_PUBLISHABLE_KEY                  not secret (the web app gets it from /config.js), but yours
 #   RAFI_OPERATOR_NAME, RAFI_OPERATOR_EMAIL   named as the processor in every raffle's notice
 #   RAFI_TERMS_VERSION, RAFI_PRIVACY_VERSION  the documents' versions, e.g. "2026-10"
-# A deploy refuses to go out while one is missing. The Restate environment's
-# identity keys are the engine's (engine.wrangler.toml), not this Worker's.
+# wrangler refuses to deploy this Worker while one is missing. The Restate
+# environment's identity keys are the engine's (engine.wrangler.toml), not
+# this Worker's.
 # Optional settings with defaults (RAFI_RETENTION_DAYS, RAFI_RETENTION_MAX_DAYS,
 # RAFI_RETENTION_WINNERS_DAYS, RAFI_MIN_AGE, RAFI_DRAND_RELAYS,
 # RAFI_DRAND_LEAD_SECS, RAFI_DRAND_TIMEOUT_SECS) are secrets too when you

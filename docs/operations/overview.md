@@ -9,8 +9,8 @@ Every Rafi deployment has the same four parts:
 
 | Part | Native (self-hosting) | Cloudflare Workers |
 |---|---|---|
-| **App**: admin, projector, participant and verification pages, APIs | `rafi` (`apps/rafi`) | `rafi-worker` (`apps/worker`), which also hosts the live channels (`RaffleRoom`) |
-| **Raffle engine**: runs the draws | `rafi-restate` (`apps/restate`) | The same Worker, under `/restate` |
+| **App**: admin, projector, participant and verification pages, APIs | `rafi` (`apps/rafi`) | The app Worker, `rafi` (`apps/worker-app`), which also hosts the live channels (`RaffleRoom`) |
+| **Raffle engine**: runs the draws | `rafi-restate` (`apps/restate`) | The engine Worker (`apps/worker-engine`), one per release, `rafi-engine-<version>` on workers.dev |
 | **Restate**: durable execution for the engine | A self-hosted `restate-server`, or Restate Cloud | Restate Cloud |
 | **Database**: shared by the app and the engine | SQLite (one file, one machine) or PostgreSQL | D1 |
 
@@ -42,19 +42,24 @@ Clients poll for updates. There is no push channel natively.
 
 ```mermaid
 flowchart LR
-    users[Browsers] -->|HTTPS| app[rafi-worker<br/>+ static assets<br/>the engine under /restate]
+    users[Browsers] -->|HTTPS, your domain| app[app Worker rafi<br/>+ static assets]
     users <-->|WebSocket| room[RaffleRoom<br/>Durable Objects]
     app -->|ingress, API key| rc[Restate Cloud]
-    rc -->|signed requests to /restate| app
-    app -->|HTTPS| drand[drand relays]
+    rc -->|signed requests to /restate| engine[engine Worker<br/>rafi-engine-version<br/>on workers.dev]
+    engine -->|HTTPS| drand[drand relays]
     app --> d1[(D1)]
+    engine --> d1
     room --> d1
     app -->|nudge| room
+    engine -->|nudge| room
     app -->|HTTPS| clerk[Clerk]
 ```
 
-One Worker, two roles: the app's requests and Restate's share the isolate, the D1 binding and the Durable Object
-binding; only the path tells them apart.
+Two Workers sharing the D1 database and the app's Durable Objects: the app Worker on your domain, and each
+release's engine Worker, which Restate calls on workers.dev with signed requests and which stays until the
+invocations that started on it have finished ([Cloudflare Workers](cloudflare.md#the-two-workers)). Your
+repository's GitHub Actions workflow deploys both. Locally they are one Worker (`apps/worker`), the engine under
+`/restate`.
 
 ## Choosing
 
@@ -80,7 +85,7 @@ binding; only the path tells them apart.
 
 You are every organizer's processor (the data processing agreement in your terms) and the controller of their
 accounts; your documents are set up in [Self-hosting](self-hosting.md#5-legal-documents-and-the-operator) or
-[Cloudflare Workers](cloudflare.md#2-the-legal-documents-and-the-operator). What the software implies for your
+[Cloudflare Workers](cloudflare.md#5-the-legal-documents-and-the-operator). What the software implies for your
 records (not legal advice):
 
 - **Your record of processing** as a processor (GDPR Art. 30(2)) lists, for the organizers you serve, the entrant

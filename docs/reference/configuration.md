@@ -4,7 +4,7 @@ Every setting of every Rafi deployable. To see how the deployables fit together,
 [Operations: overview](../operations/overview.md).
 
 - [The app](#the-app-rafi-and-rafi-worker) (`rafi`, `rafi-worker`)
-- [On Workers](#workers-only): the Worker's own variables, the engine's included (`rafi-worker`)
+- [On Workers](#workers-only): the Workers' own variables, the app Worker's and the engine Worker's (`rafi-worker-app`, `rafi-worker-engine`; locally `rafi-worker`)
 - [The raffle engine, native](#the-raffle-engine-rafi-restate) (`rafi-restate`)
 - [Build time](#build-time)
 
@@ -12,7 +12,7 @@ Empty values count as unset everywhere. Flags take `1`/`true`/`yes`/`on`.
 
 The names: everything of Rafi's is `RAFI_*`. `RAFI_ENGINE_*` is how the app reaches the raffle engine (Restate's
 ingress); `RAFI_RESTATE_*` is the raffle engine's own configuration (the `rafi-restate` binary natively, the same
-settings on the Worker where its endpoint lives, with `__` between levels). Nothing of Rafi's is `RESTATE_*`:
+settings on the engine Worker, with `__` between levels). Nothing of Rafi's is `RESTATE_*`:
 that is `restate-server`'s own namespace, and the two often share an environment. `CLERK_*` is Clerk's.
 
 ## The app (`rafi` and `rafi-worker`)
@@ -58,32 +58,39 @@ re-applies the erasure log, the purges and the organizers who left, runs houseke
 
 ### Workers only
 
-The Worker hosts the app and the raffle engine (under `/restate`), so it takes the app's variables above and
-these. The shape is [`apps/worker/wrangler.toml`](../../apps/worker/wrangler.toml), which an installation deploys
-from its copy of [`deploy/cloudflare`](../../deploy/cloudflare) with its database ID in it; an installation's values
-are secrets (`wrangler secret bulk`), listed there under `[secrets] required`. The Worker reads vars and secrets
-alike, and nothing else.
+In production on Workers the app and the raffle engine are two Workers ([Cloudflare
+Workers](../operations/cloudflare.md#the-two-workers)): the app Worker (`rafi-worker-app`) takes the app's variables
+above, the engine Worker (`rafi-worker-engine`, one per release) the engine's below. Their shapes are
+[`apps/worker-app/wrangler.toml`](../../apps/worker-app/wrangler.toml) and
+[`apps/worker-engine/wrangler.toml`](../../apps/worker-engine/wrangler.toml), which an installation deploys from
+its copy of [`deploy/cloudflare`](../../deploy/cloudflare) (`wrangler.toml` and `engine.wrangler.toml`) with its
+database ID in them. The app's installation values are secrets, listed under `[secrets] required` (set by the
+deploy from the `RAFI_SECRETS` GitHub secret, or with `wrangler secret bulk`); the engine has none, only vars in
+`engine.wrangler.toml`, which take effect with the next release's engine Worker (a deployed one is never changed).
+A Worker reads vars and secrets alike, and nothing else. Locally, `apps/worker` (`rafi-worker`) is both in one
+Worker, the engine under `/restate`, and takes all of them.
 
-| Variable | Default | |
-|---|---|---|
-| `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | required | Restate's request signing keys (`publickeyv1_…`, comma separated), under the native engine's name for the same setting. Without them the Worker refuses every request, except in a `dev` build. |
-| `RAFI_DO_JURISDICTION` | `eu` | The Durable Objects' jurisdiction, or `none` (which local development needs: workerd has no jurisdictions). |
-| `RAFI_DRAND_RELAYS` | as `drand.relays` below | Relays the engine asks, in order, comma separated |
-| `RAFI_DRAND_LEAD_SECS` | `6` | As `drand.lead_secs` below |
-| `RAFI_DRAND_TIMEOUT_SECS` | `60` | As `drand.timeout_secs` below |
-| `RAFI_DRAND_MOCK` | off | The mock chain, for the app and the engine alike (development only; the app reads it as `RAFI_DRAND_CHAIN=mock`) |
+| Variable | Worker | Default | |
+|---|---|---|---|
+| `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | engine | required | Restate's request signing keys (`publickeyv1_…`, comma separated), under the native engine's name for the same setting. Without them the engine refuses every request, except in a `dev` build. |
+| `RAFI_DO_JURISDICTION` | both | `eu` | The Durable Objects' jurisdiction, or `none` (which local development needs: workerd has no jurisdictions). The two Workers must say the same. |
+| `RAFI_DRAND_RELAYS` | engine | as `drand.relays` below | Relays the engine asks, in order, comma separated |
+| `RAFI_DRAND_LEAD_SECS` | engine | `6` | As `drand.lead_secs` below |
+| `RAFI_DRAND_TIMEOUT_SECS` | engine | `60` | As `drand.timeout_secs` below |
+| `RAFI_DRAND_MOCK` | both | off | The mock chain, for the app and the engine alike (development only; the app reads it as `RAFI_DRAND_CHAIN=mock`) |
 
 The bindings:
 
-| Binding | |
-|---|---|
-| `DB` | The D1 database |
-| `RAFFLE_ROOM` | The per-raffle live channel (`RaffleRoom` Durable Object) |
-| `JOIN_PER_RAFFLE_LIMITER` | 600 joins per minute per raffle (soft, per location) |
-| `JOIN_PER_EMAIL_LIMITER` | 5 joins per minute per raffle and email |
-| `ADD_LIMITER` | 20 adds or undos of the organizer's per minute (per owner) |
-| `CONNECT_LIMITER` | 600 live-channel connections per minute |
-| Cron `0 * * * *` | The hourly housekeeping run: erasing personal data on the dates, expired proof-of-work challenges, ending stale live channels |
+| Binding | Worker | |
+|---|---|---|
+| `DB` | both | The D1 database (one, the same `database_id` in both) |
+| `RAFFLE_ROOM` | both | The per-raffle live channel (`RaffleRoom` Durable Object): the app Worker's class; the engine binds it by the app's name (`script_name`) |
+| `ASSETS` | app | The static files, through which the app reads the legal documents |
+| `JOIN_PER_RAFFLE_LIMITER` | app | 600 joins per minute per raffle (soft, per location) |
+| `JOIN_PER_EMAIL_LIMITER` | app | 5 joins per minute per raffle and email |
+| `ADD_LIMITER` | app | 20 adds or undos of the organizer's per minute (per owner) |
+| `CONNECT_LIMITER` | app | 600 live-channel connections per minute |
+| Cron `0 * * * *` | app | The hourly housekeeping run: erasing personal data on the dates, expired proof-of-work challenges, ending stale live channels |
 
 ## The raffle engine (`rafi-restate`)
 

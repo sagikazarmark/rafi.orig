@@ -24,13 +24,13 @@ flowchart LR
         verify[Verification page]
     end
 
-    subgraph app [App: rafi or rafi-worker]
+    subgraph app [App: rafi, or the app Worker rafi-worker-app]
         server[rafi-server<br/>routes and use cases]
     end
 
     subgraph engine [Raffle engine]
         restate[(Restate)]
-        raffle[Raffle virtual object<br/>rafi-restate, or rafi-worker under /restate]
+        raffle[Raffle virtual object<br/>rafi-restate, or the engine Worker rafi-worker-engine]
     end
 
     db[(Database<br/>SQLite, Postgres or D1)]
@@ -54,7 +54,7 @@ The rules are pure code at the bottom. Everything above them does I/O and asks t
 
 ```mermaid
 flowchart TD
-    hosts["Hosts<br/>rafi · rafi-restate · rafi-worker"]
+    hosts["Hosts<br/>rafi · rafi-restate · rafi-worker-app · rafi-worker-engine · rafi-worker (local)"]
     http["HTTP<br/>rafi-server"]
     uc["Use cases<br/>rafi-app"]
     ports["Ports<br/>Engine · Store · Observer (rafi-engine)<br/>Notifier (rafi-live-server) · RateLimit (rafi-app)"]
@@ -177,19 +177,26 @@ flowchart LR
     end
     subgraph workers [Cloudflare Workers]
         p2[Phones] <-->|WebSocket| room[RaffleRoom]
-        s2[Projector, admin] -->|poll full view| a2[rafi-worker<br/>app, and the engine under /restate]
-        rc[Restate Cloud] -->|signed requests| a2
+        s2[Projector, admin] -->|poll full view| a2[app Worker<br/>rafi-worker-app]
+        a2 -->|ingress| rc[Restate Cloud]
+        rc -->|signed requests| e2[engine Worker, one per release<br/>rafi-worker-engine, on workers.dev]
         a2 -->|nudge| room
+        e2 -->|nudge| room
         room --> db2[(D1)]
         a2 --> db2
+        e2 --> db2
     end
 ```
 
 Natively the app and the engine are two processes, `rafi` and `rafi-restate`, each with its own configuration.
-On Workers they are one Worker: a Worker is a routing unit, not a process, and the two shared everything that
-costs anything (the D1 binding, the Durable Object namespace, the deploy). Restate reaches the engine at
-`/restate/*`, where the SDK verifies each request's signature before any routing, discovery included. The
-boundary that matters, the engine seeing anonymous IDs only and writing through a store API that exposes nothing
+In production on Workers they are two Workers sharing the D1 database and the app's Durable Object namespace (the
+engine binds the app Worker's `RaffleRoom` class by its name): the app Worker on the installation's domain, and
+one engine Worker per release on workers.dev, where Restate reaches it at `/restate/*` and the SDK verifies each
+request's signature before any routing, discovery included. One engine per release because Restate finishes each
+invocation on the deployment it started on: a draw in flight keeps its release's engine, which a later deploy
+deletes once drained ([Upgrades](../operations/upgrades.md#what-a-deploy-does-to-a-raffle-in-flight)). The engine
+links nothing of the app's and holds none of its secrets. Locally (`apps/worker`) the two are one Worker, the
+engine under `/restate`, since a Worker is a routing unit, not a process. The boundary that matters, the engine seeing anonymous IDs only and writing through a store API that exposes nothing
 else, is in the code, not in the process.
 
 ## The participant page
