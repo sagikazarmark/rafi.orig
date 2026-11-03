@@ -4882,8 +4882,29 @@ dependencies = [
  "rafi-live-server",
  "rafi-raffle",
  "rafi-store",
+ "restate-sdk",
  "serde_json",
+ "tracing",
+ "tracing-subscriber",
  "wasm-bindgen",
+ "worker",
+]
+
+[[package]]
+name = "rafi-cloudflare-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "dioxus-clerk",
+ "http",
+ "http-body-util",
+ "rafi-app",
+ "rafi-cloudflare",
+ "rafi-engine",
+ "rafi-live-server",
+ "rafi-server",
+ "tower-service",
  "worker",
 ]
 
@@ -4901,6 +4922,24 @@ dependencies = [
  "rafi-raffle",
  "rafi-store",
  "serde_json",
+ "worker",
+]
+
+[[package]]
+name = "rafi-cloudflare-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "drand",
+ "http",
+ "http-body-util",
+ "rafi-cloudflare",
+ "rafi-engine",
+ "rafi-engine-restate",
+ "rafi-store",
+ "restate-sdk",
+ "tower-worker-fetch",
  "worker",
 ]
 
@@ -5133,24 +5172,29 @@ dependencies = [
 name = "rafi-worker"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "axum",
- "dioxus-clerk",
- "drand",
  "http",
- "http-body-util",
- "rafi-app",
  "rafi-cloudflare",
- "rafi-engine",
- "rafi-engine-restate",
- "rafi-live-server",
- "rafi-server",
- "rafi-store",
- "restate-sdk",
- "tower-service",
- "tower-worker-fetch",
- "tracing",
- "tracing-subscriber",
+ "rafi-cloudflare-app",
+ "rafi-cloudflare-engine",
+ "worker",
+]
+
+[[package]]
+name = "rafi-worker-app"
+version = "0.1.0"
+dependencies = [
+ "http",
+ "rafi-cloudflare",
+ "rafi-cloudflare-app",
+ "worker",
+]
+
+[[package]]
+name = "rafi-worker-engine"
+version = "0.1.0"
+dependencies = [
+ "http",
+ "rafi-cloudflare-engine",
  "worker",
 ]
 

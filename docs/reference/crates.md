@@ -15,6 +15,8 @@ flowchart TD
     app["rafi-app"]
     server["rafi-server"]
     cf["rafi-cloudflare"]
+    cfapp["rafi-cloudflare-app"]
+    cfengine["rafi-cloudflare-engine"]
 
     lifecycle --> raffle
     engine --> raffle
@@ -28,6 +30,11 @@ flowchart TD
     server --> app
     server --> erestate
     cf --> lserver
+    cfapp --> server
+    cfapp --> cf
+    cfengine --> erestate
+    cfengine --> store
+    cfengine --> cf
 ```
 
 This shows the main dependencies only.
@@ -46,14 +53,18 @@ This shows the main dependencies only.
 | [`api`](../../crates/api) | `rafi-api` | **The contract between server and browser**: the views, and the admin API, declared once (`admin_functions!`). That declaration produces the server's `Admin` trait and `dispatch`, and the browser's client. Also what the browser makes from a view, such as the paragraph an organizer sends the people they add (`paragraph_to_send`), natively tested. |
 | [`app`](../../crates/app) | `rafi-app` | **Every use case**: raffles, prizes, entrants, joining (rate limits, proof-of-work), the draw, the admin's reads, housekeeping. No HTTP. |
 | [`server`](../../crates/server) | `rafi-server` | **The HTTP side**: an axum router (participant pages, public JSON, the admin API, auth). Both app hosts serve it. |
-| [`cloudflare`](../../crates/cloudflare) | `rafi-cloudflare` | **The Cloudflare glue**: the `RaffleRoom` Durable Object, its notifier, configuration from vars and secrets |
+| [`cloudflare`](../../crates/cloudflare) | `rafi-cloudflare` | **The Cloudflare glue** every Worker shares: the notifier over the raffles' Durable Objects (also the engine's observer), configuration from vars and secrets, the D1 binding, the `/restate` prefix. Behind features: the `RaffleRoom` Durable Object and phones' gate to it (`room`: a `#[durable_object]` is exported from every Worker linking it, so only the Worker hosting the class turns it on) and the console's `tracing` subscriber (`log`) |
+| [`cloudflare-app`](../../crates/cloudflare-app) | `rafi-cloudflare-app` | **The app on Workers**: `rafi-server`'s routes behind Clerk with the web app's shell, phones' sockets to their `RaffleRoom`, the legal documents from the static files, the rate limits, the housekeeping run and `export_scheduled!` for the Cron's handler; built once per isolate. No `#[event]`: the Workers below export it |
+| [`cloudflare-engine`](../../crates/cloudflare-engine) | `rafi-cloudflare-engine` | **The raffle engine on Workers**: the Restate endpoint over D1, the objects' binding and drand, built once per isolate from bindings and vars alone (no secrets, nothing of the app's: `just clippy-wasm` checks its tree) |
 
 ## Deployables (`apps/`)
 
 | App | Package | |
 |---|---|---|
 | [`rafi`](../../apps/rafi) | `rafi` | The native app server: `rafi-server` plus the web app's files. For self-hosting. |
-| [`worker`](../../apps/worker) | `rafi-worker` | Rafi on Cloudflare Workers, in one Worker: `rafi-server`'s routes, the raffle engine's Restate endpoint under `/restate`, the housekeeping Cron, `RaffleRoom`. The crate is `rafi-worker`; the Worker it deploys as is named `rafi` in Cloudflare (`wrangler tail rafi`). |
+| [`worker`](../../apps/worker) | `rafi-worker` | Rafi on Cloudflare Workers in one Worker, for local development (`wrangler dev --env dev`, `just workers`, the devenv): the engine under `/restate`, the app everywhere else, the housekeeping Cron, `RaffleRoom`. Its `just artifact` is still what a release ships. Named `rafi` in Cloudflare. |
+| [`worker-app`](../../apps/worker-app) | `rafi-worker-app` | Production's app Worker, `rafi`: the app, the housekeeping Cron, `RaffleRoom` and the static files (`apps/worker`'s); `/restate` is a 404 |
+| [`worker-engine`](../../apps/worker-engine) | `rafi-worker-engine` | Production's engine Worker, `rafi-engine`: the Restate endpoint under `/restate`, nothing else. Binds the app's D1 database and its `RaffleRoom` class (`script_name = "rafi"`); its configuration is vars (the Restate identity keys, drand), no secrets |
 | [`restate`](../../apps/restate) | `rafi-restate` | The native raffle engine: an endpoint serving `rafi-engine-restate`'s services to Restate. See its [README](../../apps/restate/README.md). |
 | [`web`](../../apps/web) | `rafi-web` | The Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx`. Its `import` module reads the organizer's lists in the browser (see [The web app](../development/web-app.md#adding-a-list)). |
 | [`participant`](../../apps/participant) | `rafi-participant` | The participant page's WebAssembly and its JavaScript fallback |
@@ -69,7 +80,7 @@ This shows the main dependencies only.
 | [`tools/verify.py`](../../tools/verify.py) | The independent verifier (Python standard library only) |
 | [`testdata`](../../testdata) | Shared test vectors (real quicknet beacons) |
 | [`deploy/cloudflare`](../../deploy/cloudflare) | One installation on Cloudflare Workers: the Deploy to Cloudflare template, which fetches a release and deploys it with the installation's configuration and legal documents (see [Cloudflare Workers](../operations/cloudflare.md)) |
-| [`scripts`](../../scripts) | Check and release scripts: `workers-check.sh`, `cloudflare-release.sh` (the release, proven). The apps build with their own `justfile`s (`apps/web`, `apps/participant`, `apps/worker`, whose `artifact` is what a release ships) |
+| [`scripts`](../../scripts) | Check and release scripts: `workers-check.sh`, `cloudflare-release.sh` (the release, proven). The apps build with their own `justfile`s (`apps/web`, `apps/participant`, `apps/worker`, whose `artifact` is what a release ships, and `apps/worker-app` and `apps/worker-engine`, `build` and `dry-run`) |
 | [`justfile`](../../justfile) | The checks, one recipe each; CI runs one job per recipe (see [Testing](../development/testing.md)) |
 | [`devenv.nix`](../../devenv.nix) | The development shell and `devenv up` (see [Getting started](../development/getting-started.md)) |
 | [`docs/plans`](../plans) | Specs for work in progress or just done, with the reasoning |

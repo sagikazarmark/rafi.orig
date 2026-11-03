@@ -1,0 +1,22 @@
+# Rafi's app Worker (production): the web app and its API, the live channels,
+# the housekeeping Cron. Its static files are the combined Worker's
+# (apps/worker's `just assets`). Local development runs the combined Worker
+# (apps/worker), not this one.
+
+# List the recipes.
+[private]
+default:
+    @just --list --unsorted
+
+# Assemble the static files (apps/worker/worker-assets, which wrangler.toml points at).
+assets:
+    {{ just_executable() }} ../worker/ assets
+
+# Build the Worker as `wrangler deploy` builds it (needs the web app's bundle: its index.html is compiled in).
+build:
+    worker-build --release
+
+# Validate the Worker's shape without deploying: the configuration, every binding, the bundle and the static files.
+dry-run:
+    test -d ../worker/worker-assets || {{ just_executable() }} assets
+    wrangler deploy --dry-run

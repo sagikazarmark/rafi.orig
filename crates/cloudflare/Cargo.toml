@@ -7,17 +7,32 @@ rust-version.workspace = true
 description = "Rafi on Cloudflare Workers: the per-raffle RaffleRoom Durable Object, the live notifier over it, and the Workers bindings Rafi reads"
 publish = false
 
+[features]
+## The `RaffleRoom` Durable Object and phones' gate to it (`connect`). A
+## `#[durable_object]` is exported from every Worker that links it, so only
+## the Worker hosting the class turns this on (the app Worker, the local
+## combined one, the testbed): the engine Worker reaches the objects through
+## its binding and must not export the class.
+room = ["dep:partyline-worker", "dep:serde_json"]
+## `log::install`: the application's `tracing` lines on the Workers console,
+## each once while Restate replays a journal.
+log = ["dep:restate-sdk", "dep:tracing", "dep:tracing-subscriber"]
+
 # Everything here is Workers glue: the crate is empty on other targets.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = { workspace = true }
 js-sys = { workspace = true }
-partyline-worker = "0.3"
+partyline-worker = { version = "0.3", optional = true }
 rafi-engine = { workspace = true }
 rafi-lifecycle = { workspace = true }
 rafi-live-client = { workspace = true }
 rafi-live-server = { workspace = true }
 rafi-raffle = { workspace = true }
 rafi-store = { workspace = true }
-serde_json = { workspace = true }
+# `tracing-span-filter`: each log line once while a journal replays (log.rs).
+restate-sdk = { workspace = true, features = ["tracing-span-filter"], optional = true }
+serde_json = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"], optional = true }
 wasm-bindgen = { workspace = true }
 worker = { workspace = true }

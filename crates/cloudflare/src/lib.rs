@@ -1,34 +1,59 @@
-//! Rafi on Cloudflare Workers: the Cloudflare glue the Worker (`apps/worker`)
-//! and the live channel's testbed (`testbeds/cloudflare`) share.
+//! Rafi on Cloudflare Workers: the Cloudflare glue every Rafi Worker shares
+//! (the app's, `rafi-cloudflare-app`; the raffle engine's,
+//! `rafi-cloudflare-engine`; the live channel's testbed, `testbeds/cloudflare`).
 //!
-//! - [`RaffleRoom`]: one Durable Object per raffle, pushing the participant
-//!   view to phones over a partyline Latest channel. Only the object builds
-//!   the view: writers [`nudge`] it, and it reads the raffle back in one
-//!   snapshot (`rafi_store::live::snapshot`), builds the view with
-//!   `rafi_live_server::raffle::view` and publishes by
+//! - [`RaffleRoom`] (feature `room`): one Durable Object per raffle, pushing
+//!   the participant view to phones over a partyline Latest channel. Only the
+//!   object builds the view: writers [`nudge`] it, and it reads the raffle
+//!   back in one snapshot (`rafi_store::live::snapshot`), builds the view
+//!   with `rafi_live_server::raffle::view` and publishes by
 //!   `rafi_live_server::publish::decide`;
-//! - [`connect`]: the Worker's gate for phones' sockets, and [`namespace`],
-//!   the objects' namespace in the configured jurisdiction;
+//! - [`connect`] (feature `room`): the Worker's gate for phones' sockets, and
+//!   [`namespace`], the objects' namespace in the configured jurisdiction;
 //! - [`DurableObjects`]: the `rafi_live_server::Notifier` over those objects
-//!   (clients use partyline), and so the raffle engine's `Observer`;
+//!   (clients use partyline), and so the raffle engine's `Observer`. It
+//!   reaches the objects through the `RAFFLE_ROOM` binding, which in a Worker
+//!   not hosting the class names the hosting Worker (`script_name`);
 //! - [`lookup`] and [`database`]: configuration from vars and secrets, and the
-//!   D1 binding.
+//!   D1 binding;
+//! - [`is_restate_path`]: the paths the raffle engine's Restate endpoint is
+//!   served under, which the app's Worker leaves alone;
+//! - [`log`] (feature `log`): the `tracing` subscriber on the console.
 //!
-//! The Worker's entry point only wires these up. A `#[durable_object]` in a
-//! dependency is exported from every Worker that links it, so every Worker
-//! linking this crate hosts the objects. Everything here exists on `wasm32`
-//! only.
+//! The Workers' entry points only wire these up. A `#[durable_object]` in a
+//! dependency is exported from every Worker that links it, so the class is
+//! behind the `room` feature: the Worker hosting the objects turns it on, the
+//! engine's Worker doesn't, and its bundle has no `RaffleRoom`. Everything
+//! here exists on `wasm32` only.
 
 #![cfg(target_arch = "wasm32")]
 
 mod config;
 mod gate;
+#[cfg(feature = "log")]
+pub mod log;
 mod notifier;
+#[cfg(feature = "room")]
 mod object;
 
 pub use config::{D1_BINDING, database, lookup};
+#[cfg(feature = "room")]
+pub use gate::connect;
 pub use gate::{
-    BINDING, CONNECT_LIMITER, JURISDICTION_VAR, NO_JURISDICTION, connect, destroy, namespace, nudge,
+    BINDING, CONNECT_LIMITER, JURISDICTION_VAR, NO_JURISDICTION, destroy, namespace, nudge,
 };
 pub use notifier::DurableObjects;
+#[cfg(feature = "room")]
 pub use object::RaffleRoom;
+
+/// The path prefix the raffle engine's Restate endpoint is served under.
+/// Registered with Restate as `https://<host>/restate`; Restate appends
+/// `/discover` and `/invoke/…`.
+pub const RESTATE_PREFIX: &str = "/restate";
+
+/// Whether a request path is the raffle engine's: [`RESTATE_PREFIX`] or
+/// anything under it (not `/restatement`).
+pub fn is_restate_path(path: &str) -> bool {
+    path.strip_prefix(RESTATE_PREFIX)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}

@@ -5,7 +5,8 @@
 //! are in `rafi-store`.
 //!
 //! The native binary (`rafi`, `apps/rafi`) serves it with the web app's files;
-//! on Cloudflare Workers, `rafi-worker` does.
+//! on Cloudflare Workers, `rafi-cloudflare-app` does (in the app's Worker,
+//! `rafi-worker-app`, and the local combined one, `rafi-worker`).
 //!
 //! The server keeps no state of its own between requests: everything is in
 //! the database, and the pieces that differ per platform sit behind small
@@ -346,7 +347,7 @@ async fn web_asset_cache(
 /// fallback keeps a fixed name, so a phone must revalidate it (`no-cache`,
 /// with the `ETag` `ServeDir` derives from the file). Either header goes on
 /// a file that was found, never on a 404, which a browser could otherwise
-/// keep. The web app's files are cached alike ([`web_asset_cache`]), and
+/// keep. The web app's files are cached alike (`web_asset_cache`), and
 /// its shell is `no-cache` too. The files are served precompressed where
 /// the build left a `.br` or `.gz` (with `Vary: Accept-Encoding`): the
 /// modules cross venue wifi, where the uncompressed size would be felt, and

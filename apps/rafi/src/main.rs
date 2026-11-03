@@ -1,5 +1,5 @@
 //! The native server: `rafi`. Everything but the entry point is in
-//! `rafi-server`; on Workers, `rafi-worker` serves the same routes.
+//! `rafi-server`; on Workers, `rafi-cloudflare-app` serves the same routes.
 //!
 //! `rafi reapply-erasures` is the step after a database restore: it erases
 //! again whatever the erasure log says was erased, purges again what was

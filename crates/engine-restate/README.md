@@ -46,7 +46,7 @@ let endpoint = restate_sdk::endpoint::Endpoint::builder().bind(raffle).bind(info
 ```
 
 [`rafi-restate`](../../apps/restate) is the binary that serves the services;
-[`rafi-worker`](../../apps/worker) serves them on Cloudflare Workers, under `/restate` of the app's Worker.
+[`rafi-cloudflare-engine`](../../crates/cloudflare-engine) serves them on Cloudflare Workers, under `/restate` of the engine's Worker ([`rafi-worker-engine`](../../apps/worker-engine)), or of the combined one in local development ([`rafi-worker`](../../apps/worker)).
 
 ## Tests
 

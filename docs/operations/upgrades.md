@@ -83,7 +83,7 @@ What Restate does with that request, and what it means for you:
 
 So the rule is: **a changed engine is registered at a new URI.** Natively that is a new host or port for the new
 `rafi-restate`; on Workers it is a new path, which a release that changes the handlers ships as a change to
-`engine::PREFIX` in `apps/worker/src/engine.rs` (the Worker keeps accepting everything under `/restate/`, so
+`RESTATE_PREFIX` in `crates/cloudflare/src/lib.rs` (the Worker keeps accepting everything under `/restate/`, so
 invocations pinned to the old URI still arrive). The release notes say when a registration is needed; a release
 that doesn't change the handlers needs none.
 

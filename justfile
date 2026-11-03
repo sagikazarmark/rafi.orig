@@ -20,7 +20,7 @@ css:
 participant:
     {{ just_executable() }} apps/participant/ check
 
-# Bundle the web app (apps/web) and check its budget; rafi-worker compiles its index.html in.
+# Bundle the web app (apps/web) and check its budget; rafi-cloudflare-app compiles its index.html in.
 web:
     {{ just_executable() }} apps/web/ check
 
@@ -37,7 +37,7 @@ clippy-native: css participant
     cargo clippy -p rafi-restate --features mock-drand --all-targets --locked -- --deny warnings
     cargo clippy -p rafi-web --all-targets --locked -- --deny warnings
 
-# Run clippy on wasm32: the web app, the Workers crates and the Worker.
+# Run clippy on wasm32: the web app, the Workers crates and the Workers (the local combined one, production's app and engine).
 clippy-wasm: css participant web
     cargo clippy --target {{ wasm }} -p rafi-web --locked -- --deny warnings
     cargo clippy --target {{ wasm }} \
@@ -47,6 +47,12 @@ clippy-wasm: css participant web
     cargo clippy --target {{ wasm }} -p rafi-server --lib --locked -- --deny warnings
     cargo clippy --target {{ wasm }} -p rafi-worker --locked -- --deny warnings
     cargo clippy --target {{ wasm }} -p rafi-worker --features dev --locked -- --deny warnings
+    @# Production's two Workers, each on its own: checked with the others, the features they turn on would hide what one lacks.
+    cargo clippy --target {{ wasm }} -p rafi-worker-app --locked -- --deny warnings
+    cargo clippy --target {{ wasm }} -p rafi-worker-engine --locked -- --deny warnings
+    cargo clippy --target {{ wasm }} -p rafi-cloudflare-engine --features dev --locked -- --deny warnings
+    @# The engine's Worker links nothing of the app's, and no RaffleRoom (partyline-worker is rafi-cloudflare's `room`).
+    @if cargo tree --target {{ wasm }} -p rafi-worker-engine -e normal --prefix none --locked | grep -E '^(rafi-server|rafi-app|rafi-api|rafi-cloudflare-app|dioxus[a-z-]*|axum|partyline-worker) v'; then echo "rafi-worker-engine depends on the app's crates (above)" >&2; exit 1; fi
 
 # Run tests: the libraries and the engine (end to end against restate-server), then the app, then the web app's router.
 test: css participant
@@ -63,8 +69,8 @@ verify:
 # Run rustdoc: natively with every feature, and the wasm32-only crates (empty elsewhere) on wasm32.
 [env("RUSTDOCFLAGS", "--deny warnings")]
 doc: participant web
-    cargo doc --workspace --exclude rafi-web --exclude rafi-cloudflare --exclude rafi-participant --exclude rafi-worker --all-features --no-deps --locked
-    cargo doc --target {{ wasm }} -p rafi-cloudflare -p rafi-participant -p rafi-worker --no-deps --locked
+    cargo doc --workspace --exclude rafi-web --exclude rafi-cloudflare --exclude rafi-cloudflare-app --exclude rafi-cloudflare-engine --exclude rafi-participant --exclude rafi-worker --exclude rafi-worker-app --exclude rafi-worker-engine --all-features --no-deps --locked
+    cargo doc --target {{ wasm }} -p rafi-cloudflare -p rafi-cloudflare-app -p rafi-cloudflare-engine -p rafi-participant -p rafi-worker -p rafi-worker-app -p rafi-worker-engine --no-deps --locked
 
 # Audit dependencies for security advisories.
 audit:

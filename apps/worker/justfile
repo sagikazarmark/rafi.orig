@@ -1,6 +1,8 @@
-# Rafi on Cloudflare Workers. Locally (`just dev`): the static files, the D1
-# migrations, then `wrangler dev --env dev` (dev auth, the mock chain, the
-# raffle engine in the same Worker under /restate), with the Worker's local
+# Rafi on Cloudflare Workers, the app and the raffle engine in one Worker (the
+# production Workers, apps/worker-app and apps/worker-engine, split them).
+# Locally (`just dev`): the static files, the D1 migrations, then `wrangler
+# dev --env dev` (dev auth, the mock chain, the raffle engine in the same
+# Worker under /restate), with the Worker's local
 # state (D1, Durable Objects) in .wrangler-state at the repository root, as
 # docs/development/getting-started.md has it. For a deployment: `just
 # artifact` is what a release ships and `just release` packages it, which

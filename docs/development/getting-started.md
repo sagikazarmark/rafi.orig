@@ -155,8 +155,11 @@ RAFI_RESTATE_DRAND__MOCK=true … cargo run -p rafi-restate --features mock-dran
 
 ### Cloudflare Workers
 
-`wasm-bindgen-cli` must match `Cargo.lock`. `--persist-to` keeps the Worker's local state (D1, Durable Objects)
-across restarts:
+Locally the app and the raffle engine are one Worker, `apps/worker` (`rafi-worker`), which dispatches to the same
+libraries production's two Workers are made of: the app's (`rafi-cloudflare-app`, deployed as `apps/worker-app`) and
+the engine's (`rafi-cloudflare-engine` under `/restate`, deployed as `apps/worker-engine`); see
+[Crates and apps](../reference/crates.md). `wasm-bindgen-cli` must match `Cargo.lock`. `--persist-to` keeps the
+Worker's local state (D1, Durable Objects) across restarts:
 
 ```sh
 just apps/worker/ assets                                  # web app bundle + participant build + template legal documents -> apps/worker/worker-assets
@@ -188,8 +191,8 @@ It listens on `IP`:`PORT` (default `127.0.0.1:8080`). It serves the participant 
 `RAFI_PARTICIPANT_DIR` (which must be the build it was compiled against, or it doesn't start) and the web app from
 `RAFI_PUBLIC_DIR`, both relative to the working directory: its files at `/assets/`, and its `index.html`, read at
 startup, at every other path, under the web app's Content-Security-Policy. The Worker compiles that `index.html` in
-instead, so building `rafi-worker` (`worker-build`, `just clippy-wasm`, `just doc`) needs the web app bundled first
-(`just web`).
+instead (`rafi-cloudflare-app`), so building a Worker with the app (`rafi-worker`, `rafi-worker-app`: `worker-build`,
+`just clippy-wasm`, `just doc`) needs the web app bundled first (`just web`).
 
 ## Testing with phones
 

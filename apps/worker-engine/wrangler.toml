@@ -1,0 +1,54 @@
+# Rafi's raffle engine Worker on Cloudflare (production): the Restate
+# endpoint under /restate, and nothing else (every other path is a 404). It
+# writes draws to the app's D1 database and nudges the app Worker's
+# RaffleRoom objects through a binding to that Worker's class (script_name).
+# No secrets: the Restate environment's identity keys are public keys, and
+# the drand settings are vars. Local development runs the engine inside the
+# combined Worker (apps/worker).
+#
+# The Worker's shape, for building and a dry deploy (`just dry-run`): nothing
+# of an installation's is in it. An installation's configuration comes with
+# the release (docs/operations/cloudflare.md).
+
+name = "rafi-engine"
+main = "build/index.js"
+compatibility_date = "2026-10-01"
+# Restate Cloud calls it at its workers.dev address (/restate); every request
+# must carry the environment's signature, so nothing else gets past the SDK.
+workers_dev = true
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+# The app's database: the engine writes draw states to it.
+[[d1_databases]]
+binding = "DB"
+database_name = "rafi"
+database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: the app's, in an installation's deploy configuration
+migrations_dir = "../../migrations/sqlite"
+
+# The app Worker's live channels, nudged after each write. The class is the
+# app's (apps/worker-app, named "rafi"), not this Worker's: no [[migrations]].
+[[durable_objects.bindings]]
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
+script_name = "rafi"
+
+# The engine's application log lines are kept in Workers Logs; the automatic
+# per-invocation records are not.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false
+
+# Everything the engine reads (rafi_cloudflare_engine's docs):
+#   RAFI_DO_JURISDICTION                   the objects' jurisdiction, the app's
+#   RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS   the Restate environment's public key(s),
+#                                          comma separated; empty refuses every request
+# and, optional with defaults, RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS and
+# RAFI_DRAND_TIMEOUT_SECS.
+[vars]
+RAFI_DO_JURISDICTION = "eu"
+RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = "" # an installation's, in its deploy configuration

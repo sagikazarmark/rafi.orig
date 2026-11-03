@@ -21,7 +21,7 @@
 //! The span is at `info`, so the ID is on the lines of a native server
 //! logging at `info` or more (the default); `RUST_LOG=warn` drops it.
 //! On Workers the console layer lets spans through
-//! (`apps/worker/src/log.rs`).
+//! (`rafi_cloudflare::log`).
 //!
 //! The latency is the wall clock's ([`rafi_store::now_ms`]), in
 //! milliseconds: `std::time::Instant` aborts on `wasm32-unknown-unknown`

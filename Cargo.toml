@@ -21,6 +21,8 @@ rafi-engine-restate = { path = "crates/engine-restate" }
 rafi-live-client = { path = "crates/live-client" }
 rafi-live-server = { path = "crates/live-server" }
 rafi-cloudflare = { path = "crates/cloudflare" }
+rafi-cloudflare-app = { path = "crates/cloudflare-app" }
+rafi-cloudflare-engine = { path = "crates/cloudflare-engine" }
 rafi-app = { path = "crates/app" }
 rafi-server = { path = "crates/server" }
 drand = { version = "0.4", default-features = false }

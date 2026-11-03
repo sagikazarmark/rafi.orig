@@ -1,6 +1,9 @@
 # Rafi on Cloudflare Workers: the app and the raffle engine in one Worker. The
-# top level is production's shape; `[env.dev]` is local development
-# (`wrangler dev --env dev`).
+# top level is the one-Worker shape a release ships today; `[env.dev]` is local
+# development (`wrangler dev --env dev`), which stays one Worker. Production
+# moves to two Workers over the same libraries, the app's (apps/worker-app)
+# and the engine's (apps/worker-engine), whose wrangler.toml files are their
+# shapes.
 #
 # Nothing of one installation's is in this file: it is the Worker's shape,
 # for development (`[env.dev]`, under `wrangler dev`) and CI (a dry deploy).

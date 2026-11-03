@@ -6,9 +6,12 @@
 //! `worker` has no jurisdiction API yet, so the namespace's JavaScript method
 //! is called directly.
 
+#[cfg(feature = "room")]
 use partyline_worker::{close, reject};
 use wasm_bindgen::{JsCast, JsValue};
-use worker::{Env, Headers, Method, ObjectNamespace, Request, RequestInit, Response, Result, Stub};
+#[cfg(feature = "room")]
+use worker::Response;
+use worker::{Env, Headers, Method, ObjectNamespace, Request, RequestInit, Result, Stub};
 
 /// The Durable Object binding of the `RaffleRoom` objects.
 pub const BINDING: &str = "RAFFLE_ROOM";
@@ -90,6 +93,7 @@ pub async fn destroy(env: &Env, raffle_id: &str) -> Result<()> {
 
 /// Whether `id` has a raffle ID's shape: 32 lowercase hex digits
 /// (`rafi_app::ids::id`).
+#[cfg(feature = "room")]
 fn is_raffle_id(id: &str) -> bool {
     id.len() == 32
         && id
@@ -102,6 +106,7 @@ fn is_raffle_id(id: &str) -> bool {
 /// Refusals accept the socket and close it with 4403, never an HTTP error:
 /// browsers see a failed upgrade as a network error (1006) and keep retrying,
 /// while 4403 tells the partyline client to stop (and rafi's page to poll).
+#[cfg(feature = "room")]
 pub async fn connect(env: &Env, raffle_id: &str, req: Request) -> Result<Response> {
     // The ID's shape first, and the budget second, both before anything is
     // read: a made-up ID costs no database read, and the budget is keyed by

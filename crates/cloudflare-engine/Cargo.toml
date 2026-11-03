@@ -1,0 +1,31 @@
+[package]
+name = "rafi-cloudflare-engine"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Rafi's raffle engine on Cloudflare Workers: the Restate endpoint over D1, the raffles' Durable Objects and drand, for the engine Worker and the local combined one"
+publish = false
+
+[features]
+## Local development only: the mock drand chain (RAFI_DRAND_MOCK) and
+## Restate requests without identity keys.
+dev = ["rafi-engine/mock-drand"]
+
+# Everything here is Workers glue: the crate is empty on other targets. Only
+# what the engine needs: nothing of the app's (rafi-server, Clerk, axum, the
+# RaffleRoom class; `just clippy-wasm` checks).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+anyhow = { workspace = true }
+bytes = "1"
+# The drand client's relays, asked through the Workers `fetch` API.
+drand = { workspace = true, features = ["tower"] }
+http = "1"
+http-body-util = "0.1"
+rafi-cloudflare = { workspace = true, features = ["log"] }
+rafi-engine = { workspace = true, features = ["drand"] }
+rafi-engine-restate = { workspace = true }
+rafi-store = { workspace = true }
+restate-sdk = { workspace = true, features = ["rust_crypto"] }
+tower-worker-fetch = "0.2"
+worker = { workspace = true, features = ["http"] }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi on Cloudflare Workers: rafi-server's routes, the raffle engine's Restate endpoint, the housekeeping Cron and the RaffleRoom Durable Object (worker-build)"
+description = "Rafi on Cloudflare Workers for local development: the app and the raffle engine in one Worker (rafi-cloudflare-app, rafi-cloudflare-engine under /restate), the housekeeping Cron and the RaffleRoom Durable Object (worker-build)"
 publish = false
 
 [lib]
@@ -13,28 +13,12 @@ crate-type = ["cdylib", "rlib"]
 [features]
 ## Local development only: allows RAFI_DEV_AUTH, the mock drand chain
 ## (RAFI_DRAND_MOCK) and Restate requests without identity keys.
-dev = ["rafi-server/mock-drand", "rafi-engine/mock-drand"]
+dev = ["rafi-cloudflare-app/dev", "rafi-cloudflare-engine/dev"]
 
 # Everything here is Workers glue: the crate is empty on other targets.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-anyhow = { workspace = true }
-axum = { version = "0.8", default-features = false }
-dioxus-clerk = { version = "0.8", features = ["server", "worker"] }
-# The drand client's relays, asked through the Workers `fetch` API.
-drand = { workspace = true, features = ["tower"] }
 http = "1"
-http-body-util = "0.1"
-rafi-app = { workspace = true }
 rafi-cloudflare = { workspace = true }
-rafi-engine = { workspace = true, features = ["drand"] }
-rafi-engine-restate = { workspace = true }
-rafi-live-server = { workspace = true }
-rafi-server = { workspace = true }
-rafi-store = { workspace = true }
-# `tracing-span-filter`: each log line once while a journal replays (log.rs).
-restate-sdk = { workspace = true, features = ["rust_crypto", "tracing-span-filter"] }
-tower-service = "0.3"
-tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
-tower-worker-fetch = "0.2"
-worker = { workspace = true, features = ["http", "axum"] }
+rafi-cloudflare-app = { workspace = true }
+rafi-cloudflare-engine = { workspace = true }
+worker = { workspace = true, features = ["http"] }

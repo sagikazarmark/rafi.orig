@@ -9,7 +9,7 @@ everything CI runs except the Workers checks.
 | Recipe | What it runs |
 |---|---|
 | `just fmt` | `cargo fmt --check` |
-| `just clippy` | Clippy natively (`clippy-native`: the libraries, the engine, the app and the web app's tests, with and without the development features) and on `wasm32-unknown-unknown` (`clippy-wasm`: the web app, the Workers crates and the Worker), warnings refused |
+| `just clippy` | Clippy natively (`clippy-native`: the libraries, the engine, the app and the web app's tests, with and without the development features) and on `wasm32-unknown-unknown` (`clippy-wasm`: the web app, the Workers crates, the local combined Worker with and without `dev`, and production's app and engine Workers each on its own, with a check that the engine's links nothing of the app's), warnings refused |
 | `just test` | The rules, the app's use cases, drand, the store, the engine conformance suite (local runner, and the `Raffle` object on `restate-server`); then the app, with the in-process raffle engine and end to end with `rafi-restate` and `restate-server`; then the web app's router, natively |
 | `just verify` | The independent verifier against the shared vectors (`tools/verify.py`) |
 | `just doc` | `cargo doc` with warnings refused, so a broken link fails: natively with every feature, and the Workers crates on `wasm32` |

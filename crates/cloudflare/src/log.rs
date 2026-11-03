@@ -3,7 +3,9 @@
 //! a subscriber every `tracing::error!` behind an internal error, and every
 //! housekeeping step that failed, is a no-op in production.
 //!
-//! Installed once per isolate ([`install`]), writing each event as one
+//! Installed once per isolate ([`install`]) by whichever side of a Worker
+//! builds first (the app's or the engine's: in the local combined Worker
+//! they share the isolate, and so the one subscriber), writing each event as one
 //! console line at its level. No timestamps (`SystemTime` panics on
 //! `wasm32-unknown-unknown`; the console adds its own), no ANSI, `warn` and
 //! up only (a fixed filter: `EnvFilter` would pull a regex engine into the

@@ -1,0 +1,16 @@
+# Rafi's raffle engine Worker (production): the Restate endpoint under
+# /restate, binding the app Worker's database and RaffleRoom class. Local
+# development runs the engine inside the combined Worker (apps/worker).
+
+# List the recipes.
+[private]
+default:
+    @just --list --unsorted
+
+# Build the Worker as `wrangler deploy` builds it.
+build:
+    worker-build --release
+
+# Validate the Worker's shape without deploying: the configuration, every binding and the bundle.
+dry-run:
+    wrangler deploy --dry-run

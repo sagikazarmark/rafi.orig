@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Rafi's server: the participant pages, the public JSON and the admin API over HTTP (axum), served natively by `rafi` and on Cloudflare Workers by `rafi-worker`"
+description = "Rafi's server: the participant pages, the public JSON and the admin API over HTTP (axum), served natively by `rafi` and on Cloudflare Workers by `rafi-cloudflare-app`"
 publish = false
 
 [features]
