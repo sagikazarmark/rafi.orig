@@ -1,9 +1,10 @@
 name: Deploy
 
-# Deploys the Rafi release named in VERSION (at this repository's root) to
-# your Cloudflare account, on a push to main that changes VERSION, legal/ or
-# one of the three Wrangler configurations, and when run by hand (Actions >
-# Deploy > Run workflow).
+# Deploys the Rafi release named in VERSION (at this repository's root;
+# VERSION.<environment> instead when CLOUDFLARE_ENV is set and that file
+# exists) to your Cloudflare account, on a push to main that changes a
+# version file, legal/ or one of the three Wrangler configurations, and when
+# run by hand (Actions > Deploy > Run workflow).
 #
 # The work is the release's own deploy.sh, one subcommand per job (each job
 # is a fresh runner); this file only orders them:
@@ -15,8 +16,9 @@ name: Deploy
 #      (deploy.sh check-remote), before anything touches production, and
 #      hands the verified tarball to the other jobs;
 #   2. migrate: the D1 migrations;
-#   3. rooms: the rooms Worker, only when its code or rooms.wrangler.toml
-#      changed (a deploy of it drops every phone's live connection);
+#   3. live: the live Worker (the raffles' live channels), only when its
+#      code or live.wrangler.toml changed (a deploy of it drops every phone's
+#      live connection);
 #   4. app and engine, side by side: the app Worker's new version uploaded,
 #      not serving yet (on a first install, deployed directly), and this
 #      release's engine Worker deployed;
@@ -25,11 +27,22 @@ name: Deploy
 #      then the app's new version deployed.
 # restate-cleanup.yaml deletes the engine Workers Restate has drained.
 #
-# Upgrading is changing VERSION and pushing. When a release changes how its
-# deploy.sh is driven, its DEPLOY_VERSION changes, and deploy.sh refuses to
-# run under workflows written for another (RAFI_DEPLOY_VERSION below): copy
-# this file and restate-cleanup.yaml from deploy/cloudflare in the Rafi
-# repository at the new release's tag.
+# Each job writes what it did to the run's summary (deploy.sh's report).
+#
+# Upgrading is changing VERSION and pushing; a release whose notes say its
+# workflows changed comes with new copies of this file and
+# restate-cleanup.yaml (deploy/cloudflare in the Rafi repository, at the new
+# release's tag).
+#
+# Several installations in one repository, as Wrangler environments
+# ([env.<name>] in each of the three configurations): copy this file and
+# restate-cleanup.yaml once per installation (deploy-eu.yaml,
+# restate-cleanup-eu.yaml, ...), and in each copy set CLOUDFLARE_ENV below to
+# its environment, name its concurrency group after it (rafi-eu), give its
+# jobs that installation's GitHub environment (environment:, with its
+# secrets) and narrow the paths below to its own files (VERSION.eu, say).
+# With CLOUDFLARE_ENV empty, the configurations' top level is the
+# installation.
 #
 # Secrets (Settings > Secrets and variables > Actions):
 #   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID   the account the Workers and the database are on
@@ -47,10 +60,9 @@ on:
     branches: [main]
     paths:
       - VERSION
+      - "VERSION.*"
       - "legal/**"
-      - wrangler.toml
-      - engine.wrangler.toml
-      - rooms.wrangler.toml
+      - "*.wrangler.toml"
   workflow_dispatch:
 
 permissions:
@@ -64,11 +76,10 @@ env:
   # Where releases come from, and whose release workflow attests them: the
   # one place this workflow names the Rafi repository.
   RAFI_REPOSITORY: sagikazarmark/rafi
-  # The deploy interface this workflow is written for: the release's
-  # DEPLOY_VERSION, which its deploy.sh checks.
-  RAFI_DEPLOY_VERSION: "1"
-  # This installation's name in Restate's deployment metadata.
-  RAFI_INSTANCE: ${{ github.repository }}
+  # The Wrangler environment this workflow deploys ([env.<name>] in each
+  # configuration), for several installations in one repository (above);
+  # empty: the configurations' top level. deploy.sh and wrangler read it.
+  CLOUDFLARE_ENV: ""
 
 defaults:
   run:
@@ -100,17 +111,24 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Read VERSION
+      # VERSION.<environment> when CLOUDFLARE_ENV is set and that file
+      # exists, VERSION otherwise (deploy.sh checks the release by the same
+      # rule).
+      - name: Read the version file
         id: version
         run: |
-          version="$(tr -d '[:space:]' <VERSION)"
+          file=VERSION
+          if [ -n "$CLOUDFLARE_ENV" ] && [ -f "VERSION.$CLOUDFLARE_ENV" ]; then
+            file="VERSION.$CLOUDFLARE_ENV"
+          fi
+          version="$(tr -d '[:space:]' <"$file")"
           version="${version#v}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error file=VERSION::VERSION says '$version', not a Rafi release (x.y.z, or x.y.z-pre.release)"
+            echo "::error file=$file::$file says '$version', not a Rafi release (x.y.z, or x.y.z-pre.release)"
             exit 1
           fi
           echo "version=$version" >>"$GITHUB_OUTPUT"
-          echo "Rafi $version from $RAFI_REPOSITORY"
+          echo "Rafi $version ($file) from $RAFI_REPOSITORY"
 
       - name: Download the release
         id: download
@@ -209,8 +227,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: release/deploy.sh migrate
 
-  rooms:
-    name: Rooms Worker
+  live:
+    name: Live Worker
     needs: [prepare, migrate]
     runs-on: ubuntu-latest
     # environment: production
@@ -240,16 +258,16 @@ jobs:
           mkdir release
           tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
 
-      - name: Deploy the rooms Worker (unless unchanged)
+      - name: Deploy the live Worker (unless unchanged)
         env:
           RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: release/deploy.sh deploy-rooms
+        run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh deploy-live
 
   app:
     name: App Worker (upload)
-    needs: [prepare, rooms]
+    needs: [prepare, live]
     runs-on: ubuntu-latest
     # environment: production
     timeout-minutes: 15
@@ -287,11 +305,11 @@ jobs:
           RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: release/deploy.sh upload-app
+        run: RAFI_OUTPUT_FILE="$GITHUB_OUTPUT" RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh upload-app
 
   engine:
     name: Engine Worker
-    needs: [prepare, rooms]
+    needs: [prepare, live]
     runs-on: ubuntu-latest
     # environment: production
     timeout-minutes: 15
@@ -329,7 +347,7 @@ jobs:
           RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: release/deploy.sh deploy-engine
+        run: RAFI_OUTPUT_FILE="$GITHUB_OUTPUT" RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh deploy-engine
 
   release:
     name: Register the engine, deploy the app
@@ -371,7 +389,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           RESTATE_ADMIN_URL: ${{ secrets.RESTATE_ADMIN_URL }}
           RESTATE_AUTH_TOKEN: ${{ secrets.RESTATE_AUTH_TOKEN }}
-        run: release/deploy.sh register-engine
+        run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh register-engine
 
       - name: Deploy the app Worker's version
         env:
@@ -380,4 +398,4 @@ jobs:
           RAFI_APP_PROMOTED: ${{ needs.app.outputs.app_promoted }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: release/deploy.sh promote-app
+        run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh promote-app

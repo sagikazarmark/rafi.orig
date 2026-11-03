@@ -16,7 +16,7 @@ everything CI runs except the Workers checks.
 | `just audit` | `cargo audit`: `Cargo.lock` against the RustSec advisory database. Advisories are checked here alone; an accepted one is ignored, with its reason, in [`.cargo/audit.toml`](../../.cargo/audit.toml) |
 | `just deny` | `cargo deny check bans licenses sources` ([`deny.toml`](../../deny.toml)) |
 | `just workers` | [`./scripts/workers-check.sh`](#workers): everything under `wrangler dev`. Long, and it needs a Chromium, so `just ci` leaves it out |
-| `just cloudflare-artifact`, `just cloudflare-tarball <version>`, `just cloudflare-release <version>` | Not checks: what a release ships (the app, engine and rooms Workers, the D1 migrations, `DEPLOY_VERSION` and `deploy.sh`), packed as `worker.tar.gz`, and the release itself (`scripts/cloudflare-release.sh`: the template's `VERSION` naming the release and its workflows written for this `deploy.sh`, `deploy.sh`'s own checks, `worker.tar.gz`, and its `deploy.sh dry-run` from a copy of `deploy/cloudflare`), which the release workflow runs on a tag |
+| `just cloudflare-artifact`, `just cloudflare-tarball <version>`, `just cloudflare-release <version>` | Not checks: what a release ships (the app, engine and live Workers, the D1 migrations and `deploy.sh`), packed as `worker.tar.gz`, and the release itself (`scripts/cloudflare-release.sh`: the template's `VERSION` naming the release and its workflows reading the version file as `deploy.sh` does, `deploy.sh`'s own checks, `worker.tar.gz`, and its `deploy.sh dry-run` from a copy of `deploy/cloudflare`, also as a Wrangler environment), which the release workflow runs on a tag |
 
 The end-to-end tests run the shell's `restate-server` (`RESTATE_SERVER_BIN`). Without it (outside the devenv shell,
 set it to a `restate-server` binary), they skip locally, and `just test` ends with a `SKIPPED:` line counting them;
@@ -184,29 +184,38 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   by then it has read `legal/terms.md` and `legal/privacy.md` through the assets binding (the refusal is a
   secret's, not theirs), and served without `legal/` it refuses naming them, from the 404 Workers Assets
   answers, which only the real runtime can show
-- `deploy/cloudflare`, what an installation deploys: its `wrangler.toml`, `engine.wrangler.toml` and
-  `rooms.wrangler.toml` agree with the production Workers' (`apps/worker-app`, `apps/worker-engine`,
-  `apps/worker-rooms`) on the bindings, limits, Durable Object migrations and required secrets, and a release (of the
+- `deploy/cloudflare`, what an installation deploys: its `app.wrangler.toml`, `engine.wrangler.toml` and
+  `live.wrangler.toml` agree with the production Workers' (`apps/worker-app`, `apps/worker-engine`,
+  `apps/worker-live`) on the bindings, limits, Durable Object migrations and required secrets, and a release (of the
   version `deploy/cloudflare/VERSION` names) is rehearsed the way a tag releases it (`scripts/cloudflare-release.sh`):
   first that the template's `VERSION` names it, that its two workflows (`.github/workflows/deploy.yaml` and
-  `restate-cleanup.yaml`) say `deploy.sh`'s `DEPLOY_VERSION` as their `RAFI_DEPLOY_VERSION`, name one Rafi repository
-  and verify the attestation `release.yaml` makes (its signer); then the deploy script's own checks
+  `restate-cleanup.yaml`) name one Rafi repository, verify the attestation `release.yaml` makes (its signer) and
+  read `VERSION.<CLOUDFLARE_ENV>` when it exists, as `deploy.sh` does; then the deploy script's own checks
   (`scripts/cloudflare-deploy-test.sh`: each subcommand run from a copy of the template with a release laid out in
   `release/`, against a stubbed wrangler and Restate CLI and a fake Cloudflare and Restate admin API, a local node
-  server: `check` (the release's and the installation's `VERSION`, `DEPLOY_VERSION` against the workflows', the
-  engine Worker's versioned name, the three configurations and broken copies of them, placeholders), `migrate`,
-  `deploy-rooms` skipping an unchanged fingerprint, `upload-app`'s first install and upgrade, `deploy-engine`'s name
-  and address, `register-engine`'s downgrade guard, metadata, `"force": false` and retries, `check-remote`'s same
-  guard before anything is deployed (a first install, the same or a newer release passing, an older refused, an
-  unreachable Restate or a bad key or token failing, nothing but reads), `promote-app`, and
-  `cleanup`'s filtering by metadata and its order, a Worker deleted before its deployment is removed, and stopping
-  when a listing fails); then `worker.tar.gz`, its layout and each Worker's exports checked, unpacked into a copy of
-  the template's `release/`, whose `release/deploy.sh dry-run` copies `legal/` in and dry-deploys the rooms Worker
-  (`DB`, `RAFFLE_ROOM` its own, the jurisdiction), the engine Worker under its versioned name (`DB`, `RAFFLE_ROOM`
-  defined in `rafi-rooms`, the jurisdiction and the identity keys) and the app Worker (`ASSETS`, `DB`, `RAFFLE_ROOM`
-  defined in `rafi-rooms`, the four rate limiters, the jurisdiction). What `deploy.sh` does against the real
-  Cloudflare and Restate Cloud (the API's answers, wrangler's uploads and deploys, the registration, the deletions)
-  needs an account and is not run here
+  server, with the configurations read by the devenv wrangler's own reader (`RAFI_WRANGLER_PKG`): `check` (the
+  release's and the installation's version file, `VERSION.<env>` or `VERSION`, the engine Worker's versioned name,
+  the tools installed once when not given, the three configurations and broken copies of them, placeholders, and
+  Wrangler environments: none, one without a name of its own, one with, missing vars such as the engine's identity
+  keys, rate limits, required secrets or bindings refused), `migrate`, `deploy-live` skipping an unchanged
+  fingerprint (a comment or another environment doesn't change it), `upload-app`'s first install and upgrade,
+  `deploy-engine`'s name and address, `register-engine`'s downgrade guard, metadata (`instance` the app Worker's
+  name), `"force": false` and retries, `check-remote`'s same guard before anything is deployed (a first install,
+  the same or a newer release passing, an older refused, an unreachable Restate or a bad key or token failing,
+  nothing but reads), `promote-app`, the outputs (`RAFI_OUTPUT_FILE`) and reports (`RAFI_REPORT_FILE`), and
+  `cleanup`'s filtering by metadata, its order (each drained deployment removed from Restate before its Worker is
+  deleted; a deletion failing leaves the Worker behind and fails the run, a removal refused leaves the Worker
+  alone), the leftover engine Workers it reports and never deletes, and stopping before anything is removed or
+  deleted when a listing fails; the fake server is stopped on exit and on a signal); then `worker.tar.gz`, its layout
+  and each Worker's exports checked, unpacked into a copy of the template's `release/`, whose `release/deploy.sh
+  dry-run` (with the devenv's wrangler, nothing installed) copies `legal/` in and dry-deploys the live Worker
+  `rafi-live` (`DB`, `RAFFLE_ROOM` its own, the jurisdiction), the engine Worker under its versioned name (`DB`,
+  `RAFFLE_ROOM` defined in `rafi-live`, the jurisdiction and the identity keys) and the app Worker `rafi-app`
+  (`ASSETS`, `DB`, `RAFFLE_ROOM` defined in `rafi-live`, the four rate limiters, the jurisdiction); then the same
+  for a copy with an `[env.eu]` in each configuration and a `VERSION.eu`, with `CLOUDFLARE_ENV=eu`: `rafi-live-eu`,
+  `rafi-engine-eu-v<version>` and `rafi-app-eu`, bound to `rafi-live-eu`. What `deploy.sh` does against the real
+  Cloudflare and Restate Cloud (the API's answers, wrangler's uploads and deploys, the registration, the removals
+  and deletions, the Workers listing) needs an account and is not run here
 
 Each `wrangler dev` gets a fixed port (8789 to 8792, 8787 for the evening), and the script refuses one something
 already listens on: a developer's own `wrangler dev`, or one left over from an earlier run, would answer in its

@@ -21,8 +21,8 @@ http = "1"
 http-body-util = "0.1"
 rafi-app = { workspace = true }
 # `connect`: phones' sockets to their raffle's object, through the
-# RAFFLE_ROOM binding. Not `object`: the class is the rooms Worker's
-# (apps/worker-rooms), and a Worker linking it would export it.
+# RAFFLE_ROOM binding. Not `object`: the class is the live Worker's
+# (apps/worker-live), and a Worker linking it would export it.
 rafi-cloudflare = { workspace = true, features = ["connect", "log"] }
 rafi-engine = { workspace = true }
 rafi-live-server = { workspace = true }

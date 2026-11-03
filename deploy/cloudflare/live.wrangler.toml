@@ -1,30 +1,30 @@
-# Rafi on Cloudflare Workers: one installation's configuration of the rooms
+# Rafi on Cloudflare Workers: one installation's configuration of the live
 # Worker, the raffles' live channels: one RaffleRoom Durable Object per
 # raffle, which pushes what phones see. The class is this Worker's, with its
-# Durable Object migrations; the app Worker (wrangler.toml) and the engine
-# Worker (engine.wrangler.toml) bind it by this Worker's name (their
-# script_name). This is the rooms Worker's shape as the Rafi repository ships
-# it (apps/worker-rooms/wrangler.toml), pointed at a release's files in
+# Durable Object migrations; the app Worker (app.wrangler.toml) and the
+# engine Worker (engine.wrangler.toml) bind it by this Worker's name (their
+# script_name). This is the live Worker's shape as the Rafi repository ships
+# it (apps/worker-live/wrangler.toml), pointed at a release's files in
 # release/.
 #
 # It has no address (no route, no workers.dev, no preview URLs) and no
 # secrets: it is reached only through the other two Workers' bindings. A
 # deploy deploys it first (deploy.sh), so its class is there before the
-# Workers binding it, and only when its code or this file changed: deploying
-# it drops every phone's live connection. deploy.sh reads name, main,
-# workers_dev, preview_urls, binding, database_id, class_name and
-# RAFI_DO_JURISDICTION; write them as `key = "value"` on one line, as they
-# are here.
+# Workers binding it, and only when its code or its configuration changed
+# (this file's top level, and its environment's section, as wrangler reads
+# them; not comments): deploying it drops every phone's live connection. In a
+# Wrangler environment ([env.<name>], see app.wrangler.toml), repeat the vars
+# and the bindings; the migrations are inherited.
 #
 # Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
 
-name = "rafi-rooms"
-main = "release/rooms/build/index.js"
+name = "rafi-live"
+main = "release/live/build/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = false
 preview_urls = false
 
-# Your database, the app's (wrangler.toml): the same database_id. Each live
+# Your database, the app's (app.wrangler.toml): the same database_id. Each live
 # channel reads its raffle from it.
 [[d1_databases]]
 binding = "DB"
@@ -49,6 +49,6 @@ enabled = true
 invocation_logs = false
 
 # Where the live channels' Durable Objects live: "eu", "fedramp", or "none".
-# wrangler.toml and engine.wrangler.toml say the same.
+# app.wrangler.toml and engine.wrangler.toml say the same.
 [vars]
 RAFI_DO_JURISDICTION = "eu"

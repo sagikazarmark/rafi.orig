@@ -1,6 +1,6 @@
-# Rafi's rooms Worker (production): the raffles' RaffleRoom Durable Object
+# Rafi's live Worker (production): the raffles' RaffleRoom Durable Object
 # class, which the app Worker (apps/worker-app) and the engine Worker
-# (apps/worker-engine) bind by its name, `rafi-rooms`. Local development hosts
+# (apps/worker-engine) bind by its name, `rafi-live`. Local development hosts
 # the class in the combined Worker (apps/worker).
 
 # List the recipes.
@@ -16,7 +16,7 @@ build:
 dry-run:
     wrangler deploy --dry-run
 
-# The rooms Worker as a release ships it, into `out` (a release's rooms/): build/ (the Worker).
+# The live Worker as a release ships it, into `out` (a release's live/): build/ (the Worker).
 artifact out: build
     #!/usr/bin/env bash
     set -euo pipefail

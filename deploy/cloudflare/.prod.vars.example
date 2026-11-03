@@ -1,8 +1,10 @@
-# This installation's secrets: the app Worker's (the engine and rooms Workers
+# This installation's secrets: the app Worker's (the engine and live Workers
 # have none). Copy to .prod.vars (ignored by git), fill it in, and run
-# `npx wrangler secret bulk .prod.vars` once, before the first deploy: it
-# creates the app Worker with them, and deploys keep them. Change one later
-# with `npx wrangler secret put <NAME>`. Then delete the file.
+# `npx wrangler@4.148.0 secret bulk .prod.vars -c app.wrangler.toml` once,
+# before the first deploy (with CLOUDFLARE_ENV=<name> for a Wrangler
+# environment's installation): it creates the app Worker with them, and
+# deploys keep them. Change one later with `npx wrangler@4.148.0 secret put
+# <NAME> -c app.wrangler.toml`. Then delete the file.
 # The reference, with the optional settings and their defaults:
 # https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
 

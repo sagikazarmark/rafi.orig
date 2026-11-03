@@ -15,7 +15,7 @@ publish = false
 connect = ["dep:partyline-worker"]
 ## The `RaffleRoom` Durable Object class. A `#[durable_object]` is exported
 ## from every Worker that links it, so only the Worker hosting the class
-## turns this on (the rooms Worker, the local combined one, the testbed):
+## turns this on (the live Worker, the local combined one, the testbed):
 ## the app and engine Workers reach the objects through their binding
 ## (`script_name`) and must not export the class.
 object = ["dep:partyline-worker", "dep:serde_json"]

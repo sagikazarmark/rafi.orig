@@ -74,7 +74,7 @@ flowchart LR
 
 | Component | What it does | Native | Cloudflare Workers |
 |---|---|---|---|
-| **App** | The HTTP server and the web app: pages, APIs, every use case. Keeps no state between requests. | `rafi` | the app Worker, `rafi-worker-app`, and the rooms Worker, `rafi-worker-rooms`, with the raffles' live channels |
+| **App** | The HTTP server and the web app: pages, APIs, every use case. Keeps no state between requests. | `rafi` | the app Worker, `rafi-worker-app`, and the live Worker, `rafi-worker-live`, with the raffles' live channels |
 | **Raffle engine** | Owns each raffle from freeze to finish and runs its draws, as a [Restate](https://restate.dev) virtual object. Sees only anonymous IDs. | `rafi-restate` | the engine Worker, `rafi-worker-engine`, one per release |
 | **Database** | The record, shared by the app and the engine | SQLite or Postgres | D1 |
 | **Web app** | Admin, projector, verification page (Dioxus) | `rafi-web` | same |
@@ -88,8 +88,8 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 
 - **Cloudflare Workers** is the production deployment, and needs no toolchain: copy
   [`deploy/cloudflare`](deploy/cloudflare) into a repository of yours, and its GitHub Actions workflows deploy a
-  release to your own account (the app Worker, the rooms Worker with the live channels, and each release's raffle
-  engine Worker, registered with Restate Cloud and deleted once drained) with your configuration and legal
+  release to your own account (the app Worker, the live Worker with the live channels, and each release's raffle
+  engine Worker, registered with Restate Cloud and removed once drained) with your configuration and legal
   documents, after checking the release's provenance. [The first deploy](deploy/cloudflare/README.md) is documented
   step by step, and [the reference](docs/operations/cloudflare.md) explains it. CI runs the production shape
   through a dry deploy, a whole evening under `wrangler dev` and the hourly housekeeping.

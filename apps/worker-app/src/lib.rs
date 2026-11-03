@@ -1,7 +1,7 @@
 //! Rafi's app Worker on Cloudflare (`worker-build`, `wrangler.toml`), named
-//! `rafi`: production's Worker that serves people, beside the raffle
-//! engine's (`apps/worker-engine`), which Restate calls, and the rooms
-//! Worker (`apps/worker-rooms`), which hosts the raffles' `RaffleRoom`
+//! `rafi-app`: production's Worker that serves people, beside the raffle
+//! engine's (`apps/worker-engine`), which Restate calls, and the live
+//! Worker (`apps/worker-live`), which hosts the raffles' `RaffleRoom`
 //! objects.
 //!
 //! - `fetch`: the raffle engine's paths (`/restate`, `/restate/*`) answer 404,
@@ -11,8 +11,8 @@
 //!   behind Clerk, with the web app's shell.
 //! - `scheduled`: the Cron Trigger runs housekeeping
 //!   (`rafi_cloudflare_app::export_scheduled!`).
-//! - No `RaffleRoom`: the class is the rooms Worker's, which this one binds
-//!   by name (`script_name = "rafi-rooms"`); phones' sockets and nudges go
+//! - No `RaffleRoom`: the class is the live Worker's, which this one binds
+//!   by name (`script_name = "rafi-live"`); phones' sockets and nudges go
 //!   to the objects through that binding.
 //!
 //! The app reaches the engine through Restate's ingress

@@ -2,22 +2,34 @@
 # Worker (the web app and its API, phones' live-channel sockets, the
 # housekeeping Cron). The raffle engine is a second Worker
 # (engine.wrangler.toml), one per release, and the raffles' live channels a
-# third (rooms.wrangler.toml). This is the app Worker's shape as the Rafi repository ships it
-# (apps/worker-app/wrangler.toml), pointed at a release's files in release/
-# (the release unpacked there, its deploy.sh copying legal/ in), with your
-# database and domain in place of the placeholders. Everything else of yours
-# is a secret or a file in legal/. `release/deploy.sh` (which
-# .github/workflows/deploy.yaml runs when this file, the other two, VERSION or
-# legal/ change) checks this file against engine.wrangler.toml,
-# rooms.wrangler.toml and the release, applies the D1 migrations and deploys
-# the three Workers; write the keys it reads (name,
-# main, directory, binding, database_id, migrations_dir, class_name,
-# script_name, RAFI_DO_JURISDICTION) as `key = "value"` on one line, as they
-# are here.
+# third (live.wrangler.toml). This is the app Worker's shape as the Rafi
+# repository ships it (apps/worker-app/wrangler.toml), pointed at a release's
+# files in release/ (the release unpacked there, its deploy.sh copying legal/
+# in), with your database and domain in place of the placeholders. Everything
+# else of yours is a secret or a file in legal/. `release/deploy.sh` (which
+# .github/workflows/deploy.yaml runs when this file, the other two, VERSION
+# or legal/ change) reads this file as wrangler does, checks it against
+# engine.wrangler.toml, live.wrangler.toml and the release, applies the D1
+# migrations and deploys the three Workers.
+#
+# The app Worker's name is the installation's: unique in your Cloudflare
+# account, it is how Restate's deployment metadata tells this installation's
+# engines from another's. Several installations in one account have names of
+# their own: each in a repository of its own, or in one repository as
+# Wrangler environments ([env.<name>] here and in the other two files, chosen
+# by CLOUDFLARE_ENV in the workflows). An environment's Worker is named
+# <name>-<environment> unless it sets its own name; it inherits main, the
+# assets, the Cron and the routes (give it routes of its own: two
+# installations don't share a domain), but not the vars, the required secrets or
+# the bindings (the database, RAFFLE_ROOM with the environment's live Worker
+# as script_name, the rate limits, with namespace_ids of their own so the
+# installations don't share counters): repeat those under [env.<name>].
+# deploy.sh refuses an environment missing a var, a binding or a required secret.
 #
 # Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
+# and https://developers.cloudflare.com/workers/wrangler/environments/
 
-name = "rafi"
+name = "rafi-app"
 main = "release/app/build/index.js"
 compatibility_date = "2026-10-01"
 # Only your domain: no *.workers.dev address, no preview URLs (a preview would
@@ -40,7 +52,7 @@ binding = "ASSETS"
 
 # Your database: `wrangler d1 create rafi --jurisdiction eu`, and paste the ID
 # here, in engine.wrangler.toml (the engine writes draws to it) and in
-# rooms.wrangler.toml (the live channels read it). The migrations run before
+# live.wrangler.toml (the live channels read it). The migrations run before
 # each deploy (deploy.sh).
 [[d1_databases]]
 binding = "DB"
@@ -49,12 +61,12 @@ database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "release/migrations"
 
 # One live channel per raffle, in the jurisdiction RAFI_DO_JURISDICTION names.
-# The class is the rooms Worker's: script_name is its name
-# (rooms.wrangler.toml's name).
+# The class is the live Worker's: script_name is its name
+# (live.wrangler.toml's name).
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
-script_name = "rafi-rooms"
+script_name = "rafi-live"
 
 # Soft limits on joining and on the organizer's adds (approximate, per
 # location). Keys are never IP addresses: a venue shares one. The hard limit
@@ -95,13 +107,13 @@ enabled = true
 invocation_logs = false
 
 # Where the live channels' Durable Objects live: "eu", "fedramp", or "none".
-# engine.wrangler.toml and rooms.wrangler.toml say the same.
+# engine.wrangler.toml and live.wrangler.toml say the same.
 [vars]
 RAFI_DO_JURISDICTION = "eu"
 
 # What this installation sets, as secrets (.prod.vars.example), once with
-# `wrangler secret bulk .prod.vars` before the first deploy (then `wrangler
-# secret put <NAME>`); deploys keep them:
+# `wrangler secret bulk .prod.vars -c app.wrangler.toml` before the first
+# deploy (then `wrangler secret put <NAME> -c app.wrangler.toml`); deploys keep them:
 #   RAFI_PUBLIC_URL                        the public origin, no trailing slash
 #   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL (EU)
 #   RAFI_ENGINE_API_KEY                    a Restate Cloud API key with ingress access

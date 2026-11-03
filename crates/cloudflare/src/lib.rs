@@ -1,6 +1,6 @@
 //! Rafi on Cloudflare Workers: the Cloudflare glue every Rafi Worker shares
 //! (the app's, `rafi-cloudflare-app`; the raffle engine's,
-//! `rafi-cloudflare-engine`; the rooms Worker, `apps/worker-rooms`; the live
+//! `rafi-cloudflare-engine`; the live Worker, `apps/worker-live`; the live
 //! channel's testbed, `testbeds/cloudflare`).
 //!
 //! - [`RaffleRoom`] (feature `object`): one Durable Object per raffle,
@@ -25,7 +25,7 @@
 //! The Workers' entry points only wire these up. A `#[durable_object]` in a
 //! dependency is exported from every Worker that links it, so the class is
 //! behind its own feature, `object`, apart from the objects' clients: in
-//! production only the rooms Worker turns it on, and the app's (`connect`)
+//! production only the live Worker turns it on, and the app's (`connect`)
 //! and the engine's Workers reach the objects through their binding to it,
 //! their bundles without a `RaffleRoom`. Everything here exists on `wasm32`
 //! only.

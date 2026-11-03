@@ -21,15 +21,16 @@
 #      can't run open; it has read the legal documents through the assets
 #      binding by then, and served without legal/ it refuses naming them.
 #      Needs dx too (the dry run uploads the assets);
-#   6. deploy/cloudflare, what an installation deploys: its wrangler.toml,
-#      engine.wrangler.toml and rooms.wrangler.toml agree with the production
-#      Workers' (apps/worker-app, apps/worker-engine, apps/worker-rooms) on
+#   6. deploy/cloudflare, what an installation deploys: its app.wrangler.toml,
+#      engine.wrangler.toml and live.wrangler.toml agree with the production
+#      Workers' (apps/worker-app, apps/worker-engine, apps/worker-live) on
 #      the bindings, limits, Durable Object migrations and required secrets,
 #      and a release (of the version deploy/cloudflare/VERSION names) is
 #      rehearsed the way a tag releases it (scripts/cloudflare-release.sh):
 #      the template's VERSION and workflows, deploy.sh's own checks,
 #      worker.tar.gz packaged, each Worker's exports checked, unpacked into a
-#      copy of the template's release/, and its deploy.sh dry-run there.
+#      copy of the template's release/, and its deploy.sh dry-run there,
+#      at the top level and as a Wrangler environment (CLOUDFLARE_ENV=eu).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node, just,
 # dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the
@@ -301,7 +302,7 @@ if command -v dx >/dev/null; then
       -e '/^invocation_logs/p' -e 's/^\(RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS\) = .*/\1/p' -e '/^RAFI_[A-Z_]* = /p' \
       -e '/^required = \[$/,/^\]/p' "$1"
   }
-  for pair in worker-app:wrangler.toml worker-engine:engine.wrangler.toml worker-rooms:rooms.wrangler.toml; do
+  for pair in worker-app:app.wrangler.toml worker-engine:engine.wrangler.toml worker-live:live.wrangler.toml; do
     worker="apps/${pair%%:*}/wrangler.toml"
     template="deploy/cloudflare/${pair#*:}"
     if ! diff <(shape "$ROOT/$worker") <(shape "$ROOT/$template"); then

@@ -1,7 +1,7 @@
 # Rafi's raffle engine Worker on Cloudflare (production): the Restate
 # endpoint under /restate, and nothing else (every other path is a 404). It
 # writes draws to the app's D1 database and nudges the raffles' RaffleRoom
-# objects through a binding to the rooms Worker's class (script_name).
+# objects through a binding to the live Worker's class (script_name).
 # No secrets: the Restate environment's identity keys are public keys, and
 # the drand settings are vars. Local development runs the engine inside the
 # combined Worker (apps/worker).
@@ -29,12 +29,12 @@ database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: the app's,
 migrations_dir = "../../migrations/sqlite"
 
 # The raffles' live channels, nudged after each write. The class is the
-# rooms Worker's (apps/worker-rooms, named "rafi-rooms"), not this Worker's:
+# live Worker's (apps/worker-live, named "rafi-live"), not this Worker's:
 # no [[migrations]].
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
-script_name = "rafi-rooms"
+script_name = "rafi-live"
 
 # The engine's application log lines are kept in Workers Logs; the automatic
 # per-invocation records are not.
@@ -45,7 +45,7 @@ enabled = true
 invocation_logs = false
 
 # Everything the engine reads (rafi_cloudflare_engine's docs):
-#   RAFI_DO_JURISDICTION                   the objects' jurisdiction, the rooms Worker's
+#   RAFI_DO_JURISDICTION                   the objects' jurisdiction, the live Worker's
 #   RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS   the Restate environment's public key(s),
 #                                          comma separated; empty refuses every request
 # and, optional with defaults, RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS and

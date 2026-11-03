@@ -3,7 +3,7 @@
 # checks (a dry deploy, fail-closed without secrets); `[env.dev]` is local
 # development (`wrangler dev --env dev`), which stays one Worker. Production
 # runs three Workers over the same libraries, the app's (apps/worker-app),
-# the engine's (apps/worker-engine) and the rooms Worker (apps/worker-rooms,
+# the engine's (apps/worker-engine) and the live Worker (apps/worker-live,
 # the RaffleRoom class), whose wrangler.toml files are their shapes, and
 # which a release ships.
 #

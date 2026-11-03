@@ -1,5 +1,7 @@
 # The release deploy.sh deploys (unpacked here, with legal/ copied in).
 release/
+# The tools deploy.sh installs (wrangler, RAFI_TOOLS_DIR).
+.rafi-tools/
 node_modules/
 # The app Worker's secrets, filled in from .prod.vars.example: never committed.
 .prod.vars

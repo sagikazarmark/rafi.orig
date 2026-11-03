@@ -5199,7 +5199,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rafi-worker-rooms"
+name = "rafi-worker-live"
 version = "0.1.0"
 dependencies = [
  "rafi-cloudflare",

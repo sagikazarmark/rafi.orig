@@ -2,7 +2,7 @@
 # phones' live-channel sockets, the housekeeping Cron, the static files and
 # the rate limits. The raffle engine is another Worker (apps/worker-engine),
 # which Restate calls, and this Worker calls Restate's ingress; the raffles'
-# RaffleRoom objects are a third's (apps/worker-rooms, `rafi-rooms`), which
+# RaffleRoom objects are a third's (apps/worker-live, `rafi-live`), which
 # this one and the engine bind by its name. Local development runs all three
 # in one Worker (apps/worker, `wrangler dev --env dev`).
 #
@@ -12,7 +12,7 @@
 # installation's configuration of the three Workers is its copy of
 # deploy/cloudflare (docs/operations/cloudflare.md).
 
-name = "rafi"
+name = "rafi-app"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
 # Only the custom domain: no *.workers.dev address, no public preview URLs
@@ -38,12 +38,12 @@ database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: an install
 migrations_dir = "../../migrations/sqlite"
 
 # One live channel per raffle; IDs come from the EU jurisdiction (RAFI_DO_JURISDICTION).
-# The class is the rooms Worker's (apps/worker-rooms), with its migrations:
+# The class is the live Worker's (apps/worker-live), with its migrations:
 # none here.
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
-script_name = "rafi-rooms"
+script_name = "rafi-live"
 
 # Soft limits (approximate, per location). Keys are never IP addresses: a
 # venue shares one. The hard limit is the entrant cap (RAFI_MAX_ENTRANTS).

@@ -1,5 +1,5 @@
 # Rafi's raffle engine Worker (production): the Restate endpoint under
-# /restate, binding the app's database and the rooms Worker's RaffleRoom class. Local
+# /restate, binding the app's database and the live Worker's RaffleRoom class. Local
 # development runs the engine inside the combined Worker (apps/worker).
 
 # List the recipes.

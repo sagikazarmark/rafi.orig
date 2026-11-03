@@ -19,7 +19,7 @@ dev = ["rafi-cloudflare-app/dev", "rafi-cloudflare-engine/dev"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 http = "1"
 # `object`: the RaffleRoom class is this Worker's own (production's is the
-# rooms Worker's, apps/worker-rooms).
+# live Worker's, apps/worker-live).
 rafi-cloudflare = { workspace = true, features = ["object"] }
 rafi-cloudflare-app = { workspace = true }
 rafi-cloudflare-engine = { workspace = true }

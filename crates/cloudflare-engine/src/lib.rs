@@ -10,7 +10,7 @@
 //! D1 (the record) through rafi-store's [`RaffleWriter`], then the raffle's
 //! Durable Object is nudged, best effort, through `rafi-cloudflare`'s
 //! [`DurableObjects`] over the `RAFFLE_ROOM` binding (in the engine Worker,
-//! a binding to the rooms Worker's class, `script_name`: the class isn't
+//! a binding to the live Worker's class, `script_name`: the class isn't
 //! exported here). Nothing of the app's is linked: no routes, no Clerk, no
 //! secrets.
 //!
@@ -20,7 +20,7 @@
 //! | --- | --- | --- |
 //! | `DB` | D1 binding | Rafi's database, the app's |
 //! | `RAFFLE_ROOM` | Durable Object binding | The raffles' `RaffleRoom` objects |
-//! | `RAFI_DO_JURISDICTION` | var | The objects' jurisdiction, as the rooms Worker's and the app's (default `eu`) |
+//! | `RAFI_DO_JURISDICTION` | var | The objects' jurisdiction, as the live Worker's and the app's (default `eu`) |
 //! | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | var | Comma-separated `publickeyv1_…` keys of the Restate environment. Required: without them the endpoint refuses every request |
 //! | `RAFI_DRAND_RELAYS` | var | Comma-separated drand relays (default: the built-in ones) |
 //! | `RAFI_DRAND_LEAD_SECS`, `RAFI_DRAND_TIMEOUT_SECS` | var | Draw timing (defaults as natively) |

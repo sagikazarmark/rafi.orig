@@ -1,8 +1,8 @@
-//! Rafi's rooms Worker on Cloudflare (`worker-build`, `wrangler.toml`),
-//! named `rafi-rooms`: production's Worker hosting the raffles' live
+//! Rafi's live Worker on Cloudflare (`worker-build`, `wrangler.toml`),
+//! named `rafi-live`: production's Worker hosting the raffles' live
 //! channels, one [`RaffleRoom`] Durable Object per raffle, beside the app's
 //! (`apps/worker-app`) and the raffle engine's (`apps/worker-engine`), which
-//! both bind the class by this Worker's name (`script_name = "rafi-rooms"`).
+//! both bind the class by this Worker's name (`script_name = "rafi-live"`).
 //!
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker,
 //!   with its Durable Object migrations; it reads raffles from the D1
@@ -19,7 +19,7 @@
 //!
 //! The app and the engine of the previous release call these objects while a
 //! new one goes out (the app until it is replaced, the engine until it
-//! drains), so a new rooms Worker accepts their requests: a change to them
+//! drains), so a new live Worker accepts their requests: a change to them
 //! takes two releases. Local development hosts the class in the combined
 //! Worker (`apps/worker`).
 

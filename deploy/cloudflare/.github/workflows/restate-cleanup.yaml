@@ -1,22 +1,28 @@
 name: Restate cleanup
 
-# Deletes the engine Workers of earlier releases once Restate has drained
-# them, daily and when run by hand (Actions > Restate cleanup > Run workflow).
+# Removes the engine deployments of earlier releases from Restate once it
+# has drained them, and deletes their Workers, daily and when run by hand
+# (Actions > Restate cleanup > Run workflow).
 # Each release deploys an engine Worker of its own (deploy.yaml), and Restate
 # finishes every invocation on the deployment it started on, so an earlier
 # release's engine keeps serving until nothing is pinned to it any more.
 #
-# The work is deploy.sh cleanup, of the release named in VERSION (downloaded
-# and verified as deploy.yaml does): only this installation's engine
-# deployments (by the metadata deploy.sh registers them with) that Restate
-# reports Drained are touched, each Worker deleted, then its deployment
-# removed from Restate. Those still draining are listed with their pinned
+# The work is deploy.sh cleanup, of the release named in the version file
+# (VERSION, or VERSION.<environment>; downloaded and verified as deploy.yaml
+# does): only this installation's engine deployments (by the metadata
+# deploy.sh registers them with: the app Worker's name and the account) that
+# Restate reports Drained are touched, each deployment removed from Restate,
+# then its Worker deleted. Those still draining are listed with their pinned
 # invocations: a paused one waits for you (restate invocations resume <id>
-# --deployment latest, or restate invocations kill <id>). Deployments that
-# aren't this installation's are listed and never touched.
+# --deployment latest, or restate invocations kill <id>). Engine Workers no
+# Restate deployment refers to are listed, never deleted, and so are
+# deployments that aren't this installation's, never touched. The report
+# is the run's summary.
 #
-# Upgrading: see deploy.yaml (RAFI_DEPLOY_VERSION). Secrets: as deploy.yaml's.
-# It shares deploy.yaml's concurrency group: it never runs during a deploy.
+# Upgrading and several installations in one repository: see deploy.yaml
+# (copy this file with it, the same CLOUDFLARE_ENV, concurrency group and
+# GitHub environment). Secrets: as deploy.yaml's. It shares deploy.yaml's
+# concurrency group: it never runs during a deploy.
 on:
   schedule:
     - cron: "37 4 * * *"
@@ -32,10 +38,8 @@ concurrency:
 env:
   # Where releases come from, and whose release workflow attests them.
   RAFI_REPOSITORY: sagikazarmark/rafi
-  # The deploy interface this workflow is written for (deploy.yaml's too).
-  RAFI_DEPLOY_VERSION: "1"
-  # This installation's name in Restate's deployment metadata.
-  RAFI_INSTANCE: ${{ github.repository }}
+  # The Wrangler environment this installation is (deploy.yaml's).
+  CLOUDFLARE_ENV: ""
 
 defaults:
   run:
@@ -63,17 +67,23 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Read VERSION
+      # As in deploy.yaml: VERSION.<environment> when CLOUDFLARE_ENV is set
+      # and that file exists, VERSION otherwise.
+      - name: Read the version file
         id: version
         run: |
-          version="$(tr -d '[:space:]' <VERSION)"
+          file=VERSION
+          if [ -n "$CLOUDFLARE_ENV" ] && [ -f "VERSION.$CLOUDFLARE_ENV" ]; then
+            file="VERSION.$CLOUDFLARE_ENV"
+          fi
+          version="$(tr -d '[:space:]' <"$file")"
           version="${version#v}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error file=VERSION::VERSION says '$version', not a Rafi release (x.y.z, or x.y.z-pre.release)"
+            echo "::error file=$file::$file says '$version', not a Rafi release (x.y.z, or x.y.z-pre.release)"
             exit 1
           fi
           echo "version=$version" >>"$GITHUB_OUTPUT"
-          echo "Rafi $version from $RAFI_REPOSITORY"
+          echo "Rafi $version ($file) from $RAFI_REPOSITORY"
 
       - name: Download the release
         id: download
@@ -121,7 +131,7 @@ jobs:
           retention-days: 1
 
   cleanup:
-    name: Delete drained engine Workers
+    name: Remove drained engine deployments
     needs: prepare
     runs-on: ubuntu-latest
     # A GitHub environment (Settings > Environments) holding the secrets, as
@@ -153,11 +163,11 @@ jobs:
           mkdir release
           tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
 
-      - name: Delete the drained engine Workers
+      - name: Remove the drained engine deployments and their Workers
         env:
           RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           RESTATE_ADMIN_URL: ${{ secrets.RESTATE_ADMIN_URL }}
           RESTATE_AUTH_TOKEN: ${{ secrets.RESTATE_AUTH_TOKEN }}
-        run: release/deploy.sh cleanup
+        run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh cleanup

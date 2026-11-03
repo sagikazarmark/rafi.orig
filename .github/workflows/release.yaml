@@ -1,13 +1,14 @@
 name: Release
 
 # A tag v<version> builds the Cloudflare release (scripts/cloudflare-release.sh):
-# worker.tar.gz (the app, engine and rooms Workers, the D1 migrations and the
-# deploy script, deploy.sh), and a dry run of its deploy.sh from a copy of
+# worker.tar.gz (the app, engine and live Workers, the D1 migrations and the
+# deploy script, deploy.sh), and dry runs of its deploy.sh from a copy of
 # deploy/cloudflare with the tarball unpacked into release/, as an
-# installation deploys it; the rehearsal also checks that deploy/cloudflare's
-# VERSION is this version and that its workflows (.github/workflows/deploy.yaml
-# and restate-cleanup.yaml) are written for this deploy.sh's interface, so a
-# copy taken at the tag deploys the tag.
+# installation deploys it (at the configurations' top level and as a Wrangler
+# environment); the rehearsal also checks that deploy/cloudflare's VERSION is
+# this version and that its workflows (.github/workflows/deploy.yaml and
+# restate-cleanup.yaml) download and verify a release as this deploy.sh
+# expects, so a copy taken at the tag deploys the tag.
 #
 # The release job needs CI (ci.yaml, called here on the tag's commit): a
 # commit whose checks fail is never released; the job is skipped, not failed.

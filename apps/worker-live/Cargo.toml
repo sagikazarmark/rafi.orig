@@ -1,10 +1,10 @@
 [package]
-name = "rafi-worker-rooms"
+name = "rafi-worker-live"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi's rooms Worker on Cloudflare (production): the RaffleRoom Durable Object class, which the app and engine Workers bind by its name, and a 404 for every request (worker-build)"
+description = "Rafi's live Worker on Cloudflare (production): the RaffleRoom Durable Object class, which the app and engine Workers bind by its name, and a 404 for every request (worker-build)"
 publish = false
 
 [lib]

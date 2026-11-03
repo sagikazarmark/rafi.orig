@@ -26,8 +26,8 @@
 //!
 //! The `RaffleRoom` class isn't here: phones' sockets reach the objects
 //! through the `RAFFLE_ROOM` binding (`rafi-cloudflare`'s `connect`
-//! feature), whose class is the rooms Worker's in production
-//! (`apps/worker-rooms`) and the combined Worker's own locally.
+//! feature), whose class is the live Worker's in production
+//! (`apps/worker-live`) and the combined Worker's own locally.
 //!
 //! Nothing of an installation's is compiled in, so one build of the Worker
 //! serves every installation: its values are the Worker's secrets and vars
