@@ -20,7 +20,7 @@
 //! | --- | --- | --- |
 //! | `DB` | D1 binding | Rafi's database, the app's |
 //! | `RAFFLE_ROOM` | Durable Object binding | The raffles' `RaffleRoom` objects |
-//! | `RAFI_DO_JURISDICTION` | var | The objects' jurisdiction, as the live Worker's and the app's (default `eu`) |
+//! | `RAFI_DO_JURISDICTION` | var | Optional: the objects' jurisdiction (`eu`), as the live Worker's and the app's; unset, the plain namespace |
 //! | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | var | Comma-separated `publickeyv1_…` keys of the Restate environment. Required: without them the endpoint refuses every request |
 //! | `RAFI_DRAND_RELAYS` | var | Comma-separated drand relays (default: the built-in ones) |
 //! | `RAFI_DRAND_LEAD_SECS`, `RAFI_DRAND_TIMEOUT_SECS` | var | Draw timing (defaults as natively) |

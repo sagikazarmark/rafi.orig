@@ -10,11 +10,11 @@
 # GitHub Actions.
 #
 # Usage, from the root of an installation's repository (a copy of deploy/cloudflare: VERSION,
-# app.wrangler.toml, engine.wrangler.toml, live.wrangler.toml, legal/), with the release
-# unpacked into release/ (the directory this script is in is the release; the configurations
-# point into it as release/...):
+# package.json, app.wrangler.toml, engine.wrangler.toml, live.wrangler.toml, legal/), with the
+# release unpacked into release/ (the directory this script is in is the release; the
+# configurations point into it as release/...):
 #
-#   release/deploy.sh check             the release, the VERSION file and the configurations; nothing remote
+#   release/deploy.sh check             the release, the version file, the placeholders and the Workers' names; nothing remote
 #   release/deploy.sh check-remote      check, then no downgrade (Restate's release) and the token works; reads only
 #   release/deploy.sh migrate           the D1 migrations
 #   release/deploy.sh deploy-live       the live Worker, unless its code and configuration are unchanged
@@ -43,34 +43,39 @@
 #                         lines (GitHub Actions: $GITHUB_OUTPUT); otherwise they are printed as such
 #   RAFI_REPORT_FILE      when set, a subcommand's report (Markdown) is appended to this file
 #                         (GitHub Actions: $GITHUB_STEP_SUMMARY); it is printed either way
-#   RAFI_TOOLS_DIR        where wrangler is installed (default .rafi-tools, in the installation's
-#                         root): `npm install --prefix` of wrangler@4.148.0, once, unless both
-#                         overrides below are set
-#   WRANGLER              the wrangler command (default: the tools directory's)
-#   RAFI_WRANGLER_PKG     a wrangler package directory (with wrangler-dist/cli.js) whose
-#                         configuration reader reads the configurations (default: the tools
-#                         directory's)
-#   RESTATE               the Restate CLI command (default: npx --yes @restatedev/restate@1.8.1)
+#   RAFI_ARTIFACTS_DIR    when set, the JSON a subcommand reads and writes is kept in
+#                         <it>/<subcommand>/ (replaced on each run): wrangler's ND-JSON output of
+#                         each wrangler call (wrangler-<what>.ndjson), Restate's services and
+#                         deployments (restate-services.json, restate-deployments.json, the
+#                         CLI's restate-deployments-list.json), the registration's answer
+#                         (restate-register.json), the account's Workers
+#                         (cloudflare-workers.json) and the cleanup's summary (cleanup.json).
+#                         Never a token: the tokens reach curl on its standard input only.
+#   WRANGLER              the wrangler command (default: npx -y wrangler, the installation's
+#                         package.json's once `npm ci` or `npm install` installed it)
+#   RESTATE               the Restate CLI command (default: npx -y @restatedev/restate, likewise)
 #   CLOUDFLARE_API_BASE_URL   the Cloudflare API (wrangler's variable too; for tests)
 #   RAFI_REGISTER_WAIT    seconds between registration attempts (default 10; for tests)
+#
+# Needs bash, curl, jq, and node with npx (for wrangler and the Restate CLI).
 #
 # What each does (each prints its steps):
 #   Every subcommand first checks, as `check` does: the release's VERSION is a version
 #   (x.y.z, optionally -pre.release) and the installation's version file's (VERSION.<env>
 #   when CLOUDFLARE_ENV is set and that file exists, VERSION otherwise; and RAFI_VERSION's, when
-#   set); and the three configurations fit the release and each other. app.wrangler.toml (the
-#   app), engine.wrangler.toml (the engine) and live.wrangler.toml (the live Worker) are read
-#   as wrangler reads them (its own configuration reader, for CLOUDFLARE_ENV's environment: an
-#   environment's name is its own `name`, or <top-level name>-<environment>; vars and bindings
-#   aren't inherited from the top level, so an environment repeats them). They must agree:
-#   main, the assets and the migrations point into this release; all three bind DB to one
-#   database_id; the live Worker defines RAFFLE_ROOM (class RaffleRoom, no script_name) with
-#   its Durable Object migrations and has no address (workers_dev and preview_urls false), and
-#   the app and the engine bind it with script_name = the live Worker's name; all three say the
-#   same RAFI_DO_JURISDICTION; the engine is on workers.dev and has
-#   RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS; an environment has every var, rate limit and required
-#   secret its top level has. The placeholders (the zero database_id, an identity key that isn't
-#   publickeyv1_...) are refused, and only warned about by dry-run.
+#   set); the release has the files the configurations point at (app/build/index.js,
+#   app/assets/, engine/build/index.js, live/build/index.js, migrations/); the three
+#   configurations are there, without the template's placeholders (a literal search for the
+#   zero database_id and the publickeyv1_… identity key; refused, and only warned about by
+#   dry-run). Then, but for migrate, the Workers' names: `wrangler deploy --dry-run` of each
+#   configuration (live.wrangler.toml, engine.wrangler.toml, app.wrangler.toml, for
+#   CLOUDFLARE_ENV's environment: wrangler refuses a configuration that doesn't deploy, an
+#   environment it lacks among others), each name the worker_name of the dry run's deploy entry
+#   in wrangler's ND-JSON output; this release's engine Worker is <engine name>-v<version>.
+#   Nothing compares the configurations with each other: one database_id and one
+#   RAFI_DO_JURISDICTION in all three, RAFFLE_ROOM's script_name the live Worker's name and the
+#   engine's identity keys in every environment are the installation's to keep (the first
+#   test-mode raffle after an install shows a mismatch).
 #   The installation is its app Worker's name (unique in the account): Restate's deployment
 #   metadata names it as `instance`, and the downgrade guard and the cleanup touch only that
 #   instance's deployments in this account.
@@ -81,20 +86,20 @@
 #     key or token that doesn't work, fails it. Reads only.
 #   migrate: `wrangler d1 migrations apply DB --remote` (the app's configuration).
 #   deploy-live: the live Worker's fingerprint is the sha256 of its bundle's files
-#     (release/live/build) and its configuration as wrangler reads it for this environment (the
-#     top level and the environment's section, not comments or other environments); its tag,
+#     (release/live/build), live.wrangler.toml's bytes and CLOUDFLARE_ENV; its tag,
 #     live-<32 hex digits of it>, is the version annotation (workers/tag) of each live Worker
 #     version this deploys. When the Worker's current deployment is one version at 100% with
 #     that tag (Cloudflare's API: the script's latest deployment, then that version's
 #     annotations), nothing is deployed: the live channels' connections are kept. Otherwise
-#     `wrangler deploy` (the class's Durable Object migrations need it).
-#   upload-app: legal/terms.md and legal/privacy.md copied into the app's static files; then,
-#     if the app Worker has ever run a release's code (a version tagged v<version>, in its
-#     current deployment or among its recent versions), `wrangler versions upload --tag
-#     v<version>`, the new version not serving yet: output app_version_id (from wrangler's
-#     ND-JSON output). Otherwise, a first install (the Worker holds only the secrets `wrangler
-#     secret put`/`bulk` created it with): `wrangler deploy`, output app_promoted=true. A
-#     Worker that doesn't exist is refused: its secrets come first.
+#     `wrangler deploy` (the class's Durable Object migrations need it); any edit of
+#     live.wrangler.toml, a comment too, deploys it.
+#   upload-app: legal/terms.md and legal/privacy.md copied into the app's static files
+#     (release/app/assets/legal/); then, if the app Worker has ever run a release's code (a
+#     version tagged v<version>, in its current deployment or among its recent versions),
+#     `wrangler versions upload --tag v<version>`, the new version not serving yet: output
+#     app_version_id (from wrangler's ND-JSON output). Otherwise, a first install (the Worker
+#     holds only the secrets `wrangler secret put`/`bulk` created it with): `wrangler deploy`,
+#     output app_promoted=true. A Worker that doesn't exist is refused: its secrets come first.
 #   deploy-engine: `wrangler deploy` of the engine as <engine name>-v<version, dots as dashes>
 #     (rafi-engine-v0-1-0), every time (the same release is the same code, so a re-run changes
 #     nothing Restate relies on); outputs engine_worker and engine_url
@@ -120,29 +125,31 @@
 #     drained; never forced), then its Worker deleted (DELETE
 #     /accounts/{id}/workers/scripts/<worker>; 404 is already gone); a removal refused leaves
 #     the Worker alone, a deletion failing leaves the Worker behind (reported; the run fails).
-#     Reported: what was removed and deleted; those still draining, with their active and
-#     paused invocations (a paused one waits for a human: resume it on the latest deployment or
-#     kill it); the Workers left behind, those whose deletion failed and the account's <engine
-#     name>-v... Workers no Restate deployment refers to (never deleted here: delete them by
-#     hand); and every deployment that isn't this installation's (never touched).
-#   dry-run: check (placeholders warned about), legal/ copied in, and `wrangler deploy
-#     --dry-run` of the live Worker, the engine Worker under its versioned name and the app
-#     Worker; no credentials.
+#     Reported (and summarized in cleanup.json): what was removed and deleted; those still
+#     draining, with their active and paused invocations (a paused one waits for a human:
+#     resume it on the latest deployment or kill it); the Workers left behind, those whose
+#     deletion failed and the account's <engine name>-v... Workers no Restate deployment refers
+#     to (never deleted here: delete them by hand); and every deployment that isn't this
+#     installation's (never touched).
+#   dry-run: check (placeholders warned about), legal/ copied in, and the three `wrangler deploy
+#     --dry-run` that read the names (the live Worker, the engine Worker, the app Worker); no
+#     credentials.
 #
 # Exit status: 0 on success, 1 on a failure or a refusal, 2 on a usage error. Every subcommand
 # can be run again: a failed one is retried by running it again.
 
-# The node programs below are single-quoted: their ${...} are JavaScript's.
+# The jq programs below are single-quoted: their $... are jq's.
 # shellcheck disable=SC2016
 set -euo pipefail
 
-WRANGLER_VERSION=4.148.0
-RESTATE_CLI_VERSION=1.8.1
 # Registering a Worker deployed a moment ago: Restate's discovery may reach it before workers.dev
 # serves it.
 REGISTER_ATTEMPTS=5
 # The services this release's engine exposes, whose latest deployment the downgrade guard reads.
 ENGINE_SERVICES="Raffle EngineInfo"
+# The template's placeholders (deploy/cloudflare's configurations), searched for as they are.
+PLACEHOLDER_DATABASE_ID="00000000-0000-0000-0000-000000000000"
+PLACEHOLDER_IDENTITY_KEY="publickeyv1_…"
 
 usage() {
   sed -n '/^# Usage/,/^#   release\/deploy.sh dry-run/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -156,50 +163,31 @@ die() {
   exit 1
 }
 
-# The tools (ensure_tools): WRANGLER_CMD, the wrangler command, and WRANGLER_PKG, the wrangler
-# package whose configuration reader reads the configurations. Unless both are given (WRANGLER,
-# RAFI_WRANGLER_PKG), the pinned wrangler is installed into RAFI_TOOLS_DIR, once: node can't
-# import a package npx runs from its cache.
-ensure_tools() {
-  local dir="${RAFI_TOOLS_DIR:-.rafi-tools}" need=no installed
-  case "$dir" in /*) ;; *) dir="$PWD/$dir" ;; esac
-  if [ -n "${RAFI_WRANGLER_PKG:-}" ]; then
-    WRANGLER_PKG="$RAFI_WRANGLER_PKG"
-  else
-    WRANGLER_PKG="$dir/node_modules/wrangler"
-    need=yes
-  fi
-  if [ -n "${WRANGLER:-}" ]; then
-    read -r -a WRANGLER_CMD <<<"$WRANGLER"
-  else
-    WRANGLER_CMD=("$dir/node_modules/.bin/wrangler")
-    need=yes
-  fi
-  if [ "$need" = yes ]; then
-    installed="$(node -e 'try { process.stdout.write(require(process.argv[1]).version ?? "") } catch {}' \
-      "$dir/node_modules/wrangler/package.json")"
-    if [ "$installed" != "$WRANGLER_VERSION" ]; then
-      step "tools: wrangler $WRANGLER_VERSION into $dir"
-      npm install --no-save --no-audit --no-fund --prefix "$dir" "wrangler@$WRANGLER_VERSION" >&2 \
-        || die "couldn't install wrangler $WRANGLER_VERSION into $dir (npm install)"
-    fi
-  fi
-  [ -f "$WRANGLER_PKG/wrangler-dist/cli.js" ] \
-    || die "$WRANGLER_PKG isn't a wrangler package (no wrangler-dist/cli.js): RAFI_WRANGLER_PKG names one, or unset it"
-  installed="$(node -e 'try { process.stdout.write(require(process.argv[1]).version ?? "") } catch {}' "$WRANGLER_PKG/package.json")"
-  [ "$installed" = "$WRANGLER_VERSION" ] \
-    || warn "the configurations are read with wrangler ${installed:-of an unknown version} ($WRANGLER_PKG), not $WRANGLER_VERSION"
+# The tools: WRANGLER_CMD and RESTATE_CMD, each a command with its first arguments. npx -y runs
+# the version package.json installed (npm ci or npm install, from the installation's root or
+# below), and fetches the latest only when none is installed.
+tools() {
+  read -r -a WRANGLER_CMD <<<"${WRANGLER:-npx -y wrangler}"
+  read -r -a RESTATE_CMD <<<"${RESTATE:-npx -y @restatedev/restate}"
 }
 
+# wrangler, its ND-JSON output kept (run_wrangler <what> <args...>: wrangler-<what>.ndjson among
+# the artifacts; wrangler appends, so the file is emptied first).
 run_wrangler() {
-  WRANGLER_SEND_METRICS=false command "${WRANGLER_CMD[@]}" "$@"
+  local file
+  file="$(wrangler_output "$1")"
+  shift
+  : >"$file"
+  WRANGLER_OUTPUT_FILE_PATH="$file" WRANGLER_SEND_METRICS=false command "${WRANGLER_CMD[@]}" "$@"
 }
+wrangler_output() { printf '%s\n' "$ARTIFACTS/wrangler-$1.ndjson"; }
 
 run_restate() {
-  local cmd
-  read -r -a cmd <<<"${RESTATE:-npx --yes @restatedev/restate@$RESTATE_CLI_VERSION}"
-  SCARF_ANALYTICS=false command "${cmd[@]}" "$@"
+  SCARF_ANALYTICS=false command "${RESTATE_CMD[@]}" "$@"
 }
+
+# keep <file name> <JSON>: a document among the artifacts.
+keep() { printf '%s\n' "$2" >"$ARTIFACTS/$1"; }
 
 # A subcommand's output: a key=value line in RAFI_OUTPUT_FILE when that is set, on stdout
 # otherwise.
@@ -223,6 +211,8 @@ report() {
 }
 
 valid_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; }
+# A Worker's name is also its workers.dev host label: [a-z0-9-], at most 63 characters.
+valid_worker_name() { [[ "$1" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; }
 
 # The version in a file (read_version <file> <what it is>): x.y.z with an optional pre-release,
 # a leading v dropped.
@@ -245,278 +235,96 @@ version_file() {
   fi
 }
 
-# The engine Worker of a release: <engine name>-v<version, dots as dashes, lower case>. A Worker
-# name is also its workers.dev host label: [a-z0-9-], at most 63 characters.
+# Compares two non-negative integers of any length (num_cmp <a> <b>): prints -1, 0 or 1.
+num_cmp() {
+  local LC_ALL=C a="${1#"${1%%[!0]*}"}" b="${2#"${2%%[!0]*}"}"
+  if [ "${#a}" -ne "${#b}" ]; then
+    if [ "${#a}" -lt "${#b}" ]; then echo -1; else echo 1; fi
+  elif [[ "$a" < "$b" ]]; then
+    echo -1
+  elif [[ "$a" > "$b" ]]; then
+    echo 1
+  else
+    echo 0
+  fi
+}
+
+# Semantic versioning precedence (semver_cmp <a> <b>, both valid_version): prints -1, 0 or 1.
+# The core numbers, then a pre-release before its release, pre-release identifiers numeric (by
+# value) before alphanumeric (ASCII), fewer before more.
+semver_cmp() {
+  local LC_ALL=C a="$1" b="$2" ap="" bp="" i c x y
+  local -a ac bc ai bi
+  [[ "$a" != *-* ]] || ap="${a#*-}"
+  [[ "$b" != *-* ]] || bp="${b#*-}"
+  IFS=. read -r -a ac <<<"${a%%-*}"
+  IFS=. read -r -a bc <<<"${b%%-*}"
+  for i in 0 1 2; do
+    c="$(num_cmp "${ac[i]}" "${bc[i]}")"
+    [ "$c" = 0 ] || { echo "$c"; return; }
+  done
+  if [ -z "$ap" ] && [ -z "$bp" ]; then echo 0; return; fi
+  [ -n "$ap" ] || { echo 1; return; }
+  [ -n "$bp" ] || { echo -1; return; }
+  IFS=. read -r -a ai <<<"$ap"
+  IFS=. read -r -a bi <<<"$bp"
+  for ((i = 0; ; i++)); do
+    if [ "$i" -ge "${#ai[@]}" ] && [ "$i" -ge "${#bi[@]}" ]; then echo 0; return; fi
+    [ "$i" -lt "${#ai[@]}" ] || { echo -1; return; }
+    [ "$i" -lt "${#bi[@]}" ] || { echo 1; return; }
+    x="${ai[i]}"
+    y="${bi[i]}"
+    if [[ "$x" =~ ^[0-9]+$ && "$y" =~ ^[0-9]+$ ]]; then
+      c="$(num_cmp "$x" "$y")"
+    elif [[ "$x" =~ ^[0-9]+$ ]]; then
+      c=-1
+    elif [[ "$y" =~ ^[0-9]+$ ]]; then
+      c=1
+    elif [[ "$x" < "$y" ]]; then
+      c=-1
+    elif [[ "$x" > "$y" ]]; then
+      c=1
+    else
+      c=0
+    fi
+    [ "$c" = 0 ] || { echo "$c"; return; }
+  done
+}
+
+# The engine Worker of a release: <engine name>-v<version, dots as dashes, lower case>.
 engine_worker_name() {
   local base="$1" version="$2" name
   name="$base-v$(printf '%s' "$version" | tr '.' '-' | tr '[:upper:]' '[:lower:]')"
-  [[ "$name" =~ ^[a-z0-9][a-z0-9-]*[a-z0-9]$ ]] || die "the engine Worker's name '$name' isn't a valid Worker name"
   [ "${#name}" -le 63 ] || die "the engine Worker's name '$name' is longer than 63 characters: shorten the engine's name"
+  valid_worker_name "$name" || die "the engine Worker's name '$name' isn't a valid Worker name"
   printf '%s\n' "$name"
 }
 
-# The configuration reader (read_configs <app> <engine> <live>): the three configurations as
-# wrangler reads them (WRANGLER_PKG's unstable_readConfig) for CLOUDFLARE_ENV's environment,
-# printed as one JSON object:
-#   { "env": <CLOUDFLARE_ENV or null>,
-#     "app"|"engine"|"live": { "file", "name", "main", "workers_dev", "preview_urls",
-#       "assets": { "directory", "binding" } | null, "d1_databases": [{ "binding",
-#       "database_id", "migrations_dir" }], "durable_objects": [{ "name", "class_name",
-#       "script_name" }], "migrations": [...], "vars": { "RAFI_DO_JURISDICTION",
-#       "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS" }, "var_names": [...], "ratelimits": [names],
-#       "secrets_required": [names],
-#       "digest": <sha256 of the configuration's top level and this environment's section> },
-#     "top": { the same for the top level, when an environment is read } }
-# Paths are absolute (relative ones resolved against the configuration's directory, as wrangler
-# does). Errors (a file missing, wrangler refusing it, no such environment) on stderr, exit 1.
-read_configs() {
-  node --no-deprecation - "$WRANGLER_PKG" "$1" "$2" "$3" <<'EOF'
-// wrangler logs through the console: stdout is this program's JSON alone.
-for (const k of ["log", "info", "debug", "warn"]) console[k] = console.error;
-const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
-const { pathToFileURL } = require("url");
-const [pkg, ...files] = process.argv.slice(2);
-const env = process.env.CLOUDFLARE_ENV || undefined;
-
-function canonical(v) {
-  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
-  if (v && typeof v === "object") {
-    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(v ?? null);
-}
-function summary(c, file, raw, envName) {
-  const dir = path.dirname(path.resolve(file));
-  const abs = (p) => (typeof p === "string" ? path.resolve(dir, p) : null);
-  const vars = c.vars ?? {};
-  const { env: envs, ...top } = raw;
-  return {
-    file: path.basename(file),
-    name: c.name ?? null,
-    main: abs(c.main),
-    workers_dev: c.workers_dev ?? null,
-    preview_urls: c.preview_urls ?? null,
-    assets: c.assets ? { directory: abs(c.assets.directory), binding: c.assets.binding ?? null } : null,
-    d1_databases: (c.d1_databases ?? []).map((d) => ({ binding: d.binding ?? null,
-      database_id: d.database_id ?? null, migrations_dir: abs(d.migrations_dir) })),
-    durable_objects: (c.durable_objects?.bindings ?? []).map((b) => ({ name: b.name ?? null,
-      class_name: b.class_name ?? null, script_name: b.script_name ?? null })),
-    migrations: c.migrations ?? [],
-    vars: { RAFI_DO_JURISDICTION: vars.RAFI_DO_JURISDICTION ?? null,
-      RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS: vars.RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS ?? null },
-    var_names: Object.keys(vars).sort(),
-    ratelimits: (c.ratelimits ?? []).map((r) => r.name).sort(),
-    secrets_required: [...(c.secrets?.required ?? [])].sort(),
-    digest: crypto.createHash("sha256")
-      .update(canonical({ top, env: envName ?? null, section: envName ? envs?.[envName] ?? null : null }))
-      .digest("hex"),
-  };
-}
-
-(async () => {
-  let wrangler;
-  try {
-    wrangler = await import(pathToFileURL(path.join(pkg, "wrangler-dist", "cli.js")).href);
-  } catch (e) {
-    console.error(`error: couldn't load wrangler's configuration reader from ${pkg}: ${e.message}`);
-    process.exit(1);
-  }
-  const out = { env: env ?? null };
-  if (env) out.top = {};
-  const errors = [];
-  for (const [key, file] of [["app", files[0]], ["engine", files[1]], ["live", files[2]]]) {
-    const base = path.basename(file);
-    if (!fs.existsSync(file)) { errors.push(`${base} is missing`); continue; }
-    try {
-      const raw = wrangler.experimental_readRawConfig({ config: file }).rawConfig;
-      if (env && !Object.hasOwn(raw.env ?? {}, env)) {
-        errors.push(`CLOUDFLARE_ENV is ${env}, but ${base} has no [env.${env}]: each configuration defines the environment`);
-        continue;
-      }
-      // env "" is the top level, whatever CLOUDFLARE_ENV says.
-      const c = wrangler.unstable_readConfig({ config: file, env: env ?? "" }, { hideWarnings: true });
-      out[key] = summary(c, file, raw, env);
-      if (env) {
-        out.top[key] = summary(wrangler.unstable_readConfig({ config: file, env: "" }, { hideWarnings: true }), file, raw, null);
-      }
-    } catch (e) {
-      errors.push(`${base}: ${String(e.message ?? e).trim().replace(/\n+/g, " ")}`);
-    }
-  }
-  if (errors.length) { console.error(errors.map((e) => `error: ${e}`).join("\n")); process.exit(1); }
-  process.stdout.write(`${JSON.stringify(out)}\n`);
-})();
-EOF
-}
-
-# Checks the configurations (check_configs <release> <strict> <read_configs' JSON>):
-# prints key=value lines (app_name, app_assets, database_id, engine_base, live_name,
-# jurisdiction, live_digest), warnings on stderr. strict=1 refuses placeholders; 0 warns about
-# them.
-check_configs() {
-  node - "$1" "$2" "$3" <<'EOF'
-const fs = require("fs");
-const path = require("path");
-const [release, strict, json] = process.argv.slice(2);
-const { env, app, engine, live, top } = JSON.parse(json);
-const errors = [];
-const warnings = [];
-const where = env ? ` ([env.${env}])` : "";
-
-// A path in a configuration (resolved by the reader), which must be this release's.
-function inRelease(c, value, key, expected, kind) {
-  const want = path.join(release, expected);
-  if (typeof value !== "string") { errors.push(`${c.file}${where}: ${key} is missing (${want})`); return null; }
-  const real = fs.existsSync(value) ? fs.realpathSync(value) : value;
-  if (real !== want) {
-    errors.push(`${c.file}${where}: ${key} is ${value}, not this release's ${expected} (${want})`);
-    return null;
-  }
-  const stat = fs.existsSync(want) ? fs.statSync(want) : null;
-  if (!stat || (kind === "dir" ? !stat.isDirectory() : !stat.isFile())) {
-    errors.push(`the release has no ${expected} (${want})`);
-    return null;
-  }
-  return want;
-}
-function one(c, list, what, key, value) {
-  const found = c[list].filter((t) => t[key] === value);
-  if (found.length !== 1) {
-    errors.push(`${c.file}${where}: ${found.length ? "more than one" : "no"} ${what} with ${key} = "${value}"${env && !found.length ? " (environments don't inherit bindings: repeat them in the environment)" : ""}`);
-    return {};
-  }
-  return found[0];
-}
-const workerName = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
-
-// An environment inherits neither vars, bindings nor required secrets: what the top level has,
-// it repeats.
-if (env) {
-  for (const c of [app, engine, live]) {
-    const t = top[c === app ? "app" : c === engine ? "engine" : "live"];
-    const vars = t.var_names.filter((v) => !c.var_names.includes(v));
-    if (vars.length) {
-      errors.push(`${c.file}: [env.${env}] has no ${vars.join(", ")} in its vars, which the top level has: environments don't inherit vars (repeat them under [env.${env}.vars])`);
-    }
-    const limits = t.ratelimits.filter((r) => !c.ratelimits.includes(r));
-    if (limits.length) {
-      errors.push(`${c.file}: [env.${env}] has no rate limit ${limits.join(", ")}, which the top level has: environments don't inherit bindings (repeat them as [[env.${env}.ratelimits]])`);
-    }
-    const secrets = t.secrets_required.filter((v) => !c.secrets_required.includes(v));
-    if (secrets.length) {
-      errors.push(`${c.file}: [env.${env}] doesn't require ${secrets.join(", ")}, which the top level does: environments don't inherit [secrets] (repeat it as [env.${env}.secrets])`);
-    }
-  }
-}
-
-// The live Worker: the RaffleRoom class's, reached only through the other two's bindings.
-if (!workerName.test(live.name ?? "")) errors.push(`${live.file}${where}: name is missing or not a Worker name (a-z, 0-9, -)`);
-inRelease(live, live.main, "main", "live/build/index.js", "file");
-if (live.workers_dev !== false) errors.push(`${live.file}${where}: workers_dev must be false (the live Worker has no address)`);
-if (live.preview_urls !== false) errors.push(`${live.file}${where}: preview_urls must be false (the live Worker has no address)`);
-const liveDb = one(live, "d1_databases", "[[d1_databases]]", "binding", "DB");
-const liveRoom = one(live, "durable_objects", "[[durable_objects.bindings]]", "name", "RAFFLE_ROOM");
-if (liveRoom.class_name !== undefined && liveRoom.class_name !== "RaffleRoom") errors.push(`${live.file}${where}: RAFFLE_ROOM's class_name must be "RaffleRoom"`);
-if (liveRoom.script_name) errors.push(`${live.file}${where}: RAFFLE_ROOM is the live Worker's own class: no script_name`);
-if (!live.migrations.some((m) => [...(m.new_sqlite_classes ?? []), ...(m.new_classes ?? [])].includes("RaffleRoom"))) {
-  errors.push(`${live.file}${where}: no [[migrations]] creates the RaffleRoom class`);
-}
-const jurisdiction = live.vars.RAFI_DO_JURISDICTION;
-if (typeof jurisdiction !== "string" || jurisdiction === "") errors.push(`${live.file}${where}: [vars] RAFI_DO_JURISDICTION is missing`);
-
-// A Worker binding the live Worker's class, by its name.
-function bindsLive(c) {
-  const room = one(c, "durable_objects", "[[durable_objects.bindings]]", "name", "RAFFLE_ROOM");
-  if (room.class_name !== undefined && room.class_name !== "RaffleRoom") errors.push(`${c.file}${where}: RAFFLE_ROOM's class_name must be "RaffleRoom"`);
-  if (room.name && room.script_name !== live.name) {
-    errors.push(`${c.file}${where}: RAFFLE_ROOM's script_name (${room.script_name}) must be the live Worker's name (${live.name})`);
-  }
-  if (c.migrations.length) errors.push(`${c.file}${where}: no [[migrations]]: the RaffleRoom class is the live Worker's`);
-  if (c.vars.RAFI_DO_JURISDICTION !== jurisdiction) {
-    errors.push(`${c.file}${where}: RAFI_DO_JURISDICTION (${c.vars.RAFI_DO_JURISDICTION}) must be the live Worker's (${jurisdiction})`);
-  }
-}
-
-// The app.
-if (!workerName.test(app.name ?? "")) errors.push(`${app.file}${where}: name is missing or not a Worker name (a-z, 0-9, -)`);
-else if (app.name === live.name) errors.push(`${app.file}${where}: name must differ from the live Worker's (${live.name})`);
-inRelease(app, app.main, "main", "app/build/index.js", "file");
-const assets = inRelease(app, app.assets?.directory, "[assets] directory", "app/assets", "dir");
-const appDb = one(app, "d1_databases", "[[d1_databases]]", "binding", "DB");
-inRelease(app, appDb.migrations_dir, "[[d1_databases]] migrations_dir", "migrations", "dir");
-bindsLive(app);
-if (liveDb.database_id !== appDb.database_id) {
-  errors.push(`${live.file}${where}: DB's database_id (${liveDb.database_id}) isn't the app's (${appDb.database_id}): the live channels read the app's database`);
-}
-
-// The engine, and that it agrees with the app and the live Worker.
-if (!workerName.test(engine.name ?? "")) errors.push(`${engine.file}${where}: name is missing or not a Worker name (a-z, 0-9, -)`);
-else if (engine.name === app.name) errors.push(`${engine.file}${where}: name must differ from the app's (${app.name})`);
-else if (engine.name === live.name) errors.push(`${engine.file}${where}: name must differ from the live Worker's (${live.name})`);
-inRelease(engine, engine.main, "main", "engine/build/index.js", "file");
-if (engine.workers_dev !== true) errors.push(`${engine.file}${where}: workers_dev must be true (Restate calls the engine at its workers.dev address)`);
-const engineDb = one(engine, "d1_databases", "[[d1_databases]]", "binding", "DB");
-if (engineDb.database_id !== appDb.database_id) {
-  errors.push(`${engine.file}${where}: DB's database_id (${engineDb.database_id}) isn't the app's (${appDb.database_id}): the engine writes the app's database`);
-}
-bindsLive(engine);
-const keys = engine.vars.RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS;
-if (typeof keys !== "string") {
-  errors.push(env
-    ? `${engine.file}: [env.${env}] has no RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS in its vars: environments don't inherit vars, so [env.${env}.vars] repeats them (RAFI_DO_JURISDICTION and the identity keys)`
-    : `${engine.file}: [vars] RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS is missing`);
-}
-
-// The placeholders an installation replaces.
-const placeholders = [];
-if (typeof appDb.database_id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(appDb.database_id)) {
-  errors.push(`${app.file}${where}: DB's database_id is missing or not a D1 database ID`);
-} else if (appDb.database_id === "00000000-0000-0000-0000-000000000000") {
-  placeholders.push(`${app.file}, ${engine.file}, ${live.file}${where}: DB's database_id is the placeholder (wrangler d1 create)`);
-}
-if (typeof keys === "string" && !keys.split(",").every((k) => /^publickeyv1_[A-Za-z0-9]+$/.test(k.trim()))) {
-  placeholders.push(`${engine.file}${where}: RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS isn't a list of publickeyv1_... keys (the Restate environment's)`);
-}
-(strict === "1" ? errors : warnings).push(...placeholders);
-
-for (const w of warnings) console.error(`warning: ${w}`);
-if (errors.length) { console.error(errors.map((e) => `error: ${e}`).join("\n")); process.exit(1); }
-const out = { app_name: app.name, app_assets: assets, database_id: appDb.database_id,
-  engine_base: engine.name, live_name: live.name, jurisdiction, live_digest: live.digest };
-for (const [k, v] of Object.entries(out)) {
-  if (/[\n\r]/.test(v)) { console.error(`error: ${k} has a line break`); process.exit(1); }
-  console.log(`${k}=${v}`);
-}
-EOF
-}
-
-# Sets APP_NAME, APP_ASSETS, DATABASE_ID, ENGINE_BASE, LIVE_NAME, JURISDICTION and LIVE_DIGEST
-# from the configurations (load_configs <release> <strict>).
-load_configs() {
-  local json out key value
-  json="$(read_configs "$APP_CONFIG" "$ENGINE_CONFIG" "$LIVE_CONFIG")" \
-    || die "couldn't read the configurations (above)"
-  out="$(check_configs "$1" "$2" "$json")" || die "the configurations don't fit this release (above)"
-  while IFS='=' read -r key value; do
-    case "$key" in
-      app_name) APP_NAME="$value" ;;
-      app_assets) APP_ASSETS="$value" ;;
-      database_id) DATABASE_ID="$value" ;;
-      engine_base) ENGINE_BASE="$value" ;;
-      live_name) LIVE_NAME="$value" ;;
-      jurisdiction) JURISDICTION="$value" ;;
-      live_digest) LIVE_DIGEST="$value" ;;
-    esac
-  done <<<"$out"
+# The template's placeholders (check_placeholders <strict>): a literal search of the three
+# configurations, nothing parsed. strict=1 refuses them; 0 warns.
+check_placeholders() {
+  local strict="$1" config found=()
+  for config in "$APP_CONFIG" "$ENGINE_CONFIG" "$LIVE_CONFIG"; do
+    if grep -qF -- "$PLACEHOLDER_DATABASE_ID" "$config"; then
+      found+=("$(basename "$config"): the template's database_id $PLACEHOLDER_DATABASE_ID (wrangler d1 create, then its ID in all three files)")
+    fi
+    if grep -qF -- "$PLACEHOLDER_IDENTITY_KEY" "$config"; then
+      found+=("$(basename "$config"): the template's identity key $PLACEHOLDER_IDENTITY_KEY (your Restate environment's publickeyv1_... key)")
+    fi
+  done
+  [ "${#found[@]}" -gt 0 ] || return 0
+  if [ "$strict" = 1 ]; then
+    printf 'error: %s\n' "${found[@]}" >&2
+    die "the template's placeholders are still in the configurations (above): nothing was done"
+  fi
+  printf 'warning: %s\n' "${found[@]}" >&2
 }
 
 # What every subcommand checks first (check_release <strict>): the release, the installation's
-# version file and the configurations. Sets RELEASE, VERSION, VERSION_FILE, the configurations' paths,
-# load_configs' variables and ENGINE_WORKER (this release's engine Worker).
+# version file, the release's files and the placeholders. Sets RELEASE, VERSION, VERSION_FILE
+# and the configurations' paths.
 check_release() {
-  local strict="$1" file wanted
+  local strict="$1" wanted path
   RELEASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
   APP_CONFIG="$PWD/app.wrangler.toml"
   ENGINE_CONFIG="$PWD/engine.wrangler.toml"
@@ -525,27 +333,63 @@ check_release() {
   VERSION="$(read_version "$RELEASE/VERSION" "is $RELEASE an unpacked Rafi release?")" || exit 1
 
   # The release the installation names.
-  file="$(version_file)"
-  VERSION_FILE="$file"
-  wanted="$(read_version "$PWD/$file" "the installation's VERSION file names the Rafi release it deploys (run this from the repository's root)")" || exit 1
-  [ "$wanted" = "$VERSION" ] || die "the installation's $file says $wanted, but the release in $RELEASE is $VERSION"
+  VERSION_FILE="$(version_file)"
+  wanted="$(read_version "$PWD/$VERSION_FILE" "the installation's VERSION file names the Rafi release it deploys (run this from the repository's root)")" || exit 1
+  [ "$wanted" = "$VERSION" ] || die "the installation's $VERSION_FILE says $wanted, but the release in $RELEASE is $VERSION"
   if [ -n "${RAFI_VERSION:-}" ] && [ "${RAFI_VERSION#v}" != "$VERSION" ]; then
     die "the release in $RELEASE is $VERSION, but RAFI_VERSION says ${RAFI_VERSION#v}"
   fi
 
-  ensure_tools
-  load_configs "$RELEASE" "$strict"
-  ENGINE_WORKER="$(engine_worker_name "$ENGINE_BASE" "$VERSION")" || exit 1
-  say "Rafi $VERSION ($file)"
+  # What the configurations point at (release/...).
+  for path in app/build/index.js engine/build/index.js live/build/index.js; do
+    [ -f "$RELEASE/$path" ] || die "the release has no $path ($RELEASE/$path)"
+  done
+  for path in app/assets migrations; do
+    [ -d "$RELEASE/$path" ] || die "the release has no $path/ ($RELEASE/$path)"
+  done
+  for path in "$APP_CONFIG" "$ENGINE_CONFIG" "$LIVE_CONFIG"; do
+    [ -f "$path" ] || die "$(basename "$path") is missing: the installation's Wrangler configurations (run this from the repository's root)"
+  done
+  check_placeholders "$strict"
+
+  say "Rafi $VERSION ($VERSION_FILE)"
   if [ -n "${CLOUDFLARE_ENV:-}" ]; then
     say "environment: $CLOUDFLARE_ENV ([env.$CLOUDFLARE_ENV] of each configuration)"
   else
     say "environment: none (the configurations' top level)"
   fi
+}
+
+# The Workers' names (read_names): `wrangler deploy --dry-run` of each configuration, for
+# CLOUDFLARE_ENV's environment (which checks it as a deploy would, uploading nothing), and the
+# worker_name of the dry run's deploy entry in wrangler's ND-JSON output. Sets LIVE_NAME,
+# ENGINE_BASE, APP_NAME and ENGINE_WORKER (this release's engine Worker).
+read_names() {
+  local key config file name
+  for key in live engine app; do
+    case "$key" in
+      live) config="$LIVE_CONFIG" ;;
+      engine) config="$ENGINE_CONFIG" ;;
+      *) config="$APP_CONFIG" ;;
+    esac
+    step "$key Worker ($(basename "$config")): wrangler deploy --dry-run"
+    run_wrangler "dry-run-$key" deploy -c "$config" --dry-run \
+      || die "wrangler deploy --dry-run -c $(basename "$config")${CLOUDFLARE_ENV:+ (CLOUDFLARE_ENV=$CLOUDFLARE_ENV)} failed (above): the configuration doesn't deploy"
+    file="$(wrangler_output "dry-run-$key")"
+    name="$(jq -r 'select(.type == "deploy") | .worker_name // empty' "$file" | tail -n 1)" || name=
+    valid_worker_name "$name" \
+      || die "wrangler's dry run of $(basename "$config") reported no Worker's name (its deploy entry's worker_name: '$name')"
+    case "$key" in
+      live) LIVE_NAME="$name" ;;
+      engine) ENGINE_BASE="$name" ;;
+      *) APP_NAME="$name" ;;
+    esac
+  done
+  ENGINE_WORKER="$(engine_worker_name "$ENGINE_BASE" "$VERSION")" || exit 1
+  step "the Workers (their names from wrangler's dry runs)"
   say "live Worker: $LIVE_NAME ($LIVE_CONFIG)"
   say "app Worker: $APP_NAME ($APP_CONFIG; the installation's name in Restate)"
   say "engine Worker: $ENGINE_WORKER ($ENGINE_CONFIG, named $ENGINE_BASE there)"
-  say "database: $DATABASE_ID; Durable Objects' jurisdiction: $JURISDICTION"
 }
 
 copy_legal() {
@@ -596,17 +440,13 @@ body_of() { printf '%s\n' "${1%$'\n'*}"; }
 
 # Cloudflare's errors in a response body (stdin), for a message.
 cf_errors() {
-  node -e '
-    let d; try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { process.exit(0); }
-    process.stdout.write((d.errors ?? []).map((e) => `${e.code}: ${e.message}`).join("; "));'
+  jq -r '[(.errors // [])[] | "\(.code): \(.message)"] | join("; ")' 2>/dev/null || true
 }
 
 # Succeeds when a 404's body (stdin) says there is no such Worker (10007, as wrangler checks it;
 # 10090), not another 404 (a wrong account, a wrong path).
 cf_no_such_worker() {
-  node -e '
-    let d; try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { process.exit(1); }
-    process.exit((d.errors ?? []).some((e) => e.code === 10007 || e.code === 10090) ? 0 : 1);'
+  jq -e 'any((.errors // [])[]; .code == 10007 or .code == 10090)' >/dev/null 2>&1
 }
 
 # Prints the account's workers.dev subdomain.
@@ -614,9 +454,7 @@ cf_subdomain() {
   local resp sub
   resp="$(cf_api GET "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
   if [ "$(status_of "$resp")" = 200 ]; then
-    sub="$(body_of "$resp" | node -e '
-      const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
-      process.stdout.write(d.result?.subdomain ?? "");')" || sub=
+    sub="$(body_of "$resp" | jq -r '.result.subdomain // empty' 2>/dev/null)" || sub=
     if [[ "$sub" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
       printf '%s\n' "$sub"
       return 0
@@ -625,7 +463,7 @@ cf_subdomain() {
   die "the account's workers.dev subdomain: HTTP $(status_of "$resp") $(body_of "$resp" | cf_errors). An account without one registers it at https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/workers/onboarding"
 }
 
-# Prints the names of the account's Workers, one per line: GET /accounts/{id}/workers/scripts
+# The account's Workers, kept as cloudflare-workers.json: GET /accounts/{id}/workers/scripts
 # (Workers Scripts Read or Write), which answers every Worker of the account at once (the API has
 # no pages for it; each one's id is its name). Fails (exit 1, a message on stderr) when it can't be
 # read.
@@ -636,13 +474,10 @@ cf_workers() {
     printf 'error: listing the account'\''s Workers: HTTP %s %s\n' "$(status_of "$resp")" "$(body_of "$resp" | cf_errors)" >&2
     return 1
   fi
-  body_of "$resp" | node -e '
-    const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
-    if (!Array.isArray(d.result)) throw new Error("no Workers in the answer");
-    for (const s of d.result) {
-      if (typeof s.id !== "string" || !/^[A-Za-z0-9_-]+$/.test(s.id)) throw new Error(`a Worker named ${s.id}`);
-      console.log(s.id);
-    }' || {
+  keep cloudflare-workers.json "$(body_of "$resp")"
+  jq -e '(.result | type) == "array"
+    and all(.result[]; (.id | type) == "string" and (.id | test("^[A-Za-z0-9_-]+$")))' \
+    "$ARTIFACTS/cloudflare-workers.json" >/dev/null 2>&1 || {
     echo "error: couldn't read the account's Workers" >&2
     return 1
   }
@@ -664,11 +499,9 @@ cf_deployed() {
     return 0
   fi
   [ "$status" = 200 ] || die "the Worker $worker's deployments: HTTP $status $(body_of "$resp" | cf_errors)"
-  versions="$(body_of "$resp" | node -e '
-    const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
-    const deployments = d.result?.deployments;
-    if (!Array.isArray(deployments)) throw new Error("no deployments in the answer");
-    for (const v of deployments[0]?.versions ?? []) console.log(`${v.percentage}\t${v.version_id}`);')" \
+  versions="$(body_of "$resp" | jq -r '.result.deployments
+    | if type == "array" then (.[0].versions // [])[] | "\(.percentage)\t\(.version_id)"
+      else error("no deployments in the answer") end')" \
     || die "couldn't read the Worker $worker's deployments"
   while IFS=$'\t' read -r pct id; do
     [ -n "$id" ] || continue
@@ -676,9 +509,7 @@ cf_deployed() {
     resp="$(cf_api GET "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker/versions/$id")"
     [ "$(status_of "$resp")" = 200 ] \
       || die "the Worker $worker's version $id: HTTP $(status_of "$resp") $(body_of "$resp" | cf_errors)"
-    tag="$(body_of "$resp" | node -e '
-      const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
-      process.stdout.write(String(d.result?.annotations?.["workers/tag"] ?? "").replace(/\s/g, ""));')" \
+    tag="$(body_of "$resp" | jq -r '.result.annotations["workers/tag"] // "" | tostring | gsub("\\s"; "")')" \
       || die "couldn't read the Worker $worker's version $id"
     DEPLOYED_TAGS+="$pct ${tag:--}"$'\n'
   done <<<"$versions"
@@ -690,50 +521,35 @@ cf_release_version_among_recent() {
   local worker="$1" resp
   resp="$(cf_api GET "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker/versions")"
   [ "$(status_of "$resp")" = 200 ] || die "the Worker $worker's versions: HTTP $(status_of "$resp") $(body_of "$resp" | cf_errors)"
-  body_of "$resp" | node -e '
-    const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
-    const items = d.result?.items ?? d.result;
-    if (!Array.isArray(items)) throw new Error("no versions in the answer");
-    console.log(items.some((v) => /^v[0-9]/.test(v.annotations?.["workers/tag"] ?? "")) ? "yes" : "no");' \
+  body_of "$resp" | jq -r '(.result.items // .result)
+    | if type != "array" then error("no versions in the answer")
+      elif any(.[]; (.annotations["workers/tag"] // "") | tostring | test("^v[0-9]")) then "yes"
+      else "no" end' \
     || die "couldn't read the Worker $worker's versions"
 }
 
-# The live Worker's tag: live-<the first 32 hex digits of the sha256 of its bundle's files (each
-# one's path, size and content, in path order) and its configuration's digest (read_configs':
-# the top level and this environment's section, as wrangler reads them)>.
-live_tag() {
-  node - "$RELEASE/live/build" "$LIVE_DIGEST" <<'EOF'
-const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
-const [build, digest] = process.argv.slice(2);
-const files = [];
-(function walk(dir) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full);
-    else if (entry.isFile()) files.push(full);
-    else throw new Error(`${full}: neither a file nor a directory`);
-  }
-})(build);
-const hash = crypto.createHash("sha256");
-const add = (name, content) => {
-  hash.update(`${name}\0${content.length}\0`);
-  hash.update(content);
-};
-const rel = (f) => path.relative(build, f).split(path.sep).join("/");
-for (const f of files.sort((a, b) => (rel(a) < rel(b) ? -1 : rel(a) > rel(b) ? 1 : 0))) add(`build/${rel(f)}`, fs.readFileSync(f));
-add("live.wrangler.toml", Buffer.from(digest));
-console.log(`live-${hash.digest("hex").slice(0, 32)}`);
-EOF
+sha256() {
+  if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi | cut -d' ' -f1
 }
 
-# wrangler with its ND-JSON output (with_output <file> <args...>).
-wrangler_with_output() {
-  local file="$1"
-  shift
-  : >"$file"
-  WRANGLER_OUTPUT_FILE_PATH="$file" run_wrangler "$@"
+# The live Worker's tag: live-<the first 32 hex digits of the sha256 of its bundle's files (each
+# one's path, size and content, in path order), live.wrangler.toml (its size and bytes) and
+# CLOUDFLARE_ENV>.
+live_tag() {
+  local build="$RELEASE/live/build" rel hash
+  hash="$(
+    {
+      while IFS= read -r rel; do
+        printf 'build/%s\0%s\0' "$rel" "$(wc -c <"$build/$rel" | tr -d '[:space:]')"
+        cat "$build/$rel"
+      done < <(cd "$build" && find . -type f -print | sed 's|^\./||' | LC_ALL=C sort)
+      printf 'live.wrangler.toml\0%s\0' "$(wc -c <"$LIVE_CONFIG" | tr -d '[:space:]')"
+      cat "$LIVE_CONFIG"
+      printf 'CLOUDFLARE_ENV\0%s\0' "${CLOUDFLARE_ENV:-}"
+    } | sha256
+  )"
+  [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || return 1
+  printf 'live-%s\n' "${hash:0:32}"
 }
 
 cmd_check() {
@@ -743,7 +559,7 @@ cmd_check() {
 cmd_migrate() {
   require_env CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
   step "D1 migrations"
-  run_wrangler d1 migrations apply DB -c "$APP_CONFIG" --remote
+  run_wrangler d1-migrations d1 migrations apply DB -c "$APP_CONFIG" --remote
 }
 
 cmd_deploy_live() {
@@ -751,7 +567,7 @@ cmd_deploy_live() {
   require_env CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
   step "live Worker $LIVE_NAME"
   tag="$(live_tag)" || die "couldn't fingerprint the live Worker"
-  say "this release's live Worker: $tag (its bundle and configuration)"
+  say "this release's live Worker: $tag (its bundle and live.wrangler.toml)"
   cf_deployed "$LIVE_NAME"
   if [ "$WORKER_EXISTS" = no ]; then
     say "not deployed yet"
@@ -764,21 +580,21 @@ Unchanged (\`$tag\`): not deployed, so phones keep their live connections."
   else
     say "it serves: $(printf '%s' "${DEPLOYED_TAGS:-nothing}" | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
   fi
-  run_wrangler deploy -c "$LIVE_CONFIG" --tag "$tag" --message "rafi v$VERSION"
+  run_wrangler deploy-live deploy -c "$LIVE_CONFIG" --tag "$tag" --message "rafi v$VERSION"
   report "### Live Worker \`$LIVE_NAME\`
 
 Deployed (\`$tag\`, Rafi v$VERSION): phones reconnected to their live channels."
 }
 
 cmd_upload_app() {
-  local out id installed=no
+  local id installed=no
   require_env CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
   step "the legal documents"
-  copy_legal "$PWD/legal" "$APP_ASSETS"
+  copy_legal "$PWD/legal" "$RELEASE/app/assets"
   step "app Worker $APP_NAME"
   cf_deployed "$APP_NAME"
   if [ "$WORKER_EXISTS" = no ]; then
-    die "the app Worker $APP_NAME doesn't exist on the account: before the first deploy, create it with its secrets (${CLOUDFLARE_ENV:+CLOUDFLARE_ENV=$CLOUDFLARE_ENV }npx wrangler@$WRANGLER_VERSION secret bulk .prod.vars -c app.wrangler.toml, from .prod.vars.example)"
+    die "the app Worker $APP_NAME doesn't exist on the account: before the first deploy, create it with its secrets (${CLOUDFLARE_ENV:+CLOUDFLARE_ENV=$CLOUDFLARE_ENV }npx -y wrangler secret bulk .prod.vars -c app.wrangler.toml, from .prod.vars.example)"
   fi
   # A release's code has run here when a version tagged v<version> is deployed, or was (a secret
   # changed since makes a new version, untagged).
@@ -787,24 +603,20 @@ cmd_upload_app() {
   else
     installed="$(cf_release_version_among_recent "$APP_NAME")" || exit 1
   fi
-  out="$(mktemp)"
-  # shellcheck disable=SC2064 # the file's name, now
-  trap "rm -f '$out'" EXIT
   if [ "$installed" = yes ]; then
     say "a release ran here before: uploading v$VERSION as a version, deployed once the engine is registered (promote-app)"
-    wrangler_with_output "$out" versions upload -c "$APP_CONFIG" --tag "v$VERSION" --message "rafi v$VERSION"
-    id="$(node -e '
-      const lines = require("fs").readFileSync(process.argv[1], "utf8").split("\n").filter((l) => l.trim());
-      const ups = lines.map((l) => JSON.parse(l)).filter((e) => e.type === "version-upload");
-      process.stdout.write(String(ups.at(-1)?.version_id ?? ""));' "$out")" || id=
-    [[ "$id" =~ ^[A-Za-z0-9-]+$ ]] || die "wrangler versions upload reported no version ID (its output: $(tr '\n' ' ' <"$out"))"
+    run_wrangler versions-upload-app versions upload -c "$APP_CONFIG" --tag "v$VERSION" --message "rafi v$VERSION"
+    id="$(jq -r 'select(.type == "version-upload") | .version_id // empty' "$(wrangler_output versions-upload-app)" \
+      | tail -n 1)" || id=
+    [[ "$id" =~ ^[A-Za-z0-9-]+$ ]] \
+      || die "wrangler versions upload reported no version ID (its output: $(tr '\n' ' ' <"$(wrangler_output versions-upload-app)"))"
     output app_version_id "$id"
     report "### App Worker \`$APP_NAME\`
 
 Version \`$id\` uploaded (Rafi v$VERSION), not serving yet: promote-app deploys it once the engine is registered."
   else
     say "no release ran here yet (a first install: the Worker has only its secrets): deploying v$VERSION directly"
-    run_wrangler deploy -c "$APP_CONFIG" --tag "v$VERSION" --message "rafi v$VERSION"
+    run_wrangler deploy-app deploy -c "$APP_CONFIG" --tag "v$VERSION" --message "rafi v$VERSION"
     output app_promoted true
     report "### App Worker \`$APP_NAME\`
 
@@ -817,68 +629,13 @@ cmd_deploy_engine() {
   require_env CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
   step "engine Worker $ENGINE_WORKER"
   subdomain="$(cf_subdomain)" || exit 1
-  run_wrangler deploy -c "$ENGINE_CONFIG" --name "$ENGINE_WORKER" --tag "v$VERSION" --message "rafi v$VERSION"
+  run_wrangler deploy-engine deploy -c "$ENGINE_CONFIG" --name "$ENGINE_WORKER" --tag "v$VERSION" --message "rafi v$VERSION"
   url="https://$ENGINE_WORKER.$subdomain.workers.dev/restate"
   output engine_worker "$ENGINE_WORKER"
   output engine_url "$url"
   report "### Engine Worker \`$ENGINE_WORKER\`
 
 Deployed (Rafi v$VERSION) at $url; register-engine registers it with Restate."
-}
-
-# The downgrade guard: reads Restate's services (stdin: GET /services, then a NUL, then GET
-# /deployments) and refuses (exit 3, <refusal> in the message) when the latest deployment of one
-# of this engine's services is this installation's and of a newer release than <version>.
-restate_guard() {
-  node -e '
-    const [version, instance, account, services, refusal, file] = process.argv.slice(1);
-    const [servicesJson, deploymentsJson] = require("fs").readFileSync(0, "utf8").split("\0");
-    function parse(v) {
-      const m = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(v ?? "");
-      return m && { core: [BigInt(m[1]), BigInt(m[2]), BigInt(m[3])], pre: m[4] ? m[4].split(".") : [] };
-    }
-    // Semantic versioning precedence: the core numbers, then a pre-release before its release,
-    // pre-release identifiers numeric (by value) before alphanumeric (ASCII), fewer before more.
-    function compare(a, b) {
-      for (let i = 0; i < 3; i++) if (a.core[i] !== b.core[i]) return a.core[i] < b.core[i] ? -1 : 1;
-      if (!a.pre.length && !b.pre.length) return 0;
-      if (!a.pre.length) return 1;
-      if (!b.pre.length) return -1;
-      for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
-        if (i >= a.pre.length) return -1;
-        if (i >= b.pre.length) return 1;
-        const [x, y] = [a.pre[i], b.pre[i]];
-        const [xn, yn] = [/^\d+$/.test(x), /^\d+$/.test(y)];
-        if (xn && yn) { if (BigInt(x) !== BigInt(y)) return BigInt(x) < BigInt(y) ? -1 : 1; }
-        else if (xn !== yn) return xn ? -1 : 1;
-        else if (x !== y) return x < y ? -1 : 1;
-      }
-      return 0;
-    }
-    const mine = parse(version);
-    const svc = JSON.parse(servicesJson).services;
-    const deps = JSON.parse(deploymentsJson).deployments;
-    if (!Array.isArray(svc) || !Array.isArray(deps)) throw new Error("no services or deployments in the answers");
-    let refused = false;
-    for (const name of services.split(" ")) {
-      const s = svc.find((x) => x.name === name);
-      if (!s) { console.log(`    ${name}: not registered yet`); continue; }
-      const d = deps.find((x) => x.id === s.deployment_id);
-      const m = d?.metadata ?? {};
-      if (m.app !== "rafi" || m.instance !== instance || m.cloudflare_account !== account) {
-        console.log(`    ${name}: on ${s.deployment_id}, not a deployment of this installation (no downgrade check)`);
-        continue;
-      }
-      const theirs = parse(m.version);
-      if (!theirs) throw new Error(`${s.deployment_id}: its metadata version is "${m.version}"`);
-      const c = compare(mine, theirs);
-      console.log(`    ${name}: on ${s.deployment_id}, Rafi ${m.version}${c === 0 ? " (this release: a re-run)" : ""}`);
-      if (c < 0) {
-        console.error(`error: ${name} runs on Rafi ${m.version} (${s.deployment_id}), newer than ${version}: ${refusal}. Set ${file} to ${m.version} or later.`);
-        refused = true;
-      }
-    }
-    process.exit(refused ? 3 : 0);' "$@"
 }
 
 # A Restate admin API answer that isn't 200 (restate_failed <what> <response>), for a message.
@@ -891,23 +648,63 @@ restate_failed() {
   die "$1: HTTP $status $(body_of "$2")"
 }
 
+# The latest deployment of each of the engine's services (restate_guard_rows <GET /services>
+# <GET /deployments>, files), one tab-separated line each: <service> none (not registered),
+# <service> other <deployment> (not this installation's), or <service> ours <deployment>
+# <its metadata version>.
+restate_guard_rows() {
+  jq -r --arg services "$ENGINE_SERVICES" --arg instance "$APP_NAME" --arg account "$CLOUDFLARE_ACCOUNT_ID" \
+    --slurpfile deployments "$2" '
+    .services as $svc
+    | ($deployments[0].deployments) as $deps
+    | if ($svc | type) != "array" or ($deps | type) != "array"
+      then error("no services or deployments in the answers") else . end
+    | $services | split(" ")[] as $name
+    | ([$svc[] | select(.name == $name)] | first) as $s
+    | if $s == null then [$name, "none"]
+      else ([$deps[] | select(.id == $s.deployment_id)] | first | .metadata // {}) as $m
+      | if $m.app == "rafi" and $m.instance == $instance and $m.cloudflare_account == $account
+        then [$name, "ours", ($s.deployment_id | tostring), ($m.version // "" | tostring)]
+        else [$name, "other", ($s.deployment_id | tostring)] end
+      end
+    | @tsv' "$1"
+}
+
 # The downgrade guard (refuse_downgrade <what is refused>), check-remote's and register-engine's:
 # the latest deployment of each of the engine's services (GET /services) and its metadata (GET
 # /deployments) read, and exits 1 when one is this installation's and of a newer release.
 refuse_downgrade() {
-  local refusal="$1" services deployments status=0
+  local refusal="$1" resp rows name kind id version c refused=0
   step "Restate: the release it runs (installation $APP_NAME)"
-  services="$(restate_api GET /services)"
-  [ "$(status_of "$services")" = 200 ] || restate_failed "Restate's services" "$services"
-  deployments="$(restate_api GET /deployments)"
-  [ "$(status_of "$deployments")" = 200 ] || restate_failed "Restate's deployments" "$deployments"
-  { body_of "$services"; printf '\0'; body_of "$deployments"; } \
-    | restate_guard "$VERSION" "$APP_NAME" "$CLOUDFLARE_ACCOUNT_ID" "$ENGINE_SERVICES" "$refusal" "$VERSION_FILE" || status=$?
-  case "$status" in
-    0) ;;
-    3) exit 1 ;;
-    *) die "couldn't read Restate's services and deployments" ;;
-  esac
+  resp="$(restate_api GET /services)"
+  [ "$(status_of "$resp")" = 200 ] || restate_failed "Restate's services" "$resp"
+  keep restate-services.json "$(body_of "$resp")"
+  resp="$(restate_api GET /deployments)"
+  [ "$(status_of "$resp")" = 200 ] || restate_failed "Restate's deployments" "$resp"
+  keep restate-deployments.json "$(body_of "$resp")"
+  rows="$(restate_guard_rows "$ARTIFACTS/restate-services.json" "$ARTIFACTS/restate-deployments.json")" \
+    || die "couldn't read Restate's services and deployments"
+  while IFS=$'\t' read -r name kind id version; do
+    case "$kind" in
+      none) say "$name: not registered yet" ;;
+      other) say "$name: on $id, not a deployment of this installation (no downgrade check)" ;;
+      ours)
+        valid_version "$version" || die "couldn't read Restate's services and deployments: $id's metadata version is '$version'"
+        c="$(semver_cmp "$VERSION" "$version")"
+        if [ "$c" = 0 ]; then
+          say "$name: on $id, Rafi $version (this release: a re-run)"
+        else
+          say "$name: on $id, Rafi $version"
+        fi
+        if [ "$c" = -1 ]; then
+          printf 'error: %s runs on Rafi %s (%s), newer than %s: %s. Set %s to %s or later.\n' \
+            "$name" "$version" "$id" "$VERSION" "$refusal" "$VERSION_FILE" "$version" >&2
+          refused=1
+        fi
+        ;;
+    esac
+  done <<<"$rows"
+  [ "$refused" = 0 ] || exit 1
 }
 
 cmd_check_remote() {
@@ -933,18 +730,18 @@ cmd_register_engine() {
   refuse_downgrade "refusing to register an older engine (a downgrade)"
 
   step "Restate: registering $url"
-  body="$(node -e '
-    const [uri, instance, version, account, worker] = process.argv.slice(1);
-    process.stdout.write(JSON.stringify({ uri, force: false,
-      metadata: { app: "rafi", instance, version, cloudflare_account: account, worker } }));' \
-    "$url" "$APP_NAME" "$VERSION" "$CLOUDFLARE_ACCOUNT_ID" "$worker")"
+  body="$(jq -nc --arg uri "$url" --arg instance "$APP_NAME" --arg version "$VERSION" \
+    --arg account "$CLOUDFLARE_ACCOUNT_ID" --arg worker "$worker" \
+    '{ uri: $uri, force: false,
+       metadata: { app: "rafi", instance: $instance, version: $version, cloudflare_account: $account, worker: $worker } }')"
   wait="${RAFI_REGISTER_WAIT:-10}"
   for ((attempt = 1; attempt <= REGISTER_ATTEMPTS; attempt++)); do
     resp="$(restate_api POST /deployments "$body")"
     status="$(status_of "$resp")"
+    keep restate-register.json "$(body_of "$resp")"
     case "$status" in
       200 | 201)
-        id="$(body_of "$resp" | node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(0, "utf8")).id ?? ""))')" || id=
+        id="$(body_of "$resp" | jq -r '.id // empty | tostring')" || id=
         [ -n "$id" ] || die "Restate registered $url but answered no deployment ID: $(body_of "$resp")"
         if [ "$status" = 201 ]; then say "registered: Restate deployment $id"; else say "Restate already had it: deployment $id"; fi
         report "### Restate
@@ -973,78 +770,107 @@ Rafi v$VERSION was deployed directly by upload-app (a first install): nothing to
   fi
   [ -n "${RAFI_APP_VERSION_ID:-}" ] || die "neither RAFI_APP_PROMOTED=true nor RAFI_APP_VERSION_ID: upload-app's outputs"
   [[ "$RAFI_APP_VERSION_ID" =~ ^[A-Za-z0-9-]+$ ]] || die "RAFI_APP_VERSION_ID is '$RAFI_APP_VERSION_ID', not a version ID"
-  run_wrangler versions deploy "$RAFI_APP_VERSION_ID@100%" --yes -c "$APP_CONFIG" --message "rafi v$VERSION"
+  run_wrangler versions-deploy-app versions deploy "$RAFI_APP_VERSION_ID@100%" --yes -c "$APP_CONFIG" --message "rafi v$VERSION"
   step "app Worker $APP_NAME: routes and Cron"
-  run_wrangler triggers deploy -c "$APP_CONFIG"
+  run_wrangler triggers-deploy-app triggers deploy -c "$APP_CONFIG"
   report "### App Worker \`$APP_NAME\`
 
 Version \`$RAFI_APP_VERSION_ID\` (Rafi v$VERSION) deployed at 100%, with its routes and Cron."
 }
 
-# Restate's deployments and the account's Workers for the cleanup: reads GET /deployments, a
-# NUL, the CLI's `deployments list --extra --json`, a NUL, then the account's Workers' names (one
-# per line), and prints one tab-separated line per deployment and per leftover Worker:
+# The cleanup's plan from its listings among the artifacts (restate-deployments.json: GET
+# /deployments; restate-deployments-list.json: the CLI's `deployments list --extra --json`;
+# cloudflare-workers.json: the account's Workers): one tab-separated line per deployment and
+# per leftover Worker:
 #   ours <status> <id> <worker> <active invocations>
 #   other <id> <address> <why>
 #   leftover <worker>      an <engine name>-v<version> Worker no Restate deployment refers to
 cleanup_plan() {
-  node -e '
-    const [base, instance, account] = process.argv.slice(1);
-    const [adminJson, cliJson, workersText] = require("fs").readFileSync(0, "utf8").split("\0");
-    const admin = JSON.parse(adminJson).deployments;
-    // The CLI may say something before its JSON.
-    const cli = JSON.parse(cliJson.slice(cliJson.indexOf("{"))).deployments;
-    if (!Array.isArray(admin) || !Array.isArray(cli)) throw new Error("no deployments in a listing");
-    const status = new Map(cli.map((d) => [d.deployment_id ?? d.id, d]));
-    const clean = (s) => String(s ?? "").replace(/[\t\n\r]/g, " ");
-    const referred = new Set();
-    for (const d of admin) {
-      if (!/^dp_[A-Za-z0-9]+$/.test(d.id ?? "")) throw new Error(`a deployment ID: ${d.id}`);
-      const m = d.metadata ?? {};
-      const address = clean(d.uri ?? d.arn ?? "?");
-      const host = /^https:\/\/([a-z0-9-]+)\./.exec(d.uri ?? "");
-      if (host) referred.add(host[1]);
-      let why = null;
-      if (m.app !== "rafi") why = "not a Rafi deployment (no app=rafi metadata)";
-      else if (m.instance !== instance) why = `another installation (${clean(m.instance)})`;
-      else if (m.cloudflare_account !== account) why = "another Cloudflare account";
-      else if (typeof m.worker !== "string" || !m.worker.startsWith(`${base}-v`) || !/^[a-z0-9-]{1,63}$/.test(m.worker)) why = `its worker is not a ${base}-v... engine Worker (${clean(m.worker)})`;
-      else if (!new RegExp(`^https://${m.worker}\\.[a-z0-9-]+\\.workers\\.dev/restate/?$`).test(d.uri ?? "")) why = `its address is not the workers.dev one of ${m.worker}`;
-      if (why) { console.log(["other", d.id, address, why].join("\t")); continue; }
-      referred.add(m.worker);
-      const s = status.get(d.id);
-      console.log(["ours", s?.status ?? "Unknown", d.id, m.worker, s?.active_invocations ?? "?"].join("\t"));
-    }
-    const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const engine = new RegExp(`^${escaped}-v[0-9]+-[0-9]+-[0-9]+(-[a-z0-9-]+)?$`);
-    for (const w of (workersText ?? "").split("\n").map((l) => l.trim()).filter(Boolean).sort()) {
-      if (engine.test(w) && !referred.has(w)) console.log(["leftover", w].join("\t"));
-    }' "$@"
+  jq -nr --arg base "$ENGINE_BASE" --arg instance "$APP_NAME" --arg account "$CLOUDFLARE_ACCOUNT_ID" \
+    --slurpfile admin "$ARTIFACTS/restate-deployments.json" \
+    --slurpfile cli "$ARTIFACTS/restate-deployments-list.json" \
+    --slurpfile workers "$ARTIFACTS/cloudflare-workers.json" '
+    def clean: if . == null then "" else tostring end | gsub("[\t\n\r]"; " ");
+    def why($d; $m):
+      if $m.app != "rafi" then "not a Rafi deployment (no app=rafi metadata)"
+      elif $m.instance != $instance then "another installation (\($m.instance | clean))"
+      elif $m.cloudflare_account != $account then "another Cloudflare account"
+      elif ($m.worker | type) != "string" or ($m.worker | startswith("\($base)-v") | not)
+        or ($m.worker | test("^[a-z0-9-]{1,63}$") | not)
+        then "its worker is not a \($base)-v... engine Worker (\($m.worker | clean))"
+      elif (($d.uri // "") | test("^https://\($m.worker)\\.[a-z0-9-]+\\.workers\\.dev/restate/?$") | not)
+        then "its address is not the workers.dev one of \($m.worker)"
+      else null end;
+    $admin[0].deployments as $deps
+    | $cli[0].deployments as $list
+    | $workers[0].result as $scripts
+    | if ($deps | type) != "array" or ($list | type) != "array" or ($scripts | type) != "array"
+      then error("no deployments or Workers in a listing") else . end
+    | ($list | map({ key: ((.deployment_id // .id) | tostring), value: . }) | from_entries) as $status
+    | [ $deps[]
+        | if ((.id // "") | tostring | test("^dp_[A-Za-z0-9]+$")) then . else error("a deployment ID: \(.id)") end
+        | . as $d | (.metadata // {}) as $m | why($d; $m) as $why
+        | if $why != null then ["other", .id, ((.uri // .arn // "?") | clean), $why]
+          else ["ours", ($status[.id].status // "Unknown" | clean), .id, $m.worker,
+            ($status[.id].active_invocations // "?" | clean)] end ] as $rows
+    | ([ $deps[] | (.uri // "") | tostring | capture("^https://(?<host>[a-z0-9-]+)\\.").host ]
+       + [ $rows[] | select(.[0] == "ours") | .[3] ]) as $referred
+    | ($rows[] | @tsv),
+      ([ $scripts[] | .id ] | sort | .[]
+        | select(test("^\($base)-v[0-9]+-[0-9]+-[0-9]+(-[a-z0-9-]+)?$"))
+        | . as $w | select(any($referred[]; . == $w) | not)
+        | ["leftover", .] | @tsv)'
 }
 
 # The invocations pinned to a deployment and not completed, one per line: <id> <status>.
 pinned_invocations() {
   local resp query
   query="SELECT id, status FROM sys_invocation WHERE pinned_deployment_id = '$1' AND status <> 'completed' ORDER BY id"
-  resp="$(restate_api POST /query "$(node -e 'process.stdout.write(JSON.stringify({ query: process.argv[1] }))' "$query")")"
+  resp="$(restate_api POST /query "$(jq -nc --arg query "$query" '{ query: $query }')")"
   [ "$(status_of "$resp")" = 200 ] || return 1
-  body_of "$resp" | node -e '
-    for (const r of JSON.parse(require("fs").readFileSync(0, "utf8")).rows ?? []) console.log(`${r.id} ${r.status}`);'
+  body_of "$resp" | jq -r '(.rows // [])[] | "\(.id) \(.status)"'
+}
+
+# note <kind> <jq filter> [<jq args>...]: one item of the cleanup's summary (cleanup.json).
+note() {
+  local kind="$1" filter="$2"
+  shift 2
+  jq -nc --arg kind "$kind" "$@" "$filter + { kind: \$kind }" >>"$CLEANUP_NOTES"
+}
+
+# The cleanup's summary, cleanup.json among the artifacts (cleanup_summary <failed: 0 or 1>).
+cleanup_summary() {
+  jq -s --arg instance "$APP_NAME" --arg version "$VERSION" --arg account "$CLOUDFLARE_ACCOUNT_ID" \
+    --argjson failed "$1" '
+    def of($k): [.[] | select(.kind == $k) | del(.kind)];
+    { installation: $instance, version: $version, cloudflare_account: $account, failed: ($failed == 1),
+      removed: of("removed"),
+      deleted: [of("removed")[] | select(.worker_status != "left_behind") | .worker],
+      not_removed: of("not_removed"),
+      draining: of("draining"),
+      kept: of("kept"),
+      left_behind: of("left_behind"),
+      leftover: [of("leftover")[] | .worker],
+      not_ours: of("not_ours") }' "$CLEANUP_NOTES" >"$ARTIFACTS/cleanup.json"
 }
 
 cmd_cleanup() {
-  local admin list workers plan kind a b c d resp status pinned paused failed=0
+  local admin list plan kind a b c d resp status pinned paused failed=0 ids
   local removed=() draining=() behind=() refused=() others=() leftovers=() text line
   require_env CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RESTATE_ADMIN_URL RESTATE_AUTH_TOKEN
+  CLEANUP_NOTES="$WORK/cleanup.ndjson"
+  : >"$CLEANUP_NOTES"
   step "Restate's deployments and the account's Workers (installation $APP_NAME)"
   admin="$(restate_api GET /deployments)"
   [ "$(status_of "$admin")" = 200 ] \
     || die "listing Restate's deployments: HTTP $(status_of "$admin") $(body_of "$admin"): nothing removed or deleted"
+  keep restate-deployments.json "$(body_of "$admin")"
   list="$(run_restate deployments list --extra --json)" || die "restate deployments list failed: nothing removed or deleted"
-  workers="$(cf_workers)" || die "the account's Workers couldn't be listed: nothing removed or deleted"
-  plan="$({ body_of "$admin"; printf '\0'; printf '%s' "$list"; printf '\0'; printf '%s' "$workers"; } \
-    | cleanup_plan "$ENGINE_BASE" "$APP_NAME" "$CLOUDFLARE_ACCOUNT_ID")" \
-    || die "couldn't read Restate's deployments: nothing removed or deleted"
+  # The CLI may say something before its JSON.
+  [[ "$list" != *"{"* ]] || list="{${list#*\{}"
+  keep restate-deployments-list.json "$list"
+  cf_workers || die "the account's Workers couldn't be listed: nothing removed or deleted"
+  plan="$(cleanup_plan)" || die "couldn't read Restate's deployments: nothing removed or deleted"
   [ -n "$plan" ] || say "none"
   while IFS=$'\t' read -r kind a b c d; do
     case "$kind" in
@@ -1052,6 +878,7 @@ cmd_cleanup() {
       other)
         say "$a at $b: $c; never touched"
         others+=("\`$a\` at $b: $c")
+        note not_ours '{ deployment: $d, address: $a, reason: $r }' --arg d "$a" --arg a "$b" --arg r "$c"
         continue
         ;;
       leftover)
@@ -1061,6 +888,7 @@ cmd_cleanup() {
         fi
         say "the Worker $a: no Restate deployment refers to it; left as it is"
         leftovers+=("\`$a\`: no Restate deployment refers to it")
+        note leftover '{ worker: $w }' --arg w "$a"
         continue
         ;;
       *) continue ;;
@@ -1072,6 +900,8 @@ cmd_cleanup() {
         if ! run_restate deployments remove "$b" --yes; then
           warn "Restate didn't remove $b: its Worker $c is left as it is; the next cleanup tries again"
           refused+=("\`$b\` (\`$c\`): Restate refused to remove it; its Worker is untouched, and the next cleanup tries again")
+          note not_removed '{ deployment: $d, worker: $w, reason: "Restate refused to remove it; its Worker is untouched" }' \
+            --arg d "$b" --arg w "$c"
           failed=1
           continue
         fi
@@ -1082,15 +912,20 @@ cmd_cleanup() {
           200)
             say "  deleted the Worker $c"
             removed+=("\`$b\`: removed, its Worker \`$c\` deleted")
+            note removed '{ deployment: $d, worker: $w, worker_status: "deleted" }' --arg d "$b" --arg w "$c"
             ;;
           404)
             say "  the Worker $c is already gone"
             removed+=("\`$b\`: removed, its Worker \`$c\` already gone")
+            note removed '{ deployment: $d, worker: $w, worker_status: "already_gone" }' --arg d "$b" --arg w "$c"
             ;;
           *)
             warn "deleting the Worker $c: HTTP $status $(body_of "$resp" | cf_errors): it is left behind (its deployment $b is removed)"
             removed+=("\`$b\`: removed, but its Worker \`$c\` wasn't deleted (below)")
             behind+=("\`$c\`: its deployment \`$b\` is removed, but deleting it failed (HTTP $status $(body_of "$resp" | cf_errors))")
+            note removed '{ deployment: $d, worker: $w, worker_status: "left_behind" }' --arg d "$b" --arg w "$c"
+            note left_behind '{ worker: $w, deployment: $d, error: $e }' --arg d "$b" --arg w "$c" \
+              --arg e "HTTP $status $(body_of "$resp" | cf_errors)"
             failed=1
             ;;
         esac
@@ -1098,20 +933,31 @@ cmd_cleanup() {
       Draining)
         paused="?"
         text=
+        ids=null
         if pinned="$(pinned_invocations "$b")"; then
           printf '%s\n' "$pinned" | sed '/^$/d; s/^/      /'
           paused="$(grep -c ' paused$' <<<"$pinned" || true)"
           text="$(sed -n 's/^\([^ ]*\) paused$/`\1`/p' <<<"$pinned" | paste -sd ' ' -)"
+          ids="$(sed -n 's/^\([^ ]*\) paused$/\1/p' <<<"$pinned" | jq -Rnc '[inputs]')"
         fi
         say "$b ($c) is draining: $d active, $paused paused invocation(s) pinned to it"
         line="\`$b\` (\`$c\`): $d active, $paused paused invocation(s)"
         [ -z "$text" ] || line="$line; paused: $text"
         draining+=("$line")
+        note draining '{ deployment: $d, worker: $w, active_invocations: ($n | tonumber? // $n), paused_invocations: $p }' \
+          --arg d "$b" --arg w "$c" --arg n "$d" --argjson p "$ids"
         ;;
-      Active) say "$b ($c) is active (the latest for its services): kept" ;;
-      *) say "$b ($c) is $a: left as it is" ;;
+      Active)
+        say "$b ($c) is active (the latest for its services): kept"
+        note kept '{ deployment: $d, worker: $w, status: $s }' --arg d "$b" --arg w "$c" --arg s "$a"
+        ;;
+      *)
+        say "$b ($c) is $a: left as it is"
+        note kept '{ deployment: $d, worker: $w, status: $s }' --arg d "$b" --arg w "$c" --arg s "$a"
+        ;;
     esac
   done <<<"$plan"
+  cleanup_summary "$failed"
 
   text="### Restate cleanup: \`$APP_NAME\` (Rafi v$VERSION)"
   text+=$'\n\n'"**Removed** (drained: the Restate deployment removed, then its Worker deleted):"
@@ -1127,7 +973,7 @@ cmd_cleanup() {
     for line in "${draining[@]}"; do text+=$'\n'"- $line"; done
     text+=$'\n\n'"A paused invocation waits for you: resume it on the latest deployment (\`restate invocations resume <id> --deployment latest\`) or kill it (\`restate invocations kill <id>\`)."
   fi
-  text+=$'\n\n'"**Workers left behind** (engine Workers no Restate deployment refers to any more: the cleanup neither deletes them nor retries a failed deletion; delete one by hand with \`CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npx wrangler@$WRANGLER_VERSION delete <worker>\`, or on the dashboard):"
+  text+=$'\n\n'"**Workers left behind** (engine Workers no Restate deployment refers to any more: the cleanup neither deletes them nor retries a failed deletion; delete one by hand from the repository with \`CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npx -y wrangler delete <worker>\`, or on the dashboard):"
   if [ "${#behind[@]}" -eq 0 ] && [ "${#leftovers[@]}" -eq 0 ]; then
     text+=$'\n'"- none"
   else
@@ -1143,13 +989,8 @@ cmd_cleanup() {
 
 cmd_dry_run() {
   step "the legal documents"
-  copy_legal "$PWD/legal" "$APP_ASSETS"
-  step "live Worker $LIVE_NAME: wrangler deploy --dry-run"
-  run_wrangler deploy --dry-run -c "$LIVE_CONFIG"
-  step "engine Worker $ENGINE_WORKER: wrangler deploy --dry-run"
-  run_wrangler deploy --dry-run -c "$ENGINE_CONFIG" --name "$ENGINE_WORKER"
-  step "app Worker $APP_NAME: wrangler deploy --dry-run"
-  run_wrangler deploy --dry-run -c "$APP_CONFIG"
+  copy_legal "$PWD/legal" "$RELEASE/app/assets"
+  read_names
   step "dry run of Rafi $VERSION done: nothing deployed"
 }
 
@@ -1171,6 +1012,8 @@ main() {
       exit 2
       ;;
   esac
+  command -v jq >/dev/null 2>&1 \
+    || die "jq isn't installed: deploy.sh reads every JSON answer with it (https://jqlang.org; GitHub's runners have it)"
   # wrangler reads CLOUDFLARE_ENV itself: the same environment for every call, an empty one none.
   if [ -n "${CLOUDFLARE_ENV:-}" ]; then
     [[ "$CLOUDFLARE_ENV" =~ ^[A-Za-z0-9_-]+$ ]] || die "CLOUDFLARE_ENV is '$CLOUDFLARE_ENV', not an environment's name"
@@ -1178,7 +1021,26 @@ main() {
   else
     unset CLOUDFLARE_ENV
   fi
+  tools
+  WORK="$(mktemp -d)"
+  # shellcheck disable=SC2064 # the directory's name, now
+  trap "rm -rf '$WORK'" EXIT
+  if [ -n "${RAFI_ARTIFACTS_DIR:-}" ]; then
+    case "$RAFI_ARTIFACTS_DIR" in
+      /*) ARTIFACTS="$RAFI_ARTIFACTS_DIR/$command" ;;
+      *) ARTIFACTS="$PWD/$RAFI_ARTIFACTS_DIR/$command" ;;
+    esac
+    rm -rf "$ARTIFACTS"
+  else
+    ARTIFACTS="$WORK/artifacts"
+  fi
+  mkdir -p "$ARTIFACTS" || die "couldn't create $ARTIFACTS (RAFI_ARTIFACTS_DIR)"
   check_release "$strict"
+  # The names, from wrangler's dry runs: all but migrate need them (dry-run's are its own).
+  case "$command" in
+    migrate | dry-run) ;;
+    *) read_names ;;
+  esac
   "cmd_${command//-/_}"
 }
 

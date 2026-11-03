@@ -20,9 +20,10 @@
 #
 # No secrets: the Restate environment's identity keys are public keys, and
 # the drand settings are vars. In a Wrangler environment ([env.<name>], see
-# app.wrangler.toml), repeat the vars (environments don't inherit them:
-# deploy.sh refuses an engine without its identity keys) and the bindings,
-# RAFFLE_ROOM's script_name the environment's live Worker.
+# app.wrangler.toml), repeat the vars (environments don't inherit them, and
+# deploy.sh doesn't check: an engine without its identity keys refuses every
+# request Restate makes) and the bindings, RAFFLE_ROOM's script_name the
+# environment's live Worker.
 #
 # Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
 
@@ -56,13 +57,14 @@ enabled = true
 [observability.logs]
 invocation_logs = false
 
-# RAFI_DO_JURISDICTION: the live channels' jurisdiction, the live Worker's
-# and the app's (live.wrangler.toml, app.wrangler.toml).
+# RAFI_DO_JURISDICTION: optional, the live channels' jurisdiction, the live
+# Worker's and the app's (live.wrangler.toml, app.wrangler.toml); unset, none
+# (README.md, "Keeping data in the EU").
 # RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS: your Restate environment's public key
 # (publickeyv1_..., in Restate Cloud's environment settings), or several,
 # comma separated, while you rotate it; the engine refuses every request
 # without it. Optional, with defaults: RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS,
 # RAFI_DRAND_TIMEOUT_SECS (docs/reference/configuration.md).
 [vars]
-RAFI_DO_JURISDICTION = "eu"
+# RAFI_DO_JURISDICTION = "eu"
 RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = "publickeyv1_…"

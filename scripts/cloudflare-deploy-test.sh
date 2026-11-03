@@ -2,56 +2,49 @@
 # Checks the Cloudflare deploy script (scripts/cloudflare-deploy.sh, a release's deploy.sh)
 # without a Cloudflare or Restate account: each subcommand run as an installation's workflows
 # run it, from a copy of deploy/cloudflare with a release laid out in release/, against a
-# stubbed wrangler CLI and Restate CLI (which log their arguments) and a fake Cloudflare and
-# Restate admin API (a local node HTTP server answering from a state file and logging each
-# request, in one log with the stubs, so the order of calls shows). The configurations are
-# read by wrangler's own reader (unstable_readConfig) from the devenv's wrangler package
-# (RAFI_WRANGLER_PKG; the wrangler on PATH's when unset), as deploy.sh reads them.
+# stubbed wrangler CLI and Restate CLI (which log their arguments; the wrangler stub's dry runs
+# write a deploy entry with the Worker's name into its ND-JSON output, as wrangler does) and a
+# fake Cloudflare and Restate admin API (a local node HTTP server answering from a state file
+# and logging each request, in one log with the stubs, so the order of calls shows).
 #
 #   - check: the release's VERSION and the installation's version file (VERSION.<env> when
-#     CLOUDFLARE_ENV is set and it exists, VERSION otherwise; and RAFI_VERSION), the engine
-#     Worker's versioned name, the usage, the tools installed once when not given; the three
-#     configurations read and cross-checked, broken copies of them refused, placeholders
-#     refused (and only warned about by dry-run, which dry-deploys the three Workers);
-#     Wrangler environments: none, one without a name of its own (<name>-<env>), one with
-#     its own, an environment missing from a configuration, missing vars (the engine's
-#     identity keys), rate limits or required secrets, and a binding to the top level's live
-#     Worker refused; wrangler given CLOUDFLARE_ENV;
+#     CLOUDFLARE_ENV is set and it exists, VERSION otherwise; and RAFI_VERSION), the release's
+#     files, the usage, jq missing; the template's placeholders found by a literal search
+#     (refused, only warned about by dry-run, which copies legal/ in); the Workers' names read
+#     from the dry runs' ND-JSON deploy entries (whatever the files say), a dry run failing or
+#     reporting no name, the engine Worker's versioned name; Wrangler environments: none, one
+#     without a name of its own (<name>-<env>), one with its own, an environment wrangler
+#     refuses; wrangler given CLOUDFLARE_ENV; the tools' defaults (npx -y wrangler, npx -y
+#     @restatedev/restate) and their overrides;
 #   - migrate; deploy-live skipping when the deployed version's tag is the fingerprint and
-#     deploying when the bundle or the configuration as wrangler reads it changed (not a
-#     comment, not another environment), or nothing, or two versions, are deployed;
-#     upload-app's first install (deployed directly, app_promoted) and upgrade (a version
-#     uploaded, app_version_id from wrangler's ND-JSON output), a missing Worker refused;
-#     deploy-engine's name and URL; register-engine's downgrade guard (semantic versioning
-#     with pre-releases) and the metadata (instance: the app Worker's name) and "force":
-#     false it sends, 5xx retried, 4xx failing; check-remote's same guard before anything is
-#     deployed, Restate unreachable or a key or token that doesn't work failing it, and
-#     nothing but reads; promote-app's two paths; the outputs (RAFI_OUTPUT_FILE, or printed)
-#     and the reports (RAFI_REPORT_FILE);
+#     deploying when the bundle or live.wrangler.toml changed, or nothing, or two versions, are
+#     deployed; upload-app's first install (deployed directly, app_promoted) and upgrade (a
+#     version uploaded, app_version_id from wrangler's ND-JSON output), a missing Worker
+#     refused; deploy-engine's name and URL; register-engine's downgrade guard (semantic
+#     versioning with pre-releases) and the metadata (instance: the app Worker's name) and
+#     "force": false it sends, 5xx retried, 4xx failing; check-remote's same guard before
+#     anything is deployed, Restate unreachable or a key or token that doesn't work failing it,
+#     and nothing but reads; promote-app's two paths; the outputs (RAFI_OUTPUT_FILE, or
+#     printed) and the reports (RAFI_REPORT_FILE);
 #   - cleanup: filtering by metadata (the app Worker's name and the account), each drained
 #     deployment removed from Restate before its Worker is deleted, a Worker already gone, a
 #     deletion failing (the Worker left behind, the run failing), a removal refused (the
 #     Worker untouched), the account's leftover engine Workers reported and never deleted,
 #     any listing failing stopping it before anything is removed or deleted, and its report;
-#     the same in a Wrangler environment.
+#     the same in a Wrangler environment;
+#   - the artifacts (RAFI_ARTIFACTS_DIR): wrangler's ND-JSON per call, Restate's listings, the
+#     registration's answer, the Workers listing and cleanup.json, and no token among them.
 #
-# scripts/cloudflare-release.sh runs it; so can you (in the devenv, for its wrangler):
+# scripts/cloudflare-release.sh runs it; so can you:
 #
 #   ./scripts/cloudflare-deploy-test.sh
 #
-# Needs node, curl and wrangler 4.148.0's package.
+# Needs node (the fake API), curl and jq.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT/scripts/cloudflare-deploy.sh"
-
-# The wrangler package whose configuration reader deploy.sh uses: the devenv's.
-if [ -z "${RAFI_WRANGLER_PKG:-}" ]; then
-  command -v wrangler >/dev/null || { echo "no wrangler on PATH: run in the devenv, or set RAFI_WRANGLER_PKG" >&2; exit 1; }
-  RAFI_WRANGLER_PKG="$(dirname "$(readlink -f "$(command -v wrangler)")")/../lib"
-fi
-RAFI_WRANGLER_PKG="$(cd "$RAFI_WRANGLER_PKG" && pwd -P)"
-[ -f "$RAFI_WRANGLER_PKG/wrangler-dist/cli.js" ] || { echo "$RAFI_WRANGLER_PKG isn't a wrangler package" >&2; exit 1; }
+command -v jq >/dev/null || { echo "cloudflare-deploy-test: jq isn't installed (deploy.sh needs it)" >&2; exit 1; }
 
 TMP="$(mktemp -d)"
 TMP="$(cd "$TMP" && pwd -P)"
@@ -80,31 +73,62 @@ fail() {
 }
 
 # The stubs: wrangler and the Restate CLI log their arguments (wrangler also the
-# CLOUDFLARE_ENV it was given, on a line of its own). wrangler fails when its arguments
-# contain STUB_WRANGLER_FAIL, writes a version-upload entry for `versions upload` (unless
-# STUB_NO_VERSION_ID), and answers --dry-run. The Restate CLI lists STUB_RESTATE_LIST (or
-# fails with STUB_RESTATE_LIST_FAIL) and refuses to remove the IDs in STUB_RESTATE_REMOVE_FAIL.
-# npm (on PATH only where a test puts it) "installs" wrangler as a link to the real package.
+# CLOUDFLARE_ENV it was given, on a line of its own). wrangler writes its ND-JSON output
+# (WRANGLER_OUTPUT_FILE_PATH) as wrangler does: a session entry, then for `deploy --dry-run` a
+# deploy entry with the Worker's name (--name's; or the configuration's top-level name, or for
+# CLOUDFLARE_ENV its [env.<env>]'s name or <name>-<env>, refusing an environment the file lacks;
+# STUB_DRY_NAMES="<file>=<name> ..." overrides it, STUB_DRY_NO_NAME leaves the entry out) and
+# for `versions upload` a version-upload entry (unless STUB_NO_VERSION_ID). It fails when its
+# arguments contain STUB_WRANGLER_FAIL. The Restate CLI lists STUB_RESTATE_LIST (or fails with
+# STUB_RESTATE_LIST_FAIL) and refuses to remove the IDs in STUB_RESTATE_REMOVE_FAIL. npx (on
+# PATH only where a test puts it) logs its arguments and runs the stub its package names.
 BIN="$TMP/bin"
-NPM_BIN="$TMP/npm-bin"
-mkdir -p "$BIN" "$NPM_BIN"
+NPX_BIN="$TMP/npx-bin"
+NOJQ_BIN="$TMP/nojq-bin"
+mkdir -p "$BIN" "$NPX_BIN" "$NOJQ_BIN"
 cat >"$BIN/wrangler" <<'EOF'
 #!/usr/bin/env bash
 echo "wrangler $*" >>"$STUB_LOG"
 [ -z "${CLOUDFLARE_ENV:-}" ] || echo "wrangler-env $CLOUDFLARE_ENV" >>"$STUB_LOG"
+out="${WRANGLER_OUTPUT_FILE_PATH:-/dev/null}"
+echo '{"type":"wrangler-session","version":1,"wrangler_version":"4.148.0","log_file_path":"/tmp/wrangler.log"}' >>"$out"
 if [ -n "${STUB_WRANGLER_FAIL:-}" ] && [[ " $* " == *" $STUB_WRANGLER_FAIL "* ]]; then
   echo "stub wrangler: failing" >&2
+  echo '{"type":"command-failed","version":1,"message":"stub"}' >>"$out"
   exit 1
 fi
+config= name=
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[i]}" in
+    -c) config="${args[i + 1]}" ;;
+    --name) name="${args[i + 1]}" ;;
+  esac
+done
 case " $* " in *" --dry-run "*)
+  if [ -z "$name" ]; then
+    name="$(sed -n 's/^name = "\(.*\)"$/\1/p' "$config" | head -1)"
+    if [ -n "${CLOUDFLARE_ENV:-}" ]; then
+      if ! grep -qxF "[env.$CLOUDFLARE_ENV]" "$config"; then
+        echo "stub wrangler: Processing $(basename "$config") configuration: No environment found in configuration with name \"$CLOUDFLARE_ENV\"." >&2
+        exit 1
+      fi
+      own="$(sed -n "/^\[env\.$CLOUDFLARE_ENV\]\$/,/^\[\[*env\.$CLOUDFLARE_ENV\./s/^name = \"\(.*\)\"\$/\1/p" "$config" | head -1)"
+      name="${own:-$name-$CLOUDFLARE_ENV}"
+    fi
+    for pair in ${STUB_DRY_NAMES:-}; do
+      [ "${pair%%=*}" != "$(basename "$config")" ] || name="${pair#*=}"
+    done
+  fi
   echo "dry run: $*"
+  [ -n "${STUB_DRY_NO_NAME:-}" ] \
+    || echo "{\"type\":\"deploy\",\"version\":1,\"worker_name\":\"$name\",\"worker_tag\":null,\"version_id\":null}" >>"$out"
   exit 0
   ;;
 esac
-if [ "$1 $2" = "versions upload" ] && [ -n "${WRANGLER_OUTPUT_FILE_PATH:-}" ]; then
-  echo '{"type":"wrangler-session","version":1}' >>"$WRANGLER_OUTPUT_FILE_PATH"
+if [ "$1 $2" = "versions upload" ]; then
   [ -n "${STUB_NO_VERSION_ID:-}" ] \
-    || echo '{"type":"version-upload","version":1,"worker_name":"rafi-app","version_id":"1b2c3d4e-0000-4000-8000-000000000001"}' >>"$WRANGLER_OUTPUT_FILE_PATH"
+    || echo '{"type":"version-upload","version":1,"worker_name":"rafi-app","version_id":"1b2c3d4e-0000-4000-8000-000000000001"}' >>"$out"
 fi
 EOF
 cat >"$BIN/restate" <<'EOF'
@@ -121,20 +145,19 @@ case "$*" in
   *) exit 1 ;;
 esac
 EOF
-cat >"$NPM_BIN/npm" <<'EOF'
+cat >"$NPX_BIN/npx" <<EOF
 #!/usr/bin/env bash
-echo "npm $*" >>"$STUB_LOG"
-prefix=
-while [ "$#" -gt 0 ]; do
-  case "$1" in --prefix) prefix="$2"; shift ;; esac
-  shift
-done
-mkdir -p "$prefix/node_modules/.bin"
-ln -sfn "$STUB_WRANGLER_PKG" "$prefix/node_modules/wrangler"
-printf '#!/usr/bin/env bash\necho "tools-wrangler $*" >>"$STUB_LOG"\n' >"$prefix/node_modules/.bin/wrangler"
-chmod +x "$prefix/node_modules/.bin/wrangler"
+echo "npx \$*" >>"\$STUB_LOG"
+[ "\$1" = -y ] || exit 1
+case "\$2" in
+  wrangler) shift 2; exec "$BIN/wrangler" "\$@" ;;
+  @restatedev/restate) shift 2; exec "$BIN/restate" "\$@" ;;
+  *) exit 1 ;;
+esac
 EOF
-chmod +x "$BIN/wrangler" "$BIN/restate" "$NPM_BIN/npm"
+chmod +x "$BIN/wrangler" "$BIN/restate" "$NPX_BIN/npx"
+# A PATH with bash alone: no jq.
+ln -s "$(command -v bash)" "$NOJQ_BIN/bash"
 
 # The fake APIs: /cf/... is Cloudflare's (account acct123, token cf-token), /restate/... the
 # Restate admin API (token rs-token). They answer from state.json, read on each request:
@@ -206,6 +229,7 @@ EOF
 LOG="$TMP/log"
 OUTPUTS="$TMP/outputs"
 REPORT="$TMP/report"
+ARTIFACTS="$TMP/artifacts"
 state() { cat >"$TMP/state.json"; }
 echo '{}' | state
 : >"$LOG"
@@ -221,7 +245,7 @@ BASE="http://127.0.0.1:$(cat "$TMP/port")"
 INSTALL="$TMP/installation"
 mkdir -p "$INSTALL"
 cp -R "$ROOT/deploy/cloudflare/." "$INSTALL/"
-rm -rf "$INSTALL/release" "$INSTALL/.wrangler" "$INSTALL/.prod.vars" "$INSTALL/.rafi-tools"
+rm -rf "$INSTALL/release" "$INSTALL/.wrangler" "$INSTALL/.prod.vars" "$INSTALL/node_modules"
 RELEASE="$INSTALL/release"
 mkdir -p "$RELEASE/app/build" "$RELEASE/app/assets" "$RELEASE/engine/build" "$RELEASE/live/build" "$RELEASE/migrations"
 touch "$RELEASE/app/build/index.js" "$RELEASE/engine/build/index.js"
@@ -237,14 +261,14 @@ DB_ID=6f1c2a90-3b7e-4d2a-9c41-0e5b8a7d2f13
 KEY=publickeyv1_ChjENKeMvCtRnqG2mrBK1HmPKufgFUc98K8B3ZgXonQQ
 
 # What the workflows give every subcommand; a test's own assignments come after (and win), an
-# empty one unsets. No tools are installed: wrangler is the stub, its reader the devenv's.
-COMMON=(WRANGLER="$BIN/wrangler" RAFI_WRANGLER_PKG="$RAFI_WRANGLER_PKG" RAFI_TOOLS_DIR="$TMP/tools"
-  RESTATE="$BIN/restate" STUB_LOG="$LOG" STUB_WRANGLER_PKG="$RAFI_WRANGLER_PKG"
+# empty one unsets. wrangler and the Restate CLI are the stubs.
+COMMON=(WRANGLER="$BIN/wrangler" RESTATE="$BIN/restate" STUB_LOG="$LOG"
   STUB_RESTATE_LIST="$TMP/list.json" CLOUDFLARE_API_BASE_URL="$BASE/cf" CLOUDFLARE_API_TOKEN=cf-token
   CLOUDFLARE_ACCOUNT_ID=acct123 RESTATE_ADMIN_URL="$BASE/restate/" RESTATE_AUTH_TOKEN=rs-token
-  RAFI_REGISTER_WAIT=0 RAFI_OUTPUT_FILE="$OUTPUTS" RAFI_REPORT_FILE="$REPORT" RAFI_VERSION= CLOUDFLARE_ENV=
-  RAFI_APP_PROMOTED= RAFI_APP_VERSION_ID= RAFI_ENGINE_WORKER= RAFI_ENGINE_URL= STUB_WRANGLER_FAIL=
-  STUB_NO_VERSION_ID= STUB_RESTATE_LIST_FAIL= STUB_RESTATE_REMOVE_FAIL= GITHUB_OUTPUT= GITHUB_STEP_SUMMARY=)
+  RAFI_REGISTER_WAIT=0 RAFI_OUTPUT_FILE="$OUTPUTS" RAFI_REPORT_FILE="$REPORT" RAFI_ARTIFACTS_DIR=
+  RAFI_VERSION= CLOUDFLARE_ENV= RAFI_APP_PROMOTED= RAFI_APP_VERSION_ID= RAFI_ENGINE_WORKER= RAFI_ENGINE_URL=
+  STUB_WRANGLER_FAIL= STUB_NO_VERSION_ID= STUB_DRY_NAMES= STUB_DRY_NO_NAME= STUB_RESTATE_LIST_FAIL=
+  STUB_RESTATE_REMOVE_FAIL= GITHUB_OUTPUT= GITHUB_STEP_SUMMARY=)
 
 # ds <subcommand> [<VAR=value>...]: runs release/deploy.sh <subcommand> in the installation, its
 # output in $TMP/out, its exit status in CODE; the log, the outputs and the report fresh.
@@ -322,18 +346,37 @@ not_reported() {
   done
   pass "$name"
 }
+# json_is <name> <file> <jq expression>: the expression is true of the file.
+json_is() {
+  if [ -f "$2" ] && jq -e "$3" "$2" >/dev/null 2>&1; then
+    pass "$1"
+  else
+    fail "$1: not $3 of $2: $(cat "$2" 2>/dev/null || echo 'no such file')"
+  fi
+}
+# only_dry_runs <name>: the log has wrangler's three dry runs and nothing else (but CLOUDFLARE_ENV).
+only_dry_runs() {
+  local other
+  other="$(grep -vE '^wrangler deploy -c [^ ]+ --dry-run$|^wrangler-env ' "$LOG" || true)"
+  if [ -z "$other" ] && [ "$(grep -c -- '--dry-run' "$LOG")" = 3 ]; then pass "$1"; else fail "$1: the log: $(cat "$LOG")"; fi
+}
 
 echo "== the template: placeholders"
 ds check
-ran "check refuses the template's database_id" 1 "database_id is the placeholder"
-ran "check refuses the template's identity key" 1 "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS isn't a list of publickeyv1_"
+ran "check refuses the template's database_id" 1 "app.wrangler.toml: the template's database_id 00000000-0000-0000-0000-000000000000" \
+  "live.wrangler.toml: the template's database_id" "engine.wrangler.toml: the template's database_id" \
+  "the template's placeholders are still in the configurations"
+ran "check refuses the template's identity key" 1 "engine.wrangler.toml: the template's identity key publickeyv1_…"
+if [ -s "$LOG" ]; then fail "check ran something with placeholders: $(cat "$LOG")"; else pass "nothing runs with placeholders"; fi
 ds dry-run CLOUDFLARE_API_TOKEN= CLOUDFLARE_ACCOUNT_ID= RESTATE_ADMIN_URL= RESTATE_AUTH_TOKEN=
-ran "dry-run only warns about them, and needs no credentials" 0 "warning:" "database_id is the placeholder" \
-  "dry run of Rafi 0.1.0 done"
-in_order "dry-run: the live Worker, the engine under its versioned name, the app" \
-  "wrangler deploy --dry-run -c $LIVE" "wrangler deploy --dry-run -c $ENGINE --name rafi-engine-v0-1-0" \
-  "wrangler deploy --dry-run -c $APP"
+ran "dry-run only warns about them, and needs no credentials" 0 "warning:" "the template's database_id" \
+  "the template's identity key" "dry run of Rafi 0.1.0 done"
+in_order "dry-run: the live Worker, the engine, the app" \
+  "wrangler deploy -c $LIVE --dry-run" "wrangler deploy -c $ENGINE --dry-run" "wrangler deploy -c $APP --dry-run"
+only_dry_runs "dry-run: nothing but the three dry runs"
 not_logged "no environment given to wrangler" "wrangler-env"
+ran "dry-run: the names from the dry runs" 0 "live Worker: rafi-live (" "app Worker: rafi-app (" \
+  "engine Worker: rafi-engine-v0-1-0 ("
 if cmp -s "$INSTALL/legal/terms.md" "$RELEASE/app/assets/legal/terms.md" \
   && cmp -s "$INSTALL/legal/privacy.md" "$RELEASE/app/assets/legal/privacy.md"; then
   pass "dry-run copies legal/ into the app's static files"
@@ -355,13 +398,24 @@ restore() {
   cp "$TMP/live.good" "$LIVE"
   rm -f "$INSTALL"/*.orig "$INSTALL"/VERSION.*
 }
+# One placeholder left: the identity key, the database_id of one file.
+sed -i.orig "s/\"$KEY, publickeyv1_9n4BzZ8\"/\"publickeyv1_…\"/" "$ENGINE"
+ds check
+ran "the identity key's placeholder alone: refused" 1 "engine.wrangler.toml: the template's identity key"
+restore
+sed -i.orig "s/$DB_ID/00000000-0000-0000-0000-000000000000/" "$LIVE"
+ds check
+ran "one file's database_id the placeholder: refused" 1 "live.wrangler.toml: the template's database_id"
+if grep -qF "app.wrangler.toml: the template's" "$TMP/out"; then fail "a filled-in file reported: $(cat "$TMP/out")"; else pass "only that file reported"; fi
+restore
 
 echo "== check: the release, the installation's version file, the tools"
 ds check
 ran "an installation's" 0 "Rafi 0.1.0 (VERSION)" "environment: none" "engine Worker: rafi-engine-v0-1-0 (" \
-  "live Worker: rafi-live (" "app Worker: rafi-app (" "database: $DB_ID; Durable Objects' jurisdiction: eu"
-if [ -s "$LOG" ]; then fail "check called: $(cat "$LOG")"; else pass "check calls nothing"; fi
-if [ -e "$TMP/tools" ]; then fail "tools installed although both were given"; else pass "no tools installed when WRANGLER and RAFI_WRANGLER_PKG are given"; fi
+  "live Worker: rafi-live (" "app Worker: rafi-app (" "checked: Rafi 0.1.0 fits this installation"
+only_dry_runs "check runs wrangler's three dry runs, nothing else"
+in_order "the names read from the live Worker's, the engine's and the app's dry run" \
+  "wrangler deploy -c $LIVE --dry-run" "wrangler deploy -c $ENGINE --dry-run" "wrangler deploy -c $APP --dry-run"
 echo "0.2.0" >"$INSTALL/VERSION"
 ds check
 ran "the installation's VERSION another release" 1 "the installation's VERSION says 0.2.0, but the release in $RELEASE is 0.1.0"
@@ -400,67 +454,48 @@ ds deploy-rooms
 ran "the old deploy-rooms exits 2" 2
 ds --help
 ran "--help" 0 "release/deploy.sh register-engine" "release/deploy.sh deploy-live"
-# Neither given: the pinned wrangler installed into RAFI_TOOLS_DIR (npm, stubbed here), once.
-ds check WRANGLER= RAFI_WRANGLER_PKG= PATH="$NPM_BIN:$PATH"
-ran "the tools installed when not given" 0 "tools: wrangler 4.148.0 into $TMP/tools" "app Worker: rafi-app ("
-in_order "npm install of the pinned wrangler" "npm install --no-save --no-audit --no-fund --prefix $TMP/tools wrangler@4.148.0"
-ds migrate WRANGLER= RAFI_WRANGLER_PKG= PATH="$NPM_BIN:$PATH"
-ran "the tools used, not installed again" 0
-not_logged "not installed again" "npm"
-in_order "the tools directory's wrangler" "tools-wrangler d1 migrations apply DB -c $APP --remote"
-rm -rf "$TMP/tools"
+ds check PATH="$NOJQ_BIN"
+ran "no jq: a clear failure" 1 "jq isn't installed"
+if [ -s "$LOG" ]; then fail "something ran without jq: $(cat "$LOG")"; else pass "nothing runs without jq"; fi
+# The defaults: npx -y wrangler and npx -y @restatedev/restate (the installation's package.json's).
+ds check WRANGLER= RESTATE= PATH="$NPX_BIN:$PATH"
+ran "the tools by default: npx -y" 0 "app Worker: rafi-app ("
+in_order "npx -y wrangler for wrangler" "npx -y wrangler deploy -c $LIVE --dry-run" "wrangler deploy -c $LIVE --dry-run" \
+  "npx -y wrangler deploy -c $APP --dry-run"
+ds migrate WRANGLER= PATH="$NPX_BIN:$PATH"
+in_order "npx -y wrangler for the migrations" "npx -y wrangler d1 migrations apply DB -c $APP --remote"
+ds migrate WRANGLER="$BIN/wrangler --stub-arg" PATH="$NPX_BIN:$PATH"
+in_order "WRANGLER overrides it, with its arguments" "wrangler --stub-arg d1 migrations apply DB -c $APP --remote"
+not_logged "no npx when WRANGLER is given" "npx"
 
-echo "== check: the configurations"
-# broken <name> <file> <sed script> <text>: that change to a good configuration is refused.
-broken() {
-  restore
-  sed -i.orig "$3" "$2"
-  ds check
-  ran "$1" 1 "$4"
-  restore
-}
-broken "the engine on another database" "$ENGINE" "s/$DB_ID/11111111-2222-3333-4444-555555555555/" "isn't the app's ($DB_ID)"
-broken "the live Worker on another database" "$LIVE" "s/$DB_ID/11111111-2222-3333-4444-555555555555/" "isn't the app's ($DB_ID)"
-broken "the engine binding another Worker's RaffleRoom" "$ENGINE" 's/^script_name = "rafi-live"/script_name = "rafi-app"/' "engine.wrangler.toml: RAFFLE_ROOM's script_name (rafi-app) must be the live Worker's name (rafi-live)"
-broken "the app binding another Worker's RaffleRoom" "$APP" 's/^script_name = "rafi-live"/script_name = "live"/' "app.wrangler.toml: RAFFLE_ROOM's script_name (live) must be the live Worker's name (rafi-live)"
-broken "the app with the class of its own" "$APP" '/^script_name = "rafi-live"/d' "app.wrangler.toml: RAFFLE_ROOM's script_name (null) must be the live Worker's name"
-broken "the live Worker renamed, the others not" "$LIVE" 's/^name = "rafi-live"/name = "raffle-live"/' "must be the live Worker's name (raffle-live)"
-broken "the engine in another jurisdiction" "$ENGINE" 's/^RAFI_DO_JURISDICTION = "eu"/RAFI_DO_JURISDICTION = "none"/' "engine.wrangler.toml: RAFI_DO_JURISDICTION (none) must be the live Worker's (eu)"
-broken "the app in another jurisdiction" "$APP" 's/^RAFI_DO_JURISDICTION = "eu"/RAFI_DO_JURISDICTION = "fedramp"/' "app.wrangler.toml: RAFI_DO_JURISDICTION (fedramp) must be the live Worker's (eu)"
-broken "the live Worker without a jurisdiction" "$LIVE" '/^RAFI_DO_JURISDICTION/d' "live.wrangler.toml: [vars] RAFI_DO_JURISDICTION is missing"
-broken "the engine off workers.dev" "$ENGINE" 's/^workers_dev = true/workers_dev = false/' "workers_dev must be true"
-broken "the live Worker on workers.dev" "$LIVE" 's/^workers_dev = false/workers_dev = true/' "live.wrangler.toml: workers_dev must be false"
-broken "the live Worker without preview_urls = false" "$LIVE" '/^preview_urls/d' "live.wrangler.toml: preview_urls must be false"
-broken "the live Worker without its migrations" "$LIVE" 's/^new_sqlite_classes = .*/new_sqlite_classes = ["Other"]/' "live.wrangler.toml: no [[migrations]] creates the RaffleRoom class"
-broken "the engine named as the app" "$ENGINE" 's/^name = "rafi-engine"/name = "rafi-app"/' "must differ from the app's"
-broken "the engine named as the live Worker" "$ENGINE" 's/^name = "rafi-engine"/name = "rafi-live"/' "must differ from the live Worker's"
-broken "the app named as the live Worker" "$APP" 's/^name = "rafi-app"/name = "rafi-live"/' "app.wrangler.toml: name must differ from the live Worker's"
-broken "the app's main elsewhere" "$APP" 's|^main = .*|main = "worker/build/index.js"|' "not this release's app/build/index.js"
-broken "the engine's main elsewhere" "$ENGINE" 's|^main = .*|main = "release/app/build/index.js"|' "not this release's engine/build/index.js"
-broken "the live Worker's main elsewhere" "$LIVE" 's|^main = .*|main = "release/app/build/index.js"|' "not this release's live/build/index.js"
-broken "the assets elsewhere" "$APP" 's|^directory = .*|directory = "public"|' "not this release's app/assets"
-broken "the migrations elsewhere" "$APP" 's|^migrations_dir = .*|migrations_dir = "release/migrations/sqlite"|' "not this release's migrations"
-broken "a database_id that isn't a string (wrangler refuses it)" "$APP" "s/^database_id = .*/database_id = 42/" 'app.wrangler.toml: Processing'
-broken "a key set twice (not TOML)" "$ENGINE" 's/^class_name = "RaffleRoom"/class_name = "RaffleRoom"\nclass_name = "RaffleRoom"/' "engine.wrangler.toml: Invalid TOML document"
-broken "no RAFFLE_ROOM in the engine" "$ENGINE" 's/^name = "RAFFLE_ROOM"/name = "ROOM"/' 'engine.wrangler.toml: no [[durable_objects.bindings]] with name = "RAFFLE_ROOM"'
-broken "no RAFFLE_ROOM in the live Worker" "$LIVE" 's/^name = "RAFFLE_ROOM"/name = "ROOM"/' 'live.wrangler.toml: no [[durable_objects.bindings]] with name = "RAFFLE_ROOM"'
-broken "the live Worker's RAFFLE_ROOM with a script_name" "$LIVE" 's/^class_name = "RaffleRoom"/class_name = "RaffleRoom"\nscript_name = "rafi-app"/' "the live Worker's own class: no script_name"
-broken "no identity keys" "$ENGINE" '/^RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS/d' "engine.wrangler.toml: [vars] RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS is missing"
-for worker in engine live; do
+echo "== check: the release's files and the names"
+for worker in app engine live; do
   mv "$RELEASE/$worker/build/index.js" "$TMP/index.js"
   ds check
   ran "a release without the $worker Worker" 1 "the release has no $worker/build/index.js"
   mv "$TMP/index.js" "$RELEASE/$worker/build/index.js"
 done
+mv "$RELEASE/migrations" "$TMP/migrations.aside"
+ds check
+ran "a release without its migrations" 1 "the release has no migrations/"
+mv "$TMP/migrations.aside" "$RELEASE/migrations"
 mv "$LIVE" "$TMP/live.aside"
 ds check
 ran "no live.wrangler.toml" 1 "live.wrangler.toml is missing"
 mv "$TMP/live.aside" "$LIVE"
+ds check STUB_DRY_NAMES="app.wrangler.toml=raffles-app live.wrangler.toml=raffles-live engine.wrangler.toml=raffles-engine"
+ran "the names are the dry runs' worker_name, not read from the files" 0 "app Worker: raffles-app (" \
+  "live Worker: raffles-live (" "engine Worker: raffles-engine-v0-1-0 ("
+ds check STUB_WRANGLER_FAIL="$APP"
+ran "a dry run failing: refused" 1 "wrangler deploy --dry-run -c app.wrangler.toml failed (above): the configuration doesn't deploy"
+ds check STUB_DRY_NO_NAME=1
+ran "a dry run without a deploy entry: refused" 1 "wrangler's dry run of live.wrangler.toml reported no Worker's name"
+ds check STUB_DRY_NAMES="engine.wrangler.toml=Not_A_Name"
+ran "a name that isn't a Worker's: refused" 1 "wrangler's dry run of engine.wrangler.toml reported no Worker's name (its deploy entry's worker_name: 'Not_A_Name')"
 
 echo "== check: Wrangler environments (CLOUDFLARE_ENV)"
-# add_env <env> [<the app's own name>]: an [env.<env>] in each configuration, repeating what
-# environments don't inherit (vars, bindings, required secrets), RAFFLE_ROOM bound to the
-# environment's live Worker.
+# add_env <env> [<the app's own name>]: an [env.<env>] in each configuration, as the README's
+# (the vars, bindings and required secrets repeated: environments don't inherit them).
 add_env() {
   local env="$1" app_name="${2:-}" live_name="rafi-live-$1"
   {
@@ -469,13 +504,7 @@ add_env() {
     printf 'routes = [{ pattern = "%s.raffles.example", custom_domain = true }]\n' "$env"
     printf '[[env.%s.d1_databases]]\nbinding = "DB"\ndatabase_name = "rafi"\ndatabase_id = "%s"\nmigrations_dir = "release/migrations"\n' "$env" "$DB_ID"
     printf '[[env.%s.durable_objects.bindings]]\nname = "RAFFLE_ROOM"\nclass_name = "RaffleRoom"\nscript_name = "%s"\n' "$env" "$live_name"
-    local n=2000 limit
-    for limit in JOIN_PER_RAFFLE_LIMITER JOIN_PER_EMAIL_LIMITER CONNECT_LIMITER ADD_LIMITER; do
-      n=$((n + 1))
-      printf '[[env.%s.ratelimits]]\nname = "%s"\nnamespace_id = "%s"\nsimple = { limit = 10, period = 60 }\n' "$env" "$limit" "$n"
-    done
     printf '[env.%s.vars]\nRAFI_DO_JURISDICTION = "eu"\n' "$env"
-    printf '[env.%s.secrets]\nrequired = ["RAFI_PUBLIC_URL", "RAFI_ENGINE_INGRESS_URL", "RAFI_ENGINE_API_KEY", "RAFI_POW_KEY", "CLERK_SECRET_KEY", "CLERK_PUBLISHABLE_KEY", "RAFI_OPERATOR_NAME", "RAFI_OPERATOR_EMAIL", "RAFI_TERMS_VERSION", "RAFI_PRIVACY_VERSION"]\n' "$env"
   } >>"$APP"
   {
     printf '\n[env.%s]\n' "$env"
@@ -495,24 +524,18 @@ ds check
 ran "no CLOUDFLARE_ENV: the top level, other environments ignored" 0 "environment: none" "app Worker: rafi-app (" \
   "live Worker: rafi-live (" "engine Worker: rafi-engine-v0-1-0 ("
 ds check CLOUDFLARE_ENV=eu
-ran "CLOUDFLARE_ENV naming an environment the configurations lack: refused" 1 \
-  "CLOUDFLARE_ENV is eu, but app.wrangler.toml has no [env.eu]" "live.wrangler.toml has no [env.eu]"
+ran "CLOUDFLARE_ENV naming an environment the configurations lack: wrangler refuses it" 1 \
+  "No environment found in configuration with name \"eu\"" "wrangler deploy --dry-run -c live.wrangler.toml (CLOUDFLARE_ENV=eu) failed"
 ds check CLOUDFLARE_ENV='e u'
 ran "CLOUDFLARE_ENV not an environment's name: refused" 1 "not an environment's name"
 restore
 add_env eu
-cp "$APP" "$TMP/app.env"
-cp "$ENGINE" "$TMP/engine.env"
-cp "$LIVE" "$TMP/live.env"
-restore_env() {
-  restore
-  cp "$TMP/app.env" "$APP"
-  cp "$TMP/engine.env" "$ENGINE"
-  cp "$TMP/live.env" "$LIVE"
-}
 ds check CLOUDFLARE_ENV=eu
 ran "an environment without names of its own: <name>-<environment>" 0 "environment: eu ([env.eu] of each configuration)" \
   "app Worker: rafi-app-eu (" "live Worker: rafi-live-eu (" "engine Worker: rafi-engine-eu-v0-1-0 (" "Rafi 0.1.0 (VERSION)"
+in_order "wrangler given the environment for each dry run" \
+  "wrangler deploy -c $LIVE --dry-run" "wrangler-env eu" "wrangler deploy -c $ENGINE --dry-run" "wrangler-env eu" \
+  "wrangler deploy -c $APP --dry-run" "wrangler-env eu"
 ds check
 ran "the same configurations without CLOUDFLARE_ENV: the top level" 0 "app Worker: rafi-app (" "engine Worker: rafi-engine-v0-1-0 ("
 echo "0.0.9" >"$INSTALL/VERSION.eu"
@@ -530,46 +553,12 @@ restore
 add_env eu raffles-eu
 ds check CLOUDFLARE_ENV=eu
 ran "an environment's app with a name of its own" 0 "app Worker: raffles-eu (" "live Worker: rafi-live-eu ("
-restore_env
-sed -i.orig '/^RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = "publickeyv1_Chj[A-Za-z0-9]*"$/d' "$ENGINE"
-ds check CLOUDFLARE_ENV=eu
-ran "an environment's engine without the identity keys: refused (vars aren't inherited)" 1 \
-  "engine.wrangler.toml: [env.eu] has no RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS in its vars: environments don't inherit vars"
-restore_env
-sed -i.orig '/^\[env.eu.vars\]$/,$d' "$ENGINE"
-ds check CLOUDFLARE_ENV=eu
-ran "an environment's engine without vars at all: refused" 1 "engine.wrangler.toml: [env.eu] has no RAFI_DO_JURISDICTION, RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS in its vars"
-restore_env
-sed -i.orig 's/^script_name = "rafi-live-eu"$/script_name = "rafi-live"/' "$APP"
-ds check CLOUDFLARE_ENV=eu
-ran "an environment's app bound to the top level's live Worker: refused" 1 \
-  "app.wrangler.toml ([env.eu]): RAFFLE_ROOM's script_name (rafi-live) must be the live Worker's name (rafi-live-eu)"
-restore_env
-node -e '
-  const fs = require("fs");
-  const f = process.argv[1];
-  fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/\[\[env\.eu\.ratelimits\]\]\nname = "ADD_LIMITER"\n[^\n]*\n[^\n]*\n/, ""));' "$APP"
-ds check CLOUDFLARE_ENV=eu
-ran "an environment's app without a rate limit: refused" 1 "app.wrangler.toml: [env.eu] has no rate limit ADD_LIMITER"
-restore_env
-sed -i.orig '/^\[env.eu.secrets\]$/,$d' "$APP"
-ds check CLOUDFLARE_ENV=eu
-ran "an environment's app without its required secrets: refused" 1 "app.wrangler.toml: [env.eu] doesn't require"
-restore_env
-sed -i.orig '/^\[\[env.eu.d1_databases\]\]$/,/^database_id/d' "$LIVE"
-ds check CLOUDFLARE_ENV=eu
-ran "an environment's live Worker without the database: refused" 1 \
-  "live.wrangler.toml ([env.eu]): no [[d1_databases]] with binding = \"DB\" (environments don't inherit bindings"
-restore_env
+restore
+add_env eu
 ds dry-run CLOUDFLARE_ENV=eu
-ran "dry-run in an environment" 0 "dry run of Rafi 0.1.0 done"
-in_order "wrangler given the environment, the engine under the environment's versioned name" \
-  "wrangler deploy --dry-run -c $LIVE" "wrangler-env eu" \
-  "wrangler deploy --dry-run -c $ENGINE --name rafi-engine-eu-v0-1-0" "wrangler-env eu" \
-  "wrangler deploy --dry-run -c $APP" "wrangler-env eu"
+ran "dry-run in an environment" 0 "dry run of Rafi 0.1.0 done" "engine Worker: rafi-engine-eu-v0-1-0 ("
 rm -rf "$RELEASE/app/assets/legal"
 restore
-
 echo "== migrate"
 ds migrate
 ran "migrate" 0
@@ -611,7 +600,7 @@ ds deploy-live
 ran "a live Worker serving this fingerprint is left alone" 0 "unchanged (it serves $TAG)" "keep their connections"
 in_order "its latest deployment's version read" "http GET /cf/accounts/acct123/workers/scripts/rafi-live/deployments" \
   "http GET /cf/accounts/acct123/workers/scripts/rafi-live/versions/r2"
-not_logged "nothing deployed" "wrangler deploy"
+not_logged "nothing deployed" "--tag"
 reported "deploy-live's report when unchanged" "Unchanged (\`$TAG\`)"
 live_state "live-0123456789abcdef0123456789abcdef"
 ds deploy-live
@@ -624,11 +613,8 @@ in_order "the live Worker deployed over a gradual one" "wrangler deploy -c $LIVE
 live_state "$TAG"
 echo "# a comment" >>"$LIVE"
 ds deploy-live
-ran "a comment added to live.wrangler.toml: still unchanged" 0 "unchanged (it serves $TAG)"
-restore
-add_env staging
-ds deploy-live
-ran "another environment added to the configurations: still unchanged" 0 "unchanged (it serves $TAG)"
+ran "a comment added to live.wrangler.toml: deployed (its bytes are in the fingerprint)" 0 "it serves: 100 $TAG"
+not_logged "a comment: another tag" "--tag $TAG "
 restore
 sed -i.orig 's/^compatibility_date = .*/compatibility_date = "2026-10-02"/' "$LIVE"
 ds deploy-live
@@ -657,13 +643,13 @@ state <<'EOF'
 EOF
 ds deploy-live
 ran "Cloudflare failing: refused" 1 "the Worker rafi-live's deployments: HTTP 500"
-not_logged "nothing deployed when Cloudflare fails" "wrangler deploy"
+not_logged "nothing deployed when Cloudflare fails" "--tag"
 
 echo "== upload-app"
 echo '{}' | state
 ds upload-app
 ran "no app Worker: refused, its secrets first" 1 "the app Worker rafi-app doesn't exist" "secret bulk .prod.vars -c app.wrangler.toml"
-not_logged "nothing uploaded without an app Worker" "wrangler"
+not_logged "nothing uploaded without an app Worker" "--tag" "versions upload"
 # app_state <tag of the deployed version> <tag of an older version> [<Worker>]: the app Worker.
 app_state() {
   state <<EOF
@@ -686,7 +672,7 @@ app_state "v0.0.9" ""
 ds upload-app
 ran "an upgrade: a version uploaded" 0 "a release ran here before"
 in_order "wrangler versions upload, tagged" "wrangler versions upload -c $APP --tag v0.1.0 --message rafi v0.1.0"
-not_logged "not deployed" "wrangler deploy"
+not_logged "not deployed" "wrangler deploy -c $APP --tag"
 outputs_are "the uploaded version's ID" "app_version_id=1b2c3d4e-0000-4000-8000-000000000001"
 reported "an upgrade's report" "Version \`1b2c3d4e-0000-4000-8000-000000000001\` uploaded (Rafi v0.1.0), not serving yet"
 app_state "" "v0.0.9"
@@ -730,7 +716,7 @@ restore
 echo '{}' | state
 ds deploy-engine
 ran "no workers.dev subdomain: refused" 1 "the account's workers.dev subdomain: HTTP 404"
-not_logged "nothing deployed without a subdomain" "wrangler"
+not_logged "nothing deployed without a subdomain" "--name"
 
 echo "== register-engine"
 ENGINE_URL=https://rafi-engine-v0-1-0.acme.workers.dev/restate
@@ -858,7 +844,7 @@ ran "a first install (nothing registered): allowed" 0 "Raffle: not registered ye
   "the token reads it: workers.dev subdomain acme" "checked: Rafi 0.1.0 may be deployed here"
 in_order "Restate's services and deployments, then the account" \
   "http GET /restate/services" "http GET /restate/deployments" "http GET /cf/accounts/acct123/workers/subdomain"
-not_logged "nothing changed or deployed" "POST" "DELETE" "wrangler" "restate "
+not_logged "nothing changed or deployed" "POST" "DELETE" "--tag" "--name" "versions" "restate "
 restate_state "$(ours 0.1.0)"
 ds check-remote
 ran "the same release (a re-run): allowed" 0 "Rafi 0.1.0 (this release: a re-run)"
@@ -873,7 +859,7 @@ for newer in 0.2.0 0.1.1-alpha; do
   ran "an older release than Restate's $newer: refused" 1 \
     "Raffle runs on Rafi $newer (dp_raffle), newer than 0.1.0: refusing to deploy an older release (a downgrade); nothing was deployed" \
     "Set VERSION to $newer or later"
-  not_logged "nothing past Restate after the refusal ($newer)" "/cf/" "wrangler" "POST"
+  not_logged "nothing past Restate after the refusal ($newer)" "/cf/" "--tag" "POST"
 done
 restate_state "$(ours 0.1.0)" "$(ours 0.3.0)"
 ds check-remote
@@ -884,7 +870,7 @@ ran "another installation's newer deployment: no guard" 0 "not a deployment of t
 restate_state "$(ours 0.0.9)"
 ds check-remote RESTATE_ADMIN_URL=http://127.0.0.1:1/restate
 ran "Restate unreachable: failed" 1 "Restate's services: no answer from http://127.0.0.1:1/restate"
-if [ -s "$LOG" ]; then fail "something ran after Restate didn't answer: $(cat "$LOG")"; else pass "nothing else ran after Restate didn't answer"; fi
+not_logged "nothing else ran after Restate didn't answer" "http " "--tag"
 state <<'EOF'
 { "subdomain": "acme", "status": { "GET /restate/deployments": 503 } }
 EOF
@@ -896,20 +882,20 @@ ran "a Restate key that doesn't work: failed" 1 "Restate's services: HTTP 401"
 restate_state "$(ours 0.0.9)"
 ds check-remote CLOUDFLARE_API_TOKEN=wrong
 ran "a Cloudflare token that doesn't work: failed" 1 "the account's workers.dev subdomain: HTTP 401" "Authentication error"
-not_logged "nothing deployed with a bad token" "wrangler" "POST"
+not_logged "nothing deployed with a bad token" "--tag" "POST"
 ds check-remote RESTATE_ADMIN_URL=
 ran "no RESTATE_ADMIN_URL: refused" 1 "not set: RESTATE_ADMIN_URL"
 not_logged "nothing asked without it" "http"
 sed -i.orig "s/$DB_ID/00000000-0000-0000-0000-000000000000/" "$APP" "$ENGINE" "$LIVE"
 ds check-remote
-ran "the placeholders refused before any secret is used" 1 "database_id is the placeholder"
+ran "the placeholders refused before any secret is used" 1 "the template's database_id"
 if [ -s "$LOG" ]; then fail "check-remote asked with placeholders: $(cat "$LOG")"; else pass "nothing asked with placeholders"; fi
 restore
 
 echo "== promote-app"
 ds promote-app RAFI_APP_PROMOTED=true
 ran "after a first install: nothing" 0 "nothing to promote"
-not_logged "nothing deployed after a first install" "wrangler"
+not_logged "nothing deployed after a first install" "versions deploy" "triggers"
 reported "its report" "deployed directly by upload-app (a first install): nothing to promote"
 ds promote-app RAFI_APP_VERSION_ID=1b2c3d4e-0000-4000-8000-000000000001
 ran "an uploaded version deployed" 0
@@ -959,11 +945,7 @@ cp "$TMP/state.json" "$TMP/cleanup.json"
 cp "$TMP/list.json" "$TMP/list.good"
 # cleanup_state <JSON patch>: the cleanup's state with the patch's keys over it.
 cleanup_state() {
-  node -e '
-    const fs = require("fs");
-    const s = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    fs.writeFileSync(process.argv[2], JSON.stringify({ ...s, ...JSON.parse(process.argv[3]) }));' \
-    "$TMP/cleanup.json" "$TMP/state.json" "$1"
+  jq --argjson patch "$1" '. + $patch' "$TMP/cleanup.json" >"$TMP/state.json"
 }
 ds cleanup
 ran "cleanup" 0 "dp_drained (rafi-engine-v0-0-8) is drained" "deleted the Worker rafi-engine-v0-0-8" \
@@ -1061,6 +1043,86 @@ reported "the environment's report" "### Restate cleanup: \`rafi-app-eu\`" "\`ra
 not_reported "the top level's Workers not the environment's leftovers" "\`rafi-engine-v0-0-4\`"
 cp "$TMP/list.good" "$TMP/list.json"
 restore
+# The Restate CLI by default: npx -y @restatedev/restate.
+cp "$TMP/cleanup.json" "$TMP/state.json"
+ds cleanup RESTATE= PATH="$NPX_BIN:$PATH"
+ran "the Restate CLI by default: npx -y" 0 "2 drained engine deployment(s) removed"
+in_order "npx -y @restatedev/restate for the listing and the removals" \
+  "npx -y @restatedev/restate deployments list --extra --json" "restate deployments list --extra --json" \
+  "npx -y @restatedev/restate deployments remove dp_drained --yes"
+
+echo "== the artifacts (RAFI_ARTIFACTS_DIR)"
+rm -rf "$ARTIFACTS"
+mkdir -p "$ARTIFACTS/check"
+echo stray >"$ARTIFACTS/check/stray"
+ds check RAFI_ARTIFACTS_DIR="$ARTIFACTS"
+ran "check with RAFI_ARTIFACTS_DIR" 0
+for key in live engine app; do
+  json_is "check: the $key Worker's dry run kept (wrangler's ND-JSON, its deploy entry)" \
+    "$ARTIFACTS/check/wrangler-dry-run-$key.ndjson" 'select(.type == "deploy") | .worker_name == "rafi-'"$key"'"'
+done
+if [ -e "$ARTIFACTS/check/stray" ]; then fail "an earlier run's file kept"; else pass "each run replaces its subcommand's artifacts"; fi
+ds check
+if [ -e "$INSTALL/check" ] || [ -n "$(find "$INSTALL" -name 'wrangler-*.ndjson' -print -quit)" ]; then
+  fail "artifacts written without RAFI_ARTIFACTS_DIR"
+else
+  pass "no artifacts left without RAFI_ARTIFACTS_DIR"
+fi
+echo '{ "subdomain": "acme" }' | state
+ds deploy-engine RAFI_ARTIFACTS_DIR="$ARTIFACTS"
+json_is "deploy-engine: wrangler's ND-JSON of the deploy" "$ARTIFACTS/deploy-engine/wrangler-deploy-engine.ndjson" \
+  'select(.type == "wrangler-session") | .version == 1'
+app_state "v0.0.9" ""
+ds upload-app RAFI_ARTIFACTS_DIR="$ARTIFACTS"
+json_is "upload-app: wrangler's ND-JSON of the upload" "$ARTIFACTS/upload-app/wrangler-versions-upload-app.ndjson" \
+  'select(.type == "version-upload") | .version_id == "1b2c3d4e-0000-4000-8000-000000000001"'
+rm -rf "$RELEASE/app/assets/legal"
+ds promote-app RAFI_APP_VERSION_ID=1b2c3d4e-0000-4000-8000-000000000001 RAFI_ARTIFACTS_DIR="$ARTIFACTS"
+for what in versions-deploy-app triggers-deploy-app; do
+  json_is "promote-app: wrangler's ND-JSON of $what" "$ARTIFACTS/promote-app/wrangler-$what.ndjson" '.type == "wrangler-session"'
+done
+restate_state "$(ours 0.0.9)"
+ds register-engine "${REG[@]}" RAFI_ARTIFACTS_DIR="$ARTIFACTS"
+ran "register-engine with RAFI_ARTIFACTS_DIR" 0
+json_is "register-engine: Restate's services" "$ARTIFACTS/register-engine/restate-services.json" '.services | length == 3'
+json_is "register-engine: Restate's deployments" "$ARTIFACTS/register-engine/restate-deployments.json" '.deployments | length == 3'
+json_is "register-engine: the registration's answer" "$ARTIFACTS/register-engine/restate-register.json" '.id == "dp_new"'
+# A relative RAFI_ARTIFACTS_DIR is the installation's root's.
+cp "$TMP/cleanup.json" "$TMP/state.json"
+ds cleanup RAFI_ARTIFACTS_DIR=rafi-artifacts
+ran "cleanup with a relative RAFI_ARTIFACTS_DIR" 0
+C="$INSTALL/rafi-artifacts/cleanup"
+json_is "cleanup: Restate's deployments" "$C/restate-deployments.json" '.deployments | length == 9'
+json_is "cleanup: the CLI's listing" "$C/restate-deployments-list.json" '.deployments | length == 9'
+json_is "cleanup: the account's Workers" "$C/cloudflare-workers.json" '.result | length == 10'
+json_is "cleanup.json: removed" "$C/cleanup.json" '.removed == [
+  { "deployment": "dp_drained", "worker": "rafi-engine-v0-0-8", "worker_status": "deleted" },
+  { "deployment": "dp_gone", "worker": "rafi-engine-v0-0-7", "worker_status": "already_gone" } ]'
+json_is "cleanup.json: deleted" "$C/cleanup.json" '.deleted == ["rafi-engine-v0-0-8", "rafi-engine-v0-0-7"]'
+json_is "cleanup.json: draining, with the paused invocations" "$C/cleanup.json" '.draining == [
+  { "deployment": "dp_draining", "worker": "rafi-engine-v0-0-9", "active_invocations": 2, "paused_invocations": ["inv_1"] } ]'
+json_is "cleanup.json: kept" "$C/cleanup.json" '.kept == [ { "deployment": "dp_active", "worker": "rafi-engine-v0-1-0", "status": "Active" } ]'
+json_is "cleanup.json: leftovers" "$C/cleanup.json" '.leftover == ["rafi-engine-v0-0-4", "rafi-engine-v0-0-6"]'
+json_is "cleanup.json: nothing left behind, not failed" "$C/cleanup.json" '.left_behind == [] and .not_removed == [] and .failed == false'
+json_is "cleanup.json: not ours" "$C/cleanup.json" \
+  '[.not_ours[].deployment] == ["dp_nometa", "dp_otherinst", "dp_otheracct", "dp_appworker", "dp_elsewhere"]
+   and (.not_ours[1].reason == "another installation (rafi-app-eu)")'
+json_is "cleanup.json: the installation" "$C/cleanup.json" \
+  '.installation == "rafi-app" and .version == "0.1.0" and .cloudflare_account == "acct123"'
+cleanup_state '{ "status": { "DELETE /cf/accounts/acct123/workers/scripts/rafi-engine-v0-0-8": 500 } }'
+ds cleanup RAFI_ARTIFACTS_DIR="$ARTIFACTS" STUB_RESTATE_REMOVE_FAIL=dp_gone
+ran "a failing cleanup with RAFI_ARTIFACTS_DIR" 1 "the cleanup failed in part"
+json_is "cleanup.json of a failing cleanup: left behind, not removed, failed" "$ARTIFACTS/cleanup/cleanup.json" \
+  '.failed == true and .deleted == []
+   and .removed == [ { "deployment": "dp_drained", "worker": "rafi-engine-v0-0-8", "worker_status": "left_behind" } ]
+   and .left_behind[0].worker == "rafi-engine-v0-0-8" and (.left_behind[0].error | startswith("HTTP 500"))
+   and .not_removed[0].deployment == "dp_gone"'
+if grep -rqF -e cf-token -e rs-token "$ARTIFACTS" "$INSTALL/rafi-artifacts"; then
+  fail "a token among the artifacts: $(grep -rlF -e cf-token -e rs-token "$ARTIFACTS" "$INSTALL/rafi-artifacts")"
+else
+  pass "no token among the artifacts ($(find "$ARTIFACTS" "$INSTALL/rafi-artifacts" -type f | wc -l | tr -d ' ') files)"
+fi
+rm -rf "$INSTALL/rafi-artifacts" "$RELEASE/app/assets/legal"
 
 if [ "$FAILED" != 0 ]; then
   echo "cloudflare-deploy-test: $FAILED FAILED, $PASSED passed" >&2

@@ -27,7 +27,12 @@ name: Deploy
 #      then the app's new version deployed.
 # restate-cleanup.yaml deletes the engine Workers Restate has drained.
 #
-# Each job writes what it did to the run's summary (deploy.sh's report).
+# Each job writes what it did to the run's summary (deploy.sh's report), and
+# keeps the JSON deploy.sh read and wrote (wrangler's output, Restate's and
+# Cloudflare's answers; never a secret) as an artifact of the run,
+# deploy-json-<job>-<attempt>, for 14 days. Each job installs wrangler and
+# the Restate CLI from package.json first (npm ci with a committed
+# package-lock.json, npm install otherwise); deploy.sh runs them with npx -y.
 #
 # Upgrading is changing VERSION and pushing; a release whose notes say its
 # workflows changed comes with new copies of this file and
@@ -94,6 +99,8 @@ jobs:
     # that has this line (this one's check-remote uses the secrets too).
     # environment: production
     timeout-minutes: 10
+    env:
+      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha256: ${{ steps.download.outputs.sha256 }}
@@ -110,6 +117,11 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
+      # npx -y); a committed package-lock.json pins their versions.
+      - name: Install wrangler and the Restate CLI
+        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
       # VERSION.<environment> when CLOUDFLARE_ENV is set and that file
       # exists, VERSION otherwise (deploy.sh checks the release by the same
@@ -189,12 +201,25 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
+      # Cloudflare's answers, no secrets), kept whatever happened.
+      - name: Keep deploy.sh's JSON
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-json-prepare-${{ github.run_attempt }}
+          path: ${{ env.RAFI_ARTIFACTS_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
   migrate:
     name: D1 migrations
     needs: prepare
     runs-on: ubuntu-latest
     # environment: production
     timeout-minutes: 15
+    env:
+      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
 
     steps:
       - name: Checkout repository
@@ -206,6 +231,11 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
+      # npx -y); a committed package-lock.json pins their versions.
+      - name: Install wrangler and the Restate CLI
+        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
       - name: Get the release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -227,12 +257,25 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: release/deploy.sh migrate
 
+      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
+      # Cloudflare's answers, no secrets), kept whatever happened.
+      - name: Keep deploy.sh's JSON
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-json-migrate-${{ github.run_attempt }}
+          path: ${{ env.RAFI_ARTIFACTS_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
   live:
     name: Live Worker
     needs: [prepare, migrate]
     runs-on: ubuntu-latest
     # environment: production
     timeout-minutes: 15
+    env:
+      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
 
     steps:
       - name: Checkout repository
@@ -244,6 +287,11 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
+      # npx -y); a committed package-lock.json pins their versions.
+      - name: Install wrangler and the Restate CLI
+        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
       - name: Get the release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -265,12 +313,25 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh deploy-live
 
+      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
+      # Cloudflare's answers, no secrets), kept whatever happened.
+      - name: Keep deploy.sh's JSON
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-json-live-${{ github.run_attempt }}
+          path: ${{ env.RAFI_ARTIFACTS_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
   app:
     name: App Worker (upload)
     needs: [prepare, live]
     runs-on: ubuntu-latest
     # environment: production
     timeout-minutes: 15
+    env:
+      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
     outputs:
       app_version_id: ${{ steps.upload.outputs.app_version_id }}
       app_promoted: ${{ steps.upload.outputs.app_promoted }}
@@ -285,6 +346,11 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
+      # npx -y); a committed package-lock.json pins their versions.
+      - name: Install wrangler and the Restate CLI
+        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
       - name: Get the release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -307,12 +373,25 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_OUTPUT_FILE="$GITHUB_OUTPUT" RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh upload-app
 
+      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
+      # Cloudflare's answers, no secrets), kept whatever happened.
+      - name: Keep deploy.sh's JSON
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-json-app-${{ github.run_attempt }}
+          path: ${{ env.RAFI_ARTIFACTS_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
   engine:
     name: Engine Worker
     needs: [prepare, live]
     runs-on: ubuntu-latest
     # environment: production
     timeout-minutes: 15
+    env:
+      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
     outputs:
       engine_worker: ${{ steps.deploy.outputs.engine_worker }}
       engine_url: ${{ steps.deploy.outputs.engine_url }}
@@ -327,6 +406,11 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
+      # npx -y); a committed package-lock.json pins their versions.
+      - name: Install wrangler and the Restate CLI
+        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
       - name: Get the release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -349,12 +433,25 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_OUTPUT_FILE="$GITHUB_OUTPUT" RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh deploy-engine
 
+      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
+      # Cloudflare's answers, no secrets), kept whatever happened.
+      - name: Keep deploy.sh's JSON
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-json-engine-${{ github.run_attempt }}
+          path: ${{ env.RAFI_ARTIFACTS_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
   release:
     name: Register the engine, deploy the app
     needs: [prepare, app, engine]
     runs-on: ubuntu-latest
     # environment: production
     timeout-minutes: 15
+    env:
+      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
 
     steps:
       - name: Checkout repository
@@ -366,6 +463,11 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
+      # npx -y); a committed package-lock.json pins their versions.
+      - name: Install wrangler and the Restate CLI
+        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
       - name: Get the release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -399,3 +501,14 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh promote-app
+
+      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
+      # Cloudflare's answers, no secrets), kept whatever happened.
+      - name: Keep deploy.sh's JSON
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-json-release-${{ github.run_attempt }}
+          path: ${{ env.RAFI_ARTIFACTS_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14

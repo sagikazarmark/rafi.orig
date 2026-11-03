@@ -1,10 +1,11 @@
 # This installation's secrets: the app Worker's (the engine and live Workers
 # have none). Copy to .prod.vars (ignored by git), fill it in, and run
-# `npx wrangler@4.148.0 secret bulk .prod.vars -c app.wrangler.toml` once,
-# before the first deploy (with CLOUDFLARE_ENV=<name> for a Wrangler
-# environment's installation): it creates the app Worker with them, and
-# deploys keep them. Change one later with `npx wrangler@4.148.0 secret put
-# <NAME> -c app.wrangler.toml`. Then delete the file.
+# `npx -y wrangler secret bulk .prod.vars -c app.wrangler.toml` once, before
+# the first deploy (after `npm install`, for package.json's wrangler; with
+# CLOUDFLARE_ENV=<name> for a Wrangler environment's installation): it
+# creates the app Worker with them, and deploys keep them. Change one later
+# with `npx -y wrangler secret put <NAME> -c app.wrangler.toml`. Then delete
+# the file.
 # The reference, with the optional settings and their defaults:
 # https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
 
@@ -13,7 +14,7 @@
 RAFI_PUBLIC_URL=
 
 # Your Restate Cloud environment: its ingress URL
-# (https://<env>.env.eu.restate.cloud:8080) and an API key with ingress access.
+# (https://<env>.env.<region>.restate.cloud:8080) and an API key with ingress access.
 # Its public key, which the engine checks Restate's requests against, is in
 # engine.wrangler.toml.
 RAFI_ENGINE_INGRESS_URL=

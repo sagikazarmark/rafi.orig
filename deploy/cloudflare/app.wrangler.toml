@@ -8,9 +8,12 @@
 # in), with your database and domain in place of the placeholders. Everything
 # else of yours is a secret or a file in legal/. `release/deploy.sh` (which
 # .github/workflows/deploy.yaml runs when this file, the other two, VERSION
-# or legal/ change) reads this file as wrangler does, checks it against
-# engine.wrangler.toml, live.wrangler.toml and the release, applies the D1
-# migrations and deploys the three Workers.
+# or legal/ change) reads the Workers' names from wrangler's dry run of each
+# file, applies the D1 migrations and deploys the three Workers. It doesn't
+# compare the files: they must agree on the database_id and
+# RAFI_DO_JURISDICTION, the app's and the engine's RAFFLE_ROOM script_name
+# is live.wrangler.toml's name, and the engine has its identity keys in
+# every environment (a test-mode raffle after an install shows a mismatch).
 #
 # The app Worker's name is the installation's: unique in your Cloudflare
 # account, it is how Restate's deployment metadata tells this installation's
@@ -24,7 +27,6 @@
 # the bindings (the database, RAFFLE_ROOM with the environment's live Worker
 # as script_name, the rate limits, with namespace_ids of their own so the
 # installations don't share counters): repeat those under [env.<name>].
-# deploy.sh refuses an environment missing a var, a binding or a required secret.
 #
 # Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
 # and https://developers.cloudflare.com/workers/wrangler/environments/
@@ -50,8 +52,9 @@ preview_urls = false
 directory = "release/app/assets"
 binding = "ASSETS"
 
-# Your database: `wrangler d1 create rafi --jurisdiction eu`, and paste the ID
-# here, in engine.wrangler.toml (the engine writes draws to it) and in
+# Your database: `wrangler d1 create rafi` (to keep it in the EU, read
+# README.md's "Keeping data in the EU" first), and paste the ID here,
+# in engine.wrangler.toml (the engine writes draws to it) and in
 # live.wrangler.toml (the live channels read it). The migrations run before
 # each deploy (deploy.sh).
 [[d1_databases]]
@@ -60,8 +63,8 @@ database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "release/migrations"
 
-# One live channel per raffle, in the jurisdiction RAFI_DO_JURISDICTION names.
-# The class is the live Worker's: script_name is its name
+# One live channel per raffle (in the jurisdiction RAFI_DO_JURISDICTION names,
+# when it names one). The class is the live Worker's: script_name is its name
 # (live.wrangler.toml's name).
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
@@ -106,16 +109,19 @@ enabled = true
 [observability.logs]
 invocation_logs = false
 
-# Where the live channels' Durable Objects live: "eu", "fedramp", or "none".
-# engine.wrangler.toml and live.wrangler.toml say the same.
+# Optional: the jurisdiction the live channels' Durable Objects are created
+# in ("eu" keeps them in the EU). Unset, they are wherever Cloudflare places
+# them. Decide before the first deploy (objects keep the jurisdiction they
+# were created in), the same in all three files and every [env.<name>]:
+# README.md, "Keeping data in the EU".
 [vars]
-RAFI_DO_JURISDICTION = "eu"
+# RAFI_DO_JURISDICTION = "eu"
 
 # What this installation sets, as secrets (.prod.vars.example), once with
 # `wrangler secret bulk .prod.vars -c app.wrangler.toml` before the first
 # deploy (then `wrangler secret put <NAME> -c app.wrangler.toml`); deploys keep them:
 #   RAFI_PUBLIC_URL                        the public origin, no trailing slash
-#   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL (EU)
+#   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL
 #   RAFI_ENGINE_API_KEY                    a Restate Cloud API key with ingress access
 #   RAFI_POW_KEY                           random, 32+ characters; never rotate during an event
 #   CLERK_SECRET_KEY

@@ -10,11 +10,11 @@
 # It has no address (no route, no workers.dev, no preview URLs) and no
 # secrets: it is reached only through the other two Workers' bindings. A
 # deploy deploys it first (deploy.sh), so its class is there before the
-# Workers binding it, and only when its code or its configuration changed
-# (this file's top level, and its environment's section, as wrangler reads
-# them; not comments): deploying it drops every phone's live connection. In a
-# Wrangler environment ([env.<name>], see app.wrangler.toml), repeat the vars
-# and the bindings; the migrations are inherited.
+# Workers binding it, and only when its code or this file changed (any edit,
+# a comment or another environment's section too): deploying it drops every
+# phone's live connection. In a Wrangler environment ([env.<name>], see
+# app.wrangler.toml), repeat the vars and the bindings; the migrations are
+# inherited.
 #
 # Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
 
@@ -48,7 +48,8 @@ enabled = true
 [observability.logs]
 invocation_logs = false
 
-# Where the live channels' Durable Objects live: "eu", "fedramp", or "none".
-# app.wrangler.toml and engine.wrangler.toml say the same.
+# Optional: the jurisdiction of the live channels' Durable Objects ("eu"),
+# as app.wrangler.toml and engine.wrangler.toml say; unset, none. Before the
+# first deploy only: README.md, "Keeping data in the EU".
 [vars]
-RAFI_DO_JURISDICTION = "eu"
+# RAFI_DO_JURISDICTION = "eu"

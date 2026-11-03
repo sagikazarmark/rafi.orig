@@ -109,6 +109,7 @@ in
         # Rafi
         python3 # tools/verify.py
         sqlite
+        jq # scripts/cloudflare-deploy.sh (a release's deploy.sh), its checks and the release rehearsal
       ];
 
       dioxus = {

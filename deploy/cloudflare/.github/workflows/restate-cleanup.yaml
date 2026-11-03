@@ -17,7 +17,10 @@ name: Restate cleanup
 # --deployment latest, or restate invocations kill <id>). Engine Workers no
 # Restate deployment refers to are listed, never deleted, and so are
 # deployments that aren't this installation's, never touched. The report
-# is the run's summary.
+# is the run's summary; the JSON deploy.sh read and wrote (with
+# cleanup.json, the cleanup's summary) is kept as an artifact of the run,
+# cleanup-json-<job>-<attempt>, for 14 days. The tools come from
+# package.json, as in deploy.yaml.
 #
 # Upgrading and several installations in one repository: see deploy.yaml
 # (copy this file with it, the same CLOUDFLARE_ENV, concurrency group and
@@ -50,6 +53,8 @@ jobs:
     name: Prepare the release
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha256: ${{ steps.download.outputs.sha256 }}
@@ -66,6 +71,11 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
+      # npx -y); a committed package-lock.json pins their versions.
+      - name: Install wrangler and the Restate CLI
+        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
       # As in deploy.yaml: VERSION.<environment> when CLOUDFLARE_ENV is set
       # and that file exists, VERSION otherwise.
@@ -130,6 +140,18 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
+      # Cloudflare's answers, the cleanup's cleanup.json; no secrets), kept
+      # whatever happened.
+      - name: Keep deploy.sh's JSON
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cleanup-json-prepare-${{ github.run_attempt }}
+          path: ${{ env.RAFI_ARTIFACTS_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
   cleanup:
     name: Remove drained engine deployments
     needs: prepare
@@ -138,6 +160,8 @@ jobs:
     # deploy.yaml's jobs may name it.
     # environment: production
     timeout-minutes: 20
+    env:
+      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
 
     steps:
       - name: Checkout repository
@@ -149,6 +173,11 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
+      # npx -y); a committed package-lock.json pins their versions.
+      - name: Install wrangler and the Restate CLI
+        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
       - name: Get the release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -171,3 +200,15 @@ jobs:
           RESTATE_ADMIN_URL: ${{ secrets.RESTATE_ADMIN_URL }}
           RESTATE_AUTH_TOKEN: ${{ secrets.RESTATE_AUTH_TOKEN }}
         run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh cleanup
+
+      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
+      # Cloudflare's answers, the cleanup's cleanup.json; no secrets), kept
+      # whatever happened.
+      - name: Keep deploy.sh's JSON
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cleanup-json-cleanup-${{ github.run_attempt }}
+          path: ${{ env.RAFI_ARTIFACTS_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14

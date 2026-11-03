@@ -29,10 +29,12 @@
 #      rehearsed the way a tag releases it (scripts/cloudflare-release.sh):
 #      the template's VERSION and workflows, deploy.sh's own checks,
 #      worker.tar.gz packaged, each Worker's exports checked, unpacked into a
-#      copy of the template's release/, and its deploy.sh dry-run there,
-#      at the top level and as a Wrangler environment (CLOUDFLARE_ENV=eu).
+#      copy of the template's release/, and its deploy.sh dry-run there with
+#      this wrangler (the Workers' names read from its dry runs), at the top
+#      level and as a Wrangler environment (CLOUDFLARE_ENV=eu, with the EU
+#      jurisdiction).
 #
-# Needs: wrangler (WRANGLER overrides the command), worker-build, node, just,
+# Needs: wrangler (WRANGLER overrides the command), worker-build, node, jq, just,
 # dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the
 # participant page), and GNU tar (the release rehearsal).
 set -euo pipefail

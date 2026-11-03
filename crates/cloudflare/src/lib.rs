@@ -11,7 +11,7 @@
 //!   `rafi_live_server::publish::decide`;
 //! - [`connect`] (feature `connect`): the Worker's gate for phones' sockets,
 //!   forwarding each to its raffle's object, and [`namespace`], the objects'
-//!   namespace in the configured jurisdiction;
+//!   namespace (in a jurisdiction when one is configured);
 //! - [`DurableObjects`]: the `rafi_live_server::Notifier` over those objects
 //!   (clients use partyline), and so the raffle engine's `Observer`. It
 //!   reaches the objects through the `RAFFLE_ROOM` binding, which in a Worker
@@ -34,6 +34,7 @@
 
 mod config;
 mod gate;
+mod jurisdiction;
 #[cfg(feature = "log")]
 pub mod log;
 mod notifier;
@@ -43,9 +44,7 @@ mod object;
 pub use config::{D1_BINDING, database, lookup};
 #[cfg(feature = "connect")]
 pub use gate::connect;
-pub use gate::{
-    BINDING, CONNECT_LIMITER, JURISDICTION_VAR, NO_JURISDICTION, destroy, namespace, nudge,
-};
+pub use gate::{BINDING, CONNECT_LIMITER, JURISDICTION_VAR, destroy, namespace, nudge};
 pub use notifier::DurableObjects;
 #[cfg(feature = "object")]
 pub use object::RaffleRoom;

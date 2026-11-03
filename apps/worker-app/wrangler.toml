@@ -37,7 +37,7 @@ database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: an installation's is in its deploy configuration
 migrations_dir = "../../migrations/sqlite"
 
-# One live channel per raffle; IDs come from the EU jurisdiction (RAFI_DO_JURISDICTION).
+# One live channel per raffle (in a jurisdiction when RAFI_DO_JURISDICTION names one).
 # The class is the live Worker's (apps/worker-live), with its migrations:
 # none here.
 [[durable_objects.bindings]]
@@ -84,7 +84,9 @@ invocation_logs = false
 # defaults are secrets when an installation changes them, as in
 # apps/worker/wrangler.toml.
 [vars]
-RAFI_DO_JURISDICTION = "eu"
+# Optional: RAFI_DO_JURISDICTION = "eu" (the live Worker's and the engine's
+# alike) creates the live channels' objects in that jurisdiction; unset, the
+# plain namespace.
 
 # apps/worker/wrangler.toml's, but RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS: the
 # Restate requests it verifies go to the engine's Worker, where the keys are

@@ -28,7 +28,7 @@ database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: the app's, in an installation's deploy configuration
 migrations_dir = "../../migrations/sqlite"
 
-# One live channel per raffle; IDs come from the EU jurisdiction (RAFI_DO_JURISDICTION).
+# One live channel per raffle (in a jurisdiction when RAFI_DO_JURISDICTION names one).
 # The class is this Worker's; the app's and the engine's Workers bind it
 # with script_name = "rafi-live".
 [[durable_objects.bindings]]
@@ -47,7 +47,8 @@ enabled = true
 [observability.logs]
 invocation_logs = false
 
-# The objects' jurisdiction, as the app's and the engine's say (they create
-# the objects' IDs in it).
+# Optional: RAFI_DO_JURISDICTION, the objects' jurisdiction, as the app's and
+# the engine's say (they create the objects' IDs in it); unset, the plain
+# namespace.
 [vars]
-RAFI_DO_JURISDICTION = "eu"
+# RAFI_DO_JURISDICTION = "eu"

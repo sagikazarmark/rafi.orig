@@ -1,10 +1,11 @@
 //! The Worker's side of the channel: reaching the raffle's object, nudging it,
 //! destroying it, and letting phones connect.
 //!
-//! Every object ID comes from the EU-jurisdiction namespace: an object's
-//! jurisdiction is fixed when its ID is created and can't be changed later.
-//! `worker` has no jurisdiction API yet, so the namespace's JavaScript method
-//! is called directly.
+//! Object IDs come from the plain namespace, or from the jurisdiction
+//! `RAFI_DO_JURISDICTION` names when it is set (`eu` keeps the objects in the
+//! EU): an object's jurisdiction is fixed when its ID is created and can't be
+//! changed later. `worker` has no jurisdiction API yet, so the namespace's
+//! JavaScript method is called directly.
 
 #[cfg(feature = "connect")]
 use partyline_worker::{close, reject};
@@ -12,6 +13,8 @@ use wasm_bindgen::{JsCast, JsValue};
 #[cfg(feature = "connect")]
 use worker::Response;
 use worker::{Env, Headers, Method, ObjectNamespace, Request, RequestInit, Result, Stub};
+
+use crate::jurisdiction::{Namespace, choose};
 
 /// The Durable Object binding of the `RaffleRoom` objects.
 pub const BINDING: &str = "RAFFLE_ROOM";
@@ -23,34 +26,31 @@ pub(crate) const RAFFLE_HEADER: &str = "x-rafi-raffle";
 /// IP: a venue shares one address). Optional.
 pub const CONNECT_LIMITER: &str = "CONNECT_LIMITER";
 
-/// The variable naming the objects' jurisdiction. Defaults to `eu`; the
-/// literal [`NO_JURISDICTION`] creates objects without one (local
-/// development: workerd has no jurisdictions). Empty counts as unset, as
-/// every variable's does.
+/// The variable naming the objects' jurisdiction (`eu`, `fedramp`), optional:
+/// unset or empty (the default), the objects' IDs come from the plain
+/// namespace; set, from `ns.jurisdiction(<it>)`. Every Worker creating IDs
+/// (the app's, the engine's) must say the same, and it can't change once
+/// objects exist. workerd (`wrangler dev`) has no jurisdictions: leave it
+/// unset locally.
 pub const JURISDICTION_VAR: &str = "RAFI_DO_JURISDICTION";
-
-/// The value of [`JURISDICTION_VAR`] that means "no jurisdiction".
-pub const NO_JURISDICTION: &str = "none";
 
 /// The base URL of requests to the object. The host is never resolved.
 const INTERNAL: &str = "https://rafi-raffle-room.internal";
 
-fn jurisdiction(env: &Env) -> String {
-    crate::lookup(env, JURISDICTION_VAR).unwrap_or_else(|| "eu".into())
-}
-
-/// The channel's namespace, restricted to the configured jurisdiction.
+/// The channel's namespace: the plain one, or restricted to the configured
+/// jurisdiction ([`JURISDICTION_VAR`]).
 pub fn namespace(env: &Env) -> Result<ObjectNamespace> {
     let ns = env.durable_object(BINDING)?;
-    let jd = jurisdiction(env);
-    if jd == NO_JURISDICTION {
-        return Ok(ns);
-    }
+    let value = crate::lookup(env, JURISDICTION_VAR);
+    let jd = match choose(value.as_deref()) {
+        Namespace::Plain => return Ok(ns),
+        Namespace::Jurisdiction(jd) => jd,
+    };
     let raw: &JsValue = ns.as_ref();
     let method = js_sys::Reflect::get(raw, &JsValue::from_str("jurisdiction"))?
         .dyn_into::<js_sys::Function>()
         .map_err(|_| worker::Error::RustError("the namespace has no jurisdiction()".into()))?;
-    Ok(method.call1(raw, &JsValue::from_str(&jd))?.unchecked_into())
+    Ok(method.call1(raw, &JsValue::from_str(jd))?.unchecked_into())
 }
 
 fn stub(env: &Env, raffle_id: &str) -> Result<Stub> {

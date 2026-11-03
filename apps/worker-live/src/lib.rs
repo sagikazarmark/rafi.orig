@@ -6,9 +6,9 @@
 //!
 //! - [`RaffleRoom`] is exported from here, so the class lives in this Worker,
 //!   with its Durable Object migrations; it reads raffles from the D1
-//!   database (`DB`). Its `RAFI_DO_JURISDICTION` names the jurisdiction the
-//!   other Workers create the objects' IDs in (the objects don't read it;
-//!   the deploy checks that all three Workers say the same).
+//!   database (`DB`). Its optional `RAFI_DO_JURISDICTION` (unset: none) names
+//!   the jurisdiction the other Workers create the objects' IDs in (the
+//!   objects don't read it; all three Workers say the same).
 //! - `fetch`: 404 for everything. The Worker has no address (no route, no
 //!   workers.dev, no preview URLs), and the objects are reached through the
 //!   other Workers' bindings, never through it. The handler is there so the
