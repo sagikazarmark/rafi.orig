@@ -69,7 +69,7 @@ use ratelimit::RateLimitBindings;
 
 /// The web app's `index.html`, as the build left it: compiled in, as it
 /// ships in one artifact with the files it links (`just artifact` in
-/// `apps/worker` builds the web app first), and isn't among the static
+/// `apps/worker-app` builds the web app first), and isn't among the static
 /// files, so Workers Assets can't serve it without its policy.
 const SHELL: &str = include_str!("../../../target/dx/rafi-web/release/web/public/index.html");
 

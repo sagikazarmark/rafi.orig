@@ -20,3 +20,15 @@ build:
 dry-run:
     test -d ../worker/worker-assets || {{ just_executable() }} assets
     wrangler deploy --dry-run
+
+# The app Worker as a release ships it, into `out` (a release's app/): build/ (the Worker) and assets/ (the static files, without legal/: an installation's deploy copies its own in).
+artifact out: assets build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="{{ out }}"
+    rm -rf "${out:?}"
+    mkdir -p "$out"
+    cp -R build "$out/build"
+    rm -f "$out/build/.gitignore"
+    cp -R ../worker/worker-assets "$out/assets"
+    rm -rf "$out/assets/legal"

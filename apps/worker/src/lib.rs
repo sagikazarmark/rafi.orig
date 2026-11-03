@@ -23,9 +23,10 @@
 //! Missing secrets fail closed: every request of the app's is refused rather
 //! than run with a default, and the engine refuses without identity keys.
 //! Dev auth, the mock drand chain and running without Restate identity keys
-//! need the `dev` feature. The top level of `wrangler.toml` is still
-//! production's one-Worker shape, which `scripts/workers-check.sh` and the
-//! release (`just artifact`) build.
+//! need the `dev` feature. The top level of `wrangler.toml` is a one-Worker
+//! production shape, which `scripts/workers-check.sh` builds and checks; a
+//! release ships the two production Workers (`apps/worker-app`,
+//! `apps/worker-engine`) instead.
 
 #![cfg(target_arch = "wasm32")]
 

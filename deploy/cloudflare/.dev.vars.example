@@ -1,6 +1,6 @@
 # This installation's secrets. Copy to .dev.vars (ignored by git), fill it in,
-# `wrangler secret bulk .dev.vars`. Deploy to Cloudflare asks for them from
-# this file. The reference, with the optional settings and their defaults:
+# `wrangler secret bulk .dev.vars`: the app Worker's (the engine Worker has none).
+# The reference, with the optional settings and their defaults:
 # https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
 
 # The public origin, no trailing slash: https://raffle.example.org. QR codes
@@ -8,12 +8,11 @@
 RAFI_PUBLIC_URL=
 
 # Your Restate Cloud environment: its ingress URL
-# (https://<env>.env.eu.restate.cloud:8080), an API key with ingress access,
-# and its public key(s) (publickeyv1_…, comma separated), which the Worker
-# checks the engine's requests against.
+# (https://<env>.env.eu.restate.cloud:8080) and an API key with ingress access.
+# Its public key, which the engine checks Restate's requests against, is in
+# engine.wrangler.toml.
 RAFI_ENGINE_INGRESS_URL=
 RAFI_ENGINE_API_KEY=
-RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS=
 
 # The proof-of-work key: random, 32 characters or more (openssl rand -hex 32).
 # Never rotate it during an event.

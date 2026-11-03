@@ -126,5 +126,5 @@ Nothing of an installation's: one build serves every installation. The features 
 |---|---|---|
 | Feature `mock-drand` | `rafi`, `rafi-server`, `rafi-restate` | Allows the mock chain. Never ship it. |
 | Feature `dev` | `rafi`, `rafi-worker` | Local development only. On `rafi`, allows `RAFI_DEV_AUTH`; on the Worker, also the mock chain and Restate requests without identity keys (`[env.dev]` in `wrangler.toml` builds with it). |
-| `RAFI_VERSION` | `rafi-server` (`build.rs`) | The version compiled in, which `/healthz`, `whoami` and the footers show, and whose tag the source links point at. A release sets it (`just release` in `apps/worker`); unset, a checkout at a tag `v<version>` is that version, any other build `<crate version>-dev+<commit>`. |
+| `RAFI_VERSION` | `rafi-server` (`build.rs`) | The version compiled in, which `/healthz`, `whoami` and the footers show, and whose tag the source links point at. A release sets it (`just cloudflare-tarball`); unset, a checkout at a tag `v<version>` is that version, any other build `<crate version>-dev+<commit>`. |
 | `RAFI_SOURCE_URL` | `rafi-server` (`build.rs`) | The repository the pages link as the source of the version running (AGPL §13), GitHub-shaped (`…/tree/<ref>`, `…/blob/<ref>/tools/verify.py`). Default: this repository. A fork that changes Rafi sets its own. |

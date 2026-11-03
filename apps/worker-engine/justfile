@@ -14,3 +14,13 @@ build:
 # Validate the Worker's shape without deploying: the configuration, every binding and the bundle.
 dry-run:
     wrangler deploy --dry-run
+
+# The engine Worker as a release ships it, into `out` (a release's engine/): build/ (the Worker).
+artifact out: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="{{ out }}"
+    rm -rf "${out:?}"
+    mkdir -p "$out"
+    cp -R build "$out/build"
+    rm -f "$out/build/.gitignore"

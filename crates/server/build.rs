@@ -1,8 +1,8 @@
 //! Compiles in which Rafi this is (`rafi_server::build_info`): the version
 //! and where its source is.
 //!
-//! - `RAFI_VERSION`, when the build sets it (a release does: apps/worker's
-//!   `just release`), is the version, and its tag `v<version>` the source's
+//! - `RAFI_VERSION`, when the build sets it (a release does:
+//!   `just cloudflare-tarball`), is the version, and its tag `v<version>` the source's
 //!   ref;
 //! - otherwise a checkout at a tag `v<version>` is that version;
 //! - otherwise the crate's version, marked `-dev`, with the commit when there

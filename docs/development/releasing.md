@@ -1,8 +1,18 @@
 # Releasing
 
 A release is a tag, `v<version>`; `.github/workflows/release.yaml` does the rest. What ships is the Cloudflare
-release, one asset, `worker.tar.gz`: the Worker, the static files and the D1 migrations (`just
-cloudflare-artifact`), at the top level of the archive. Self-hosting builds from the tag.
+release, one asset, `worker.tar.gz` (`just cloudflare-artifact`, packed by `just cloudflare-tarball`), with at
+the top level of the archive:
+
+- `VERSION`;
+- `app/`: the app Worker (`apps/worker-app`), `build/` and its static files, `assets/` (without `legal/`, an
+  installation's);
+- `engine/`: the raffle engine Worker (`apps/worker-engine`), `build/`;
+- `migrations/sqlite/`: the D1 migrations;
+- `deploy.sh`: the deploy itself (`scripts/cloudflare-deploy.sh`; its header says what it does), so an installation
+  deploys a release with that release's own logic, attested with it.
+
+The combined Worker (`apps/worker`) is for local development only. Self-hosting builds from the tag.
 
 ## Once
 
@@ -12,24 +22,16 @@ showed the digest of and attested. Installations download it by URL and check no
 
 ## Before the tag
 
-On `main`, in one pull request:
-
-1. **The version**: `config.rafi_version` in [`deploy/cloudflare/package.json`](../../deploy/cloudflare/package.json),
-   the release the template downloads.
-2. **The Deploy to Cloudflare buttons** name the tag: `tree/v<version>/deploy/cloudflare` in
-   `deploy/cloudflare/README.md` and `docs/operations/cloudflare.md`, and the README's "the release this README is
-   from".
 The release notes are generated from the merged pull requests; edit them on the release when an operator has to
-act (a migration, a changed engine path, a new secret).
+act (a migration, a new secret, a setting in `deploy/cloudflare`'s configuration).
 
-`scripts/cloudflare-release.sh` refuses a version that `package.json` doesn't pin, or buttons that name another tag,
-so CI's `workers` job (which rehearses the pinned version on every push) fails until they agree.
+CI's `workers` job rehearses a release (of `apps/worker-app`'s crate version) on every push.
 
 ## Rehearsing
 
 Run the Release workflow by hand (**Actions > Release > Run workflow**): it runs CI, builds the release of the
-version given (by default the one `package.json` pins) and deploys it (dry) through a copy of `deploy/cloudflare`,
-publishing nothing. `dry_run` off publishes a tag that already exists, to finish a release whose run failed.
+version given (by default `apps/worker-app`'s crate version) and runs its `deploy.sh --dry-run` from a copy of
+`deploy/cloudflare` with the release unpacked into `release/`, publishing nothing. `dry_run` off publishes a tag that already exists, to finish a release whose run failed.
 
 Locally, `just cloudflare-release <version>` builds and rehearses the same, into `target/cloudflare`.
 
@@ -51,13 +53,13 @@ The workflow then:
    own `sha256sum`; on a mismatch the release stays a draft;
 6. publishes it.
 
-A version with a pre-release suffix (`v0.2.0-rc.1`) is published as a pre-release: pin it in `package.json` like any
-other, and point the buttons back at the last release afterwards if it isn't followed by one.
+A version with a pre-release suffix (`v0.2.0-rc.1`) is published as a pre-release; its engine Worker is
+`rafi-engine-0-2-0-rc-1`.
 
 ## Reproducible
 
-The tarball is packed reproducibly (`just release` in `apps/worker`, with GNU tar: entries sorted, every file's
-time `SOURCE_DATE_EPOCH` (the commit's when unset), no owner, gzip without a name or a time), so two builds of one commit can be compared byte for byte:
+The tarball is packed reproducibly (`just cloudflare-tarball`, with GNU tar: entries sorted, every file's
+time `SOURCE_DATE_EPOCH` (the commit's when unset), no owner, modes 644 and 755, gzip without a name or a time), so two builds of one commit can be compared byte for byte:
 
 ```sh
 just cloudflare-release <version>              # at the tag
@@ -70,5 +72,5 @@ toolchain and the paths it embeds, which the devenv shell pins.
 ## After
 
 - `/healthz` on an installation answers `ok <version>`.
-- The template on `main` now names the new release; installations upgrade by changing `config.rafi_version` in
-  their `package.json` ([Upgrading](../../deploy/cloudflare/README.md#upgrading)).
+- Installations deploy it with its own `deploy.sh`, from their copy of `deploy/cloudflare` with the release
+  unpacked into `release/`.

@@ -21,16 +21,17 @@
 #      can't run open; it has read the legal documents through the assets
 #      binding by then, and served without legal/ it refuses naming them.
 #      Needs dx too (the dry run uploads the assets);
-#   6. deploy/cloudflare, what an installation deploys: its wrangler.toml
-#      agrees with the Worker's on the paths and the required secrets, and
-#      the release of the version it pins is rehearsed the way a tag releases
-#      it (scripts/cloudflare-release.sh): packaged, downloaded and put in
-#      place by a copy of the template with its own `npm run build`, and
-#      deployed (dry).
+#   6. deploy/cloudflare, what an installation deploys: its wrangler.toml and
+#      engine.wrangler.toml agree with the production Workers'
+#      (apps/worker-app, apps/worker-engine) on the bindings, limits and
+#      required secrets, and a release (of apps/worker-app's version) is
+#      rehearsed the way a tag releases it (scripts/cloudflare-release.sh):
+#      deploy.sh's own checks, worker.tar.gz packaged, unpacked into a copy
+#      of the template's release/, and its deploy.sh run there (dry).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node, just,
 # dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the
-# participant page), npm and curl (the release rehearsal).
+# participant page), and GNU tar (the release rehearsal).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -283,30 +284,38 @@ if command -v dx >/dev/null; then
   echo "ok   without legal/ the production Worker refuses every request, naming the documents"
 
   step "deploy/cloudflare: the installation's shape, and its release rehearsed"
-  # The two wrangler.toml files share the Worker's shape: its paths, bindings,
-  # limits, Cron and required secrets. A route or a secret added to one and
-  # not the other would deploy a Worker that 404s or refuses; a limit or a
-  # class name changed in one alone would deploy a different Worker. The
-  # Worker's file is compared up to [env.dev], which repeats the bindings.
+  # The template's two files share the production Workers' shapes: their
+  # bindings, limits, Cron, addresses and required secrets. A route or a
+  # secret added to one and not the other would deploy a Worker that 404s or
+  # refuses; a limit or a class name changed in one alone would deploy a
+  # different Worker. The paths differ (the template's point into a
+  # release), and the identity keys are an installation's, so only their
+  # name is compared.
   shape() {
-    sed '/^\[env\.dev\]/q' "$1" | sed -n \
-      -e '/^compatibility_date/p' -e '/^binding = /p' \
-      -e '/^database_name/p' -e '/^name = "/p' -e '/^class_name/p' -e '/^new_sqlite_classes/p' -e '/^tag = /p' \
-      -e '/^namespace_id/p' -e '/^simple = /p' -e '/^crons/p' -e '/^invocation_logs/p' -e '/^RAFI_/p' \
-      -e '/^required = \[$/,/^\]/p'
+    sed -n \
+      -e '/^compatibility_date/p' -e '/^workers_dev/p' -e '/^preview_urls/p' -e '/^binding = /p' \
+      -e '/^database_name/p' -e '/^name = "/p' -e '/^class_name/p' -e '/^script_name/p' \
+      -e '/^new_sqlite_classes/p' -e '/^tag = /p' -e '/^namespace_id/p' -e '/^simple = /p' -e '/^crons/p' \
+      -e '/^invocation_logs/p' -e 's/^\(RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS\) = .*/\1/p' -e '/^RAFI_[A-Z_]* = /p' \
+      -e '/^required = \[$/,/^\]/p' "$1"
   }
-  if ! diff <(shape "$ROOT/apps/worker/wrangler.toml") <(shape "$ROOT/deploy/cloudflare/wrangler.toml"); then
-    echo "deploy/cloudflare/wrangler.toml disagrees with apps/worker/wrangler.toml (above)" >&2
-    exit 1
-  fi
-  echo "ok   the template's shape is the Worker's"
-  # The release of the version the template pins, as a tag releases it: the
-  # same script, so a broken download, tarball or dry deploy shows here, not on
-  # the tag.
-  pinned="$(node -p "require('$ROOT/deploy/cloudflare/package.json').config.rafi_version")"
-  WRANGLER="$WRANGLER" "$ROOT/scripts/cloudflare-release.sh" "$pinned" "$STATE/release" >"$LOGS/release.log" 2>&1 \
+  for pair in worker-app:wrangler.toml worker-engine:engine.wrangler.toml; do
+    worker="apps/${pair%%:*}/wrangler.toml"
+    template="deploy/cloudflare/${pair#*:}"
+    if ! diff <(shape "$ROOT/$worker") <(shape "$ROOT/$template"); then
+      echo "$template disagrees with $worker (above)" >&2
+      exit 1
+    fi
+  done
+  echo "ok   the template's shapes are the production Workers'"
+  # A release, as a tag releases it: the same script, so a broken tarball,
+  # deploy.sh or dry deploy shows here, not on the tag. The version is the app
+  # Worker crate's.
+  version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$ROOT/apps/worker-app/Cargo.toml")"
+  version="${version%%$'\n'*}"
+  WRANGLER="$WRANGLER" "$ROOT/scripts/cloudflare-release.sh" "$version" "$STATE/release" >"$LOGS/release.log" 2>&1 \
     || { tail -30 "$LOGS/release.log" >&2; exit 1; }
-  echo "ok   deploy/cloudflare builds and deploys the release of $pinned (dry run)"
+  echo "ok   deploy/cloudflare deploys the release of $version with its deploy.sh (dry run)"
 else
   step "the production shape: skipped (needs dx for the assets)"
 fi

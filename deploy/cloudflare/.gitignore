@@ -1,5 +1,5 @@
-# The release `npm run build` unpacks (or a build from source), with legal/ copied in.
-worker/
+# The release deploy.sh deploys (unpacked here, with legal/ copied in).
+release/
 node_modules/
 .dev.vars
 .wrangler/

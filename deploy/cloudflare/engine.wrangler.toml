@@ -1,0 +1,64 @@
+# Rafi on Cloudflare Workers: one installation's configuration of the raffle
+# engine Worker, the Restate endpoint under /restate (every other path is a
+# 404). It writes draws to the app's database and nudges the app Worker's
+# RaffleRoom objects through a binding to that Worker's class (script_name).
+# This is the engine's shape as the Rafi repository ships it
+# (apps/worker-engine/wrangler.toml), pointed at a release's files in
+# release/.
+#
+# Each release deploys it as a Worker of its own, named after this name and
+# the version (rafi-engine-0-1-0 for 0.1.0), at
+# https://<that name>.<your subdomain>.workers.dev/restate, which deploy.sh
+# registers with Restate. A release's engine Worker is deployed once and never
+# changed afterwards: Restate finishes an invocation on the deployment it
+# started on, so that code must stay as it was. deploy.sh deletes it once
+# Restate reports its deployment drained, in a later release's deploy. So the
+# values below take effect with the next release's engine.
+#
+# No secrets: the Restate environment's identity keys are public keys, and
+# the drand settings are vars. deploy.sh reads name, main, workers_dev,
+# binding, database_id, class_name, script_name, RAFI_DO_JURISDICTION and
+# RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS; write them as `key = "value"` on one
+# line, as they are here.
+#
+# Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "rafi-engine"
+main = "release/engine/build/index.js"
+compatibility_date = "2026-10-01"
+# Restate calls each release's engine at its workers.dev address (/restate);
+# every request must carry the Restate environment's signature, so nothing
+# else gets past it. No preview URLs.
+workers_dev = true
+preview_urls = false
+
+# Your database, the app's (wrangler.toml): the same database_id.
+[[d1_databases]]
+binding = "DB"
+database_name = "rafi"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# The app Worker's live channels, nudged after each write. The class is the
+# app's: script_name is the app Worker's name (wrangler.toml's name).
+[[durable_objects.bindings]]
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
+script_name = "rafi"
+
+# The engine's application log lines are kept in Workers Logs; the automatic
+# per-invocation records are not.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false
+
+# RAFI_DO_JURISDICTION: the live channels' jurisdiction, the app's (wrangler.toml).
+# RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS: your Restate environment's public key
+# (publickeyv1_..., in Restate Cloud's environment settings), or several,
+# comma separated, while you rotate it; the engine refuses every request
+# without it. Optional, with defaults: RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS,
+# RAFI_DRAND_TIMEOUT_SECS (docs/reference/configuration.md).
+[vars]
+RAFI_DO_JURISDICTION = "eu"
+RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = "publickeyv1_…"

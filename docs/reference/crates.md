@@ -62,9 +62,9 @@ This shows the main dependencies only.
 | App | Package | |
 |---|---|---|
 | [`rafi`](../../apps/rafi) | `rafi` | The native app server: `rafi-server` plus the web app's files. For self-hosting. |
-| [`worker`](../../apps/worker) | `rafi-worker` | Rafi on Cloudflare Workers in one Worker, for local development (`wrangler dev --env dev`, `just workers`, the devenv): the engine under `/restate`, the app everywhere else, the housekeeping Cron, `RaffleRoom`. Its `just artifact` is still what a release ships. Named `rafi` in Cloudflare. |
+| [`worker`](../../apps/worker) | `rafi-worker` | Rafi on Cloudflare Workers in one Worker, for local development (`wrangler dev --env dev`, `just workers`, the devenv): the engine under `/restate`, the app everywhere else, the housekeeping Cron, `RaffleRoom`. Named `rafi` in Cloudflare. |
 | [`worker-app`](../../apps/worker-app) | `rafi-worker-app` | Production's app Worker, `rafi`: the app, the housekeeping Cron, `RaffleRoom` and the static files (`apps/worker`'s); `/restate` is a 404 |
-| [`worker-engine`](../../apps/worker-engine) | `rafi-worker-engine` | Production's engine Worker, `rafi-engine`: the Restate endpoint under `/restate`, nothing else. Binds the app's D1 database and its `RaffleRoom` class (`script_name = "rafi"`); its configuration is vars (the Restate identity keys, drand), no secrets |
+| [`worker-engine`](../../apps/worker-engine) | `rafi-worker-engine` | Production's engine Worker, one per release (`rafi-engine-0-1-0` for 0.1.0, which `deploy.sh` registers with Restate and deletes once drained): the Restate endpoint under `/restate`, nothing else. Binds the app's D1 database and its `RaffleRoom` class (`script_name = "rafi"`); its configuration is vars (the Restate identity keys, drand), no secrets |
 | [`restate`](../../apps/restate) | `rafi-restate` | The native raffle engine: an endpoint serving `rafi-engine-restate`'s services to Restate. See its [README](../../apps/restate/README.md). |
 | [`web`](../../apps/web) | `rafi-web` | The Dioxus 0.7 web app (admin, projector, verification page), bundled by `dx`. Its `import` module reads the organizer's lists in the browser (see [The web app](../development/web-app.md#adding-a-list)). |
 | [`participant`](../../apps/participant) | `rafi-participant` | The participant page's WebAssembly and its JavaScript fallback |
@@ -80,7 +80,7 @@ This shows the main dependencies only.
 | [`tools/verify.py`](../../tools/verify.py) | The independent verifier (Python standard library only) |
 | [`testdata`](../../testdata) | Shared test vectors (real quicknet beacons) |
 | [`deploy/cloudflare`](../../deploy/cloudflare) | One installation on Cloudflare Workers: the Deploy to Cloudflare template, which fetches a release and deploys it with the installation's configuration and legal documents (see [Cloudflare Workers](../operations/cloudflare.md)) |
-| [`scripts`](../../scripts) | Check and release scripts: `workers-check.sh`, `cloudflare-release.sh` (the release, proven). The apps build with their own `justfile`s (`apps/web`, `apps/participant`, `apps/worker`, whose `artifact` is what a release ships, and `apps/worker-app` and `apps/worker-engine`, `build` and `dry-run`) |
+| [`scripts`](../../scripts) | Check and release scripts: `workers-check.sh`, `cloudflare-release.sh` (the release, proven), `cloudflare-deploy.sh` (the deploy, which each release ships as its `deploy.sh`) and `cloudflare-deploy-test.sh` (its checks). The apps build with their own `justfile`s (`apps/web`, `apps/participant`, `apps/worker`, and `apps/worker-app` and `apps/worker-engine`, `build`, `dry-run` and `artifact`, what a release ships of each) |
 | [`justfile`](../../justfile) | The checks, one recipe each; CI runs one job per recipe (see [Testing](../development/testing.md)) |
 | [`devenv.nix`](../../devenv.nix) | The development shell and `devenv up` (see [Getting started](../development/getting-started.md)) |
 | [`docs/plans`](../plans) | Specs for work in progress or just done, with the reasoning |

@@ -84,10 +84,45 @@ deny:
 workers:
     ./scripts/workers-check.sh
 
-# Build what a Cloudflare deployment deploys (apps/worker): what a release ships.
-cloudflare-artifact out="target/cloudflare/worker":
-    {{ just_executable() }} apps/worker/ artifact {{ absolute_path(out) }}
+# Build what a Cloudflare release ships, into one directory: VERSION (RAFI_VERSION, or git describe), app/ (apps/worker-app: build/ and assets/, without legal/), engine/ (apps/worker-engine: build/), migrations/sqlite/ (D1) and deploy.sh (scripts/cloudflare-deploy.sh).
+cloudflare-artifact out="target/cloudflare/release":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Nothing of an installation's is in it: its configuration (deploy/cloudflare's
+    # wrangler.toml and engine.wrangler.toml, which point into this layout as
+    # release/) and its legal documents, which deploy.sh copies into
+    # app/assets/legal/, are its own.
+    out="{{ absolute_path(out) }}"
+    version="${RAFI_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo unknown)}"
+    rm -rf "${out:?}"
+    mkdir -p "$out/migrations"
+    {{ just_executable() }} apps/worker-app/ artifact "$out/app"
+    {{ just_executable() }} apps/worker-engine/ artifact "$out/engine"
+    cp -R migrations/sqlite "$out/migrations/sqlite"
+    cp scripts/cloudflare-deploy.sh "$out/deploy.sh"
+    chmod 755 "$out/deploy.sh"
+    echo "$version" >"$out/VERSION"
+    echo "rafi-cloudflare: Rafi $version, $(du -sh "$out" | cut -f1) in $out"
 
-# Build and prove a Cloudflare release (scripts/cloudflare-release.sh): worker.tar.gz, and a dry deploy of it through deploy/cloudflare.
+# Package a Cloudflare release of `version`: the artifact as worker.tar.gz, its files at the top level, packed reproducibly (GNU tar), in `out`.
+cloudflare-tarball version out="target/cloudflare":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="{{ absolute_path(out) }}"
+    RAFI_VERSION="{{ version }}" {{ just_executable() }} cloudflare-artifact "$out/release"
+    rm -f "$out/worker.tar.gz"
+    # The same bytes from the same files (sorted, every time SOURCE_DATE_EPOCH
+    # or the commit's, no owner, modes 644 and 755, gzip without a name or
+    # a time): two builds of a tag can be compared. GNU tar (the devenv
+    # shell's). No leading directory: an installation unpacks it into its
+    # release/ as it is.
+    epoch="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || echo 0)}"
+    tar -C "$out/release" --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner --mode=u+rwX,go=rX \
+        --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
+        -cf - VERSION app deploy.sh engine migrations | gzip -9 -n >"$out/worker.tar.gz"
+    if command -v sha256sum >/dev/null; then sum="sha256sum"; else sum="shasum -a 256"; fi
+    echo "rafi-cloudflare: release {{ version }}: $out/worker.tar.gz, sha256:$($sum "$out/worker.tar.gz" | cut -d" " -f1)"
+
+# Build and prove a Cloudflare release (scripts/cloudflare-release.sh): worker.tar.gz, and its deploy.sh run (dry) from a copy of deploy/cloudflare.
 cloudflare-release version:
     ./scripts/cloudflare-release.sh {{ version }}

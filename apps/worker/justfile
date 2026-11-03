@@ -1,13 +1,12 @@
-# Rafi on Cloudflare Workers, the app and the raffle engine in one Worker (the
-# production Workers, apps/worker-app and apps/worker-engine, split them).
-# Locally (`just dev`): the static files, the D1 migrations, then `wrangler
-# dev --env dev` (dev auth, the mock chain, the raffle engine in the same
-# Worker under /restate), with the Worker's local
+# Rafi on Cloudflare Workers, the app and the raffle engine in one Worker, for
+# local development (production runs two, apps/worker-app and
+# apps/worker-engine, which a release ships: `just cloudflare-release` at the
+# repository root). Locally (`just dev`): the static files, the D1
+# migrations, then `wrangler dev --env dev` (dev auth, the mock chain, the
+# raffle engine in the same Worker under /restate), with the Worker's local
 # state (D1, Durable Objects) in .wrangler-state at the repository root, as
-# docs/development/getting-started.md has it. For a deployment: `just
-# artifact` is what a release ships and `just release` packages it, which
-# scripts/cloudflare-release.sh proves; the checks under wrangler dev are
-# `just workers`.
+# docs/development/getting-started.md has it. The static files are the app
+# Worker's too. The checks under wrangler dev are `just workers`.
 
 state := "../../.wrangler-state"
 
@@ -58,45 +57,3 @@ dev: migrate
 # Validate the production shape without deploying: the configuration, every binding, the bundle and the static files.
 dry-run:
     wrangler deploy --dry-run
-
-# Build what a Cloudflare deployment is made of, into one directory: build/ (the Worker), worker-assets/ (the static files, without legal/), migrations/sqlite/ (D1) and VERSION (RAFI_VERSION, or git describe).
-artifact out="../../target/cloudflare/worker": assets build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Nothing of an installation's is in it: its legal documents go into
-    # worker-assets/legal/ and its values into secrets at deploy time, which is
-    # deploy/cloudflare's job (its wrangler.toml points into this layout as
-    # worker/, where its `npm run build` unpacks a release). A release's
-    # tarball is this directory (scripts/cloudflare-release.sh, which
-    # .github/workflows/release.yaml runs); building from source is this into
-    # deploy/cloudflare's worker/ (docs/operations/cloudflare.md).
-    out="{{ out }}"
-    version="${RAFI_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo unknown)}"
-    rm -rf "${out:?}"
-    mkdir -p "$out/migrations"
-    cp -R build "$out/build"
-    rm -f "$out/build/.gitignore"
-    cp -R worker-assets "$out/worker-assets"
-    # The documents are the installation's, not Rafi's.
-    rm -rf "$out/worker-assets/legal"
-    cp -R ../../migrations/sqlite "$out/migrations/sqlite"
-    echo "$version" >"$out/VERSION"
-    echo "rafi-cloudflare: Rafi $version, $(du -sh "$out" | cut -f1) in $out"
-
-# Package a release of `version`: the artifact as worker.tar.gz, its files at the top level (packed reproducibly, with GNU tar), in `out` (what scripts/cloudflare-release.sh then proves, and .github/workflows/release.yaml publishes as the release's one asset).
-release version out="../../target/cloudflare":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    out="{{ out }}"
-    RAFI_VERSION="{{ version }}" {{ just_executable() }} artifact "$out/worker"
-    rm -f "$out/worker.tar.gz"
-    # The same bytes from the same files (sorted, every time SOURCE_DATE_EPOCH
-    # or the commit's, no owner, gzip without a name or a time): two builds
-    # of a tag can be compared. GNU tar (the devenv shell's). No leading
-    # directory: an installation unpacks it into its worker/ as it is.
-    epoch="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || echo 0)}"
-    tar -C "$out/worker" --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
-        --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
-        -cf - VERSION build migrations worker-assets | gzip -9 -n >"$out/worker.tar.gz"
-    if command -v sha256sum >/dev/null; then sum="sha256sum"; else sum="shasum -a 256"; fi
-    echo "rafi-cloudflare: release {{ version }}: $out/worker.tar.gz, sha256:$($sum "$out/worker.tar.gz" | cut -d' ' -f1)"

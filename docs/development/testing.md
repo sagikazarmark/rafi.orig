@@ -16,7 +16,7 @@ everything CI runs except the Workers checks.
 | `just audit` | `cargo audit`: `Cargo.lock` against the RustSec advisory database. Advisories are checked here alone; an accepted one is ignored, with its reason, in [`.cargo/audit.toml`](../../.cargo/audit.toml) |
 | `just deny` | `cargo deny check bans licenses sources` ([`deny.toml`](../../deny.toml)) |
 | `just workers` | [`./scripts/workers-check.sh`](#workers): everything under `wrangler dev`. Long, and it needs a Chromium, so `just ci` leaves it out |
-| `just cloudflare-artifact`, `just cloudflare-release <version>` | Not checks: what a release ships (`just artifact` in `apps/worker`), and the release itself (`scripts/cloudflare-release.sh`: `worker.tar.gz`, and a dry deploy of that tarball through `deploy/cloudflare`), which the release workflow runs on a tag |
+| `just cloudflare-artifact`, `just cloudflare-tarball <version>`, `just cloudflare-release <version>` | Not checks: what a release ships (the app and engine Workers, the D1 migrations and `deploy.sh`), packed as `worker.tar.gz`, and the release itself (`scripts/cloudflare-release.sh`: `deploy.sh`'s own checks, `worker.tar.gz`, and its `deploy.sh --dry-run` from a copy of `deploy/cloudflare`), which the release workflow runs on a tag |
 
 The end-to-end tests run the shell's `restate-server` (`RESTATE_SERVER_BIN`). Without it (outside the devenv shell,
 set it to a `restate-server` binary), they skip locally, and `just test` ends with a `SKIPPED:` line counting them;
@@ -184,11 +184,18 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   by then it has read `legal/terms.md` and `legal/privacy.md` through the assets binding (the refusal is a
   secret's, not theirs), and served without `legal/` it refuses naming them, from the 404 Workers Assets
   answers, which only the real runtime can show
-- `deploy/cloudflare`, what an installation deploys: its `wrangler.toml` agrees with the Worker's on the paths and
-  the required secrets, and the release of the version it pins is rehearsed the way a tag releases it
-  (`scripts/cloudflare-release.sh`): packaged, downloaded by a copy of the template with its own `npm run build`
-  (from a `file://` URL laid out as GitHub's, through `RAFI_RELEASE_URL`), which unpacks it into `worker/` and
-  copies `legal/` in, and deployed (dry)
+- `deploy/cloudflare`, what an installation deploys: its `wrangler.toml` and `engine.wrangler.toml` agree with
+  the production Workers' (`apps/worker-app`, `apps/worker-engine`) on the bindings, limits and required secrets,
+  and a release (of `apps/worker-app`'s version) is rehearsed the way a tag releases it
+  (`scripts/cloudflare-release.sh`): first the deploy script's own checks (`scripts/cloudflare-deploy-test.sh`: the
+  release's version and the engine Worker's versioned name, the two configurations read and cross-checked, broken
+  copies of them refused, which Restate deployments a prune would touch, and the "is anything live?" preflight
+  against a local D1, before the migrations, with nothing live and with a raffle open); then `worker.tar.gz`, its
+  layout checked, unpacked into a copy of the template's `release/`, whose `release/deploy.sh --dry-run` copies
+  `legal/` in and dry-deploys the app Worker (`ASSETS`, `DB`, `RAFFLE_ROOM`, the four rate limiters) and the engine
+  Worker under its versioned name (`DB`, `RAFFLE_ROOM` defined in `rafi`, the jurisdiction and the identity keys).
+  What `deploy.sh` does against Cloudflare and Restate (the preflight on the remote database, the migrations, the
+  deploys, the registration, the pruning) needs an account and is not run here
 
 Each `wrangler dev` gets a fixed port (8789 to 8792, 8787 for the evening), and the script refuses one something
 already listens on: a developer's own `wrangler dev`, or one left over from an earlier run, would answer in its
@@ -196,5 +203,4 @@ place. The evening's moves with `WORKERS_APP_PORT` (`WORKERS_APP_PORT=8797 just 
 development server's. CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from CI: a deploy is the operator's,
 from their copy of `deploy/cloudflare` ([Cloudflare](../operations/cloudflare.md)), and the dry runs above are
 its gate. A tag `v<version>` runs `just cloudflare-release` and publishes the release with `worker.tar.gz`, then
-checks the tarball's digest as GitHub computed it on upload against the build's (`.github/workflows/release.yaml`);
-`config.rafi_version` in `deploy/cloudflare/package.json` must be that version first.
+checks the tarball's digest as GitHub computed it on upload against the build's (`.github/workflows/release.yaml`).

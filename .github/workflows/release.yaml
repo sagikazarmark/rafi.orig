@@ -1,9 +1,10 @@
 name: Release
 
 # A tag v<version> builds the Cloudflare release (scripts/cloudflare-release.sh):
-# the artifact as worker.tar.gz, and a dry deploy of it through
-# deploy/cloudflare, downloaded and put in place by the template's own
-# `npm run build`, as an installation does it.
+# worker.tar.gz (the app and engine Workers, the D1 migrations and the deploy
+# script, deploy.sh), and a dry run of its deploy.sh from a copy of
+# deploy/cloudflare with the tarball unpacked into release/, as an
+# installation deploys it.
 #
 # The release job needs CI (ci.yaml, called here on the tag's commit): a
 # commit whose checks fail is never released; the job is skipped, not failed.
@@ -13,18 +14,14 @@ name: Release
 # gone wrong would otherwise be found by the first installation to upgrade);
 # then the draft published. The tarball has a build provenance attestation
 # (`gh attestation verify worker.tar.gz -R <repository>`), and is packed
-# reproducibly (apps/worker's `just release`: sorted, fixed times and
+# reproducibly (`just cloudflare-tarball`: sorted, fixed times, modes and
 # owners), so another build of the tag can be compared with it.
 #
 # A tag with a pre-release suffix (v0.1.0-rc.1) is published as a pre-release.
 # The notes are generated from the merged pull requests.
 #
-# deploy/cloudflare pins the version it downloads (config.rafi_version in its
-# package.json), and the script refuses a release it doesn't pin, so the
-# template on main always names a release that exists.
-#
 # Run by hand (workflow_dispatch), it rehearses: CI, the build and the dry
-# deploy of the version given (by default the one deploy/cloudflare pins),
+# deploy of the version given (by default apps/worker-app's crate version),
 # publishing nothing unless `dry_run` is off, which publishes the tag
 # v<version> that must already exist (to finish a release whose run failed).
 on:
@@ -33,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version (default: the one deploy/cloudflare pins)"
+        description: "The version (default: apps/worker-app's crate version)"
         required: false
         type: string
       dry_run:
@@ -88,7 +85,7 @@ jobs:
             publish=true
           else
             version="${INPUT_VERSION#v}"
-            [ -n "$version" ] || version="$(node -p "require('./deploy/cloudflare/package.json').config.rafi_version")"
+            [ -n "$version" ] || version="$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/worker-app/Cargo.toml | sed -n 1p)"
             if [ "$INPUT_DRY_RUN" = false ]; then publish=true; else publish=false; fi
           fi
           case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
