@@ -2,13 +2,14 @@
 # top level is the one-Worker production shape, which scripts/workers-check.sh
 # checks (a dry deploy, fail-closed without secrets); `[env.dev]` is local
 # development (`wrangler dev --env dev`), which stays one Worker. Production
-# runs two Workers over the same libraries, the app's (apps/worker-app) and
-# the engine's (apps/worker-engine), whose wrangler.toml files are their
-# shapes, and which a release ships.
+# runs three Workers over the same libraries, the app's (apps/worker-app),
+# the engine's (apps/worker-engine) and the rooms Worker (apps/worker-rooms,
+# the RaffleRoom class), whose wrangler.toml files are their shapes, and
+# which a release ships.
 #
 # Nothing of one installation's is in this file: it is the Worker's shape,
 # for development (`[env.dev]`, under `wrangler dev`) and CI (a dry deploy).
-# An installation deploys the two production Workers from its copy of
+# An installation deploys the three production Workers from its copy of
 # deploy/cloudflare/ (its configurations point at a release's files), with
 # its database ID in them; everything else of the installation's is a secret (`wrangler secret
 # bulk`; the Worker reads vars and secrets alike), listed under [secrets] so a

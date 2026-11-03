@@ -1,8 +1,8 @@
 # Rafi on Cloudflare Workers: one installation's configuration of the raffle
 # engine Worker, the Restate endpoint under /restate (every other path is a
-# 404). It writes draws to the app's database and nudges the app Worker's
-# RaffleRoom objects through a binding to that Worker's class (script_name).
-# This is the engine's shape as the Rafi repository ships it
+# 404). It writes draws to the app's database and nudges the raffles'
+# RaffleRoom objects through a binding to the rooms Worker's class
+# (script_name). This is the engine's shape as the Rafi repository ships it
 # (apps/worker-engine/wrangler.toml), pointed at a release's files in
 # release/.
 #
@@ -38,12 +38,12 @@ binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000"
 
-# The app Worker's live channels, nudged after each write. The class is the
-# app's: script_name is the app Worker's name (wrangler.toml's name).
+# The raffles' live channels, nudged after each write. The class is the rooms
+# Worker's: script_name is its name (rooms.wrangler.toml's name).
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
-script_name = "rafi"
+script_name = "rafi-rooms"
 
 # The engine's application log lines are kept in Workers Logs; the automatic
 # per-invocation records are not.
@@ -53,7 +53,8 @@ enabled = true
 [observability.logs]
 invocation_logs = false
 
-# RAFI_DO_JURISDICTION: the live channels' jurisdiction, the app's (wrangler.toml).
+# RAFI_DO_JURISDICTION: the live channels' jurisdiction, the rooms Worker's
+# and the app's (rooms.wrangler.toml, wrangler.toml).
 # RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS: your Restate environment's public key
 # (publickeyv1_..., in Restate Cloud's environment settings), or several,
 # comma separated, while you rotate it; the engine refuses every request

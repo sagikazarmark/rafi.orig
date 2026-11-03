@@ -1,0 +1,18 @@
+[package]
+name = "rafi-worker-rooms"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Rafi's rooms Worker on Cloudflare (production): the RaffleRoom Durable Object class, which the app and engine Workers bind by its name, and a 404 for every request (worker-build)"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Everything here is Workers glue: the crate is empty on other targets. Only
+# the class (`object`) and what it reads with (D1, the live view): nothing of
+# the app's or the engine's (`just clippy-wasm` checks).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rafi-cloudflare = { workspace = true, features = ["object"] }
+worker = { workspace = true }

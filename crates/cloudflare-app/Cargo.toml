@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rafi's app on Cloudflare Workers: rafi-server's routes behind Clerk, phones' live channels, the housekeeping run and the RaffleRoom Durable Object, for the app Worker and the local combined one"
+description = "Rafi's app on Cloudflare Workers: rafi-server's routes behind Clerk, phones' sockets to their raffle's RaffleRoom and the housekeeping run, for the app Worker and the local combined one"
 publish = false
 
 [features]
@@ -20,8 +20,10 @@ dioxus-clerk = { version = "0.8", features = ["server", "worker"] }
 http = "1"
 http-body-util = "0.1"
 rafi-app = { workspace = true }
-# `room`: the RaffleRoom class, which the app's Worker hosts.
-rafi-cloudflare = { workspace = true, features = ["room", "log"] }
+# `connect`: phones' sockets to their raffle's object, through the
+# RAFFLE_ROOM binding. Not `object`: the class is the rooms Worker's
+# (apps/worker-rooms), and a Worker linking it would export it.
+rafi-cloudflare = { workspace = true, features = ["connect", "log"] }
 rafi-engine = { workspace = true }
 rafi-live-server = { workspace = true }
 rafi-server = { workspace = true }

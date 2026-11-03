@@ -7,8 +7,13 @@
 //! storage keeps only the raffle ID, the highest version seen and the last
 //! published view; destroying it deletes all of that.
 //!
-//! Requests come from this Worker only (see [`crate::gate`]): the raffle ID
-//! travels in the `x-rafi-raffle` header.
+//! Requests come only from Rafi's Workers, through their `RAFFLE_ROOM`
+//! binding (see [`crate::gate`]): the raffle ID travels in the
+//! `x-rafi-raffle` header. In production the class is the rooms Worker's and
+//! the app's and the engine's Workers, deployed apart from it, send these
+//! requests, so a new object must still accept the previous release's
+//! (`/nudge`, `/destroy`, the forwarded socket upgrade): changing them takes
+//! two releases.
 
 use std::{cell::Cell, time::Duration};
 

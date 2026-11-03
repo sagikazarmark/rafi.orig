@@ -1,17 +1,17 @@
 //! Rafi's raffle engine Worker on Cloudflare (`worker-build`,
-//! `wrangler.toml`): production's half that Restate calls, the other being
-//! the app's Worker (`apps/worker-app`).
+//! `wrangler.toml`): production's Worker that Restate calls, beside the app's
+//! (`apps/worker-app`) and the rooms Worker (`apps/worker-rooms`).
 //!
 //! - `fetch`: `/restate` and `/restate/*` are the raffle engine's Restate
 //!   endpoint (`rafi_cloudflare_engine::serve`), whose SDK verifies each
 //!   request's signature first; every other path answers 404.
 //!
-//! Nothing else: no Cron, no `RaffleRoom` (it binds the app Worker's class
-//! with `script_name` and only nudges the objects), no app, no secrets. Its
-//! bindings are the app's D1 database and the objects' namespace; its vars
-//! are the Restate environment's public identity keys and the drand settings
-//! (`rafi_cloudflare_engine` lists them). Local development runs the engine
-//! inside the combined Worker (`apps/worker`).
+//! Nothing else: no Cron, no `RaffleRoom` (it binds the rooms Worker's class
+//! with `script_name = "rafi-rooms"` and only nudges the objects), no app, no
+//! secrets. Its bindings are the app's D1 database and the objects'
+//! namespace; its vars are the Restate environment's public identity keys
+//! and the drand settings (`rafi_cloudflare_engine` lists them). Local
+//! development runs the engine inside the combined Worker (`apps/worker`).
 
 #![cfg(target_arch = "wasm32")]
 

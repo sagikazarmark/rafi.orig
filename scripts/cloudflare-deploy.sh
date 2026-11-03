@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Deploys a release of Rafi to Cloudflare: the app Worker and the release's
-# own raffle engine Worker, registered with Restate. Each release ships this
-# file as its deploy.sh (the source is scripts/cloudflare-deploy.sh in the
-# Rafi repository), so the deploy logic is the release's own, pinned to it and
-# covered by its provenance attestation.
+# Deploys a release of Rafi to Cloudflare: the rooms Worker (the raffles' RaffleRoom Durable
+# Objects), the app Worker and the release's own raffle engine Worker, registered with
+# Restate. Each release ships this file as its deploy.sh (the source is
+# scripts/cloudflare-deploy.sh in the Rafi repository), so the deploy logic is the release's
+# own, pinned to it and covered by its provenance attestation.
 #
-# Usage, from the root of an installation's repository (a copy of
-# deploy/cloudflare: wrangler.toml, engine.wrangler.toml, legal/), with the
-# release unpacked into release/ (the directory this script is in is the
-# release; the two configurations point into it as release/...):
+# Usage, from the root of an installation's repository (a copy of deploy/cloudflare:
+# wrangler.toml, engine.wrangler.toml, rooms.wrangler.toml, legal/), with the release unpacked
+# into release/ (the directory this script is in is the release; the three configurations
+# point into it as release/...):
 #
 #   release/deploy.sh             deploy
-#   release/deploy.sh --dry-run   check, then `wrangler deploy --dry-run` both Workers; touches nothing remote
-#   release/deploy.sh --check     check the release and the two configurations only (no wrangler)
+#   release/deploy.sh --dry-run   check, then `wrangler deploy --dry-run` the three Workers; touches nothing remote
+#   release/deploy.sh --check     check the release and the three configurations only (no wrangler)
 #
 # Environment:
 #   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID   the account (Workers Scripts and D1 edit); not for --dry-run or --check
@@ -27,33 +27,36 @@
 #
 # Steps (each prints what it does):
 #   1. The release and the configurations. VERSION is a version (x.y.z, optionally -pre.release),
-#      RAFI_VERSION's if that is set. wrangler.toml (the app) and engine.wrangler.toml (the
-#      engine) are read with a small line parser: the keys below must be written as
-#      `key = "value"` (or 'value', or true/false) on one line, in the tables the template has
-#      them in ([[d1_databases]], [[durable_objects.bindings]], [assets], [vars]); [env.*] tables
-#      are ignored, as `wrangler deploy` without --env ignores them. They must agree: main, the
-#      assets and the migrations point into this release; both bind DB to one database_id; the
-#      engine binds RAFFLE_ROOM (class RaffleRoom) with script_name = the app's name; both say the
-#      same RAFI_DO_JURISDICTION; the engine is on workers.dev and has
-#      RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS. The placeholders (the zero database_id, an identity
-#      key that isn't publickeyv1_...) fail a deploy, and only warn for --dry-run and --check.
-#      The engine Worker's name is the engine configuration's name and the version, dots as
-#      dashes: rafi-engine-0-1-0.
+#      RAFI_VERSION's if that is set; DEPLOY_VERSION is this script's (below). wrangler.toml (the
+#      app), engine.wrangler.toml (the engine) and rooms.wrangler.toml (the rooms) are read with
+#      a small line parser: the keys below must be written as `key = "value"` (or 'value', or
+#      true/false) on one line, in the tables the template has them in ([[d1_databases]],
+#      [[durable_objects.bindings]], [assets], [vars]); [env.*] tables are ignored, as `wrangler
+#      deploy` without --env ignores them. They must agree: main, the assets and the migrations
+#      point into this release; all three bind DB to one database_id; the rooms Worker defines
+#      RAFFLE_ROOM (class RaffleRoom, no script_name) and has no address (workers_dev and
+#      preview_urls false), and the app and the engine bind it with script_name = the rooms
+#      Worker's name; all three say the same RAFI_DO_JURISDICTION; the engine is on workers.dev
+#      and has RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS. The placeholders (the zero database_id, an
+#      identity key that isn't publickeyv1_...) fail a deploy, and only warn for --dry-run and
+#      --check. The engine Worker's name is the engine configuration's name and the version,
+#      dots as dashes: rafi-engine-0-1-0.
 #   2. legal/terms.md and legal/privacy.md into the app's static files (legal/).
 #   3. Is anything live? The runbook's query (docs/operations/runbook.md, "Before a deploy") on
 #      the database: a deploy stops, listing the raffles, unless RAFI_DEPLOY_WHILE_LIVE=1. A
 #      database without the tables yet (the first deploy) has nothing live.
 #   4. The D1 migrations (`wrangler d1 migrations apply DB --remote`).
-#   5. The two Workers, the engine first, so the app never calls a handler the registered
-#      engine lacks; on the first install the app first, since the engine binds its RaffleRoom
-#      class (the app is "installed" once Cloudflare reports its script with a Durable Object
-#      migration tag). The engine Worker <name>-<version> on the account's workers.dev
-#      subdomain: if Restate already has https://<it>.<subdomain>.workers.dev/restate, it is
-#      left as it is (a registered engine is never redeployed: Restate keeps invocations on
-#      the deployment they started on); otherwise it is deployed (again, if an earlier run
-#      stopped before registering it: nothing can be pinned to it then) and registered (POST
-#      /deployments with "force": false, retried while the new Worker comes up). A failed
-#      registration fails the deploy, before the app is deployed (but on the first install).
+#   5. The three Workers: the rooms Worker first (`wrangler deploy`: it owns the RaffleRoom
+#      class and its Durable Object migrations, which the other two bind; a new one accepts the
+#      previous app's and engine's requests), then the engine, so the app never calls a handler
+#      the registered engine lacks, then the app. The engine Worker <name>-<version> on the
+#      account's workers.dev subdomain: if Restate already has
+#      https://<it>.<subdomain>.workers.dev/restate, it is left as it is (a registered engine
+#      is never redeployed: Restate keeps invocations on the deployment they started on);
+#      otherwise it is deployed (again, if an earlier run stopped before registering it:
+#      nothing can be pinned to it then) and registered (POST /deployments with "force":
+#      false, retried while the new Worker comes up). A failed registration fails the deploy,
+#      before the app is deployed.
 #   6. Pruning: every Restate deployment of this installation's engine Workers (an https URL
 #      <engine name>-<version>.<subdomain>.workers.dev/restate) but the current one that
 #      Restate reports Drained is removed from Restate (`restate deployments remove`, which
@@ -71,6 +74,10 @@
 # shellcheck disable=SC2016
 set -euo pipefail
 
+# The interface between an installation's workflows and this script (its usage, its environment,
+# what it expects of the installation's repository): the release ships it as DEPLOY_VERSION
+# (`just cloudflare-artifact` reads it from here), and it changes when they would no longer fit.
+DEPLOY_VERSION=1
 WRANGLER_VERSION=4.148.0
 RESTATE_CLI_VERSION=1.8.1
 # Registering a Worker deployed a moment ago: Restate's discovery may reach it before workers.dev
@@ -124,6 +131,15 @@ release_version() {
   printf '%s\n' "$version"
 }
 
+# The release's DEPLOY_VERSION, which must be this script's: a release packs both from one source.
+check_deploy_version() {
+  local file="$1/DEPLOY_VERSION" shipped
+  [ -f "$file" ] || die "$file is missing: is $1 an unpacked Rafi release?"
+  shipped="$(tr -d '[:space:]' <"$file")"
+  [ "$shipped" = "$DEPLOY_VERSION" ] \
+    || die "$file says '$shipped', but this deploy.sh is interface version $DEPLOY_VERSION: the release is broken"
+}
+
 # The engine Worker of a release: <engine name>-<version, dots as dashes, lower case>. A Worker
 # name is also its workers.dev host label: [a-z0-9-], at most 63 characters.
 engine_worker_name() {
@@ -134,21 +150,21 @@ engine_worker_name() {
   printf '%s\n' "$name"
 }
 
-# Reads and checks the two configurations: prints key=value lines (app_name, app_assets,
-# database_id, engine_base, jurisdiction), warnings on stderr. strict=1 refuses placeholders;
-# 0 warns about them.
+# Reads and checks the three configurations (read_configs <app> <engine> <rooms> <release>
+# <strict>): prints key=value lines (app_name, app_assets, database_id, engine_base, rooms_name,
+# jurisdiction), warnings on stderr. strict=1 refuses placeholders; 0 warns about them.
 read_configs() {
-  node - "$1" "$2" "$3" "$4" <<'EOF'
+  node - "$1" "$2" "$3" "$4" "$5" <<'EOF'
 const fs = require("fs");
 const path = require("path");
-const [appFile, engineFile, release, strict] = process.argv.slice(2);
+const [appFile, engineFile, roomsFile, release, strict] = process.argv.slice(2);
 const errors = [];
 const warnings = [];
 
 // The few keys read here, as wrangler.toml has them: `key = "value"` on one line, in [table]
 // and [[array.of.tables]] sections. Anything else (numbers, arrays, inline tables, dotted keys)
 // is skipped; a key read here written in another form is an error rather than skipped.
-const READ = new Set(["name", "main", "workers_dev", "directory", "binding", "database_id",
+const READ = new Set(["name", "main", "workers_dev", "preview_urls", "directory", "binding", "database_id",
   "migrations_dir", "class_name", "script_name", "RAFI_DO_JURISDICTION",
   "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS"]);
 function parse(file) {
@@ -182,9 +198,11 @@ function parse(file) {
 
 const app = parse(appFile);
 const engine = parse(engineFile);
-if (!app || !engine) { console.error(errors.join("\n")); process.exit(1); }
+const rooms = parse(roomsFile);
+if (!app || !engine || !rooms) { console.error(errors.join("\n")); process.exit(1); }
 const appName = path.basename(appFile);
 const engineName = path.basename(engineFile);
+const roomsName = path.basename(roomsFile);
 
 // A path in a configuration, as wrangler resolves it: relative to the configuration's directory.
 function inRelease(file, value, key, expected, kind) {
@@ -213,37 +231,55 @@ function one(doc, array, file, binding, key = "binding") {
 }
 const workerName = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 
+// The rooms Worker: the RaffleRoom class's, reached only through the other two's bindings.
+if (!workerName.test(rooms.top.name ?? "")) errors.push(`${roomsName}: name is missing or not a Worker name (a-z, 0-9, -)`);
+inRelease(roomsFile, rooms.top.main, "main", "rooms/build/index.js", "file");
+if (rooms.top.workers_dev !== false) errors.push(`${roomsName}: workers_dev must be false (the rooms Worker has no address)`);
+if (rooms.top.preview_urls !== false) errors.push(`${roomsName}: preview_urls must be false (the rooms Worker has no address)`);
+const roomsDb = one(rooms, "d1_databases", roomsFile, "DB");
+const roomsRoom = one(rooms, "durable_objects.bindings", roomsFile, "RAFFLE_ROOM", "name");
+if (roomsRoom.class_name !== "RaffleRoom") errors.push(`${roomsName}: RAFFLE_ROOM's class_name must be "RaffleRoom"`);
+if ("script_name" in roomsRoom) errors.push(`${roomsName}: RAFFLE_ROOM is the rooms Worker's own class: no script_name`);
+const jurisdiction = rooms.tables.vars?.RAFI_DO_JURISDICTION;
+if (typeof jurisdiction !== "string" || jurisdiction === "") errors.push(`${roomsName}: [vars] RAFI_DO_JURISDICTION is missing`);
+
+// A Worker binding the rooms Worker's class, by its name.
+function bindsRooms(doc, file) {
+  const room = one(doc, "durable_objects.bindings", file, "RAFFLE_ROOM", "name");
+  if (room.class_name !== "RaffleRoom") errors.push(`${path.basename(file)}: RAFFLE_ROOM's class_name must be "RaffleRoom"`);
+  if (room.script_name !== rooms.top.name) {
+    errors.push(`${path.basename(file)}: RAFFLE_ROOM's script_name (${room.script_name}) must be the rooms Worker's name (${rooms.top.name})`);
+  }
+  const vars = doc.tables.vars ?? {};
+  if (vars.RAFI_DO_JURISDICTION !== jurisdiction) {
+    errors.push(`${path.basename(file)}: RAFI_DO_JURISDICTION (${vars.RAFI_DO_JURISDICTION}) must be the rooms Worker's (${jurisdiction})`);
+  }
+}
+
 // The app.
 if (!workerName.test(app.top.name ?? "")) errors.push(`${appName}: name is missing or not a Worker name (a-z, 0-9, -)`);
+else if (app.top.name === rooms.top.name) errors.push(`${appName}: name must differ from the rooms Worker's (${rooms.top.name})`);
 inRelease(appFile, app.top.main, "main", "app/build/index.js", "file");
 const assets = inRelease(appFile, app.tables.assets?.directory, "[assets] directory", "app/assets", "dir");
 const appDb = one(app, "d1_databases", appFile, "DB");
-inRelease(appFile, appDb.migrations_dir, "[[d1_databases]] migrations_dir", "migrations/sqlite", "dir");
-const appRoom = one(app, "durable_objects.bindings", appFile, "RAFFLE_ROOM", "name");
-if (appRoom.class_name !== "RaffleRoom") errors.push(`${appName}: RAFFLE_ROOM's class_name must be "RaffleRoom"`);
-if ("script_name" in appRoom) errors.push(`${appName}: RAFFLE_ROOM is the app's own class: no script_name`);
-const jurisdiction = app.tables.vars?.RAFI_DO_JURISDICTION;
-if (typeof jurisdiction !== "string" || jurisdiction === "") errors.push(`${appName}: [vars] RAFI_DO_JURISDICTION is missing`);
+inRelease(appFile, appDb.migrations_dir, "[[d1_databases]] migrations_dir", "migrations", "dir");
+bindsRooms(app, appFile);
+if (roomsDb.database_id !== appDb.database_id) {
+  errors.push(`${roomsName}: DB's database_id (${roomsDb.database_id}) isn't the app's (${appDb.database_id}): the rooms read the app's database`);
+}
 
-// The engine, and that it agrees with the app.
+// The engine, and that it agrees with the app and the rooms.
 if (!workerName.test(engine.top.name ?? "")) errors.push(`${engineName}: name is missing or not a Worker name (a-z, 0-9, -)`);
 else if (engine.top.name === app.top.name) errors.push(`${engineName}: name must differ from the app's (${app.top.name})`);
+else if (engine.top.name === rooms.top.name) errors.push(`${engineName}: name must differ from the rooms Worker's (${rooms.top.name})`);
 inRelease(engineFile, engine.top.main, "main", "engine/build/index.js", "file");
 if (engine.top.workers_dev !== true) errors.push(`${engineName}: workers_dev must be true (Restate calls the engine at its workers.dev address)`);
 const engineDb = one(engine, "d1_databases", engineFile, "DB");
 if (engineDb.database_id !== appDb.database_id) {
   errors.push(`${engineName}: DB's database_id (${engineDb.database_id}) isn't the app's (${appDb.database_id}): the engine writes the app's database`);
 }
-const engineRoom = one(engine, "durable_objects.bindings", engineFile, "RAFFLE_ROOM", "name");
-if (engineRoom.class_name !== "RaffleRoom") errors.push(`${engineName}: RAFFLE_ROOM's class_name must be "RaffleRoom"`);
-if (engineRoom.script_name !== app.top.name) {
-  errors.push(`${engineName}: RAFFLE_ROOM's script_name (${engineRoom.script_name}) must be the app Worker's name (${app.top.name})`);
-}
-const engineVars = engine.tables.vars ?? {};
-if (engineVars.RAFI_DO_JURISDICTION !== jurisdiction) {
-  errors.push(`${engineName}: RAFI_DO_JURISDICTION (${engineVars.RAFI_DO_JURISDICTION}) must be the app's (${jurisdiction})`);
-}
-const keys = engineVars.RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS;
+bindsRooms(engine, engineFile);
+const keys = (engine.tables.vars ?? {}).RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS;
 if (typeof keys !== "string") errors.push(`${engineName}: [vars] RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS is missing`);
 
 // The placeholders an installation replaces.
@@ -251,7 +287,7 @@ const placeholders = [];
 if (typeof appDb.database_id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(appDb.database_id)) {
   errors.push(`${appName}: DB's database_id is missing or not a D1 database ID`);
 } else if (appDb.database_id === "00000000-0000-0000-0000-000000000000") {
-  placeholders.push(`${appName}, ${engineName}: DB's database_id is the placeholder (wrangler d1 create)`);
+  placeholders.push(`${appName}, ${engineName}, ${roomsName}: DB's database_id is the placeholder (wrangler d1 create)`);
 }
 if (typeof keys === "string" && !keys.split(",").every((k) => /^publickeyv1_[A-Za-z0-9]+$/.test(k.trim()))) {
   placeholders.push(`${engineName}: RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS isn't a list of publickeyv1_... keys (the Restate environment's)`);
@@ -261,7 +297,7 @@ if (typeof keys === "string" && !keys.split(",").every((k) => /^publickeyv1_[A-Z
 for (const w of warnings) console.error(`warning: ${w}`);
 if (errors.length) { console.error(errors.map((e) => `error: ${e}`).join("\n")); process.exit(1); }
 const out = { app_name: app.top.name, app_assets: assets, database_id: appDb.database_id,
-  engine_base: engine.top.name, jurisdiction };
+  engine_base: engine.top.name, rooms_name: rooms.top.name, jurisdiction };
 for (const [k, v] of Object.entries(out)) {
   if (/[\n\r]/.test(v)) { console.error(`error: ${k} has a line break`); process.exit(1); }
   console.log(`${k}=${v}`);
@@ -269,7 +305,8 @@ for (const [k, v] of Object.entries(out)) {
 EOF
 }
 
-# Sets APP_NAME, APP_ASSETS, DATABASE_ID, ENGINE_BASE and JURISDICTION from read_configs.
+# Sets APP_NAME, APP_ASSETS, DATABASE_ID, ENGINE_BASE, ROOMS_NAME and JURISDICTION from
+# read_configs.
 load_configs() {
   local out key value
   out="$(read_configs "$@")" || die "the configurations don't fit this release (above)"
@@ -279,6 +316,7 @@ load_configs() {
       app_assets) APP_ASSETS="$value" ;;
       database_id) DATABASE_ID="$value" ;;
       engine_base) ENGINE_BASE="$value" ;;
+      rooms_name) ROOMS_NAME="$value" ;;
       jurisdiction) JURISDICTION="$value" ;;
     esac
   done <<<"$out"
@@ -464,6 +502,13 @@ deploy_engine() {
   ENGINE_DEPLOYMENT_ID="$REGISTERED_ID"
 }
 
+# The rooms Worker, always: it owns the RaffleRoom class and its Durable Object migrations, which
+# only `wrangler deploy` applies.
+deploy_rooms() {
+  step "rooms Worker $ROOMS_NAME"
+  run_wrangler deploy -c "$ROOMS_CONFIG" --message "Rafi $VERSION"
+}
+
 deploy_app() {
   local args=(deploy -c "$APP_CONFIG" --message "Rafi $VERSION")
   step "app Worker $APP_NAME"
@@ -565,15 +610,18 @@ prune() {
     }' "$ENGINE_BASE" "$ENGINE_NAME" "$known" || warn "couldn't read the account's Workers"
 }
 
+# The three Workers, in a deploy's order.
 dry_run() {
-  step "app Worker $APP_NAME: wrangler deploy --dry-run"
-  run_wrangler deploy --dry-run -c "$APP_CONFIG"
+  step "rooms Worker $ROOMS_NAME: wrangler deploy --dry-run"
+  run_wrangler deploy --dry-run -c "$ROOMS_CONFIG"
   step "engine Worker $ENGINE_NAME: wrangler deploy --dry-run"
   run_wrangler deploy --dry-run -c "$ENGINE_CONFIG" --name "$ENGINE_NAME"
+  step "app Worker $APP_NAME: wrangler deploy --dry-run"
+  run_wrangler deploy --dry-run -c "$APP_CONFIG"
 }
 
 main() {
-  local mode=deploy strict=1 app_state url registered
+  local mode=deploy strict=1 url registered
   case "${1:-}" in
     "") ;;
     --dry-run) mode=dry-run strict=0 ;;
@@ -595,12 +643,15 @@ main() {
   RELEASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
   APP_CONFIG="$PWD/wrangler.toml"
   ENGINE_CONFIG="$PWD/engine.wrangler.toml"
+  ROOMS_CONFIG="$PWD/rooms.wrangler.toml"
 
   step "release $RELEASE ($mode)"
   VERSION="$(release_version "$RELEASE")" || exit 1
-  load_configs "$APP_CONFIG" "$ENGINE_CONFIG" "$RELEASE" "$strict"
+  check_deploy_version "$RELEASE"
+  load_configs "$APP_CONFIG" "$ENGINE_CONFIG" "$ROOMS_CONFIG" "$RELEASE" "$strict"
   ENGINE_NAME="$(engine_worker_name "$ENGINE_BASE" "$VERSION")" || exit 1
-  say "Rafi $VERSION"
+  say "Rafi $VERSION (deploy interface $DEPLOY_VERSION)"
+  say "rooms Worker: $ROOMS_NAME ($ROOMS_CONFIG)"
   say "app Worker: $APP_NAME ($APP_CONFIG)"
   say "engine Worker: $ENGINE_NAME ($ENGINE_CONFIG, named $ENGINE_BASE there)"
   say "database: $DATABASE_ID; Durable Objects' jurisdiction: $JURISDICTION"
@@ -630,20 +681,14 @@ main() {
   step "D1 migrations"
   run_wrangler d1 migrations apply DB -c "$APP_CONFIG" --remote
 
-  app_state="$(cf_worker_state "$APP_NAME")" || exit 1
-  if [ "$app_state" = installed ]; then
-    deploy_engine "$url"
-    deploy_app
-  else
-    say "the app Worker $APP_NAME isn't installed yet ($app_state): the app first, its RaffleRoom class for the engine to bind"
-    deploy_app
-    deploy_engine "$url"
-  fi
+  deploy_rooms
+  deploy_engine "$url"
+  deploy_app
 
   prune "$url" || warn "pruning failed; the deploy itself succeeded"
 
   step "deployed Rafi $VERSION"
-  say "app Worker $APP_NAME; engine Worker $ENGINE_NAME at $url (Restate deployment $ENGINE_DEPLOYMENT_ID)"
+  say "rooms Worker $ROOMS_NAME; app Worker $APP_NAME; engine Worker $ENGINE_NAME at $url (Restate deployment $ENGINE_DEPLOYMENT_ID)"
 }
 
 # Sourced (scripts/cloudflare-deploy-test.sh), it only defines its functions.

@@ -8,14 +8,16 @@
 # (scripts/cloudflare-deploy-test.sh: the configurations, the version, the
 # engine Worker's name, which deployments a prune touches, the "is anything
 # live?" preflight on a local D1). Then the release (`just
-# cloudflare-tarball`: worker.tar.gz, its files at the top level: VERSION,
-# app/, engine/, migrations/sqlite/, deploy.sh), its layout checked; then a
-# copy of deploy/cloudflare with the tarball unpacked into its release/, as an
-# installation's workflow unpacks it, runs `release/deploy.sh --dry-run`:
-# deploy.sh's checks of the release and the two configurations (the template's
-# placeholders only warn in a dry run), legal/ copied in, and `wrangler deploy
-# --dry-run` of the app Worker and of the engine Worker under its versioned
-# name, whose bindings are checked here. .github/workflows/release.yaml runs
+# cloudflare-tarball`: worker.tar.gz, its files at the top level:
+# DEPLOY_VERSION, VERSION, app/, engine/build/, rooms/build/, migrations/,
+# deploy.sh), its layout and each Worker's exports checked (RaffleRoom the
+# rooms Worker's alone); then a copy of deploy/cloudflare with the tarball
+# unpacked into its release/, as an installation's workflow unpacks it, runs
+# `release/deploy.sh --dry-run`: deploy.sh's checks of the release and the
+# three configurations (the template's placeholders only warn in a dry run),
+# legal/ copied in, and `wrangler deploy --dry-run` of the rooms Worker, the
+# engine Worker under its versioned name and the app Worker, whose bindings
+# are checked here. .github/workflows/release.yaml runs
 # this on a tag and attaches <out dir>/worker.tar.gz; scripts/workers-check.sh
 # runs it too, so CI rehearses a release on every push; running it by hand
 # does too.
@@ -79,13 +81,19 @@ $SHA256 "$OUT/worker.tar.gz"
 # What an installation's release/ is: these at the top level, nothing else,
 # and none of an installation's documents.
 listing="$(tar -tzf "$OUT/worker.tar.gz")"
-top="$(echo "$listing" | cut -d/ -f1 | sort -u | tr '\n' ' ')"
-[ "$top" = "VERSION app deploy.sh engine migrations " ] || fail "worker.tar.gz has at its top level: $top"
-for file in VERSION deploy.sh app/build/index.js app/assets/_headers engine/build/index.js migrations/sqlite/0001_init.sql; do
+top="$(echo "$listing" | cut -d/ -f1 | LC_ALL=C sort -u | tr '\n' ' ')"
+[ "$top" = "DEPLOY_VERSION VERSION app deploy.sh engine migrations rooms " ] || fail "worker.tar.gz has at its top level: $top"
+for file in DEPLOY_VERSION VERSION deploy.sh app/build/index.js app/assets/_headers engine/build/index.js \
+  rooms/build/index.js migrations/0001_init.sql; do
   grep -qx "$file" <<<"$listing" || fail "worker.tar.gz has no $file"
 done
+# engine/ and rooms/ are their build/ alone; migrations/ the D1 migrations' files alone.
+! grep -vE '^(engine|rooms)/(build/.*)?$' <<<"$(grep -E '^(engine|rooms)/' <<<"$listing")" \
+  || fail "worker.tar.gz has more than build/ in engine/ or rooms/"
+! grep -vE '^migrations/([0-9]{4}_[a-z0-9_]+\.sql)?$' <<<"$(grep '^migrations/' <<<"$listing")" \
+  || fail "worker.tar.gz has more than the D1 migrations' .sql files in migrations/"
 ! grep -q '^app/assets/legal' <<<"$listing" || fail "worker.tar.gz has app/assets/legal/: an installation's"
-echo "ok   worker.tar.gz: VERSION, app/, engine/, migrations/sqlite/ and deploy.sh"
+echo "ok   worker.tar.gz: DEPLOY_VERSION, VERSION, app/, engine/build/, rooms/build/, migrations/ and deploy.sh"
 
 step "deploy/cloudflare deploys it (dry run)"
 installation="$OUT/installation"
@@ -96,6 +104,27 @@ mkdir -p "$installation/release"
 tar -xzf "$OUT/worker.tar.gz" -C "$installation/release"
 shipped="$(cat "$installation/release/VERSION")"
 [ "$shipped" = "$VERSION" ] || fail "the release unpacked says it is $shipped, not $VERSION"
+interface="$(sed -n 's/^DEPLOY_VERSION=\([0-9][0-9]*\)$/\1/p' "$ROOT/scripts/cloudflare-deploy.sh")"
+[ "$(cat "$installation/release/DEPLOY_VERSION")" = "$interface" ] \
+  || fail "the release's DEPLOY_VERSION is '$(cat "$installation/release/DEPLOY_VERSION")', not deploy.sh's $interface"
+echo "ok   DEPLOY_VERSION $interface, deploy.sh's"
+# Each Worker's module exports (worker-build's index.js ends in one export
+# list): the RaffleRoom class is the rooms Worker's alone, since a Worker
+# exporting it would host a second class of that name.
+exports() {
+  grep -o 'export *{[^}]*}' "$installation/release/$1/build/index.js" | tail -1 \
+    | sed 's/^export *{//; s/}$//' | tr ',' '\n' | sed 's/.* as //; s/^ *//; s/ *$//' | LC_ALL=C sort | paste -sd ' ' -
+}
+for worker in app engine rooms; do
+  list="$(exports "$worker")"
+  grep -qw default <<<"$list" || fail "the $worker Worker exports no default handler: $list"
+  if [ "$worker" = rooms ]; then
+    grep -qw RaffleRoom <<<"$list" || fail "the rooms Worker doesn't export RaffleRoom: $list"
+  else
+    ! grep -qw RaffleRoom <<<"$list" || fail "the $worker Worker exports RaffleRoom, the rooms Worker's class: $list"
+  fi
+  echo "ok   the $worker Worker exports: $list"
+done
 [ -x "$installation/release/deploy.sh" ] || fail "release/deploy.sh isn't executable"
 dry="$(cd "$installation" && WRANGLER="$WRANGLER" RAFI_VERSION="$VERSION" release/deploy.sh --dry-run 2>&1)" \
   || { echo "$dry" | tail -40 >&2; fail "release/deploy.sh --dry-run failed"; }
@@ -104,9 +133,16 @@ for doc in terms.md privacy.md; do
     || fail "deploy.sh didn't put legal/$doc into release/app/assets/legal/"
 done
 echo "ok   deploy.sh copied legal/ into release/app/assets/legal/"
-# Each Worker's part of the output, by deploy.sh's step lines.
-app="$(echo "$dry" | sed -n '/^==> app Worker rafi: wrangler deploy --dry-run/,/^==> engine Worker/p')"
-engine="$(echo "$dry" | sed -n "/^==> engine Worker $ENGINE_NAME: wrangler deploy --dry-run/,/^==> dry run of Rafi $VERSION done/p")"
+# Each Worker's part of the output, by deploy.sh's step lines: from its own to the next.
+section() {
+  echo "$dry" | awk -v head="==> $1: wrangler deploy --dry-run" '
+    index($0, "==> ") == 1 { inside = ($0 == head) }
+    inside'
+}
+rooms="$(section "rooms Worker rafi-rooms")"
+app="$(section "app Worker rafi")"
+engine="$(section "engine Worker $ENGINE_NAME")"
+[ -n "$rooms" ] || { echo "$dry" | tail -40 >&2; fail "no dry deploy of the rooms Worker rafi-rooms"; }
 [ -n "$app" ] || { echo "$dry" | tail -40 >&2; fail "no dry deploy of the app Worker rafi"; }
 [ -n "$engine" ] || { echo "$dry" | tail -40 >&2; fail "no dry deploy of the engine Worker $ENGINE_NAME (a versioned name)"; }
 # expect <what> <output> <binding line patterns...>
@@ -117,14 +153,19 @@ expect() {
     grep -qE "$pattern" <<<"$output" || { echo "$output" | tail -30 >&2; fail "$what: no binding matching '$pattern'"; }
   done
 }
-expect "the app Worker" "$app" '^env\.ASSETS ' '^env\.DB \(rafi\) ' '^env\.RAFFLE_ROOM \(RaffleRoom\) ' \
+expect "the rooms Worker" "$rooms" '^env\.DB \(rafi\) ' '^env\.RAFFLE_ROOM \(RaffleRoom\) ' '^env\.RAFI_DO_JURISDICTION \("eu"\) '
+! grep -qE '^env\.(ASSETS|[A-Z_]+_LIMITER|RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS) ' <<<"$rooms" \
+  || fail "the rooms Worker binds the app's or the engine's"
+! grep -qE '^env\.RAFFLE_ROOM \(RaffleRoom, defined in ' <<<"$rooms" || fail "the rooms Worker binds another Worker's RaffleRoom"
+expect "the app Worker" "$app" '^env\.ASSETS ' '^env\.DB \(rafi\) ' '^env\.RAFFLE_ROOM \(RaffleRoom, defined in rafi-rooms\) ' \
   '^env\.JOIN_PER_RAFFLE_LIMITER ' '^env\.JOIN_PER_EMAIL_LIMITER ' '^env\.CONNECT_LIMITER ' '^env\.ADD_LIMITER ' \
   '^env\.RAFI_DO_JURISDICTION \("eu"\) '
-expect "the engine Worker" "$engine" '^env\.DB \(rafi\) ' '^env\.RAFFLE_ROOM \(RaffleRoom, defined in rafi\) ' \
+expect "the engine Worker" "$engine" '^env\.DB \(rafi\) ' '^env\.RAFFLE_ROOM \(RaffleRoom, defined in rafi-rooms\) ' \
   '^env\.RAFI_DO_JURISDICTION \("eu"\) ' '^env\.RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS '
 ! grep -qE '^env\.(ASSETS|[A-Z_]+_LIMITER) ' <<<"$engine" || fail "the engine Worker binds the app's assets or limits"
-echo "ok   the app Worker rafi: ASSETS, DB, RAFFLE_ROOM, the four rate limiters, RAFI_DO_JURISDICTION"
-echo "ok   the engine Worker $ENGINE_NAME: DB, RAFFLE_ROOM (rafi's), RAFI_DO_JURISDICTION, RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS"
+echo "ok   the rooms Worker rafi-rooms: DB, RAFFLE_ROOM (its own), RAFI_DO_JURISDICTION"
+echo "ok   the app Worker rafi: ASSETS, DB, RAFFLE_ROOM (rafi-rooms'), the four rate limiters, RAFI_DO_JURISDICTION"
+echo "ok   the engine Worker $ENGINE_NAME: DB, RAFFLE_ROOM (rafi-rooms'), RAFI_DO_JURISDICTION, RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS"
 rm -rf "$installation"
 
 step "release $VERSION: $OUT/worker.tar.gz"

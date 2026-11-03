@@ -1,16 +1,18 @@
 # Rafi on Cloudflare Workers: one installation's configuration of the app
-# Worker (the web app and its API, the live channels, the housekeeping Cron).
-# The raffle engine is a second Worker (engine.wrangler.toml), one per
-# release. This is the app Worker's shape as the Rafi repository ships it
+# Worker (the web app and its API, phones' live-channel sockets, the
+# housekeeping Cron). The raffle engine is a second Worker
+# (engine.wrangler.toml), one per release, and the raffles' live channels a
+# third (rooms.wrangler.toml). This is the app Worker's shape as the Rafi repository ships it
 # (apps/worker-app/wrangler.toml), pointed at a release's files in release/
 # (the release unpacked there, its deploy.sh copying legal/ in), with your
 # database and domain in place of the placeholders. Everything else of yours
 # is a secret or a file in legal/. `release/deploy.sh` (which
 # .github/workflows/deploy.yml runs on every push) checks this file against
-# engine.wrangler.toml and the release, applies the D1 migrations and
-# deploys both Workers; write the keys it reads (name, main, directory,
-# binding, database_id, migrations_dir, class_name, RAFI_DO_JURISDICTION) as
-# `key = "value"` on one line, as they are here.
+# engine.wrangler.toml, rooms.wrangler.toml and the release, applies the D1
+# migrations and deploys the three Workers; write the keys it reads (name,
+# main, directory, binding, database_id, migrations_dir, class_name,
+# script_name, RAFI_DO_JURISDICTION) as `key = "value"` on one line, as they
+# are here.
 #
 # Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
 
@@ -36,23 +38,22 @@ directory = "release/app/assets"
 binding = "ASSETS"
 
 # Your database: `wrangler d1 create rafi --jurisdiction eu`, and paste the ID
-# here and in engine.wrangler.toml (the engine writes draws to it). The
-# migrations run before each deploy (deploy.sh).
+# here, in engine.wrangler.toml (the engine writes draws to it) and in
+# rooms.wrangler.toml (the live channels read it). The migrations run before
+# each deploy (deploy.sh).
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000"
-migrations_dir = "release/migrations/sqlite"
+migrations_dir = "release/migrations"
 
 # One live channel per raffle, in the jurisdiction RAFI_DO_JURISDICTION names.
-# The class is this Worker's; the engine binds it by this Worker's name.
+# The class is the rooms Worker's: script_name is its name
+# (rooms.wrangler.toml's name).
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["RaffleRoom"]
+script_name = "rafi-rooms"
 
 # Soft limits on joining and on the organizer's adds (approximate, per
 # location). Keys are never IP addresses: a venue shares one. The hard limit
@@ -93,7 +94,7 @@ enabled = true
 invocation_logs = false
 
 # Where the live channels' Durable Objects live: "eu", "fedramp", or "none".
-# engine.wrangler.toml says the same.
+# engine.wrangler.toml and rooms.wrangler.toml say the same.
 [vars]
 RAFI_DO_JURISDICTION = "eu"
 

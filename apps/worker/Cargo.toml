@@ -18,7 +18,9 @@ dev = ["rafi-cloudflare-app/dev", "rafi-cloudflare-engine/dev"]
 # Everything here is Workers glue: the crate is empty on other targets.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 http = "1"
-rafi-cloudflare = { workspace = true }
+# `object`: the RaffleRoom class is this Worker's own (production's is the
+# rooms Worker's, apps/worker-rooms).
+rafi-cloudflare = { workspace = true, features = ["object"] }
 rafi-cloudflare-app = { workspace = true }
 rafi-cloudflare-engine = { workspace = true }
 worker = { workspace = true, features = ["http"] }

@@ -1,6 +1,6 @@
 # Rafi on Cloudflare Workers, the app and the raffle engine in one Worker, for
-# local development (production runs two, apps/worker-app and
-# apps/worker-engine, which a release ships: `just cloudflare-release` at the
+# local development (production runs three, apps/worker-app,
+# apps/worker-engine and apps/worker-rooms, which a release ships: `just cloudflare-release` at the
 # repository root). Locally (`just dev`): the static files, the D1
 # migrations, then `wrangler dev --env dev` (dev auth, the mock chain, the
 # raffle engine in the same Worker under /restate), with the Worker's local

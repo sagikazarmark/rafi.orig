@@ -5,7 +5,7 @@
 //!
 //! - [`serve`]:
 //!   - `/partyline/raffle/{id}`: phones' live-channel sockets go to the
-//!     raffle's [`RaffleRoom`] (`rafi_cloudflare::connect`);
+//!     raffle's `RaffleRoom` (`rafi_cloudflare::connect`);
 //!   - everything else: the same axum routes as the native server
 //!     ([`rafi_server::routes`]), with the web app's shell (`SHELL`) at
 //!     every path they don't answer, behind Clerk, with Cloudflare's Ray ID
@@ -23,8 +23,11 @@
 //!   (`rafi_app::housekeeping::run`), exported by the entry crate with
 //!   [`export_scheduled!`]; a run that fails, or can't start, fails the
 //!   invocation.
-//! - [`RaffleRoom`] is re-exported from here, with the `room` feature of
-//!   `rafi-cloudflare`, so the class lives in any Worker linking this crate.
+//!
+//! The `RaffleRoom` class isn't here: phones' sockets reach the objects
+//! through the `RAFFLE_ROOM` binding (`rafi-cloudflare`'s `connect`
+//! feature), whose class is the rooms Worker's in production
+//! (`apps/worker-rooms`) and the combined Worker's own locally.
 //!
 //! Nothing of an installation's is compiled in, so one build of the Worker
 //! serves every installation: its values are the Worker's secrets and vars
@@ -55,7 +58,6 @@ use std::{cell::OnceCell, sync::Arc};
 use axum::Router;
 pub use axum::body::Body;
 use dioxus_clerk::server::ClerkAuthLayerConfig;
-pub use rafi_cloudflare::RaffleRoom;
 use rafi_cloudflare::{DurableObjects, lookup};
 use tower_service::Service;
 use worker::{Env, HttpRequest};

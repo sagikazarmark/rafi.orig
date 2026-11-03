@@ -1,0 +1,27 @@
+# Rafi's rooms Worker (production): the raffles' RaffleRoom Durable Object
+# class, which the app Worker (apps/worker-app) and the engine Worker
+# (apps/worker-engine) bind by its name, `rafi-rooms`. Local development hosts
+# the class in the combined Worker (apps/worker).
+
+# List the recipes.
+[private]
+default:
+    @just --list --unsorted
+
+# Build the Worker as `wrangler deploy` builds it.
+build:
+    worker-build --release
+
+# Validate the Worker's shape without deploying: the configuration, every binding and the bundle.
+dry-run:
+    wrangler deploy --dry-run
+
+# The rooms Worker as a release ships it, into `out` (a release's rooms/): build/ (the Worker).
+artifact out: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="{{ out }}"
+    rm -rf "${out:?}"
+    mkdir -p "$out"
+    cp -R build "$out/build"
+    rm -f "$out/build/.gitignore"

@@ -21,13 +21,15 @@
 #      can't run open; it has read the legal documents through the assets
 #      binding by then, and served without legal/ it refuses naming them.
 #      Needs dx too (the dry run uploads the assets);
-#   6. deploy/cloudflare, what an installation deploys: its wrangler.toml and
-#      engine.wrangler.toml agree with the production Workers'
-#      (apps/worker-app, apps/worker-engine) on the bindings, limits and
-#      required secrets, and a release (of apps/worker-app's version) is
-#      rehearsed the way a tag releases it (scripts/cloudflare-release.sh):
-#      deploy.sh's own checks, worker.tar.gz packaged, unpacked into a copy
-#      of the template's release/, and its deploy.sh run there (dry).
+#   6. deploy/cloudflare, what an installation deploys: its wrangler.toml,
+#      engine.wrangler.toml and rooms.wrangler.toml agree with the production
+#      Workers' (apps/worker-app, apps/worker-engine, apps/worker-rooms) on
+#      the bindings, limits, Durable Object migrations and required secrets,
+#      and a release (of apps/worker-app's version) is rehearsed the way a
+#      tag releases it (scripts/cloudflare-release.sh): deploy.sh's own
+#      checks, worker.tar.gz packaged, each Worker's exports checked, unpacked
+#      into a copy of the template's release/, and its deploy.sh run there
+#      (dry).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node, just,
 # dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the
@@ -284,7 +286,7 @@ if command -v dx >/dev/null; then
   echo "ok   without legal/ the production Worker refuses every request, naming the documents"
 
   step "deploy/cloudflare: the installation's shape, and its release rehearsed"
-  # The template's two files share the production Workers' shapes: their
+  # The template's three files share the production Workers' shapes: their
   # bindings, limits, Cron, addresses and required secrets. A route or a
   # secret added to one and not the other would deploy a Worker that 404s or
   # refuses; a limit or a class name changed in one alone would deploy a
@@ -299,7 +301,7 @@ if command -v dx >/dev/null; then
       -e '/^invocation_logs/p' -e 's/^\(RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS\) = .*/\1/p' -e '/^RAFI_[A-Z_]* = /p' \
       -e '/^required = \[$/,/^\]/p' "$1"
   }
-  for pair in worker-app:wrangler.toml worker-engine:engine.wrangler.toml; do
+  for pair in worker-app:wrangler.toml worker-engine:engine.wrangler.toml worker-rooms:rooms.wrangler.toml; do
     worker="apps/${pair%%:*}/wrangler.toml"
     template="deploy/cloudflare/${pair#*:}"
     if ! diff <(shape "$ROOT/$worker") <(shape "$ROOT/$template"); then

@@ -1,9 +1,10 @@
 //! Rafi on Cloudflare Workers for local development (`worker-build`,
 //! `wrangler.toml`): the one Worker, named `rafi`, hosting the app and the
 //! raffle engine, as `wrangler dev --env dev`, `just workers` and the devenv
-//! run it. Production runs them as two Workers, the app's
-//! (`apps/worker-app`) and the engine's (`apps/worker-engine`), over the
-//! same libraries; this one combines their dispatch and exports:
+//! run it. Production runs them as three Workers, the app's
+//! (`apps/worker-app`), the engine's (`apps/worker-engine`) and the rooms
+//! Worker (`apps/worker-rooms`, the `RaffleRoom` class), over the same
+//! libraries; this one combines their dispatch and exports:
 //!
 //! - `fetch`, in this order:
 //!   - `/restate/*`: the raffle engine's Restate endpoint
@@ -25,8 +26,8 @@
 //! Dev auth, the mock drand chain and running without Restate identity keys
 //! need the `dev` feature. The top level of `wrangler.toml` is a one-Worker
 //! production shape, which `scripts/workers-check.sh` builds and checks; a
-//! release ships the two production Workers (`apps/worker-app`,
-//! `apps/worker-engine`) instead.
+//! release ships the three production Workers (`apps/worker-app`,
+//! `apps/worker-engine`, `apps/worker-rooms`) instead.
 
 #![cfg(target_arch = "wasm32")]
 
