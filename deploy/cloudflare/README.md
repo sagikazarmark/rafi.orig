@@ -365,7 +365,9 @@ The Deploy workflow's jobs, each on a fresh runner with the same verified releas
 
 1. **Prepare the release**: downloads `worker.tar.gz` of `v<VERSION>` from Rafi's releases, refuses it unless its
    attestation says Rafi's release workflow built it from that tag on GitHub's runners, and checks it against your
-   repository (`VERSION`, the three configurations, the deploy interface);
+   repository (`VERSION`, the three configurations, the deploy interface), then against Restate and Cloudflare
+   (an older release than the one Restate runs is refused; so are secrets that don't work), before anything
+   touches production;
 2. **D1 migrations**: applies the release's migrations;
 3. **Rooms Worker**: deploys `rafi-rooms` (the `RaffleRoom` Durable Objects), only when its code or
    `rooms.wrangler.toml` changed;
@@ -373,7 +375,8 @@ The Deploy workflow's jobs, each on a fresh runner with the same verified releas
    (on the first deploy it is deployed directly), and this release's engine Worker, `rafi-engine-v0-1-0`, deployed
    at `https://rafi-engine-v0-1-0.<subdomain>.workers.dev/restate`;
 5. **Register the engine, deploy the app**: registers the engine with Restate (refusing a release older than the
-   one Restate runs), then deploys the app's new version with its routes and Cron.
+   one Restate runs once more, in case one was registered since), then deploys the app's new version with its
+   routes and Cron.
 
 `/healthz` answering `ok 0.1.0` means the app Worker has its secrets and documents; anything missing answers `500
 misconfigured` with the reason (the app Worker's logs have the whole of it). Then run a **test-mode raffle** end to
@@ -406,8 +409,8 @@ done
 ```
 
 **Never go back to an older release.** Migrations only go forward, so an older release meets a schema it doesn't
-know. The deploy refuses to register an engine older than the one Restate runs, but only in its last job, after the
-earlier ones have redeployed the older rooms Worker (when it differs). A bad release is fixed by the next one.
+know. The deploy refuses a release older than the one Restate runs in its first job, before touching anything: a
+`VERSION` set back fails at **Prepare the release** with nothing deployed. A bad release is fixed by the next one.
 
 ## What a deploy does to live raffles
 

@@ -14,6 +14,7 @@
 # it as release/...):
 #
 #   release/deploy.sh check             the release, VERSION, DEPLOY_VERSION and the configurations; nothing remote
+#   release/deploy.sh check-remote      check, then no downgrade (Restate's release) and the token works; reads only
 #   release/deploy.sh migrate           the D1 migrations
 #   release/deploy.sh deploy-rooms      the rooms Worker, unless its code and configuration are unchanged
 #   release/deploy.sh upload-app        the app Worker's version uploaded (deployed directly on a first install)
@@ -27,13 +28,14 @@
 #   RAFI_DEPLOY_VERSION   required: the deploy interface the installation's workflows are written
 #                         for; it must be this release's DEPLOY_VERSION (below)
 #   RAFI_VERSION          optional: the version the release must be
-#   RAFI_INSTANCE         register-engine, cleanup: the installation's name in Restate's deployment
-#                         metadata (the workflows: the repository, owner/name)
+#   RAFI_INSTANCE         check-remote, register-engine, cleanup: the installation's name in
+#                         Restate's deployment metadata (the workflows: the repository, owner/name)
 #   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID   the account; all but check and dry-run
 #                         (register-engine needs only the account ID, for the metadata)
-#   RESTATE_ADMIN_URL     register-engine, cleanup: the Restate environment's admin API
-#                         (https://<env>.env.<region>.restate.cloud:9070)
-#   RESTATE_AUTH_TOKEN    register-engine, cleanup: a Restate API key with the Admin role
+#   RESTATE_ADMIN_URL     check-remote, register-engine, cleanup: the Restate environment's admin
+#                         API (https://<env>.env.<region>.restate.cloud:9070)
+#   RESTATE_AUTH_TOKEN    check-remote, register-engine, cleanup: a Restate API key with the Admin
+#                         role
 #   RAFI_APP_PROMOTED, RAFI_APP_VERSION_ID   promote-app: upload-app's outputs
 #   RAFI_ENGINE_WORKER, RAFI_ENGINE_URL      register-engine: deploy-engine's outputs
 #   GITHUB_OUTPUT         when set, a subcommand's outputs are appended to it as key=value lines
@@ -61,6 +63,11 @@
 #   workers.dev and has RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS. The placeholders (the zero
 #   database_id, an identity key that isn't publickeyv1_...) are refused, and only warned about
 #   by dry-run.
+#   check-remote: what can stop a deploy, checked before it changes anything (the workflow's
+#     first job runs it): the downgrade guard (register-engine's, below: Restate runs no newer
+#     release of this installation's; none at all on a first install), then the token reads the
+#     account (its workers.dev subdomain, which deploy-engine needs). Restate unreachable, or a
+#     key or token that doesn't work, fails it. Reads only.
 #   migrate: `wrangler d1 migrations apply DB --remote` (the app's configuration).
 #   deploy-rooms: the rooms Worker's fingerprint is the sha256 of its bundle's files
 #     (release/rooms/build) and rooms.wrangler.toml; its tag, rooms-<32 hex digits of it>, is
@@ -80,7 +87,8 @@
 #     (rafi-engine-v0-1-0), every time (the same release is the same code, so a re-run changes
 #     nothing Restate relies on); outputs engine_worker and engine_url
 #     (https://<it>.<the account's workers.dev subdomain>.workers.dev/restate).
-#   register-engine: refuses a downgrade: the deployment Restate routes new Raffle and
+#   register-engine: refuses a downgrade (again, as check-remote did: another deploy may have
+#     registered a newer release since): the deployment Restate routes new Raffle and
 #     EngineInfo invocations to (GET /services), if its metadata says it is this installation's
 #     (app rafi, RAFI_INSTANCE, CLOUDFLARE_ACCOUNT_ID; GET /deployments), must not be of a newer
 #     release than this one (semantic versioning, pre-releases before their release); the same
@@ -638,11 +646,11 @@ cmd_deploy_engine() {
 }
 
 # The downgrade guard: reads Restate's services (stdin: GET /services, then a NUL, then GET
-# /deployments) and refuses (exit 3) when the latest deployment of one of this engine's services
-# is this installation's and of a newer release than <version>.
+# /deployments) and refuses (exit 3, <refusal> in the message) when the latest deployment of one
+# of this engine's services is this installation's and of a newer release than <version>.
 restate_guard() {
   node -e '
-    const [version, instance, account, services] = process.argv.slice(1);
+    const [version, instance, account, services, refusal] = process.argv.slice(1);
     const [servicesJson, deploymentsJson] = require("fs").readFileSync(0, "utf8").split("\0");
     function parse(v) {
       const m = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(v ?? "");
@@ -685,34 +693,63 @@ restate_guard() {
       const c = compare(mine, theirs);
       console.log(`    ${name}: on ${s.deployment_id}, Rafi ${m.version}${c === 0 ? " (this release: a re-run)" : ""}`);
       if (c < 0) {
-        console.error(`error: ${name} runs on Rafi ${m.version} (${s.deployment_id}), newer than ${version}: refusing to register an older engine (a downgrade). Set VERSION to ${m.version} or later.`);
+        console.error(`error: ${name} runs on Rafi ${m.version} (${s.deployment_id}), newer than ${version}: ${refusal}. Set VERSION to ${m.version} or later.`);
         refused = true;
       }
     }
     process.exit(refused ? 3 : 0);' "$@"
 }
 
+# A Restate admin API answer that isn't 200 (restate_failed <what> <response>), for a message.
+restate_failed() {
+  local status
+  status="$(status_of "$2")"
+  if [ "$status" = 000 ]; then
+    die "$1: no answer from $RESTATE_ADMIN_URL (RESTATE_ADMIN_URL: the environment's admin API, :9070)"
+  fi
+  die "$1: HTTP $status $(body_of "$2")"
+}
+
+# The downgrade guard (refuse_downgrade <what is refused>), check-remote's and register-engine's:
+# the latest deployment of each of the engine's services (GET /services) and its metadata (GET
+# /deployments) read, and exits 1 when one is this installation's and of a newer release.
+refuse_downgrade() {
+  local refusal="$1" services deployments status=0
+  step "Restate: the release it runs"
+  services="$(restate_api GET /services)"
+  [ "$(status_of "$services")" = 200 ] || restate_failed "Restate's services" "$services"
+  deployments="$(restate_api GET /deployments)"
+  [ "$(status_of "$deployments")" = 200 ] || restate_failed "Restate's deployments" "$deployments"
+  { body_of "$services"; printf '\0'; body_of "$deployments"; } \
+    | restate_guard "$VERSION" "$RAFI_INSTANCE" "$CLOUDFLARE_ACCOUNT_ID" "$ENGINE_SERVICES" "$refusal" || status=$?
+  case "$status" in
+    0) ;;
+    3) exit 1 ;;
+    *) die "couldn't read Restate's services and deployments" ;;
+  esac
+}
+
+cmd_check_remote() {
+  local subdomain
+  require_env CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RESTATE_ADMIN_URL RESTATE_AUTH_TOKEN RAFI_INSTANCE
+  refuse_downgrade "refusing to deploy an older release (a downgrade); nothing was deployed"
+  step "Cloudflare: the account $CLOUDFLARE_ACCOUNT_ID"
+  subdomain="$(cf_subdomain)" || exit 1
+  say "the token reads it: workers.dev subdomain $subdomain"
+  step "checked: Rafi $VERSION may be deployed here (nothing changed)"
+}
+
 cmd_register_engine() {
-  local worker url services deployments body resp status attempt id wait
+  local worker url body resp status attempt id wait
   require_env CLOUDFLARE_ACCOUNT_ID RESTATE_ADMIN_URL RESTATE_AUTH_TOKEN RAFI_INSTANCE RAFI_ENGINE_WORKER RAFI_ENGINE_URL
   worker="$RAFI_ENGINE_WORKER"
   url="$RAFI_ENGINE_URL"
   [ "$worker" = "$ENGINE_WORKER" ] || die "RAFI_ENGINE_WORKER is $worker, but this release's engine Worker is $ENGINE_WORKER"
   [[ "$url" =~ ^https://${worker}\.[a-z0-9-]+\.workers\.dev/restate$ ]] \
     || die "RAFI_ENGINE_URL is $url, not https://$worker.<subdomain>.workers.dev/restate"
-  step "Restate: the engine's services now"
-  services="$(restate_api GET /services)"
-  [ "$(status_of "$services")" = 200 ] || die "Restate's services: HTTP $(status_of "$services") $(body_of "$services")"
-  deployments="$(restate_api GET /deployments)"
-  [ "$(status_of "$deployments")" = 200 ] || die "Restate's deployments: HTTP $(status_of "$deployments") $(body_of "$deployments")"
-  status=0
-  { body_of "$services"; printf '\0'; body_of "$deployments"; } \
-    | restate_guard "$VERSION" "$RAFI_INSTANCE" "$CLOUDFLARE_ACCOUNT_ID" "$ENGINE_SERVICES" || status=$?
-  case "$status" in
-    0) ;;
-    3) exit 1 ;;
-    *) die "couldn't read Restate's services and deployments" ;;
-  esac
+  # check-remote refused a downgrade before anything was deployed; again here, for a newer
+  # release registered since (another run, by hand).
+  refuse_downgrade "refusing to register an older engine (a downgrade)"
 
   step "Restate: registering $url"
   body="$(node -e '
@@ -873,7 +910,7 @@ main() {
       return 0
       ;;
     dry-run) strict=0 ;;
-    check | migrate | deploy-rooms | upload-app | deploy-engine | register-engine | promote-app | cleanup) ;;
+    check | check-remote | migrate | deploy-rooms | upload-app | deploy-engine | register-engine | promote-app | cleanup) ;;
     *)
       usage >&2
       exit 2

@@ -114,7 +114,7 @@ and by hand (**Actions > Deploy > Run workflow**, `gh workflow run deploy.yaml`)
 
 | Job | Runs | Needs |
 |---|---|---|
-| **Prepare the release** | reads `VERSION`; `gh release download v<version>` of `worker.tar.gz`; `gh attestation verify` with `--signer-workflow github.com/<RAFI_REPOSITORY>/.github/workflows/release.yaml`, `--source-ref refs/tags/v<version>` and `--deny-self-hosted-runners`; unpacks it into `release/`; `deploy.sh check`; hands the tarball on as an artifact with its sha256 | nothing secret |
+| **Prepare the release** | reads `VERSION`; `gh release download v<version>` of `worker.tar.gz`; `gh attestation verify` with `--signer-workflow github.com/<RAFI_REPOSITORY>/.github/workflows/release.yaml`, `--source-ref refs/tags/v<version>` and `--deny-self-hosted-runners`; unpacks it into `release/`; `deploy.sh check`, then `deploy.sh check-remote`; hands the tarball on as an artifact with its sha256 | nothing secret for `check`; Restate, Cloudflare for `check-remote` |
 | **D1 migrations** | `deploy.sh migrate` | Cloudflare |
 | **Rooms Worker** | `deploy.sh deploy-rooms` | Cloudflare |
 | **App Worker (upload)** | `deploy.sh upload-app`; outputs `app_version_id` or `app_promoted` | Cloudflare |
@@ -122,12 +122,14 @@ and by hand (**Actions > Deploy > Run workflow**, `gh workflow run deploy.yaml`)
 | **Register the engine, deploy the app** | `deploy.sh register-engine`, then `deploy.sh promote-app` | Restate, the account ID; Cloudflare |
 
 Every later job checks the artifact against prepare's sha256 before unpacking it, so all of them deploy the bytes
-prepare verified. The order is the point: the migrations before any code that needs them, the class before the
-Workers binding it, and the engine registered before the app that calls it switches over, so the app never calls a
-handler the engine Restate runs lacks.
+prepare verified. The order is the point: everything that can refuse the deploy first (the release, the
+configurations, a release older than the one Restate runs, credentials that don't work), before anything touches
+production; the migrations before any code that needs them, the class before the Workers binding it, and the
+engine registered before the app that calls it switches over, so the app never calls a handler the engine Restate
+runs lacks.
 
-**`restate-cleanup.yaml`** runs daily at 04:37 UTC and by hand: a prepare job like deploy's, then `deploy.sh
-cleanup` ([below](#the-restate-cleanup)).
+**`restate-cleanup.yaml`** runs daily at 04:37 UTC and by hand: a prepare job like deploy's (without
+`check-remote`), then `deploy.sh cleanup` ([below](#the-restate-cleanup)).
 
 The two share the concurrency group `rafi` without cancelling: one deploy or cleanup at a time, a run waiting for
 the one in progress. GitHub keeps one waiting run per group, so a newer run replaces a waiting one, which shows as
@@ -145,11 +147,12 @@ header ([`scripts/cloudflare-deploy.sh`](../../scripts/cloudflare-deploy.sh)) is
 | Subcommand | Does | Outputs |
 |---|---|---|
 | `check` | The release's `VERSION` is the installation's (and `RAFI_VERSION`'s, when set); its `DEPLOY_VERSION` is `deploy.sh`'s and `RAFI_DEPLOY_VERSION`; the configurations fit (above). Every subcommand does this first. Nothing remote. | |
+| `check-remote` | Before anything is deployed, the downgrade check `register-engine` makes (below): a release older than the one Restate runs is refused; nothing registered (a first install) passes. Then the token reads the account's workers.dev subdomain. Restate unreachable, or a key or token that doesn't work, fails it. Reads only. | |
 | `migrate` | `wrangler d1 migrations apply DB --remote` | |
 | `deploy-rooms` | Fingerprints the rooms Worker (sha256 over its bundle and `rooms.wrangler.toml`, as the tag `rooms-<32 hex>`) and reads what the Worker serves (its latest deployment's versions and their `workers/tag` annotations). One version at 100 % with this tag: nothing deployed, the live channels keep their connections. Anything else (no Worker, another tag, a gradual deployment): `wrangler deploy --tag <it>`, which applies the class's migrations. | |
 | `upload-app` | Copies `legal/` into the app's static files. Refuses an app Worker that doesn't exist (its secrets come first). If a release has run on it (a version tagged `v<version>`, deployed or among its recent versions): `wrangler versions upload --tag v<version>`, not serving yet. Otherwise, a first install: `wrangler deploy`. | `app_version_id`, or `app_promoted=true` |
 | `deploy-engine` | Looks up the account's workers.dev subdomain, then `wrangler deploy --name rafi-engine-v<version> --tag v<version>`, every time (the same release is the same code). | `engine_worker`, `engine_url` |
-| `register-engine` | Refuses a downgrade: if the deployment Restate routes new `Raffle` and `EngineInfo` invocations to is this installation's (its metadata) and of a newer release, it stops. Then `POST /deployments` of the engine's URL, `"force": false`, with the metadata `app` (`rafi`), `instance`, `version`, `cloudflare_account` and `worker`; 200 (Restate had it) and 201 succeed, a 5xx or no answer is retried five times (a Worker deployed a moment ago), anything else fails. | |
+| `register-engine` | Refuses a downgrade (again, after `check-remote`, for a release registered since): if the deployment Restate routes new `Raffle` and `EngineInfo` invocations to is this installation's (its metadata) and of a newer release, it stops. Then `POST /deployments` of the engine's URL, `"force": false`, with the metadata `app` (`rafi`), `instance`, `version`, `cloudflare_account` and `worker`; 200 (Restate had it) and 201 succeed, a 5xx or no answer is retried five times (a Worker deployed a moment ago), anything else fails. | |
 | `promote-app` | After a first install, nothing. Otherwise `wrangler versions deploy <id>@100%`, then `wrangler triggers deploy` (the custom domain and the Cron, which a version upload doesn't apply). | |
 | `cleanup` | [Below](#the-restate-cleanup). | |
 | `dry-run` | `check` (placeholders only warned about), `legal/` copied in, `wrangler deploy --dry-run` of the three Workers. No credentials. | |
@@ -228,9 +231,10 @@ Restate Cloud's API keys each have a role.
   it the narrowest role the console offers that can call the ingress; if none narrower than **Full** is listed,
   **Full**.
 - **The workflows' key**, `RESTATE_AUTH_TOKEN`, a GitHub secret, with the **Admin** role, as Restate's deployment
-  guides say for registering: `register-engine` reads `GET /services` and `GET /deployments` and calls `POST
-  /deployments`; `cleanup` reads `GET /deployments`, `POST /query` (the pinned invocations), and runs the Restate CLI's
-  `deployments list` and `deployments remove` (with `RESTATE_ADMIN_URL` and `RESTATE_AUTH_TOKEN` in its environment).
+  guides say for registering: `check-remote` and `register-engine` read `GET /services` and `GET /deployments`,
+  and `register-engine` calls `POST /deployments`; `cleanup` reads `GET /deployments`, `POST /query` (the pinned
+  invocations), and runs the Restate CLI's `deployments list` and `deployments remove` (with `RESTATE_ADMIN_URL`
+  and `RESTATE_AUTH_TOKEN` in its environment).
 
 The engine's `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` is the environment's request identity public key
 (`publickeyv1_…`, **Developers > Security > HTTP endpoints** in Restate Cloud), not a key to call Restate with.
@@ -264,9 +268,10 @@ in the templates, are in [the operator's records](overview.md#the-operators-reco
 ## Upgrading
 
 Change `VERSION` and push, between events; never to an older release ([Upgrades](upgrades.md#database-migrations)):
-the migrations only go forward, and `register-engine` refuses an engine older than the one Restate runs. The release
-notes say when a configuration, `.prod.vars.example` or a secret changed shape, when the rooms Worker changed (that
-deploy drops the live connections), and when `DEPLOY_VERSION` changed.
+the migrations only go forward, and the deploy refuses a release older than the one Restate runs in its first job
+(`check-remote`), before touching anything. The release notes say when a configuration, `.prod.vars.example` or a
+secret changed shape, when the rooms Worker changed (that deploy drops the live connections), and when
+`DEPLOY_VERSION` changed.
 
 `DEPLOY_VERSION` is the interface between the workflows and the release's `deploy.sh`: its subcommands, their
 environment and outputs, and what it expects of the installation's repository. The workflows say which one they are
@@ -321,6 +326,7 @@ so the cleanup and the downgrade check see the same installation):
 RAFI_VERSION=<version> just cloudflare-artifact /path/to/your/installation/release
 cd /path/to/your/installation
 export RAFI_DEPLOY_VERSION=1 RAFI_INSTANCE=<owner>/<name> CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=…
+RESTATE_ADMIN_URL=… RESTATE_AUTH_TOKEN=… release/deploy.sh check-remote
 release/deploy.sh migrate
 release/deploy.sh deploy-rooms
 release/deploy.sh upload-app        # prints app_version_id=… (or app_promoted=true)
@@ -396,7 +402,9 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 | **App Worker**: wrangler names missing secrets | One of `[secrets] required` isn't set: `wrangler secret put <NAME>`. |
 | **Engine Worker**: `the account's workers.dev subdomain: HTTP …` | The account has no workers.dev subdomain (register it on the dashboard's **Workers & Pages** page), or the token lacks Workers Scripts. |
 | Any Cloudflare step: `Authentication error` (10000) or 403 | The token is missing a permission or the zone (above), expired, or rolled: replace the `CLOUDFLARE_API_TOKEN` secret. |
-| **Register the engine**: `refusing to register an older engine (a downgrade)` | `VERSION` is older than the release Restate runs. Set it to that release or later; never roll back. |
+| **Prepare the release** at **Check it against Restate and Cloudflare**: `refusing to deploy an older release (a downgrade)` | `VERSION` is older than the release Restate runs; nothing was deployed. Set it to that release or later; never roll back. |
+| **Prepare the release** at **Check it against Restate and Cloudflare**: `no answer from …`, 401 or 403 | `RESTATE_ADMIN_URL` isn't the environment's admin API (`:9070`), `RESTATE_AUTH_TOKEN` isn't an Admin-role key of it, or the Cloudflare token or account ID is wrong (the workers.dev subdomain lookup): fix the secret, run it again. |
+| **Register the engine**: `refusing to register an older engine (a downgrade)` | A newer release was registered after this run's first job checked: set `VERSION` to that release or later; never roll back. |
 | **Register the engine**: 401 or 403 | `RESTATE_AUTH_TOKEN` isn't an Admin-role key of this environment, or `RESTATE_ADMIN_URL` is another environment's (or the ingress, `:8080`). |
 | **Register the engine**: Restate couldn't discover the engine (at once, or after five attempts) | Restate couldn't reach the engine (workers.dev not serving it yet), or the engine refused the discovery because the identity key in `engine.wrangler.toml` isn't this environment's: check the engine Worker's logs, fix, re-run the failed jobs. |
 | A deploy shows as cancelled | A newer run replaced it while it waited (the concurrency group): run it again. |

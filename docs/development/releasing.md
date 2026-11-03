@@ -20,9 +20,9 @@ The combined Worker (`apps/worker`) is for local development only. Self-hosting 
 Installations deploy a release with GitHub Actions, from their own repository, a copy of `deploy/cloudflare`: its
 `VERSION` names the release, and its two workflows, `.github/workflows/deploy.yaml` and `restate-cleanup.yaml`,
 download that release's `worker.tar.gz` from this repository, verify its attestation (signed by `release.yaml`,
-from a run on the tag `v<version>`) and run its `deploy.sh`, one subcommand per job (`check`, `migrate`,
-`deploy-rooms`, `upload-app` and `deploy-engine`, `register-engine` and `promote-app`; `cleanup` daily). The
-workflows are thin and the installation's own; they say which deploy interface they are written for
+from a run on the tag `v<version>`) and run its `deploy.sh`, one subcommand per job (`check` and `check-remote`,
+`migrate`, `deploy-rooms`, `upload-app` and `deploy-engine`, `register-engine` and `promote-app`; `cleanup` daily).
+The workflows are thin and the installation's own; they say which deploy interface they are written for
 (`RAFI_DEPLOY_VERSION`), and `deploy.sh` refuses to run under another than its release's `DEPLOY_VERSION`, naming
 the template at the release's tag to copy them from. So an installation that copies `deploy/cloudflare` at a tag
 deploys that tag, and upgrading is changing `VERSION` (and, when `DEPLOY_VERSION` changed, copying the workflows).

@@ -10,8 +10,10 @@ name: Deploy
 #   1. prepare: downloads worker.tar.gz of v<VERSION> from the Rafi repository,
 #      refuses it unless its build provenance attestation says Rafi's release
 #      workflow (release.yaml) built it from that tag on GitHub's runners,
-#      checks it against this repository (deploy.sh check), and hands the
-#      verified tarball to the other jobs;
+#      checks it against this repository (deploy.sh check), refuses an older
+#      release than Restate runs and credentials that don't work
+#      (deploy.sh check-remote), before anything touches production, and
+#      hands the verified tarball to the other jobs;
 #   2. migrate: the D1 migrations;
 #   3. rooms: the rooms Worker, only when its code or rooms.wrangler.toml
 #      changed (a deploy of it drops every phone's live connection);
@@ -19,7 +21,8 @@ name: Deploy
 #      not serving yet (on a first install, deployed directly), and this
 #      release's engine Worker deployed;
 #   5. release: the engine registered with Restate (refusing an older
-#      release than Restate runs), then the app's new version deployed.
+#      release than Restate runs, again, in case one was registered since),
+#      then the app's new version deployed.
 # restate-cleanup.yaml deletes the engine Workers Restate has drained.
 #
 # Upgrading is changing VERSION and pushing. When a release changes how its
@@ -75,6 +78,10 @@ jobs:
   prepare:
     name: Prepare the release
     runs-on: ubuntu-latest
+    # A GitHub environment (Settings > Environments) to require an approval
+    # before each deploy, or to hold the secrets; name it on every job here
+    # that has this line (this one's check-remote uses the secrets too).
+    # environment: production
     timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -144,6 +151,18 @@ jobs:
           RAFI_VERSION: ${{ steps.version.outputs.version }}
         run: release/deploy.sh check
 
+      # Before anything touches production: an older release than Restate
+      # runs (VERSION set back) is refused here, and so are credentials that
+      # don't work.
+      - name: Check it against Restate and Cloudflare
+        env:
+          RAFI_VERSION: ${{ steps.version.outputs.version }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESTATE_ADMIN_URL: ${{ secrets.RESTATE_ADMIN_URL }}
+          RESTATE_AUTH_TOKEN: ${{ secrets.RESTATE_AUTH_TOKEN }}
+        run: release/deploy.sh check-remote
+
       - name: Hand it to the next jobs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -156,9 +175,6 @@ jobs:
     name: D1 migrations
     needs: prepare
     runs-on: ubuntu-latest
-    # A GitHub environment (Settings > Environments) to require an approval
-    # before each deploy, or to hold the secrets; name it on every job below
-    # that has this line.
     # environment: production
     timeout-minutes: 15
 

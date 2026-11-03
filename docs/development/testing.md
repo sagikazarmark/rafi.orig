@@ -196,7 +196,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   server: `check` (the release's and the installation's `VERSION`, `DEPLOY_VERSION` against the workflows', the
   engine Worker's versioned name, the three configurations and broken copies of them, placeholders), `migrate`,
   `deploy-rooms` skipping an unchanged fingerprint, `upload-app`'s first install and upgrade, `deploy-engine`'s name
-  and address, `register-engine`'s downgrade guard, metadata, `"force": false` and retries, `promote-app`, and
+  and address, `register-engine`'s downgrade guard, metadata, `"force": false` and retries, `check-remote`'s same
+  guard before anything is deployed (a first install, the same or a newer release passing, an older refused, an
+  unreachable Restate or a bad key or token failing, nothing but reads), `promote-app`, and
   `cleanup`'s filtering by metadata and its order, a Worker deleted before its deployment is removed, and stopping
   when a listing fails); then `worker.tar.gz`, its layout and each Worker's exports checked, unpacked into a copy of
   the template's `release/`, whose `release/deploy.sh dry-run` copies `legal/` in and dry-deploys the rooms Worker

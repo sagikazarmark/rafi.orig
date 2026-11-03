@@ -50,13 +50,12 @@ keys belong to a self-hosted Restate only if you configured request signing.
 written event types an older build can't read. A bad release is fixed by the next one: report it, and deploy the
 release that fixes it when it is out.
 
-On Cloudflare, don't set `VERSION` back: the deploy refuses to register an engine older than the one Restate runs
-(its downgrade check), but only in its last job, after the earlier ones have deployed the older release's rooms
-Worker (when it differs) and engine Worker and uploaded its app. Don't roll a Worker back by hand either (`wrangler
-rollback`, the dashboard's **Deployments**): the next deploy wouldn't know, the engine Restate runs would stay the
-newer release's, and an older rooms Worker could refuse the newer Workers' requests. A failed deploy is finished by
-running its failed jobs again, not undone. `/healthz` answers the version running. Natively the same holds: keep
-the newer binaries, and upgrade to the fix.
+On Cloudflare, don't set `VERSION` back: the deploy refuses a release older than the one Restate runs (its
+downgrade check) in its first job, before touching anything, so such a run fails at **Prepare the release** with
+nothing deployed. Don't roll a Worker back by hand either (`wrangler rollback`, the dashboard's **Deployments**):
+the next deploy wouldn't know, the engine Restate runs would stay the newer release's, and an older rooms Worker
+could refuse the newer Workers' requests. A failed deploy is finished by running its failed jobs again, not undone.
+`/healthz` answers the version running. Natively the same holds: keep the newer binaries, and upgrade to the fix.
 
 ## When the raffle engine is down during an event
 

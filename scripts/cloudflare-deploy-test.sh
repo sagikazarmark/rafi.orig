@@ -16,7 +16,10 @@
 #     (a version uploaded, app_version_id from wrangler's ND-JSON output), a missing Worker
 #     refused; deploy-engine's name and URL; register-engine's downgrade guard (semantic
 #     versioning with pre-releases), the metadata and "force": false it sends, 5xx retried,
-#     4xx failing; promote-app's two paths; cleanup's filtering by metadata, each Worker
+#     4xx failing; check-remote's same guard before anything is deployed (a first install, the
+#     same release or a newer one than Restate runs allowed, an older one refused), Restate
+#     unreachable or a key or token that doesn't work failing it, and nothing but reads;
+#     promote-app's two paths; cleanup's filtering by metadata, each Worker
 #     deleted before its deployment is removed, a Worker already gone, a listing failure
 #     stopping it before anything is deleted, and its report of what drains and what isn't
 #     this installation's.
@@ -515,7 +518,8 @@ REGISTERED='"uri":"https://rafi-engine-v0-1-0.acme.workers.dev/restate","force":
 # restate_state <Raffle's deployment's metadata> [<EngineInfo's>] [<register statuses>]
 restate_state() {
   state <<EOF
-{ "services": [ { "name": "Raffle", "deployment_id": "dp_raffle" }, { "name": "EngineInfo", "deployment_id": "dp_info" },
+{ "subdomain": "acme",
+  "services": [ { "name": "Raffle", "deployment_id": "dp_raffle" }, { "name": "EngineInfo", "deployment_id": "dp_info" },
                 { "name": "Other", "deployment_id": "dp_other" } ],
   "deployments": [ { "id": "dp_raffle", "uri": "https://x.acme.workers.dev/restate", "metadata": $1 },
                    { "id": "dp_info", "uri": "https://y.acme.workers.dev/restate", "metadata": ${2:-$1} },
@@ -610,6 +614,64 @@ for newer in 0.2.0-rc.11 0.2.0-rc.beta 0.2.0-rc.10.1 0.2.0; do
 done
 echo "0.1.0" >"$RELEASE/VERSION"
 echo "0.1.0" >"$INSTALL/VERSION"
+
+echo "== check-remote"
+# The deploy's first job: Restate's release read and the token tried, nothing changed.
+echo '{ "subdomain": "acme", "services": [], "deployments": [] }' | state
+ds check-remote
+ran "a first install (nothing registered): allowed" 0 "Raffle: not registered yet" "EngineInfo: not registered yet" \
+  "the token reads it: workers.dev subdomain acme" "checked: Rafi 0.1.0 may be deployed here"
+in_order "Restate's services and deployments, then the account" \
+  "http GET /restate/services" "http GET /restate/deployments" "http GET /cf/accounts/acct123/workers/subdomain"
+not_logged "nothing changed or deployed" "POST" "DELETE" "wrangler" "restate "
+restate_state "$(ours 0.1.0)"
+ds check-remote
+ran "the same release (a re-run): allowed" 0 "Rafi 0.1.0 (this release: a re-run)"
+for older in 0.0.9 0.1.0-rc.1; do
+  restate_state "$(ours "$older")"
+  ds check-remote
+  ran "a newer release than Restate's $older: allowed" 0 "Raffle: on dp_raffle, Rafi $older" "checked: Rafi 0.1.0"
+done
+for newer in 0.2.0 0.1.1-alpha; do
+  restate_state "$(ours "$newer")"
+  ds check-remote
+  ran "an older release than Restate's $newer: refused" 1 \
+    "Raffle runs on Rafi $newer (dp_raffle), newer than 0.1.0: refusing to deploy an older release (a downgrade); nothing was deployed" \
+    "Set VERSION to $newer or later"
+  not_logged "nothing past Restate after the refusal ($newer)" "/cf/" "wrangler" "POST"
+done
+restate_state "$(ours 0.1.0)" "$(ours 0.3.0)"
+ds check-remote
+ran "EngineInfo on a newer release: refused" 1 "EngineInfo runs on Rafi 0.3.0"
+restate_state '{ "app": "rafi", "instance": "other/raffles", "cloudflare_account": "acct123", "version": "9.0.0" }'
+ds check-remote
+ran "another installation's newer deployment: no guard" 0 "not a deployment of this installation"
+restate_state "$(ours 0.0.9)"
+ds check-remote RESTATE_ADMIN_URL=http://127.0.0.1:1/restate
+ran "Restate unreachable: failed" 1 "Restate's services: no answer from http://127.0.0.1:1/restate"
+if [ -s "$LOG" ]; then fail "something ran after Restate didn't answer: $(cat "$LOG")"; else pass "nothing else ran after Restate didn't answer"; fi
+state <<'EOF'
+{ "subdomain": "acme", "status": { "GET /restate/deployments": 503 } }
+EOF
+ds check-remote
+ran "Restate's deployments unreadable: failed" 1 "Restate's deployments: HTTP 503"
+not_logged "Cloudflare not asked when Restate fails" "/cf/"
+ds check-remote RESTATE_AUTH_TOKEN=wrong
+ran "a Restate key that doesn't work: failed" 1 "Restate's services: HTTP 401"
+restate_state "$(ours 0.0.9)"
+ds check-remote CLOUDFLARE_API_TOKEN=wrong
+ran "a Cloudflare token that doesn't work: failed" 1 "the account's workers.dev subdomain: HTTP 401" "Authentication error"
+not_logged "nothing deployed with a bad token" "wrangler" "POST"
+ds check-remote RAFI_INSTANCE=
+ran "no RAFI_INSTANCE: refused" 1 "not set: RAFI_INSTANCE"
+not_logged "nothing asked without it" "http"
+ds check-remote RESTATE_ADMIN_URL=
+ran "no RESTATE_ADMIN_URL: refused" 1 "not set: RESTATE_ADMIN_URL"
+sed -i.orig "s/$DB_ID/00000000-0000-0000-0000-000000000000/" "$APP" "$ENGINE" "$ROOMS"
+ds check-remote
+ran "the placeholders refused before any secret is used" 1 "database_id is the placeholder"
+if [ -s "$LOG" ]; then fail "check-remote asked with placeholders: $(cat "$LOG")"; else pass "nothing asked with placeholders"; fi
+restore
 
 echo "== promote-app"
 ds promote-app RAFI_APP_PROMOTED=true
