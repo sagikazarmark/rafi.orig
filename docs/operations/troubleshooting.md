@@ -66,9 +66,9 @@ Natively, set `RUST_LOG` (for example `RUST_LOG=info,rafi_server=debug`). Both b
 
 On Workers, the application's warnings and errors (an internal error behind a 500, a housekeeping step that failed,
 the hourly housekeeping report) go to the console, and Workers Logs keeps them. The automatic per-invocation
-records are deliberately off (`invocation_logs = false` in `wrangler.toml`): they would hold client IPs and
-cookies. `wrangler tail` shows the console lines live, and shows each request's details too while it runs,
-whatever the setting; use it while debugging, knowing that.
+records are deliberately off (`invocation_logs = false` in each Worker's configuration, `app.wrangler.toml` and the
+others): they would hold client IPs and cookies. `wrangler tail` shows the console lines live, and shows each
+request's details too while it runs, whatever the setting; use it while debugging, knowing that.
 
 ### Finding an organizer's error
 

@@ -3,15 +3,19 @@
 What an operator does when something happens: before a deploy, during an event, after a restore, after a breach.
 The commands are for Cloudflare Workers (`npx wrangler`, from your installation's repository, your copy of
 `deploy/cloudflare`); natively the same SQL runs against your SQLite file or Postgres database, and the secrets are
-the app's environment. On Cloudflare the deploys and the Restate cleanups are your repository's GitHub Actions runs
-(**Actions > Deploy**, **Actions > Restate cleanup**): each run's log is that run's, step by step.
+the app's environment. They use the template's names: the database `rafi` (its `database_name`) and the Workers
+`rafi-app`, `rafi-live` and `rafi-engine-v…`; an installation with names of its own, or one of several in a
+repository as a Wrangler environment (`rafi-eu`, `rafi-app-eu`; `CLOUDFLARE_ENV=eu` for the `-c app.wrangler.toml`
+commands), uses its own. On Cloudflare the deploys and the Restate cleanups are your repository's GitHub Actions
+runs (**Actions > Deploy**, **Actions > Restate cleanup**): each run's log is that run's, step by step, and its
+summary page says what it did.
 
 ## Before a deploy: is anything live?
 
 The [deploy freeze](upgrades.md#the-deploy-freeze) is about every organizer's raffles, not only yours, and the
-admin shows each organizer only their own. Nothing asks for you: on Cloudflare a push that changes `VERSION` (or a
-configuration, or `legal/`) deploys whatever is live. So before you push, or before you run the workflow by hand,
-ask the database:
+admin shows each organizer only their own. Nothing asks for you: on Cloudflare a push that changes the version file
+(or a configuration, or `legal/`) deploys whatever is live. So before you push, or before you run the workflow by
+hand, ask the database:
 
 ```sh
 wrangler d1 execute rafi --remote --command "
@@ -31,12 +35,12 @@ Rotate between events, never during one, and one secret at a time, checking `/he
 
 | Secret | How |
 |---|---|
-| `RAFI_POW_KEY` | `wrangler secret put RAFI_POW_KEY` with a new `openssl rand -hex 32`. Challenges phones are solving at that moment fail once; they fetch a new one. Never during an event. |
-| `CLERK_SECRET_KEY` | In Clerk, create a new secret key; `wrangler secret put CLERK_SECRET_KEY`; check an organizer can sign in; then revoke the old key in Clerk. |
+| `RAFI_POW_KEY` | `wrangler secret put RAFI_POW_KEY -c app.wrangler.toml` with a new `openssl rand -hex 32`. Challenges phones are solving at that moment fail once; they fetch a new one. Never during an event. |
+| `CLERK_SECRET_KEY` | In Clerk, create a new secret key; `wrangler secret put CLERK_SECRET_KEY -c app.wrangler.toml`; check an organizer can sign in; then revoke the old key in Clerk. |
 | `CLERK_PUBLISHABLE_KEY` | Changes only with the Clerk instance (a new domain): set it with the secret key, in the same deploy. Organizers sign in again. |
-| `RAFI_ENGINE_API_KEY` | In Restate Cloud, create a new API key with the app's role ([Cloudflare Workers](cloudflare.md#the-restate-keys)); `wrangler secret put RAFI_ENGINE_API_KEY`; run a test-mode draw; delete the old key. |
-| `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` (the engine's, in `engine.wrangler.toml`) | It takes a comma-separated list, for the overlap. Add the new public key next to the old one (`"publickeyv1_old,publickeyv1_new"`) and push: the deploy redeploys the current release's engine Worker in place with both keys (the same code at the same URL, so Restate sees nothing change). An older release's engine Worker still draining keeps the list it was deployed with, the old key alone: let the cleanup delete it first. Then have Restate sign with the new key, run a test-mode draw, and later remove the old key from the list and push. |
-| `RESTATE_AUTH_TOKEN` (the workflows', a GitHub secret) | In Restate Cloud, create a new API key with the Admin role; `gh secret set RESTATE_AUTH_TOKEN`; run the Restate cleanup by hand (`gh workflow run restate-cleanup.yaml`: it lists Restate's deployments and deletes only drained engines); delete the old key. |
+| `RAFI_ENGINE_API_KEY` | In Restate Cloud, create a new API key with the app's role ([Cloudflare Workers](cloudflare.md#the-restate-keys)); `wrangler secret put RAFI_ENGINE_API_KEY -c app.wrangler.toml`; run a test-mode draw; delete the old key. |
+| `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` (the engine's, in `engine.wrangler.toml`, or its `[env.<name>.vars]`) | It takes a comma-separated list, for the overlap. Add the new public key next to the old one (`"publickeyv1_old,publickeyv1_new"`) and push: the deploy redeploys the current release's engine Worker in place with both keys (the same code at the same URL, so Restate sees nothing change). An older release's engine Worker still draining keeps the list it was deployed with, the old key alone: let the cleanup remove it first. Then have Restate sign with the new key, run a test-mode draw, and later remove the old key from the list and push. |
+| `RESTATE_AUTH_TOKEN` (the workflows', a GitHub secret) | In Restate Cloud, create a new API key with the Admin role; `gh secret set RESTATE_AUTH_TOKEN` (`--env <name>` when the secrets are in a GitHub environment); run the Restate cleanup by hand (`gh workflow run restate-cleanup.yaml`: it lists Restate's deployments and removes only drained engines); delete the old key. |
 | `CLOUDFLARE_API_TOKEN` (the workflows', a GitHub secret) | Roll it, which invalidates the old value at once, so between runs: `cf accounts tokens list` for its ID, then `cf accounts tokens roll <ID> --force \| jq -j . \| gh secret set CLOUDFLARE_API_TOKEN` (or the dashboard's **Account API tokens**, the token's **Roll**, and paste it into `gh secret set CLOUDFLARE_API_TOKEN`). Or create a new one with the same permissions ([Cloudflare Workers](cloudflare.md#the-api-token)), replace the secret and delete the old one. Then run the Deploy workflow by hand: it redeploys the same release. |
 | `RAFI_OPERATOR_*`, `RAFI_*_VERSION` | Not secrets to rotate: changed when the operator or the documents change ([the operator's records](overview.md#the-operators-records)). |
 
@@ -50,10 +54,10 @@ keys belong to a self-hosted Restate only if you configured request signing.
 written event types an older build can't read. A bad release is fixed by the next one: report it, and deploy the
 release that fixes it when it is out.
 
-On Cloudflare, don't set `VERSION` back: the deploy refuses a release older than the one Restate runs (its
+On Cloudflare, don't set the version file back: the deploy refuses a release older than the one Restate runs (its
 downgrade check) in its first job, before touching anything, so such a run fails at **Prepare the release** with
 nothing deployed. Don't roll a Worker back by hand either (`wrangler rollback`, the dashboard's **Deployments**):
-the next deploy wouldn't know, the engine Restate runs would stay the newer release's, and an older rooms Worker
+the next deploy wouldn't know, the engine Restate runs would stay the newer release's, and an older live Worker
 could refuse the newer Workers' requests. A failed deploy is finished by running its failed jobs again, not undone.
 `/healthz` answers the version running. Natively the same holds: keep the newer binaries, and upgrade to the fix.
 
@@ -74,7 +78,7 @@ engine can't be reached"), or a draw that stays on its countdown. What the organ
 
 The operator checks the [Restate Cloud status](https://status.restate.dev), the engine Worker's log (`npx wrangler
 tail rafi-engine-v<version, dashed>`: each release's engine is its own Worker), the app Worker's (`npx wrangler tail
-rafi`) and, for a self-hosted Restate, `restate-server`'s.
+rafi-app`) and, for a self-hosted Restate, `restate-server`'s.
 
 ## Backups and restore
 
@@ -236,12 +240,12 @@ aware of it to notify their supervisory authority (GDPR Art. 33), so your notice
 ## Where the logs are
 
 - **Deploys and cleanups** (Cloudflare): your repository's **Actions**, one run each, every step printed (`gh run
-  list`, `gh run view <run-id> --log`).
+  list`, `gh run view <run-id> --log`), and on each run's summary page what it did.
 - **The Workers**: Workers Logs, one per Worker (the dashboard's **Workers & Pages >** the Worker **> Logs**, or live
-  with `npx wrangler tail <Worker>`): `rafi` (the app and the hourly housekeeping), `rafi-rooms` (the live
+  with `npx wrangler tail <Worker>`): `rafi-app` (the app and the hourly housekeeping), `rafi-live` (the live
   channels) and each release's engine, `rafi-engine-v0-1-0` and so on, whose log stays until the cleanup deletes
-  it. Only the application's own lines are kept: warnings and errors with raffle IDs and error text, never personal
-  data, and no per-request records (`invocation_logs = false`).
+  the Worker. Only the application's own lines are kept: warnings and errors with raffle IDs and error text,
+  never personal data, and no per-request records (`invocation_logs = false`).
 - **Restate Cloud**: its console's invocations, and `restate invocations describe <id>`.
 - **Natively**: `rafi`'s and `rafi-restate`'s standard output, and `restate-server`'s.
 
@@ -254,17 +258,18 @@ Nothing in Rafi phones home, so watching it is yours:
 - **Housekeeping**: the hourly Cron Trigger's runs (the Worker's **Settings > Triggers**, past events) fail visibly
   when a run fails, and the admin warns every organizer when no run has succeeded for two hours. Erasure dates are a
   promise to entrants, so look at a failed run the same day.
-- **Errors**: Workers Logs keeps the application's warnings and errors, the app Worker's under `rafi`, the live
-  channels' under `rafi-rooms` and the engine's under its `rafi-engine-v<version>` Worker. Watch for `request
+- **Errors**: Workers Logs keeps the application's warnings and errors, the app Worker's under `rafi-app`, the live
+  channels' under `rafi-live` and the engine's under its `rafi-engine-v<version>` Worker. Watch for `request
   failed status=5…` lines and for `housekeeping` errors; a Workers Observability alert on errors, where your plan offers one, does it for
   you.
 - **Restate Cloud**: its console shows invocations stuck in retry, which is a draw waiting for its round or a write
   that keeps failing.
 - **Deploys and cleanups** (Cloudflare): each is a GitHub Actions run of your repository, and a failed one (a
   refusal, a failed registration, a Worker the cleanup couldn't delete) is GitHub's failure notice. The daily
-  cleanup's log lists the older engine deployments still draining and any paused invocation pinned to one, which
-  waits for you ([Upgrades](upgrades.md#on-workers-automatic)). In a public repository GitHub disables the
-  scheduled cleanup after 60 days without activity: look at its runs now and then.
+  cleanup's summary lists the older engine deployments still draining and any paused invocation pinned to one,
+  which waits for you ([Upgrades](upgrades.md#on-workers-automatic)), and any engine Worker left behind, for you to
+  delete. In a public repository GitHub disables the scheduled cleanup after 60 days without activity: look at its
+  runs now and then.
 
 ## What it costs
 

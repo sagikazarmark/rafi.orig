@@ -4,7 +4,7 @@ Every setting of every Rafi deployable. To see how the deployables fit together,
 [Operations: overview](../operations/overview.md).
 
 - [The app](#the-app-rafi-and-rafi-worker) (`rafi`, `rafi-worker`)
-- [On Workers](#workers-only): which Worker reads what, and the Workers' own variables and bindings (`rafi-worker-app`, `rafi-worker-engine`, `rafi-worker-rooms`; locally `rafi-worker`)
+- [On Workers](#workers-only): which Worker reads what, and the Workers' own variables and bindings (`rafi-worker-app`, `rafi-worker-engine`, `rafi-worker-live`; locally `rafi-worker`)
 - [The raffle engine, native](#the-raffle-engine-rafi-restate) (`rafi-restate`)
 - [Build time](#build-time)
 
@@ -63,15 +63,19 @@ each reading its own settings:
 
 | Worker | Reads | Where an installation sets them |
 |---|---|---|
-| The app, `rafi` (`rafi-worker-app`) | The app's variables above (Workers ones only: not `IP`, `PORT`, `RAFI_PUBLIC_DIR`, `RAFI_PARTICIPANT_DIR`, `RAFI_DATABASE_URL`, `RAFI_DOCS_DIR`, `RUST_LOG`), and `RAFI_DO_JURISDICTION` | Secrets on the Worker, listed under `[secrets] required` in `wrangler.toml`: set once before the first deploy with `wrangler secret bulk .prod.vars` (`.prod.vars.example`), then `wrangler secret put`; deploys keep them. `RAFI_DO_JURISDICTION` is a var in `wrangler.toml`. |
+| The app, `rafi-app` (`rafi-worker-app`) | The app's variables above (Workers ones only: not `IP`, `PORT`, `RAFI_PUBLIC_DIR`, `RAFI_PARTICIPANT_DIR`, `RAFI_DATABASE_URL`, `RAFI_DOCS_DIR`, `RUST_LOG`), and `RAFI_DO_JURISDICTION` | Secrets on the Worker, listed under `[secrets] required` in `app.wrangler.toml`: set once before the first deploy with `wrangler secret bulk .prod.vars -c app.wrangler.toml` (`.prod.vars.example`), then `wrangler secret put <NAME> -c app.wrangler.toml`; deploys keep them. `RAFI_DO_JURISDICTION` is a var in `app.wrangler.toml`. |
 | The engine, `rafi-engine-v<version>` (`rafi-worker-engine`), one per release | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, `RAFI_DO_JURISDICTION`, the drand settings below | Vars in `engine.wrangler.toml`; no secrets. A change deploys (the release's engine Worker, the same code with the vars as they are then). |
-| The rooms, `rafi-rooms` (`rafi-worker-rooms`) | Nothing but its bindings (`RAFI_DO_JURISDICTION` is there for the deploy's check that all three agree) | `rooms.wrangler.toml` |
+| The live channels, `rafi-live` (`rafi-worker-live`) | Nothing but its bindings (`RAFI_DO_JURISDICTION` is there for the deploy's check that all three agree) | `live.wrangler.toml` |
 
 Their shapes are [`apps/worker-app/wrangler.toml`](../../apps/worker-app/wrangler.toml),
 [`apps/worker-engine/wrangler.toml`](../../apps/worker-engine/wrangler.toml) and
-[`apps/worker-rooms/wrangler.toml`](../../apps/worker-rooms/wrangler.toml), which an installation deploys from its
-copy of [`deploy/cloudflare`](../../deploy/cloudflare) (`wrangler.toml`, `engine.wrangler.toml`,
-`rooms.wrangler.toml`) with its database ID in them. A Worker reads vars and secrets alike, and nothing else.
+[`apps/worker-live/wrangler.toml`](../../apps/worker-live/wrangler.toml), which an installation deploys from its
+copy of [`deploy/cloudflare`](../../deploy/cloudflare) (`app.wrangler.toml`, `engine.wrangler.toml`,
+`live.wrangler.toml`) with its database ID in them. The Worker names are the template's; an installation may name
+its own, and one of several in a repository is a Wrangler environment (`[env.<name>]`), which repeats the vars, the
+bindings and the required secrets, since environments don't inherit them
+([Several installations](../operations/cloudflare.md#several-installations)). A Worker reads vars and secrets
+alike, and nothing else.
 Locally, `apps/worker` (`rafi-worker`) is all three in one Worker, the engine under `/restate`, and takes all of
 them.
 
@@ -89,7 +93,7 @@ The bindings:
 | Binding | Worker | |
 |---|---|---|
 | `DB` | all three | The D1 database (one, the same `database_id` in all three) |
-| `RAFFLE_ROOM` | all three | The per-raffle live channel (`RaffleRoom` Durable Object): the rooms Worker's class, with its migration; the app and the engine bind it by the rooms Worker's name (`script_name = "rafi-rooms"`) |
+| `RAFFLE_ROOM` | all three | The per-raffle live channel (`RaffleRoom` Durable Object): the live Worker's class, with its migration; the app and the engine bind it by the live Worker's name (`script_name = "rafi-live"`) |
 | `ASSETS` | app | The static files, through which the app reads the legal documents |
 | `JOIN_PER_RAFFLE_LIMITER` | app | 600 joins per minute per raffle (soft, per location) |
 | `JOIN_PER_EMAIL_LIMITER` | app | 5 joins per minute per raffle and email |
@@ -137,6 +141,6 @@ Nothing of an installation's: one build serves every installation. The features 
 | Variable | | |
 |---|---|---|
 | Feature `mock-drand` | `rafi`, `rafi-server`, `rafi-restate` | Allows the mock chain. Never ship it. |
-| Feature `dev` | `rafi`, `rafi-worker` | Local development only. On `rafi`, allows `RAFI_DEV_AUTH`; on the Worker, also the mock chain and Restate requests without identity keys (`[env.dev]` in `wrangler.toml` builds with it). |
+| Feature `dev` | `rafi`, `rafi-worker` | Local development only. On `rafi`, allows `RAFI_DEV_AUTH`; on the Worker, also the mock chain and Restate requests without identity keys (`[env.dev]` in `apps/worker/wrangler.toml` builds with it). |
 | `RAFI_VERSION` | `rafi-server` (`build.rs`) | The version compiled in, which `/healthz`, `whoami` and the footers show, and whose tag the source links point at. A release sets it (`just cloudflare-tarball`); unset, a checkout at a tag `v<version>` is that version, any other build `<crate version>-dev+<commit>`. |
 | `RAFI_SOURCE_URL` | `rafi-server` (`build.rs`) | The repository the pages link as the source of the version running (AGPL §13), GitHub-shaped (`…/tree/<ref>`, `…/blob/<ref>/tools/verify.py`). Default: this repository. A fork that changes Rafi sets its own. |

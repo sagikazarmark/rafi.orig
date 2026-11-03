@@ -5,17 +5,17 @@
 **Don't deploy while a draw is pending or a room is live**: from the moment registration opens at the venue until
 the raffle finishes and the thank-you screen is up. The admin shows each organizer only their raffles; before you
 deploy, ask the database about everyone's ([the preflight](runbook.md#before-a-deploy-is-anything-live)): nothing
-should be Open, Closed or Drawing. Nothing checks this for you: on Cloudflare a push that changes `VERSION`
-deploys whenever it lands, so push between events.
+should be Open, Closed or Drawing. Nothing checks this for you: on Cloudflare a push that changes `VERSION` (or an
+installation's `VERSION.<environment>`) deploys whenever it lands, so push between events.
 
 A raffle that is merely *frozen* and waiting (an event that didn't happen, an organizer who walked away) doesn't
 stop a deploy: see [What a deploy does to a raffle in flight](#what-a-deploy-does-to-a-raffle-in-flight).
 
 What a deploy during an event breaks:
 
-- On Workers, a release that changes the rooms Worker (its notes say so) redeploys it, which restarts the live
+- On Workers, a release that changes the live Worker (its notes say so) redeploys it, which restarts the live
   channels' Durable Objects and drops every phone's connection. Phones reconnect and re-fetch, but the moment is
-  lost. Other releases leave the rooms Worker alone and switch the app Worker to its new version.
+  lost. Other releases leave the live Worker alone and switch the app Worker to its new version.
 - Natively, restarting `rafi` interrupts requests, and a random `RAFI_POW_KEY` (if you didn't set one)
   invalidates the challenges phones are solving.
 - Natively, restarting the engine (`rafi-restate`) while a draw waits for its round makes Restate retry the draw.
@@ -31,8 +31,8 @@ draw that sleeps until its round is an invocation in flight.
 - **On Workers** each release deploys its engine as a new Worker, registered as a new deployment, and leaves the
   previous release's engine Worker as it was: a draw in flight finishes on the code it started on, and the next
   call goes to the new engine. Once Restate reports the old deployment drained, the Restate cleanup workflow
-  deletes its Worker and removes it from Restate ([below](#registering-the-raffle-engine)). While it drains, that
-  old engine writes to the database the new release migrated and nudges the rooms Worker's live channels, so a
+  removes it from Restate and then deletes its Worker ([below](#registering-the-raffle-engine)). While it drains,
+  that old engine writes to the database the new release migrated and nudges the live Worker's live channels, so a
   release's migrations and its live channel stay compatible with the previous release's engine, and its notes say
   so when they can't.
 - **Natively**, if the old `rafi-restate` keeps running until it drains, the draw finishes on the old code;
@@ -52,8 +52,9 @@ anything else), not the freeze.
 
 The app applies migrations on start: `migrations/sqlite` for SQLite, `migrations/postgres` for Postgres. On D1,
 the deploy applies them (`wrangler d1 migrations apply DB --remote`, from the release's `migrations/`) before it
-deploys any Worker. An upgrade there is the release named in the installation's `VERSION`, pushed: the Deploy
-workflow deploys it ([Cloudflare Workers](cloudflare.md#upgrading)).
+deploys any Worker. An upgrade there is the release named in the installation's version file (`VERSION`, or
+`VERSION.<environment>` for one of several installations in a repository), pushed: the Deploy workflow deploys it
+([Cloudflare Workers](cloudflare.md#upgrading)).
 
 Natively, deploy the app before (or together with) the engine. Until the schema is current, the engine's writes
 fail and Restate retries them.
@@ -81,23 +82,24 @@ So the rule is: **a changed engine is registered at a new URI, without `force`.*
 
 ### On Workers: automatic
 
-Each release's engine is its own Worker, `rafi-engine-v<version, dashed>` (`rafi-engine-v0-1-0`), at its own
-URI, `https://rafi-engine-v0-1-0.<subdomain>.workers.dev/restate`, which the deploy registers with Restate Cloud
-(without `force`, and never over a newer release's engine) before it switches the app Worker to the new version.
-Nothing is registered by hand, and every release is a new URI, so a release that changes the handlers needs nothing
-of yours. A later deploy of the same release redeploys its engine Worker with the same code; no other deploy
-touches it.
+Each release's engine is its own Worker, `<engine name>-v<version, dashed>` (`rafi-engine-v0-1-0` with the
+template's names), at its own URI, `https://rafi-engine-v0-1-0.<subdomain>.workers.dev/restate`, which the deploy
+registers with Restate Cloud (without `force`, and never over a newer release's engine) before it switches the app
+Worker to the new version. Nothing is registered by hand, and every release is a new URI, so a release that changes
+the handlers needs nothing of yours. A later deploy of the same release redeploys its engine Worker with the same
+code; no other deploy touches it.
 
 The Restate cleanup workflow (`restate-cleanup.yaml`, daily and by hand) looks at this installation's older engine
-deployments:
+deployments (by the metadata they were registered with: the installation's app Worker's name and the account):
 
-- **drained** (no invocation pinned to it any more): its Worker deleted, then the deployment removed from Restate
-  (`restate deployments remove`, never forced);
-- **draining**: listed in the cleanup's log with the invocations still pinned to it, and deleted by a later cleanup
-  once drained. A draw in flight usually drains it within minutes;
+- **drained** (no invocation pinned to it any more): the deployment removed from Restate (`restate deployments
+  remove`, never forced), then its Worker deleted; a Worker whose deletion fails is reported as left behind, and
+  the run fails;
+- **draining**: listed in the cleanup's report with its active and paused invocations, and removed by a later
+  cleanup once drained. A draw in flight usually drains it within minutes;
 - an invocation that is **paused** (Restate stopped retrying it, as its retry policy says, and waits for a human)
   keeps its deployment draining. Find out why it failed (the engine Worker's log, `wrangler tail
-  rafi-engine-<version>`, and `restate invocations describe <id>`), then either resume it on the latest
+  rafi-engine-v<version, dashed>`, and `restate invocations describe <id>`), then either resume it on the latest
   deployment, if the new engine can carry it on:
 
   ```sh
@@ -112,6 +114,10 @@ deployments:
 
   The Restate CLI runs against your environment with `RESTATE_ADMIN_URL` and `RESTATE_AUTH_TOKEN` (an Admin-role
   key) set as in the workflows, or after `restate cloud login` and `restate cloud env configure`.
+
+The cleanup also reports, and never deletes, the account's engine Workers of this installation's name that no
+Restate deployment refers to (a deletion that failed, a deploy that stopped before registering), with the
+`wrangler delete` command to remove one by hand ([Cloudflare Workers](cloudflare.md#the-restate-cleanup)).
 
 ### Natively: by hand
 
@@ -140,10 +146,11 @@ Never remove a deployment with `--force` while a draw is in flight on it.
 
 ## Order of operations
 
-On Cloudflare the Deploy workflow does it all, in this order: the D1 migrations; the rooms Worker, when it changed;
+On Cloudflare the Deploy workflow does it all, in this order: the D1 migrations; the live Worker, when it changed;
 the app Worker's new version uploaded and the release's engine Worker deployed; the engine registered; the app's new
-version deployed. The Restate cleanup deletes the drained engines later. Check that nothing is live before you push
-([the preflight](runbook.md#before-a-deploy-is-anything-live)), and run a test-mode draw afterwards.
+version deployed. The run's summary page says what each step did. The Restate cleanup removes the drained engines
+later. Check that nothing is live before you push ([the preflight](runbook.md#before-a-deploy-is-anything-live)),
+and run a test-mode draw afterwards.
 
 Natively:
 

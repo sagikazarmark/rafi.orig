@@ -41,8 +41,9 @@ commit it was. Installations' deploys download the asset by its tag and verify i
 Name the release in `deploy/cloudflare/VERSION` (`0.2.0`, or `0.2.0-rc.1` for a pre-release). The rehearsal refuses
 a release that file doesn't name (an installation copied at the tag would deploy another release), and CI's
 rehearsal and the Release workflow's manual run are of the version it names. The template's README names the
-release in its commands too (the tarball it copies, `/healthz`'s answer, the engine Worker's name): change them with
-`VERSION` (`rg -n '0\.1\.0|0-1-0' deploy/cloudflare/README.md`); nothing checks those.
+release in its commands too (the tarball it copies, `/healthz`'s answer, the engine Workers' names, the version files
+of Several installations): change them with `VERSION` (`rg -n '0\.1\.0|0-1-0' deploy/cloudflare/README.md`); nothing
+checks those.
 
 When a change to `scripts/cloudflare-deploy.sh` changes how it is driven (a subcommand, its environment or outputs,
 what it expects of the installation's repository), change the template's workflows to fit, in the same commit, and
@@ -52,7 +53,9 @@ subcommand they still call has to keep working for a release, or the notes say w
 The release notes are generated from the merged pull requests; edit them on the release when an operator has to
 act or should know:
 
-- a migration, a new secret, a setting in `deploy/cloudflare`'s configurations or `.prod.vars.example`;
+- a migration, a new secret, a setting in `deploy/cloudflare`'s configurations or `.prod.vars.example` (operators
+  carry those over by hand, into each `[env.<name>]` too, since environments don't inherit vars, bindings or required
+  secrets);
 - a change to the workflows: "copy `.github/workflows/deploy.yaml` and `restate-cleanup.yaml` from
   `deploy/cloudflare` at this tag before changing `VERSION`" (for each installation, with its `CLOUDFLARE_ENV`), or
   a change to the workflows' secrets;

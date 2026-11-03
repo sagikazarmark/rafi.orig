@@ -9,7 +9,7 @@ Every Rafi deployment has the same four parts:
 
 | Part | Native (self-hosting) | Cloudflare Workers |
 |---|---|---|
-| **App**: admin, projector, participant and verification pages, APIs | `rafi` (`apps/rafi`) | The app Worker, `rafi` (`apps/worker-app`), on your domain; with the rooms Worker, `rafi-rooms` (`apps/worker-rooms`), holding the raffles' live channels (`RaffleRoom`) |
+| **App**: admin, projector, participant and verification pages, APIs | `rafi` (`apps/rafi`) | The app Worker, `rafi-app` (`apps/worker-app`), on your domain; with the live Worker, `rafi-live` (`apps/worker-live`), holding the raffles' live channels (`RaffleRoom`) |
 | **Raffle engine**: runs the draws | `rafi-restate` (`apps/restate`) | The engine Worker (`apps/worker-engine`), one per release, `rafi-engine-v<version>` on workers.dev |
 | **Restate**: durable execution for the engine | A self-hosted `restate-server`, or Restate Cloud | Restate Cloud |
 | **Database**: shared by the app and the engine | SQLite (one file, one machine) or PostgreSQL | D1 |
@@ -42,8 +42,8 @@ Clients poll for updates. There is no push channel natively.
 
 ```mermaid
 flowchart LR
-    users[Browsers] -->|HTTPS, your domain| app[app Worker rafi<br/>+ static assets]
-    users <-->|WebSocket, through the app| room[rooms Worker rafi-rooms<br/>RaffleRoom Durable Objects]
+    users[Browsers] -->|HTTPS, your domain| app[app Worker rafi-app<br/>+ static assets]
+    users <-->|WebSocket, through the app| room[live Worker rafi-live<br/>RaffleRoom Durable Objects]
     app -->|ingress, API key| rc[Restate Cloud]
     rc -->|signed requests to /restate| engine[engine Worker per release<br/>rafi-engine-v0-1-0, …<br/>on workers.dev]
     engine -->|HTTPS| drand[drand relays]
@@ -55,11 +55,13 @@ flowchart LR
     app -->|HTTPS| clerk[Clerk]
 ```
 
-Three Workers sharing the D1 database: the app Worker on your domain; the rooms Worker, with no address, whose
+Three Workers sharing the D1 database: the app Worker on your domain; the live Worker, with no address, whose
 `RaffleRoom` Durable Objects the other two reach through their bindings; and each release's engine Worker, which
 Restate calls on workers.dev with signed requests and which stays until the invocations that started on it have
 finished ([Cloudflare Workers](cloudflare.md#the-three-workers)). Your repository's GitHub Actions workflows deploy
-them and delete the drained engines. Locally they are one Worker (`apps/worker`), the engine under `/restate`.
+them and remove the drained engines. The names are the template's: one Cloudflare account can hold several
+installations, each with names of its own ([Several installations](cloudflare.md#several-installations)). Locally
+they are one Worker (`apps/worker`), the engine under `/restate`.
 
 ## Choosing
 

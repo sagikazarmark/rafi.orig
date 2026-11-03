@@ -504,6 +504,21 @@ copy → announce.
   live-raffle check in the deploy (`RAFI_DEPLOY_WHILE_LIVE` is gone; the runbook's query is the operator's). The
   template's README is the first-deploy manual (the API token with `cf`, the keys, the secrets, each step's
   output), `docs/operations/cloudflare.md` the reference.
+- **Since** (2026-11-03, later still): several installations can share a Cloudflare account (`e633d56`). The
+  Workers are `rafi-app`, `rafi-live` (the `RaffleRoom` Worker, formerly rooms: `apps/worker-live`,
+  `live.wrangler.toml`, `deploy.sh deploy-live`, `live/` in the tarball) and `rafi-engine-v<version dashed>`, from
+  the template's `app.wrangler.toml`, `live.wrangler.toml` and `engine.wrangler.toml` (read `wrangler.toml`,
+  `rooms.wrangler.toml`, `rafi` and `rafi-rooms` above as these). An installation is its app Worker's name, the
+  `instance` in Restate's metadata (`RAFI_INSTANCE` is gone, so renaming the repository no longer matters); another
+  in the same account takes names of its own, in a repository of its own or as a Wrangler environment
+  (`[env.<name>]` in all three configurations, chosen by `CLOUDFLARE_ENV`, repeating the vars, bindings and
+  required secrets, with `VERSION.<name>` and its own copies of the workflows). `deploy.sh` reads the
+  configurations with wrangler's own reader. `DEPLOY_VERSION` is dropped: a release that changes the workflows
+  says so in its notes. Each run's summary page carries `deploy.sh`'s reports (`RAFI_REPORT_FILE`), the cleanup's
+  among them (removed, still draining with the paused invocations, Workers left behind, deployments not ours).
+  The cleanup now removes a drained deployment from Restate first and then deletes its Worker, and reports, never
+  deletes, engine Workers no deployment refers to. The operator docs follow (the README's "Several installations"
+  and "What each run reports").
 
 #### T2-6 · Licensing and attribution
 
@@ -1483,8 +1498,8 @@ The tag is ready when every line is true.
       deploy can check" in `cloudflare.md` are dated; startup time recorded.
 - [ ] A first install from a clean repository, following `deploy/cloudflare/README.md` step by step, reaches
       `/healthz` → `ok 0.1.0`; with unedited templates the Worker refuses every request.
-- [ ] A second release's deploy registers its engine, and the Restate cleanup deletes the first engine Worker
-      (and its Restate deployment) once drained.
+- [ ] A second release's deploy registers its engine, and the Restate cleanup removes the first engine's Restate
+      deployment, then deletes its Worker (`rafi-engine-v0-1-0`), once drained; the run's summary says so.
 - [ ] A stranger deployed from the README in under an hour; their notes are folded in.
 - [ ] `gh attestation verify` passes on the tarball; two builds of the tag are byte-identical.
 - [x] `OFL.txt` beside the fonts; the admin footer links the source and shows the version; `/v/<slug>` links

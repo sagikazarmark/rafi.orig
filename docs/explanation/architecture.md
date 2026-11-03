@@ -54,7 +54,7 @@ The rules are pure code at the bottom. Everything above them does I/O and asks t
 
 ```mermaid
 flowchart TD
-    hosts["Hosts<br/>rafi · rafi-restate · rafi-worker-app · rafi-worker-engine · rafi-worker-rooms · rafi-worker (local)"]
+    hosts["Hosts<br/>rafi · rafi-restate · rafi-worker-app · rafi-worker-engine · rafi-worker-live · rafi-worker (local)"]
     http["HTTP<br/>rafi-server"]
     uc["Use cases<br/>rafi-app"]
     ports["Ports<br/>Engine · Store · Observer (rafi-engine)<br/>Notifier (rafi-live-server) · RateLimit (rafi-app)"]
@@ -159,7 +159,7 @@ The server keeps no state between requests. Clients keep up in one of two ways:
 
 - **Natively**, phones poll their participant view (`/api/r/<slug>/participant`), and the projector and the admin
   poll the full view (`/api/r/<slug>/view`) every few seconds.
-- **On Cloudflare Workers**, a Durable Object per raffle (`RaffleRoom`, in the rooms Worker) holds a live channel. The app nudges it on
+- **On Cloudflare Workers**, a Durable Object per raffle (`RaffleRoom`, in the live Worker) holds a live channel. The app nudges it on
   lifecycle changes, and the engine nudges it after every raffle write. It then pushes the participant view to
   phones over WebSockets. The projector and the admin still poll the full view, and also reveal the winner from the
   channel.
@@ -176,7 +176,7 @@ flowchart LR
         e1[rafi-restate] --> db1
     end
     subgraph workers [Cloudflare Workers]
-        p2[Phones] <-->|WebSocket, through the app Worker| room[RaffleRoom<br/>rooms Worker rafi-worker-rooms]
+        p2[Phones] <-->|WebSocket, through the app Worker| room[RaffleRoom<br/>live Worker rafi-worker-live]
         s2[Projector, admin] -->|poll full view| a2[app Worker<br/>rafi-worker-app]
         a2 -->|ingress| rc[Restate Cloud]
         rc -->|signed requests| e2[engine Worker, one per release<br/>rafi-worker-engine, on workers.dev]
@@ -191,17 +191,19 @@ flowchart LR
 Natively the app and the engine are two processes, `rafi` and `rafi-restate`, each with its own configuration.
 In production on Workers they are three Workers sharing the D1 database: the app Worker on the installation's
 domain; one engine Worker per release on workers.dev, where Restate reaches it at `/restate/*` and the SDK verifies
-each request's signature before any routing, discovery included; and the rooms Worker, which defines the
+each request's signature before any routing, discovery included; and the live Worker, which defines the
 `RaffleRoom` class and has no address, the app and the engine binding its objects by its name (`script_name`).
 One engine per release because Restate finishes each invocation on the deployment it started on: a draw in flight
-keeps its release's engine, which the installation's cleanup deletes once drained
-([Upgrades](../operations/upgrades.md#what-a-deploy-does-to-a-raffle-in-flight)). The rooms Worker apart because
+keeps its release's engine, which the installation's cleanup removes from Restate and deletes once drained
+([Upgrades](../operations/upgrades.md#what-a-deploy-does-to-a-raffle-in-flight)). The live Worker apart because
 deploying a class restarts its objects, dropping every phone's socket: it is deployed only when it changed, and the
 app Worker, without a class, switches versions without touching the live channels. The engine links nothing of
-the app's and holds none of its secrets; the rooms Worker links neither's code and holds no secrets. Locally (`apps/worker`) the three
+the app's and holds none of its secrets; the live Worker links neither's code and holds no secrets. Locally (`apps/worker`) the three
 are one Worker, the engine under `/restate` and the class beside the app, since a Worker is a routing unit, not a
 process. The boundary that matters, the engine seeing anonymous IDs only and writing through a store API that exposes nothing
-else, is in the code, not in the process.
+else, is in the code, not in the process. An installation is named by its app Worker (Restate's deployment metadata
+names it), so one Cloudflare account can hold several, each with Workers, a database and a Restate environment of
+its own ([Several installations](../operations/cloudflare.md#several-installations)).
 
 ## The participant page
 

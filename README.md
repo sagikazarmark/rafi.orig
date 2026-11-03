@@ -90,9 +90,10 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
   [`deploy/cloudflare`](deploy/cloudflare) into a repository of yours, and its GitHub Actions workflows deploy a
   release to your own account (the app Worker, the live Worker with the live channels, and each release's raffle
   engine Worker, registered with Restate Cloud and removed once drained) with your configuration and legal
-  documents, after checking the release's provenance. [The first deploy](deploy/cloudflare/README.md) is documented
-  step by step, and [the reference](docs/operations/cloudflare.md) explains it. CI runs the production shape
-  through a dry deploy, a whole evening under `wrangler dev` and the hourly housekeeping.
+  documents, after checking the release's provenance; one account can hold several installations, each in a
+  repository of its own or as Wrangler environments of one. [The first deploy](deploy/cloudflare/README.md) is
+  documented step by step, and [the reference](docs/operations/cloudflare.md) explains it. CI runs the production
+  shape through a dry deploy, a whole evening under `wrangler dev` and the hourly housekeeping.
 - **Self-hosting** (native `rafi` and `rafi-restate`) is supported. There are no packaged images yet: you build
   from source. Container images and native packages come later.
 - The UI is in English only.
