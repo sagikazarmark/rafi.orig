@@ -1,12 +1,13 @@
 name: Release
 
 # A tag v<version> builds the Cloudflare release (scripts/cloudflare-release.sh):
-# worker.tar.gz (the app and engine Workers, the D1 migrations and the deploy
-# script, deploy.sh), and a dry run of its deploy.sh from a copy of
+# worker.tar.gz (the app, engine and rooms Workers, the D1 migrations and the
+# deploy script, deploy.sh), and a dry run of its deploy.sh from a copy of
 # deploy/cloudflare with the tarball unpacked into release/, as an
 # installation deploys it; the rehearsal also checks that deploy/cloudflare's
-# workflow (.github/workflows/deploy.yml) calls deploy-cloudflare.yml at this
-# tag for this version, so a copy taken at the tag deploys the tag.
+# VERSION is this version and that its workflows (.github/workflows/deploy.yaml
+# and restate-cleanup.yaml) are written for this deploy.sh's interface, so a
+# copy taken at the tag deploys the tag.
 #
 # The release job needs CI (ci.yaml, called here on the tag's commit): a
 # commit whose checks fail is never released; the job is skipped, not failed.
@@ -17,8 +18,8 @@ name: Release
 # then the draft published. The tarball has a build provenance attestation
 # (`gh attestation verify worker.tar.gz -R <repository>`), signed as this
 # workflow at the tag (.github/workflows/release.yaml@refs/tags/v<version>),
-# which is what installations' deploys (deploy-cloudflare.yml, called from
-# deploy/cloudflare's .github/workflows/deploy.yml) require of it; and it is
+# which is what installations' workflows (deploy/cloudflare's
+# .github/workflows/deploy.yaml and restate-cleanup.yaml) require of it; and it is
 # packed reproducibly (`just cloudflare-tarball`: sorted, fixed times, modes
 # and owners), so another build of the tag can be compared with it.
 #
@@ -26,8 +27,8 @@ name: Release
 # The notes are generated from the merged pull requests.
 #
 # Run by hand (workflow_dispatch), it rehearses: CI, the build and the dry
-# deploy of the version given (by default apps/worker-app's crate version,
-# which the rehearsal checks deploy/cloudflare's workflow names), publishing
+# deploy of the version given (by default deploy/cloudflare/VERSION, which
+# the rehearsal checks names the version), publishing
 # nothing unless `dry_run` is off, which publishes the tag v<version> that
 # must already exist (to finish a release whose run failed), and only from a
 # run on that tag.
@@ -37,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version (default: apps/worker-app's crate version)"
+        description: "The version (default: deploy/cloudflare/VERSION)"
         required: false
         type: string
       dry_run:
@@ -92,11 +93,11 @@ jobs:
             publish=true
           else
             version="${INPUT_VERSION#v}"
-            [ -n "$version" ] || version="$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/worker-app/Cargo.toml | sed -n 1p)"
+            [ -n "$version" ] || version="$(tr -d '[:space:]' <deploy/cloudflare/VERSION)"
             if [ "$INPUT_DRY_RUN" = false ]; then publish=true; else publish=false; fi
           fi
           # A published release is built from its tag, and attested as such
-          # (deploy-cloudflare.yml checks the attestation's ref): a manual
+          # (installations' workflows check the attestation's ref): a manual
           # publish runs on the tag (gh workflow run release.yaml --ref v<version>).
           if [ "$publish" = true ] && [ "$GITHUB_REF" != "refs/tags/v$version" ]; then
             echo "::error::publishing v$version needs a run on the tag v$version, not $GITHUB_REF"

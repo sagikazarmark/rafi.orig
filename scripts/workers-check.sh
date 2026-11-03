@@ -25,11 +25,11 @@
 #      engine.wrangler.toml and rooms.wrangler.toml agree with the production
 #      Workers' (apps/worker-app, apps/worker-engine, apps/worker-rooms) on
 #      the bindings, limits, Durable Object migrations and required secrets,
-#      and a release (of apps/worker-app's version) is rehearsed the way a
-#      tag releases it (scripts/cloudflare-release.sh): deploy.sh's own
-#      checks, worker.tar.gz packaged, each Worker's exports checked, unpacked
-#      into a copy of the template's release/, and its deploy.sh run there
-#      (dry).
+#      and a release (of the version deploy/cloudflare/VERSION names) is
+#      rehearsed the way a tag releases it (scripts/cloudflare-release.sh):
+#      the template's VERSION and workflows, deploy.sh's own checks,
+#      worker.tar.gz packaged, each Worker's exports checked, unpacked into a
+#      copy of the template's release/, and its deploy.sh dry-run there.
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node, just,
 # dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the
@@ -311,10 +311,10 @@ if command -v dx >/dev/null; then
   done
   echo "ok   the template's shapes are the production Workers'"
   # A release, as a tag releases it: the same script, so a broken tarball,
-  # deploy.sh or dry deploy shows here, not on the tag. The version is the app
-  # Worker crate's.
-  version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$ROOT/apps/worker-app/Cargo.toml")"
-  version="${version%%$'\n'*}"
+  # deploy.sh or dry deploy shows here, not on the tag. The version is the one
+  # the template names (deploy/cloudflare/VERSION), as the release workflow's
+  # manual run defaults to.
+  version="$(tr -d '[:space:]' <"$ROOT/deploy/cloudflare/VERSION")"
   WRANGLER="$WRANGLER" "$ROOT/scripts/cloudflare-release.sh" "$version" "$STATE/release" >"$LOGS/release.log" 2>&1 \
     || { tail -30 "$LOGS/release.log" >&2; exit 1; }
   echo "ok   deploy/cloudflare deploys the release of $version with its deploy.sh (dry run)"

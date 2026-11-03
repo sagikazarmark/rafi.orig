@@ -8,11 +8,13 @@
 # release/.
 #
 # It has no address (no route, no workers.dev, no preview URLs) and no
-# secrets: it is reached only through the other two Workers' bindings. Every
+# secrets: it is reached only through the other two Workers' bindings. A
 # deploy deploys it first (deploy.sh), so its class is there before the
-# Workers binding it. deploy.sh reads name, main, workers_dev, preview_urls,
-# binding, database_id, class_name and RAFI_DO_JURISDICTION; write them as
-# `key = "value"` on one line, as they are here.
+# Workers binding it, and only when its code or this file changed: deploying
+# it drops every phone's live connection. deploy.sh reads name, main,
+# workers_dev, preview_urls, binding, database_id, class_name and
+# RAFI_DO_JURISDICTION; write them as `key = "value"` on one line, as they
+# are here.
 #
 # Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
 

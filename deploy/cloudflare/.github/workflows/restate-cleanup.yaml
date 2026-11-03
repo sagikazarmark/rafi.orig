@@ -1,0 +1,163 @@
+name: Restate cleanup
+
+# Deletes the engine Workers of earlier releases once Restate has drained
+# them, daily and when run by hand (Actions > Restate cleanup > Run workflow).
+# Each release deploys an engine Worker of its own (deploy.yaml), and Restate
+# finishes every invocation on the deployment it started on, so an earlier
+# release's engine keeps serving until nothing is pinned to it any more.
+#
+# The work is deploy.sh cleanup, of the release named in VERSION (downloaded
+# and verified as deploy.yaml does): only this installation's engine
+# deployments (by the metadata deploy.sh registers them with) that Restate
+# reports Drained are touched, each Worker deleted, then its deployment
+# removed from Restate. Those still draining are listed with their pinned
+# invocations: a paused one waits for you (restate invocations resume <id>
+# --deployment latest, or restate invocations kill <id>). Deployments that
+# aren't this installation's are listed and never touched.
+#
+# Upgrading: see deploy.yaml (RAFI_DEPLOY_VERSION). Secrets: as deploy.yaml's.
+# It shares deploy.yaml's concurrency group: it never runs during a deploy.
+on:
+  schedule:
+    - cron: "37 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rafi
+  cancel-in-progress: false
+
+env:
+  # Where releases come from, and whose release workflow attests them.
+  RAFI_REPOSITORY: sagikazarmark/rafi
+  # The deploy interface this workflow is written for (deploy.yaml's too).
+  RAFI_DEPLOY_VERSION: "1"
+  # This installation's name in Restate's deployment metadata.
+  RAFI_INSTANCE: ${{ github.repository }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    name: Prepare the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha256: ${{ steps.download.outputs.sha256 }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # deploy.sh and wrangler need Node.js (wrangler 22 or later).
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Read VERSION
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' <VERSION)"
+          version="${version#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error file=VERSION::VERSION says '$version', not a Rafi release (x.y.z, or x.y.z-pre.release)"
+            exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "Rafi $version from $RAFI_REPOSITORY"
+
+      - name: Download the release
+        id: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          rm -rf "$RUNNER_TEMP/rafi"
+          mkdir -p "$RUNNER_TEMP/rafi"
+          gh release download "v$VERSION" -R "$RAFI_REPOSITORY" -p worker.tar.gz -D "$RUNNER_TEMP/rafi"
+          sha256="$(sha256sum "$RUNNER_TEMP/rafi/worker.tar.gz" | cut -d' ' -f1)"
+          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
+          echo "worker.tar.gz: sha256:$sha256"
+
+      # As in deploy.yaml: release.yaml, at the tag v<version>, in the Rafi
+      # repository, on a GitHub-hosted runner, or nothing runs.
+      - name: Verify its provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh attestation verify "$RUNNER_TEMP/rafi/worker.tar.gz" \
+            -R "$RAFI_REPOSITORY" \
+            --signer-workflow "github.com/$RAFI_REPOSITORY/.github/workflows/release.yaml" \
+            --source-ref "refs/tags/v$VERSION" \
+            --deny-self-hosted-runners
+
+      - name: Unpack it into release/
+        run: |
+          rm -rf release
+          mkdir release
+          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
+
+      - name: Check it against this repository
+        env:
+          RAFI_VERSION: ${{ steps.version.outputs.version }}
+        run: release/deploy.sh check
+
+      - name: Hand it to the cleanup
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rafi-release
+          path: ${{ runner.temp }}/rafi/worker.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  cleanup:
+    name: Delete drained engine Workers
+    needs: prepare
+    runs-on: ubuntu-latest
+    # A GitHub environment (Settings > Environments) holding the secrets, as
+    # deploy.yaml's jobs may name it.
+    # environment: production
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Get the release
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rafi-release
+          path: ${{ runner.temp }}/rafi
+      - name: Unpack it into release/
+        env:
+          SHA256: ${{ needs.prepare.outputs.sha256 }}
+        run: |
+          echo "$SHA256  $RUNNER_TEMP/rafi/worker.tar.gz" | sha256sum -c -
+          rm -rf release
+          mkdir release
+          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
+
+      - name: Delete the drained engine Workers
+        env:
+          RAFI_VERSION: ${{ needs.prepare.outputs.version }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESTATE_ADMIN_URL: ${{ secrets.RESTATE_ADMIN_URL }}
+          RESTATE_AUTH_TOKEN: ${{ secrets.RESTATE_AUTH_TOKEN }}
+        run: release/deploy.sh cleanup

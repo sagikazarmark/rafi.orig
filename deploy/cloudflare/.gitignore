@@ -1,5 +1,6 @@
 # The release deploy.sh deploys (unpacked here, with legal/ copied in).
 release/
 node_modules/
-.dev.vars
+# The app Worker's secrets, filled in from .prod.vars.example: never committed.
+.prod.vars
 .wrangler/

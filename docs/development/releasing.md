@@ -5,49 +5,59 @@ release, one asset, `worker.tar.gz` (`just cloudflare-artifact`, packed by `just
 the top level of the archive:
 
 - `VERSION`;
+- `DEPLOY_VERSION`: the deploy interface, an integer (the `DEPLOY_VERSION=` line in `scripts/cloudflare-deploy.sh`
+  is its one source): how an installation's workflows drive `deploy.sh`;
 - `app/`: the app Worker (`apps/worker-app`), `build/` and its static files, `assets/` (without `legal/`, an
   installation's);
 - `engine/`: the raffle engine Worker (`apps/worker-engine`), `build/`;
-- `migrations/sqlite/`: the D1 migrations;
-- `deploy.sh`: the deploy itself (`scripts/cloudflare-deploy.sh`; its header says what it does), so an installation
-  deploys a release with that release's own logic, attested with it.
+- `rooms/`: the rooms Worker (`apps/worker-rooms`, the `RaffleRoom` Durable Objects), `build/`;
+- `migrations/`: the D1 migrations (`migrations/sqlite`'s `.sql` files);
+- `deploy.sh`: the deploy itself (`scripts/cloudflare-deploy.sh`; its header says what each subcommand does), so an
+  installation deploys a release with that release's own logic, attested with it.
 
 The combined Worker (`apps/worker`) is for local development only. Self-hosting builds from the tag.
 
-Installations deploy a release with GitHub Actions: their copy of `deploy/cloudflare` has
-`.github/workflows/deploy.yml`, which calls this repository's `.github/workflows/deploy-cloudflare.yml` at the
-release's tag. That workflow downloads `worker.tar.gz`, verifies its attestation (signed by `release.yaml`, from a
-run on the tag `v<version>`), and runs its `deploy.sh`. So the tag carries both the release and the workflow that
-deploys it, and an installation that copies `deploy/cloudflare` at the tag deploys that tag.
+Installations deploy a release with GitHub Actions, from their own repository, a copy of `deploy/cloudflare`: its
+`VERSION` names the release, and its two workflows, `.github/workflows/deploy.yaml` and `restate-cleanup.yaml`,
+download that release's `worker.tar.gz` from this repository, verify its attestation (signed by `release.yaml`,
+from a run on the tag `v<version>`) and run its `deploy.sh`, one subcommand per job (`check`, `migrate`,
+`deploy-rooms`, `upload-app` and `deploy-engine`, `register-engine` and `promote-app`; `cleanup` daily). The
+workflows are thin and the installation's own; they say which deploy interface they are written for
+(`RAFI_DEPLOY_VERSION`), and `deploy.sh` refuses to run under another than its release's `DEPLOY_VERSION`, naming
+the template at the release's tag to copy them from. So an installation that copies `deploy/cloudflare` at a tag
+deploys that tag, and upgrading is changing `VERSION` (and, when `DEPLOY_VERSION` changed, copying the workflows).
 
 ## Once
 
 In the repository's settings (**Settings > General > Releases**), enable **immutable releases**: a published
 release's assets and its tag can't change after publishing, so `worker.tar.gz` under a version is the one GitHub
-showed the digest of and attested, and the tag `v<version>` that installations' workflows call
-`deploy-cloudflare.yml` at stays the commit it was. Installations' deploys download the asset by its tag and
-verify its attestation.
+showed the digest of and attested, and the tag `v<version>` an installation copies `deploy/cloudflare` at stays the
+commit it was. Installations' deploys download the asset by its tag and verify its attestation.
 
 ## Before the tag
 
-Name the release in `deploy/cloudflare/.github/workflows/deploy.yml`, in both places: the reusable workflow's ref,
-`uses: sagikazarmark/rafi/.github/workflows/deploy-cloudflare.yml@v<version>`, and `version: "<version>"`. The
-rehearsal refuses a release that file doesn't name (an installation copied at the tag would deploy another
-release), and CI's rehearsal is of `apps/worker-app`'s crate version, so bump the crate version and the template's
-workflow together, for a pre-release too (`0.2.0-rc.1` in all three).
+Name the release in `deploy/cloudflare/VERSION` (`0.2.0`, or `0.2.0-rc.1` for a pre-release). The rehearsal refuses
+a release that file doesn't name (an installation copied at the tag would deploy another release), and CI's
+rehearsal and the Release workflow's manual run are of the version it names.
+
+When a change to `scripts/cloudflare-deploy.sh` changes how it is driven (a subcommand, its environment or outputs,
+what it expects of the installation's repository), increment its `DEPLOY_VERSION`, change the template's workflows
+to fit and set their `RAFI_DEPLOY_VERSION` (both of them) to it: the rehearsal refuses workflows whose
+`RAFI_DEPLOY_VERSION` isn't `deploy.sh`'s, and the release notes then tell operators to copy the workflows.
 
 The release notes are generated from the merged pull requests; edit them on the release when an operator has to
-act (a migration, a new secret, a setting in `deploy/cloudflare`'s configurations or its workflow, a change to
-`deploy-cloudflare.yml`'s inputs or secrets), and say when a migration or the live channel would break the previous
+act (a migration, a new secret, a setting in `deploy/cloudflare`'s configurations, a new `DEPLOY_VERSION`: copy the
+workflows, or a change to their secrets), and say when a migration or the live channel would break the previous
 release's engine while it drains ([Upgrades](../operations/upgrades.md#what-a-deploy-does-to-a-raffle-in-flight)).
 
-CI's `workers` job rehearses a release (of `apps/worker-app`'s crate version) on every push.
+CI's `workers` job rehearses a release (of the version `deploy/cloudflare/VERSION` names) on every push.
 
 ## Rehearsing
 
 Run the Release workflow by hand (**Actions > Release > Run workflow**): it runs CI, builds the release of the
-version given (by default `apps/worker-app`'s crate version), checks that `deploy/cloudflare`'s workflow names it,
-and runs its `deploy.sh --dry-run` from a copy of `deploy/cloudflare` with the release unpacked into `release/`,
+version given (by default the one `deploy/cloudflare/VERSION` names), checks that the template's `VERSION` names it
+and that its workflows are written for this `deploy.sh` (`RAFI_DEPLOY_VERSION`), and runs its `deploy.sh dry-run`
+from a copy of `deploy/cloudflare` with the release unpacked into `release/`,
 publishing nothing. `dry_run` off publishes a tag that already exists, to finish a release whose run failed: run it
 on the tag (**Use workflow from**: the tag, or `gh workflow run release.yaml --ref v<version> -f dry_run=false`),
 since the attestation names the ref the run was on and installations require the tag; from a branch it refuses.
@@ -76,7 +86,7 @@ The workflow then:
 6. publishes it.
 
 A version with a pre-release suffix (`v0.2.0-rc.1`) is published as a pre-release; its engine Worker is
-`rafi-engine-0-2-0-rc-1`.
+`rafi-engine-v0-2-0-rc-1`.
 
 ## Reproducible
 
@@ -94,7 +104,8 @@ toolchain and the paths it embeds, which the devenv shell pins.
 ## After
 
 - `/healthz` on an installation answers `ok <version>`.
-- Installations upgrade by naming it in their `.github/workflows/deploy.yml` (both places) and pushing; their
-  deploy verifies the attestation and runs the release's own `deploy.sh`. A release's engine is the Worker
-  `rafi-engine-<version, dashed>`, registered with each installation's Restate by its deploy, and the previous
-  release's engine is pruned once drained.
+- Installations upgrade by naming it in their `VERSION` and pushing (copying the template's workflows at the tag
+  first when `DEPLOY_VERSION` changed); their deploy verifies the attestation and runs the release's own
+  `deploy.sh`. A release's engine is the Worker `rafi-engine-v<version, dashed>`, registered with each installation's
+  Restate by its deploy (never over a newer release's), and the previous release's engine Worker is deleted by the
+  installation's Restate cleanup workflow once Restate reports it drained.

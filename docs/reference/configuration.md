@@ -64,9 +64,10 @@ above, the engine Worker (`rafi-worker-engine`, one per release) the engine's be
 [`apps/worker-app/wrangler.toml`](../../apps/worker-app/wrangler.toml) and
 [`apps/worker-engine/wrangler.toml`](../../apps/worker-engine/wrangler.toml), which an installation deploys from
 its copy of [`deploy/cloudflare`](../../deploy/cloudflare) (`wrangler.toml` and `engine.wrangler.toml`) with its
-database ID in them. The app's installation values are secrets, listed under `[secrets] required` (set by the
-deploy from the `RAFI_SECRETS` GitHub secret, or with `wrangler secret bulk`); the engine has none, only vars in
-`engine.wrangler.toml`, which take effect with the next release's engine Worker (a deployed one is never changed).
+database ID in them. The app's installation values are secrets, listed under `[secrets] required` (set once
+before the first deploy with `wrangler secret bulk .prod.vars`, then `wrangler secret put`; deploys keep them); the
+engine has none, only vars in `engine.wrangler.toml`, which take effect with the next deploy (it redeploys the
+release's engine Worker, the same code with the vars as they are then).
 A Worker reads vars and secrets alike, and nothing else. Locally, `apps/worker` (`rafi-worker`) is both in one
 Worker, the engine under `/restate`, and takes all of them.
 

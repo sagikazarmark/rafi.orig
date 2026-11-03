@@ -7,9 +7,10 @@
 # (the release unpacked there, its deploy.sh copying legal/ in), with your
 # database and domain in place of the placeholders. Everything else of yours
 # is a secret or a file in legal/. `release/deploy.sh` (which
-# .github/workflows/deploy.yml runs on every push) checks this file against
-# engine.wrangler.toml, rooms.wrangler.toml and the release, applies the D1
-# migrations and deploys the three Workers; write the keys it reads (name,
+# .github/workflows/deploy.yaml runs when this file, the other two, VERSION or
+# legal/ change) checks this file against engine.wrangler.toml,
+# rooms.wrangler.toml and the release, applies the D1 migrations and deploys
+# the three Workers; write the keys it reads (name,
 # main, directory, binding, database_id, migrations_dir, class_name,
 # script_name, RAFI_DO_JURISDICTION) as `key = "value"` on one line, as they
 # are here.
@@ -98,10 +99,9 @@ invocation_logs = false
 [vars]
 RAFI_DO_JURISDICTION = "eu"
 
-# What this installation sets, as secrets (.dev.vars.example): in the
-# RAFI_SECRETS GitHub secret, which every deploy sets, or once with
-# `wrangler secret bulk .dev.vars` before the first deploy (then `wrangler
-# secret put <NAME>`):
+# What this installation sets, as secrets (.prod.vars.example), once with
+# `wrangler secret bulk .prod.vars` before the first deploy (then `wrangler
+# secret put <NAME>`); deploys keep them:
 #   RAFI_PUBLIC_URL                        the public origin, no trailing slash
 #   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL (EU)
 #   RAFI_ENGINE_API_KEY                    a Restate Cloud API key with ingress access

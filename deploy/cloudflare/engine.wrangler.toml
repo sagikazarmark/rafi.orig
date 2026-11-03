@@ -7,13 +7,14 @@
 # release/.
 #
 # Each release deploys it as a Worker of its own, named after this name and
-# the version (rafi-engine-0-1-0 for 0.1.0), at
+# the version (rafi-engine-v0-1-0 for 0.1.0), at
 # https://<that name>.<your subdomain>.workers.dev/restate, which deploy.sh
-# registers with Restate. A release's engine Worker is deployed once and never
-# changed afterwards: Restate finishes an invocation on the deployment it
-# started on, so that code must stay as it was. deploy.sh deletes it once
-# Restate reports its deployment drained, in a later release's deploy. So the
-# values below take effect with the next release's engine.
+# registers with Restate. Restate finishes an invocation on the deployment it
+# started on, so a release's engine Worker only ever runs that release's code:
+# a later deploy of the same release redeploys it with the same code, and
+# with the values below as they are then (a change here deploys). Once a later
+# release's engine has taken over and Restate reports this one drained, the
+# Restate cleanup workflow (.github/workflows/restate-cleanup.yaml) deletes it.
 #
 # No secrets: the Restate environment's identity keys are public keys, and
 # the drand settings are vars. deploy.sh reads name, main, workers_dev,

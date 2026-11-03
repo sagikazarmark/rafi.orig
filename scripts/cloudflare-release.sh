@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # Builds a release of Rafi for Cloudflare and proves it deploys, the way an
-# installation deploys it. First that deploy/cloudflare's workflow
-# (.github/workflows/deploy.yml, which an installation's copy runs) calls
-# .github/workflows/deploy-cloudflare.yml at this release's tag with this
-# version, and that the called workflow verifies the attestation release.yaml
-# makes. Then deploy.sh's own checks
-# (scripts/cloudflare-deploy-test.sh: the configurations, the version, the
-# engine Worker's name, which deployments a prune touches, the "is anything
-# live?" preflight on a local D1). Then the release (`just
-# cloudflare-tarball`: worker.tar.gz, its files at the top level:
+# installation deploys it. First that deploy/cloudflare, which an
+# installation copies at the release's tag, names this release (its VERSION),
+# that its two workflows (.github/workflows/deploy.yaml and
+# restate-cleanup.yaml) are written for deploy.sh's interface (their
+# RAFI_DEPLOY_VERSION, deploy.sh's DEPLOY_VERSION), name one Rafi repository
+# (RAFI_REPOSITORY) and verify the attestation release.yaml makes, and that
+# release.yaml makes it. Then deploy.sh's own checks
+# (scripts/cloudflare-deploy-test.sh: each subcommand against a stubbed
+# wrangler and Restate CLI and a fake Cloudflare and Restate API). Then the
+# release (`just cloudflare-tarball`: worker.tar.gz, its files at the top level:
 # DEPLOY_VERSION, VERSION, app/, engine/build/, rooms/build/, migrations/,
 # deploy.sh), its layout and each Worker's exports checked (RaffleRoom the
 # rooms Worker's alone); then a copy of deploy/cloudflare with the tarball
 # unpacked into its release/, as an installation's workflow unpacks it, runs
-# `release/deploy.sh --dry-run`: deploy.sh's checks of the release and the
+# `release/deploy.sh dry-run` with the workflows' RAFI_DEPLOY_VERSION:
+# deploy.sh's checks of the release, VERSION, the deploy interface and the
 # three configurations (the template's placeholders only warn in a dry run),
 # legal/ copied in, and `wrangler deploy --dry-run` of the rooms Worker, the
 # engine Worker under its versioned name and the app Worker, whose bindings
@@ -35,7 +37,7 @@ VERSION="${1:?usage: cloudflare-release.sh <version> [<out dir>]}"
 OUT="${2:-$ROOT/target/cloudflare}"
 case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
 WRANGLER="${WRANGLER:-wrangler}"
-ENGINE_NAME="rafi-engine-$(printf '%s' "$VERSION" | tr '.' '-' | tr '[:upper:]' '[:lower:]')"
+ENGINE_NAME="rafi-engine-v$(printf '%s' "$VERSION" | tr '.' '-' | tr '[:upper:]' '[:lower:]')"
 
 step() { printf '\n== %s\n' "$*"; }
 fail() {
@@ -43,36 +45,39 @@ fail() {
   exit 1
 }
 
-step "deploy/cloudflare's workflow deploys this release"
-# An installation's repository is a copy of deploy/cloudflare taken at a tag;
-# its .github/workflows/deploy.yml calls this repository's
-# deploy-cloudflare.yml at that tag, for that version (the two places an
-# upgrade edits). The called workflow is at the tag by construction; it
-# downloads worker.tar.gz from the repository it names and verifies it was
-# attested by release.yaml, which must be the workflow that attests it.
-reusable="$ROOT/.github/workflows/deploy-cloudflare.yml"
-caller="$ROOT/deploy/cloudflare/.github/workflows/deploy.yml"
-[ -f "$reusable" ] || fail "no .github/workflows/deploy-cloudflare.yml: what deploy/cloudflare's workflow calls"
-[ -f "$caller" ] || fail "no deploy/cloudflare/.github/workflows/deploy.yml"
-grep -q '^  workflow_call:' "$reusable" || fail "deploy-cloudflare.yml isn't a reusable workflow (on: workflow_call)"
-upstream="$(sed -n 's/^  RAFI_REPOSITORY: *\([^ #]*\).*/\1/p' "$reusable")"
-[[ "$upstream" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || fail "deploy-cloudflare.yml names no one RAFI_REPOSITORY: '$upstream'"
-# shellcheck disable=SC2016 # the workflow's own shell variable, matched literally
-grep -qF -- '--signer-workflow "github.com/$RAFI_REPOSITORY/.github/workflows/release.yaml"' "$reusable" \
-  || fail "deploy-cloudflare.yml doesn't verify the attestation's signer as release.yaml"
+step "deploy/cloudflare deploys this release, with its workflows"
+# An installation's repository is a copy of deploy/cloudflare taken at a tag:
+# its VERSION names the release it deploys, and its workflows run that
+# release's deploy.sh, which refuses workflows written for another deploy
+# interface (RAFI_DEPLOY_VERSION). Both workflows download worker.tar.gz from
+# the repository they name and verify that release.yaml attested it.
+template="$ROOT/deploy/cloudflare"
+named="$(tr -d '[:space:]' <"$template/VERSION" 2>/dev/null || true)"
+[ "$named" = "$VERSION" ] || fail "deploy/cloudflare/VERSION says '$named', not $VERSION: set it to $VERSION"
+interface="$(sed -n 's/^DEPLOY_VERSION=\([0-9][0-9]*\)$/\1/p' "$ROOT/scripts/cloudflare-deploy.sh")"
+[[ "$interface" =~ ^[0-9]+$ ]] || fail "scripts/cloudflare-deploy.sh has no DEPLOY_VERSION=<integer> line"
+upstream=
+for workflow in deploy.yaml restate-cleanup.yaml; do
+  file="$template/.github/workflows/$workflow"
+  [ -f "$file" ] || fail "no deploy/cloudflare/.github/workflows/$workflow"
+  wanted="$(sed -n 's/^  RAFI_DEPLOY_VERSION: *"\{0,1\}\([^" #]*\)"\{0,1\}.*$/\1/p' "$file")"
+  [ "$wanted" = "$interface" ] \
+    || fail "$workflow says RAFI_DEPLOY_VERSION '${wanted//$'\n'/, }', but deploy.sh's DEPLOY_VERSION is $interface: update the workflow for the new interface, then its RAFI_DEPLOY_VERSION"
+  repository="$(sed -n 's/^  RAFI_REPOSITORY: *\([^ #]*\).*/\1/p' "$file")"
+  [[ "$repository" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || fail "$workflow names no one RAFI_REPOSITORY: '$repository'"
+  [ -z "$upstream" ] || [ "$repository" = "$upstream" ] || fail "the workflows name two Rafi repositories: $upstream and $repository"
+  upstream="$repository"
+  # shellcheck disable=SC2016 # the workflow's own shell variable, matched literally
+  grep -qF -- '--signer-workflow "github.com/$RAFI_REPOSITORY/.github/workflows/release.yaml"' "$file" \
+    || fail "$workflow doesn't verify the attestation's signer as release.yaml"
+  echo "ok   $workflow: deploy interface $interface, releases of $repository attested by release.yaml"
+done
 grep -q 'uses: actions/attest-build-provenance@' "$ROOT/.github/workflows/release.yaml" \
-  || fail "release.yaml doesn't attest the tarball: deploy-cloudflare.yml would refuse every release"
-uses="$(sed -n 's/^ *uses: *\([^ #]*\).*/\1/p' "$caller")"
-want="$upstream/.github/workflows/deploy-cloudflare.yml@v$VERSION"
-[ "$uses" = "$want" ] \
-  || fail "deploy/cloudflare/.github/workflows/deploy.yml calls '${uses//$'\n'/, }', not $want: set its uses: and version: to $VERSION"
-named="$(sed -n 's/^ *version: *"\{0,1\}\([^" #]*\)"\{0,1\}.*$/\1/p' "$caller")"
-[ "$named" = "$VERSION" ] \
-  || fail "deploy/cloudflare/.github/workflows/deploy.yml deploys version '${named//$'\n'/, }', not $VERSION: set its uses: and version: to $VERSION"
-echo "ok   deploy/cloudflare's workflow calls $want with version $VERSION"
+  || fail "release.yaml doesn't attest the tarball: the workflows would refuse every release"
+echo "ok   deploy/cloudflare/VERSION is $VERSION"
 
 step "deploy.sh's own checks"
-WRANGLER="$WRANGLER" "$ROOT/scripts/cloudflare-deploy-test.sh"
+"$ROOT/scripts/cloudflare-deploy-test.sh"
 
 step "the release: worker.tar.gz"
 just "$ROOT/" cloudflare-tarball "$VERSION" "$OUT"
@@ -99,12 +104,11 @@ step "deploy/cloudflare deploys it (dry run)"
 installation="$OUT/installation"
 rm -rf "$installation"
 mkdir -p "$installation/release"
-(cd "$ROOT/deploy/cloudflare" && tar -c --exclude ./release --exclude ./node_modules --exclude ./.wrangler --exclude ./.dev.vars .) \
+(cd "$ROOT/deploy/cloudflare" && tar -c --exclude ./release --exclude ./node_modules --exclude ./.wrangler --exclude ./.prod.vars .) \
   | tar -x -C "$installation"
 tar -xzf "$OUT/worker.tar.gz" -C "$installation/release"
 shipped="$(cat "$installation/release/VERSION")"
 [ "$shipped" = "$VERSION" ] || fail "the release unpacked says it is $shipped, not $VERSION"
-interface="$(sed -n 's/^DEPLOY_VERSION=\([0-9][0-9]*\)$/\1/p' "$ROOT/scripts/cloudflare-deploy.sh")"
 [ "$(cat "$installation/release/DEPLOY_VERSION")" = "$interface" ] \
   || fail "the release's DEPLOY_VERSION is '$(cat "$installation/release/DEPLOY_VERSION")', not deploy.sh's $interface"
 echo "ok   DEPLOY_VERSION $interface, deploy.sh's"
@@ -126,8 +130,9 @@ for worker in app engine rooms; do
   echo "ok   the $worker Worker exports: $list"
 done
 [ -x "$installation/release/deploy.sh" ] || fail "release/deploy.sh isn't executable"
-dry="$(cd "$installation" && WRANGLER="$WRANGLER" RAFI_VERSION="$VERSION" release/deploy.sh --dry-run 2>&1)" \
-  || { echo "$dry" | tail -40 >&2; fail "release/deploy.sh --dry-run failed"; }
+dry="$(cd "$installation" && WRANGLER="$WRANGLER" RAFI_VERSION="$VERSION" RAFI_DEPLOY_VERSION="$interface" \
+  release/deploy.sh dry-run 2>&1)" \
+  || { echo "$dry" | tail -40 >&2; fail "release/deploy.sh dry-run failed"; }
 for doc in terms.md privacy.md; do
   cmp -s "$ROOT/deploy/cloudflare/legal/$doc" "$installation/release/app/assets/legal/$doc" \
     || fail "deploy.sh didn't put legal/$doc into release/app/assets/legal/"

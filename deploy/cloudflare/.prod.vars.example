@@ -1,7 +1,8 @@
-# This installation's secrets: the app Worker's (the engine Worker has none).
-# Copy to .dev.vars (ignored by git) and fill it in; then either put the whole
-# file's content into the RAFI_SECRETS GitHub secret (every deploy sets them),
-# or run `npx wrangler secret bulk .dev.vars` once, before the first deploy.
+# This installation's secrets: the app Worker's (the engine and rooms Workers
+# have none). Copy to .prod.vars (ignored by git), fill it in, and run
+# `npx wrangler secret bulk .prod.vars` once, before the first deploy: it
+# creates the app Worker with them, and deploys keep them. Change one later
+# with `npx wrangler secret put <NAME>`. Then delete the file.
 # The reference, with the optional settings and their defaults:
 # https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
 
