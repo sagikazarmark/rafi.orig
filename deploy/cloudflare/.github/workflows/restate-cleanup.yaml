@@ -49,14 +49,13 @@ defaults:
     shell: bash
 
 jobs:
+  # Downloads and verifies the release, as deploy.yaml's prepare job does,
+  # without running anything of it: the cleanup job runs its deploy.sh.
   prepare:
     name: Prepare the release
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
     outputs:
-      version: ${{ steps.version.outputs.version }}
       sha256: ${{ steps.download.outputs.sha256 }}
 
     steps:
@@ -64,18 +63,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      # deploy.sh and wrangler need Node.js (wrangler 22 or later).
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
-      # npx -y); a committed package-lock.json pins their versions.
-      - name: Install wrangler and the Restate CLI
-        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
       # As in deploy.yaml: VERSION.<environment> when CLOUDFLARE_ENV is set
       # and that file exists, VERSION otherwise.
@@ -121,17 +108,6 @@ jobs:
             --source-ref "refs/tags/v$VERSION" \
             --deny-self-hosted-runners
 
-      - name: Unpack it into release/
-        run: |
-          rm -rf release
-          mkdir release
-          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
-
-      - name: Check it against this repository
-        env:
-          RAFI_VERSION: ${{ steps.version.outputs.version }}
-        run: release/deploy.sh check
-
       - name: Hand it to the cleanup
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -139,18 +115,6 @@ jobs:
           path: ${{ runner.temp }}/rafi/worker.tar.gz
           if-no-files-found: error
           retention-days: 1
-
-      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
-      # Cloudflare's answers, the cleanup's cleanup.json; no secrets), kept
-      # whatever happened.
-      - name: Keep deploy.sh's JSON
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: cleanup-json-prepare-${{ github.run_attempt }}
-          path: ${{ env.RAFI_ARTIFACTS_DIR }}
-          if-no-files-found: ignore
-          retention-days: 14
 
   cleanup:
     name: Remove drained engine deployments
@@ -194,7 +158,6 @@ jobs:
 
       - name: Remove the drained engine deployments and their Workers
         env:
-          RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           RESTATE_ADMIN_URL: ${{ secrets.RESTATE_ADMIN_URL }}

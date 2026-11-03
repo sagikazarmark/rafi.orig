@@ -59,7 +59,7 @@ invocation_logs = false
 
 # RAFI_DO_JURISDICTION: optional, the live channels' jurisdiction, the live
 # Worker's and the app's (live.wrangler.toml, app.wrangler.toml); unset, none
-# (README.md, "Keeping data in the EU").
+# (INSTALL.md, "Keeping data in the EU").
 # RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS: your Restate environment's public key
 # (publickeyv1_..., in Restate Cloud's environment settings), or several,
 # comma separated, while you rotate it; the engine refuses every request

@@ -111,8 +111,9 @@ records (not legal advice):
 ## Guides
 
 - [Self-hosting](self-hosting.md): `rafi` and `rafi-restate` on your own machine
-- [Cloudflare Workers](cloudflare.md), and the first deploy step by step in
-  [`deploy/cloudflare`'s README](../../deploy/cloudflare/README.md)
+- [Cloudflare Workers](cloudflare.md), the first deploy step by step in
+  [`deploy/cloudflare/INSTALL.md`](../../deploy/cloudflare/INSTALL.md), and the day-to-day in its
+  [README](../../deploy/cloudflare/README.md)
 - [Upgrades](upgrades.md): migrations, registering the engine, the deploy freeze
 - [Troubleshooting](troubleshooting.md)
 - [Runbook](runbook.md): the deploy preflight, rotating secrets, rolling back (don't), the engine down during an

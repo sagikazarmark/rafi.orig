@@ -50,6 +50,6 @@ invocation_logs = false
 
 # Optional: the jurisdiction of the live channels' Durable Objects ("eu"),
 # as app.wrangler.toml and engine.wrangler.toml say; unset, none. Before the
-# first deploy only: README.md, "Keeping data in the EU".
+# first deploy only: INSTALL.md, "Keeping data in the EU".
 [vars]
 # RAFI_DO_JURISDICTION = "eu"

@@ -531,6 +531,17 @@ copy → announce.
   chooses the README's "Keeping data in the EU" before the first deploy. T2-3's "the Durable Object's EU
   jurisdiction" item applies only to such an installation; the live Worker's fingerprint is its file's bytes now,
   so any edit of `live.wrangler.toml` redeploys it.
+- **Since** (2026-11-03, final): `deploy.sh` checks nothing of the installation's any more: not the release's
+  `VERSION` against the version file (it deploys the release it came in; the workflows still pick the release to
+  download by `VERSION.<env>`/`VERSION`), not the release's files, not the placeholders. `check` is gone (its
+  workflow steps, tests and docs with it; `RAFI_VERSION` too); `check-remote` (credentials, the downgrade guard)
+  and the `jq` prerequisite stay, and `dry-run` is the credential-free try. Read "it checks the versions, the
+  release's files and the template's placeholders" above as gone: a placeholder left fails at the migrations or the
+  engine's registration. The template's `.prod.vars.example` is `.dev.vars.example` again (`.dev.vars`
+  git-ignored), `app.wrangler.toml` has a commented-out `[placement]` (`mode = "smart"` or a `region`; latency,
+  not residency), and its docs are split: `deploy/cloudflare/INSTALL.md` is the first deploy (with "Keeping data in
+  the EU", "Placement" and "Several installations"), `README.md` the day-to-day. Read "the README" above, for the
+  first deploy, as `INSTALL.md`.
 
 #### T2-6 · Licensing and attribution
 
@@ -1508,11 +1519,11 @@ The tag is ready when every line is true.
 - [ ] One `workflow_dispatch` dry run and one `v0.1.0-rc.1` pre-release exist; the release job depends on CI.
 - [ ] One real Cloudflare deploy drew a raffle end to end with real drand; the items under "What only a real
       deploy can check" in `cloudflare.md` are dated; startup time recorded.
-- [ ] A first install from a clean repository, following `deploy/cloudflare/README.md` step by step, reaches
+- [ ] A first install from a clean repository, following `deploy/cloudflare/INSTALL.md` step by step, reaches
       `/healthz` → `ok 0.1.0`; with unedited templates the Worker refuses every request.
 - [ ] A second release's deploy registers its engine, and the Restate cleanup removes the first engine's Restate
       deployment, then deletes its Worker (`rafi-engine-v0-1-0`), once drained; the run's summary says so.
-- [ ] A stranger deployed from the README in under an hour; their notes are folded in.
+- [ ] A stranger deployed from `deploy/cloudflare/INSTALL.md` in under an hour; their notes are folded in.
 - [ ] `gh attestation verify` passes on the tarball; two builds of the tag are byte-identical.
 - [x] `OFL.txt` beside the fonts; the admin footer links the source and shows the version; `/v/<slug>` links
       `verify.py`.

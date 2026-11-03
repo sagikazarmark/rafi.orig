@@ -20,8 +20,10 @@ Installations deploy a release with GitHub Actions, from their own repository, a
 Wrangler environment and that file exists: several installations in one repository), and its two workflows,
 `.github/workflows/deploy.yaml` and `restate-cleanup.yaml`, download that release's `worker.tar.gz` from this
 repository, verify its attestation (signed by `release.yaml`, from a run on the tag `v<version>`) and run its
-`deploy.sh`, one subcommand per job (`check` and `check-remote`, `migrate`, `deploy-live`, `upload-app` and
-`deploy-engine`, `register-engine` and `promote-app`; `cleanup` daily). The workflows are thin and the
+`deploy.sh`, one subcommand per job (`check-remote`, `migrate`, `deploy-live`, `upload-app` and
+`deploy-engine`, `register-engine` and `promote-app`; `cleanup` daily). `deploy.sh` deploys the release it is part
+of (its `VERSION`) and checks nothing of the installation's: not its version file, not the placeholders, not that
+the three configurations agree. The workflows are thin and the
 installation's own; nothing in `deploy.sh` is GitHub's: it reads the Workers' names from wrangler's dry run of
 each configuration (for `CLOUDFLARE_ENV`), writes its outputs to `RAFI_OUTPUT_FILE`, its Markdown report to
 `RAFI_REPORT_FILE` and the JSON it read and wrote to `RAFI_ARTIFACTS_DIR` (the workflows give it `$GITHUB_OUTPUT`,
@@ -42,10 +44,10 @@ commit it was. Installations' deploys download the asset by its tag and verify i
 
 Name the release in `deploy/cloudflare/VERSION` (`0.2.0`, or `0.2.0-rc.1` for a pre-release). The rehearsal refuses
 a release that file doesn't name (an installation copied at the tag would deploy another release), and CI's
-rehearsal and the Release workflow's manual run are of the version it names. The template's README names the
-release in its commands too (the tarball it copies, `/healthz`'s answer, the engine Workers' names, the version files
-of Several installations): change them with `VERSION` (`rg -n '0\.1\.0|0-1-0' deploy/cloudflare/README.md`); nothing
-checks those.
+rehearsal and the Release workflow's manual run are of the version it names. The template's `INSTALL.md` and `README.md`
+name the release in their commands too (the tarball it copies, `/healthz`'s answer, the engine Workers' names, the
+version files of Several installations): change them with `VERSION` (`rg -n '0\.1\.0|0-1-0' deploy/cloudflare/*.md`);
+nothing checks those.
 
 When a change to `scripts/cloudflare-deploy.sh` changes how it is driven (a subcommand, its environment or outputs,
 what it expects of the installation's repository), change the template's workflows to fit, in the same commit, and
@@ -55,7 +57,7 @@ subcommand they still call has to keep working for a release, or the notes say w
 The release notes are generated from the merged pull requests; edit them on the release when an operator has to
 act or should know:
 
-- a migration, a new secret, a setting in `deploy/cloudflare`'s configurations or `.prod.vars.example` (operators
+- a migration, a new secret, a setting in `deploy/cloudflare`'s configurations or `.dev.vars.example` (operators
   carry those over by hand, into each `[env.<name>]` too, since environments don't inherit vars, bindings or required
   secrets);
 - a change to the workflows: "copy `.github/workflows/deploy.yaml` and `restate-cleanup.yaml` from
@@ -75,10 +77,11 @@ CI's `workers` job rehearses a release (of the version `deploy/cloudflare/VERSIO
 
 Run the Release workflow by hand (**Actions > Release > Run workflow**): it runs CI, builds the release of the
 version given (by default the one `deploy/cloudflare/VERSION` names), checks that the template's `VERSION` names it
-and that its workflows read the version file as `deploy.sh` does, and runs its `deploy.sh dry-run` from a copy of
-`deploy/cloudflare` with the release unpacked into `release/` (the devenv's wrangler, the Workers' names read from
-its dry runs), at the configurations' top level and as a Wrangler environment (`[env.eu]` added to each
-configuration, with `RAFI_DO_JURISDICTION = "eu"`, `VERSION.eu`, `CLOUDFLARE_ENV=eu`), publishing nothing. `dry_run` off publishes a tag that already exists, to finish a release whose run failed: run it
+and that its workflows download the release the version file names (and call no `deploy.sh check`), and runs
+its `deploy.sh dry-run` from a copy of `deploy/cloudflare` with the release unpacked into `release/` (the devenv's
+wrangler, the Workers' names read from its dry runs), at the configurations' top level and as a Wrangler
+environment (`[env.eu]` added to each configuration, with `RAFI_DO_JURISDICTION = "eu"`, `VERSION.eu`,
+`CLOUDFLARE_ENV=eu`), publishing nothing. `dry_run` off publishes a tag that already exists, to finish a release whose run failed: run it
 on the tag (**Use workflow from**: the tag, or `gh workflow run release.yaml --ref v<version> -f dry_run=false`),
 since the attestation names the ref the run was on and installations require the tag; from a branch it refuses.
 

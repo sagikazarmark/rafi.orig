@@ -14,8 +14,7 @@
 # release unpacked into release/ (the directory this script is in is the release; the
 # configurations point into it as release/...):
 #
-#   release/deploy.sh check             the release, the version file, the placeholders and the Workers' names; nothing remote
-#   release/deploy.sh check-remote      check, then no downgrade (Restate's release) and the token works; reads only
+#   release/deploy.sh check-remote      no downgrade (Restate's release) and the token works; reads only
 #   release/deploy.sh migrate           the D1 migrations
 #   release/deploy.sh deploy-live       the live Worker, unless its code and configuration are unchanged
 #   release/deploy.sh upload-app        the app Worker's version uploaded (deployed directly on a first install)
@@ -23,15 +22,14 @@
 #   release/deploy.sh register-engine   the engine Worker registered with Restate (never a downgrade)
 #   release/deploy.sh promote-app       the uploaded app version deployed, then its routes and Cron
 #   release/deploy.sh cleanup           drained engine deployments removed from Restate, then their Workers deleted
-#   release/deploy.sh dry-run           check, legal/ copied in, `wrangler deploy --dry-run` of the three Workers
+#   release/deploy.sh dry-run           legal/ copied in, `wrangler deploy --dry-run` of the three Workers; nothing remote
 #
 # Environment:
 #   CLOUDFLARE_ENV        optional: the Wrangler environment ([env.<name>] in each configuration)
 #                         this installation is, for several installations in one repository;
 #                         wrangler reads it too, so every wrangler call here deploys that
 #                         environment's Workers. Unset or empty: the configurations' top level.
-#   RAFI_VERSION          optional: the version the release must be
-#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID   the account; all but check and dry-run
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID   the account; all but dry-run
 #                         (register-engine needs only the account ID, for the metadata)
 #   RESTATE_ADMIN_URL     check-remote, register-engine, cleanup: the Restate environment's admin
 #                         API (https://<env>.env.<region>.restate.cloud:9070)
@@ -60,22 +58,21 @@
 # Needs bash, curl, jq, and node with npx (for wrangler and the Restate CLI).
 #
 # What each does (each prints its steps):
-#   Every subcommand first checks, as `check` does: the release's VERSION is a version
-#   (x.y.z, optionally -pre.release) and the installation's version file's (VERSION.<env>
-#   when CLOUDFLARE_ENV is set and that file exists, VERSION otherwise; and RAFI_VERSION's, when
-#   set); the release has the files the configurations point at (app/build/index.js,
-#   app/assets/, engine/build/index.js, live/build/index.js, migrations/); the three
-#   configurations are there, without the template's placeholders (a literal search for the
-#   zero database_id and the publickeyv1_… identity key; refused, and only warned about by
-#   dry-run). Then, but for migrate, the Workers' names: `wrangler deploy --dry-run` of each
-#   configuration (live.wrangler.toml, engine.wrangler.toml, app.wrangler.toml, for
-#   CLOUDFLARE_ENV's environment: wrangler refuses a configuration that doesn't deploy, an
-#   environment it lacks among others), each name the worker_name of the dry run's deploy entry
-#   in wrangler's ND-JSON output; this release's engine Worker is <engine name>-v<version>.
-#   Nothing compares the configurations with each other: one database_id and one
-#   RAFI_DO_JURISDICTION in all three, RAFFLE_ROOM's script_name the live Worker's name and the
-#   engine's identity keys in every environment are the installation's to keep (the first
-#   test-mode raffle after an install shows a mismatch).
+#   Every subcommand first reads the release's VERSION (this directory's: x.y.z, optionally
+#   -pre.release, a leading v dropped), the version it deploys: the engine Worker's name and
+#   the version in Restate's metadata are this. Nothing compares it with the installation's
+#   version file (the workflows chose the release to download by it), checks that the release
+#   or the configurations have their files, or searches for the template's placeholders: a
+#   missing file or a placeholder left fails where wrangler or Cloudflare meets it. Then, but
+#   for migrate, the Workers' names: `wrangler deploy --dry-run` of each configuration
+#   (live.wrangler.toml, engine.wrangler.toml, app.wrangler.toml, for CLOUDFLARE_ENV's
+#   environment: wrangler refuses a configuration that doesn't deploy, an environment it lacks
+#   among others), each name the worker_name of the dry run's deploy entry in wrangler's
+#   ND-JSON output; this release's engine Worker is <engine name>-v<version>. Nothing compares
+#   the configurations with each other: one database_id and one RAFI_DO_JURISDICTION in all
+#   three, RAFFLE_ROOM's script_name the live Worker's name and the engine's identity keys in
+#   every environment are the installation's to keep (the first test-mode raffle after an
+#   install shows a mismatch).
 #   The installation is its app Worker's name (unique in the account): Restate's deployment
 #   metadata names it as `instance`, and the downgrade guard and the cleanup touch only that
 #   instance's deployments in this account.
@@ -131,9 +128,8 @@
 #     deletion failed and the account's <engine name>-v... Workers no Restate deployment refers
 #     to (never deleted here: delete them by hand); and every deployment that isn't this
 #     installation's (never touched).
-#   dry-run: check (placeholders warned about), legal/ copied in, and the three `wrangler deploy
-#     --dry-run` that read the names (the live Worker, the engine Worker, the app Worker); no
-#     credentials.
+#   dry-run: legal/ copied in, and the three `wrangler deploy --dry-run` that read the names
+#     (the live Worker, the engine Worker, the app Worker); no credentials.
 #
 # Exit status: 0 on success, 1 on a failure or a refusal, 2 on a usage error. Every subcommand
 # can be run again: a failed one is retried by running it again.
@@ -147,9 +143,6 @@ set -euo pipefail
 REGISTER_ATTEMPTS=5
 # The services this release's engine exposes, whose latest deployment the downgrade guard reads.
 ENGINE_SERVICES="Raffle EngineInfo"
-# The template's placeholders (deploy/cloudflare's configurations), searched for as they are.
-PLACEHOLDER_DATABASE_ID="00000000-0000-0000-0000-000000000000"
-PLACEHOLDER_IDENTITY_KEY="publickeyv1_…"
 
 usage() {
   sed -n '/^# Usage/,/^#   release\/deploy.sh dry-run/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -225,16 +218,6 @@ read_version() {
   printf '%s\n' "$version"
 }
 
-# The installation's version file: VERSION.<CLOUDFLARE_ENV> when that is set and the file
-# exists, VERSION otherwise (the workflows choose the release to download by the same rule).
-version_file() {
-  if [ -n "${CLOUDFLARE_ENV:-}" ] && [ -f "VERSION.$CLOUDFLARE_ENV" ]; then
-    printf '%s\n' "VERSION.$CLOUDFLARE_ENV"
-  else
-    printf '%s\n' VERSION
-  fi
-}
-
 # Compares two non-negative integers of any length (num_cmp <a> <b>): prints -1, 0 or 1.
 num_cmp() {
   local LC_ALL=C a="${1#"${1%%[!0]*}"}" b="${2#"${2%%[!0]*}"}"
@@ -300,59 +283,16 @@ engine_worker_name() {
   printf '%s\n' "$name"
 }
 
-# The template's placeholders (check_placeholders <strict>): a literal search of the three
-# configurations, nothing parsed. strict=1 refuses them; 0 warns.
-check_placeholders() {
-  local strict="$1" config found=()
-  for config in "$APP_CONFIG" "$ENGINE_CONFIG" "$LIVE_CONFIG"; do
-    if grep -qF -- "$PLACEHOLDER_DATABASE_ID" "$config"; then
-      found+=("$(basename "$config"): the template's database_id $PLACEHOLDER_DATABASE_ID (wrangler d1 create, then its ID in all three files)")
-    fi
-    if grep -qF -- "$PLACEHOLDER_IDENTITY_KEY" "$config"; then
-      found+=("$(basename "$config"): the template's identity key $PLACEHOLDER_IDENTITY_KEY (your Restate environment's publickeyv1_... key)")
-    fi
-  done
-  [ "${#found[@]}" -gt 0 ] || return 0
-  if [ "$strict" = 1 ]; then
-    printf 'error: %s\n' "${found[@]}" >&2
-    die "the template's placeholders are still in the configurations (above): nothing was done"
-  fi
-  printf 'warning: %s\n' "${found[@]}" >&2
-}
-
-# What every subcommand checks first (check_release <strict>): the release, the installation's
-# version file, the release's files and the placeholders. Sets RELEASE, VERSION, VERSION_FILE
-# and the configurations' paths.
-check_release() {
-  local strict="$1" wanted path
+# The release (read_release): its VERSION, the version this deploys, nothing compared with it.
+# Sets RELEASE, VERSION and the configurations' paths.
+read_release() {
   RELEASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
   APP_CONFIG="$PWD/app.wrangler.toml"
   ENGINE_CONFIG="$PWD/engine.wrangler.toml"
   LIVE_CONFIG="$PWD/live.wrangler.toml"
   step "release $RELEASE"
   VERSION="$(read_version "$RELEASE/VERSION" "is $RELEASE an unpacked Rafi release?")" || exit 1
-
-  # The release the installation names.
-  VERSION_FILE="$(version_file)"
-  wanted="$(read_version "$PWD/$VERSION_FILE" "the installation's VERSION file names the Rafi release it deploys (run this from the repository's root)")" || exit 1
-  [ "$wanted" = "$VERSION" ] || die "the installation's $VERSION_FILE says $wanted, but the release in $RELEASE is $VERSION"
-  if [ -n "${RAFI_VERSION:-}" ] && [ "${RAFI_VERSION#v}" != "$VERSION" ]; then
-    die "the release in $RELEASE is $VERSION, but RAFI_VERSION says ${RAFI_VERSION#v}"
-  fi
-
-  # What the configurations point at (release/...).
-  for path in app/build/index.js engine/build/index.js live/build/index.js; do
-    [ -f "$RELEASE/$path" ] || die "the release has no $path ($RELEASE/$path)"
-  done
-  for path in app/assets migrations; do
-    [ -d "$RELEASE/$path" ] || die "the release has no $path/ ($RELEASE/$path)"
-  done
-  for path in "$APP_CONFIG" "$ENGINE_CONFIG" "$LIVE_CONFIG"; do
-    [ -f "$path" ] || die "$(basename "$path") is missing: the installation's Wrangler configurations (run this from the repository's root)"
-  done
-  check_placeholders "$strict"
-
-  say "Rafi $VERSION ($VERSION_FILE)"
+  say "Rafi $VERSION (the release's VERSION)"
   if [ -n "${CLOUDFLARE_ENV:-}" ]; then
     say "environment: $CLOUDFLARE_ENV ([env.$CLOUDFLARE_ENV] of each configuration)"
   else
@@ -552,10 +492,6 @@ live_tag() {
   printf 'live-%s\n' "${hash:0:32}"
 }
 
-cmd_check() {
-  step "checked: Rafi $VERSION fits this installation"
-}
-
 cmd_migrate() {
   require_env CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
   step "D1 migrations"
@@ -594,7 +530,7 @@ cmd_upload_app() {
   step "app Worker $APP_NAME"
   cf_deployed "$APP_NAME"
   if [ "$WORKER_EXISTS" = no ]; then
-    die "the app Worker $APP_NAME doesn't exist on the account: before the first deploy, create it with its secrets (${CLOUDFLARE_ENV:+CLOUDFLARE_ENV=$CLOUDFLARE_ENV }npx -y wrangler secret bulk .prod.vars -c app.wrangler.toml, from .prod.vars.example)"
+    die "the app Worker $APP_NAME doesn't exist on the account: before the first deploy, create it with its secrets (${CLOUDFLARE_ENV:+CLOUDFLARE_ENV=$CLOUDFLARE_ENV }npx -y wrangler secret bulk .dev.vars -c app.wrangler.toml, from .dev.vars.example)"
   fi
   # A release's code has run here when a version tagged v<version> is deployed, or was (a secret
   # changed since makes a new version, untagged).
@@ -674,7 +610,9 @@ restate_guard_rows() {
 # the latest deployment of each of the engine's services (GET /services) and its metadata (GET
 # /deployments) read, and exits 1 when one is this installation's and of a newer release.
 refuse_downgrade() {
-  local refusal="$1" resp rows name kind id version c refused=0
+  local refusal="$1" resp rows name kind id version c refused=0 file=VERSION
+  # The version file the workflows read: VERSION.<CLOUDFLARE_ENV> when it exists, VERSION otherwise.
+  [ -z "${CLOUDFLARE_ENV:-}" ] || file="VERSION.$CLOUDFLARE_ENV (VERSION without one)"
   step "Restate: the release it runs (installation $APP_NAME)"
   resp="$(restate_api GET /services)"
   [ "$(status_of "$resp")" = 200 ] || restate_failed "Restate's services" "$resp"
@@ -698,7 +636,7 @@ refuse_downgrade() {
         fi
         if [ "$c" = -1 ]; then
           printf 'error: %s runs on Rafi %s (%s), newer than %s: %s. Set %s to %s or later.\n' \
-            "$name" "$version" "$id" "$VERSION" "$refusal" "$VERSION_FILE" "$version" >&2
+            "$name" "$version" "$id" "$VERSION" "$refusal" "$file" "$version" >&2
           refused=1
         fi
         ;;
@@ -995,7 +933,7 @@ cmd_dry_run() {
 }
 
 main() {
-  local command="${1:-}" strict=1
+  local command="${1:-}"
   if [ "$#" -ne 1 ]; then
     usage >&2
     exit 2
@@ -1005,8 +943,7 @@ main() {
       usage
       return 0
       ;;
-    dry-run) strict=0 ;;
-    check | check-remote | migrate | deploy-live | upload-app | deploy-engine | register-engine | promote-app | cleanup) ;;
+    check-remote | migrate | deploy-live | upload-app | deploy-engine | register-engine | promote-app | cleanup | dry-run) ;;
     *)
       usage >&2
       exit 2
@@ -1035,7 +972,7 @@ main() {
     ARTIFACTS="$WORK/artifacts"
   fi
   mkdir -p "$ARTIFACTS" || die "couldn't create $ARTIFACTS (RAFI_ARTIFACTS_DIR)"
-  check_release "$strict"
+  read_release
   # The names, from wrangler's dry runs: all but migrate need them (dry-run's are its own).
   case "$command" in
     migrate | dry-run) ;;

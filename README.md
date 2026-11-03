@@ -91,8 +91,9 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
   release to your own account (the app Worker, the live Worker with the live channels, and each release's raffle
   engine Worker, registered with Restate Cloud and removed once drained) with your configuration and legal
   documents, after checking the release's provenance; one account can hold several installations, each in a
-  repository of its own or as Wrangler environments of one. [The first deploy](deploy/cloudflare/README.md) is
-  documented step by step, and [the reference](docs/operations/cloudflare.md) explains it. CI runs the production
+  repository of its own or as Wrangler environments of one. [The first deploy](deploy/cloudflare/INSTALL.md) is
+  documented step by step and [running it after](deploy/cloudflare/README.md) beside it, and
+  [the reference](docs/operations/cloudflare.md) explains both. CI runs the production
   shape through a dry deploy, a whole evening under `wrangler dev` and the hourly housekeeping.
 - **Self-hosting** (native `rafi` and `rafi-restate`) is supported. There are no packaged images yet: you build
   from source. Container images and native packages come later.
@@ -114,7 +115,8 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 **Operating Rafi**
 - [Overview](docs/operations/overview.md): what you deploy, and the topologies
 - [Self-hosting](docs/operations/self-hosting.md) · [Cloudflare Workers](docs/operations/cloudflare.md) (its first
-  deploy: [`deploy/cloudflare`](deploy/cloudflare/README.md))
+  deploy: [`deploy/cloudflare/INSTALL.md`](deploy/cloudflare/INSTALL.md); after it, its
+  [README](deploy/cloudflare/README.md))
 - [Upgrades](docs/operations/upgrades.md) · [Troubleshooting](docs/operations/troubleshooting.md) ·
   [Runbook](docs/operations/runbook.md)
 

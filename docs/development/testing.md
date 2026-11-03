@@ -16,7 +16,7 @@ everything CI runs except the Workers checks.
 | `just audit` | `cargo audit`: `Cargo.lock` against the RustSec advisory database. Advisories are checked here alone; an accepted one is ignored, with its reason, in [`.cargo/audit.toml`](../../.cargo/audit.toml) |
 | `just deny` | `cargo deny check bans licenses sources` ([`deny.toml`](../../deny.toml)) |
 | `just workers` | [`./scripts/workers-check.sh`](#workers): everything under `wrangler dev`. Long, and it needs a Chromium, so `just ci` leaves it out |
-| `just cloudflare-artifact`, `just cloudflare-tarball <version>`, `just cloudflare-release <version>` | Not checks: what a release ships (the app, engine and live Workers, the D1 migrations and `deploy.sh`), packed as `worker.tar.gz`, and the release itself (`scripts/cloudflare-release.sh`: the template's `VERSION` naming the release and its workflows reading the version file as `deploy.sh` does, `deploy.sh`'s own checks, `worker.tar.gz`, and its `deploy.sh dry-run` from a copy of `deploy/cloudflare`, also as a Wrangler environment), which the release workflow runs on a tag |
+| `just cloudflare-artifact`, `just cloudflare-tarball <version>`, `just cloudflare-release <version>` | Not checks: what a release ships (the app, engine and live Workers, the D1 migrations and `deploy.sh`), packed as `worker.tar.gz`, and the release itself (`scripts/cloudflare-release.sh`: the template's `VERSION` naming the release, its `.dev.vars.example`, and its workflows downloading the release the version file names, `deploy.sh`'s own checks, `worker.tar.gz`, and its `deploy.sh dry-run` from a copy of `deploy/cloudflare`, also as a Wrangler environment), which the release workflow runs on a tag |
 
 The end-to-end tests run the shell's `restate-server` (`RESTATE_SERVER_BIN`). Without it (outside the devenv shell,
 set it to a `restate-server` binary), they skip locally, and `just test` ends with a `SKIPPED:` line counting them;
@@ -188,16 +188,16 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   `live.wrangler.toml` agree with the production Workers' (`apps/worker-app`, `apps/worker-engine`,
   `apps/worker-live`) on the bindings, limits, Durable Object migrations and required secrets, and a release (of the
   version `deploy/cloudflare/VERSION` names) is rehearsed the way a tag releases it (`scripts/cloudflare-release.sh`):
-  first that the template's `VERSION` names it, that its two workflows (`.github/workflows/deploy.yaml` and
-  `restate-cleanup.yaml`) name one Rafi repository, verify the attestation `release.yaml` makes (its signer) and
-  read `VERSION.<CLOUDFLARE_ENV>` when it exists, as `deploy.sh` does, and that each of their jobs installs the
-  tools from the template's `package.json` (`npm ci`, or `npm install`) and uploads `RAFI_ARTIFACTS_DIR` whatever
-  happened; then the deploy script's own checks
+  first that the template's `VERSION` names it, that it has `.dev.vars.example` (and git-ignores `.dev.vars`), that
+  its two workflows (`.github/workflows/deploy.yaml` and `restate-cleanup.yaml`) name one Rafi repository, verify
+  the attestation `release.yaml` makes (its signer), download the release `VERSION.<CLOUDFLARE_ENV>` names when it
+  exists and call no `deploy.sh check`, and that each of their jobs that runs `deploy.sh` installs the tools from
+  the template's `package.json` (`npm ci`, or `npm install`) and uploads `RAFI_ARTIFACTS_DIR` whatever happened; then the deploy script's own checks
   (`scripts/cloudflare-deploy-test.sh`: each subcommand run from a copy of the template with a release laid out in
   `release/`, against a stubbed wrangler and Restate CLI and a fake Cloudflare and Restate admin API, a local node
   server; the wrangler stub's dry runs write a `deploy` entry with the Worker's name into its ND-JSON output, as
-  wrangler does: `check` (the release's and the installation's version file, `VERSION.<env>` or `VERSION`, the
-  release's files, the placeholders found by a literal search, the names read from the dry runs whatever the files
+  wrangler does: `dry-run` (the release's `VERSION` the one deployed, the installation's version files not read and
+  the template's placeholders not looked for, `check` gone, the names read from the dry runs whatever the files
   say, a dry run failing or naming no Worker, the engine Worker's versioned name, `jq` missing, the tools' defaults
   `npx -y wrangler` and `npx -y @restatedev/restate` and their overrides, and Wrangler environments: none, one
   without a name of its own, one with, one wrangler refuses), `migrate`, `deploy-live` skipping an unchanged
@@ -219,7 +219,8 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   keys) and the app Worker `rafi-app` (`ASSETS`, `DB`, `RAFFLE_ROOM` defined in `rafi-live`, the four rate
   limiters), the names read from the dry runs' ND-JSON and no `RAFI_DO_JURISDICTION` (the template's default);
   then the same for a copy with an `[env.eu]` in each configuration (with `RAFI_DO_JURISDICTION = "eu"`) and a
-  `VERSION.eu`, with `CLOUDFLARE_ENV=eu`: `rafi-live-eu`, `rafi-engine-eu-v<version>` and `rafi-app-eu`, bound to
+  `VERSION.eu` (and the top level's `VERSION` another release, which `deploy.sh` doesn't read), with
+  `CLOUDFLARE_ENV=eu`: `rafi-live-eu`, `rafi-engine-eu-v<version>` and `rafi-app-eu`, bound to
   `rafi-live-eu`, each with the jurisdiction. What `deploy.sh` does against the real
   Cloudflare and Restate Cloud (the API's answers, wrangler's uploads and deploys, the registration, the removals
   and deletions, the Workers listing) needs an account and is not run here

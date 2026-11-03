@@ -53,7 +53,7 @@ directory = "release/app/assets"
 binding = "ASSETS"
 
 # Your database: `wrangler d1 create rafi` (to keep it in the EU, read
-# README.md's "Keeping data in the EU" first), and paste the ID here,
+# INSTALL.md's "Keeping data in the EU" first), and paste the ID here,
 # in engine.wrangler.toml (the engine writes draws to it) and in
 # live.wrangler.toml (the live channels read it). The migrations run before
 # each deploy (deploy.sh).
@@ -109,16 +109,31 @@ enabled = true
 [observability.logs]
 invocation_logs = false
 
+# Optional, for latency: where the app's request handling runs. By default
+# Cloudflare runs it in the data center nearest each visitor; with
+# placement, the fetch handler (every request the app answers, the phones'
+# live-channel connections on their way to the raffle's object included;
+# not the hourly Cron) runs near what it calls instead, the D1 database and
+# Restate Cloud, and the static files are still served nearest the visitor.
+# Uncomment [placement] and one of the two, which exclude each other:
+# mode = "smart" lets Cloudflare choose from the Worker's traffic; region
+# names the cloud region to run nearest (your Restate Cloud environment's,
+# say). It is not a data-residency control: Workers run on Cloudflare's
+# network, not inside a cloud region. INSTALL.md, "Placement".
+# [placement]
+# mode = "smart"
+# region = "aws:eu-central-1"
+
 # Optional: the jurisdiction the live channels' Durable Objects are created
 # in ("eu" keeps them in the EU). Unset, they are wherever Cloudflare places
 # them. Decide before the first deploy (objects keep the jurisdiction they
 # were created in), the same in all three files and every [env.<name>]:
-# README.md, "Keeping data in the EU".
+# INSTALL.md, "Keeping data in the EU".
 [vars]
 # RAFI_DO_JURISDICTION = "eu"
 
-# What this installation sets, as secrets (.prod.vars.example), once with
-# `wrangler secret bulk .prod.vars -c app.wrangler.toml` before the first
+# What this installation sets, as secrets (.dev.vars.example), once with
+# `wrangler secret bulk .dev.vars -c app.wrangler.toml` before the first
 # deploy (then `wrangler secret put <NAME> -c app.wrangler.toml`); deploys keep them:
 #   RAFI_PUBLIC_URL                        the public origin, no trailing slash
 #   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL

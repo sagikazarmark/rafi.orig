@@ -11,10 +11,10 @@ name: Deploy
 #   1. prepare: downloads worker.tar.gz of v<VERSION> from the Rafi repository,
 #      refuses it unless its build provenance attestation says Rafi's release
 #      workflow (release.yaml) built it from that tag on GitHub's runners,
-#      checks it against this repository (deploy.sh check), refuses an older
-#      release than Restate runs and credentials that don't work
-#      (deploy.sh check-remote), before anything touches production, and
-#      hands the verified tarball to the other jobs;
+#      refuses an older release than Restate runs and credentials that don't
+#      work (deploy.sh check-remote), before anything touches production, and
+#      hands the verified tarball to the other jobs. Nothing checks this
+#      repository's configurations against the release or each other;
 #   2. migrate: the D1 migrations;
 #   3. live: the live Worker (the raffles' live channels), only when its
 #      code or live.wrangler.toml changed (a deploy of it drops every phone's
@@ -54,7 +54,7 @@ name: Deploy
 #   RESTATE_ADMIN_URL    the Restate Cloud environment's admin API (https://<env>.env.<region>.restate.cloud:9070)
 #   RESTATE_AUTH_TOKEN   a Restate Cloud API key with the Admin role
 # The app Worker's own secrets are set once, before the first deploy, with
-# wrangler (.prod.vars.example), not here.
+# wrangler (.dev.vars.example), not here.
 #
 # One deploy or cleanup at a time (the concurrency group rafi, which
 # restate-cleanup.yaml shares): a run waits for the one in progress, never
@@ -102,7 +102,6 @@ jobs:
     env:
       RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
     outputs:
-      version: ${{ steps.version.outputs.version }}
       sha256: ${{ steps.download.outputs.sha256 }}
 
     steps:
@@ -124,8 +123,8 @@ jobs:
         run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
       # VERSION.<environment> when CLOUDFLARE_ENV is set and that file
-      # exists, VERSION otherwise (deploy.sh checks the release by the same
-      # rule).
+      # exists, VERSION otherwise: the release to download. deploy.sh doesn't
+      # read it; it deploys the release it is part of.
       - name: Read the version file
         id: version
         run: |
@@ -176,17 +175,11 @@ jobs:
           mkdir release
           tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
 
-      - name: Check it against this repository
-        env:
-          RAFI_VERSION: ${{ steps.version.outputs.version }}
-        run: release/deploy.sh check
-
       # Before anything touches production: an older release than Restate
       # runs (VERSION set back) is refused here, and so are credentials that
       # don't work.
       - name: Check it against Restate and Cloudflare
         env:
-          RAFI_VERSION: ${{ steps.version.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           RESTATE_ADMIN_URL: ${{ secrets.RESTATE_ADMIN_URL }}
@@ -252,7 +245,6 @@ jobs:
 
       - name: Apply the D1 migrations
         env:
-          RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: release/deploy.sh migrate
@@ -308,7 +300,6 @@ jobs:
 
       - name: Deploy the live Worker (unless unchanged)
         env:
-          RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh deploy-live
@@ -368,7 +359,6 @@ jobs:
       - name: Upload the app Worker's version
         id: upload
         env:
-          RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_OUTPUT_FILE="$GITHUB_OUTPUT" RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh upload-app
@@ -428,7 +418,6 @@ jobs:
       - name: Deploy this release's engine Worker
         id: deploy
         env:
-          RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_OUTPUT_FILE="$GITHUB_OUTPUT" RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh deploy-engine
@@ -485,7 +474,6 @@ jobs:
       # First, so the app never calls a handler the engine Restate runs lacks.
       - name: Register the engine with Restate
         env:
-          RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           RAFI_ENGINE_WORKER: ${{ needs.engine.outputs.engine_worker }}
           RAFI_ENGINE_URL: ${{ needs.engine.outputs.engine_url }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -495,7 +483,6 @@ jobs:
 
       - name: Deploy the app Worker's version
         env:
-          RAFI_VERSION: ${{ needs.prepare.outputs.version }}
           RAFI_APP_VERSION_ID: ${{ needs.app.outputs.app_version_id }}
           RAFI_APP_PROMOTED: ${{ needs.app.outputs.app_promoted }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

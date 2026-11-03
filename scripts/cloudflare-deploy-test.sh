@@ -7,15 +7,14 @@
 # fake Cloudflare and Restate admin API (a local node HTTP server answering from a state file
 # and logging each request, in one log with the stubs, so the order of calls shows).
 #
-#   - check: the release's VERSION and the installation's version file (VERSION.<env> when
-#     CLOUDFLARE_ENV is set and it exists, VERSION otherwise; and RAFI_VERSION), the release's
-#     files, the usage, jq missing; the template's placeholders found by a literal search
-#     (refused, only warned about by dry-run, which copies legal/ in); the Workers' names read
-#     from the dry runs' ND-JSON deploy entries (whatever the files say), a dry run failing or
-#     reporting no name, the engine Worker's versioned name; Wrangler environments: none, one
-#     without a name of its own (<name>-<env>), one with its own, an environment wrangler
-#     refuses; wrangler given CLOUDFLARE_ENV; the tools' defaults (npx -y wrangler, npx -y
-#     @restatedev/restate) and their overrides;
+#   - dry-run (no credentials; legal/ copied in): the release's VERSION, the version deployed
+#     (the installation's version files and the template's placeholders not looked at), the
+#     usage (check is gone), jq missing; the Workers' names read from the dry runs' ND-JSON
+#     deploy entries (whatever the files say), a dry run failing or reporting no name, the
+#     engine Worker's versioned name; Wrangler environments: none, one without a name of its
+#     own (<name>-<env>), one with its own, an environment wrangler refuses; wrangler given
+#     CLOUDFLARE_ENV; the tools' defaults (npx -y wrangler, npx -y @restatedev/restate) and
+#     their overrides;
 #   - migrate; deploy-live skipping when the deployed version's tag is the fingerprint and
 #     deploying when the bundle or live.wrangler.toml changed, or nothing, or two versions, are
 #     deployed; upload-app's first install (deployed directly, app_promoted) and upgrade (a
@@ -245,7 +244,7 @@ BASE="http://127.0.0.1:$(cat "$TMP/port")"
 INSTALL="$TMP/installation"
 mkdir -p "$INSTALL"
 cp -R "$ROOT/deploy/cloudflare/." "$INSTALL/"
-rm -rf "$INSTALL/release" "$INSTALL/.wrangler" "$INSTALL/.prod.vars" "$INSTALL/node_modules"
+rm -rf "$INSTALL/release" "$INSTALL/.wrangler" "$INSTALL/.dev.vars" "$INSTALL/node_modules"
 RELEASE="$INSTALL/release"
 mkdir -p "$RELEASE/app/build" "$RELEASE/app/assets" "$RELEASE/engine/build" "$RELEASE/live/build" "$RELEASE/migrations"
 touch "$RELEASE/app/build/index.js" "$RELEASE/engine/build/index.js"
@@ -266,7 +265,7 @@ COMMON=(WRANGLER="$BIN/wrangler" RESTATE="$BIN/restate" STUB_LOG="$LOG"
   STUB_RESTATE_LIST="$TMP/list.json" CLOUDFLARE_API_BASE_URL="$BASE/cf" CLOUDFLARE_API_TOKEN=cf-token
   CLOUDFLARE_ACCOUNT_ID=acct123 RESTATE_ADMIN_URL="$BASE/restate/" RESTATE_AUTH_TOKEN=rs-token
   RAFI_REGISTER_WAIT=0 RAFI_OUTPUT_FILE="$OUTPUTS" RAFI_REPORT_FILE="$REPORT" RAFI_ARTIFACTS_DIR=
-  RAFI_VERSION= CLOUDFLARE_ENV= RAFI_APP_PROMOTED= RAFI_APP_VERSION_ID= RAFI_ENGINE_WORKER= RAFI_ENGINE_URL=
+  CLOUDFLARE_ENV= RAFI_APP_PROMOTED= RAFI_APP_VERSION_ID= RAFI_ENGINE_WORKER= RAFI_ENGINE_URL=
   STUB_WRANGLER_FAIL= STUB_NO_VERSION_ID= STUB_DRY_NAMES= STUB_DRY_NO_NAME= STUB_RESTATE_LIST_FAIL=
   STUB_RESTATE_REMOVE_FAIL= GITHUB_OUTPUT= GITHUB_STEP_SUMMARY=)
 
@@ -361,16 +360,10 @@ only_dry_runs() {
   if [ -z "$other" ] && [ "$(grep -c -- '--dry-run' "$LOG")" = 3 ]; then pass "$1"; else fail "$1: the log: $(cat "$LOG")"; fi
 }
 
-echo "== the template: placeholders"
-ds check
-ran "check refuses the template's database_id" 1 "app.wrangler.toml: the template's database_id 00000000-0000-0000-0000-000000000000" \
-  "live.wrangler.toml: the template's database_id" "engine.wrangler.toml: the template's database_id" \
-  "the template's placeholders are still in the configurations"
-ran "check refuses the template's identity key" 1 "engine.wrangler.toml: the template's identity key publickeyv1_…"
-if [ -s "$LOG" ]; then fail "check ran something with placeholders: $(cat "$LOG")"; else pass "nothing runs with placeholders"; fi
+echo "== dry-run: the template as it is"
 ds dry-run CLOUDFLARE_API_TOKEN= CLOUDFLARE_ACCOUNT_ID= RESTATE_ADMIN_URL= RESTATE_AUTH_TOKEN=
-ran "dry-run only warns about them, and needs no credentials" 0 "warning:" "the template's database_id" \
-  "the template's identity key" "dry run of Rafi 0.1.0 done"
+ran "dry-run needs no credentials, and nothing looks for the template's placeholders" 0 "dry run of Rafi 0.1.0 done"
+if grep -qE "warning|placeholder" "$TMP/out"; then fail "dry-run warned: $(cat "$TMP/out")"; else pass "no warning about the placeholders"; fi
 in_order "dry-run: the live Worker, the engine, the app" \
   "wrangler deploy -c $LIVE --dry-run" "wrangler deploy -c $ENGINE --dry-run" "wrangler deploy -c $APP --dry-run"
 only_dry_runs "dry-run: nothing but the three dry runs"
@@ -398,50 +391,32 @@ restore() {
   cp "$TMP/live.good" "$LIVE"
   rm -f "$INSTALL"/*.orig "$INSTALL"/VERSION.*
 }
-# One placeholder left: the identity key, the database_id of one file.
-sed -i.orig "s/\"$KEY, publickeyv1_9n4BzZ8\"/\"publickeyv1_…\"/" "$ENGINE"
-ds check
-ran "the identity key's placeholder alone: refused" 1 "engine.wrangler.toml: the template's identity key"
-restore
-sed -i.orig "s/$DB_ID/00000000-0000-0000-0000-000000000000/" "$LIVE"
-ds check
-ran "one file's database_id the placeholder: refused" 1 "live.wrangler.toml: the template's database_id"
-if grep -qF "app.wrangler.toml: the template's" "$TMP/out"; then fail "a filled-in file reported: $(cat "$TMP/out")"; else pass "only that file reported"; fi
-restore
-
-echo "== check: the release, the installation's version file, the tools"
-ds check
-ran "an installation's" 0 "Rafi 0.1.0 (VERSION)" "environment: none" "engine Worker: rafi-engine-v0-1-0 (" \
-  "live Worker: rafi-live (" "app Worker: rafi-app (" "checked: Rafi 0.1.0 fits this installation"
-only_dry_runs "check runs wrangler's three dry runs, nothing else"
-in_order "the names read from the live Worker's, the engine's and the app's dry run" \
-  "wrangler deploy -c $LIVE --dry-run" "wrangler deploy -c $ENGINE --dry-run" "wrangler deploy -c $APP --dry-run"
+echo "== the release's VERSION, the usage, the tools"
+ds dry-run
+ran "the release's VERSION" 0 "Rafi 0.1.0 (the release's VERSION)" "environment: none" "engine Worker: rafi-engine-v0-1-0 (" \
+  "live Worker: rafi-live (" "app Worker: rafi-app ("
+only_dry_runs "dry-run runs wrangler's three dry runs, nothing else"
 echo "0.2.0" >"$INSTALL/VERSION"
-ds check
-ran "the installation's VERSION another release" 1 "the installation's VERSION says 0.2.0, but the release in $RELEASE is 0.1.0"
-echo "0.1" >"$INSTALL/VERSION"
-ds check
-ran "a VERSION that isn't a version" 1 "says '0.1', not a Rafi version"
+ds dry-run
+ran "the installation's VERSION isn't read: the release's VERSION is the one deployed" 0 "Rafi 0.1.0 (the release's VERSION)" \
+  "engine Worker: rafi-engine-v0-1-0 ("
 rm "$INSTALL/VERSION"
-ds check
-ran "no VERSION" 1 "$INSTALL/VERSION is missing"
+ds dry-run
+ran "nor needed" 0 "Rafi 0.1.0 (the release's VERSION)"
 echo "0.1.0" >"$INSTALL/VERSION"
-ds check RAFI_VERSION=v0.1.0
-ran "RAFI_VERSION, the same" 0
-ds check RAFI_VERSION=0.2.0
-ran "RAFI_VERSION, another" 1 "RAFI_VERSION says 0.2.0"
-echo "0.2.0" >"$INSTALL/VERSION.eu"
-ds check
-ran "VERSION.eu without CLOUDFLARE_ENV: VERSION is the one" 0 "Rafi 0.1.0 (VERSION)"
-rm "$INSTALL/VERSION.eu"
+mv "$RELEASE/VERSION" "$TMP/VERSION.aside"
+ds dry-run
+ran "a release without its VERSION: nothing to deploy" 1 "$RELEASE/VERSION is missing"
+echo "0.1" >"$RELEASE/VERSION"
+ds dry-run
+ran "a release VERSION that isn't a version" 1 "says '0.1', not a Rafi version"
+mv "$TMP/VERSION.aside" "$RELEASE/VERSION"
 echo "v0.2.0-RC.1" >"$RELEASE/VERSION"
-echo "0.2.0-RC.1" >"$INSTALL/VERSION"
-ds check
+ds dry-run
 ran "a pre-release, a leading v dropped: its engine Worker" 0 "engine Worker: rafi-engine-v0-2-0-rc-1"
 echo "0.1.0" >"$RELEASE/VERSION"
-echo "0.1.0" >"$INSTALL/VERSION"
 sed -i.orig "s/^name = \"rafi-engine\"/name = \"rafi-engine-$(printf 'x%.0s' $(seq 1 50))\"/" "$ENGINE"
-ds check
+ds dry-run
 ran "an engine Worker's name over 63 characters" 1 "longer than 63"
 restore
 ds nope
@@ -450,15 +425,17 @@ ds ""
 ran "no subcommand exits 2" 2
 ds --check
 ran "the old --check exits 2" 2
+ds check
+ran "check, gone, exits 2" 2
 ds deploy-rooms
 ran "the old deploy-rooms exits 2" 2
 ds --help
 ran "--help" 0 "release/deploy.sh register-engine" "release/deploy.sh deploy-live"
-ds check PATH="$NOJQ_BIN"
+ds dry-run PATH="$NOJQ_BIN"
 ran "no jq: a clear failure" 1 "jq isn't installed"
 if [ -s "$LOG" ]; then fail "something ran without jq: $(cat "$LOG")"; else pass "nothing runs without jq"; fi
 # The defaults: npx -y wrangler and npx -y @restatedev/restate (the installation's package.json's).
-ds check WRANGLER= RESTATE= PATH="$NPX_BIN:$PATH"
+ds dry-run WRANGLER= RESTATE= PATH="$NPX_BIN:$PATH"
 ran "the tools by default: npx -y" 0 "app Worker: rafi-app ("
 in_order "npx -y wrangler for wrangler" "npx -y wrangler deploy -c $LIVE --dry-run" "wrangler deploy -c $LIVE --dry-run" \
   "npx -y wrangler deploy -c $APP --dry-run"
@@ -468,32 +445,18 @@ ds migrate WRANGLER="$BIN/wrangler --stub-arg" PATH="$NPX_BIN:$PATH"
 in_order "WRANGLER overrides it, with its arguments" "wrangler --stub-arg d1 migrations apply DB -c $APP --remote"
 not_logged "no npx when WRANGLER is given" "npx"
 
-echo "== check: the release's files and the names"
-for worker in app engine live; do
-  mv "$RELEASE/$worker/build/index.js" "$TMP/index.js"
-  ds check
-  ran "a release without the $worker Worker" 1 "the release has no $worker/build/index.js"
-  mv "$TMP/index.js" "$RELEASE/$worker/build/index.js"
-done
-mv "$RELEASE/migrations" "$TMP/migrations.aside"
-ds check
-ran "a release without its migrations" 1 "the release has no migrations/"
-mv "$TMP/migrations.aside" "$RELEASE/migrations"
-mv "$LIVE" "$TMP/live.aside"
-ds check
-ran "no live.wrangler.toml" 1 "live.wrangler.toml is missing"
-mv "$TMP/live.aside" "$LIVE"
-ds check STUB_DRY_NAMES="app.wrangler.toml=raffles-app live.wrangler.toml=raffles-live engine.wrangler.toml=raffles-engine"
+echo "== the names"
+ds dry-run STUB_DRY_NAMES="app.wrangler.toml=raffles-app live.wrangler.toml=raffles-live engine.wrangler.toml=raffles-engine"
 ran "the names are the dry runs' worker_name, not read from the files" 0 "app Worker: raffles-app (" \
   "live Worker: raffles-live (" "engine Worker: raffles-engine-v0-1-0 ("
-ds check STUB_WRANGLER_FAIL="$APP"
+ds dry-run STUB_WRANGLER_FAIL="$APP"
 ran "a dry run failing: refused" 1 "wrangler deploy --dry-run -c app.wrangler.toml failed (above): the configuration doesn't deploy"
-ds check STUB_DRY_NO_NAME=1
+ds dry-run STUB_DRY_NO_NAME=1
 ran "a dry run without a deploy entry: refused" 1 "wrangler's dry run of live.wrangler.toml reported no Worker's name"
-ds check STUB_DRY_NAMES="engine.wrangler.toml=Not_A_Name"
+ds dry-run STUB_DRY_NAMES="engine.wrangler.toml=Not_A_Name"
 ran "a name that isn't a Worker's: refused" 1 "wrangler's dry run of engine.wrangler.toml reported no Worker's name (its deploy entry's worker_name: 'Not_A_Name')"
 
-echo "== check: Wrangler environments (CLOUDFLARE_ENV)"
+echo "== Wrangler environments (CLOUDFLARE_ENV)"
 # add_env <env> [<the app's own name>]: an [env.<env>] in each configuration, as the README's
 # (the vars, bindings and required secrets repeated: environments don't inherit them).
 add_env() {
@@ -520,38 +483,32 @@ add_env() {
   } >>"$LIVE"
 }
 add_env staging
-ds check
+ds dry-run
 ran "no CLOUDFLARE_ENV: the top level, other environments ignored" 0 "environment: none" "app Worker: rafi-app (" \
   "live Worker: rafi-live (" "engine Worker: rafi-engine-v0-1-0 ("
-ds check CLOUDFLARE_ENV=eu
+ds dry-run CLOUDFLARE_ENV=eu
 ran "CLOUDFLARE_ENV naming an environment the configurations lack: wrangler refuses it" 1 \
   "No environment found in configuration with name \"eu\"" "wrangler deploy --dry-run -c live.wrangler.toml (CLOUDFLARE_ENV=eu) failed"
-ds check CLOUDFLARE_ENV='e u'
+ds dry-run CLOUDFLARE_ENV='e u'
 ran "CLOUDFLARE_ENV not an environment's name: refused" 1 "not an environment's name"
 restore
 add_env eu
-ds check CLOUDFLARE_ENV=eu
+ds dry-run CLOUDFLARE_ENV=eu
 ran "an environment without names of its own: <name>-<environment>" 0 "environment: eu ([env.eu] of each configuration)" \
-  "app Worker: rafi-app-eu (" "live Worker: rafi-live-eu (" "engine Worker: rafi-engine-eu-v0-1-0 (" "Rafi 0.1.0 (VERSION)"
+  "app Worker: rafi-app-eu (" "live Worker: rafi-live-eu (" "engine Worker: rafi-engine-eu-v0-1-0 (" "Rafi 0.1.0 (the release's VERSION)"
 in_order "wrangler given the environment for each dry run" \
   "wrangler deploy -c $LIVE --dry-run" "wrangler-env eu" "wrangler deploy -c $ENGINE --dry-run" "wrangler-env eu" \
   "wrangler deploy -c $APP --dry-run" "wrangler-env eu"
-ds check
-ran "the same configurations without CLOUDFLARE_ENV: the top level" 0 "app Worker: rafi-app (" "engine Worker: rafi-engine-v0-1-0 ("
-echo "0.0.9" >"$INSTALL/VERSION.eu"
-ds check CLOUDFLARE_ENV=eu
-ran "VERSION.eu is the environment's version file" 1 "the installation's VERSION.eu says 0.0.9, but the release in $RELEASE is 0.1.0"
-echo "0.1.0" >"$INSTALL/VERSION.eu"
-echo "0.0.9" >"$INSTALL/VERSION"
-ds check CLOUDFLARE_ENV=eu
-ran "VERSION.eu, not VERSION, for the environment" 0 "Rafi 0.1.0 (VERSION.eu)"
-ds check
-ran "VERSION for the top level, VERSION.eu notwithstanding" 1 "the installation's VERSION says 0.0.9"
-echo "0.1.0" >"$INSTALL/VERSION"
+echo "0.3.0" >"$INSTALL/VERSION.eu"
+ds dry-run CLOUDFLARE_ENV=eu
+ran "VERSION.eu isn't read either (the workflows choose the release by it)" 0 "Rafi 0.1.0 (the release's VERSION)" \
+  "engine Worker: rafi-engine-eu-v0-1-0 ("
 rm "$INSTALL/VERSION.eu"
+ds dry-run
+ran "the same configurations without CLOUDFLARE_ENV: the top level" 0 "app Worker: rafi-app (" "engine Worker: rafi-engine-v0-1-0 ("
 restore
 add_env eu raffles-eu
-ds check CLOUDFLARE_ENV=eu
+ds dry-run CLOUDFLARE_ENV=eu
 ran "an environment's app with a name of its own" 0 "app Worker: raffles-eu (" "live Worker: rafi-live-eu ("
 restore
 add_env eu
@@ -646,9 +603,10 @@ ran "Cloudflare failing: refused" 1 "the Worker rafi-live's deployments: HTTP 50
 not_logged "nothing deployed when Cloudflare fails" "--tag"
 
 echo "== upload-app"
+rm -rf "$RELEASE/app/assets/legal"
 echo '{}' | state
 ds upload-app
-ran "no app Worker: refused, its secrets first" 1 "the app Worker rafi-app doesn't exist" "secret bulk .prod.vars -c app.wrangler.toml"
+ran "no app Worker: refused, its secrets first" 1 "the app Worker rafi-app doesn't exist" "secret bulk .dev.vars -c app.wrangler.toml"
 not_logged "nothing uploaded without an app Worker" "--tag" "versions upload"
 # app_state <tag of the deployed version> <tag of an older version> [<Worker>]: the app Worker.
 app_state() {
@@ -808,7 +766,6 @@ ran "no RESTATE_ADMIN_URL: refused" 1 "not set: RESTATE_ADMIN_URL"
 not_logged "nothing asked without it" "http"
 # In an environment: its app Worker's name is the instance, and its guard ignores the top level's.
 add_env eu
-echo "0.1.0" >"$INSTALL/VERSION.eu"
 restate_state "$(ours 0.2.0)" "$(ours 0.0.9 rafi-app-eu)"
 ds register-engine CLOUDFLARE_ENV=eu RAFI_ENGINE_WORKER=rafi-engine-eu-v0-1-0 RAFI_ENGINE_URL=https://rafi-engine-eu-v0-1-0.acme.workers.dev/restate
 ran "an environment's engine: the top level's newer release isn't its" 0 "Raffle: on dp_raffle, not a deployment of this installation" \
@@ -817,11 +774,11 @@ in_order "registered with the environment's app Worker as instance" \
   'http POST /restate/deployments {"uri":"https://rafi-engine-eu-v0-1-0.acme.workers.dev/restate","force":false,"metadata":{"app":"rafi","instance":"rafi-app-eu","version":"0.1.0","cloudflare_account":"acct123","worker":"rafi-engine-eu-v0-1-0"}}'
 restate_state "$(ours 0.0.9)" "$(ours 0.2.0 rafi-app-eu)"
 ds register-engine CLOUDFLARE_ENV=eu RAFI_ENGINE_WORKER=rafi-engine-eu-v0-1-0 RAFI_ENGINE_URL=https://rafi-engine-eu-v0-1-0.acme.workers.dev/restate
-ran "an environment's own newer release: refused, naming its version file" 1 "EngineInfo runs on Rafi 0.2.0" "Set VERSION.eu to 0.2.0 or later"
+ran "an environment's own newer release: refused, naming its version file" 1 "EngineInfo runs on Rafi 0.2.0" \
+  "Set VERSION.eu (VERSION without one) to 0.2.0 or later"
 restore
 # A pre-release's precedence among pre-releases.
 echo "0.2.0-rc.10" >"$RELEASE/VERSION"
-echo "0.2.0-rc.10" >"$INSTALL/VERSION"
 REG_RC=(RAFI_ENGINE_WORKER=rafi-engine-v0-2-0-rc-10 RAFI_ENGINE_URL=https://rafi-engine-v0-2-0-rc-10.acme.workers.dev/restate)
 for older in 0.2.0-rc.9 0.2.0-rc 0.2.0-beta.11 0.1.9; do
   restate_state "$(ours "$older")"
@@ -834,7 +791,6 @@ for newer in 0.2.0-rc.11 0.2.0-rc.beta 0.2.0-rc.10.1 0.2.0; do
   ran "0.2.0-rc.10 after $newer: refused" 1 "newer than 0.2.0-rc.10"
 done
 echo "0.1.0" >"$RELEASE/VERSION"
-echo "0.1.0" >"$INSTALL/VERSION"
 
 echo "== check-remote"
 # The deploy's first job: Restate's release read and the token tried, nothing changed.
@@ -886,11 +842,6 @@ not_logged "nothing deployed with a bad token" "--tag" "POST"
 ds check-remote RESTATE_ADMIN_URL=
 ran "no RESTATE_ADMIN_URL: refused" 1 "not set: RESTATE_ADMIN_URL"
 not_logged "nothing asked without it" "http"
-sed -i.orig "s/$DB_ID/00000000-0000-0000-0000-000000000000/" "$APP" "$ENGINE" "$LIVE"
-ds check-remote
-ran "the placeholders refused before any secret is used" 1 "the template's database_id"
-if [ -s "$LOG" ]; then fail "check-remote asked with placeholders: $(cat "$LOG")"; else pass "nothing asked with placeholders"; fi
-restore
 
 echo "== promote-app"
 ds promote-app RAFI_APP_PROMOTED=true
@@ -1053,17 +1004,17 @@ in_order "npx -y @restatedev/restate for the listing and the removals" \
 
 echo "== the artifacts (RAFI_ARTIFACTS_DIR)"
 rm -rf "$ARTIFACTS"
-mkdir -p "$ARTIFACTS/check"
-echo stray >"$ARTIFACTS/check/stray"
-ds check RAFI_ARTIFACTS_DIR="$ARTIFACTS"
-ran "check with RAFI_ARTIFACTS_DIR" 0
+mkdir -p "$ARTIFACTS/dry-run"
+echo stray >"$ARTIFACTS/dry-run/stray"
+ds dry-run RAFI_ARTIFACTS_DIR="$ARTIFACTS"
+ran "dry-run with RAFI_ARTIFACTS_DIR" 0
 for key in live engine app; do
-  json_is "check: the $key Worker's dry run kept (wrangler's ND-JSON, its deploy entry)" \
-    "$ARTIFACTS/check/wrangler-dry-run-$key.ndjson" 'select(.type == "deploy") | .worker_name == "rafi-'"$key"'"'
+  json_is "dry-run: the $key Worker's dry run kept (wrangler's ND-JSON, its deploy entry)" \
+    "$ARTIFACTS/dry-run/wrangler-dry-run-$key.ndjson" 'select(.type == "deploy") | .worker_name == "rafi-'"$key"'"'
 done
-if [ -e "$ARTIFACTS/check/stray" ]; then fail "an earlier run's file kept"; else pass "each run replaces its subcommand's artifacts"; fi
-ds check
-if [ -e "$INSTALL/check" ] || [ -n "$(find "$INSTALL" -name 'wrangler-*.ndjson' -print -quit)" ]; then
+if [ -e "$ARTIFACTS/dry-run/stray" ]; then fail "an earlier run's file kept"; else pass "each run replaces its subcommand's artifacts"; fi
+ds dry-run
+if [ -e "$INSTALL/dry-run" ] || [ -n "$(find "$INSTALL" -name 'wrangler-*.ndjson' -print -quit)" ]; then
   fail "artifacts written without RAFI_ARTIFACTS_DIR"
 else
   pass "no artifacts left without RAFI_ARTIFACTS_DIR"
