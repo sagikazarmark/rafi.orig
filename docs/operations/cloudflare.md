@@ -2,7 +2,9 @@
 
 Rafi on Cloudflare: three Workers and one D1 database, with Restate Cloud running the raffle engine's invocations
 and Clerk signing organizers in. This is the production deployment. An installation is a repository of the
-operator's, a copy of [`deploy/cloudflare/`](../../deploy/cloudflare/), whose GitHub Actions workflows deploy the
+operator's, created from the template repository
+[`sagikazarmark/rafi-deploy-template`](https://github.com/sagikazarmark/rafi-deploy-template), which mirrors
+[`deploy/cloudflare/`](../../deploy/cloudflare/) at each release; its GitHub Actions workflows deploy the
 Rafi release its `VERSION` names (or several installations in one repository, as Wrangler environments: [Several
 installations](#several-installations)). The first deploy, step by step, is that directory's
 [INSTALL.md](../../deploy/cloudflare/INSTALL.md), and its day-to-day running (upgrading, the run reports, the
@@ -77,7 +79,7 @@ The address takes the account's **workers.dev subdomain**, `https://rafi-engine-
 The dashboard's **Workers & Pages** shows it next to **Your subdomain**, and offers an account without one a
 subdomain on its first visit there. With the deploy token you can read it (`GET
 /accounts/{account_id}/workers/subdomain`, INSTALL.md's check) or register one (`PUT` to the same path with
-`{"subdomain": "<name>"}`); `cf` has no command for it. A deploy without one stops before deploying anything
+`{"subdomain": "<name>"}`). A deploy without one stops before deploying anything
 (`check-remote`, in its first job, reads it, as `deploy-engine` does), naming the dashboard page. Don't change it once deployed: Restate
 calls every registered engine at an address that contains it.
 
@@ -87,7 +89,8 @@ Nothing of an installation's is compiled in: one build serves every installation
 `worker.tar.gz`, built and attested by `.github/workflows/release.yaml`, holds `VERSION`, `app/` (the app Worker
 and its static files), `engine/`, `live/`, `migrations/` (the D1 migrations) and `deploy.sh`
 (`scripts/cloudflare-deploy.sh`), so a release deploys with its own logic ([Releasing](../development/releasing.md)).
-The installation is the operator's repository, a copy of `deploy/cloudflare` at a release's tag:
+The installation is the operator's repository, created from the template repository (`deploy/cloudflare` at a
+release's tag):
 
 - `VERSION`: the release it deploys (`VERSION.<environment>` for an installation that is a Wrangler environment,
   when that file exists);
@@ -102,8 +105,6 @@ The installation is the operator's repository, a copy of `deploy/cloudflare` at 
   (`wrangler secret bulk .dev.vars`), never committed (`.dev.vars` is git-ignored, as are `release/` and
   `node_modules/`; wrangler also reads `.dev.vars` for `wrangler dev`, which an installation doesn't run);
 - `.github/workflows/deploy.yaml` and `restate-cleanup.yaml`;
-- `cloudflare-token.json`: the deploy token's policies, which the first deploy creates it from
-  ([below](#the-policy-file));
 - `INSTALL.md` (the first deploy) and `README.md` (the rest).
 
 **The installation is its app Worker's name**, as wrangler's dry run of `wrangler.app.toml` reports it. Unique
@@ -136,8 +137,8 @@ its own Restate environment: every Rafi engine registers the same services (`Raf
 sends a service's new invocations to its latest deployment, so two installations in one environment would take
 over each other's draws. The account, its workers.dev subdomain and the API token can be shared.
 
-- **A repository each**: a copy of `deploy/cloudflare` per installation, with other names in its configurations.
-  Nothing else differs.
+- **A repository each**: a repository per installation, each created from the template, with other names in its
+  configurations. Nothing else differs.
 - **One repository, Wrangler environments**: the configurations' top level is one installation, each
   `[env.<name>]` (in all three files) another, chosen by `CLOUDFLARE_ENV`, which `deploy.sh` reads and passes on
   to every wrangler call. An environment's Worker is `<top-level name>-<environment>` unless it names itself
@@ -289,10 +290,14 @@ delete <worker>`). Renaming or transferring the repository changes nothing.
 
 ## The API token
 
-An account API token (owned by the account rather than a user, so it survives its creator leaving; INSTALL.md's
-[step 2](../../deploy/cloudflare/INSTALL.md#2-a-cloudflare-api-token) creates it with `cf`, from the template's
-[`cloudflare-token.json`](../../deploy/cloudflare/cloudflare-token.json)), for the account and the installation's
-zone (several installations in one account can share one, with Workers Routes on each one's zone):
+An account API token, owned by the account rather than a user, so it survives its creator leaving, for the account
+and the installation's zone (several installations in one account can share one, with Workers Routes on each one's
+zone). INSTALL.md's [step 2](../../deploy/cloudflare/INSTALL.md#2-a-cloudflare-api-token) creates it in the
+dashboard: **Manage account > Account API tokens > Create Token**, a custom token with these permissions and
+nothing else (Cloudflare's [Account API
+tokens](https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/) and [Create API
+token](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/); the names are its
+[permissions reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/)'s):
 
 | Permission (dashboard · API name) | What uses it |
 |---|---|
@@ -312,81 +317,17 @@ whoami` and to explain an authentication error, and the account ID is given), KV
 D1 · Edit is a superset, if you'd rather start from it.
 
 Creating account tokens takes a Super Administrator, or a member with API token provisioning, and a token can't get
-a permission its creator lacks. The API calls are List Accounts (`GET /accounts`), List Zones (`GET /zones?name=`),
-List Permission Groups (`GET /accounts/{account_id}/tokens/permission_groups`) and Create Token (`POST
-/accounts/{account_id}/tokens`, with the policies: the account resource `com.cloudflare.api.account.<id>`, the zone
-resource `com.cloudflare.api.account.zone.<id>`, and permission groups by ID); `cf` 1.0.0-beta.27 has them as `cf
-accounts list`, `cf zones list` (`--name`, `--account-id`), `cf accounts tokens permission-groups list` and `cf
-accounts tokens create` (`--policies` takes the JSON, or `@<file>`; not `@-`, which it reads as a file named `-`),
-and prints each answer's `result` as JSON when piped. Roll Token (`PUT
-/accounts/{account_id}/tokens/{token_id}/value`) is `cf accounts tokens roll <id>`: piped, it can't ask, so
-`--force` confirms (without it, it prints `Aborted.` and changes nothing), and it prints the new value as a JSON
-string (`jq -j .` unquotes it); `cf accounts tokens list` shows the token's ID. Rotating it is in the
-[runbook](runbook.md#rotating-secrets).
+a permission its creator lacks. By the API, it is Create Token (`POST /accounts/{account_id}/tokens`, its
+policies naming the account resource `com.cloudflare.api.account.<id>`, the zone resource
+`com.cloudflare.api.account.zone.<id>`, and the permission groups by ID, which List Permission Groups, `GET
+/accounts/{account_id}/tokens/permission_groups`, gives by name). The account's ID is in `npx wrangler whoami`'s
+answer, or the dashboard ([Find account and zone
+IDs](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)).
 
-Cloudflare shows a token's value once, in Create Token's answer (`.value`; the API's `.result.value`): step 2
-takes it from there into a shell variable, the repository's secret and one check, never a file or the screen. If
-you saved that answer anywhere, delete it: it contains the token.
-
-### The policy file
-
-`cloudflare-token.json` is the token's `policies` as Create Token takes them, with two placeholders: one policy
-for the account (`com.cloudflare.api.account.<ACCOUNT_ID>`: Workers Scripts Write and D1 Write), one for the zone
-(`com.cloudflare.api.account.zone.<ZONE_ID>`: Workers Routes Write). Create Token needs each permission group's
-`id` (a group's `name` is read-only there). The IDs are the same in every account: "Permission group IDs are the
-stable, canonical identifier for a permission group. They are the same IDs accepted by the Create token endpoint"
-(Cloudflare's [API token template
-URLs](https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/)). Cloudflare
-publishes few of them, though; its [permissions
-reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/) lists the names and points at
-List Permission Groups for the IDs:
-
-- **Workers Scripts Write**, `e086da7e2179491d91ee5f35b3ca210a`: in Cloudflare's OpenAPI schema
-  ([cloudflare/api-schemas](https://github.com/cloudflare/api-schemas), List Permission Groups' example answer, with
-  its scope `com.cloudflare.api.account`) and in the template URLs page's example (`"type": "edit"`). The file
-  carries it.
-- **D1 Write** and **Workers Routes Write**: in none of Cloudflare's documentation pages or its schema. The file
-  names them only, and step 2's `jq` fills their IDs in from List Permission Groups by name, refusing unless
-  exactly one group has the name.
-
-The same `jq` replaces the placeholders with the account's and the zone's IDs. Once Cloudflare publishes the other
-two IDs, the file can carry them and the lookup go. The release rehearsal (`scripts/cloudflare-release.sh`) checks
-the file: valid JSON, the three groups by name on the right resources, Workers Scripts Write's ID, the two
-placeholders.
-
-### Without `cf`
-
-In the dashboard: **Manage account > Account API tokens > Create Token > Create Custom Token**, with the three
-permissions above and the installation's zone; then `gh secret set CLOUDFLARE_API_TOKEN --repo <you>/<name>` and
-paste the value at its prompt.
-
-Or the API calls `cf` makes, with a token of yours that has Account · Account API Tokens · Edit (and Zone · Zone ·
-Read for the zone's lookup) in `CLOUDFLARE_API_TOKEN`, and the account's ID in `CLOUDFLARE_ACCOUNT_ID` (the
-dashboard shows it: [Find account and zone
-IDs](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)). The API wraps each answer
-in `result`, which `cf` prints alone, so step 2's `jq` programs take `.result`:
-
-```sh
-api=https://api.cloudflare.com/client/v4
-auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
-export ZONE_ID="$(curl -sS "$api/zones?name=example.org&account.id=$CLOUDFLARE_ACCOUNT_ID" -H "$auth" | jq -r '.result[0].id')"
-# step 2's policies, with the permission groups from the API instead of cf:
-policies="$(curl -sS "$api/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/permission_groups" -H "$auth" | jq '.result' \
-  | jq --slurpfile file cloudflare-token.json --arg account "$CLOUDFLARE_ACCOUNT_ID" --arg zone "$ZONE_ID" '
-  if $account == "" or $zone == "" then error("no account or zone ID: look them up first") else . end
-  | . as $groups
-  | def id($name): $groups | map(select(.name == $name))
-      | if length == 1 then .[0].id else error("no single permission group \($name)") end;
-  $file[0]
-  | map(.resources |= with_entries(.key |= (sub("<ACCOUNT_ID>"; $account) | sub("<ZONE_ID>"; $zone)))
-        | .permission_groups[] |= (.id //= id(.name)))')"
-token="$(curl -sS -X POST "$api/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens" -H "$auth" -H 'Content-Type: application/json' \
-  --data "$(jq -n --argjson policies "$policies" '{name: "rafi deploy (<you>/<name>)", policies: $policies}')" \
-  | jq -j '.result.value // empty')"
-test -n "$token" && printf '%s' "$token" | gh secret set CLOUDFLARE_API_TOKEN --repo <you>/<name> &&
-  gh secret set CLOUDFLARE_ACCOUNT_ID --repo <you>/<name> --body "$CLOUDFLARE_ACCOUNT_ID"
-unset token
-```
+Cloudflare shows a token's value once, when it is created: it goes straight into `gh secret set
+CLOUDFLARE_API_TOKEN` (which prompts for it), never into a file. Lost before it reached GitHub, the token's
+**Roll** in **Account API tokens** gives it a new value, which replaces the old one at once; set the secret again.
+Rotating it is in the [runbook](runbook.md#rotating-secrets).
 
 ## The Restate keys
 
@@ -448,19 +389,20 @@ template's workflows changed.
 
 The workflows drive the release's `deploy.sh` (its subcommands, their environment and outputs), and nothing checks
 an installation's copies against the release: a release that changes how `deploy.sh` is driven says so in its
-notes, and the operator copies `deploy.yaml` and `restate-cleanup.yaml` from `deploy/cloudflare/.github/workflows`
-at that tag before pushing `VERSION` (redoing each copy's edits, with several installations in one repository):
+notes, and the operator copies `deploy.yaml` and `restate-cleanup.yaml` from the template repository
+(`sagikazarmark/rafi-deploy-template`) at that tag before pushing `VERSION` (redoing each copy's edits, with
+several installations in one repository):
 
 ```sh
 for f in deploy.yaml restate-cleanup.yaml; do
   gh api -H 'Accept: application/vnd.github.raw' \
-    "repos/sagikazarmark/rafi/contents/deploy/cloudflare/.github/workflows/$f?ref=v<version>" > ".github/workflows/$f"
+    "repos/sagikazarmark/rafi-deploy-template/contents/.github/workflows/$f?ref=v<version>" > ".github/workflows/$f"
 done
 ```
 
 A change to the template's configurations is the operator's to carry over, keeping their names, IDs and keys:
 compare each `wrangler.*.toml` with the template's at the new tag (`gh api -H 'Accept: application/vnd.github.raw'
-"repos/sagikazarmark/rafi/contents/deploy/cloudflare/wrangler.app.toml?ref=v<version>"`, and the other two).
+"repos/sagikazarmark/rafi-deploy-template/contents/wrangler.app.toml?ref=v<version>"`, and the other two).
 
 wrangler and the Restate CLI move apart from Rafi's releases, when the operator chooses: `npm update --no-audit
 --no-fund`, then commit `package-lock.json` (the release notes say when a release needs newer ones).
@@ -488,9 +430,10 @@ on the first one:
 - the token's permissions cover every step (the custom domain, the workers.dev subdomain lookup, the account's
   Workers listed and a drained engine Worker deleted included), and the Admin key every Restate call (registering,
   listing, `/query`, removing);
-- INSTALL.md's step 2 against the real API: `cf` 1.0.0-beta.27's answers have the shapes its `jq` reads (checked
-  against a local fake API only), List Permission Groups names exactly one D1 Write and one Workers Routes Write,
-  and Create Token accepts `cloudflare-token.json` filled in;
+- a repository created from the template repository runs the Deploy workflow for its first commit (GitHub's
+  [`push` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)
+  says creating a repository from a template triggers it), which fails at **Check it against Restate and
+  Cloudflare** until the secrets are set, as INSTALL.md's step 1 says;
 - the workflows read the release and its attestation with the repository's own `GITHUB_TOKEN`, and the reports
   land on the run's summary page;
 - the API shapes `deploy.sh` reads (deployments, versions and their annotations, the subdomain, the account's

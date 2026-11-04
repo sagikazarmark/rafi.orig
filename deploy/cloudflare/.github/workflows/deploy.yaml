@@ -36,8 +36,8 @@ name: Deploy
 #
 # Upgrading is changing VERSION and pushing; a release whose notes say its
 # workflows changed comes with new copies of this file and
-# restate-cleanup.yaml (deploy/cloudflare in the Rafi repository, at the new
-# release's tag).
+# restate-cleanup.yaml (the template repository,
+# sagikazarmark/rafi-deploy-template, at the new release's tag).
 #
 # Several installations in one repository, as Wrangler environments
 # ([env.<name>] in each of the three configurations): copy this file and

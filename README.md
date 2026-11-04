@@ -86,8 +86,9 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 
 ## Status
 
-- **Cloudflare Workers** is the production deployment, and needs no toolchain: copy
-  [`deploy/cloudflare`](deploy/cloudflare) into a repository of yours, and its GitHub Actions workflows deploy a
+- **Cloudflare Workers** is the production deployment, and needs no toolchain: create a repository of yours from
+  the template [`rafi-deploy-template`](https://github.com/sagikazarmark/rafi-deploy-template) (a copy of
+  [`deploy/cloudflare`](deploy/cloudflare) at each release), and its GitHub Actions workflows deploy a
   release to your own account (the app Worker, the live Worker with the live channels, and each release's raffle
   engine Worker, registered with Restate Cloud and removed once drained) with your configuration and legal
   documents, after checking the release's provenance; one account can hold several installations, each in a

@@ -23,21 +23,23 @@ installation, named by its app Worker, `rafi-app`. A second one in the same acco
 - [ ] Accounts at [Restate Cloud](https://cloud.restate.dev), [Clerk](https://clerk.com) and GitHub.
 - [ ] Your **legal documents**, reviewed by a lawyer (step 7), and the operator's (your) name and email.
 - [ ] On your machine:
-  - [`gh`](https://cli.github.com), signed in (`gh auth login`);
+  - the [GitHub CLI](https://cli.github.com/manual/), `gh`, signed in to GitHub
+    ([`gh auth login`](https://cli.github.com/manual/gh_auth_login));
   - [Node.js](https://nodejs.org) 22.18 or later (`npm`, `npx`);
-  - [`cf`](https://developers.cloudflare.com/cf/), Cloudflare's CLI, in beta, so pinned:
-    `npm install --global cf@1.0.0-beta.27` (step 2 has the ways without it);
   - `jq`, `openssl`, `curl` and `git`.
 
-  wrangler and the Restate CLI come with your repository (`package.json`, step 1).
+  wrangler and the Restate CLI come with your repository (its `package.json`): step 1 installs them, then logs
+  wrangler in to your Cloudflare account ([`wrangler login`][wrangler-login]).
 
 Below, `<you>/<name>` is your new repository, `example.org` your zone and `raffle.example.org` the app's hostname.
+From step 1's `cd` on, every command runs in your repository's directory: `gh` takes the repository from
+it, wrangler its configurations.
 
 ## What goes where
 
 | Value | You get it in | It goes to |
 |---|---|---|
-| Account ID | step 2 | GitHub secret `CLOUDFLARE_ACCOUNT_ID` |
+| Account ID | step 1 (`npx wrangler whoami`) | GitHub secret `CLOUDFLARE_ACCOUNT_ID` (step 2) |
 | API token | step 2 | GitHub secret `CLOUDFLARE_API_TOKEN` |
 | Database ID | step 3 | `database_id` in `wrangler.app.toml`, `wrangler.engine.toml` and `wrangler.live.toml` |
 | Hostname, `raffle.example.org` | step 4 | `routes` in `wrangler.app.toml` |
@@ -63,7 +65,7 @@ the EU:
 
 | What | How | When |
 |---|---|---|
-| The database | `npx -y wrangler d1 create rafi --jurisdiction eu` | Step 3. Fixed when it is created: moving it later is a new database and a [restore][runbook] |
+| The database | `npx wrangler d1 create rafi --jurisdiction eu` | Step 3. Fixed when it is created: moving it later is a new database and a [restore][runbook] |
 | The live channels (Durable Objects) | Uncomment `RAFI_DO_JURISDICTION = "eu"` in all three `wrangler.*.toml`, and in every `[env.<name>.vars]` if you use [Wrangler environments](#one-repository-wrangler-environments) | Before the first deploy. Keep the three files the same: nothing compares them |
 | Restate Cloud (the draws) | Create the environment in the EU region | Step 6 |
 
@@ -85,44 +87,43 @@ What it moves and what it doesn't: the guide's [Data residency][guide-residency]
 
 ## 1. Create your repository
 
-You'll get: a private repository whose root is this directory at `v0.1.0`, with `package-lock.json`.
+You'll get: your private repository, created from the [template repository][template] (Rafi's `deploy/cloudflare`
+at 0.1.0), with `package-lock.json`; wrangler logged in; and your Cloudflare account's ID.
 
-```sh
-gh repo create <you>/<name> --private --clone
-cd <name>
-# deploy/cloudflare at v0.1.0, .github/ and the dotfiles included (GNU tar):
-gh api repos/sagikazarmark/rafi/tarball/v0.1.0 | tar -xz --strip-components=3 --wildcards '*/deploy/cloudflare/*'
-# on macOS, whose tar matches patterns by default and refuses --wildcards:
-#   gh api repos/sagikazarmark/rafi/tarball/v0.1.0 | tar -xz --strip-components=3 '*/deploy/cloudflare/*'
-npm install --no-audit --no-fund    # wrangler and the Restate CLI; writes package-lock.json
-git add -A
-git commit -m "Rafi 0.1.0"
-git branch -M main
-```
+1. Create the repository from the template, and clone it:
 
-- The branch is `main`: the workflows run there.
-- Commit `package-lock.json`: every run, and yours, then uses the same wrangler and Restate CLI.
-- **Don't push yet**: see below.
+   ```sh
+   gh repo create <you>/<name> --private --template sagikazarmark/rafi-deploy-template --clone
+   cd <name>
+   ```
 
-**From GitHub's web UI** instead:
+   Or in GitHub's web UI: on the [template repository][template], **Use this template > Create a new
+   repository**, **Private**, then `gh repo clone <you>/<name>` and `cd <name>`.
+2. Install wrangler and the Restate CLI, and commit the lockfile:
 
-1. Create the repository at [github.com/new](https://github.com/new): private, with no README, `.gitignore` or
-   license.
-2. Download `Source code (zip)` from [the release page](https://github.com/sagikazarmark/rafi/releases/tag/v0.1.0).
-3. On the new repository's page, choose **uploading an existing file** and drop in the *contents* of its
-   `deploy/cloudflare` folder.
-4. Check that the commit lists the hidden files (on macOS, ⇧⌘. shows them in Finder):
-   `.github/workflows/deploy.yaml`, `.github/workflows/restate-cleanup.yaml`, `.gitignore` and
-   `.dev.vars.example`. Add a missing one with **Add file > Create new file**: type its path, paste its content.
-5. Commit to `main`.
-6. Clone it (`gh repo clone <you>/<name>`), run `npm install --no-audit --no-fund` and commit
-   `package-lock.json`. Steps 2, 3 and 8 need a terminal anyway.
+   ```sh
+   npm install
+   git add package-lock.json
+   git commit -m "Lock wrangler and the Restate CLI"
+   ```
 
-**The first push starts the Deploy workflow.** Until step 9 has set its secrets, a run fails harmlessly in its
-first job, **Check it against Restate and Cloudflare**, before it touches anything (the daily Restate cleanup fails
-the same way). Once the secrets are set, a run with the configuration unfinished goes as far as it gets: nothing
-looks for the template's placeholders, so the zero database ID fails at the migrations, and an app Worker without
-its secrets (step 8) is refused at its upload, after the live Worker and the engine are deployed. So:
+   Every run, and yours, then uses the same wrangler and Restate CLI. **Don't push yet**: see below.
+3. Log wrangler in to Cloudflare, and note your account's ID:
+
+   ```sh
+   npx wrangler login     # in the browser
+   npx wrangler whoami    # your accounts, each with its Account ID
+   ```
+
+The repository's branch is `main`, as the template's: the workflows run there.
+
+**The Deploy workflow has already run once.** Creating a repository from a template counts as a push for GitHub
+Actions ([GitHub's `push` event][gh-push-event]), and that first commit adds `VERSION`, `legal/` and the
+configurations, which Deploy runs on. Until step 9 has set its secrets, a run fails harmlessly in its first job, at
+**Check it against Restate and Cloudflare**, before it touches anything (the daily Restate cleanup fails the same
+way). Once the secrets are set, a run with the configuration unfinished goes as far as it gets: nothing looks for
+the template's placeholders, so the zero database ID fails at the migrations, and an app Worker without its secrets
+(step 8) is refused at its upload, after the live Worker and the engine are deployed. So:
 
 - keep your commits local and push in step 10 (the steps in between need the repository on GitHub, not its
   content); or
@@ -134,78 +135,48 @@ You'll get: the GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID
 
 The workflows deploy with an **account API token**. The account owns it, not you, so it keeps working whoever
 leaves. Only a Super Administrator, or a member with API token provisioning, can create one, and it gets no
-permission its creator lacks. Its permissions are in [`cloudflare-token.json`](cloudflare-token.json), and
-nothing else ([what each is for][guide-token]):
+permission its creator lacks.
 
-| Permission (dashboard · API name) | On |
-|---|---|
-| Account · Workers Scripts · Edit (`Workers Scripts Write`) | your account |
-| Account · D1 · Edit (`D1 Write`) | your account |
-| Zone · Workers Routes · Edit (`Workers Routes Write`) | your zone |
+1. In the Cloudflare dashboard, **Manage account > Account API tokens > Create Token**, a custom token (Cloudflare's
+   [Account API tokens][cf-account-tokens] and [Create API token][cf-create-token] have the steps). Name it after
+   your repository, `rafi deploy (<you>/<name>)` say, and give it these permissions and nothing else
+   ([what each is for][guide-token]):
 
-From your repository:
+   | Permission | Resources |
+   |---|---|
+   | Account · Workers Scripts · Edit | your account |
+   | Account · D1 · Edit | your account |
+   | Zone · Workers Routes · Edit | your zone (**Specific zone**, `example.org`) |
 
-1. Log in, and look up your account's and your zone's IDs. With more than one account, first set
-   `CLOUDFLARE_ACCOUNT_NAME` to the name of the one to use (the lookup lists them otherwise).
+2. Cloudflare shows the token once. Hand it to GitHub, with step 1's account ID:
 
    ```sh
-   cf auth login        # in the browser
-   export CLOUDFLARE_ACCOUNT_ID="$(cf accounts list | jq -r --arg name "${CLOUDFLARE_ACCOUNT_NAME:-}" '
-     . as $all | map(select($name == "" or .name == $name))
-     | if length == 1 then .[0].id
-       else error("\(length) accounts match: set CLOUDFLARE_ACCOUNT_NAME to one of \($all | map(.name))") end')"
-   export ZONE_NAME=example.org
-   export ZONE_ID="$(cf zones list --name "$ZONE_NAME" --account-id "$CLOUDFLARE_ACCOUNT_ID" | jq -r '
-     if length == 1 then .[0].id else error("no zone \(env.ZONE_NAME) in this account") end')"
-   echo "account $CLOUDFLARE_ACCOUNT_ID, zone $ZONE_ID"    # two 32-character IDs
+   gh secret set CLOUDFLARE_API_TOKEN                        # paste the token at the prompt
+   gh secret set CLOUDFLARE_ACCOUNT_ID --body <account ID>
    ```
 
-2. Create the token from the file, and hand it to GitHub. `jq` fills in your account and zone, and the IDs of
-   `D1 Write` and `Workers Routes Write`, looked up by name (Cloudflare publishes `Workers Scripts Write`'s only).
-   Cloudflare shows the token once: it goes into a shell variable and on to GitHub, never to a file or your
-   screen.
+3. Optionally, check it. The answer is your workers.dev subdomain, `{"subdomain": "…"}`; an error if the token
+   lacks Workers Scripts or the account has no subdomain.
 
    ```sh
-   policies="$(cf accounts tokens permission-groups list | jq --slurpfile file cloudflare-token.json \
-     --arg account "$CLOUDFLARE_ACCOUNT_ID" --arg zone "$ZONE_ID" '
-     if $account == "" or $zone == "" then error("no account or zone ID: look them up first") else . end
-     | . as $groups
-     | def id($name): $groups | map(select(.name == $name))
-         | if length == 1 then .[0].id else error("no single permission group \($name)") end;
-     $file[0]
-     | map(.resources |= with_entries(.key |= (sub("<ACCOUNT_ID>"; $account) | sub("<ZONE_ID>"; $zone)))
-           | .permission_groups[] |= (.id //= id(.name)))')"
-   token="$(cf accounts tokens create --name "rafi deploy (<you>/<name>)" --policies "$policies" | jq -j '.value // empty')"
-   test -n "$token" && printf '%s' "$token" | gh secret set CLOUDFLARE_API_TOKEN --repo <you>/<name> &&
-     gh secret set CLOUDFLARE_ACCOUNT_ID --repo <you>/<name> --body "$CLOUDFLARE_ACCOUNT_ID"
-   ```
-
-3. Check it. The answer is your workers.dev subdomain, `{"subdomain": "…"}`; an error if the account has none.
-
-   ```sh
-   curl -sS "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+   read -rs token    # paste the token again, then Enter (it isn't shown)
+   curl -sS "https://api.cloudflare.com/client/v4/accounts/<account ID>/workers/subdomain" \
      -H "Authorization: Bearer $token" | jq '.result // .errors'
    unset token
    ```
 
-Other ways:
-
-- **Lost the value** before it reached GitHub? `cf accounts tokens list` shows the token's ID, and
-  `cf accounts tokens roll <ID> --force | jq -j . | gh secret set CLOUDFLARE_API_TOKEN --repo <you>/<name>` gives
-  it a new one.
-- **In the dashboard**: **Manage account > Account API tokens > Create Token > Create Custom Token**, with the
-  three permissions above. Then `gh secret set CLOUDFLARE_API_TOKEN --repo <you>/<name>` and paste the value.
-- **With the API**, without `cf`: the guide's [The API token][guide-token] has the `curl` commands.
+Lost the value before it reached GitHub? **Roll** the token in **Account API tokens** for a new one, and run
+`gh secret set CLOUDFLARE_API_TOKEN` again. Never save it in a file.
 
 ## 3. The database
 
 You'll get: the D1 database, and its ID in the three Wrangler configurations.
 
-From your repository, with `CLOUDFLARE_ACCOUNT_ID` still set (wrangler then uses that account):
+wrangler is logged in since step 1. If your login has more than one account, first
+`export CLOUDFLARE_ACCOUNT_ID=<account ID>`: wrangler then uses that one (here and in step 8).
 
 ```sh
-npx -y wrangler login
-npx -y wrangler d1 create rafi    # prints its database_id; for the EU, add --jurisdiction eu
+npx wrangler d1 create rafi    # prints its database_id; for the EU, add --jurisdiction eu
 ```
 
 In `wrangler.app.toml`, `wrangler.engine.toml` and `wrangler.live.toml`, set `database_id` to the ID it printed.
@@ -300,7 +271,7 @@ The deploy won't create the app Worker: its secrets come first (wrangler won't d
 cp .dev.vars.example .dev.vars
 openssl rand -hex 32          # for RAFI_POW_KEY
 $EDITOR .dev.vars             # fill in every value (the table below)
-npx -y wrangler secret bulk .dev.vars -c wrangler.app.toml    # creates rafi-app (it asks first)
+npx wrangler secret bulk .dev.vars -c wrangler.app.toml    # creates rafi-app (it asks first)
 rm .dev.vars
 ```
 
@@ -315,7 +286,7 @@ rm .dev.vars
 | `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | Who runs this installation (a legal name) and its privacy contact, named as the processor in every raffle's notice |
 
 - **Never commit `.dev.vars`.** It's git-ignored; delete it once the secrets are set.
-- One at a time, or a change later: `npx -y wrangler secret put <NAME> -c wrangler.app.toml` prompts for the
+- One at a time, or a change later: `npx wrangler secret put <NAME> -c wrangler.app.toml` prompts for the
   value. Deploys keep the secrets.
 - The optional settings (retention, the entrant cap, the minimum age and others, with their defaults) are in the
   [configuration reference](https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md). The
@@ -326,9 +297,9 @@ rm .dev.vars
 You'll get: the four secrets the workflows deploy with.
 
 ```sh
-gh secret set RESTATE_ADMIN_URL --repo <you>/<name> --body "https://<env-id>.env.<region>.restate.cloud:9070"
-gh secret set RESTATE_AUTH_TOKEN --repo <you>/<name>     # paste the Admin-role API key
-gh secret list --repo <you>/<name>                       # these two, and step 2's CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+gh secret set RESTATE_ADMIN_URL --body "https://<env-id>.env.<region>.restate.cloud:9070"
+gh secret set RESTATE_AUTH_TOKEN     # paste the Admin-role API key
+gh secret list                       # these two, and step 2's CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
 ```
 
 - Without `--body`, `gh secret set` prompts for the value, so a secret stays out of your shell history.
@@ -361,8 +332,8 @@ You'll get: the three Workers, the database's tables, and the release's engine r
    ```sh
    git add -A
    git commit -m "Configure the installation"
-   git push -u origin main                      # nothing to push? gh workflow run deploy.yaml --repo <you>/<name>
-   gh run watch --repo <you>/<name>             # pick the Deploy run
+   git push                                     # nothing to push? gh workflow run deploy.yaml
+   gh run watch                                 # pick the Deploy run
    curl https://raffle.example.org/healthz      # ok 0.1.0
    ```
 
@@ -412,7 +383,7 @@ Steps 1 to 10 again, in a new repository. Before its first deploy, give it other
 | `wrangler.app.toml` | the four rate limits' `namespace_id`, so they don't share counters | `1001` to `1004` | `3001` to `3004` |
 
 Its Workers are then `acme-app`, `acme-live` and `acme-engine-v0-1-0`, and its database `acme`
-(`npx -y wrangler d1 create acme` in step 3). It has its own secrets, version, legal documents and workflows.
+(`npx wrangler d1 create acme` in step 3). It has its own secrets, version, legal documents and workflows.
 
 ### One repository, Wrangler environments
 
@@ -525,13 +496,13 @@ Its Workers are `rafi-app-eu`, `rafi-live-eu` and, for 0.1.0, `rafi-engine-eu-v0
 
 1. **Its version file**, optionally: `echo 0.1.0 > VERSION.eu`. Its workflows deploy the release `VERSION.eu`
    names, and `VERSION`'s without one, so with it the installations upgrade each on its own.
-2. **Steps 3 to 8 for it**: its database (`npx -y wrangler d1 create rafi-eu`, with a
+2. **Steps 3 to 8 for it**: its database (`npx wrangler d1 create rafi-eu`, with a
    [jurisdiction](#keeping-data-in-the-eu) if its data stays in the EU), the ID in the three `[env.eu]` sections;
    its domain; its Clerk instance; its Restate environment, the public key in `[env.eu.vars]`; and its app
    Worker's secrets, set with the environment chosen:
 
    ```sh
-   CLOUDFLARE_ENV=eu npx -y wrangler secret bulk .dev.vars -c wrangler.app.toml   # creates rafi-app-eu
+   CLOUDFLARE_ENV=eu npx wrangler secret bulk .dev.vars -c wrangler.app.toml   # creates rafi-app-eu
    ```
 
    `--env eu` does the same, for `secret put` too. Step 10's dry run takes it as well:
@@ -552,7 +523,7 @@ Its Workers are `rafi-app-eu`, `rafi-live-eu` and, for 0.1.0, `rafi-engine-eu-v0
    - optionally, rename the workflow (`name: Deploy (eu)`, `name: Restate cleanup (eu)`) to tell them apart under
      **Actions**.
 4. **Its secrets**, in that GitHub environment: step 9's four, with its own Restate admin URL and key
-   (`gh secret set RESTATE_AUTH_TOKEN --env eu --repo <you>/<name>`, and so on). A job with an environment takes
+   (`gh secret set RESTATE_AUTH_TOKEN --env eu`, and so on). A job with an environment takes
    its secrets over the repository's ones of the same name; a job without one gets the repository's. So name one
    on the top-level installation's jobs too (`environment: production`, holding its secrets): then neither ever
    runs with the other's.
@@ -569,6 +540,9 @@ Its Workers are `rafi-app-eu`, `rafi-live-eu` and, for 0.1.0, `rafi-engine-eu-v0
 
 Then push: `Deploy (eu)` deploys the environment's Workers, and its cleanup touches only its engines.
 
+[cf-account-tokens]: https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/
+[cf-create-token]: https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+[gh-push-event]: https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push
 [guide]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md
 [guide-installation]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#what-an-installation-is
 [guide-residency]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#data-residency
@@ -578,3 +552,5 @@ Then push: `Deploy (eu)` deploys the environment's Workers, and its cleanup touc
 [guide-workers-dev]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#the-engine-on-workersdev
 [guide-workflows]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#the-workflows
 [runbook]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/runbook.md
+[template]: https://github.com/sagikazarmark/rafi-deploy-template
+[wrangler-login]: https://developers.cloudflare.com/workers/wrangler/commands/general/#login

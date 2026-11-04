@@ -1,8 +1,8 @@
 # Runbook
 
 What an operator does when something happens: before a deploy, during an event, after a restore, after a breach.
-The commands are for Cloudflare Workers (`wrangler` is `npx -y wrangler` from your installation's repository, your
-copy of `deploy/cloudflare`, its `package.json`'s after `npm install`); natively the same SQL runs against your
+The commands are for Cloudflare Workers (`wrangler` is `npx -y wrangler` from your installation's repository, created
+from the template, its `package.json`'s after `npm install`); natively the same SQL runs against your
 SQLite file or Postgres database, and the secrets are the app's environment. They use the template's names: the
 database `rafi` (its `database_name`) and the Workers `rafi-app`, `rafi-live` and `rafi-engine-v…`; an
 installation with names of its own, or one of several in a repository as a Wrangler environment (`rafi-eu`,
@@ -42,7 +42,7 @@ Rotate between events, never during one, and one secret at a time, checking `/he
 | `RESTATE_INGRESS_API_KEY` | In Restate Cloud, create a new API key with the app's role ([Cloudflare Workers](cloudflare.md#the-restate-keys)); `wrangler secret put RESTATE_INGRESS_API_KEY -c wrangler.app.toml`; run a test-mode draw; delete the old key. |
 | `RESTATE_IDENTITY_KEYS` (the engine's, in `wrangler.engine.toml`, or its `[env.<name>.vars]`) | It takes a comma-separated list, for the overlap. Add the new public key next to the old one (`"publickeyv1_old,publickeyv1_new"`) and push: the deploy redeploys the current release's engine Worker in place with both keys (the same code at the same URL, so Restate sees nothing change). An older release's engine Worker still draining keeps the list it was deployed with, the old key alone: let the cleanup remove it first. Then have Restate sign with the new key, run a test-mode draw, and later remove the old key from the list and push. |
 | `RESTATE_AUTH_TOKEN` (the workflows', a GitHub secret) | In Restate Cloud, create a new API key with the Admin role; `gh secret set RESTATE_AUTH_TOKEN` (`--env <name>` when the secrets are in a GitHub environment); run the Restate cleanup by hand (`gh workflow run restate-cleanup.yaml`: it lists Restate's deployments and removes only drained engines); delete the old key. |
-| `CLOUDFLARE_API_TOKEN` (the workflows', a GitHub secret) | Roll it, which invalidates the old value at once, so between runs: `cf accounts tokens list` for its ID, then `cf accounts tokens roll <ID> --force \| jq -j . \| gh secret set CLOUDFLARE_API_TOKEN` (or the dashboard's **Account API tokens**, the token's **Roll**, and paste it into `gh secret set CLOUDFLARE_API_TOKEN`). Or create a new one with the same permissions ([Cloudflare Workers](cloudflare.md#the-api-token)), replace the secret and delete the old one. Then run the Deploy workflow by hand: it redeploys the same release. |
+| `CLOUDFLARE_API_TOKEN` (the workflows', a GitHub secret) | Roll it, which invalidates the old value at once, so between runs: in the dashboard's **Manage account > Account API tokens**, the token's **Roll**, then `gh secret set CLOUDFLARE_API_TOKEN` (`--env <name>` when the secrets are in a GitHub environment) and paste the new value at its prompt. Or create a new one with the same permissions ([Cloudflare Workers](cloudflare.md#the-api-token)), replace the secret and delete the old one. Then run the Deploy workflow by hand: it redeploys the same release. |
 | `RAFI_OPERATOR_*`, `RAFI_*_VERSION` | Not secrets to rotate: changed when the operator or the documents change ([the operator's records](overview.md#the-operators-records)). |
 
 Natively, change the environment and restart `rafi` (and `rafi-restate` for the engine's settings); the identity

@@ -16,7 +16,7 @@ everything CI runs except the Workers checks.
 | `just audit` | `cargo audit`: `Cargo.lock` against the RustSec advisory database. Advisories are checked here alone; an accepted one is ignored, with its reason, in [`.cargo/audit.toml`](../../.cargo/audit.toml) |
 | `just deny` | `cargo deny check bans licenses sources` ([`deny.toml`](../../deny.toml)) |
 | `just workers` | [`./scripts/workers-check.sh`](#workers): everything under `wrangler dev`. Long, and it needs a Chromium, so `just ci` leaves it out |
-| `just cloudflare-artifact`, `just cloudflare-tarball <version>`, `just cloudflare-release <version>` | Not checks: what a release ships (the app, engine and live Workers, the D1 migrations and `deploy.sh`), packed as `worker.tar.gz`, and the release itself (`scripts/cloudflare-release.sh`: the template's `VERSION` naming the release, its `.dev.vars.example` and `cloudflare-token.json`, and its workflows downloading the release the version file names, `deploy.sh`'s own checks, `worker.tar.gz`, and its `deploy.sh dry-run` from a copy of `deploy/cloudflare`, also as a Wrangler environment), which the release workflow runs on a tag |
+| `just cloudflare-artifact`, `just cloudflare-tarball <version>`, `just cloudflare-release <version>` | Not checks: what a release ships (the app, engine and live Workers, the D1 migrations and `deploy.sh`), packed as `worker.tar.gz`, and the release itself (`scripts/cloudflare-release.sh`: the template's `VERSION` naming the release, its `.dev.vars.example`, and its workflows downloading the release the version file names, `deploy.sh`'s own checks, `worker.tar.gz`, and its `deploy.sh dry-run` from a copy of `deploy/cloudflare`, also as a Wrangler environment), which the release workflow runs on a tag |
 
 The end-to-end tests run the shell's `restate-server` (`RESTATE_SERVER_BIN`). Without it (outside the devenv shell,
 set it to a `restate-server` binary), they skip locally, and `just test` ends with a `SKIPPED:` line counting them;
@@ -189,10 +189,8 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   `wrangler.live.toml` agree with the production Workers' (`apps/worker-app`, `apps/worker-engine`,
   `apps/worker-live`) on the bindings, limits, Durable Object migrations and required secrets, and a release (of the
   version `deploy/cloudflare/VERSION` names) is rehearsed the way a tag releases it (`scripts/cloudflare-release.sh`):
-  first that the template's `VERSION` names it, that it has `.dev.vars.example` (and git-ignores `.dev.vars`), that
-  its `cloudflare-token.json` is the deploy token's policies (Workers Scripts Write with its ID and D1 Write on the
-  account placeholder, Workers Routes Write on the zone placeholder), that its two workflows
-  (`.github/workflows/deploy.yaml` and `restate-cleanup.yaml`) name one Rafi repository, verify
+  first that the template's `VERSION` names it, that it has `.dev.vars.example` (and git-ignores `.dev.vars`),
+  that its two workflows (`.github/workflows/deploy.yaml` and `restate-cleanup.yaml`) name one Rafi repository, verify
   the attestation `release.yaml` makes (its signer), download the release `VERSION.<CLOUDFLARE_ENV>` names when it
   exists and call no `deploy.sh check`, that each of their jobs that runs `deploy.sh` installs the tools from the
   template's `package.json` (`npm ci`, or `npm install`) and uploads `RAFI_ARTIFACTS_DIR` whatever happened, and

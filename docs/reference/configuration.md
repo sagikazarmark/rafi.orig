@@ -93,7 +93,7 @@ each reading its own settings:
 Their shapes are [`apps/worker-app/wrangler.toml`](../../apps/worker-app/wrangler.toml),
 [`apps/worker-engine/wrangler.toml`](../../apps/worker-engine/wrangler.toml) and
 [`apps/worker-live/wrangler.toml`](../../apps/worker-live/wrangler.toml), which an installation deploys from its
-copy of [`deploy/cloudflare`](../../deploy/cloudflare) (`wrangler.app.toml`, `wrangler.engine.toml`,
+repository, created from [`deploy/cloudflare`](../../deploy/cloudflare) (`wrangler.app.toml`, `wrangler.engine.toml`,
 `wrangler.live.toml`) with its database ID in them. The Worker names are the template's; an installation may name
 its own, and one of several in a repository is a Wrangler environment (`[env.<name>]`), which repeats the vars, the
 bindings and the required secrets, since environments don't inherit them
