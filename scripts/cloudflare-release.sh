@@ -4,7 +4,9 @@
 # installation copies at the release's tag, names this release (its VERSION),
 # has the package.json its workflows install wrangler and the Restate CLI
 # from and the .dev.vars.example its secrets are set from (.dev.vars
-# git-ignored), the three configurations as wrangler.<app|engine|live>.toml
+# git-ignored), the deploy token's policies (cloudflare-token.json: the three
+# permission groups, Workers Scripts Write's ID, the account and zone
+# placeholders), the three configurations as wrangler.<app|engine|live>.toml
 # (deploy.yaml running on a change to wrangler.*.toml), and that its two
 # workflows (.github/workflows/deploy.yaml and
 # restate-cleanup.yaml) name one Rafi repository (RAFI_REPOSITORY), verify the
@@ -77,6 +79,20 @@ echo "ok   deploy/cloudflare/package.json: wrangler and the Restate CLI"
 grep -qx '\.dev\.vars' "$template/.gitignore" || fail "deploy/cloudflare/.gitignore doesn't ignore .dev.vars (the secrets, filled in)"
 [ ! -e "$template/.prod.vars.example" ] || fail "deploy/cloudflare/.prod.vars.example is back: it is .dev.vars.example"
 echo "ok   deploy/cloudflare/.dev.vars.example, and .dev.vars git-ignored"
+# The deploy token's policies (INSTALL.md's step 2 fills in the account, the
+# zone and, by name, the IDs Cloudflare doesn't publish): the account's
+# policy with Workers Scripts Write (its published ID) and D1 Write, the
+# zone's with Workers Routes Write, the two placeholders, nothing else.
+jq -e '
+  length == 2 and all(.[]; .effect == "allow" and (.resources | length) == 1 and (.resources | to_entries[0].value) == "*")
+  and (.[0].resources | keys) == ["com.cloudflare.api.account.<ACCOUNT_ID>"]
+  and ([.[0].permission_groups[].name] | sort) == ["D1 Write", "Workers Scripts Write"]
+  and (.[1].resources | keys) == ["com.cloudflare.api.account.zone.<ZONE_ID>"]
+  and [.[1].permission_groups[].name] == ["Workers Routes Write"]
+  and ([.[].permission_groups[] | select(.id) | {(.name): .id}] | add) == {"Workers Scripts Write": "e086da7e2179491d91ee5f35b3ca210a"}' \
+  "$template/cloudflare-token.json" >/dev/null 2>&1 \
+  || fail "deploy/cloudflare/cloudflare-token.json isn't the deploy token's policies: Workers Scripts Write (e086da7e…) and D1 Write on com.cloudflare.api.account.<ACCOUNT_ID>, Workers Routes Write on com.cloudflare.api.account.zone.<ZONE_ID>"
+echo "ok   deploy/cloudflare/cloudflare-token.json: Workers Scripts Write, D1 Write and Workers Routes Write, the account and zone placeholders"
 # The three configurations, as deploy.sh reads them (-c wrangler.<Worker>.toml),
 # and the deploy's paths filter that matches them.
 for key in app engine live; do

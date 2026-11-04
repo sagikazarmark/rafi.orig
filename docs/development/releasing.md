@@ -76,8 +76,9 @@ CI's `workers` job rehearses a release (of the version `deploy/cloudflare/VERSIO
 ## Rehearsing
 
 Run the Release workflow by hand (**Actions > Release > Run workflow**): it runs CI, builds the release of the
-version given (by default the one `deploy/cloudflare/VERSION` names), checks that the template's `VERSION` names it
-and that its workflows download the release the version file names (and call no `deploy.sh check`), and runs
+version given (by default the one `deploy/cloudflare/VERSION` names), checks that the template's `VERSION` names it,
+that its `cloudflare-token.json` is the deploy token's policies, and that its workflows download the release the
+version file names (and call no `deploy.sh check`), and runs
 its `deploy.sh dry-run` from a copy of `deploy/cloudflare` with the release unpacked into `release/` (the devenv's
 wrangler, the Workers' names read from its dry runs), at the configurations' top level and as a Wrangler
 environment (`[env.eu]` added to each configuration, with `RAFI_DO_JURISDICTION = "eu"`, `VERSION.eu`,
