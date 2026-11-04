@@ -5,7 +5,7 @@
 #      if any scenario fails;
 #   2. the live channel driven over real WebSockets (testbeds/cloudflare/scenario.mjs);
 #   3. the participant page in headless Chromium (apps/participant/smoke.mjs), when
-#      CHROMIUM (or `chromium`) is available;
+#      CHROMIUM, the devenv shell's `google-chrome` or a `chromium` is available;
 #   4. a whole evening on the Worker itself (apps/worker/evening.mjs): the admin
 #      API, a phone joining in Chromium, draws through Restate (a local
 #      restate-server calling the engine in the same Worker, under /restate),
@@ -22,7 +22,13 @@
 #      /terms and /privacy say the operator hasn't provided them, with this
 #      run's own documents in legal/ (read through the assets binding) they
 #      show their versions, and with a terms.md without its front matter
-#      (version) it refuses every request naming the file.
+#      (version) it refuses every request naming the file; and, with a Clerk
+#      development instance's keys (CLERK_TEST_SECRET_KEY,
+#      CLERK_TEST_PUBLISHABLE_KEY; skipped without them), the admin behind
+#      Clerk (apps/worker/clerk.mjs): the layer fetching the instance's JWKS
+#      from the Worker, sessions as bearers and as Clerk's cookie, the web app
+#      under the real Clerk.js within its policy, signed in with a sign-in
+#      token and out again.
 #      Needs dx too (the dry run uploads the assets);
 #   6. testdata/cloudflare-installation, what an installation deploys (the
 #      deploy template's configuration, as a test fixture): its
@@ -122,7 +128,10 @@ step "the live channel"
 serve testbeds/cloudflare 8790 '/participant?r=probe'
 node "$ROOT/testbeds/cloudflare/scenario.mjs" http://127.0.0.1:8790
 
-CHROMIUM="${CHROMIUM:-$(command -v chromium || command -v google-chrome || true)}"
+# The browser: CHROMIUM, else the devenv shell's Chrome (`google-chrome`,
+# pinned by devenv.lock, on Linux and macOS alike), else any `chromium`. Chrome
+# before Chromium: GitHub's runners put a Chromium snapshot at /usr/bin/chromium.
+CHROMIUM="${CHROMIUM:-$(command -v google-chrome || command -v chromium || true)}"
 if [ -n "$CHROMIUM" ]; then
   step "the participant page in Chromium"
   CHROMIUM="$CHROMIUM" BASE=http://127.0.0.1:8790 node "$ROOT/apps/participant/smoke.mjs" "$STATE/chrome"
@@ -334,6 +343,29 @@ if command -v dx >/dev/null; then
   fi
   echo "ok   with a document without its version the production Worker refuses every request, naming the file"
   kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
+
+  # The admin behind Clerk: the production Worker with a Clerk development
+  # instance's keys, CLERK_TEST_SECRET_KEY and CLERK_TEST_PUBLISHABLE_KEY (CI's
+  # secrets, which a fork's pull request doesn't get; docs/development/testing.md
+  # says how to make the instance). The one path nothing else runs: Clerk's
+  # layer fetching the instance's JWKS through the Worker's own HTTP, and the
+  # web app under the real Clerk.js, whose sources the policy names.
+  # apps/worker/clerk.mjs says what it checks. The secret key goes to wrangler
+  # through the environment, as a required secret's value, not the command line.
+  if [ -n "${CLERK_TEST_SECRET_KEY:-}" ] && [ -n "${CLERK_TEST_PUBLISHABLE_KEY:-}" ] && [ -n "$CHROMIUM" ]; then
+    step "the admin behind Clerk (a development instance)"
+    (cd "$ROOT/apps/worker" && $WRANGLER d1 migrations apply rafi --local --persist-to "$STATE/wrangler") >/dev/null
+    RESTATE_INGRESS_URL=http://127.0.0.1:9 CLERK_SECRET_KEY="$CLERK_TEST_SECRET_KEY" \
+      serve apps/worker 8795 /healthz --var "RAFI_PUBLIC_URL:http://127.0.0.1:8795" \
+      --var RAFI_POW_KEY:workers-check-workers-check-workers-check \
+      --var RESTATE_INGRESS_API_KEY:workers-check \
+      --var "CLERK_PUBLISHABLE_KEY:$CLERK_TEST_PUBLISHABLE_KEY" \
+      --var "RAFI_OPERATOR_NAME:Workers Check" --var RAFI_OPERATOR_EMAIL:privacy@workers-check.invalid
+    CHROMIUM="$CHROMIUM" APP=http://127.0.0.1:8795 node "$ROOT/apps/worker/clerk.mjs" "$STATE/chrome-clerk"
+    kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
+  else
+    step "the admin behind Clerk: skipped (needs CLERK_TEST_SECRET_KEY, CLERK_TEST_PUBLISHABLE_KEY and Chromium)"
+  fi
 
   step "testdata/cloudflare-installation: the installation's shape, and its release rehearsed"
   # The fixture's three files (the deploy template's) share the production Workers' shapes: their

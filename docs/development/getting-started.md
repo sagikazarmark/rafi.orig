@@ -26,7 +26,7 @@ Without devenv, you need each of these, with a way to install it:
 | `jq` | the deploy script and its checks (`scripts/cloudflare-deploy-test.sh`, `just cloudflare-release`, `just workers`) | your system's, or `brew install jq` |
 | `worker-build` 0.8 | Workers | `cargo install worker-build --version ^0.8 --locked` |
 | `cargo-audit`, `cargo-deny` | `just audit`, `just deny` | `cargo install cargo-audit cargo-deny --locked` |
-| a Chromium | the browser checks (`just workers`) | found as `chromium` or `google-chrome` on the path, or named in `CHROMIUM`: devenv installs one on Linux; on macOS, point `CHROMIUM` at your browser |
+| a Chrome | the browser checks (`just workers`) | devenv installs one (`google-chrome`, on Linux and macOS); without devenv, `google-chrome` or `chromium` on the path, or name yours in `CHROMIUM` |
 
 Then `npm ci` in `apps/web` (`just apps/web/ install`).
 

@@ -129,6 +129,8 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
   const requests = [];
   // What the page threw or logged as an error.
   const pageErrors = [];
+  // Buttons a click found covered (what by), for the failure's message.
+  const covered = new Set();
   // Whoever else wants the tab's DevTools events (`listen`).
   const listeners = new Set();
   sock.onmessage = (m) => {
@@ -146,6 +148,11 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
   };
   const call = (method, params = {}) => new Promise((r) => { const i = ++n; waiting.set(i, r); sock.send(JSON.stringify({ id: i, method, params })); });
   for (const domain of ["Runtime", "Page", "Log", "Network"]) await call(`${domain}.enable`);
+  // A laptop's viewport, not headless Chrome's default window, which changes
+  // between versions (600 px tall in Chromium 137, 469 in Chrome 155): where a
+  // button lands after scrolling, under the toasts at the top or clear of
+  // them, must not depend on it. The projector sets its own sizes.
+  await call("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   await call("Page.addScriptToEvaluateOnNewDocument", { source: listenForViolations });
   await before(call);
   await call("Page.navigate", { url });
@@ -157,9 +164,12 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
     documents,
     requests,
     pageErrors,
+    covered,
     // Trusted clicks (DevTools' input, not element.click()) on the enabled
     // button (matching `selector`) whose text is `text`; `times` in quick
-    // succession. Whether there was one.
+    // succession. Whether there was one, and it was there to be clicked: a
+    // button under something else (a toast still showing) is no click, as a
+    // person finds, rather than a click on whatever covers it.
     click: async (text, times = 1, selector = "button") => {
       const at = await js(`(() => {
         const b = [...document.querySelectorAll(${JSON.stringify(selector)})]
@@ -167,9 +177,18 @@ async function tab(name, url, { before = async () => {}, watch = true } = {}) {
         if (!b) return null;
         b.scrollIntoView({ block: "center" });
         const r = b.getBoundingClientRect();
-        return [r.x + r.width / 2, r.y + r.height / 2];
+        const [x, y] = [r.x + r.width / 2, r.y + r.height / 2];
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !b.contains(hit)) return { covered: hit ? hit.tagName + "." + String(hit.className).split(" ")[0] : "nothing" };
+        return [x, y];
       })()`);
       if (!at) return false;
+      if (at.covered) {
+        const what = `${JSON.stringify(text)} under ${at.covered}`;
+        if (!covered.has(what)) console.log(`     (${name}: no click on ${what})`);
+        covered.add(what);
+        return false;
+      }
       for (let n = 1; n <= times; n++) {
         for (const type of ["mousePressed", "mouseReleased"]) {
           await call("Input.dispatchMouseEvent", { type, x: at[0], y: at[1], button: "left", clickCount: n });

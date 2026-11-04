@@ -62,6 +62,8 @@ jobs:
   ci:
     name: CI
     uses: ./.github/workflows/ci.yaml
+    # The Clerk development instance's keys, for the admin behind Clerk.
+    secrets: inherit
 
   cloudflare:
     name: Cloudflare

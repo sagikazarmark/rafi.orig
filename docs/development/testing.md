@@ -150,7 +150,7 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 
 - `rafi-store`'s conformance suite on D1 (`testbeds/store-d1`)
 - the live channel over WebSockets (`testbeds/cloudflare`)
-- the participant page in headless Chromium (devenv's on Linux, or `CHROMIUM=…`), the fallback included, a
+- the participant page in headless Chrome (devenv's, or `CHROMIUM=…`), the fallback included, a
   module that arrives after the fallback started leaving the page to it, and a phone the live channel refuses
   (4403) polling instead
 - a whole evening on the Worker (`apps/worker/evening.mjs`): the admin API, a phone joining in Chromium, draws
@@ -171,9 +171,9 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   each kind of page and of a static file; and every tab (the phone, the
   projector, the admin, the verification page, a phone without WebAssembly) listens for Content-Security-Policy
   violations, enforced or reported, one of which fails the run. The admin is also reloaded, revalidating its page
-  (a 304), and must still refuse an inline script. It runs under dev auth, so Clerk's part of the web app's policy
-  is checked by hand (`--profile clerk`, signing in and out, the organization switcher), and by `rafi-server`'s
-  tests for what the header says (`the_web_app_allows_eval_inline_styles_and_clerk`)
+  (a 304), and must still refuse an inline script. It runs under dev auth; Clerk's part is the admin behind
+  Clerk below, with a development instance's keys, and `rafi-server`'s tests for what the header says
+  (`the_web_app_allows_eval_inline_styles_and_clerk`)
 - the hourly housekeeping fired as the Cron Trigger fires it (`wrangler dev --test-scheduled`, `/__scheduled`),
   checked to have recorded its success, which is what the admin's staleness warning reads; then again with the
   evening's raffles dated past their erasure date and the winner hold: everyone erased, every raffle purged and its
@@ -186,6 +186,20 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   runtime can show; with the check's own `legal/terms.md` and `legal/privacy.md` (removed after) the pages show
   them with their versions, read through the assets binding; with a `terms.md` without its front matter it
   refuses naming the file (`misconfigured: legal/terms.md: no front matter`), in the answer too
+- the admin behind Clerk (`apps/worker/clerk.mjs`), when a Clerk development instance's keys are set
+  (`CLERK_TEST_SECRET_KEY`, `CLERK_TEST_PUBLISHABLE_KEY`; [below](#clerk)), skipped otherwise: the production
+  Worker served with them, the one path nothing else runs. Over the API, with sessions Clerk's Backend API mints
+  for the instance's test user: no credentials 401; a session token as a bearer 200 and the user, the Worker
+  having fetched the instance's JWKS through its own HTTP (`tower-worker-fetch`); the same token with a byte of
+  its signature changed 401; a bearer from another site 403; a second call 200 from the layer's cache. In
+  Chromium: Clerk.js loads under the shell's policy, which names the instance's frontend API from the
+  publishable key; the admin asks to sign in; Clerk's sign-in opens (its frame, styles and bot check from the
+  sources the policy names) and closes; a sign-in token signs the user in (Clerk's ticket strategy, what an
+  invitation link does), the admin shows their raffles with the organization switcher and the user button
+  mounted, and the page's own calls carry Clerk's cookie, whose token names this origin as its authorized party;
+  signing out asks to sign in again and the page's call is 401; no console error (Clerk's development-keys
+  warning aside), no Content-Security-Policy violation. What it can't do locally: make `api.clerk.com`
+  unreachable, so the 503 for a JWKS that can't be had stays `rafi-server`'s (`TestClerk`)
 - `testdata/cloudflare-installation`, what an installation deploys (the deploy template's configuration, as a
   test fixture): its `wrangler.app.toml`, `wrangler.engine.toml` and `wrangler.live.toml` agree with the production
   Workers' (`apps/worker-app`, `apps/worker-engine`, `apps/worker-live`) on the bindings, limits, Durable Object
@@ -231,7 +245,27 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   Cloudflare and Restate Cloud (the API's answers, wrangler's uploads and deploys, the registration, the removals
   and deletions, the Workers listing) needs an account and is not run here
 
-Each `wrangler dev` gets a fixed port (8789 to 8792, 8787 for the evening), and the script refuses one something
+### Clerk
+
+The admin behind Clerk needs a Clerk **development** instance of its own, never a production one or anyone's
+real users: `scripts/workers-check.sh` runs with its secret key, and `clerk.mjs` makes a user in it
+(`rafi-workers-check@example.com`) and mints sessions and sign-in tokens for that user. To make one: in the Clerk
+dashboard, create an application (any name; email as the sign-in method is enough) and copy the development
+instance's keys from **API keys**, `pk_test_…` and `sk_test_…`. Nothing else needs configuring: development
+instances take any origin, and the user is made on the first run (or set `CLERK_TEST_USER_ID` to one of yours).
+Then:
+
+```sh
+CLERK_TEST_SECRET_KEY=sk_test_… CLERK_TEST_PUBLISHABLE_KEY=pk_test_… just workers
+```
+
+CI has them as the repository's secrets of the same names (**Settings › Secrets and variables › Actions**), which
+the `workers` job passes to the script and the release's CI run inherits; a pull request from a fork gets none, and
+the stage says it was skipped. They are the test instance's and nothing else: a leak costs a throwaway Clerk
+application. The by-hand run (`devenv --profile clerk up`, with the keys in `.env`) stays what it was, for
+clicking through what the script doesn't (sign-up with Turnstile, a second organizer in an organization).
+
+Each `wrangler dev` gets a fixed port (8789 to 8795, 8787 for the evening), and the script refuses one something
 already listens on: a developer's own `wrangler dev`, or one left over from an earlier run, would answer in its
 place. The evening's moves with `WORKERS_APP_PORT` (`WORKERS_APP_PORT=8797 just workers`) when 8787 is the
 development server's. CI's `workers` job runs it. Testbeds are never deployed, and nothing deploys from this repository's CI: a deploy is

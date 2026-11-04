@@ -1,7 +1,8 @@
 # Final pre-release check
 
 **Status (2026-11-04): Tiers 0 and 1 done; Tier 2's repository side done; [the next run](#the-next-run) done, but
-what [What it left](#what-it-left) lists (T3-3 since done); `0001_init.sql` frozen; the open items are [tickets](#tickets).**
+what [What it left](#what-it-left) lists (T3-3 since done; the admin behind Clerk built, waiting for its secrets);
+`0001_init.sql` frozen; the open items are [tickets](#tickets).**
 Findings done before the next run say what shipped under **Done**; the next run's are summarized under it. Before
 the tag: Tier 2's GitHub and Cloudflare side (the rename, a dispatch dry run and `v0.1.0-rc.1`, a real deploy, a
 stranger's deploy, the attestation, the ruleset, the screenshot), the maintainer's.
@@ -16,7 +17,7 @@ stranger's deploy, the attestation, the ruleset, the screenshot), the maintainer
 | 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
 | 5. Launch mechanics | **Done locally** (2026-11-02): T2-2, T2-4 … T2-8 as far as the repository goes; T2-1, T2-3, the stranger, the GitHub runs and settings open. Declined: release-note labels and templates, community files, third-party notices, Python in the release. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, `just workers` (the evening on `WORKERS_APP_PORT=8797`, every check ok), two `cloudflare-release.sh 0.1.0` builds byte-identical. |
 | 6. Design and UX | **Done** in the next run: T5-1 … T5-7, T6-1 … T6-6 (with what [What it left](#what-it-left) lists) |
-| 7. Tests | **Done** in the next run: T4-1, T4-3, T4-4, T4-6, T4-11 (with what it left); T4-5 and T4-7 since; T4-11's `import::parse` property (2026-11-04); T4-8 … T4-10 to tickets |
+| 7. Tests | **Done** in the next run: T4-1, T4-3, T4-4, T4-6, T4-11 (with what it left); T4-5 and T4-7 since; T4-10 built and gated on the Clerk secrets (2026-11-04); T4-11's `import::parse` property the same day; T4-8, T4-9 to tickets |
 | 8. Tiers 7 and 8 | **Done** in the next run but what it left; T8-15 done (`0001_init.sql` frozen) |
 
 Proposed (2026-11-01). The last review before the first version is tagged, after
@@ -1021,6 +1022,23 @@ gaps below are where a bug would ruin an evening, leak personal data or break ve
 - **Accept**: a Workers run without `RAFI_DEV_AUTH`, with `CLERK_SECRET_KEY` set and `TestClerk`'s JWKS served
   from a local stub if `ClerkAuthLayerConfig` takes a JWKS URL (else a CI secret for a Clerk dev instance):
   `whoami` 401 without a cookie, 200 with a minted one, 503 with the stub down. (½–1 day)
+- **Done, gated** (2026-11-04): the second way, a Clerk development instance's keys as CI secrets
+  (`CLERK_TEST_SECRET_KEY`, `CLERK_TEST_PUBLISHABLE_KEY`), since the first would have exercised a test hook
+  (`with_insecure_backend_api_base_url`) rather than Clerk, and the real instance also covers the web app under
+  Clerk.js and its policy (#33's second comment: sign-in, the organization switcher, the user button). Step 5 of
+  `scripts/workers-check.sh` serves the production Worker with the keys (the secret through the environment) and
+  runs `apps/worker/clerk.mjs`: over the API, sessions the Backend API mints for the instance's test user (made
+  on the first run), 401 / 200 as a bearer with the user as the organizer (the JWKS fetched by the Worker) / 401
+  tampered / 403 cross-site / 200 again; in Chromium, Clerk.js under the policy, Clerk's sign-in opened and
+  closed, a sign-in token signing in (the ticket strategy), the raffles shown with the switcher and the user
+  button, the page's calls on Clerk's cookie (the token's `azp` this origin), sign-out and 401, no violation, no
+  error. **Skipped until the secrets exist**: the stage says so; CI's `workers` job passes them and the
+  release's CI run inherits them; `testing.md` §Clerk says how to make the instance. The 503 (JWKS unreachable)
+  stays the native suite's: `api.clerk.com` can't be made unreachable locally. **Not yet run against an
+  instance**: the script's Backend API calls were checked against Clerk's OpenAPI document (`createSession`,
+  `CreateSessionToken` → `jwt`, `CreateSignInToken` → `token`, `GetUserList` by `email_address`, `CreateUser`),
+  and its Clerk.js calls are the documented custom flow; the first run with keys is the maintainer's, and may
+  find a selector or a wait to adjust.
 
 #### T4-11 · Test infrastructure
 
@@ -1522,6 +1540,20 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
 - T3-3, the sockets' three reads: in no list above and in no ticket, found missing on 2026-11-04 by checking the
   code against each Accept, and done the same day (its entry says how). The miss was the status table's, which
   called step 3 done from the next run's summary rather than from the findings.
+- T4-10, the admin behind Clerk: built on 2026-11-04 and **waiting for the secrets** (`CLERK_TEST_SECRET_KEY`,
+  `CLERK_TEST_PUBLISHABLE_KEY`, the maintainer's Clerk development instance); until they exist the stage reports
+  itself skipped on every run, and its first run with them may need a selector or a wait adjusted.
+
+- The evening depended on headless Chrome's default window (2026-11-04). CI's `CHROMIUM=$(command -v
+  google-chrome)` predated devenv's `browsers.chrome` and stopped the runner's `/usr/bin/chromium` snapshot
+  winning the script's lookup; the script now prefers `google-chrome` (devenv's, pinned, on Linux and macOS
+  alike) and CI passes nothing. Running under devenv's Chrome 155 instead of a Chromium 137 then failed the list
+  import's third open: the default headless viewport had shrunk from about 600 px to 469, a success toast
+  (its 5 s timer stalled, once, in the unfocused headless tab) sat where "Add people" landed after scrolling,
+  and the trusted click went to the toast. `evening.mjs` gives every tab a 1280 × 800 viewport (the projector
+  sets its own) and `click()` refuses a covered button, saying what covers it, so `until` retries and a failure
+  names the cause instead of clicking whatever is on top.
+
 Since then (2026-11-02, `d4797d2` … `04d8173`): the list import clicked in the evening (T4-5); a double winner's
 phone lists every prize, and the CSV a row per prize (T4-7); the verification page checks a record once, not per
 keystroke (T3-8); the restore rehearsed in `crates/app/tests/restore.rs`, which found and fixed what it brought back
@@ -1533,7 +1565,7 @@ static files precompressed and cached (T3-5).
 
 Filed 2026-11-02 for what goes past v0.1.0: the Worker over real HTTP relays, T4-3 ([#46](https://github.com/sagikazarmark/rafi.orig/issues/46));
 the concurrency scenarios on a SQLite file and D1, T4-8 ([#47](https://github.com/sagikazarmark/rafi.orig/issues/47)); WebKit, mobile, axe and
-screenshots, T4-9 ([#48](https://github.com/sagikazarmark/rafi.orig/issues/48)); Clerk on Workers, T4-10 ([#33](https://github.com/sagikazarmark/rafi.orig/issues/33));
+screenshots, T4-9 ([#48](https://github.com/sagikazarmark/rafi.orig/issues/48)); Clerk on Workers, T4-10 ([#33](https://github.com/sagikazarmark/rafi.orig/issues/33), since built: the stage waits for the secrets);
 the projector bundle split and the rest of T3-9 and T3-10 ([#49](https://github.com/sagikazarmark/rafi.orig/issues/49)); `AddList`'s state as two
 enums, T7-5 ([#50](https://github.com/sagikazarmark/rafi.orig/issues/50)); three guarded writes answering wrongly when the row is gone, from T7-2
 ([#51](https://github.com/sagikazarmark/rafi.orig/issues/51), fixed before the tag); refusing a `Resolve` without `k` one release after the tag, T0-1
