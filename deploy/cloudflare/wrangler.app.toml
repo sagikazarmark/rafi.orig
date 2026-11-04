@@ -1,79 +1,35 @@
-# Rafi on Cloudflare Workers: one installation's configuration of the app
-# Worker (the web app and its API, phones' live-channel sockets, the
-# housekeeping Cron). The raffle engine is a second Worker
-# (wrangler.engine.toml), one per release, and the raffles' live channels a
-# third (wrangler.live.toml). This is the app Worker's shape as the Rafi
-# repository ships it (apps/worker-app/wrangler.toml), pointed at a release's
-# files in release/ (the release unpacked there, its deploy.sh copying legal/
-# in), with your database and domain in place of the placeholders. Everything
-# else of yours is a secret or a file in legal/. `release/deploy.sh` (which
-# .github/workflows/deploy.yaml runs when this file, the other two, VERSION
-# or legal/ change) reads the Workers' names from wrangler's dry run of each
-# file, applies the D1 migrations and deploys the three Workers. It doesn't
-# compare the files: they must agree on the database_id and
-# RAFI_DO_JURISDICTION, the app's and the engine's RAFFLE_ROOM script_name
-# is wrangler.live.toml's name, and the engine has its identity keys in
-# every environment (a test-mode raffle after an install shows a mismatch).
-#
-# The app Worker's name is the installation's: unique in your Cloudflare
-# account, it is how Restate's deployment metadata tells this installation's
-# engines from another's. Several installations in one account have names of
-# their own: each in a repository of its own, or in one repository as
-# Wrangler environments ([env.<name>] here and in the other two files, chosen
-# by CLOUDFLARE_ENV in the workflows). An environment's Worker is named
-# <name>-<environment> unless it sets its own name; it inherits main, the
-# assets, the Cron and the routes (give it routes of its own: two
-# installations don't share a domain), but not the vars, the required secrets or
-# the bindings (the database, RAFFLE_ROOM with the environment's live Worker
-# as script_name, the rate limits, with namespace_ids of their own so the
-# installations don't share counters): repeat those under [env.<name>].
-#
-# Reference: https://developers.cloudflare.com/workers/wrangler/configuration/
-# and https://developers.cloudflare.com/workers/wrangler/environments/
+# The app Worker: the web app, its API, phones' live-channel sockets and the
+# hourly housekeeping. Its name identifies the installation.
+# Docs: README.md, INSTALL.md, and
+# https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md
 
 name = "rafi-app"
 main = "release/app/build/index.js"
 compatibility_date = "2026-10-01"
-# Only your domain: no *.workers.dev address, no preview URLs (a preview would
-# share production's database and objects). Your domain, which each deploy
-# attaches as the Worker's custom domain: the origin RAFI_PUBLIC_URL names and
-# Clerk allows.
 workers_dev = false
 preview_urls = false
+# Your domain, the origin RAFI_PUBLIC_URL names.
 # routes = [{ pattern = "raffle.example.org", custom_domain = true }]
 
-# The web app's files, the participant scripts and your legal documents
-# (legal/, copied in by deploy.sh). A path that isn't a file goes to the
-# Worker, which serves the web app's page itself (with a
-# Content-Security-Policy naming your Clerk host); the raffle engine's paths
-# (/restate/) answer 404 here. The binding is how the Worker reads the legal
-# documents.
+# The web app's files and your legal documents (deploy.sh copies legal/ in).
 [assets]
 directory = "release/app/assets"
 binding = "ASSETS"
 
-# Your database: `wrangler d1 create rafi` (to keep it in the EU, read
-# INSTALL.md's "Keeping data in the EU" first), and paste the ID here,
-# in wrangler.engine.toml (the engine writes draws to it) and in
-# wrangler.live.toml (the live channels read it). The migrations run before
-# each deploy (deploy.sh).
+# Your database; the same ID in all three files.
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "release/migrations"
 
-# One live channel per raffle (in the jurisdiction RAFI_DO_JURISDICTION names,
-# when it names one). The class is the live Worker's: script_name is its name
-# (wrangler.live.toml's name).
+# The live Worker's class; script_name is wrangler.live.toml's name.
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
 script_name = "rafi-live"
 
-# Soft limits on joining and on the organizer's adds (approximate, per
-# location). Keys are never IP addresses: a venue shares one. The hard limit
-# is the entrant cap (RAFI_MAX_ENTRANTS).
+# Soft limits on joining and on organizers' adds (per location, never by IP).
 [[ratelimits]]
 name = "JOIN_PER_RAFFLE_LIMITER"
 namespace_id = "1001"
@@ -94,63 +50,28 @@ name = "ADD_LIMITER"
 namespace_id = "1004"
 simple = { limit = 20, period = 60 }
 
-# Housekeeping, hourly: erasing personal data as raffles age, expired
-# proof-of-work challenges, stale live channels.
+# Housekeeping.
 [triggers]
 crons = ["0 * * * *"]
 
-# The application's own log lines (warnings and errors, raffle IDs and error
-# text, never personal data; the hourly housekeeping report) are kept in
-# Workers Logs. The automatic per-invocation records are not: they would
-# hold client IPs and cookies.
+# The application's log lines only: per-request records would hold IPs and cookies.
 [observability]
 enabled = true
 
 [observability.logs]
 invocation_logs = false
 
-# Optional, for latency: where the app's request handling runs. By default
-# Cloudflare runs it in the data center nearest each visitor; with
-# placement, the fetch handler (every request the app answers, the phones'
-# live-channel connections on their way to the raffle's object included;
-# not the hourly Cron) runs near what it calls instead, the D1 database and
-# Restate Cloud, and the static files are still served nearest the visitor.
-# Uncomment [placement] and one of the two, which exclude each other:
-# mode = "smart" lets Cloudflare choose from the Worker's traffic; region
-# names the cloud region to run nearest (your Restate Cloud environment's,
-# say). It is not a data-residency control: Workers run on Cloudflare's
-# network, not inside a cloud region. INSTALL.md, "Placement".
+# Optional, for latency, not data residency: pick one (INSTALL.md, "Placement").
 # [placement]
 # mode = "smart"
 # region = "aws:eu-central-1"
 
-# Optional: the jurisdiction the live channels' Durable Objects are created
-# in ("eu" keeps them in the EU). Unset, they are wherever Cloudflare places
-# them. Decide before the first deploy (objects keep the jurisdiction they
-# were created in), the same in all three files and every [env.<name>]:
-# INSTALL.md, "Keeping data in the EU".
 [vars]
+# Optional, before the first deploy only, the same in all three files
+# (INSTALL.md, "Keeping data in the EU").
 # RAFI_DO_JURISDICTION = "eu"
 
-# What this installation sets, as secrets (.dev.vars.example), once with
-# `wrangler secret bulk .dev.vars -c wrangler.app.toml` before the first
-# deploy (then `wrangler secret put <NAME> -c wrangler.app.toml`); deploys keep them:
-#   RAFI_PUBLIC_URL                        the public origin, no trailing slash
-#   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL
-#   RAFI_ENGINE_API_KEY                    a Restate Cloud API key with ingress access
-#   RAFI_POW_KEY                           random, 32+ characters; never rotate during an event
-#   CLERK_SECRET_KEY
-#   CLERK_PUBLISHABLE_KEY                  not secret (the web app gets it from /config.js), but yours
-#   RAFI_OPERATOR_NAME, RAFI_OPERATOR_EMAIL   named as the processor in every raffle's notice
-#   RAFI_TERMS_VERSION, RAFI_PRIVACY_VERSION  the documents' versions, e.g. "2026-10"
-# wrangler refuses to deploy this Worker while one is missing. The Restate
-# environment's identity keys are the engine's (wrangler.engine.toml), not
-# this Worker's.
-# Optional settings with defaults (RAFI_RETENTION_DAYS, RAFI_RETENTION_MAX_DAYS,
-# RAFI_RETENTION_WINNERS_DAYS, RAFI_MIN_AGE, RAFI_MAX_ENTRANTS and the
-# others) are secrets too when you change them; the drand settings are the
-# engine's, vars in wrangler.engine.toml:
-# https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
+# Set as secrets before the first deploy: .dev.vars.example.
 [secrets]
 required = [
   "RAFI_PUBLIC_URL",
