@@ -1,7 +1,6 @@
 # The release deploy.sh deploys (unpacked here, with legal/ copied in).
 release/
-# wrangler and the Restate CLI, installed from package.json (npm ci, or npm
-# install). Commit package-lock.json: every run then uses the same versions.
+# wrangler and the Restate CLI, installed from package-lock.json (npm ci).
 node_modules/
 # The app Worker's secrets, filled in from .dev.vars.example: never committed.
 .dev.vars

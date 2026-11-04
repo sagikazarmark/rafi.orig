@@ -6,8 +6,8 @@
 # Rafi repository), so the deploy logic is the release's own, pinned to it and covered by its
 # provenance attestation. An installation's workflows (deploy/cloudflare/.github/workflows:
 # deploy.yaml and restate-cleanup.yaml) download and verify the release, unpack it into
-# release/ and run these subcommands, each job on a fresh runner; nothing here is specific to
-# GitHub Actions.
+# release/ and run these subcommands, one step each; nothing here is specific to GitHub
+# Actions.
 #
 # Usage, from the root of an installation's repository (a copy of deploy/cloudflare: VERSION,
 # package.json, wrangler.app.toml, wrangler.engine.toml, wrangler.live.toml, legal/), with the
@@ -50,7 +50,7 @@
 #                         (cloudflare-workers.json) and the cleanup's summary (cleanup.json).
 #                         Never a token: the tokens reach curl on its standard input only.
 #   WRANGLER              the wrangler command (default: npx -y wrangler, the installation's
-#                         package.json's once `npm ci` or `npm install` installed it)
+#                         package-lock.json's once `npm ci` installed it)
 #   RESTATE               the Restate CLI command (default: npx -y @restatedev/restate, likewise)
 #   CLOUDFLARE_API_BASE_URL   the Cloudflare API (wrangler's variable too; for tests)
 #   RAFI_REGISTER_WAIT    seconds between registration attempts (default 10; for tests)
@@ -77,7 +77,7 @@
 #   metadata names it as `instance`, and the downgrade guard and the cleanup touch only that
 #   instance's deployments in this account.
 #   check-remote: what can stop a deploy, checked before it changes anything (the workflow's
-#     first job runs it): the downgrade guard (register-engine's, below: Restate runs no newer
+#     first deploy step): the downgrade guard (register-engine's, below: Restate runs no newer
 #     release of this installation's; none at all on a first install), then the token reads the
 #     account (its workers.dev subdomain, which deploy-engine needs). Restate unreachable, or a
 #     key or token that doesn't work, fails it. Reads only.
@@ -161,7 +161,7 @@ die() {
 }
 
 # The tools: WRANGLER_CMD and RESTATE_CMD, each a command with its first arguments. npx -y runs
-# the version package.json installed (npm ci or npm install, from the installation's root or
+# the version package-lock.json pinned (npm ci, from the installation's root or
 # below), and fetches the latest only when none is installed.
 tools() {
   read -r -a WRANGLER_CMD <<<"${WRANGLER:-npx -y wrangler}"

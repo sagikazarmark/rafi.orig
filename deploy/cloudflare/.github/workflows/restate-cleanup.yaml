@@ -1,32 +1,10 @@
 name: Restate cleanup
 
-# Removes the engine deployments of earlier releases from Restate once it
-# has drained them, and deletes their Workers, daily and when run by hand
-# (Actions > Restate cleanup > Run workflow).
-# Each release deploys an engine Worker of its own (deploy.yaml), and Restate
-# finishes every invocation on the deployment it started on, so an earlier
-# release's engine keeps serving until nothing is pinned to it any more.
-#
-# One job: the release named in the version file (VERSION, or
-# VERSION.<environment>) downloaded and verified as deploy.yaml does,
-# unpacked into release/, the tools installed, then its deploy.sh cleanup:
-# only this installation's engine deployments (by the metadata deploy.sh
-# registers them with: the app Worker's name and the account) that Restate
-# reports Drained are touched, each deployment removed from Restate, then
-# its Worker deleted. Those still draining are listed with their pinned
-# invocations: a paused one waits for you (restate invocations resume <id>
-# --deployment latest, or restate invocations kill <id>). Engine Workers
-# (<engine name>-v...) none of this installation's deployments refers to are
-# listed, never deleted, and so are deployments that aren't this
-# installation's, never touched. The report is the run's summary; the JSON
-# deploy.sh read and wrote (with cleanup.json, the cleanup's summary) is
-# kept as an artifact of the run, cleanup-json-<job>-<attempt>, for 14 days.
-# The tools come from package.json, as in deploy.yaml.
-#
-# Upgrading and several installations in one repository: see deploy.yaml
-# (copy this file with it, the same CLOUDFLARE_ENV, concurrency group and
-# GitHub environment). Secrets: as deploy.yaml's. It shares deploy.yaml's
-# concurrency group: it never runs during a deploy.
+# Removes the engine deployments of earlier releases from Restate once it has
+# drained them, and deletes their Workers. Shares deploy.yaml's settings and
+# concurrency group. See INSTALL.md and
+# https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md
+
 on:
   schedule:
     - cron: "37 4 * * *"
@@ -42,7 +20,7 @@ concurrency:
 env:
   # Where releases come from, and whose release workflow attests them.
   RAFI_REPOSITORY: sagikazarmark/rafi
-  # The Wrangler environment this installation is (deploy.yaml's).
+  # The Wrangler environment to clean up (empty: the configurations' top level).
   CLOUDFLARE_ENV: ""
 
 defaults:
@@ -53,8 +31,6 @@ jobs:
   cleanup:
     name: Remove drained engine deployments
     runs-on: ubuntu-latest
-    # A GitHub environment (Settings > Environments) holding the secrets, as
-    # deploy.yaml's jobs may name it.
     # environment: production
     timeout-minutes: 20
     env:
@@ -66,9 +42,16 @@ jobs:
         with:
           persist-credentials: false
 
-      # As in deploy.yaml: VERSION.<environment> when CLOUDFLARE_ENV is set
-      # and that file exists, VERSION otherwise.
-      - name: Read the version file
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Read version file
         id: version
         run: |
           file=VERSION
@@ -84,47 +67,32 @@ jobs:
           echo "version=$version" >>"$GITHUB_OUTPUT"
           echo "Rafi $version ($file) from $RAFI_REPOSITORY"
 
-      - name: Download the release
+      - name: Download release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          rm -rf "$RUNNER_TEMP/rafi"
-          mkdir -p "$RUNNER_TEMP/rafi"
-          gh release download "v$VERSION" -R "$RAFI_REPOSITORY" -p worker.tar.gz -D "$RUNNER_TEMP/rafi"
-          echo "worker.tar.gz: sha256:$(sha256sum "$RUNNER_TEMP/rafi/worker.tar.gz" | cut -d' ' -f1)"
+          gh release download "v$VERSION" -R "$RAFI_REPOSITORY" -p worker.tar.gz -D "$RUNNER_TEMP"
+          sha256sum "$RUNNER_TEMP/worker.tar.gz"
 
-      # As in deploy.yaml: release.yaml, at the tag v<version>, in the Rafi
-      # repository, on a GitHub-hosted runner, or nothing runs.
-      - name: Verify its provenance
+      # Only release.yaml, at the tag, on a GitHub-hosted runner, built it.
+      - name: Verify release provenance
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh attestation verify "$RUNNER_TEMP/rafi/worker.tar.gz" \
+          gh attestation verify "$RUNNER_TEMP/worker.tar.gz" \
             -R "$RAFI_REPOSITORY" \
             --signer-workflow "github.com/$RAFI_REPOSITORY/.github/workflows/release.yaml" \
             --source-ref "refs/tags/v$VERSION" \
             --deny-self-hosted-runners
 
-      - name: Unpack it into release/
+      - name: Unpack release
         run: |
-          rm -rf release
           mkdir release
-          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
+          tar -xzf "$RUNNER_TEMP/worker.tar.gz" -C release
 
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
-      # npx -y); a committed package-lock.json pins their versions.
-      - name: Install wrangler and the Restate CLI
-        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-
-      - name: Remove the drained engine deployments and their Workers
+      - name: Remove drained engine deployments
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -132,14 +100,11 @@ jobs:
           RESTATE_AUTH_TOKEN: ${{ secrets.RESTATE_AUTH_TOKEN }}
         run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh cleanup
 
-      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
-      # Cloudflare's answers, the cleanup's cleanup.json; no secrets), kept
-      # whatever happened.
-      - name: Keep deploy.sh's JSON
+      - name: Upload deploy.sh JSON
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cleanup-json-cleanup-${{ github.run_attempt }}
+          name: cleanup-json-${{ github.run_attempt }}
           path: ${{ env.RAFI_ARTIFACTS_DIR }}
           if-no-files-found: ignore
           retention-days: 14

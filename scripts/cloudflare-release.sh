@@ -3,8 +3,9 @@
 # installation deploys it. First that deploy/cloudflare, which an
 # installation copies at the release's tag (through the template repository,
 # sagikazarmark/rafi-deploy-template, which mirrors it), names this release
-# (its VERSION), has the package.json its workflows install wrangler and the
-# Restate CLI from and the .dev.vars.example its secrets are set from
+# (its VERSION), has the package.json and package-lock.json its workflows
+# install wrangler and the Restate CLI from (the lockfile pinning the wrangler
+# this rehearsal runs) and the .dev.vars.example its secrets are set from
 # (.dev.vars git-ignored), the three configurations as
 # wrangler.<app|engine|live>.toml
 # (deploy.yaml running on a change to wrangler.*.toml), the app on its
@@ -13,10 +14,9 @@
 # restate-cleanup.yaml) name one Rafi repository (RAFI_REPOSITORY), verify the
 # attestation release.yaml makes, download the release the version file names
 # (VERSION.<CLOUDFLARE_ENV> when it exists, VERSION otherwise), no longer call
-# `deploy.sh check` (gone), and in each job that runs deploy.sh install the
-# tools (npm ci or npm install) and keep deploy.sh's JSON (RAFI_ARTIFACTS_DIR,
-# uploaded whatever happened), the cleanup one job of its own, and that
-# release.yaml makes it. Then deploy.sh's
+# `deploy.sh check` (gone), and are each one job that installs the tools
+# (npm ci) and keeps deploy.sh's JSON (RAFI_ARTIFACTS_DIR, uploaded whatever
+# happened), and that release.yaml makes it. Then deploy.sh's
 # own checks (scripts/cloudflare-deploy-test.sh: each subcommand against a
 # stubbed wrangler and Restate CLI and a fake Cloudflare and Restate API).
 # Then the release (`just cloudflare-tarball`: worker.tar.gz, its files at the
@@ -67,8 +67,8 @@ step "deploy/cloudflare deploys this release, with its workflows"
 # its VERSION names the release it deploys, and its workflows run that
 # release's deploy.sh. Both workflows download worker.tar.gz of the release
 # the version file names from the repository they name and verify that
-# release.yaml attested it; every job that runs deploy.sh installs the tools
-# from package.json (deploy.sh runs them with npx -y) and keeps deploy.sh's
+# release.yaml attested it; each is one job that installs the tools from
+# package-lock.json (deploy.sh runs them with npx -y) and keeps deploy.sh's
 # JSON as an artifact.
 template="$ROOT/deploy/cloudflare"
 named="$(tr -d '[:space:]' <"$template/VERSION" 2>/dev/null || true)"
@@ -76,7 +76,17 @@ named="$(tr -d '[:space:]' <"$template/VERSION" 2>/dev/null || true)"
 jq -e '.private == true and (.devDependencies | keys) == ["@restatedev/restate", "wrangler"]' "$template/package.json" >/dev/null \
   || fail "deploy/cloudflare/package.json isn't private with wrangler and @restatedev/restate as its devDependencies"
 grep -qx 'node_modules/' "$template/.gitignore" || fail "deploy/cloudflare/.gitignore doesn't ignore node_modules/"
-echo "ok   deploy/cloudflare/package.json: wrangler and the Restate CLI"
+# The lockfile the workflows' npm ci installs from: package.json's dependencies, and the
+# wrangler this rehearsal's dry runs use (update it with npm install wrangler@<version>
+# --package-lock-only in deploy/cloudflare).
+jq -e --slurpfile pkg "$template/package.json" '.packages[""].devDependencies == $pkg[0].devDependencies' \
+  "$template/package-lock.json" >/dev/null 2>&1 \
+  || fail "deploy/cloudflare/package-lock.json is missing or doesn't match package.json: run npm install --package-lock-only there"
+locked="$(jq -r '.packages["node_modules/wrangler"].version' "$template/package-lock.json")"
+rehearsed="$($WRANGLER --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
+[ "$locked" = "$rehearsed" ] \
+  || fail "deploy/cloudflare/package-lock.json pins wrangler $locked, but this rehearsal runs $rehearsed: lock $rehearsed"
+echo "ok   deploy/cloudflare/package.json and package-lock.json: wrangler $locked and the Restate CLI"
 [ -f "$template/.dev.vars.example" ] || fail "no deploy/cloudflare/.dev.vars.example: the app Worker's secrets"
 grep -qx '\.dev\.vars' "$template/.gitignore" || fail "deploy/cloudflare/.gitignore doesn't ignore .dev.vars (the secrets, filled in)"
 [ ! -e "$template/.prod.vars.example" ] || fail "deploy/cloudflare/.prod.vars.example is back: it is .dev.vars.example"
@@ -116,10 +126,11 @@ for workflow in deploy.yaml restate-cleanup.yaml; do
     || fail "$workflow doesn't download the release VERSION.<CLOUDFLARE_ENV> names when it exists"
   ! grep -qE 'RAFI_(DEPLOY_VERSION|INSTANCE|VERSION)|deploy-rooms|release/deploy\.sh check *$' "$file" \
     || fail "$workflow still has RAFI_DEPLOY_VERSION, RAFI_INSTANCE, RAFI_VERSION, deploy-rooms or deploy.sh check, which deploy.sh no longer knows"
-  # Each job that runs deploy.sh installs the tools and keeps its JSON, whatever happened:
-  # per job, whether it runs deploy.sh, then whether it has each of the four lines.
+  # One job, which runs deploy.sh, installs the tools from the lockfile and keeps its JSON,
+  # whatever happened: per job, whether it runs deploy.sh, then whether it has each of the
+  # four lines.
   # shellcheck disable=SC2016 # the workflow's own expressions, matched literally
-  jobs="$(awk -v npm='if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi' \
+  jobs="$(awk -v npm='run: npm ci --no-audit --no-fund' \
     -v dir='RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts' -v path='path: ${{ env.RAFI_ARTIFACTS_DIR }}' '
     function done_job() { if (job != "") print job, d, n, a, p, w }
     /^jobs:$/ { inside = 1; next }
@@ -138,17 +149,11 @@ for workflow in deploy.yaml restate-cleanup.yaml; do
     [ "$n$a$p$w" = 1111 ] \
       || fail "$workflow: the job $job runs deploy.sh without installing the tools, setting RAFI_ARTIFACTS_DIR or uploading it if: always() ($n$a$p$w)"
   done <<<"$jobs"
-  [ "$runs" -gt 0 ] || fail "$workflow: no job runs deploy.sh"
-  echo "ok   $workflow: releases of $repository attested by release.yaml, the one the version file names; in each job that runs deploy.sh ($runs) the tools installed and its JSON kept"
+  [ "$runs" = 1 ] && [ "$(wc -l <<<"$jobs")" = 1 ] || fail "$workflow: not one job running deploy.sh"
+  ! grep -qE 'npm install|actions/download-artifact@|needs:' "$file" \
+    || fail "$workflow installs without the lockfile (npm install) or hands the release between jobs: it is one job, npm ci"
+  echo "ok   $workflow: one job; releases of $repository attested by release.yaml, the one the version file names; the tools installed with npm ci and deploy.sh's JSON kept"
 done
-# The cleanup is one job: it downloads, verifies and runs the release itself,
-# nothing handed over between jobs.
-cleanup_jobs="$(awk '/^jobs:$/ { inside = 1; next } inside && /^  [A-Za-z0-9_-]+:$/ { n++ } END { print n + 0 }' \
-  "$template/.github/workflows/restate-cleanup.yaml")"
-[ "$cleanup_jobs" = 1 ] || fail "restate-cleanup.yaml has $cleanup_jobs jobs, not one"
-! grep -qE 'actions/download-artifact@|needs:|name: rafi-release$' "$template/.github/workflows/restate-cleanup.yaml" \
-  || fail "restate-cleanup.yaml hands the release between jobs: it is one job"
-echo "ok   restate-cleanup.yaml: one job, the release downloaded and verified in it"
 grep -q 'uses: actions/attest-build-provenance@' "$ROOT/.github/workflows/release.yaml" \
   || fail "release.yaml doesn't attest the tarball: the workflows would refuse every release"
 echo "ok   deploy/cloudflare/VERSION is $VERSION"

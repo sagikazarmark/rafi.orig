@@ -66,7 +66,7 @@ has a query that lists live raffles. If one runs anyway:
 - phones and projectors lose their live connection only when the live Worker changes (the release notes say so,
   and so does any edit of `wrangler.live.toml`). They reconnect by themselves.
 
-A failed run is finished by re-running its failed jobs (**Re-run failed jobs**), never undone.
+A failed run is finished by re-running it (**Re-run jobs**), never undone.
 
 ## Cleanup
 

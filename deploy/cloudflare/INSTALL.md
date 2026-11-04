@@ -102,15 +102,13 @@ at 0.1.0), with `package-lock.json`; wrangler logged in; and your Cloudflare acc
 
    Or in GitHub's web UI: on the [template repository][template], **Use this template > Create a new
    repository**, **Private**, then `gh repo clone <you>/<name>` and `cd <name>`.
-2. Install wrangler and the Restate CLI, and commit the lockfile:
+2. Install wrangler and the Restate CLI, at the versions `package-lock.json` pins:
 
    ```sh
-   npm install
-   git add package-lock.json
-   git commit -m "Lock wrangler and the Restate CLI"
+   npm ci
    ```
 
-   Every run, and yours, then uses the same wrangler and Restate CLI. **Don't push yet**: see below.
+   Every run, and yours, uses the same wrangler and Restate CLI. **Don't push yet**: see below.
 3. Log wrangler in to Cloudflare, and note your account's ID:
 
    ```sh
@@ -122,8 +120,8 @@ The repository's branch is `main`, as the template's: the workflows run there.
 
 **The Deploy workflow has already run once.** Creating a repository from a template counts as a push for GitHub
 Actions ([GitHub's `push` event][gh-push-event]), and that first commit adds `VERSION`, `legal/` and the
-configurations, which Deploy runs on. Until step 9 has set its secrets, a run fails harmlessly in its first job, at
-**Check it against Restate and Cloudflare**, before it touches anything (the daily Restate cleanup fails the same
+configurations, which Deploy runs on. Until step 9 has set its secrets, a run fails harmlessly at
+**Check Restate and Cloudflare**, before it touches anything (the daily Restate cleanup fails the same
 way). Once the secrets are set, a run with the configuration unfinished goes as far as it gets: nothing looks for
 the template's placeholders, so the zero database ID fails at the migrations, and an app Worker without its secrets
 (step 8) is refused at its upload, after the live Worker and the engine are deployed. So:
@@ -347,10 +345,10 @@ gh secret list                       # these two, and step 2's CLOUDFLARE_API_TO
 
 - Without `--body`, `gh secret set` prompts for the value, so a secret stays out of your shell history.
 - The app's own secrets are on its Worker (step 8), never here.
-- If your account or organization restricts which actions run, allow `actions/checkout`, `actions/setup-node`,
-  `actions/upload-artifact` and `actions/download-artifact`.
+- If your account or organization restricts which actions run, allow `actions/checkout`, `actions/setup-node`
+  and `actions/upload-artifact`.
 - To approve each deploy first: create a GitHub environment with required reviewers (**Settings >
-  Environments**), uncomment `environment: production` on every job that has it in
+  Environments**), uncomment `environment: production` in
   [`deploy.yaml`](.github/workflows/deploy.yaml) and [`restate-cleanup.yaml`](.github/workflows/restate-cleanup.yaml),
   and keep the secrets there (`gh secret set --env production …`) or in the repository.
 
@@ -393,7 +391,7 @@ You'll get: the three Workers, the database's tables, and the release's engine r
    real drand.
 
 From then on, a push to `main` that changes `VERSION`, `legal/` or a `wrangler.*.toml` deploys, and so does
-**Actions > Deploy > Run workflow**. One deploy or cleanup runs at a time. What each job does and reports: the
+**Actions > Deploy > Run workflow**. One deploy or cleanup runs at a time. What each step does and reports: the
 guide's [The workflows][guide-workflows]. The rest, from upgrading to the logs: the [README](README.md).
 
 ## Several installations
@@ -566,7 +564,7 @@ Its Workers are `rafi-app-eu`, `rafi-live-eu` and, for 0.1.0, `rafi-engine-eu-v0
    - set `CLOUDFLARE_ENV: "eu"` under `env:`;
    - rename the concurrency group, `group: rafi-eu`, so the two installations' runs don't wait for or replace
      each other's;
-   - uncomment `environment:` on every job that has the line, naming a GitHub environment of the
+   - uncomment `environment:` on the job, naming a GitHub environment of the
      installation's: `environment: eu`;
    - optionally, rename the workflow (`name: Deploy (eu)`, `name: Restate cleanup (eu)`) to tell them apart under
      **Actions**.

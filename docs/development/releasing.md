@@ -21,7 +21,7 @@ repository, a copy of `deploy/cloudflare` ([below](#the-template-repository)): i
 Wrangler environment and that file exists: several installations in one repository), and its two workflows,
 `.github/workflows/deploy.yaml` and `restate-cleanup.yaml`, download that release's `worker.tar.gz` from this
 repository, verify its attestation (signed by `release.yaml`, from a run on the tag `v<version>`) and run its
-`deploy.sh`, one subcommand per job (`check-remote`, `migrate`, `deploy-live`, `upload-app` and
+`deploy.sh`, one subcommand per step (`check-remote`, `migrate`, `deploy-live`, `upload-app` and
 `deploy-engine`, `register-engine` and `promote-app`; `cleanup` daily). `deploy.sh` deploys the release it is part
 of (its `VERSION`) and checks nothing of the installation's: not its version file, not the placeholders, not that
 the three configurations agree. The workflows are thin and the
@@ -29,8 +29,8 @@ installation's own; nothing in `deploy.sh` is GitHub's: it reads the Workers' na
 each configuration (for `CLOUDFLARE_ENV`), writes its outputs to `RAFI_OUTPUT_FILE`, its Markdown report to
 `RAFI_REPORT_FILE` and the JSON it read and wrote to `RAFI_ARTIFACTS_DIR` (the workflows give it `$GITHUB_OUTPUT`,
 `$GITHUB_STEP_SUMMARY` and a directory they upload), and installs nothing: it runs `npx -y wrangler` and `npx -y
-@restatedev/restate`, which take the versions the installation's `package.json` (and its committed lockfile)
-installed with `npm ci` (or `WRANGLER` and `RESTATE`), and reads JSON with `jq`. An installation is
+@restatedev/restate`, which take the versions the installation's `package-lock.json` pins, installed with
+`npm ci` (or `WRANGLER` and `RESTATE`), and reads JSON with `jq`. An installation is
 its app Worker's name: Restate's deployment metadata names it as `instance`. So an installation created from
 the template at a tag deploys that tag, and upgrading is changing `VERSION`.
 
@@ -81,7 +81,9 @@ CI's `workers` job rehearses a release (of the version `deploy/cloudflare/VERSIO
 
 Run the Release workflow by hand (**Actions > Release > Run workflow**): it runs CI, builds the release of the
 version given (by default the one `deploy/cloudflare/VERSION` names), checks that the template's `VERSION` names it,
-and that its workflows download the release the version file names (and call no `deploy.sh check`), and runs
+that its `package-lock.json` pins the devenv's wrangler (after a wrangler bump, `npm install
+wrangler@<version> --package-lock-only` in `deploy/cloudflare`), and that its workflows download the release the
+version file names (and call no `deploy.sh check`), and runs
 its `deploy.sh dry-run` from a copy of `deploy/cloudflare` with the release unpacked into `release/` (the devenv's
 wrangler, the Workers' names read from its dry runs), at the configurations' top level and as a Wrangler
 environment (`[env.eu]` added to each configuration, with `RAFI_DO_JURISDICTION = "eu"`, `VERSION.eu`,

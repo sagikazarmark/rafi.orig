@@ -1,65 +1,9 @@
 name: Deploy
 
-# Deploys the Rafi release named in VERSION (at this repository's root;
-# VERSION.<environment> instead when CLOUDFLARE_ENV is set and that file
-# exists) to your Cloudflare account, on a push to main that changes a
-# version file, legal/ or one of the three Wrangler configurations, and when
-# run by hand (Actions > Deploy > Run workflow).
-#
-# The work is the release's own deploy.sh, one subcommand per job (each job
-# is a fresh runner); this file only orders them:
-#   1. prepare: downloads worker.tar.gz of v<VERSION> from the Rafi repository,
-#      refuses it unless its build provenance attestation says Rafi's release
-#      workflow (release.yaml) built it from that tag on GitHub's runners,
-#      refuses an older release than Restate runs and credentials that don't
-#      work (deploy.sh check-remote), before anything touches production, and
-#      hands the verified tarball to the other jobs. Nothing checks this
-#      repository's configurations against the release or each other;
-#   2. migrate: the D1 migrations;
-#   3. live: the live Worker (the raffles' live channels), only when its
-#      code or wrangler.live.toml changed (a deploy of it drops every phone's
-#      live connection);
-#   4. app and engine, side by side: the app Worker's new version uploaded,
-#      not serving yet (on a first install, deployed directly), and this
-#      release's engine Worker deployed;
-#   5. release: the engine registered with Restate (refusing an older
-#      release than Restate runs, again, in case one was registered since),
-#      then the app's new version deployed.
-# restate-cleanup.yaml deletes the engine Workers Restate has drained.
-#
-# Each job writes what it did to the run's summary (deploy.sh's report), and
-# keeps the JSON deploy.sh read and wrote (wrangler's output, Restate's and
-# Cloudflare's answers; never a secret) as an artifact of the run,
-# deploy-json-<job>-<attempt>, for 14 days. Each job installs wrangler and
-# the Restate CLI from package.json first (npm ci with a committed
-# package-lock.json, npm install otherwise); deploy.sh runs them with npx -y.
-#
-# Upgrading is changing VERSION and pushing; a release whose notes say its
-# workflows changed comes with new copies of this file and
-# restate-cleanup.yaml (the template repository,
-# sagikazarmark/rafi-deploy-template, at the new release's tag).
-#
-# Several installations in one repository, as Wrangler environments
-# ([env.<name>] in each of the three configurations): copy this file and
-# restate-cleanup.yaml once per installation (deploy-eu.yaml,
-# restate-cleanup-eu.yaml, ...), and in each copy set CLOUDFLARE_ENV below to
-# its environment, name its concurrency group after it (rafi-eu), give its
-# jobs that installation's GitHub environment (environment:, with its
-# secrets) and narrow the paths below to its own files (VERSION.eu, say).
-# With CLOUDFLARE_ENV empty, the configurations' top level is the
-# installation.
-#
-# Secrets (Settings > Secrets and variables > Actions):
-#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID   the account the Workers and the database are on
-#   RESTATE_ADMIN_URL    the Restate Cloud environment's admin API (https://<env>.env.<region>.restate.cloud:9070)
-#   RESTATE_AUTH_TOKEN   a Restate Cloud API key with the Admin role
-# The app Worker's own secrets are set once, before the first deploy, with
-# wrangler (.dev.vars.example), not here.
-#
-# One deploy or cleanup at a time (the concurrency group rafi, which
-# restate-cleanup.yaml shares): a run waits for the one in progress, never
-# cancelling it. GitHub keeps one waiting run per group: a newer one
-# replaces a waiting one, which then shows as cancelled; run it again.
+# Deploys the release named in VERSION (VERSION.<CLOUDFLARE_ENV> when it
+# exists) by running its deploy.sh, one subcommand per step. See INSTALL.md and
+# https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md
+
 on:
   push:
     branches: [main]
@@ -78,12 +22,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Where releases come from, and whose release workflow attests them: the
-  # one place this workflow names the Rafi repository.
+  # Where releases come from, and whose release workflow attests them.
   RAFI_REPOSITORY: sagikazarmark/rafi
-  # The Wrangler environment this workflow deploys ([env.<name>] in each
-  # configuration), for several installations in one repository (above);
-  # empty: the configurations' top level. deploy.sh and wrangler read it.
+  # The Wrangler environment to deploy (empty: the configurations' top level).
   CLOUDFLARE_ENV: ""
 
 defaults:
@@ -91,18 +32,13 @@ defaults:
     shell: bash
 
 jobs:
-  prepare:
-    name: Prepare the release
+  deploy:
+    name: Deploy
     runs-on: ubuntu-latest
-    # A GitHub environment (Settings > Environments) to require an approval
-    # before each deploy, or to hold the secrets; name it on every job here
-    # that has this line (this one's check-remote uses the secrets too).
     # environment: production
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
-    outputs:
-      sha256: ${{ steps.download.outputs.sha256 }}
 
     steps:
       - name: Checkout repository
@@ -110,22 +46,16 @@ jobs:
         with:
           persist-credentials: false
 
-      # deploy.sh and wrangler need Node.js (wrangler 22 or later).
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           package-manager-cache: false
 
-      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
-      # npx -y); a committed package-lock.json pins their versions.
-      - name: Install wrangler and the Restate CLI
-        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
 
-      # VERSION.<environment> when CLOUDFLARE_ENV is set and that file
-      # exists, VERSION otherwise: the release to download. deploy.sh doesn't
-      # read it; it deploys the release it is part of.
-      - name: Read the version file
+      - name: Read version file
         id: version
         run: |
           file=VERSION
@@ -141,44 +71,33 @@ jobs:
           echo "version=$version" >>"$GITHUB_OUTPUT"
           echo "Rafi $version ($file) from $RAFI_REPOSITORY"
 
-      - name: Download the release
-        id: download
+      - name: Download release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          rm -rf "$RUNNER_TEMP/rafi"
-          mkdir -p "$RUNNER_TEMP/rafi"
-          gh release download "v$VERSION" -R "$RAFI_REPOSITORY" -p worker.tar.gz -D "$RUNNER_TEMP/rafi"
-          sha256="$(sha256sum "$RUNNER_TEMP/rafi/worker.tar.gz" | cut -d' ' -f1)"
-          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
-          echo "worker.tar.gz: sha256:$sha256"
+          gh release download "v$VERSION" -R "$RAFI_REPOSITORY" -p worker.tar.gz -D "$RUNNER_TEMP"
+          sha256sum "$RUNNER_TEMP/worker.tar.gz"
 
-      # The attestation's certificate names the workflow that signed it and
-      # the ref it ran on: release.yaml, at the tag v<version>, in the Rafi
-      # repository, on a GitHub-hosted runner. Any other build of these bytes,
-      # or bytes nobody attested, stop here.
-      - name: Verify its provenance
+      # Only release.yaml, at the tag, on a GitHub-hosted runner, built it.
+      - name: Verify release provenance
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh attestation verify "$RUNNER_TEMP/rafi/worker.tar.gz" \
+          gh attestation verify "$RUNNER_TEMP/worker.tar.gz" \
             -R "$RAFI_REPOSITORY" \
             --signer-workflow "github.com/$RAFI_REPOSITORY/.github/workflows/release.yaml" \
             --source-ref "refs/tags/v$VERSION" \
             --deny-self-hosted-runners
 
-      - name: Unpack it into release/
+      - name: Unpack release
         run: |
-          rm -rf release
           mkdir release
-          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
+          tar -xzf "$RUNNER_TEMP/worker.tar.gz" -C release
 
-      # Before anything touches production: an older release than Restate
-      # runs (VERSION set back) is refused here, and so are credentials that
-      # don't work.
-      - name: Check it against Restate and Cloudflare
+      # Refuses a downgrade and broken credentials before touching production.
+      - name: Check Restate and Cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -186,316 +105,56 @@ jobs:
           RESTATE_AUTH_TOKEN: ${{ secrets.RESTATE_AUTH_TOKEN }}
         run: release/deploy.sh check-remote
 
-      - name: Hand it to the next jobs
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: rafi-release
-          path: ${{ runner.temp }}/rafi/worker.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-
-      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
-      # Cloudflare's answers, no secrets), kept whatever happened.
-      - name: Keep deploy.sh's JSON
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: deploy-json-prepare-${{ github.run_attempt }}
-          path: ${{ env.RAFI_ARTIFACTS_DIR }}
-          if-no-files-found: ignore
-          retention-days: 14
-
-  migrate:
-    name: D1 migrations
-    needs: prepare
-    runs-on: ubuntu-latest
-    # environment: production
-    timeout-minutes: 15
-    env:
-      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
-      # npx -y); a committed package-lock.json pins their versions.
-      - name: Install wrangler and the Restate CLI
-        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-      - name: Get the release
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: rafi-release
-          path: ${{ runner.temp }}/rafi
-      - name: Unpack it into release/
-        env:
-          SHA256: ${{ needs.prepare.outputs.sha256 }}
-        run: |
-          echo "$SHA256  $RUNNER_TEMP/rafi/worker.tar.gz" | sha256sum -c -
-          rm -rf release
-          mkdir release
-          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
-
-      - name: Apply the D1 migrations
+      - name: Apply D1 migrations
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: release/deploy.sh migrate
 
-      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
-      # Cloudflare's answers, no secrets), kept whatever happened.
-      - name: Keep deploy.sh's JSON
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: deploy-json-migrate-${{ github.run_attempt }}
-          path: ${{ env.RAFI_ARTIFACTS_DIR }}
-          if-no-files-found: ignore
-          retention-days: 14
-
-  live:
-    name: Live Worker
-    needs: [prepare, migrate]
-    runs-on: ubuntu-latest
-    # environment: production
-    timeout-minutes: 15
-    env:
-      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
-      # npx -y); a committed package-lock.json pins their versions.
-      - name: Install wrangler and the Restate CLI
-        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-      - name: Get the release
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: rafi-release
-          path: ${{ runner.temp }}/rafi
-      - name: Unpack it into release/
-        env:
-          SHA256: ${{ needs.prepare.outputs.sha256 }}
-        run: |
-          echo "$SHA256  $RUNNER_TEMP/rafi/worker.tar.gz" | sha256sum -c -
-          rm -rf release
-          mkdir release
-          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
-
-      - name: Deploy the live Worker (unless unchanged)
+      # A no-op when the live Worker is unchanged.
+      - name: Deploy live Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh deploy-live
 
-      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
-      # Cloudflare's answers, no secrets), kept whatever happened.
-      - name: Keep deploy.sh's JSON
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: deploy-json-live-${{ github.run_attempt }}
-          path: ${{ env.RAFI_ARTIFACTS_DIR }}
-          if-no-files-found: ignore
-          retention-days: 14
-
-  app:
-    name: App Worker (upload)
-    needs: [prepare, live]
-    runs-on: ubuntu-latest
-    # environment: production
-    timeout-minutes: 15
-    env:
-      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
-    outputs:
-      app_version_id: ${{ steps.upload.outputs.app_version_id }}
-      app_promoted: ${{ steps.upload.outputs.app_promoted }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
-      # npx -y); a committed package-lock.json pins their versions.
-      - name: Install wrangler and the Restate CLI
-        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-      - name: Get the release
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: rafi-release
-          path: ${{ runner.temp }}/rafi
-      - name: Unpack it into release/
-        env:
-          SHA256: ${{ needs.prepare.outputs.sha256 }}
-        run: |
-          echo "$SHA256  $RUNNER_TEMP/rafi/worker.tar.gz" | sha256sum -c -
-          rm -rf release
-          mkdir release
-          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
-
-      - name: Upload the app Worker's version
-        id: upload
+      - name: Upload app Worker version
+        id: app
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_OUTPUT_FILE="$GITHUB_OUTPUT" RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh upload-app
 
-      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
-      # Cloudflare's answers, no secrets), kept whatever happened.
-      - name: Keep deploy.sh's JSON
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: deploy-json-app-${{ github.run_attempt }}
-          path: ${{ env.RAFI_ARTIFACTS_DIR }}
-          if-no-files-found: ignore
-          retention-days: 14
-
-  engine:
-    name: Engine Worker
-    needs: [prepare, live]
-    runs-on: ubuntu-latest
-    # environment: production
-    timeout-minutes: 15
-    env:
-      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
-    outputs:
-      engine_worker: ${{ steps.deploy.outputs.engine_worker }}
-      engine_url: ${{ steps.deploy.outputs.engine_url }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
-      # npx -y); a committed package-lock.json pins their versions.
-      - name: Install wrangler and the Restate CLI
-        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-      - name: Get the release
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: rafi-release
-          path: ${{ runner.temp }}/rafi
-      - name: Unpack it into release/
-        env:
-          SHA256: ${{ needs.prepare.outputs.sha256 }}
-        run: |
-          echo "$SHA256  $RUNNER_TEMP/rafi/worker.tar.gz" | sha256sum -c -
-          rm -rf release
-          mkdir release
-          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
-
-      - name: Deploy this release's engine Worker
-        id: deploy
+      - name: Deploy engine Worker
+        id: engine
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_OUTPUT_FILE="$GITHUB_OUTPUT" RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh deploy-engine
 
-      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
-      # Cloudflare's answers, no secrets), kept whatever happened.
-      - name: Keep deploy.sh's JSON
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: deploy-json-engine-${{ github.run_attempt }}
-          path: ${{ env.RAFI_ARTIFACTS_DIR }}
-          if-no-files-found: ignore
-          retention-days: 14
-
-  release:
-    name: Register the engine, deploy the app
-    needs: [prepare, app, engine]
-    runs-on: ubuntu-latest
-    # environment: production
-    timeout-minutes: 15
-    env:
-      RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      # wrangler and the Restate CLI, package.json's (deploy.sh runs them with
-      # npx -y); a committed package-lock.json pins their versions.
-      - name: Install wrangler and the Restate CLI
-        run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-      - name: Get the release
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: rafi-release
-          path: ${{ runner.temp }}/rafi
-      - name: Unpack it into release/
+      # Before the app, so it never calls a handler the engine lacks.
+      - name: Register engine with Restate
         env:
-          SHA256: ${{ needs.prepare.outputs.sha256 }}
-        run: |
-          echo "$SHA256  $RUNNER_TEMP/rafi/worker.tar.gz" | sha256sum -c -
-          rm -rf release
-          mkdir release
-          tar -xzf "$RUNNER_TEMP/rafi/worker.tar.gz" -C release
-
-      # First, so the app never calls a handler the engine Restate runs lacks.
-      - name: Register the engine with Restate
-        env:
-          RAFI_ENGINE_WORKER: ${{ needs.engine.outputs.engine_worker }}
-          RAFI_ENGINE_URL: ${{ needs.engine.outputs.engine_url }}
+          RAFI_ENGINE_WORKER: ${{ steps.engine.outputs.engine_worker }}
+          RAFI_ENGINE_URL: ${{ steps.engine.outputs.engine_url }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           RESTATE_ADMIN_URL: ${{ secrets.RESTATE_ADMIN_URL }}
           RESTATE_AUTH_TOKEN: ${{ secrets.RESTATE_AUTH_TOKEN }}
         run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh register-engine
 
-      - name: Deploy the app Worker's version
+      - name: Promote app Worker version
         env:
-          RAFI_APP_VERSION_ID: ${{ needs.app.outputs.app_version_id }}
-          RAFI_APP_PROMOTED: ${{ needs.app.outputs.app_promoted }}
+          RAFI_APP_VERSION_ID: ${{ steps.app.outputs.app_version_id }}
+          RAFI_APP_PROMOTED: ${{ steps.app.outputs.app_promoted }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: RAFI_REPORT_FILE="$GITHUB_STEP_SUMMARY" release/deploy.sh promote-app
 
-      # What deploy.sh read and wrote (wrangler's ND-JSON, Restate's and
-      # Cloudflare's answers, no secrets), kept whatever happened.
-      - name: Keep deploy.sh's JSON
+      - name: Upload deploy.sh JSON
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: deploy-json-release-${{ github.run_attempt }}
+          name: deploy-json-${{ github.run_attempt }}
           path: ${{ env.RAFI_ARTIFACTS_DIR }}
           if-no-files-found: ignore
           retention-days: 14

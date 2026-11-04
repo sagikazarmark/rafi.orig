@@ -795,7 +795,7 @@ done
 echo "0.1.0" >"$RELEASE/VERSION"
 
 echo "== check-remote"
-# The deploy's first job: Restate's release read and the token tried, nothing changed.
+# The deploy's first step: Restate's release read and the token tried, nothing changed.
 echo '{ "subdomain": "acme", "services": [], "deployments": [] }' | state
 ds check-remote
 ran "a first install (nothing registered): allowed" 0 "Raffle: not registered yet" "EngineInfo: not registered yet" \

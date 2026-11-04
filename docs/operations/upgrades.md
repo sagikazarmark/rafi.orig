@@ -62,7 +62,7 @@ fail and Restate retries them.
 **Never run a build older than the one that wrote the database.** Nothing in the code checks (`/healthz` says
 which version runs, not which wrote the database): a rolled-back build meets columns it doesn't know, or event
 types it can't read, and fails on the first request that touches them. On Cloudflare the deploy refuses a release
-older than the one Restate runs in its first job, before touching anything, which catches a `VERSION` set back.
+older than the one Restate runs before touching anything, which catches a `VERSION` set back.
 Roll forward instead ([Rolling back a deploy](runbook.md#rolling-back-a-deploy)).
 
 ## Registering the raffle engine

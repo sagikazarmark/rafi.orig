@@ -80,7 +80,7 @@ The dashboard's **Workers & Pages** shows it next to **Your subdomain**, and off
 subdomain on its first visit there. With the deploy token you can read it (`GET
 /accounts/{account_id}/workers/subdomain`, INSTALL.md's check) or register one (`PUT` to the same path with
 `{"subdomain": "<name>"}`). A deploy without one stops before deploying anything
-(`check-remote`, in its first job, reads it, as `deploy-engine` does), naming the dashboard page. Don't change it once deployed: Restate
+(`check-remote`, its first deploy step, reads it, as `deploy-engine` does), naming the dashboard page. Don't change it once deployed: Restate
 calls every registered engine at an address that contains it.
 
 ### The app's address
@@ -177,9 +177,9 @@ release's tag):
   pointed at `release/`, with the operator's database ID, the app's address (workers.dev, or a custom domain) and
   Restate public key;
 - `legal/terms.md` and `legal/privacy.md`, which the deploy copies into the app's static files;
-- `package.json` (wrangler and the Restate CLI, `"wrangler": "^4"` and `"@restatedev/restate": "^1"`) and the
-  `package-lock.json` the operator commits after `npm install`, which pins them: the workflows install from it
-  (`npm ci`; `npm install` without it) and `deploy.sh` runs them with `npx -y`, which takes the installed ones;
+- `package.json` (wrangler and the Restate CLI, `"wrangler": "^4"` and `"@restatedev/restate": "^1"`) and
+  `package-lock.json`, which pins them (the template's pins the wrangler the release was rehearsed with): the
+  workflows install from it with `npm ci` and `deploy.sh` runs them with `npx -y`, which takes the installed ones;
 - `.dev.vars.example`: the app Worker's secrets, filled in as `.dev.vars` and set on the Worker once
   (`wrangler secret bulk .dev.vars`), never committed (`.dev.vars` is git-ignored, as are `release/` and
   `node_modules/`; wrangler also reads `.dev.vars` for `wrangler dev`, which an installation doesn't run);
@@ -245,36 +245,37 @@ Both are the installation's own, thin, and name the Rafi repository once (`RAFI_
 
 Their secrets: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` ([the token](#the-api-token)),
 `RESTATE_ADMIN_URL` (`https://<env-id>.env.<region>.restate.cloud:9070`) and `RESTATE_AUTH_TOKEN` (an Admin-role
-API key, [below](#the-restate-keys)). Each job gets only the ones its subcommand uses. The jobs need `contents:
-read` only (the release and its attestation are public), run on `ubuntu-latest` with Node.js 24 and `jq`, install
-wrangler and the Restate CLI from the installation's `package.json` first (`npm ci` with a committed
-`package-lock.json`, `npm install --no-audit --no-fund` otherwise; `deploy.sh` runs them as `npx -y wrangler` and
-`npx -y @restatedev/restate`), and can each name a GitHub environment (`environment: production`, commented out)
-for required reviewers or its secrets.
+API key, [below](#the-restate-keys)). Each step gets only the ones its subcommand uses (not the install step,
+which runs packages' install scripts). Each workflow is one job, which needs `contents: read` only (the release and
+its attestation are public), runs on `ubuntu-latest` with Node.js 24 and `jq`, installs wrangler and the Restate
+CLI from the installation's `package-lock.json` first (`npm ci --no-audit --no-fund`; `deploy.sh` runs them as
+`npx -y wrangler` and `npx -y @restatedev/restate`), and can name a GitHub environment (`environment: production`,
+commented out) for required reviewers or its secrets. Both start the same way: install the tools, read the version
+file (the release to download), `gh release download v<version>` of `worker.tar.gz`, `gh attestation verify` with
+`--signer-workflow github.com/<RAFI_REPOSITORY>/.github/workflows/release.yaml`, `--source-ref refs/tags/v<version>`
+and `--deny-self-hosted-runners`, and unpack it into `release/`.
 
 **`deploy.yaml`** runs on a push to `main` that changes `VERSION`, `VERSION.*`, `legal/**` or a `wrangler.*.toml`,
-and by hand (**Actions > Deploy > Run workflow**, `gh workflow run deploy.yaml`). Its jobs, each on a fresh runner:
+and by hand (**Actions > Deploy > Run workflow**, `gh workflow run deploy.yaml`). Then its steps:
 
-| Job | Runs | Needs |
+| Step | Runs | Needs |
 |---|---|---|
-| **Prepare the release** | reads the version file (the release to download); `gh release download v<version>` of `worker.tar.gz`; `gh attestation verify` with `--signer-workflow github.com/<RAFI_REPOSITORY>/.github/workflows/release.yaml`, `--source-ref refs/tags/v<version>` and `--deny-self-hosted-runners`; unpacks it into `release/`; `deploy.sh check-remote`; hands the tarball on as an artifact with its sha256 | Restate, Cloudflare |
-| **D1 migrations** | `deploy.sh migrate` | Cloudflare |
-| **Live Worker** | `deploy.sh deploy-live` | Cloudflare |
-| **App Worker (upload)** | `deploy.sh upload-app`; outputs `app_version_id` or `app_promoted` | Cloudflare |
-| **Engine Worker** (beside the app's) | `deploy.sh deploy-engine`; outputs `engine_worker`, `engine_url` | Cloudflare |
-| **Register the engine, deploy the app** | `deploy.sh register-engine`, then `deploy.sh promote-app` | Restate, the account ID; Cloudflare |
+| **Check Restate and Cloudflare** | `deploy.sh check-remote` | Restate, Cloudflare |
+| **Apply D1 migrations** | `deploy.sh migrate` | Cloudflare |
+| **Deploy live Worker** | `deploy.sh deploy-live` | Cloudflare |
+| **Upload app Worker version** | `deploy.sh upload-app`; outputs `app_version_id` or `app_promoted` | Cloudflare |
+| **Deploy engine Worker** | `deploy.sh deploy-engine`; outputs `engine_worker`, `engine_url` | Cloudflare |
+| **Register engine with Restate** | `deploy.sh register-engine` | Restate, the account ID |
+| **Promote app Worker version** | `deploy.sh promote-app` | Cloudflare |
 
-Every later job checks the artifact against prepare's sha256 before unpacking it, so all of them deploy the bytes
-prepare verified. The order is the point: everything that can refuse the deploy first (a release without Rafi's
+Every subcommand can be run again, so a failed run is re-run whole. The order is the point: everything that can refuse the deploy first (a release without Rafi's
 attestation, a configuration wrangler's dry run refuses, a release older than the one Restate runs, credentials
 that don't work), before anything touches production; the migrations before any code that needs them, the class before the Workers binding it, and the
 engine registered before the app that calls it switches over, so the app never calls a handler the engine Restate
 runs lacks.
 
-**`restate-cleanup.yaml`** runs daily at 04:37 UTC and by hand, one job: it reads the version file, downloads and
-verifies the release as deploy's prepare job does (`gh release download`, `gh attestation verify` with the same
-flags), unpacks it into `release/`, installs the tools and runs `deploy.sh cleanup` ([below](#the-restate-cleanup)),
-then uploads the JSON. Nothing is handed between jobs.
+**`restate-cleanup.yaml`** runs daily at 04:37 UTC and by hand, then runs `deploy.sh cleanup`
+([below](#the-restate-cleanup)).
 
 The two share a concurrency group (`rafi` in the template; one per installation when a repository holds several)
 without cancelling: one deploy or cleanup at a time, a run waiting for the one in progress. GitHub keeps one waiting
@@ -283,13 +284,13 @@ running deploy can cancel another deploy waiting there): run it again. Scheduled
 branch, and in a public repository GitHub disables them after 60 days without repository activity.
 
 Each run's log in the installation's **Actions** is the deploy's log, each step printed, and its summary page holds
-the subcommands' reports: the workflows point `deploy.sh`'s `RAFI_OUTPUT_FILE` at `$GITHUB_OUTPUT` (the jobs'
+the subcommands' reports: the workflows point `deploy.sh`'s `RAFI_OUTPUT_FILE` at `$GITHUB_OUTPUT` (the steps'
 outputs) and its `RAFI_REPORT_FILE` at `$GITHUB_STEP_SUMMARY`. A deploy's summary says whether the live Worker was
 deployed (with its fingerprint tag) or left alone, the app version uploaded (or, on a first install, deployed
 directly), this release's engine Worker and its address, its Restate deployment ID, and the app version deployed
-with its routes and Cron. A cleanup's is [below](#the-restate-cleanup). Each job also sets
+with its routes and Cron. A cleanup's is [below](#the-restate-cleanup). Each workflow also sets
 `RAFI_ARTIFACTS_DIR` (`rafi-artifacts/` in the workspace) and uploads it whatever happened (`if: always()`), as
-the run's artifact `deploy-json-<job>-<attempt>` (`cleanup-json-<job>-<attempt>`), kept 14 days: the JSON
+the run's artifact `deploy-json-<attempt>` (`cleanup-json-<attempt>`), kept 14 days: the JSON
 `deploy.sh` read and wrote ([below](#what-each-subcommand-does)).
 
 ## What each subcommand does
@@ -326,7 +327,7 @@ cleanup's summary (`cleanup.json`: `removed`, `deleted`, `not_removed`, `drainin
 `kept`, `left_behind`, `leftover`, `not_ours`, `failed`). The exit status is 0, 1 on a failure or refusal, 2 on a
 usage error. Tokens reach `curl` only on its standard input, so none is among the artifacts.
 
-Every subcommand can run again, and a failed run is retried by running it again (**Re-run failed jobs**). What a
+Every subcommand can run again, and a failed run is retried by running it again (**Re-run jobs**). What a
 failed run leaves: migrations apply forward and stay; a live Worker deployed stays (a re-run skips it); an
 uploaded app version not deployed is harmless; an engine Worker deployed but not registered serves nothing until a
 re-run registers it; a registered engine stays the latest deployment even if the app's switch then failed (the
@@ -467,7 +468,7 @@ operator's records](overview.md#the-operators-records). The retention settings
 
 Change `VERSION` (an installation that is a Wrangler environment: its `VERSION.<environment>`, when it has one)
 and push, between events; never to an older release ([Upgrades](upgrades.md#database-migrations)): the migrations
-only go forward, and the deploy refuses a release older than the one Restate runs in its first job
+only go forward, and the deploy refuses a release older than the one Restate runs in its first deploy step
 (`check-remote`), before touching anything. The release notes say when a configuration, `.dev.vars.example` or a
 secret changed shape, when the live Worker changed (that deploy drops the live connections), and when the
 template's workflows changed.
@@ -520,8 +521,8 @@ on the first one:
   URL), and the session's `azp` is `RAFI_PUBLIC_URL`;
 - a repository created from the template repository runs the Deploy workflow for its first commit (GitHub's
   [`push` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)
-  says creating a repository from a template triggers it), which fails at **Check it against Restate and
-  Cloudflare** until the secrets are set, as INSTALL.md's step 1 says;
+  says creating a repository from a template triggers it), which fails at **Check Restate and Cloudflare**
+  until the secrets are set, as INSTALL.md's step 1 says;
 - the workflows read the release and its attestation with the repository's own `GITHUB_TOKEN`, and the reports
   land on the run's summary page;
 - the API shapes `deploy.sh` reads (deployments, versions and their annotations, the subdomain, the account's
@@ -560,7 +561,7 @@ RAFI_APP_VERSION_ID=… release/deploy.sh promote-app    # or RAFI_APP_PROMOTED=
 ```
 
 The installation is the app Worker's name in your configuration, the same whether the workflows or you run it, so
-the cleanup and the downgrade check see one installation. Run `npm install` in the installation first (its
+the cleanup and the downgrade check see one installation. Run `npm ci` in the installation first (its
 `package.json`'s wrangler and Restate CLI, which `deploy.sh` runs with `npx -y`), or, in the devenv shell,
 `WRANGLER=wrangler` uses its wrangler; `deploy.sh` needs `jq` either way. `RAFI_ARTIFACTS_DIR=<dir>` keeps the
 JSON, as the workflows do.
@@ -661,22 +662,22 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 
 | Symptom | Cause, and what to do |
 |---|---|
-| Any job but the migrations, at once: `wrangler deploy --dry-run -c <file> … failed (above)` | wrangler refuses that configuration (its error is above it in the log): a malformed file, or, with `CLOUDFLARE_ENV` set, an environment the file has no `[env.<name>]` for (add it to all three, or fix the name). |
+| Any `deploy.sh` step but the migrations, at once: `wrangler deploy --dry-run -c <file> … failed (above)` | wrangler refuses that configuration (its error is above it in the log): a malformed file, or, with `CLOUDFLARE_ENV` set, an environment the file has no `[env.<name>]` for (add it to all three, or fix the name). |
 | … `reported no Worker's name` | wrangler's dry run wrote no `deploy` entry with a Worker's name into its ND-JSON output: a wrangler too old for it, or a name that isn't a Worker's (a-z, 0-9, -). The `wrangler-dry-run-<worker>.ndjson` artifact has what it wrote. |
-| **Read the version file**: `… not a Rafi release` | The version file (`VERSION`, or `VERSION.<environment>`) isn't a version (`x.y.z`, or `x.y.z-pre.release`): fix it and push. Nothing else compares it with the release: `deploy.sh` deploys the release it came in. |
-| **D1 migrations** fails on the database `00000000-0000-0000-0000-000000000000` | A configuration still has the template's zero `database_id` (nothing looks for it): [INSTALL.md step 3](../../deploy/cloudflare/INSTALL.md#3-the-database), the ID in all three files. |
-| Any job, at once: `jq isn't installed` | `deploy.sh` reads every JSON answer with `jq` (GitHub's runners have it): install it where you run it. |
-| **Install wrangler and the Restate CLI** fails | `npm ci` refuses a `package-lock.json` that doesn't match `package.json`: run `npm install` and commit the lockfile. Otherwise npm couldn't reach its registry: run it again. |
-| Prepare fails at **Download the release** or **Verify its provenance** | No release `v<VERSION>` (a typo, or a version not released yet), or a tarball that Rafi's release workflow didn't build from that tag on GitHub's runners: never work around this. |
-| **App Worker (upload)**: `the app Worker rafi-app doesn't exist on the account` | Its secrets come first: [INSTALL.md step 8](../../deploy/cloudflare/INSTALL.md#8-the-app-workers-secrets) (with `CLOUDFLARE_ENV=<name>` for an environment's Worker). |
-| **App Worker**: wrangler names missing secrets | One of `[secrets] required` isn't set: `wrangler secret put <NAME> -c wrangler.app.toml`. |
-| **Engine Worker**: `the account's workers.dev subdomain: HTTP …` | The account has no workers.dev subdomain (register it on the dashboard's **Workers & Pages** page), or the token lacks Workers Scripts. |
+| **Read version file**: `… not a Rafi release` | The version file (`VERSION`, or `VERSION.<environment>`) isn't a version (`x.y.z`, or `x.y.z-pre.release`): fix it and push. Nothing else compares it with the release: `deploy.sh` deploys the release it came in. |
+| **Apply D1 migrations** fails on the database `00000000-0000-0000-0000-000000000000` | A configuration still has the template's zero `database_id` (nothing looks for it): [INSTALL.md step 3](../../deploy/cloudflare/INSTALL.md#3-the-database), the ID in all three files. |
+| Any step, at once: `jq isn't installed` | `deploy.sh` reads every JSON answer with `jq` (GitHub's runners have it): install it where you run it. |
+| **Install dependencies** fails | `npm ci` refuses a missing `package-lock.json`, or one that doesn't match `package.json`: run `npm install` and commit the lockfile. Otherwise npm couldn't reach its registry: run it again. |
+| Prepare fails at **Download release** or **Verify release provenance** | No release `v<VERSION>` (a typo, or a version not released yet), or a tarball that Rafi's release workflow didn't build from that tag on GitHub's runners: never work around this. |
+| **Upload app Worker version**: `the app Worker rafi-app doesn't exist on the account` | Its secrets come first: [INSTALL.md step 8](../../deploy/cloudflare/INSTALL.md#8-the-app-workers-secrets) (with `CLOUDFLARE_ENV=<name>` for an environment's Worker). |
+| **Upload app Worker version**: wrangler names missing secrets | One of `[secrets] required` isn't set: `wrangler secret put <NAME> -c wrangler.app.toml`. |
+| **Deploy engine Worker**: `the account's workers.dev subdomain: HTTP …` | The account has no workers.dev subdomain (register it on the dashboard's **Workers & Pages** page), or the token lacks Workers Scripts. |
 | Any Cloudflare step: `Authentication error` (10000) or 403 | The token is missing a permission or the zone (above), expired, or rolled: replace the `CLOUDFLARE_API_TOKEN` secret. |
-| **Prepare the release** at **Check it against Restate and Cloudflare**: `refusing to deploy an older release (a downgrade)` | The version file is older than the release Restate runs; nothing was deployed. Set it to that release or later; never roll back. |
-| **Prepare the release** at **Check it against Restate and Cloudflare**: `no answer from …`, 401 or 403 | `RESTATE_ADMIN_URL` isn't the environment's admin API (`:9070`), `RESTATE_AUTH_TOKEN` isn't an Admin-role key of it, or the Cloudflare token or account ID is wrong (the workers.dev subdomain lookup): fix the secret, run it again. |
-| **Register the engine**: `refusing to register an older engine (a downgrade)` | A newer release was registered after this run's first job checked: set the version file to that release or later; never roll back. |
-| **Register the engine**: 401 or 403 | `RESTATE_AUTH_TOKEN` isn't an Admin-role key of this environment, or `RESTATE_ADMIN_URL` is another environment's (or the ingress, `:8080`). |
-| **Register the engine**: Restate couldn't discover the engine (at once, or after five attempts) | Restate couldn't reach the engine (workers.dev not serving it yet), or the engine refused the discovery because the identity key in `wrangler.engine.toml` isn't this environment's (still the template's `publickeyv1_…`, say: nothing looks for it; or, in a Wrangler environment, its `[env.<name>.vars]` has none: vars aren't inherited): check the engine Worker's logs, fix, re-run the failed jobs. |
+| **Check Restate and Cloudflare**: `refusing to deploy an older release (a downgrade)` | The version file is older than the release Restate runs; nothing was deployed. Set it to that release or later; never roll back. |
+| **Check Restate and Cloudflare**: `no answer from …`, 401 or 403 | `RESTATE_ADMIN_URL` isn't the environment's admin API (`:9070`), `RESTATE_AUTH_TOKEN` isn't an Admin-role key of it, or the Cloudflare token or account ID is wrong (the workers.dev subdomain lookup): fix the secret, run it again. |
+| **Register engine with Restate**: `refusing to register an older engine (a downgrade)` | A newer release was registered after this run's **Check Restate and Cloudflare**: set the version file to that release or later; never roll back. |
+| **Register engine with Restate**: 401 or 403 | `RESTATE_AUTH_TOKEN` isn't an Admin-role key of this environment, or `RESTATE_ADMIN_URL` is another environment's (or the ingress, `:8080`). |
+| **Register engine with Restate**: Restate couldn't discover the engine (at once, or after five attempts) | Restate couldn't reach the engine (workers.dev not serving it yet), or the engine refused the discovery because the identity key in `wrangler.engine.toml` isn't this environment's (still the template's `publickeyv1_…`, say: nothing looks for it; or, in a Wrangler environment, its `[env.<name>.vars]` has none: vars aren't inherited): check the engine Worker's logs, fix, re-run it. |
 | A deploy shows as cancelled | A newer run replaced it while it waited (the concurrency group): run it again. |
 | `/healthz` answers `500 misconfigured` | Missing secrets or documents, a document still a template, or one without its version (`legal/terms.md: no front matter`): the reason is in the answer when it names no value, and in the app Worker's logs. |
 | Organizers sign in to Clerk but the admin refuses them | The app was opened at an address other than `RAFI_PUBLIC_URL`'s origin, whose sessions Rafi refuses (their `azp`): use that address, and with a custom domain keep `workers_dev = false` ([the app's address](#the-apps-address)). Or `RAFI_PUBLIC_URL` isn't exactly the address's origin (another scheme or host, or a path). |
@@ -685,7 +686,7 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 | Phones don't update live | The app's logs (`nudging … failed`), the live Worker's logs; `RAFFLE_ROOM` bound with `script_name` the live Worker's name; the same `database_id` and `RAFI_DO_JURISDICTION` in all three configurations (nothing compares them: the app and the engine in different jurisdictions reach different objects). |
 | The cleanup reports a deployment draining for days | A paused invocation: resume or kill it ([Upgrades](upgrades.md#on-workers-automatic)). |
 | The cleanup fails: `… couldn't be listed: nothing removed or deleted`, or `listing Restate's deployments: …` | A listing failed (the token, the Restate key or admin URL, or either service down), so it touched nothing: fix the secret, or run it again later. |
-| The cleanup fails `in part`: **Not removed** in its report | Restate refused to remove a deployment it had reported drained (its answer is in the job's log): its Worker is untouched, and the next run tries again. |
+| The cleanup fails `in part`: **Not removed** in its report | Restate refused to remove a deployment it had reported drained (its answer is in the run's log): its Worker is untouched, and the next run tries again. |
 | The cleanup fails `in part`: **Workers left behind** | A deployment was removed but deleting its Worker failed (the token, or Cloudflare): nothing refers to that Worker any more, so later runs only report it. Delete it by hand with the command in the report. |
 | The cleanup reports a Worker left behind that no deployment of this installation refers to | An engine Worker of this installation's name (`<engine name>-v…`) that none of its Restate deployments refers to: one a failed deletion left, or an earlier deploy deployed and never registered. Delete it by hand once you're sure nothing needs it (`npx -y wrangler delete <worker>`). Only this installation's deployments count, so another installation's Worker whose name starts the same is reported too: leave that one to its installation. |
 | The cleanup doesn't run | Scheduled runs happen on the default branch only, and a public repository's are disabled after 60 days without activity: enable it again (**Actions > Restate cleanup**). |

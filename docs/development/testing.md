@@ -190,14 +190,15 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   `apps/worker-live`) on the bindings, limits, Durable Object migrations, required secrets and addresses (the app on
   workers.dev, no routes: the template's default), and a release (of the
   version `deploy/cloudflare/VERSION` names) is rehearsed the way a tag releases it (`scripts/cloudflare-release.sh`):
-  first that the template's `VERSION` names it, that it has `.dev.vars.example` (and git-ignores `.dev.vars`), that
+  first that the template's `VERSION` names it, that its `package-lock.json` matches its `package.json` and pins
+  the wrangler the rehearsal runs, that it has `.dev.vars.example` (and git-ignores `.dev.vars`), that
   its `wrangler.app.toml` puts the app on workers.dev by default (`workers_dev = true`, the custom domain's `routes`
   commented out),
   that its two workflows (`.github/workflows/deploy.yaml` and `restate-cleanup.yaml`) name one Rafi repository, verify
   the attestation `release.yaml` makes (its signer), download the release `VERSION.<CLOUDFLARE_ENV>` names when it
-  exists and call no `deploy.sh check`, that each of their jobs that runs `deploy.sh` installs the tools from the
-  template's `package.json` (`npm ci`, or `npm install`) and uploads `RAFI_ARTIFACTS_DIR` whatever happened, and
-  that `restate-cleanup.yaml` is one job (nothing handed between jobs); then the deploy script's own checks
+  exists and call no `deploy.sh check`, and that each is one job that runs `deploy.sh`, installs the tools with
+  `npm ci` and uploads `RAFI_ARTIFACTS_DIR` whatever happened (nothing handed between jobs); then the deploy
+  script's own checks
   (`scripts/cloudflare-deploy-test.sh`: each subcommand run from a copy of the template with a release laid out in
   `release/`, against a stubbed wrangler and Restate CLI and a fake Cloudflare and Restate admin API, a local node
   server; the wrangler stub's dry runs write a `deploy` entry with the Worker's name into its ND-JSON output, as

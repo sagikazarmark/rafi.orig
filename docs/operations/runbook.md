@@ -2,7 +2,7 @@
 
 What an operator does when something happens: before a deploy, during an event, after a restore, after a breach.
 The commands are for Cloudflare Workers (`wrangler` is `npx -y wrangler` from your installation's repository, created
-from the template, its `package.json`'s after `npm install`); natively the same SQL runs against your
+from the template, its `package-lock.json`'s after `npm ci`); natively the same SQL runs against your
 SQLite file or Postgres database, and the secrets are the app's environment. They use the template's names: the
 database `rafi` (its `database_name`) and the Workers `rafi-app`, `rafi-live` and `rafi-engine-v…`; an
 installation with names of its own, or one of several in a repository as a Wrangler environment (`rafi-eu`,
@@ -56,10 +56,10 @@ written event types an older build can't read. A bad release is fixed by the nex
 release that fixes it when it is out.
 
 On Cloudflare, don't set the version file back: the deploy refuses a release older than the one Restate runs (its
-downgrade check) in its first job, before touching anything, so such a run fails at **Prepare the release** with
+downgrade check) before touching anything, so such a run fails at **Check Restate and Cloudflare** with
 nothing deployed. Don't roll a Worker back by hand either (`wrangler rollback`, the dashboard's **Deployments**):
 the next deploy wouldn't know, the engine Restate runs would stay the newer release's, and an older live Worker
-could refuse the newer Workers' requests. A failed deploy is finished by running its failed jobs again, not undone.
+could refuse the newer Workers' requests. A failed deploy is finished by running it again, not undone.
 `/healthz` answers the version running. Natively the same holds: keep the newer binaries, and upgrade to the fix.
 
 ## When the raffle engine is down during an event
