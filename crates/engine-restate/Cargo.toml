@@ -30,5 +30,5 @@ gloo-timers = { version = "0.4", features = ["futures"] }
 drand = { workspace = true, features = ["reqwest", "rustls"] }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
 rafi-engine = { workspace = true, features = ["conformance"] }
-restate-e2e-harness = "0.3"
+restate-e2e-harness = "0.4"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
