@@ -104,7 +104,7 @@ records (not legal advice):
 - **The terms changed on 2026-11-01** for people the organizer adds (§4 of the template: the data subjects and
   categories, adding as the organizer's instruction, the organizer's warranties, what the service receives from a
   list), and the privacy notice's "Two roles" with them. If your documents started from the templates, carry the
-  change over, give them a new version (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`), and, since the processing
+  change over, give them a new version (the `version:` in each document's front matter), and, since the processing
   agreement changed, notify your organizers of it directly: publishing it isn't enough
   ([Privacy and abuse](../explanation/privacy-and-abuse.md#who-is-responsible)).
 

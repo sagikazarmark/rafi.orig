@@ -136,7 +136,7 @@ fn operator_of(app: &AppState) -> pages::Operator<'_> {
     pages::Operator {
         name: &app.cfg.operator.name,
         email: &app.cfg.operator.email,
-        privacy_version: &app.cfg.privacy_version,
+        privacy_version: &app.cfg.documents.privacy.version,
     }
 }
 
@@ -368,8 +368,8 @@ async fn installation_privacy(Extension(app): Extension<AppState>) -> Response {
         Extension(csp::Page::Legal),
         Html(pages::legal(
             "Privacy notice",
-            &app.cfg.privacy_version,
-            &app.cfg.documents.privacy,
+            &app.cfg.documents.privacy.version,
+            &app.cfg.documents.privacy.text,
         )),
     )
         .into_response()
@@ -382,8 +382,8 @@ async fn installation_terms(Extension(app): Extension<AppState>) -> Response {
         Extension(csp::Page::Legal),
         Html(pages::legal(
             "Terms",
-            &app.cfg.terms_version,
-            &app.cfg.documents.terms,
+            &app.cfg.documents.terms.version,
+            &app.cfg.documents.terms.text,
         )),
     )
         .into_response()

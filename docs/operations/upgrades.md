@@ -183,3 +183,8 @@ settings.
 | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` on the engine Worker | `RESTATE_IDENTITY_KEYS` (the native engine keeps `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`) |
 
 The naming rule is in the [configuration reference](../reference/configuration.md).
+
+`RAFI_TERMS_VERSION` and `RAFI_PRIVACY_VERSION` are gone: each legal document names its own version in front matter
+at its top ([the format](../reference/configuration.md#the-legal-documents-versions)). Add it to your `terms.md` and
+`privacy.md` (a document without it is refused, under dev auth too), then drop the two from your environment or
+`.dev.vars` (on Workers, `wrangler secret delete`; left set, they're ignored).

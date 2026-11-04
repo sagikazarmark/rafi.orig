@@ -1,10 +1,14 @@
+---
+version: 2026-11
+---
+
 # Privacy notice
 
 > **Template.** Delete this note once a lawyer has reviewed the document: the server refuses to start while a
 > document still carries it. This is the engineering draft the Rafi repository ships with. Before this installation
-> goes live, its operator reviews it with a lawyer, fills in the bracketed parts, and sets
-> `RAFI_PRIVACY_VERSION`. Every raffle's own privacy notice links here for the parts that are the
-> service's rather than the organizer's.
+> goes live, its operator reviews it with a lawyer, fills in the bracketed parts, and sets the version at the top
+> (`version:`; changing this text means a new version). Every raffle's own privacy notice links here for the parts
+> that are the service's rather than the organizer's.
 
 **[Operator legal name, address]** ("we") runs this raffle service at **[public URL]**. Privacy questions:
 **[operator email]**.

@@ -14,7 +14,8 @@ This page covers the tasks you'll come back to. The details, and the reasons beh
   per installation.
 - A **[Clerk](https://clerk.com)** application, which signs organizers in.
 - A **GitHub** repository for this directory, which runs the deploys.
-- Your legal documents, reviewed by a lawyer.
+- Your legal documents, reviewed by a lawyer, each naming its version at its top (`version:`; a changed document is
+  a new version).
 - On your machine: [`gh`](https://cli.github.com), [Node.js](https://nodejs.org) 22.18 or later, and `jq`.
 
 ## Installation

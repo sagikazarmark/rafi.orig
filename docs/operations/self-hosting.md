@@ -92,8 +92,10 @@ service; the admin links them. The software can't write these for you:
 1. Put `terms.md` and `privacy.md` in a directory (`RAFI_DOCS_DIR`). Start from
    [`deploy/cloudflare/legal/`](../../deploy/cloudflare/legal/), which are engineering drafts marked as templates,
    fill in the bracketed parts and have a lawyer review them.
-2. Give each a version (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-10`). Changing a document's text
-   means a new version, shown with the document. Nothing records who read which version: a change to the data
+2. Give each its version, in the front matter at its top (`---`, `version: 2026-11`, `---`; [the
+   format](../reference/configuration.md#the-legal-documents-versions)); the templates have one to change. Changing a
+   document's text means a new version, shown with the document. Without the front matter or a version the app
+   refuses to start, naming the file, under `RAFI_DEV_AUTH` too. Nothing records who read which version: a change to the data
    processing agreement has to be notified to organizers directly, not only published.
 3. Name yourself: `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`.
 
@@ -115,7 +117,7 @@ RAFI_DATABASE_URL=… \
 RESTATE_INGRESS_URL=http://localhost:8080 \
 CLERK_SECRET_KEY=sk_live_… CLERK_PUBLISHABLE_KEY=pk_live_… \
 RAFI_POW_KEY=$(openssl rand -hex 32) \
-RAFI_DOCS_DIR=/etc/rafi RAFI_TERMS_VERSION=2026-10 RAFI_PRIVACY_VERSION=2026-10 \
+RAFI_DOCS_DIR=/etc/rafi \
 RAFI_OPERATOR_NAME="Example Meetups e.V." RAFI_OPERATOR_EMAIL=privacy@example.org \
 IP=127.0.0.1 PORT=8081 \
   ./target/release/rafi

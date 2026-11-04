@@ -120,7 +120,6 @@ invocation_logs = false
 #   CLERK_SECRET_KEY
 #   CLERK_PUBLISHABLE_KEY                  not secret (the web app gets it from /config.js), but the installation's
 #   RAFI_OPERATOR_NAME, RAFI_OPERATOR_EMAIL   named as the processor in every raffle's notice
-#   RAFI_TERMS_VERSION, RAFI_PRIVACY_VERSION  the documents' versions, e.g. "2026-10"
 # A deploy refuses to go out while one is missing.
 [secrets]
 required = [
@@ -133,8 +132,6 @@ required = [
   "CLERK_PUBLISHABLE_KEY",
   "RAFI_OPERATOR_NAME",
   "RAFI_OPERATOR_EMAIL",
-  "RAFI_TERMS_VERSION",
-  "RAFI_PRIVACY_VERSION",
 ]
 
 # Local development: wrangler dev --env dev (docs/development/getting-started.md).
@@ -182,7 +179,7 @@ simple = { limit = 20, period = 60 }
 [env.dev.vars]
 RAFI_PUBLIC_URL = "http://127.0.0.1:8787"
 RESTATE_INGRESS_URL = "http://127.0.0.1:18080"
-RAFI_DEV_AUTH = "1" # also stands in for the operator and the document versions
+RAFI_DEV_AUTH = "1" # also stands in for the operator, and lets the template documents through
 RAFI_DRAND_MOCK = "1" # the mock chain, for the app and the engine alike
 RAFI_DRAND_LEAD_SECS = "3"
 RAFI_POW_KEY = "local-development-only"

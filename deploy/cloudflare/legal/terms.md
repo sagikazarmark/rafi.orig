@@ -1,10 +1,14 @@
+---
+version: 2026-11
+---
+
 # Terms of service, with the data processing agreement
 
 > **Template.** Delete this note once a lawyer has reviewed the document: the server refuses to start while a
 > document still carries it. This is the engineering draft the Rafi repository ships with. Before this installation
-> goes live, its operator reviews it with a lawyer, fills in the bracketed parts, and sets
-> `RAFI_TERMS_VERSION`. Changing this text means a new version. Nothing records which version an organizer
-> read: see §7 on what that means for changes to the processing agreement.
+> goes live, its operator reviews it with a lawyer, fills in the bracketed parts, and sets the version at the top
+> (`version:`). Changing this text means a new version. Nothing records which version an organizer read: see
+> §7 on what that means for changes to the processing agreement.
 
 These terms are between **[operator legal name, address]** ("the operator", "we") and the organizer who uses
 this service ("you"). They apply to the raffle service at **[public URL]** ("the service"). By using the service

@@ -33,8 +33,8 @@
 //! serves every installation: its values are the Worker's secrets and vars
 //! (`wrangler.toml` lists the required ones), and its legal documents (the
 //! privacy notice, the terms with the processing agreement) are files among
-//! the static files, read through the assets binding (`documents`); their
-//! versions are the `RAFI_TERMS_VERSION` and `RAFI_PRIVACY_VERSION` secrets.
+//! the static files, read through the assets binding (`documents`), each
+//! naming its version in its front matter.
 //!
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
 //! raffles' Durable Objects and configuration from the Worker's vars and

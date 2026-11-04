@@ -183,7 +183,8 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   Worker served with no secret at all answering 500 `misconfigured` to everything, so a deploy can't run open;
   by then it has read `legal/terms.md` and `legal/privacy.md` through the assets binding (the refusal is a
   secret's, not theirs), and served without `legal/` it refuses naming them, from the 404 Workers Assets
-  answers, which only the real runtime can show
+  answers, which only the real runtime can show; with a `terms.md` without its front matter it refuses naming
+  the file (`misconfigured: legal/terms.md: no front matter`), in the answer too
 - `deploy/cloudflare`, what an installation deploys: its `wrangler.app.toml`, `wrangler.engine.toml` and
   `wrangler.live.toml` agree with the production Workers' (`apps/worker-app`, `apps/worker-engine`,
   `apps/worker-live`) on the bindings, limits, Durable Object migrations and required secrets, and a release (of the

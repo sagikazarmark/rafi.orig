@@ -315,16 +315,18 @@ Nothing is registered by hand: each deploy registers its release's engine Worker
 
 ## 7. Your legal documents
 
-Produces: `legal/terms.md` and `legal/privacy.md` as yours, and their versions (step 8).
+Produces: `legal/terms.md` and `legal/privacy.md` as yours, each with its version.
 
 The app serves your terms (with the data processing agreement organizers accept by using the service) and your
 privacy notice (naming you and the subprocessors: Cloudflare, Restate Cloud, Clerk, drand) from
 [`legal/terms.md`](legal/terms.md) and [`legal/privacy.md`](legal/privacy.md), which each deploy copies into its
 static files. They ship as engineering drafts marked **Template.**: fill in the bracketed parts, have a lawyer review
 them, and delete the marker. While a document still carries it, the app Worker refuses every request, `/healthz`
-included, saying why. `grep -l '\*\*Template\.\*\*' legal/*.md` prints nothing once both are done. Their versions
-(e.g. `2026-11`) are the secrets `RAFI_TERMS_VERSION` and `RAFI_PRIVACY_VERSION`; a changed document is a new
-version.
+included, saying why. `grep -l '\*\*Template\.\*\*' legal/*.md` prints nothing once both are done. Each document
+starts with its version, in front matter (`---`, `version: 2026-11`, `---`): set it to yours, and change it whenever
+you change the document, since a changed document is a new version. The pages show it, and every raffle's notice
+names the privacy notice's. A document without that front matter, or without a version, makes the app Worker refuse
+every request too.
 
 ## 8. The app Worker's secrets
 
@@ -356,7 +358,6 @@ delete it once the secrets are set. (The name is wrangler's: it also reads `.dev
 | `CLERK_SECRET_KEY` | `sk_live_…` (step 5) |
 | `CLERK_PUBLISHABLE_KEY` | `pk_live_…` (step 5): not secret (the web app gets it from `/config.js`), but yours |
 | `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | Who runs this installation (a legal name) and its privacy contact, named as the processor in every raffle's notice |
-| `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION` | The legal documents' versions (step 7) |
 
 The optional settings (retention, the entrant cap, the minimum age and the others, with their defaults) are in the
 [configuration reference](https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md): the
@@ -538,8 +539,6 @@ required = [
   "CLERK_PUBLISHABLE_KEY",
   "RAFI_OPERATOR_NAME",
   "RAFI_OPERATOR_EMAIL",
-  "RAFI_TERMS_VERSION",
-  "RAFI_PRIVACY_VERSION",
 ]
 ```
 

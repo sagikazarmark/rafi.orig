@@ -554,6 +554,10 @@ copy → announce.
   the engine Worker (and the local combined one) `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` is `RESTATE_IDENTITY_KEYS`,
   while the native engine keeps `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`. No aliases; read the old names above as
   these ([Renamed settings](../operations/upgrades.md#renamed-settings)).
+- **Since** (2026-11-04, last): the legal documents carry their own version, in front matter (`---`,
+  `version: 2026-11`, `---`), which the server reads, strips before rendering and shows where `RAFI_TERMS_VERSION`
+  and `RAFI_PRIVACY_VERSION` were (`/terms`, `/privacy`, every raffle's notice); those two settings are gone. A
+  document without the front matter or a version is refused, naming the file, under dev auth too.
 
 #### T2-6 · Licensing and attribution
 

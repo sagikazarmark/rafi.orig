@@ -336,9 +336,9 @@ installation that is a Wrangler environment, either with `CLOUDFLARE_ENV=<enviro
 wrangler refuses to deploy the app while one is missing. What each is:
 [`.dev.vars.example`](../../deploy/cloudflare/.dev.vars.example) and the
 [configuration reference](../reference/configuration.md). The Worker refuses every request without its documents,
-`RAFI_POW_KEY`, `RESTATE_INGRESS_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, the operator and the
-document versions (`/healthz` answers `500 misconfigured`, naming the reason when that names no value). Release
-builds reject dev auth and the mock chain. Never rotate `RAFI_POW_KEY` during an event.
+`RAFI_POW_KEY`, `RESTATE_INGRESS_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, the operator, and a version in
+each document (`/healthz` answers `500 misconfigured`, naming the reason when that names no value). Release builds
+reject dev auth and the mock chain. Never rotate `RAFI_POW_KEY` during an event.
 
 ## The legal documents and the operator
 
@@ -346,11 +346,13 @@ The Worker serves the installation's documents from `legal/`: `terms.md` (with t
 organizers accept by using the service) and `privacy.md` (the operator's own notice, naming the subprocessors:
 Cloudflare, Restate Cloud, Clerk, drand). They ship as engineering drafts marked as templates: fill in the bracketed
 parts, have a lawyer review them, and delete the marker. A document that still carries the template marker makes
-the Worker refuse every request. Their versions (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`, e.g. `2026-11`) and
-the operator's name and email (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`) are secrets. A changed document is a
-new version, shown with it, and deploys with a push of `legal/`; a change to the processing agreement is notified
-to organizers directly, since nothing records who read which version. Your record of processing, and what changed
-in the templates, are in [the operator's records](overview.md#the-operators-records). The retention settings
+the Worker refuse every request. Each document starts with its version, in front matter (`---`, `version: 2026-11`,
+`---`; [the format](../reference/configuration.md#the-legal-documents-versions)); without it the Worker refuses every
+request too, naming the file. The operator's name and email (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`) are
+secrets. A changed document is a new version (change its `version:` line with the text), shown with it, and
+deploys with a push of `legal/`; a change to the processing agreement is notified to organizers directly, since
+nothing records who read which version. Your record of processing, and what changed in the templates, are in [the
+operator's records](overview.md#the-operators-records). The retention settings
 (`RAFI_RETENTION_DAYS` and the others, see the [configuration](../reference/configuration.md)) have defaults;
 `RAFI_MIN_AGE` too; set them as secrets if you change them.
 
@@ -555,7 +557,7 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 | **Register the engine**: 401 or 403 | `RESTATE_AUTH_TOKEN` isn't an Admin-role key of this environment, or `RESTATE_ADMIN_URL` is another environment's (or the ingress, `:8080`). |
 | **Register the engine**: Restate couldn't discover the engine (at once, or after five attempts) | Restate couldn't reach the engine (workers.dev not serving it yet), or the engine refused the discovery because the identity key in `wrangler.engine.toml` isn't this environment's (still the template's `publickeyv1_…`, say: nothing looks for it; or, in a Wrangler environment, its `[env.<name>.vars]` has none: vars aren't inherited): check the engine Worker's logs, fix, re-run the failed jobs. |
 | A deploy shows as cancelled | A newer run replaced it while it waited (the concurrency group): run it again. |
-| `/healthz` answers `500 misconfigured` | Missing secrets or documents, or a document still a template: the reason is in the answer when it names no value, and in the app Worker's logs. |
+| `/healthz` answers `500 misconfigured` | Missing secrets or documents, a document still a template, or one without its version (`legal/terms.md: no front matter`): the reason is in the answer when it names no value, and in the app Worker's logs. |
 | The admin says the raffle engine can't be reached | `RESTATE_INGRESS_URL` or `RESTATE_INGRESS_API_KEY` wrong, or Restate Cloud down: the [runbook](runbook.md#when-the-raffle-engine-is-down-during-an-event). |
 | Phones don't update live | The app's logs (`nudging … failed`), the live Worker's logs; `RAFFLE_ROOM` bound with `script_name` the live Worker's name; the same `database_id` and `RAFI_DO_JURISDICTION` in all three configurations (nothing compares them: the app and the engine in different jurisdictions reach different objects). |
 | The cleanup reports a deployment draining for days | A paused invocation: resume or kill it ([Upgrades](upgrades.md#on-workers-automatic)). |

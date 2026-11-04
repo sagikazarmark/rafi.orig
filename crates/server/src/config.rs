@@ -21,16 +21,119 @@ pub struct Operator {
     pub email: String,
 }
 
+/// One of the installation's legal documents: its Markdown, and the version
+/// its front matter gives it.
+///
+/// A document starts with front matter naming its version, and nothing
+/// else:
+///
+/// ```text
+/// ---
+/// version: 2026-11
+/// ---
+/// # Terms of service
+/// ```
+///
+/// The first line is exactly `---` (a byte order mark before it and
+/// whitespace after it aside), then `key: value` lines (blank ones skipped)
+/// up to the next `---` line; keys and values are trimmed, and a value in
+/// matching quotes loses them. `version` is the only key: required, not
+/// empty, given once; any other key is refused, so a typo can't pass for a
+/// version-less document. CRLF line endings are read alike. The front matter
+/// is not part of [`text`](Self::text), which is what the page renders.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Document {
+    /// What the pages show with the document (`/terms`, `/privacy`) and every
+    /// raffle's notice names: a changed document is a new version.
+    pub version: String,
+    /// The Markdown, without its front matter.
+    pub text: String,
+}
+
+impl Document {
+    /// `source`, the file `name` (named in the error): its front matter read
+    /// and stripped. A document without one, or without a `version`, is an
+    /// error, which the server refuses to start (a Worker: to serve) with.
+    pub fn parse(name: &str, source: &str) -> anyhow::Result<Self> {
+        let refuse = |why: &str| {
+            anyhow!("{name}: {why}: {FRONT_MATTER} (a line ---, then version: 2026-11, then ---)")
+        };
+        let source = source.strip_prefix('\u{feff}').unwrap_or(source);
+        let mut lines = source.split_inclusive('\n');
+        let mut offset = 0;
+        let mut number = 0;
+        let mut next = || {
+            lines.next().map(|line| {
+                offset += line.len();
+                number += 1;
+                (number, line.trim_end())
+            })
+        };
+        if next().map(|(_, line)| line) != Some("---") {
+            return Err(refuse("no front matter"));
+        }
+        let mut version = None;
+        loop {
+            let Some((number, line)) = next() else {
+                return Err(refuse("its front matter has no closing ---"));
+            };
+            if line == "---" {
+                break;
+            }
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Some((key, value)) = line.split_once(':') else {
+                return Err(refuse(&format!(
+                    "line {number} of its front matter is not key: value"
+                )));
+            };
+            match key.trim() {
+                "version" if version.is_some() => {
+                    return Err(refuse("its front matter gives the version twice"));
+                }
+                "version" => version = Some(unquote(value.trim()).trim().to_owned()),
+                other => {
+                    return Err(refuse(&format!(
+                        "its front matter has {other:?}, which isn't a key (only version is)"
+                    )));
+                }
+            }
+        }
+        let version = match version {
+            None => return Err(refuse("its front matter has no version")),
+            Some(v) if v.is_empty() => return Err(refuse("its front matter's version is empty")),
+            Some(v) => v,
+        };
+        Ok(Self {
+            version,
+            text: source[offset..].to_owned(),
+        })
+    }
+}
+
+/// What every refusal of a document's front matter says, and
+/// [`refusal`] shows in public: it names a file, never a setting's value.
+const FRONT_MATTER: &str = "a legal document starts with front matter naming its version";
+
+/// `value` without one pair of matching quotes around it.
+fn unquote(value: &str) -> &str {
+    ['"', '\'']
+        .into_iter()
+        .find_map(|q| value.strip_prefix(q)?.strip_suffix(q))
+        .unwrap_or(value)
+}
+
 /// The installation's legal documents: its own privacy notice and its terms
 /// (with the data processing agreement, which organizers accept by using the
-/// service), as Markdown, each with the version the deployment gives it
-/// (`RAFI_PRIVACY_VERSION`, `RAFI_TERMS_VERSION`). Natively they are `privacy.md` and `terms.md` in
+/// service), as Markdown, each with the version its front matter gives it
+/// ([`Document`]). Natively they are `privacy.md` and `terms.md` in
 /// `RAFI_DOCS_DIR`; on Workers, `legal/privacy.md` and `legal/terms.md` among the Worker's static files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Documents {
-    pub terms: String,
-    pub privacy: String,
-    /// The built-in placeholders: development only.
+    pub terms: Document,
+    pub privacy: Document,
+    /// The built-in placeholders, or an unreviewed template: development only.
     pub placeholder: bool,
 }
 
@@ -40,12 +143,11 @@ impl Documents {
     /// placeholder, which a production server refuses.
     pub const TEMPLATE_MARKER: &str = "**Template.**";
 
-    /// The documents from `terms` and `privacy`, as a deployment supplies
-    /// them. An unedited template counts as a placeholder.
-    pub fn new(terms: impl Into<String>, privacy: impl Into<String>) -> Self {
-        let (terms, privacy) = (terms.into(), privacy.into());
-        let placeholder =
-            terms.contains(Self::TEMPLATE_MARKER) || privacy.contains(Self::TEMPLATE_MARKER);
+    /// The documents, as a deployment supplies them. An unedited template
+    /// counts as a placeholder.
+    pub fn new(terms: Document, privacy: Document) -> Self {
+        let placeholder = terms.text.contains(Self::TEMPLATE_MARKER)
+            || privacy.text.contains(Self::TEMPLATE_MARKER);
         Self {
             terms,
             privacy,
@@ -53,23 +155,29 @@ impl Documents {
         }
     }
 
-    /// Built-in placeholders, marked as such: for development under dev auth
-    /// only. A production server refuses to start with them.
+    /// Built-in placeholders, marked as such, version `dev`: for development
+    /// under dev auth only. A production server refuses to start with them.
     pub fn placeholders() -> Self {
+        let dev = |text: &str| Document {
+            version: "dev".into(),
+            text: text.into(),
+        };
         Self {
-            terms: PLACEHOLDER_TERMS.into(),
-            privacy: PLACEHOLDER_PRIVACY.into(),
+            terms: dev(PLACEHOLDER_TERMS),
+            privacy: dev(PLACEHOLDER_PRIVACY),
             placeholder: true,
         }
     }
 
-    /// `terms.md` and `privacy.md` from `dir`.
+    /// `terms.md` and `privacy.md` from `dir`, each with its front matter.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn from_dir(dir: &std::path::Path) -> anyhow::Result<Self> {
         use anyhow::Context as _;
         let read = |name: &str| {
             let path = dir.join(name);
-            std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))
+            let source = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            Document::parse(&path.display().to_string(), &source)
         };
         Ok(Self::new(read("terms.md")?, read("privacy.md")?))
     }
@@ -131,12 +239,8 @@ pub struct Config {
     pub min_age: u32,
     /// Who runs the installation (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`).
     pub operator: Operator,
-    /// The installation's legal documents.
+    /// The installation's legal documents, with their versions.
     pub documents: Documents,
-    /// Their versions (`RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION`): what
-    /// organizers accept, and what the notices show.
-    pub terms_version: String,
-    pub privacy_version: String,
     /// Where `terms.md` and `privacy.md` are, natively (`RAFI_DOCS_DIR`).
     pub docs_dir: Option<String>,
     /// Numeric variables that were set but didn't parse (`RAFI_RETENTION_DAYS=7d`),
@@ -242,16 +346,14 @@ impl Config {
                 }),
             },
             documents: Documents::placeholders(),
-            terms_version: var("RAFI_TERMS_VERSION").unwrap_or_else(|| dev_version(dev_auth)),
-            privacy_version: var("RAFI_PRIVACY_VERSION").unwrap_or_else(|| dev_version(dev_auth)),
             docs_dir: var("RAFI_DOCS_DIR"),
             misparsed: misparsed.into_inner(),
         }
     }
 
     /// Whether the settings make sense together, and a production server
-    /// (no dev auth) has everything it must: an operator, document versions
-    /// and real documents.
+    /// (no dev auth) has everything it must: an operator and real documents
+    /// (their versions are theirs: [`Document::parse`] refuses one without).
     pub fn validate(&self) -> anyhow::Result<()> {
         if !self.misparsed.is_empty() {
             bail!("not a valid value: {}", self.misparsed.join(", "));
@@ -289,9 +391,6 @@ impl Config {
             bail!(
                 "CLERK_PUBLISHABLE_KEY is not a Clerk publishable key (pk_live_… or pk_test_…, from the Clerk dashboard's API keys)"
             );
-        }
-        if self.terms_version.is_empty() || self.privacy_version.is_empty() {
-            bail!("RAFI_TERMS_VERSION and RAFI_PRIVACY_VERSION are required");
         }
         if self.documents.placeholder {
             bail!(
@@ -340,11 +439,16 @@ impl Config {
                 email: "privacy@rafi.test".into(),
             },
             documents: Documents::new(
-                "# Test terms\n\nThe test terms, with the **processing agreement**.\n",
-                "# Test privacy notice\n\nThe test installation's notice.\n",
+                Document {
+                    version: "test-1".into(),
+                    text: "# Test terms\n\nThe test terms, with the **processing agreement**.\n"
+                        .into(),
+                },
+                Document {
+                    version: "test-1".into(),
+                    text: "# Test privacy notice\n\nThe test installation's notice.\n".into(),
+                },
             ),
-            terms_version: "test-1".into(),
-            privacy_version: "test-1".into(),
             docs_dir: None,
             misparsed: Vec::new(),
         }
@@ -377,8 +481,8 @@ const MAX_MIN_AGE: u32 = 30;
 
 /// What a server that refuses to start (a Worker: every request) says in
 /// public about why: `misconfigured`, the reason when it names only
-/// settings or files (a setting not set or required, the documents missing
-/// or still templates), never a value, and where the whole reason is. The
+/// settings or files (a setting not set or required, the documents missing,
+/// still templates or without their front matter), never a value, and where the whole reason is. The
 /// operator sees it on the first request after a deploy, rather than only in
 /// `wrangler tail`.
 pub fn refusal(e: &anyhow::Error, log: &str) -> String {
@@ -389,20 +493,12 @@ pub fn refusal(e: &anyhow::Error, log: &str) -> String {
         || reason.contains("must be at least")
         || reason.contains("has no `dev` feature")
         || reason.contains(Documents::TEMPLATE_MARKER)
+        || reason.contains(FRONT_MATTER)
         || reason.contains("missing from the Worker's static files");
     if names_only {
         format!("misconfigured: {reason}\n\nThe server's log has the details ({log}).\n")
     } else {
         format!("misconfigured\n\nThe reason is in the server's log ({log}).\n")
-    }
-}
-
-/// The document version under dev auth when none is set.
-fn dev_version(dev_auth: bool) -> String {
-    if dev_auth {
-        "dev".into()
-    } else {
-        String::new()
     }
 }
 
@@ -441,6 +537,13 @@ fn resolve_chain(configured: &str, mock: Option<ChainHash>) -> anyhow::Result<Ch
 mod tests {
     use super::*;
 
+    fn doc(text: &str) -> Document {
+        Document {
+            version: "2026-11".into(),
+            text: text.into(),
+        }
+    }
+
     /// A refusal names a missing setting or the template marker, never a
     /// value; anything else only points at the log.
     #[test]
@@ -452,9 +555,18 @@ mod tests {
             "{body}"
         );
         let mut cfg = Config::for_tests();
-        cfg.documents = Documents::new("# T\n\n> **Template.** Review me.", "# P");
+        cfg.documents = Documents::new(doc("# T\n\n> **Template.** Review me."), doc("# P"));
         let body = refusal(&cfg.validate().unwrap_err(), log);
         assert!(body.contains("**Template.**"), "{body}");
+        // A document without its version: the file named, in public too.
+        let body = refusal(
+            &Document::parse("legal/terms.md", "# T\n").unwrap_err(),
+            log,
+        );
+        assert!(
+            body.starts_with("misconfigured: legal/terms.md: no front matter"),
+            "{body}"
+        );
         let secret = anyhow!("Clerk configuration: sk_live_secret").context("building the app");
         let body = refusal(&secret, log);
         assert!(
@@ -491,18 +603,18 @@ mod tests {
         let dev = Config::from_lookup(|name| (name == "RAFI_DEV_AUTH").then(|| "1".into()));
         assert!(dev.validate().is_ok(), "placeholders under dev auth");
         assert!(dev.documents.placeholder);
-        assert_eq!(dev.terms_version, "dev");
+        assert_eq!(dev.documents.terms.version, "dev");
+        assert_eq!(dev.documents.privacy.version, "dev");
         let mut full = Config::from_lookup(|name| match name {
             "RAFI_OPERATOR_NAME" => Some("Op".into()),
             "RAFI_OPERATOR_EMAIL" => Some("p@op.example".into()),
-            "RAFI_TERMS_VERSION" | "RAFI_PRIVACY_VERSION" => Some("2026-10".into()),
             "CLERK_PUBLISHABLE_KEY" => Some(TEST_CLERK_PUBLISHABLE_KEY.into()),
             _ => None,
         });
         assert!(full.validate().is_err(), "placeholder documents");
-        full.documents = Documents::new("# T\n\n> **Template.** Review me.", "# P");
+        full.documents = Documents::new(doc("# T\n\n> **Template.** Review me."), doc("# P"));
         assert!(full.validate().is_err(), "an unedited template");
-        full.documents = Documents::new("# T", "# P");
+        full.documents = Documents::new(doc("# T"), doc("# P"));
         assert!(full.validate().is_ok(), "a random key is long enough");
         // Without Clerk's publishable key the admin has no sign-in to offer,
         // while the server expects one: refused, like a missing operator.
@@ -544,7 +656,11 @@ mod tests {
         // One of the two missing: refused, naming the missing one, never
         // half a set with a placeholder for the other.
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("terms.md"), "# Terms\n").unwrap();
+        std::fs::write(
+            dir.join("terms.md"),
+            "---\nversion: 2026-11\n---\n# Terms\n",
+        )
+        .unwrap();
         let err = format!("{:#}", Documents::from_dir(&dir).unwrap_err());
         assert!(
             err.contains(&dir.join("privacy.md").display().to_string()),
@@ -553,20 +669,84 @@ mod tests {
         // Both present: the documents, an unedited template still a placeholder.
         std::fs::write(
             dir.join("privacy.md"),
-            "# Privacy\n\n> **Template.** Review me.\n",
+            "---\nversion: 2026-10\n---\n# Privacy\n\n> **Template.** Review me.\n",
         )
         .unwrap();
         let docs = Documents::from_dir(&dir).unwrap();
-        assert_eq!(docs.terms, "# Terms\n");
+        assert_eq!(docs.terms.text, "# Terms\n");
+        assert_eq!(docs.terms.version, "2026-11");
+        assert_eq!(docs.privacy.version, "2026-10");
         assert!(
             docs.placeholder,
             "the template marker is seen through a file too"
         );
-        std::fs::write(dir.join("privacy.md"), "# Privacy\n").unwrap();
+        std::fs::write(
+            dir.join("privacy.md"),
+            "---\nversion: 2026-10\n---\n# Privacy\n",
+        )
+        .unwrap();
         let docs = Documents::from_dir(&dir).unwrap();
         assert!(!docs.placeholder);
-        assert_eq!(docs.privacy, "# Privacy\n");
+        assert_eq!(docs.privacy.text, "# Privacy\n");
+        // Without its version, the server doesn't start, under dev auth too
+        // (Config::from_env reads RAFI_DOCS_DIR with this): the error names
+        // the file.
+        std::fs::write(dir.join("privacy.md"), "# Privacy\n").unwrap();
+        let err = format!("{:#}", Documents::from_dir(&dir).unwrap_err());
+        let privacy = dir.join("privacy.md").display().to_string();
+        assert!(
+            err.starts_with(&format!("{privacy}: no front matter")),
+            "{err}"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_document_names_its_version_in_front_matter() {
+        let parse = |source: &str| Document::parse("terms.md", source);
+        // The front matter is read and isn't part of what is rendered.
+        let d = parse("---\nversion: 2026-11\n---\n# Terms\n\nText.\n").unwrap();
+        assert_eq!(d.version, "2026-11");
+        assert_eq!(d.text, "# Terms\n\nText.\n");
+        let page = crate::pages::legal("Terms", &d.version, &d.text);
+        assert!(page.contains("Terms · version 2026-11"), "{page}");
+        assert!(
+            !page.contains("version:") && !page.contains("<hr"),
+            "{page}"
+        );
+        // CRLF line endings, whitespace, blank lines, quotes and a byte order
+        // mark are read the same.
+        let d =
+            parse("\u{feff}--- \r\n\r\n  version :  \"2026-11\" \r\n---\r\n# Terms\r\n").unwrap();
+        assert_eq!(d.version, "2026-11");
+        assert_eq!(d.text, "# Terms\r\n");
+        assert_eq!(parse("---\nversion: '1'\n---").unwrap().text, "");
+        // Refused, naming the file and what is wrong.
+        for (source, why) in [
+            ("# Terms\n", "no front matter"),
+            ("", "no front matter"),
+            ("\n---\nversion: 1\n---\n", "no front matter"),
+            ("---\n---\n# Terms\n", "has no version"),
+            ("---\nversion:\n---\n", "version is empty"),
+            ("---\nversion:   \n---\n", "version is empty"),
+            ("---\nversion: \"\"\n---\n", "version is empty"),
+            ("---\nversion: 1\n", "no closing ---"),
+            ("---\nversion: 1\nversion: 2\n---\n", "the version twice"),
+            ("---\nverison: 1\n---\n", "\"verison\", which isn't a key"),
+            (
+                "---\nversion: 1\ntitle: Terms\n---\n",
+                "\"title\", which isn't a key",
+            ),
+            (
+                "---\nversion 1\n---\n",
+                "line 2 of its front matter is not key: value",
+            ),
+        ] {
+            let err = parse(source).unwrap_err().to_string();
+            assert!(err.starts_with("terms.md: "), "{source:?}: {err}");
+            assert!(err.contains(why), "{source:?}: {err}");
+            assert!(err.contains(FRONT_MATTER), "{source:?}: {err}");
+        }
     }
 
     #[test]

@@ -20,7 +20,3 @@ CLERK_PUBLISHABLE_KEY=
 # The operator, named in every raffle's privacy notice.
 RAFI_OPERATOR_NAME=
 RAFI_OPERATOR_EMAIL=
-
-# The versions of legal/terms.md and legal/privacy.md (e.g. 2026-10).
-RAFI_TERMS_VERSION=
-RAFI_PRIVACY_VERSION=

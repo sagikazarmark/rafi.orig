@@ -19,7 +19,8 @@
 #      configuration and the bundle against a size budget, and the Worker
 #      served without any secret answers 500 "misconfigured", so a deploy
 #      can't run open; it has read the legal documents through the assets
-#      binding by then, and served without legal/ it refuses naming them.
+#      binding by then, served without legal/ it refuses naming them, and
+#      with a terms.md without its front matter (version) it refuses naming it.
 #      Needs dx too (the dry run uploads the assets);
 #   6. deploy/cloudflare, what an installation deploys: its wrangler.app.toml,
 #      wrangler.engine.toml and wrangler.live.toml agree with the production
@@ -54,7 +55,10 @@ LEGAL_ASIDE=
 cleanup() {
   for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
   wait 2>/dev/null || true
-  [ -z "$LEGAL_ASIDE" ] || [ ! -d "$LEGAL_ASIDE" ] || mv "$LEGAL_ASIDE" "$ROOT/apps/worker/worker-assets/legal"
+  if [ -n "$LEGAL_ASIDE" ] && [ -d "$LEGAL_ASIDE" ]; then
+    rm -rf "$ROOT/apps/worker/worker-assets/legal"
+    mv "$LEGAL_ASIDE" "$ROOT/apps/worker/worker-assets/legal"
+  fi
   rm -rf "$STATE"
 }
 trap cleanup EXIT
@@ -292,6 +296,25 @@ if command -v dx >/dev/null; then
     exit 1
   fi
   echo "ok   without legal/ the production Worker refuses every request, naming the documents"
+  # A document without its front matter (the version): refused too, naming
+  # the file, in the answer as well (it names no value). The same dance.
+  kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
+  LEGAL_ASIDE="$STATE/legal-aside"
+  mv "$ROOT/apps/worker/worker-assets/legal" "$LEGAL_ASIDE"
+  mkdir "$ROOT/apps/worker/worker-assets/legal"
+  cp "$LEGAL_ASIDE/privacy.md" "$ROOT/apps/worker/worker-assets/legal/"
+  awk 'f; /^---$/ && ++n == 2 { f = 1 }' "$LEGAL_ASIDE/terms.md" >"$ROOT/apps/worker/worker-assets/legal/terms.md"
+  RESTATE_INGRESS_URL= serve apps/worker 8793 /healthz
+  closed="$(curl -s -m 10 -w '\n%{http_code}' http://127.0.0.1:8793/healthz)"
+  rm -rf "$ROOT/apps/worker/worker-assets/legal"
+  mv "$LEGAL_ASIDE" "$ROOT/apps/worker/worker-assets/legal"
+  LEGAL_ASIDE=
+  if [ "$(echo "$closed" | tail -1)" != "500" ] || ! echo "$closed" | grep -q "misconfigured: legal/terms.md: no front matter"; then
+    echo "the production Worker with a terms.md without front matter answered: $closed" >&2
+    tail -20 "$LOGS/worker.log" >&2
+    exit 1
+  fi
+  echo "ok   with a document without its version the production Worker refuses every request, naming the file"
 
   step "deploy/cloudflare: the installation's shape, and its release rehearsed"
   # The template's three files share the production Workers' shapes: their

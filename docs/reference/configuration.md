@@ -48,13 +48,33 @@ var and a secret of the same name).
 | `RAFI_RETENTION_WINNERS_DAYS` | `90` | How long a winner's data is held past the erasure date unless their prize is marked delivered: the hard ceiling, after which everyone is erased and a finished raffle is purged. At most 365. The hold applies to every raffle as configured now, not as it was when the raffle was frozen: changing it moves the date held winners are erased, the one the privacy notices and the People tab show, for every raffle at once. Lowering it erases them earlier than they were told, which is allowed; raising it keeps them longer than they were told, so don't raise it while any raffle holds winners. (Each raffle's own erasure date, from its retention period, never moves.) |
 | `RAFI_MIN_AGE` | `16` | The youngest an entrant may be. Rendered in the rules and on the join form; entrants confirm it by entering. Organizers raise it in their additional rules. At most 30. |
 | `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | required | Who runs this installation: named as the processor in every raffle's privacy notice. Under `RAFI_DEV_AUTH`, placeholders. |
-| `RAFI_DOCS_DIR` | required (native) | The directory with the installation's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown. On Workers they are `legal/terms.md` and `legal/privacy.md` among the static files (`deploy/cloudflare`'s `legal/`; `just assets` in `apps/worker` copies them in from this variable), read through the assets binding. Under `RAFI_DEV_AUTH`, placeholders marked as such. |
-| `RAFI_TERMS_VERSION`, `RAFI_PRIVACY_VERSION` | required | The documents' versions, e.g. `2026-10`, shown with them at `/terms` and `/privacy` and named in every raffle's notice. Under `RAFI_DEV_AUTH`, `dev`. |
+| `RAFI_DOCS_DIR` | required (native) | The directory with the installation's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown. On Workers they are `legal/terms.md` and `legal/privacy.md` among the static files (`deploy/cloudflare`'s `legal/`; `just assets` in `apps/worker` copies them in from this variable), read through the assets binding. Each starts with front matter giving its version ([below](#the-legal-documents-versions)). Unset under `RAFI_DEV_AUTH`, placeholders marked as such (version `dev`). |
 | `RUST_LOG` | `info` | Log level, in [`tracing-subscriber` filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) (native only) |
 
 The app refuses to start (natively) or every request (on Workers) when a numeric variable or `RAFI_CSP` doesn't
-parse, the retention settings contradict each other, or the operator, the versions, the documents or a decodable
-Clerk publishable key are missing (or the documents still the unreviewed templates) without dev auth.
+parse, the retention settings contradict each other, or the operator, the documents or a decodable Clerk
+publishable key are missing (or the documents still the unreviewed templates) without dev auth. A document without
+its version is refused with or without dev auth.
+
+#### The legal documents' versions
+
+Each document says its own version, in front matter at its very top:
+
+```markdown
+---
+version: 2026-11
+---
+
+# Terms of service
+```
+
+The version is shown with the document at `/terms` and `/privacy`, and every raffle's notice names the privacy
+notice's. A changed document is a new version: change the line with the text. The first line is exactly `---`, then
+`key: value` lines up to the next `---`; `version` is required, not empty and the only key (any other, a typo
+included, is refused); whitespace around keys and values, a pair of quotes around the value and CRLF line endings
+don't matter. The front matter isn't rendered. A document without it, or without a version, makes the app refuse to
+start (natively) or every request (on Workers), naming the file, even under `RAFI_DEV_AUTH`: the repository's
+templates have it.
 
 `rafi reapply-erasures` (native only) is the command for after a database restore: it takes the same environment,
 re-applies the erasure log, the purges and the organizers who left, runs housekeeping once, and exits.
