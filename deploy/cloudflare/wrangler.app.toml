@@ -6,8 +6,10 @@
 name = "rafi-app"
 main = "release/app/build/index.js"
 compatibility_date = "2026-10-01"
+
 workers_dev = false
 preview_urls = false
+
 # Your domain, the origin RAFI_PUBLIC_URL names.
 # routes = [{ pattern = "raffle.example.org", custom_domain = true }]
 

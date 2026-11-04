@@ -38,7 +38,7 @@ git commit -am "Rafi 0.2.0" && git push
 
 With several installations in one repository, edit that installation's `VERSION.<environment>` instead.
 
-The release notes say when something of yours has to change as well: a configuration, a secret, or the workflows.
+Check the release notes for any changes in configuration, secrets, or workflows.
 How to carry those over is in [Upgrading](https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#upgrading).
 
 **Never go back to an older release.** Migrations only go forward. The deploy refuses an older release before it
@@ -46,11 +46,13 @@ touches anything; a bad release is fixed by the next one.
 
 ## Deploying
 
-A push to `main` that changes `VERSION`, `legal/` or a `wrangler.*.toml` deploys. To deploy by hand:
+A push to `main` that changes `VERSION`, `legal/` or a `wrangler.*.toml` deploys.
+
+To deploy by hand:
 
 ```sh
-gh workflow run deploy.yaml --repo <you>/<name>
-gh run watch --repo <you>/<name>
+gh workflow run deploy.yaml
+gh run watch
 ```
 
 Don't deploy during an event, from when registration opens at the venue until the last raffle has finished. The

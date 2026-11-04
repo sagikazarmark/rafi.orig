@@ -6,6 +6,7 @@
 name = "rafi-engine"
 main = "release/engine/build/index.js"
 compatibility_date = "2026-10-01"
+
 # Restate calls it at its workers.dev address; it accepts only signed requests.
 workers_dev = true
 preview_urls = false
