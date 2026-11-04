@@ -191,8 +191,10 @@ branch, and in a public repository GitHub disables them after 60 days without re
 
 Each run's log in the installation's **Actions** is the deploy's log, each step printed, and its summary page holds
 the subcommands' reports: the workflows point `deploy.sh`'s `RAFI_OUTPUT_FILE` at `$GITHUB_OUTPUT` (the jobs'
-outputs) and its `RAFI_REPORT_FILE` at `$GITHUB_STEP_SUMMARY`. What the reports say is in the README's
-[What each run reports](../../deploy/cloudflare/README.md#what-each-run-reports). Each job also sets
+outputs) and its `RAFI_REPORT_FILE` at `$GITHUB_STEP_SUMMARY`. A deploy's summary says whether the live Worker was
+deployed (with its fingerprint tag) or left alone, the app version uploaded (or, on a first install, deployed
+directly), this release's engine Worker and its address, its Restate deployment ID, and the app version deployed
+with its routes and Cron. A cleanup's is [below](#the-restate-cleanup). Each job also sets
 `RAFI_ARTIFACTS_DIR` (`rafi-artifacts/` in the workspace) and uploads it whatever happened (`if: always()`), as
 the run's artifact `deploy-json-<job>-<attempt>` (`cleanup-json-<job>-<attempt>`), kept 14 days: the JSON
 `deploy.sh` read and wrote ([below](#what-each-subcommand-does)).
@@ -364,8 +366,21 @@ template's workflows changed.
 The workflows drive the release's `deploy.sh` (its subcommands, their environment and outputs), and nothing checks
 an installation's copies against the release: a release that changes how `deploy.sh` is driven says so in its
 notes, and the operator copies `deploy.yaml` and `restate-cleanup.yaml` from `deploy/cloudflare/.github/workflows`
-at that tag before pushing `VERSION` (redoing each copy's edits, with several installations in one repository). A
-change to the template's configurations is the operator's to carry over, keeping their names, IDs and keys.
+at that tag before pushing `VERSION` (redoing each copy's edits, with several installations in one repository):
+
+```sh
+for f in deploy.yaml restate-cleanup.yaml; do
+  gh api -H 'Accept: application/vnd.github.raw' \
+    "repos/sagikazarmark/rafi/contents/deploy/cloudflare/.github/workflows/$f?ref=v<version>" > ".github/workflows/$f"
+done
+```
+
+A change to the template's configurations is the operator's to carry over, keeping their names, IDs and keys:
+compare each `wrangler.*.toml` with the template's at the new tag (`gh api -H 'Accept: application/vnd.github.raw'
+"repos/sagikazarmark/rafi/contents/deploy/cloudflare/wrangler.app.toml?ref=v<version>"`, and the other two).
+
+wrangler and the Restate CLI move apart from Rafi's releases, when the operator chooses: `npm update --no-audit
+--no-fund`, then commit `package-lock.json` (the release notes say when a release needs newer ones).
 
 A release has one asset, `worker.tar.gz`; the release page shows its SHA256 digest (GitHub computes one for every
 upload, and the release workflow checks it is the build's), and releases are immutable once published, so neither

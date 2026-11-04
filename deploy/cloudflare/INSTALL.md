@@ -2,8 +2,8 @@
 
 This page is done once: from nothing to the first deploy of one installation of
 [Rafi](https://github.com/sagikazarmark/rafi) on your Cloudflare account and `/healthz` answering, step by step and
-in order. Each step says what it produces and where that goes. What comes after (upgrading, what a deploy does,
-the run reports, the cleanup, rotating keys, logs) is the [README](README.md); the reference behind both, with the
+in order. Each step says what it produces and where that goes. What comes after (upgrading, deploying, the cleanup,
+rotating secrets, logs) is the [README](README.md); the reference behind both, with the
 reasons, is [docs/operations/cloudflare.md](https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md).
 
 Two things are decided before the first deploy and can't be changed in place afterwards: whether the data stays in
@@ -419,9 +419,9 @@ gh run watch --repo <you>/<name>               # pick the Deploy run
 curl https://raffle.example.org/healthz        # ok 0.1.0
 ```
 
-What the Deploy workflow's jobs do, and what each run reports, is in the README: [What a deploy
-does](README.md#what-a-deploy-does) and [What each run reports](README.md#what-each-run-reports). On this first
-one, the app Worker is deployed directly rather than uploaded as a version.
+What the Deploy workflow's jobs do, and what each run reports, is in the guide's [The
+workflows](https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#the-workflows). On this
+first one, the app Worker is deployed directly rather than uploaded as a version.
 
 `/healthz` answering `ok 0.1.0` means the app Worker has its secrets and documents; anything missing answers `500
 misconfigured` with the reason (the app Worker's logs have the whole of it). Then run a **test-mode raffle** end to
