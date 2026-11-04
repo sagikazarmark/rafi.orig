@@ -6,7 +6,7 @@ from the template, its `package-lock.json`'s after `npm ci`); natively the same 
 SQLite file or Postgres database, and the secrets are the app's environment. They use the template's names: the
 database `rafi` (its `database_name`) and the Workers `rafi-app`, `rafi-live` and `rafi-engine-v…`; an
 installation with names of its own, or one of several in a repository as a Wrangler environment (`rafi-eu`,
-`rafi-app-eu`; `CLOUDFLARE_ENV=eu` for the `-c wrangler.app.toml` commands), uses its own. On Cloudflare the
+`rafi-app-eu`; `CLOUDFLARE_ENV=eu` for the `-c wrangler.app.toml` commands), uses its own. On Workers the
 deploys and the Restate cleanups are your repository's GitHub Actions runs (**Actions > Deploy**, **Actions >
 Restate cleanup**): each run's log is that run's, step by step, its summary page says what it did, and its
 artifacts hold the JSON `deploy.sh` read and wrote (`cleanup.json` among the cleanup's).
@@ -14,7 +14,7 @@ artifacts hold the JSON `deploy.sh` read and wrote (`cleanup.json` among the cle
 ## Before a deploy: is anything live?
 
 The [deploy freeze](upgrades.md#the-deploy-freeze) is about every organizer's raffles, not only yours, and the
-admin shows each organizer only their own. Nothing asks for you: on Cloudflare a push that changes the version file
+admin shows each organizer only their own. Nothing asks for you: on Workers a push that changes the version file
 (or a configuration, or `legal/`) deploys whatever is live. So before you push, or before you run the workflow by
 hand, ask the database:
 
@@ -55,7 +55,7 @@ keys belong to a self-hosted Restate only if you configured request signing.
 written event types an older build can't read. A bad release is fixed by the next one: report it, and deploy the
 release that fixes it when it is out.
 
-On Cloudflare, don't set the version file back: the deploy refuses a release older than the one Restate runs (its
+On Workers, don't set the version file back: the deploy refuses a release older than the one Restate runs (its
 downgrade check) before touching anything, so such a run fails at **Check Restate and Cloudflare** with
 nothing deployed. Don't roll a Worker back by hand either (`wrangler rollback`, the dashboard's **Deployments**):
 the next deploy wouldn't know, the engine Restate runs would stay the newer release's, and an older live Worker
@@ -161,8 +161,8 @@ everyone in them), organizers' defaults since removed, names hidden since, peopl
 Self-hosting has the same steps with its own tools ([Self-hosting](self-hosting.md#backups)).
 
 Rehearsed on 2026-11-02, against copies: `a_restore_puts_nobody_back` ([`crates/app/tests/restore.rs`](../../crates/app/tests/restore.rs))
-runs these steps on SQLite files, with this page's queries and the Cloudflare page's SQL read from the pages, so CI
-keeps them working; and once by hand, with `sqlite3`, `rafi reapply-erasures`, a local D1
+runs these steps on SQLite files, with this page's queries and the Cloudflare Workers page's SQL read from the
+pages, so CI keeps them working; and once by hand, with `sqlite3`, `rafi reapply-erasures`, a local D1
 (`wrangler d1 execute --local`), and on Postgres for step 1's query and its statements (a few rows). D1 caps the
 terms of a compound `SELECT`: step 1's queries stay separate statements.
 

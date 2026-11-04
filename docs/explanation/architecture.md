@@ -73,8 +73,8 @@ flowchart TD
 - **`rafi-lifecycle`** is what the app adds around a raffle: draft, published, registration, starting the draw,
   entrants, settings. From the freeze on, the lifecycle follows the raffle.
 - **`rafi-app`** holds the use cases, over small interfaces (ports). Each deployment plugs in its own engine
-  client, database, live-update notifier and rate limiter. Cloudflare is one deployment, not an assumption of the
-  code.
+  client, database, live-update notifier and rate limiter. Cloudflare Workers is one deployment, not an assumption
+  of the code.
 - The server tells the admin UI what it may do next (`actions`). The UI derives no rules of its own.
 
 ## Why a separate raffle engine, and why Restate

@@ -5,7 +5,7 @@
 **Don't deploy while a draw is pending or a room is live**: from the moment registration opens at the venue until
 the raffle finishes and the thank-you screen is up. The admin shows each organizer only their raffles; before you
 deploy, ask the database about everyone's ([the preflight](runbook.md#before-a-deploy-is-anything-live)): nothing
-should be Open, Closed or Drawing. Nothing checks this for you: on Cloudflare a push that changes `VERSION` (or an
+should be Open, Closed or Drawing. Nothing checks this for you: on Workers a push that changes `VERSION` (or an
 installation's `VERSION.<environment>`) deploys whenever it lands, so push between events.
 
 A raffle that is merely *frozen* and waiting (an event that didn't happen, an organizer who walked away) doesn't
@@ -61,7 +61,7 @@ fail and Restate retries them.
 
 **Never run a build older than the one that wrote the database.** Nothing in the code checks (`/healthz` says
 which version runs, not which wrote the database): a rolled-back build meets columns it doesn't know, or event
-types it can't read, and fails on the first request that touches them. On Cloudflare the deploy refuses a release
+types it can't read, and fails on the first request that touches them. On Workers the deploy refuses a release
 older than the one Restate runs before touching anything, which catches a `VERSION` set back.
 Roll forward instead ([Rolling back a deploy](runbook.md#rolling-back-a-deploy)).
 
@@ -147,7 +147,7 @@ Never remove a deployment with `--force` while a draw is in flight on it.
 
 ## Order of operations
 
-On Cloudflare the Deploy workflow does it all, in this order: the D1 migrations; the live Worker, when it changed;
+On Workers the Deploy workflow does it all, in this order: the D1 migrations; the live Worker, when it changed;
 the app Worker's new version uploaded and the release's engine Worker deployed; the engine registered; the app's new
 version deployed. The run's summary page says what each step did. The Restate cleanup removes the drained engines
 later. Check that nothing is live before you push ([the preflight](runbook.md#before-a-deploy-is-anything-live)),

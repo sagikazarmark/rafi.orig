@@ -1,8 +1,8 @@
 # Cloudflare Workers
 
-Rafi on Cloudflare: three Workers and one D1 database, with Restate Cloud running the raffle engine's invocations
-and Clerk signing organizers in. This is the production deployment. An installation is a repository of the
-operator's, created from the deploy template; its GitHub Actions workflows deploy the Rafi release its `VERSION`
+Rafi on Cloudflare Workers: three Workers and one D1 database, with Restate Cloud running the raffle engine's
+invocations and Clerk signing organizers in. This is the production deployment. An installation is a repository of
+the operator's, created from the deploy template; its GitHub Actions workflows deploy the Rafi release its `VERSION`
 names (or several installations in one repository, as Wrangler environments: [Several
 installations](#several-installations)). The template repository, `sagikazarmark/rafi-deploy-template`, is in the
 works: it will carry the first deploy, step by step (its INSTALL.md, which this page calls "INSTALL.md"), and the
@@ -10,7 +10,7 @@ day-to-day running (upgrading, the run reports, the cleanup, rotating keys, logs
 reference behind both: what runs where, what the deploy does and why, the permissions it needs, and what to do
 when something goes wrong.
 
-Cloudflare is one deployment, not an assumption of the code. The app and the engine are written against small
+Cloudflare Workers is one deployment, not an assumption of the code. The app and the engine are written against small
 interfaces (the engine's `Store` and `Observer`, the live `Notifier`, the app's `RateLimit`), and `rafi-cloudflare`
 implements them over Workers bindings.
 
