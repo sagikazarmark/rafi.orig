@@ -10,10 +10,13 @@ Every setting of every Rafi deployable. To see how the deployables fit together,
 
 Empty values count as unset everywhere. Flags take `1`/`true`/`yes`/`on`.
 
-The names: everything of Rafi's is `RAFI_*`. `RAFI_ENGINE_*` is how the app reaches the raffle engine (Restate's
-ingress); `RAFI_RESTATE_*` is the raffle engine's own configuration (the `rafi-restate` binary natively, the same
-settings on the engine Worker, with `__` between levels). Nothing of Rafi's is `RESTATE_*`:
-that is `restate-server`'s own namespace, and the two often share an environment. `CLERK_*` is Clerk's.
+The names: Rafi's own settings are `RAFI_*`. A third-party service's values go by that service's names: `CLERK_*`
+are Clerk's keys, and `RESTATE_*` what the app and the engine Worker are given of Restate's (`RESTATE_INGRESS_URL`,
+the name the Restate CLI uses for the same URL; `RESTATE_INGRESS_API_KEY`, the app's key for it; and on Workers
+`RESTATE_IDENTITY_KEYS`). `restate-server` ignores `RESTATE_*` names it doesn't know, so it can share an environment
+with the app. The native engine's settings keep their structured names: `rafi-restate` reads `RAFI_RESTATE_*`, with
+`__` between levels, so the engine Worker's `RESTATE_IDENTITY_KEYS` is the native engine's
+`RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` (`endpoint.identity_keys`).
 
 ## The app (`rafi` and `rafi-worker`)
 
@@ -32,8 +35,8 @@ var and a secret of the same name).
 | `CLERK_SECRET_KEY` | | Clerk backend key. Required unless `RAFI_DEV_AUTH` is set. In a Clerk organization, the session's role decides what a member may do: `org:admin` everything; the custom role `org:manager` or permission `org:raffles:manage` (made in the Clerk dashboard) creates, configures and deletes raffles; any member runs them. |
 | `CLERK_PUBLISHABLE_KEY` | | Clerk's publishable key (`pk_live_…`, `pk_test_…`). Required unless `RAFI_DEV_AUTH` is set: the server hands it to the web app at `/config.js`, which signs organizers in with it, and names the Clerk host it encodes in the web app's Content-Security-Policy, so a key no host decodes from is refused. Not a secret, but the installation's: nothing of an installation's is compiled into the web app. |
 | `RAFI_CSP` | `enforce` | The pages' Content-Security-Policy ([routes](routes.md#security-headers)): `enforce`, or `report-only`, which sends it as `Content-Security-Policy-Report-Only`. Browsers then log what it would refuse in their consoles and refuse nothing; framing stays denied. An escape hatch for a policy that breaks the admin (Clerk loading from a host this release doesn't know, say) until an upgrade: the app logs a warning at start while it is on. |
-| `RAFI_ENGINE_INGRESS_URL` | | The raffle engine's Restate ingress. Without it, draws can't start (required on Workers). |
-| `RAFI_ENGINE_API_KEY` | | Restate Cloud: an API key with ingress access. Required on Workers (a `dev` build excepted). |
+| `RESTATE_INGRESS_URL` | | The raffle engine's Restate ingress. Without it, draws can't start (required on Workers). |
+| `RESTATE_INGRESS_API_KEY` | | Restate Cloud: an API key with ingress access. Required on Workers (a `dev` build excepted). |
 | `RAFI_ENGINE_TIMEOUT_SECS` | `90` | How long a call to the raffle engine waits. A command queued behind a draw that is waiting for its beacon may take the engine's drand lead plus its fetch timeout. Past this timeout the command is accepted and applies later. Keep it above the engine's `lead_secs + timeout_secs`. |
 | `RAFI_DRAND_CHAIN` | quicknet | The drand chain new raffles commit to, as a chain hash. Release builds accept only public drand chains. `mock` (a public test chain, **not** verifiable) needs a `mock-drand` build. The raffle engine must draw from the same chain: the app checks this and refuses to start a draw otherwise. |
 | `RAFI_DRAND_MOCK` | off | Development alias for `RAFI_DRAND_CHAIN=mock` |
@@ -64,7 +67,7 @@ each reading its own settings:
 | Worker | Reads | Where an installation sets them |
 |---|---|---|
 | The app, `rafi-app` (`rafi-worker-app`) | The app's variables above (Workers ones only: not `IP`, `PORT`, `RAFI_PUBLIC_DIR`, `RAFI_PARTICIPANT_DIR`, `RAFI_DATABASE_URL`, `RAFI_DOCS_DIR`, `RUST_LOG`), and `RAFI_DO_JURISDICTION` | Secrets on the Worker, listed under `[secrets] required` in `wrangler.app.toml`: set once before the first deploy with `wrangler secret bulk .dev.vars -c wrangler.app.toml` (`.dev.vars.example`), then `wrangler secret put <NAME> -c wrangler.app.toml`; deploys keep them. `RAFI_DO_JURISDICTION`, when set, is a var in `wrangler.app.toml`. |
-| The engine, `rafi-engine-v<version>` (`rafi-worker-engine`), one per release | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`, `RAFI_DO_JURISDICTION`, the drand settings below | Vars in `wrangler.engine.toml`; no secrets. A change deploys (the release's engine Worker, the same code with the vars as they are then). |
+| The engine, `rafi-engine-v<version>` (`rafi-worker-engine`), one per release | `RESTATE_IDENTITY_KEYS`, `RAFI_DO_JURISDICTION`, the drand settings below | Vars in `wrangler.engine.toml`; no secrets. A change deploys (the release's engine Worker, the same code with the vars as they are then). |
 | The live channels, `rafi-live` (`rafi-worker-live`) | Nothing but its bindings (an installation that sets `RAFI_DO_JURISDICTION` sets it here too, so the three files say the same) | `wrangler.live.toml` |
 
 Their shapes are [`apps/worker-app/wrangler.toml`](../../apps/worker-app/wrangler.toml),
@@ -81,7 +84,7 @@ them.
 
 | Variable | Worker | Default | |
 |---|---|---|---|
-| `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | engine | required | Restate's request signing keys (`publickeyv1_…`, comma separated), under the native engine's name for the same setting. Without them the engine refuses every request, except in a `dev` build. |
+| `RESTATE_IDENTITY_KEYS` | engine | required | Restate's request signing keys (`publickeyv1_…`, comma separated): the native engine's `endpoint.identity_keys` (`RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`). Without them the engine refuses every request, except in a `dev` build. |
 | `RAFI_DO_JURISDICTION` | all three | none | The Durable Objects' jurisdiction (`eu`, `fedramp`): set, the app and the engine create the objects' IDs with `ns.jurisdiction(<it>)`; unset or empty, in the plain namespace (Cloudflare places the objects). Optional, and decided before the first deploy: an object keeps the jurisdiction it was created in, so a later change moves the live channels to new objects. The three Workers say the same, which nothing checks ([Keeping data in the EU](../../deploy/cloudflare/INSTALL.md#keeping-data-in-the-eu)). Leave it unset locally: workerd has no jurisdictions. |
 | `RAFI_DRAND_RELAYS` | engine | as `drand.relays` below | Relays the engine asks, in order, comma separated |
 | `RAFI_DRAND_LEAD_SECS` | engine | `6` | As `drand.lead_secs` below |
@@ -110,7 +113,7 @@ overridden by `RAFI_RESTATE_` environment variables, with `__` separating levels
 |---|---|---|---|
 | `database.url` | `RAFI_RESTATE_DATABASE__URL` | `sqlite://rafi.db` | The app's database (its `RAFI_DATABASE_URL`) |
 | `endpoint.listener` | `RAFI_RESTATE_ENDPOINT__LISTENER` | `127.0.0.1:9080` | Listen address. Whoever reaches the endpoint supplies the raffle's state, so it is for your Restate server alone: loopback unless told otherwise, and never a public address. |
-| `endpoint.identity_keys` | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | required | Restate's request signing keys (`publickeyv1_…`, comma separated). Without them the engine refuses to start, unless `endpoint.insecure` says the network is trusted. |
+| `endpoint.identity_keys` | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` | required | Restate's request signing keys (`publickeyv1_…`, comma separated; on the engine Worker, `RESTATE_IDENTITY_KEYS`). Without them the engine refuses to start, unless `endpoint.insecure` says the network is trusted. |
 | `endpoint.insecure` | `RAFI_RESTATE_ENDPOINT__INSECURE` | `false` | Run without `identity_keys`: every request is taken as Restate's. For a development machine, or a private network with Restate alone on it. |
 | `drand.relays` | `RAFI_RESTATE_DRAND__RELAYS` | `api.drand.sh`, `api2`, `api3` (v2), `drand.cloudflare.com` (v1) | Relays to ask, in order. A list (`[a, b]`) of URLs with a `v1:` or `v2:` prefix; a bare URL means v1. Every beacon is BLS-verified, whichever relay serves it. |
 | `drand.lead_secs` | `RAFI_RESTATE_DRAND__LEAD_SECS` | `6` | Seconds from a draw request to its committed round. Must be at least the chain period (3 s for quicknet). |

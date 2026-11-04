@@ -75,8 +75,8 @@ invocation_logs = false
 [secrets]
 required = [
   "RAFI_PUBLIC_URL",
-  "RAFI_ENGINE_INGRESS_URL",
-  "RAFI_ENGINE_API_KEY",
+  "RESTATE_INGRESS_URL",
+  "RESTATE_INGRESS_API_KEY",
   "RAFI_POW_KEY",
   "CLERK_SECRET_KEY",
   "CLERK_PUBLISHABLE_KEY",

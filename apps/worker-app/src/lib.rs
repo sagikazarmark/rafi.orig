@@ -16,7 +16,7 @@
 //!   to the objects through that binding.
 //!
 //! The app reaches the engine through Restate's ingress
-//! (`RAFI_ENGINE_INGRESS_URL`, `RAFI_ENGINE_API_KEY`), never directly.
+//! (`RESTATE_INGRESS_URL`, `RESTATE_INGRESS_API_KEY`), never directly.
 //! Local development runs all three in one Worker (`apps/worker`).
 
 #![cfg(target_arch = "wasm32")]

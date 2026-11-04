@@ -49,10 +49,10 @@ invocation_logs = false
 # Everything the engine reads (rafi_cloudflare_engine's docs):
 #   RAFI_DO_JURISDICTION                   optional: the objects' jurisdiction, the
 #                                          live Worker's and the app's; unset, none
-#   RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS   the Restate environment's public key(s),
+#   RESTATE_IDENTITY_KEYS                  the Restate environment's public key(s),
 #                                          comma separated; empty refuses every request
 # and, optional with defaults, RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS and
 # RAFI_DRAND_TIMEOUT_SECS.
 [vars]
 # RAFI_DO_JURISDICTION = "eu"
-RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = "" # an installation's, in its deploy configuration
+RESTATE_IDENTITY_KEYS = "" # an installation's, in its deploy configuration

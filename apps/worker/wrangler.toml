@@ -113,9 +113,9 @@ invocation_logs = false
 # What every installation must set before its first deploy, with
 # `wrangler secret bulk <file>` or `wrangler secret put <NAME>`:
 #   RAFI_PUBLIC_URL                        the public origin, no trailing slash
-#   RAFI_ENGINE_INGRESS_URL                Restate Cloud's ingress URL (EU)
-#   RAFI_ENGINE_API_KEY                    a Restate Cloud API key with ingress access
-#   RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS   the Restate environment's public key(s), comma separated
+#   RESTATE_INGRESS_URL                    Restate Cloud's ingress URL (EU)
+#   RESTATE_INGRESS_API_KEY                a Restate Cloud API key with ingress access
+#   RESTATE_IDENTITY_KEYS                  the Restate environment's public key(s), comma separated
 #   RAFI_POW_KEY                           random, 32+ characters; never rotate during an event
 #   CLERK_SECRET_KEY
 #   CLERK_PUBLISHABLE_KEY                  not secret (the web app gets it from /config.js), but the installation's
@@ -125,9 +125,9 @@ invocation_logs = false
 [secrets]
 required = [
   "RAFI_PUBLIC_URL",
-  "RAFI_ENGINE_INGRESS_URL",
-  "RAFI_ENGINE_API_KEY",
-  "RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS",
+  "RESTATE_INGRESS_URL",
+  "RESTATE_INGRESS_API_KEY",
+  "RESTATE_IDENTITY_KEYS",
   "RAFI_POW_KEY",
   "CLERK_SECRET_KEY",
   "CLERK_PUBLISHABLE_KEY",
@@ -181,7 +181,7 @@ simple = { limit = 20, period = 60 }
 
 [env.dev.vars]
 RAFI_PUBLIC_URL = "http://127.0.0.1:8787"
-RAFI_ENGINE_INGRESS_URL = "http://127.0.0.1:18080"
+RESTATE_INGRESS_URL = "http://127.0.0.1:18080"
 RAFI_DEV_AUTH = "1" # also stands in for the operator and the document versions
 RAFI_DRAND_MOCK = "1" # the mock chain, for the app and the engine alike
 RAFI_DRAND_LEAD_SECS = "3"

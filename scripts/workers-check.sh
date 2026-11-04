@@ -141,7 +141,11 @@ if [ -n "${RESTATE_SERVER_BIN:-}" ] && [ -n "$CHROMIUM" ] && command -v dx >/dev
   PIDS+=($!)
   # --test-scheduled: the Cron Trigger can be fired by hand (/__scheduled).
   # A lead of 8 s, not development's 3: the evening watches the countdowns run.
-  serve apps/worker "$APP_PORT" /healthz --env dev --test-scheduled --var "RAFI_PUBLIC_URL:$APP" \
+  # RESTATE_INGRESS_URL in wrangler's environment: with a [secrets] section,
+  # wrangler dev takes a var's value from there over the configuration's, and
+  # the devenv shell exports the Restate CLI's (its own Restate's, on :8080).
+  RESTATE_INGRESS_URL=http://127.0.0.1:18080 \
+    serve apps/worker "$APP_PORT" /healthz --env dev --test-scheduled --var "RAFI_PUBLIC_URL:$APP" \
     --var RAFI_DRAND_LEAD_SECS:8
   for _ in $(seq 1 60); do curl -s -m 3 -o /dev/null http://127.0.0.1:19070/health && break; sleep 1; done
   # The engine is the same Worker, under /restate; wrangler dev speaks HTTP/1.1 only.
@@ -244,8 +248,9 @@ if command -v dx >/dev/null; then
   fi
   echo "ok   wrangler deploy --dry-run: $gzip_kib KiB gzipped (budget $budget KiB)"
   # Served with no secret at all: every request is refused, the health check
-  # included, instead of running open with defaults.
-  serve apps/worker 8791 /healthz
+  # included, instead of running open with defaults. (Empty: wrangler would
+  # hand it the devenv shell's RESTATE_INGRESS_URL as the secret.)
+  RESTATE_INGRESS_URL= serve apps/worker 8791 /healthz
   closed="$(curl -s -m 10 -w '\n%{http_code}' http://127.0.0.1:8791/healthz)"
   if [ "$(echo "$closed" | tail -1)" != "500" ] || ! echo "$closed" | head -1 | grep -q misconfigured; then
     echo "the production Worker without secrets answered: $closed" >&2
@@ -275,7 +280,7 @@ if command -v dx >/dev/null; then
   kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
   LEGAL_ASIDE="$STATE/legal-aside"
   mv "$ROOT/apps/worker/worker-assets/legal" "$LEGAL_ASIDE"
-  serve apps/worker 8792 /healthz
+  RESTATE_INGRESS_URL= serve apps/worker 8792 /healthz
   closed="$(curl -s -m 10 -w '\n%{http_code}' http://127.0.0.1:8792/healthz)"
   named=
   if logged "$LOGS/worker.log" "$missing_docs"; then named=1; fi
@@ -301,7 +306,7 @@ if command -v dx >/dev/null; then
       -e '/^compatibility_date/p' -e '/^workers_dev/p' -e '/^preview_urls/p' -e '/^binding = /p' \
       -e '/^database_name/p' -e '/^name = "/p' -e '/^class_name/p' -e '/^script_name/p' \
       -e '/^new_sqlite_classes/p' -e '/^tag = /p' -e '/^namespace_id/p' -e '/^simple = /p' -e '/^crons/p' \
-      -e '/^invocation_logs/p' -e 's/^\(RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS\) = .*/\1/p' -e '/^RAFI_[A-Z_]* = /p' \
+      -e '/^invocation_logs/p' -e 's/^\(RESTATE_IDENTITY_KEYS\) = .*/\1/p' -e '/^RAFI_[A-Z_]* = /p' \
       -e '/^required = \[$/,/^\]/p' "$1"
   }
   for pair in worker-app:wrangler.app.toml worker-engine:wrangler.engine.toml worker-live:wrangler.live.toml; do

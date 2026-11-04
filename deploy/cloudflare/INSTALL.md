@@ -284,18 +284,18 @@ instance's **API keys** are `pk_live_…` (publishable) and `sk_live_…` (secre
 
 ## 6. Restate Cloud
 
-Produces: the app's `RAFI_ENGINE_INGRESS_URL` and `RAFI_ENGINE_API_KEY` (step 8), the GitHub secrets
+Produces: the app's `RESTATE_INGRESS_URL` and `RESTATE_INGRESS_API_KEY` (step 8), the GitHub secrets
 `RESTATE_ADMIN_URL` and `RESTATE_AUTH_TOKEN` (step 9), and the identity key in `wrangler.engine.toml`.
 
 In [Restate Cloud](https://cloud.restate.dev), create an environment, in the EU region if the data must stay there
 ([Keeping data in the EU](#keeping-data-in-the-eu); the region is part of every URL below). On its **Developers** page:
 
 - **The ingress URL**, `https://<env-id>.env.<region>.restate.cloud:8080` (`<env-id>` is the environment's ID
-  without `env_`): the app Worker's `RAFI_ENGINE_INGRESS_URL`.
+  without `env_`): the app Worker's `RESTATE_INGRESS_URL`.
 - **An API key for the app** (**API Keys > Create API Key**): the app only invokes the engine's services through
   the ingress, never the admin API, so give it the narrowest role your console offers that can call the ingress
   (Restate's guides name **Admin** for deploying and **Full** for tunnels; if no role narrower than **Full** is
-  listed, use **Full**): the app Worker's `RAFI_ENGINE_API_KEY`.
+  listed, use **Full**): the app Worker's `RESTATE_INGRESS_API_KEY`.
 - **An API key with the Admin role**, for the workflows, which register each release's engine, list the
   deployments, ask which invocations are still pinned to one, and remove drained ones: the GitHub secret
   `RESTATE_AUTH_TOKEN`.
@@ -307,7 +307,7 @@ In [Restate Cloud](https://cloud.restate.dev), create an environment, in the EU 
 
   ```sh
   key=<the publickeyv1_... key>
-  sed -i.bak "s/^RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = .*/RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = \"$key\"/" wrangler.engine.toml
+  sed -i.bak "s/^RESTATE_IDENTITY_KEYS = .*/RESTATE_IDENTITY_KEYS = \"$key\"/" wrangler.engine.toml
   rm wrangler.engine.toml.bak
   ```
 
@@ -350,8 +350,8 @@ delete it once the secrets are set. (The name is wrangler's: it also reads `.dev
 | Secret | What it is |
 |---|---|
 | `RAFI_PUBLIC_URL` | The public origin, no trailing slash (step 4) |
-| `RAFI_ENGINE_INGRESS_URL` | Restate Cloud's ingress URL (step 6) |
-| `RAFI_ENGINE_API_KEY` | The app's Restate Cloud API key (step 6) |
+| `RESTATE_INGRESS_URL` | Restate Cloud's ingress URL (step 6) |
+| `RESTATE_INGRESS_API_KEY` | The app's Restate Cloud API key (step 6) |
 | `RAFI_POW_KEY` | The proof-of-work key: random, 32 characters or more. Never rotate it during an event. |
 | `CLERK_SECRET_KEY` | `sk_live_…` (step 5) |
 | `CLERK_PUBLISHABLE_KEY` | `pk_live_…` (step 5): not secret (the web app gets it from `/config.js`), but yours |
@@ -531,8 +531,8 @@ simple = { limit = 20, period = 60 }
 [env.eu.secrets]
 required = [
   "RAFI_PUBLIC_URL",
-  "RAFI_ENGINE_INGRESS_URL",
-  "RAFI_ENGINE_API_KEY",
+  "RESTATE_INGRESS_URL",
+  "RESTATE_INGRESS_API_KEY",
   "RAFI_POW_KEY",
   "CLERK_SECRET_KEY",
   "CLERK_PUBLISHABLE_KEY",
@@ -560,7 +560,7 @@ script_name = "rafi-live-eu"
 
 [env.eu.vars]
 # RAFI_DO_JURISDICTION = "eu"   # this installation's choice, the same in all three files
-RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = "publickeyv1_<the eu Restate environment's>"
+RESTATE_IDENTITY_KEYS = "publickeyv1_<the eu Restate environment's>"
 ```
 
 `wrangler.live.toml`:

@@ -57,7 +57,7 @@ The app reaches the engine through Restate's **ingress**. Restate reaches `rafi-
   `nix-restate`). By
   default its ingress is on `:8080`, its admin API on `:9070`, and its data in `./restate-data`. If it shares a
   machine with `rafi`, move one of them off `:8080`.
-- **Restate Cloud:** create an environment, an API key with ingress access for the app (`RAFI_ENGINE_API_KEY`), and set
+- **Restate Cloud:** create an environment, an API key with ingress access for the app (`RESTATE_INGRESS_API_KEY`), and set
   the engine's `endpoint.identity_keys` to the environment's public key, so it only accepts requests signed by your
   Restate.
 
@@ -112,7 +112,7 @@ abuse](../explanation/privacy-and-abuse.md).
 ```sh
 RAFI_PUBLIC_URL=https://raffle.example.org \
 RAFI_DATABASE_URL=… \
-RAFI_ENGINE_INGRESS_URL=http://localhost:8080 \
+RESTATE_INGRESS_URL=http://localhost:8080 \
 CLERK_SECRET_KEY=sk_live_… CLERK_PUBLISHABLE_KEY=pk_live_… \
 RAFI_POW_KEY=$(openssl rand -hex 32) \
 RAFI_DOCS_DIR=/etc/rafi RAFI_TERMS_VERSION=2026-10 RAFI_PRIVACY_VERSION=2026-10 \

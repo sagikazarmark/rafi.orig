@@ -22,7 +22,7 @@ foreground. On Workers, check that `RAFFLE_ROOM` is bound, and `wrangler tail` f
 
 **"Freeze list & start the draw" fails, or "Retry starting the draw" appears.**
 The list froze, but the raffle couldn't be opened in the engine. Check that:
-- `RAFI_ENGINE_INGRESS_URL` (and `RAFI_ENGINE_API_KEY` for Restate Cloud) is set on the app. Without it, draws can't start,
+- `RESTATE_INGRESS_URL` (and `RESTATE_INGRESS_API_KEY` for Restate Cloud) is set on the app. Without it, draws can't start,
   and the app logs this at startup.
 - Restate is up, and the engine is registered with it (`curl localhost:9070/deployments` on a self-hosted Restate).
 - The engine is up and can write to the database.

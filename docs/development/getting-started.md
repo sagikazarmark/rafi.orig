@@ -86,7 +86,8 @@ local Workers state. Pass the same `--profile` flags to `devenv down` and `deven
   [Clerk's dashboard](https://dashboard.clerk.com) (API keys; a development instance accepts `localhost`), in `.env`
   at the project root, which the shell loads. Both keys are the server's (or the app Worker's, which reads `.env`
   with `--env-file`): it runs without `RAFI_DEV_AUTH` and hands the publishable key to the web app at `/config.js`.
-  The web app is built the same way either way.
+  The web app is built the same way either way. A `.env` or devenv setting from before 2026-11 naming the Restate
+  ingress or its key by their old names needs them [renamed](../operations/upgrades.md#renamed-settings).
 
 ## Without devenv
 
@@ -134,7 +135,7 @@ export RAFI_DATABASE_URL="sqlite://$PWD/rafi.db"
 restate-server
 
 # the server (it creates the database) and the web app
-RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RAFI_ENGINE_INGRESS_URL=http://localhost:8080 \
+RAFI_DEV_AUTH=1 RAFI_PUBLIC_URL=http://localhost:8787 RESTATE_INGRESS_URL=http://localhost:8080 \
   PORT=8788 cargo run -p rafi --features dev
 (cd apps/web && dx serve --port 8787)
 
@@ -167,12 +168,17 @@ Worker's local state (D1, Durable Objects) across restarts:
 just apps/worker/ assets                                  # web app bundle + participant build + template legal documents -> apps/worker/worker-assets
 (cd apps/worker && wrangler d1 migrations apply rafi --local --env dev --persist-to ../../.wrangler-state)
 (cd apps/worker && wrangler dev --env dev --persist-to ../../.wrangler-state)   # http://127.0.0.1:8787, dev auth, mock drand
-# Restate with its ingress on :18080 (the dev Worker's RAFI_ENGINE_INGRESS_URL), then register the engine, which is
+# Restate with its ingress on :18080 (the dev Worker's RESTATE_INGRESS_URL), then register the engine, which is
 # the same Worker under /restate (wrangler dev speaks HTTP/1.1 only):
 RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 restate-server
 curl -X POST localhost:9070/deployments -H 'content-type: application/json' \
   -d '{"uri": "http://127.0.0.1:8787/restate", "use_http_11": true}'
 ```
+
+`wrangler dev` gives a Worker with a `[secrets]` section the value of a var from its own environment over the
+configuration's. The devenv shell exports `RESTATE_INGRESS_URL` for the Restate CLI (its own Restate's, on :8080), so
+in it the dev Worker reaches that Restate; to use one on :18080 instead, start `wrangler dev` with
+`RESTATE_INGRESS_URL=http://127.0.0.1:18080` (as `scripts/workers-check.sh` does).
 
 ## With Clerk
 

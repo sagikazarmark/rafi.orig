@@ -474,7 +474,7 @@ add_env() {
     printf '\n[env.%s]\n' "$env"
     printf '[[env.%s.d1_databases]]\nbinding = "DB"\ndatabase_name = "rafi"\ndatabase_id = "%s"\n' "$env" "$DB_ID"
     printf '[[env.%s.durable_objects.bindings]]\nname = "RAFFLE_ROOM"\nclass_name = "RaffleRoom"\nscript_name = "%s"\n' "$env" "$live_name"
-    printf '[env.%s.vars]\nRAFI_DO_JURISDICTION = "eu"\nRAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = "%s"\n' "$env" "$KEY"
+    printf '[env.%s.vars]\nRAFI_DO_JURISDICTION = "eu"\nRESTATE_IDENTITY_KEYS = "%s"\n' "$env" "$KEY"
   } >>"$ENGINE"
   {
     printf '\n[env.%s]\n' "$env"

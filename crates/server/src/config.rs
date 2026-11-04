@@ -199,11 +199,11 @@ impl Config {
             dev_auth,
             clerk_publishable_key: var("CLERK_PUBLISHABLE_KEY"),
             restate: RestateConfig {
-                ingress_url: var("RAFI_ENGINE_INGRESS_URL")
+                ingress_url: var("RESTATE_INGRESS_URL")
                     .unwrap_or_default()
                     .trim_end_matches('/')
                     .to_owned(),
-                api_key: var("RAFI_ENGINE_API_KEY").unwrap_or_default(),
+                api_key: var("RESTATE_INGRESS_API_KEY").unwrap_or_default(),
                 timeout_secs: u64::try_from(int(
                     "RAFI_ENGINE_TIMEOUT_SECS",
                     i64::try_from(RestateConfig::DEFAULT_TIMEOUT_SECS).unwrap_or(90),

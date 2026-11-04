@@ -7,8 +7,8 @@
 RAFI_PUBLIC_URL=
 
 # Restate Cloud: the ingress URL (https://<env>.env.<region>.restate.cloud:8080) and an API key.
-RAFI_ENGINE_INGRESS_URL=
-RAFI_ENGINE_API_KEY=
+RESTATE_INGRESS_URL=
+RESTATE_INGRESS_API_KEY=
 
 # Random, 32+ characters (openssl rand -hex 32). Never rotate during an event.
 RAFI_POW_KEY=

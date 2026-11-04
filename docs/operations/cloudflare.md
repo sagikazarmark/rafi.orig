@@ -24,7 +24,7 @@ implements them over Workers bindings.
 | Address | your domain only (a custom domain; no workers.dev, no preview URLs) | `https://<it>.<subdomain>.workers.dev/restate` | none |
 | Serves | the web app and its API, the static files, phones' live-channel sockets (gated, then handed to the raffle's object), `/healthz`; 404 under `/restate` | the Restate endpoint (`Raffle`, `EngineInfo`) under `/restate`; 404 elsewhere | 404 to every request: its objects are reached through the bindings |
 | Bindings | `ASSETS`, `DB`, `RAFFLE_ROOM` (`script_name = "rafi-live"`), four rate limiters, Cron `0 * * * *` | `DB`, `RAFFLE_ROOM` (`script_name = "rafi-live"`) | `DB`, `RAFFLE_ROOM` (its own class `RaffleRoom`, migration `v1`) |
-| Vars | optionally `RAFI_DO_JURISDICTION` | `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`; optionally `RAFI_DO_JURISDICTION`, `RAFI_DRAND_RELAYS`, `RAFI_DRAND_LEAD_SECS`, `RAFI_DRAND_TIMEOUT_SECS` | optionally `RAFI_DO_JURISDICTION` |
+| Vars | optionally `RAFI_DO_JURISDICTION` | `RESTATE_IDENTITY_KEYS`; optionally `RAFI_DO_JURISDICTION`, `RAFI_DRAND_RELAYS`, `RAFI_DRAND_LEAD_SECS`, `RAFI_DRAND_TIMEOUT_SECS` | optionally `RAFI_DO_JURISDICTION` |
 | Secrets | the installation's ([below](#the-app-workers-secrets)) | none | none |
 
 All three bind the one D1 database (the same `database_id`) and say the same `RAFI_DO_JURISDICTION` (unset by
@@ -67,7 +67,7 @@ releases.
 
 The engine's address is public and its name predictable. That is fine because nothing reaches its handlers without
 Restate's signature: every request to `/restate/*` must carry a request identity signed by your Restate
-environment's private key, which the Restate SDK checks against `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` before any
+environment's private key, which the Restate SDK checks against `RESTATE_IDENTITY_KEYS` before any
 routing, discovery included; anything else is refused, and every other path is a 404. The engine holds no secrets
 (the identity keys are public keys, the drand settings vars), and it sees anonymous IDs only. Your zone's rules (WAF,
 Bot Fight Mode) don't apply to workers.dev, so none of them can challenge Restate's calls either. Its name is at
@@ -112,7 +112,7 @@ the top level), with `WRANGLER_OUTPUT_FILE_PATH`, whose `deploy` entry carries t
 validates the file as a deploy would, uploading nothing: one wrangler refuses (an environment it lacks, a
 malformed file) stops the subcommand. Nor does anything check that the three files agree, which the operator keeps
 true: the same `database_id` and `RAFI_DO_JURISDICTION`, the app's and the engine's `RAFFLE_ROOM` with the live
-Worker's name as `script_name`, and `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` on the engine in every environment
+Worker's name as `script_name`, and `RESTATE_IDENTITY_KEYS` on the engine in every environment
 (environments don't inherit vars). A mismatch deploys: an engine without its keys refuses Restate, so the
 registration fails; the rest shows in the first test-mode raffle after an install (the phone doesn't follow the
 draw, or the draw doesn't land). What `deploy.sh` does check before a deploy changes anything is
@@ -313,8 +313,8 @@ accounts tokens permission-groups list`, `cf zones list` and `cf accounts tokens
 
 Restate Cloud's API keys each have a role.
 
-- **The app's key**, `RAFI_ENGINE_API_KEY`, a secret on the app Worker: the app only invokes the engine through the
-  ingress (`https://<env-id>.env.<region>.restate.cloud:8080`, `RAFI_ENGINE_INGRESS_URL`), never the admin API. Give
+- **The app's key**, `RESTATE_INGRESS_API_KEY`, a secret on the app Worker: the app only invokes the engine through the
+  ingress (`https://<env-id>.env.<region>.restate.cloud:8080`, `RESTATE_INGRESS_URL`), never the admin API. Give
   it the narrowest role the console offers that can call the ingress; if none narrower than **Full** is listed,
   **Full**.
 - **The workflows' key**, `RESTATE_AUTH_TOKEN`, a GitHub secret, with the **Admin** role, as Restate's deployment
@@ -323,7 +323,7 @@ Restate Cloud's API keys each have a role.
   invocations), and runs the Restate CLI's `deployments list` and `deployments remove` (with `RESTATE_ADMIN_URL`
   and `RESTATE_AUTH_TOKEN` in its environment).
 
-The engine's `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` is the environment's request identity public key
+The engine's `RESTATE_IDENTITY_KEYS` is the environment's request identity public key
 (`publickeyv1_…`, **Developers > Security > HTTP endpoints** in Restate Cloud), not a key to call Restate with.
 
 ## The app Worker's secrets
@@ -336,7 +336,7 @@ installation that is a Wrangler environment, either with `CLOUDFLARE_ENV=<enviro
 wrangler refuses to deploy the app while one is missing. What each is:
 [`.dev.vars.example`](../../deploy/cloudflare/.dev.vars.example) and the
 [configuration reference](../reference/configuration.md). The Worker refuses every request without its documents,
-`RAFI_POW_KEY`, `RAFI_ENGINE_INGRESS_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, the operator and the
+`RAFI_POW_KEY`, `RESTATE_INGRESS_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, the operator and the
 document versions (`/healthz` answers `500 misconfigured`, naming the reason when that names no value). Release
 builds reject dev auth and the mock chain. Never rotate `RAFI_POW_KEY` during an event.
 
@@ -556,7 +556,7 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 | **Register the engine**: Restate couldn't discover the engine (at once, or after five attempts) | Restate couldn't reach the engine (workers.dev not serving it yet), or the engine refused the discovery because the identity key in `wrangler.engine.toml` isn't this environment's (still the template's `publickeyv1_…`, say: nothing looks for it; or, in a Wrangler environment, its `[env.<name>.vars]` has none: vars aren't inherited): check the engine Worker's logs, fix, re-run the failed jobs. |
 | A deploy shows as cancelled | A newer run replaced it while it waited (the concurrency group): run it again. |
 | `/healthz` answers `500 misconfigured` | Missing secrets or documents, or a document still a template: the reason is in the answer when it names no value, and in the app Worker's logs. |
-| The admin says the raffle engine can't be reached | `RAFI_ENGINE_INGRESS_URL` or `RAFI_ENGINE_API_KEY` wrong, or Restate Cloud down: the [runbook](runbook.md#when-the-raffle-engine-is-down-during-an-event). |
+| The admin says the raffle engine can't be reached | `RESTATE_INGRESS_URL` or `RESTATE_INGRESS_API_KEY` wrong, or Restate Cloud down: the [runbook](runbook.md#when-the-raffle-engine-is-down-during-an-event). |
 | Phones don't update live | The app's logs (`nudging … failed`), the live Worker's logs; `RAFFLE_ROOM` bound with `script_name` the live Worker's name; the same `database_id` and `RAFI_DO_JURISDICTION` in all three configurations (nothing compares them: the app and the engine in different jurisdictions reach different objects). |
 | The cleanup reports a deployment draining for days | A paused invocation: resume or kill it ([Upgrades](upgrades.md#on-workers-automatic)). |
 | The cleanup fails: `… couldn't be listed: nothing removed or deleted`, or `listing Restate's deployments: …` | A listing failed (the token, the Restate key or admin URL, or either service down), so it touched nothing: fix the secret, or run it again later. |

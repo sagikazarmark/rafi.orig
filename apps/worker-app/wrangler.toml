@@ -89,14 +89,14 @@ invocation_logs = false
 # alike) creates the live channels' objects in that jurisdiction; unset, the
 # plain namespace.
 
-# apps/worker/wrangler.toml's, but RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS: the
+# apps/worker/wrangler.toml's, but RESTATE_IDENTITY_KEYS: the
 # Restate requests it verifies go to the engine's Worker, where the keys are
 # a var. A deploy refuses to go out while one is missing.
 [secrets]
 required = [
   "RAFI_PUBLIC_URL",
-  "RAFI_ENGINE_INGRESS_URL",
-  "RAFI_ENGINE_API_KEY",
+  "RESTATE_INGRESS_URL",
+  "RESTATE_INGRESS_API_KEY",
   "RAFI_POW_KEY",
   "CLERK_SECRET_KEY",
   "CLERK_PUBLISHABLE_KEY",

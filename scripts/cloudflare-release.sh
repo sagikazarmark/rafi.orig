@@ -220,13 +220,13 @@ check_dry_run() {
   [ -n "$app" ] || { echo "$DRY" | tail -40 >&2; fail "no dry deploy of the app Worker"; }
   [ -n "$engine" ] || { echo "$DRY" | tail -40 >&2; fail "no dry deploy of the engine Worker"; }
   expect "the live Worker" "$live" '^env\.DB \(rafi\) ' '^env\.RAFFLE_ROOM \(RaffleRoom\) '
-  ! grep -qE '^env\.(ASSETS|[A-Z_]+_LIMITER|RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS) ' <<<"$live" \
+  ! grep -qE '^env\.(ASSETS|[A-Z_]+_LIMITER|RESTATE_IDENTITY_KEYS) ' <<<"$live" \
     || fail "the live Worker binds the app's or the engine's"
   ! grep -qE '^env\.RAFFLE_ROOM \(RaffleRoom, defined in ' <<<"$live" || fail "the live Worker binds another Worker's RaffleRoom"
   expect "the app Worker" "$app" '^env\.ASSETS ' '^env\.DB \(rafi\) ' "^env\\.RAFFLE_ROOM \\(RaffleRoom, defined in $live_name\\) " \
     '^env\.JOIN_PER_RAFFLE_LIMITER ' '^env\.JOIN_PER_EMAIL_LIMITER ' '^env\.CONNECT_LIMITER ' '^env\.ADD_LIMITER '
   expect "the engine Worker" "$engine" '^env\.DB \(rafi\) ' "^env\\.RAFFLE_ROOM \\(RaffleRoom, defined in $live_name\\) " \
-    '^env\.RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS '
+    '^env\.RESTATE_IDENTITY_KEYS '
   ! grep -qE '^env\.(ASSETS|[A-Z_]+_LIMITER) ' <<<"$engine" || fail "the engine Worker binds the app's assets or limits"
   for key in live app engine; do
     case "$key" in live) got="$live" ;; app) got="$app" ;; *) got="$engine" ;; esac
@@ -238,7 +238,7 @@ check_dry_run() {
   done
   echo "ok   the live Worker $live_name: DB, RAFFLE_ROOM (its own)"
   echo "ok   the app Worker $app_name: ASSETS, DB, RAFFLE_ROOM ($live_name's), the four rate limiters"
-  echo "ok   the engine Worker $engine_base: DB, RAFFLE_ROOM ($live_name's), RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS"
+  echo "ok   the engine Worker $engine_base: DB, RAFFLE_ROOM ($live_name's), RESTATE_IDENTITY_KEYS"
   echo "ok   RAFI_DO_JURISDICTION: ${jurisdiction:-none} in all three"
 }
 
@@ -288,8 +288,8 @@ dir="$OUT/installation-eu"
 installation "$dir"
 secrets="$(sed -n '/^\[secrets\]$/,/^\]$/p' "$dir/wrangler.app.toml" | sed '1d')"
 [ -n "$secrets" ] || fail "wrangler.app.toml has no [secrets] required list"
-keys="$(sed -n 's/^RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = \(".*"\)$/\1/p' "$dir/wrangler.engine.toml")"
-[ -n "$keys" ] || fail "wrangler.engine.toml has no RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS"
+keys="$(sed -n 's/^RESTATE_IDENTITY_KEYS = \(".*"\)$/\1/p' "$dir/wrangler.engine.toml")"
+[ -n "$keys" ] || fail "wrangler.engine.toml has no RESTATE_IDENTITY_KEYS"
 database="$(sed -n 's/^database_id = \(".*"\)$/\1/p' "$dir/wrangler.app.toml")"
 {
   printf '\n[env.eu]\n'
@@ -307,7 +307,7 @@ database="$(sed -n 's/^database_id = \(".*"\)$/\1/p' "$dir/wrangler.app.toml")"
   printf '\n[env.eu]\n'
   printf '[[env.eu.d1_databases]]\nbinding = "DB"\ndatabase_name = "rafi"\ndatabase_id = %s\n' "$database"
   printf '[[env.eu.durable_objects.bindings]]\nname = "RAFFLE_ROOM"\nclass_name = "RaffleRoom"\nscript_name = "rafi-live-eu"\n'
-  printf '[env.eu.vars]\nRAFI_DO_JURISDICTION = "eu"\nRAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = %s\n' "$keys"
+  printf '[env.eu.vars]\nRAFI_DO_JURISDICTION = "eu"\nRESTATE_IDENTITY_KEYS = %s\n' "$keys"
 } >>"$dir/wrangler.engine.toml"
 {
   printf '\n[env.eu]\n'

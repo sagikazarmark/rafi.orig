@@ -32,4 +32,4 @@ invocation_logs = false
 # Optional, the same in all three files (INSTALL.md, "Keeping data in the EU").
 # RAFI_DO_JURISDICTION = "eu"
 # Your Restate environment's public key (comma-separated while rotating).
-RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS = "publickeyv1_…"
+RESTATE_IDENTITY_KEYS = "publickeyv1_…"

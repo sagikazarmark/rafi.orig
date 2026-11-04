@@ -549,6 +549,11 @@ copy → announce.
   JSON uploaded), with no release handed between jobs. The cleanup's leftover report counts only this
   installation's Restate deployments: an `<engine name>-v…` Worker that only another installation's deployment
   refers to is now reported (still never deleted).
+- **Since** (2026-11-04, later): Restate's values go by Restate's names, Rafi's own settings keep `RAFI_`: the app's
+  `RAFI_ENGINE_INGRESS_URL` is `RESTATE_INGRESS_URL` and `RAFI_ENGINE_API_KEY` is `RESTATE_INGRESS_API_KEY`; on
+  the engine Worker (and the local combined one) `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS` is `RESTATE_IDENTITY_KEYS`,
+  while the native engine keeps `RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`. No aliases; read the old names above as
+  these ([Renamed settings](../operations/upgrades.md#renamed-settings)).
 
 #### T2-6 · Licensing and attribution
 
