@@ -5156,6 +5156,7 @@ dependencies = [
  "gloo-timers 0.4.0",
  "js-sys",
  "partyline-dioxus",
+ "proptest",
  "qrcode",
  "rafi-api",
  "rafi-lifecycle",

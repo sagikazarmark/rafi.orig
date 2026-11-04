@@ -16,7 +16,7 @@ stranger's deploy, the attestation, the ruleset, the screenshot), the maintainer
 | 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
 | 5. Launch mechanics | **Done locally** (2026-11-02): T2-2, T2-4 … T2-8 as far as the repository goes; T2-1, T2-3, the stranger, the GitHub runs and settings open. Declined: release-note labels and templates, community files, third-party notices, Python in the release. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, `just workers` (the evening on `WORKERS_APP_PORT=8797`, every check ok), two `cloudflare-release.sh 0.1.0` builds byte-identical. |
 | 6. Design and UX | **Done** in the next run: T5-1 … T5-7, T6-1 … T6-6 (with what [What it left](#what-it-left) lists) |
-| 7. Tests | **Done** in the next run: T4-1, T4-3, T4-4, T4-6, T4-11 (with what it left); T4-5 and T4-7 since; T4-8 … T4-10 to tickets |
+| 7. Tests | **Done** in the next run: T4-1, T4-3, T4-4, T4-6, T4-11 (with what it left); T4-5 and T4-7 since; T4-11's `import::parse` property (2026-11-04); T4-8 … T4-10 to tickets |
 | 8. Tiers 7 and 8 | **Done** in the next run but what it left; T8-15 done (`0001_init.sql` frozen) |
 
 Proposed (2026-11-01). The last review before the first version is tagged, after
@@ -1042,7 +1042,13 @@ gaps below are where a bug would ruin an evening, leak personal data or break ve
   `decode`/`detect` (arbitrary bytes never panic: a panic kills the admin page's wasm), `name_key`/`unique_names`
   (idempotent, unique, ≤ 64 chars), `display_name`/`added_name` (NFC idempotence), `entrant::key`, `ids::slug`,
   `csv_field` round trip, `masked_email`, `screen()` vs `fallback.js` parity on table-driven JSON. **Accept**:
-  `import::parse` and `unique_names` have a proptest each before the tag; the rest to the tracker.
+  `import::parse` and `unique_names` have a proptest each before the tag; the rest to the tracker. **Done**
+  (`unique_names` in the next run; `import::parse` 2026-11-04: `import::tests::never_panics`, three properties
+  with 256 cases each: any bytes through `decode`, any text, and text shaped like a list (the three delimiters,
+  quoting with doubled quotes and line breaks inside, CRLF/LF/CR, a byte order mark or `sep=` in front) through
+  `parse`, `sniff`, `looks_mojibake`, `detect_with_header` both ways, `column_labels` and `preview` in both name
+  formats, none of which may panic, and what parses keeps the limits, a line per record, trimmed cells and a label
+  per column).
 
 ## Tier 5 · User experience
 

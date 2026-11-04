@@ -907,3 +907,121 @@ fn people_removed_at_their_request_are_left_out_unless_added_anyway() {
     let lifts: Vec<bool> = p.rows().iter().map(|r| r.lift_removal).collect();
     assert_eq!(lifts, [true, false], "sent lifting Bence's removal");
 }
+
+/// The whole reading of a list never panics, whatever is pasted or uploaded:
+/// a panic here kills the admin page's WebAssembly, in front of the room. The
+/// fixtures above say what the parser does with lists; this says what it
+/// never does with anything, and what the preview can rely on of a table
+/// that parsed.
+mod never_panics {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    /// Text shaped like a list, so the parser's branches are reached: cells of
+    /// plain text, quoted text (with doubled quotes, delimiters and line
+    /// breaks inside), empty cells, emails and digits, joined by one of the
+    /// three delimiters and ended by CRLF, LF or CR; a byte order mark or an
+    /// Excel `sep=` line in front of some.
+    fn list() -> impl Strategy<Value = String> {
+        let cell = prop_oneof![
+            4 => "[A-Za-zÁ-ű .'-]{0,24}",
+            2 => "[a-z0-9.+-]{1,12}@[a-z0-9-]{1,10}\\.[a-z]{2,4}",
+            1 => "[0-9]{1,10}",
+            2 => "\"([^\"]|\"\"){0,40}\"",
+            1 => Just(String::new()),
+        ];
+        let delimiter = prop_oneof![Just(','), Just(';'), Just('\t')];
+        let line_end = prop_oneof![Just("\r\n"), Just("\n"), Just("\r")];
+        let prefix = prop_oneof![
+            3 => Just(String::new()),
+            1 => Just("\u{FEFF}".to_owned()),
+            1 => Just("sep=;\n".to_owned()),
+        ];
+        (
+            prefix,
+            delimiter,
+            line_end,
+            prop::collection::vec(prop::collection::vec(cell, 0..6), 0..12),
+        )
+            .prop_map(|(prefix, delimiter, line_end, rows)| {
+                let mut text = prefix;
+                for row in rows {
+                    text.push_str(&row.join(&delimiter.to_string()));
+                    text.push_str(line_end);
+                }
+                text
+            })
+    }
+
+    /// Reads `text` the way the tab does, as far as it gets.
+    fn read(text: &str) {
+        let Ok(table) = parse(text) else { return };
+        assert!(table.records.len() <= MAX_ROWS);
+        let width = table
+            .records
+            .iter()
+            .map(|r| r.cells.len())
+            .max()
+            .unwrap_or(0);
+        assert!(width <= MAX_COLUMNS);
+        for record in &table.records {
+            assert!(record.line >= 1, "a record knows its line");
+            for cell in &record.cells {
+                assert!(cell.len() <= MAX_FIELD_BYTES);
+                assert_eq!(cell, cell.trim(), "cells are trimmed");
+                looks_mojibake(cell);
+            }
+        }
+        for header in [true, false] {
+            let mapping = detect_with_header(&table, header);
+            let labels = column_labels(&table, header);
+            assert_eq!(labels.len(), width, "a label per column");
+            let existing = Existing::new(&[]);
+            let _ = preview(
+                &table,
+                &mapping,
+                NameFormat::Full,
+                &existing,
+                &Decisions::default(),
+            );
+            let _ = preview(
+                &table,
+                &mapping,
+                NameFormat::FirstInitial,
+                &existing,
+                &Decisions::default(),
+            );
+        }
+        let _ = detect(&table);
+        let _ = has_header(&table);
+        sniff(text);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// Any bytes: decoded or refused, never a panic; what decodes, parses
+        /// or is refused, never a panic; what parses, previews.
+        #[test]
+        fn any_bytes(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
+            if let Ok(text) = decode(&bytes) {
+                read(&text);
+            }
+        }
+
+        /// Any text shaped like a list: the same, through the parser's
+        /// quoting, delimiters and line ends.
+        #[test]
+        fn any_list(text in list()) {
+            prop_assert!(decode(text.as_bytes()).is_ok(), "UTF-8 always decodes");
+            read(&text);
+        }
+
+        /// Any text at all (every scalar value, invisible characters included).
+        #[test]
+        fn any_text(text in "\\PC{0,256}") {
+            read(&text);
+        }
+    }
+}
