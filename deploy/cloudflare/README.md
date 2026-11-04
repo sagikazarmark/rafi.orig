@@ -23,8 +23,9 @@ This page covers the tasks you'll come back to. The details, and the reasons beh
 
 ## Installation
 
-The first deploy is done once, step by step, in [INSTALL.md](INSTALL.md): from an empty repository to `/healthz`
-answering. Two decisions there can't be changed later, so make them first:
+The first deploy is done once, in [INSTALL.md](INSTALL.md): its [Quick start](INSTALL.md#quick-start) is a few
+commands with the defaults, its steps explain every choice. Two decisions there can't be changed later, so make
+them first:
 
 - whether data stays in the EU ([Keeping data in the EU](INSTALL.md#keeping-data-in-the-eu));
 - the installation's names, if the account will hold more than one ([Several

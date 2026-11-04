@@ -3,7 +3,8 @@
 #   npx -y wrangler secret bulk .dev.vars -c wrangler.app.toml
 # Optional settings: https://github.com/sagikazarmark/rafi/blob/main/docs/reference/configuration.md
 
-# The public origin, no trailing slash (https://raffle.example.org).
+# The public origin, no trailing slash: https://rafi-app.<subdomain>.workers.dev,
+# or your domain's (https://raffle.example.org).
 RAFI_PUBLIC_URL=
 
 # Restate Cloud: the ingress URL (https://<env>.env.<region>.restate.cloud:8080) and an API key.
@@ -13,7 +14,7 @@ RESTATE_INGRESS_API_KEY=
 # Random, 32+ characters (openssl rand -hex 32). Never rotate during an event.
 RAFI_POW_KEY=
 
-# Clerk: sk_live_… and pk_live_….
+# Clerk: sk_test_… and pk_test_… (development instance), or sk_live_… and pk_live_….
 CLERK_SECRET_KEY=
 CLERK_PUBLISHABLE_KEY=
 
