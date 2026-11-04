@@ -97,21 +97,25 @@ async fn config_js_says_how_the_server_signs_in() {
     assert_eq!(
         body,
         format!(
-            "window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":{:?},{build}}};\n{THEME}\n",
+            "window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":{:?},{build},\"terms\":true,\"privacy\":true}};\n{THEME}\n",
             Config::for_tests().clerk_publishable_key.unwrap()
         )
     );
 
     // Dev auth: no key, whatever is configured, so the admin shows its
-    // dev-auth badge instead of a sign-in nobody checks.
+    // dev-auth badge instead of a sign-in nobody checks. And which of the
+    // operator's documents there are: here, the terms alone.
     let mut cfg = Config::for_tests();
     cfg.dev_auth = true;
+    cfg.documents.privacy = None;
     let router = routes(app_with(cfg).await);
     let (status, _, body) = send(&router, get()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        format!("window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":null,{build}}};\n{THEME}\n")
+        format!(
+            "window.__RAFI_CONFIG__ = {{\"clerkPublishableKey\":null,{build},\"terms\":true,\"privacy\":false}};\n{THEME}\n"
+        )
     );
 }
 

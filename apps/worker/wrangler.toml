@@ -15,9 +15,10 @@
 # its database ID in them; everything else of the installation's is a secret (`wrangler secret
 # bulk`; the Worker reads vars and secrets alike), listed under [secrets] so a
 # deploy refuses to go out without them, or a file among the static files:
-# the legal documents are `legal/terms.md` and `legal/privacy.md` there,
-# which `just assets` copies in from RAFI_DOCS_DIR, and the Worker
-# reads them through the assets binding when an isolate starts. Nothing of
+# the operator's legal documents, if any, are `legal/terms.md` and
+# `legal/privacy.md` there (an installation's deploy copies them in; `just
+# assets` none), and the Worker reads them through the assets binding when
+# an isolate starts. Nothing of
 # an installation's is compiled in: one build serves every installation.
 # scripts/workers-check.sh checks that deploy/cloudflare's files agree with
 # the production Workers'. The full procedure: docs/operations/cloudflare.md.
@@ -35,7 +36,7 @@ preview_urls = false
 command = "worker-build --release"
 
 # The web app's files (admin, projector, verification page), the participant
-# scripts and the installation's legal documents (legal/). A path that isn't
+# scripts and the operator's legal documents, if any (legal/). A path that isn't
 # a file goes to the Worker: its routes, the web app's shell (its index.html,
 # compiled into the Worker, not among the files: it carries a
 # Content-Security-Policy naming the installation's Clerk host, which
@@ -180,7 +181,7 @@ simple = { limit = 20, period = 60 }
 [env.dev.vars]
 RAFI_PUBLIC_URL = "http://127.0.0.1:8787"
 RESTATE_INGRESS_URL = "http://127.0.0.1:18080"
-RAFI_DEV_AUTH = "1" # also stands in for the operator, and lets the template documents through
+RAFI_DEV_AUTH = "1" # also stands in for the operator
 RAFI_DRAND_MOCK = "1" # the mock chain, for the app and the engine alike
 RAFI_DRAND_LEAD_SECS = "3"
 RAFI_POW_KEY = "local-development-only"

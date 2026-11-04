@@ -181,10 +181,11 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
 - the production shape: `wrangler deploy --dry-run` of the top level of `wrangler.toml`, built without the `dev`
   feature, against a size budget (2.5 MiB gzipped; Workers allow 3 on the free plan, 10 paid), and the same
   Worker served with no secret at all answering 500 `misconfigured` to everything, so a deploy can't run open;
-  by then it has read `legal/terms.md` and `legal/privacy.md` through the assets binding (the refusal is a
-  secret's, not theirs), and served without `legal/` it refuses naming them, from the 404 Workers Assets
-  answers, which only the real runtime can show; with a `terms.md` without its front matter it refuses naming
-  the file (`misconfigured: legal/terms.md: no front matter`), in the answer too
+  then served with stand-in secrets: without `legal/` (`just assets` copies none) it answers, and `/terms` and
+  `/privacy` say the operator hasn't provided them, from the 404 Workers Assets answers, which only the real
+  runtime can show; with the check's own `legal/terms.md` and `legal/privacy.md` (removed after) the pages show
+  them with their versions, read through the assets binding; with a `terms.md` without its front matter it
+  refuses naming the file (`misconfigured: legal/terms.md: no front matter`), in the answer too
 - `deploy/cloudflare`, what an installation deploys: its `wrangler.app.toml`, `wrangler.engine.toml` and
   `wrangler.live.toml` agree with the production Workers' (`apps/worker-app`, `apps/worker-engine`,
   `apps/worker-live`) on the bindings, limits, Durable Object migrations, required secrets and addresses (the app on
@@ -202,7 +203,8 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   (`scripts/cloudflare-deploy-test.sh`: each subcommand run from a copy of the template with a release laid out in
   `release/`, against a stubbed wrangler and Restate CLI and a fake Cloudflare and Restate admin API, a local node
   server; the wrangler stub's dry runs write a `deploy` entry with the Worker's name into its ND-JSON output, as
-  wrangler does: `dry-run` (the release's `VERSION` the one deployed, the installation's version files not read and
+  wrangler does: `dry-run` (`legal/`'s documents copied in, the tests' own: both, the terms alone with what a run
+  before copied removed, and none at all; the release's `VERSION` the one deployed, the installation's version files not read and
   the template's placeholders not looked for, `check` gone, the names read from the dry runs whatever the files
   say, a dry run failing or naming no Worker, the engine Worker's versioned name, `jq` missing, the tools' defaults
   `npx -y wrangler` and `npx -y @restatedev/restate` and their overrides, and Wrangler environments: none, one
@@ -221,7 +223,7 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   them); the fake server is stopped on exit and on a signal); then `worker.tar.gz`, its layout
   and each Worker's exports checked, unpacked into a copy of the template's `release/`, whose `release/deploy.sh
   dry-run` (with the devenv's wrangler through `WRANGLER`, nothing installed, nothing asked of the network) copies
-  `legal/` in and dry-deploys the live Worker `rafi-live` (`DB`, `RAFFLE_ROOM` its own), the engine Worker
+  the documents the template's `legal/` has in (none it hasn't) and dry-deploys the live Worker `rafi-live` (`DB`, `RAFFLE_ROOM` its own), the engine Worker
   `rafi-engine`, this release's `rafi-engine-v<version>` (`DB`, `RAFFLE_ROOM` defined in `rafi-live`, the identity
   keys) and the app Worker `rafi-app` (`ASSETS`, `DB`, `RAFFLE_ROOM` defined in `rafi-live`, the four rate
   limiters; on workers.dev, the template's default), the names read from the dry runs' ND-JSON and no

@@ -14,7 +14,7 @@ workers_dev = true
 preview_urls = false
 # routes = [{ pattern = "raffle.example.org", custom_domain = true }]
 
-# The web app's files and your legal documents (deploy.sh copies legal/ in).
+# The web app's files and your legal documents, if any (deploy.sh copies legal/ in).
 [assets]
 directory = "release/app/assets"
 binding = "ASSETS"

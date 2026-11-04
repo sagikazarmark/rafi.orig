@@ -85,23 +85,21 @@ changes the engine's handlers needs a **new URI** (Restate keeps what it already
 
 ## 5. Legal documents and the operator
 
-Every raffle's privacy notice names **you**, the operator of this installation, as the processor, and links the
-installation's own privacy notice. Organizers accept your terms, with the data processing agreement, by using the
-service; the admin links them. The software can't write these for you:
+Every raffle's privacy notice names **you**, the operator of this installation, as the processor. Your terms, with
+the data processing agreement organizers accept by using the service, and your own privacy notice are yours to
+write, and optional ([Your legal documents](legal-documents.md)):
 
-1. Put `terms.md` and `privacy.md` in a directory (`RAFI_DOCS_DIR`). Start from
-   [`deploy/cloudflare/legal/`](../../deploy/cloudflare/legal/), which are engineering drafts marked as templates,
-   fill in the bracketed parts and have a lawyer review them.
+1. Put `terms.md` and `privacy.md`, either or both, in a directory (`RAFI_DOCS_DIR`). Without one, its page says you
+   haven't provided it.
 2. Give each its version, in the front matter at its top (`---`, `version: 2026-11`, `---`; [the
-   format](../reference/configuration.md#the-legal-documents-versions)); the templates have one to change. Changing a
-   document's text means a new version, shown with the document. Without the front matter or a version the app
-   refuses to start, naming the file, under `RAFI_DEV_AUTH` too. Nothing records who read which version: a change to the data
-   processing agreement has to be notified to organizers directly, not only published.
-3. Name yourself: `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`.
+   format](../reference/configuration.md#the-legal-documents-versions)). Changing a document's text means a new
+   version, shown with the document. Without the front matter or a version the app refuses to start, naming the
+   file, under `RAFI_DEV_AUTH` too. Nothing records who read which version: a change to the data processing
+   agreement has to be notified to organizers directly, not only published.
+3. Name yourself: `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`. Without them, the app refuses to start (except under
+   `RAFI_DEV_AUTH`).
 
-Without these, the app refuses to start (except under `RAFI_DEV_AUTH`, with placeholders marked as such). Your
-record of processing, and what changed in the templates, are in [the operator's
-records](overview.md#the-operators-records).
+Your record of processing is in [the operator's records](overview.md#the-operators-records).
 
 The retention settings are yours too, within limits: `RAFI_RETENTION_DAYS` (7: days after the event date before
 non-winners are erased, for organizers who choose nothing), `RAFI_RETENTION_MAX_DAYS` (30: the most an organizer may

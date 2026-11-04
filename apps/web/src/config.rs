@@ -40,6 +40,28 @@ pub fn build() -> Build {
     }
 }
 
+/// Which of the operator's documents there are: their terms (`/terms`),
+/// which organizers accept by using the service, and their privacy notice
+/// (`/privacy`). Neither when the server didn't say (natively, or from a
+/// server before them): nothing then claims or links a document that may
+/// not be there.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Documents {
+    pub terms: bool,
+    pub privacy: bool,
+}
+
+pub fn documents() -> Documents {
+    let Some(cfg) = config() else {
+        return Documents::default();
+    };
+    let flag = |name| field(&cfg, name).and_then(|v| v.as_bool()) == Some(true);
+    Documents {
+        terms: flag("terms"),
+        privacy: flag("privacy"),
+    }
+}
+
 fn config() -> Option<JsValue> {
     // Natively (the tests' server-side rendering) there is no page to ask.
     if !cfg!(target_arch = "wasm32") {

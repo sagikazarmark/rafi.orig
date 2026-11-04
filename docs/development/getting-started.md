@@ -165,7 +165,7 @@ the engine's (`rafi-cloudflare-engine` under `/restate`, deployed as `apps/worke
 Worker's local state (D1, Durable Objects) across restarts:
 
 ```sh
-just apps/worker/ assets                                  # web app bundle + participant build + template legal documents -> apps/worker/worker-assets
+just apps/worker/ assets                                  # web app bundle + participant build -> apps/worker/worker-assets (no legal documents)
 (cd apps/worker && wrangler d1 migrations apply rafi --local --env dev --persist-to ../../.wrangler-state)
 (cd apps/worker && wrangler dev --env dev --persist-to ../../.wrangler-state)   # http://127.0.0.1:8787, dev auth, mock drand
 # Restate with its ingress on :18080 (the dev Worker's RESTATE_INGRESS_URL), then register the engine, which is

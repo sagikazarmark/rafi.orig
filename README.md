@@ -90,8 +90,8 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
   the template [`rafi-deploy-template`](https://github.com/sagikazarmark/rafi-deploy-template) (a copy of
   [`deploy/cloudflare`](deploy/cloudflare) at each release), and its GitHub Actions workflows deploy a
   release to your own account (the app Worker, the live Worker with the live channels, and each release's raffle
-  engine Worker, registered with Restate Cloud and removed once drained) with your configuration and legal
-  documents, after checking the release's provenance; one account can hold several installations, each in a
+  engine Worker, registered with Restate Cloud and removed once drained) with your configuration and, if you
+  provide them, your legal documents, after checking the release's provenance; one account can hold several installations, each in a
   repository of its own or as Wrangler environments of one. [The first deploy](deploy/cloudflare/INSTALL.md) is
   documented step by step and [running it after](deploy/cloudflare/README.md) beside it, and
   [the reference](docs/operations/cloudflare.md) explains both. CI runs the production
@@ -118,6 +118,8 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 - [Self-hosting](docs/operations/self-hosting.md) · [Cloudflare Workers](docs/operations/cloudflare.md) (its first
   deploy: [`deploy/cloudflare/INSTALL.md`](deploy/cloudflare/INSTALL.md); after it, its
   [README](deploy/cloudflare/README.md))
+- [Your legal documents](docs/operations/legal-documents.md): optional, yours to write, and what the software does
+  with personal data
 - [Upgrades](docs/operations/upgrades.md) · [Troubleshooting](docs/operations/troubleshooting.md) ·
   [Runbook](docs/operations/runbook.md)
 

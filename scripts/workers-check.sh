@@ -18,9 +18,11 @@
 #      the `dev` feature): `wrangler deploy --dry-run` validates the
 #      configuration and the bundle against a size budget, and the Worker
 #      served without any secret answers 500 "misconfigured", so a deploy
-#      can't run open; it has read the legal documents through the assets
-#      binding by then, served without legal/ it refuses naming them, and
-#      with a terms.md without its front matter (version) it refuses naming it.
+#      can't run open; served with stand-in secrets, without legal/ its
+#      /terms and /privacy say the operator hasn't provided them, with this
+#      run's own documents in legal/ (read through the assets binding) they
+#      show their versions, and with a terms.md without its front matter
+#      (version) it refuses every request naming the file.
 #      Needs dx too (the dry run uploads the assets);
 #   6. deploy/cloudflare, what an installation deploys: its wrangler.app.toml,
 #      wrangler.engine.toml and wrangler.live.toml agree with the production
@@ -49,16 +51,13 @@ APP="http://127.0.0.1:$APP_PORT"
 LOGS="$STATE/logs"
 mkdir -p "$LOGS"
 PIDS=()
-# Where the Worker's legal/ is while the production shape is served without it (below); restored on exit.
-LEGAL_ASIDE=
+# Set while the production shape is served with this run's own legal/ (below); removed on exit.
+LEGAL_FIXTURE=
 
 cleanup() {
   for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
   wait 2>/dev/null || true
-  if [ -n "$LEGAL_ASIDE" ] && [ -d "$LEGAL_ASIDE" ]; then
-    rm -rf "$ROOT/apps/worker/worker-assets/legal"
-    mv "$LEGAL_ASIDE" "$ROOT/apps/worker/worker-assets/legal"
-  fi
+  if [ -n "$LEGAL_FIXTURE" ]; then rm -rf "$ROOT/apps/worker/worker-assets/legal"; fi
   rm -rf "$STATE"
 }
 trap cleanup EXIT
@@ -262,59 +261,79 @@ if command -v dx >/dev/null; then
     exit 1
   fi
   echo "ok   without secrets the production Worker refuses every request (500 misconfigured)"
-  # The legal documents are read through the assets binding before anything
-  # else is checked, so that refusal was for a secret, not for them.
-  missing_docs="missing from the Worker's static files"
   if ! logged "$LOGS/worker.log" "rafi: "; then
     echo "the production Worker logged no reason for refusing; log:" >&2
     tail -20 "$LOGS/worker.log" >&2
     exit 1
   fi
-  if grep -q "$missing_docs" "$LOGS/worker.log"; then
-    echo "the production Worker didn't find legal/ among its static files:" >&2
-    grep "$missing_docs" "$LOGS/worker.log" | head -1 >&2
-    exit 1
-  fi
-  echo "ok   the Worker read legal/terms.md and legal/privacy.md through the assets binding"
-  # And without them, the refusal is theirs, with the message that says what
-  # to do: Workers Assets answers the missing files with a 404 (there is no
-  # single-page fallback among the files), which only the real thing shows.
-  # legal/ is moved aside while this Worker starts and answers, and put back
-  # right after (by cleanup too, should this run die in between).
-  kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
-  LEGAL_ASIDE="$STATE/legal-aside"
-  mv "$ROOT/apps/worker/worker-assets/legal" "$LEGAL_ASIDE"
-  RESTATE_INGRESS_URL= serve apps/worker 8792 /healthz
-  closed="$(curl -s -m 10 -w '\n%{http_code}' http://127.0.0.1:8792/healthz)"
-  named=
-  if logged "$LOGS/worker.log" "$missing_docs"; then named=1; fi
-  mv "$LEGAL_ASIDE" "$ROOT/apps/worker/worker-assets/legal"
-  LEGAL_ASIDE=
-  if [ "$(echo "$closed" | tail -1)" != "500" ] || [ -z "$named" ]; then
-    echo "the production Worker without legal/ answered: $closed" >&2
+  # The operator's legal documents, each optional, read through the assets
+  # binding (Workers Assets answers a missing file with a 404, there being no
+  # single-page fallback among the files, which only the real thing shows).
+  # Served with stand-in secrets, so the app builds: `just assets` leaves no
+  # legal/, so its pages say the operator hasn't provided them; this run's
+  # own documents in legal/ are rendered with their versions; and a terms.md
+  # without its front matter refuses every request, naming the file. legal/
+  # is removed after each (by cleanup too, should this run die in between).
+  secrets=(--var RAFI_POW_KEY:workers-check-workers-check-workers-check
+    --var RESTATE_INGRESS_API_KEY:workers-check
+    --var CLERK_SECRET_KEY:sk_test_workerscheck
+    --var CLERK_PUBLISHABLE_KEY:pk_test_cmFmaS10ZXN0LmNsZXJrLmFjY291bnRzLmRldiQ
+    --var "RAFI_OPERATOR_NAME:Workers Check" --var RAFI_OPERATOR_EMAIL:privacy@workers-check.invalid)
+  legal="$ROOT/apps/worker/worker-assets/legal"
+  # documents <port>: the Worker served on <port> with the secrets, the one before stopped.
+  documents() {
+    kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
+    # RESTATE_INGRESS_URL from wrangler's environment (above, the evening): nothing listens there.
+    RESTATE_INGRESS_URL=http://127.0.0.1:9 serve apps/worker "$1" /healthz --var "RAFI_PUBLIC_URL:http://127.0.0.1:$1" "${secrets[@]}"
+  }
+  # pages <port>: /healthz's, /terms's and /privacy's body and status, a line each.
+  pages() {
+    for path in /healthz /terms /privacy; do
+      curl -s -m 10 -w ' %{http_code}' "http://127.0.0.1:$1$path" | tr '\n' ' '
+      echo
+    done
+  }
+  [ ! -e "$legal" ] || { echo "just assets left a legal/ among the Worker's static files" >&2; exit 1; }
+  documents 8792
+  pages="$(pages 8792)"
+  if ! echo "$pages" | sed -n 1p | grep -q '^ok .* 200$' \
+    || ! echo "$pages" | sed -n 2p | grep -q "hasn&#39;t provided terms\..* 200$" \
+    || ! echo "$pages" | sed -n 3p | grep -q "hasn&#39;t provided a privacy notice\..* 200$"; then
+    echo "the production Worker without legal/ answered:" >&2
+    echo "$pages" | cut -c1-300 >&2
     tail -20 "$LOGS/worker.log" >&2
     exit 1
   fi
-  echo "ok   without legal/ the production Worker refuses every request, naming the documents"
-  # A document without its front matter (the version): refused too, naming
-  # the file, in the answer as well (it names no value). The same dance.
-  kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
-  LEGAL_ASIDE="$STATE/legal-aside"
-  mv "$ROOT/apps/worker/worker-assets/legal" "$LEGAL_ASIDE"
-  mkdir "$ROOT/apps/worker/worker-assets/legal"
-  cp "$LEGAL_ASIDE/privacy.md" "$ROOT/apps/worker/worker-assets/legal/"
-  awk 'f; /^---$/ && ++n == 2 { f = 1 }' "$LEGAL_ASIDE/terms.md" >"$ROOT/apps/worker/worker-assets/legal/terms.md"
-  RESTATE_INGRESS_URL= serve apps/worker 8793 /healthz
-  closed="$(curl -s -m 10 -w '\n%{http_code}' http://127.0.0.1:8793/healthz)"
-  rm -rf "$ROOT/apps/worker/worker-assets/legal"
-  mv "$LEGAL_ASIDE" "$ROOT/apps/worker/worker-assets/legal"
-  LEGAL_ASIDE=
-  if [ "$(echo "$closed" | tail -1)" != "500" ] || ! echo "$closed" | grep -q "misconfigured: legal/terms.md: no front matter"; then
-    echo "the production Worker with a terms.md without front matter answered: $closed" >&2
+  echo "ok   without legal documents the production Worker serves, and /terms and /privacy say the operator hasn't provided them"
+  LEGAL_FIXTURE=1
+  mkdir "$legal"
+  printf -- '---\nversion: check-1\n---\n# Check terms\n' >"$legal/terms.md"
+  printf -- '---\nversion: check-2\n---\n# Check privacy notice\n' >"$legal/privacy.md"
+  documents 8793
+  pages="$(pages 8793)"
+  if ! echo "$pages" | sed -n 2p | grep -q "Terms · version check-1.*<h1>Check terms</h1>.* 200$" \
+    || ! echo "$pages" | sed -n 3p | grep -q "Privacy notice · version check-2.*<h1>Check privacy notice</h1>.* 200$"; then
+    echo "the production Worker with legal/ answered:" >&2
+    echo "$pages" | cut -c1-300 >&2
+    tail -20 "$LOGS/worker.log" >&2
+    exit 1
+  fi
+  echo "ok   the Worker read legal/terms.md and legal/privacy.md through the assets binding, each with its version"
+  # A document without its front matter (the version): refused, naming the
+  # file, in the answer as well (it names no value).
+  printf -- '# Check terms\n' >"$legal/terms.md"
+  documents 8794
+  pages="$(pages 8794)"
+  rm -rf "$legal"
+  LEGAL_FIXTURE=
+  if ! echo "$pages" | sed -n 1p | grep -q "^misconfigured: legal/terms.md: no front matter.* 500$"; then
+    echo "the production Worker with a terms.md without front matter answered:" >&2
+    echo "$pages" | cut -c1-300 >&2
     tail -20 "$LOGS/worker.log" >&2
     exit 1
   fi
   echo "ok   with a document without its version the production Worker refuses every request, naming the file"
+  kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
 
   step "deploy/cloudflare: the installation's shape, and its release rehearsed"
   # The template's three files share the production Workers' shapes: their

@@ -87,7 +87,8 @@ they are one Worker (`apps/worker`), the engine under `/restate`.
 ## The operator's records
 
 You are every organizer's processor (the data processing agreement in your terms) and the controller of their
-accounts; your documents are set up in [Self-hosting](self-hosting.md#5-legal-documents-and-the-operator) or
+accounts; what the software does, for writing your documents, is in [Your legal documents](legal-documents.md), and
+they are set up in [Self-hosting](self-hosting.md#5-legal-documents-and-the-operator) or
 [Cloudflare Workers](cloudflare.md#the-legal-documents-and-the-operator). What the software implies for your
 records (not legal advice):
 
@@ -115,6 +116,8 @@ records (not legal advice):
 - [Cloudflare Workers](cloudflare.md), the first deploy step by step in
   [`deploy/cloudflare/INSTALL.md`](../../deploy/cloudflare/INSTALL.md), and the day-to-day in its
   [README](../../deploy/cloudflare/README.md)
+- [Your legal documents](legal-documents.md): your terms and privacy notice, optional, and what the software does
+  with personal data, for writing them
 - [Upgrades](upgrades.md): migrations, registering the engine, the deploy freeze
 - [Troubleshooting](troubleshooting.md)
 - [Runbook](runbook.md): the deploy preflight, rotating secrets, rolling back (don't), the engine down during an

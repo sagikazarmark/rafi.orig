@@ -70,8 +70,9 @@ opens: it goes from Published to the freeze.
 
 ## Before the event
 
-0. **The first time:** read the service's terms (`/terms`), which include the data processing agreement. Your
-   entrants' data is processed on your behalf; the terms say how, and you accept them by using the service. In a
+0. **The first time:** read the service's terms (`/terms`), if its operator has provided them: they include the
+   data processing agreement. Your entrants' data is processed on your behalf; the terms say how, and you accept
+   them by using the service. In a
    Clerk organization, **managers** (a custom `org:manager` role, or the `org:raffles:manage` permission, set up
    in Clerk) create, configure and delete raffles; every **member** runs them: registration, the draw, people,
    prizes, exports, erasure; an **admin** can also remove the organization's data.

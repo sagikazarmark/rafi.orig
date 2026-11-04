@@ -185,12 +185,37 @@ async fn the_join_page_and_the_notices_say_when_data_is_erased() {
         notice.contains("Rafi Test Operator (privacy@rafi.test) runs this service"),
         "{notice}"
     );
-    assert!(notice.contains("version test-1"));
+    // With both documents: the agreement in the terms, and the operator's
+    // own notice, linked with its version.
+    assert!(
+        notice.contains("under the data processing agreement in its terms.")
+            && notice.contains("href=\"/terms\""),
+        "{notice}"
+    );
+    assert!(
+        notice.contains("privacy notice (version test-1)"),
+        "{notice}"
+    );
     assert!(
         notice.contains("href=\"/privacy\""),
         "links the installation's notice"
     );
-    assert!(!notice.contains("Clerk"), "no hard-coded subprocessors");
+    // What the software decides, whatever the operator wrote: the providers
+    // that receive nothing of an entrant's, and the hosting (natively, the
+    // operator's choice, named no further).
+    assert!(
+        notice.contains("How the Rafi software works:")
+            && notice.contains("The raffle engine (Restate), organizer sign-in (Clerk) and the public randomness network (drand) receive none of your personal data."),
+        "{notice}"
+    );
+    assert!(
+        notice.contains("hosting the operator chose") && !notice.contains("Cloudflare"),
+        "{notice}"
+    );
+    assert!(
+        notice.contains("the operator&#39;s privacy notice says how long."),
+        "{notice}"
+    );
     assert!(
         !notice.contains("Art. 6(1)(a)"),
         "no consent-based processing"
@@ -293,6 +318,75 @@ async fn the_join_page_and_the_notices_say_when_data_is_erased() {
         admin.retention.winner_hold_days,
         app.policy.retention.winner_hold_days
     );
+}
+
+/// The operator's documents are optional, each on its own. Without them the
+/// raffle's notice is still whole: it claims no agreement there are no terms
+/// to hold, links no notice there isn't, and says what the software decides
+/// (on Cloudflare, naming it as the hosting); their pages say they weren't
+/// provided.
+#[tokio::test]
+async fn without_the_operators_documents_nothing_claims_them() {
+    let mut cfg = Config::for_tests();
+    cfg.documents = crate::config::Documents::default();
+    cfg.hosting = crate::config::Hosting::Cloudflare;
+    let app = app_with(cfg).await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let get = |path: String| Request::get(path).body(Body::empty()).unwrap();
+
+    let (status, _, notice) = send(&router, get(format!("/privacy/{}", raffle.slug))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        notice.contains("runs this service and processes the raffle&#39;s data on the organizer&#39;s behalf, as its processor.</p>"),
+        "{notice}"
+    );
+    assert!(!notice.contains("data processing agreement"), "{notice}");
+    assert!(
+        !notice.contains("href=\"/terms\"") && !notice.contains("href=\"/privacy\""),
+        "{notice}"
+    );
+    for said in [
+        "The operator hasn&#39;t published a privacy notice of its own.",
+        "The service runs on Cloudflare (Cloudflare, Inc., a US company), whose Workers, D1 database and Durable Objects hold the raffle&#39;s data on the operator&#39;s behalf.",
+        "receive none of your personal data.",
+        "(Cloudflare D1 Time Travel) for up to 30 days, and in any backup the operator keeps.",
+    ] {
+        assert!(notice.contains(said), "{said}: {notice}");
+    }
+    assert!(!notice.contains("says how long"), "{notice}");
+
+    for (path, missing) in [("/privacy", "a privacy notice"), ("/terms", "terms")] {
+        let (status, _, page) = send(&router, get(path.into())).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert!(
+            page.contains(&format!(
+                "The operator of this service hasn&#39;t provided {missing}."
+            )),
+            "{path}: {page}"
+        );
+        assert!(!page.contains("version"), "{path}: {page}");
+    }
+
+    // The terms alone: the agreement is claimed, no notice linked.
+    let mut cfg = Config::for_tests();
+    cfg.documents.privacy = None;
+    let app = app_with(cfg).await;
+    let router = routes(app.clone());
+    let raffle = setup_open(&app, &[("Prize", 1)]).await;
+    let (_, _, notice) = send(&router, get(format!("/privacy/{}", raffle.slug))).await;
+    assert!(
+        notice.contains("under the data processing agreement in its terms.")
+            && notice.contains("href=\"/terms\""),
+        "{notice}"
+    );
+    assert!(
+        notice.contains("The operator hasn&#39;t published a privacy notice of its own.")
+            && !notice.contains("href=\"/privacy\""),
+        "{notice}"
+    );
+    let (_, _, terms) = send(&router, get("/terms".into())).await;
+    assert!(terms.contains("Terms · version test-1"), "{terms}");
 }
 
 /// Erasing one entrant on request: refused while the list is frozen before

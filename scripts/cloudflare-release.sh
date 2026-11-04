@@ -284,11 +284,17 @@ for worker in app engine live; do
 done
 [ -x "$dir/release/deploy.sh" ] || fail "release/deploy.sh isn't executable"
 dry_run "$dir"
+# The operator's documents, those the template has (each optional): copied as they are, and
+# none that it hasn't.
 for doc in terms.md privacy.md; do
-  cmp -s "$ROOT/deploy/cloudflare/legal/$doc" "$dir/release/app/assets/legal/$doc" \
-    || fail "deploy.sh didn't put legal/$doc into release/app/assets/legal/"
+  if [ -f "$ROOT/deploy/cloudflare/legal/$doc" ]; then
+    cmp -s "$ROOT/deploy/cloudflare/legal/$doc" "$dir/release/app/assets/legal/$doc" \
+      || fail "deploy.sh didn't put legal/$doc into release/app/assets/legal/"
+  else
+    [ ! -e "$dir/release/app/assets/legal/$doc" ] || fail "deploy.sh put a legal/$doc the template hasn't into release/app/assets/legal/"
+  fi
 done
-echo "ok   deploy.sh copied legal/ into release/app/assets/legal/"
+echo "ok   deploy.sh copied legal/'s documents (those there are) into release/app/assets/legal/"
 grep -qF "Rafi $VERSION (the release's VERSION)" <<<"$DRY" || fail "deploy.sh didn't read the release's VERSION"
 check_dry_run "$dir" rafi-app rafi-live rafi-engine ""
 rm -rf "$dir"

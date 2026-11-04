@@ -73,7 +73,6 @@ let
     "apps/participant/Cargo.toml"
     "apps/participant/Dioxus.toml"
     "apps/worker/_headers"
-    "deploy/cloudflare/legal"
     "crates"
     "Cargo.lock"
   ];
@@ -288,8 +287,8 @@ in
       };
 
       tasks = {
-        # The web app bundle, the participant build and the template legal
-        # documents -> apps/worker/worker-assets (`just assets` there).
+        # The web app bundle and the participant build ->
+        # apps/worker/worker-assets (`just assets` there).
         "rafi:app-assets" = {
           exec = ''
             just apps/worker/ assets

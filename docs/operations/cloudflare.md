@@ -176,7 +176,8 @@ release's tag):
   ships them (`apps/worker-app/wrangler.toml` and the others; `scripts/workers-check.sh` checks they agree),
   pointed at `release/`, with the operator's database ID, the app's address (workers.dev, or a custom domain) and
   Restate public key;
-- `legal/terms.md` and `legal/privacy.md`, which the deploy copies into the app's static files;
+- `legal/terms.md` and `legal/privacy.md`, the operator's documents if they provide them (either or both), which
+  the deploy copies into the app's static files;
 - `package.json` (wrangler and the Restate CLI, `"wrangler": "^4"` and `"@restatedev/restate": "^1"`) and
   `package-lock.json`, which pins them (the template's pins the wrangler the release was rehearsed with): the
   workflows install from it with `npm ci` and `deploy.sh` runs them with `npx -y`, which takes the installed ones;
@@ -305,12 +306,12 @@ each configuration for `CLOUDFLARE_ENV` ([above](#what-an-installation-is)); in 
 | `check-remote` | Before anything is deployed, the downgrade check `register-engine` makes (below): a release older than the one Restate runs is refused; nothing registered (a first install) passes. Then the token reads the account's workers.dev subdomain. Restate unreachable, or a key or token that doesn't work, fails it. Reads only. | |
 | `migrate` | `wrangler d1 migrations apply DB --remote` (the app's configuration) | |
 | `deploy-live` | Fingerprints the live Worker (sha256 over its bundle, `wrangler.live.toml`'s bytes and `CLOUDFLARE_ENV`, so any edit of the file, a comment or another environment's section too, redeploys it; the tag `live-<32 hex>`) and reads what the Worker serves (its latest deployment's versions and their `workers/tag` annotations). One version at 100 % with this tag: nothing deployed, the live channels keep their connections. Anything else (no Worker, another tag, a gradual deployment): `wrangler deploy --tag <it>`, which applies the class's migrations. | |
-| `upload-app` | Copies `legal/` into the app's static files. Refuses an app Worker that doesn't exist (its secrets come first). If a release has run on it (a version tagged `v<version>`, deployed or among its recent versions): `wrangler versions upload --tag v<version>`, not serving yet. Otherwise, a first install: `wrangler deploy`. | `app_version_id`, or `app_promoted=true` |
+| `upload-app` | Copies `legal/`'s documents, those there are, into the app's static files (replacing what a run before copied). Refuses an app Worker that doesn't exist (its secrets come first). If a release has run on it (a version tagged `v<version>`, deployed or among its recent versions): `wrangler versions upload --tag v<version>`, not serving yet. Otherwise, a first install: `wrangler deploy`. | `app_version_id`, or `app_promoted=true` |
 | `deploy-engine` | Looks up the account's workers.dev subdomain, then `wrangler deploy --name <engine name>-v<version> --tag v<version>` (`rafi-engine-v0-1-0`), every time (the same release is the same code). | `engine_worker`, `engine_url` |
 | `register-engine` | Refuses a downgrade (again, after `check-remote`, for a release registered since): if the deployment Restate routes new `Raffle` and `EngineInfo` invocations to is this installation's (its metadata) and of a newer release, it stops. Then `POST /deployments` of the engine's URL, `"force": false`, with the metadata `app` (`rafi`), `instance` (the app Worker's name), `version`, `cloudflare_account` and `worker`; 200 (Restate had it) and 201 succeed, a 5xx or no answer is retried five times (a Worker deployed a moment ago), anything else fails. | |
 | `promote-app` | After a first install, nothing. Otherwise `wrangler versions deploy <id>@100%`, then `wrangler triggers deploy` (the app's address, workers.dev on or off and the custom domain if any, and the Cron, which a version upload doesn't apply). | |
 | `cleanup` | [Below](#the-restate-cleanup). | |
-| `dry-run` | `legal/` copied in, then the three `wrangler deploy --dry-run` that read the names. No credentials, nothing remote. | |
+| `dry-run` | `legal/`'s documents copied in, then the three `wrangler deploy --dry-run` that read the names. No credentials, nothing remote. | |
 
 Outputs are appended to `RAFI_OUTPUT_FILE` as `key=value` lines when it is set, and printed otherwise; the later
 subcommands take them as `RAFI_APP_VERSION_ID`, `RAFI_APP_PROMOTED`, `RAFI_ENGINE_WORKER` and `RAFI_ENGINE_URL`.
@@ -442,25 +443,24 @@ installation that is a Wrangler environment, either with `CLOUDFLARE_ENV=<enviro
 `wrangler.app.toml` lists them under `[secrets] required` (an environment, under `[env.<name>.secrets]`), and
 wrangler refuses to deploy the app while one is missing. What each is:
 [`.dev.vars.example`](../../deploy/cloudflare/.dev.vars.example) and the
-[configuration reference](../reference/configuration.md). The Worker refuses every request without its documents,
-`RAFI_POW_KEY`, `RESTATE_INGRESS_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, the operator, and a version in
-each document (`/healthz` answers `500 misconfigured`, naming the reason when that names no value). Release builds
+[configuration reference](../reference/configuration.md). The Worker refuses every request without
+`RAFI_POW_KEY`, `RESTATE_INGRESS_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` or the operator, or with a
+document without its version (`/healthz` answers `500 misconfigured`, naming the reason when that names no value). Release builds
 reject dev auth and the mock chain. Never rotate `RAFI_POW_KEY` during an event.
 
 ## The legal documents and the operator
 
-The Worker serves the installation's documents from `legal/`: `terms.md` (with the data processing agreement, which
-organizers accept by using the service) and `privacy.md` (the operator's own notice, naming the subprocessors:
-Cloudflare, Restate Cloud, Clerk, drand). They ship as engineering drafts marked as templates: fill in the bracketed
-parts, have a lawyer review them, and delete the marker. A document that still carries the template marker makes
-the Worker refuse every request. Each document starts with its version, in front matter (`---`, `version: 2026-11`,
-`---`; [the format](../reference/configuration.md#the-legal-documents-versions)); without it the Worker refuses every
-request too, naming the file. The operator's name and email (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`) are
-secrets. A changed document is a new version (change its `version:` line with the text), shown with it (on
-`/terms` and `/privacy`, and every raffle's notice names the privacy notice's), and
-deploys with a push of `legal/`; a change to the processing agreement is notified to organizers directly, since
-nothing records who read which version. Your record of processing, and what changed in the templates, are in [the
-operator's records](overview.md#the-operators-records). The retention settings
+The Worker serves the operator's documents from the installation's `legal/`, each optional: `terms.md` (with the
+data processing agreement, which organizers accept by using the service) and `privacy.md` (the operator's own
+notice). Rafi ships neither; what the software does, for writing them, and what changes without them, is in [Your
+legal documents](legal-documents.md). One not there is a page saying the operator hasn't provided it. Each one
+there starts with its version, in front matter (`---`, `version: 2026-11`, `---`; [the
+format](../reference/configuration.md#the-legal-documents-versions)); without it the Worker refuses every request,
+naming the file. The operator's name and email (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`) are secrets. A changed
+document is a new version (change its `version:` line with the text), shown with it (on `/terms` and `/privacy`,
+and every raffle's notice names the privacy notice's), and deploys with a push of `legal/`; a change to the
+processing agreement is notified to organizers directly, since nothing records who read which version. Your record
+of processing is in [the operator's records](overview.md#the-operators-records). The retention settings
 (`RAFI_RETENTION_DAYS` and the others, see the [configuration](../reference/configuration.md)) have defaults;
 `RAFI_MIN_AGE` too; set them as secrets if you change them.
 
@@ -679,7 +679,7 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 | **Register engine with Restate**: 401 or 403 | `RESTATE_AUTH_TOKEN` isn't an Admin-role key of this environment, or `RESTATE_ADMIN_URL` is another environment's (or the ingress, `:8080`). |
 | **Register engine with Restate**: Restate couldn't discover the engine (at once, or after five attempts) | Restate couldn't reach the engine (workers.dev not serving it yet), or the engine refused the discovery because the identity key in `wrangler.engine.toml` isn't this environment's (still the template's `publickeyv1_…`, say: nothing looks for it; or, in a Wrangler environment, its `[env.<name>.vars]` has none: vars aren't inherited): check the engine Worker's logs, fix, re-run it. |
 | A deploy shows as cancelled | A newer run replaced it while it waited (the concurrency group): run it again. |
-| `/healthz` answers `500 misconfigured` | Missing secrets or documents, a document still a template, or one without its version (`legal/terms.md: no front matter`): the reason is in the answer when it names no value, and in the app Worker's logs. |
+| `/healthz` answers `500 misconfigured` | Missing secrets, or a document without its version (`legal/terms.md: no front matter`): the reason is in the answer when it names no value, and in the app Worker's logs. |
 | Organizers sign in to Clerk but the admin refuses them | The app was opened at an address other than `RAFI_PUBLIC_URL`'s origin, whose sessions Rafi refuses (their `azp`): use that address, and with a custom domain keep `workers_dev = false` ([the app's address](#the-apps-address)). Or `RAFI_PUBLIC_URL` isn't exactly the address's origin (another scheme or host, or a path). |
 | The app's workers.dev address doesn't answer | `workers_dev = false` with no routes leaves the app no address; a first install's `wrangler deploy` or the next `promote-app` turns workers.dev on once `workers_dev = true`. |
 | The admin says the raffle engine can't be reached | `RESTATE_INGRESS_URL` or `RESTATE_INGRESS_API_KEY` wrong, or Restate Cloud down: the [runbook](runbook.md#when-the-raffle-engine-is-down-during-an-event). |

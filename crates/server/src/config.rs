@@ -124,73 +124,57 @@ fn unquote(value: &str) -> &str {
         .unwrap_or(value)
 }
 
-/// The installation's legal documents: its own privacy notice and its terms
-/// (with the data processing agreement, which organizers accept by using the
-/// service), as Markdown, each with the version its front matter gives it
-/// ([`Document`]). Natively they are `privacy.md` and `terms.md` in
-/// `RAFI_DOCS_DIR`; on Workers, `legal/privacy.md` and `legal/terms.md` among the Worker's static files.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The operator's legal documents, each optional: its terms (with the data
+/// processing agreement, which organizers accept by using the service) and
+/// its privacy notice, as Markdown, each with the version its front matter
+/// gives it ([`Document`]). The operator writes them; Rafi ships none. One
+/// not provided is `None`: its page says the operator hasn't provided it,
+/// and nothing claims what it would have said. Natively they are `terms.md`
+/// and `privacy.md` in `RAFI_DOCS_DIR`; on Workers, `legal/terms.md` and
+/// `legal/privacy.md` among the Worker's static files.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Documents {
-    pub terms: Document,
-    pub privacy: Document,
-    /// The built-in placeholders, or an unreviewed template: development only.
-    pub placeholder: bool,
+    pub terms: Option<Document>,
+    pub privacy: Option<Document>,
 }
 
 impl Documents {
-    /// The line the repository's templates (`deploy/cloudflare/legal/`) carry
-    /// until an operator has reviewed them. A document that still has it is a
-    /// placeholder, which a production server refuses.
-    pub const TEMPLATE_MARKER: &str = "**Template.**";
-
-    /// The documents, as a deployment supplies them. An unedited template
-    /// counts as a placeholder.
-    pub fn new(terms: Document, privacy: Document) -> Self {
-        let placeholder = terms.text.contains(Self::TEMPLATE_MARKER)
-            || privacy.text.contains(Self::TEMPLATE_MARKER);
-        Self {
-            terms,
-            privacy,
-            placeholder,
-        }
-    }
-
-    /// Built-in placeholders, marked as such, version `dev`: for development
-    /// under dev auth only. A production server refuses to start with them.
-    pub fn placeholders() -> Self {
-        let dev = |text: &str| Document {
-            version: "dev".into(),
-            text: text.into(),
-        };
-        Self {
-            terms: dev(PLACEHOLDER_TERMS),
-            privacy: dev(PLACEHOLDER_PRIVACY),
-            placeholder: true,
-        }
-    }
-
-    /// `terms.md` and `privacy.md` from `dir`, each with its front matter.
+    /// `terms.md` and `privacy.md` from `dir`, either or both missing, each
+    /// one present with its front matter. The directory itself must exist:
+    /// `RAFI_DOCS_DIR` pointing nowhere is a mistake, not a choice.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn from_dir(dir: &std::path::Path) -> anyhow::Result<Self> {
         use anyhow::Context as _;
-        let read = |name: &str| {
+        if !dir.is_dir() {
+            bail!("RAFI_DOCS_DIR {} is not a directory", dir.display());
+        }
+        let read = |name: &str| -> anyhow::Result<Option<Document>> {
             let path = dir.join(name);
+            if !path.exists() {
+                return Ok(None);
+            }
             let source = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading {}", path.display()))?;
-            Document::parse(&path.display().to_string(), &source)
+            Document::parse(&path.display().to_string(), &source).map(Some)
         };
-        Ok(Self::new(read("terms.md")?, read("privacy.md")?))
+        Ok(Self {
+            terms: read("terms.md")?,
+            privacy: read("privacy.md")?,
+        })
     }
 }
 
-const PLACEHOLDER_TERMS: &str = "# Terms (placeholder)\n\n**This is a development placeholder, not a legal document.** \
-A deployment supplies its own terms, with the data processing agreement, as `terms.md` in `RAFI_DOCS_DIR` \
-(natively) or `legal/terms.md` among the Worker's static files.\n";
-
-const PLACEHOLDER_PRIVACY: &str = "# Privacy notice (placeholder)\n\n**This is a development placeholder, not a legal document.** \
-A deployment supplies the installation's own privacy notice (the operator, its subprocessors: hosting, \
-organizer sign-in, the raffle engine, the randomness network) as `privacy.md` in `RAFI_DOCS_DIR` (natively) or \
-`legal/privacy.md` among the Worker's static files.\n";
+/// Where the installation runs, which every raffle's privacy notice names
+/// as the hosting: the one provider that holds entrants' data that the
+/// software alone doesn't determine.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Hosting {
+    /// The native server, on whatever hosting its operator chose.
+    #[default]
+    Native,
+    /// Cloudflare's Workers, D1 and Durable Objects.
+    Cloudflare,
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -239,8 +223,11 @@ pub struct Config {
     pub min_age: u32,
     /// Who runs the installation (`RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL`).
     pub operator: Operator,
-    /// The installation's legal documents, with their versions.
+    /// The operator's legal documents, each optional, with their versions.
     pub documents: Documents,
+    /// Where it runs: natively unless the runtime says otherwise (the
+    /// Cloudflare app does).
+    pub hosting: Hosting,
     /// Where `terms.md` and `privacy.md` are, natively (`RAFI_DOCS_DIR`).
     pub docs_dir: Option<String>,
     /// Numeric variables that were set but didn't parse (`RAFI_RETENTION_DAYS=7d`),
@@ -345,15 +332,17 @@ impl Config {
                     }
                 }),
             },
-            documents: Documents::placeholders(),
+            documents: Documents::default(),
+            hosting: Hosting::Native,
             docs_dir: var("RAFI_DOCS_DIR"),
             misparsed: misparsed.into_inner(),
         }
     }
 
     /// Whether the settings make sense together, and a production server
-    /// (no dev auth) has everything it must: an operator and real documents
-    /// (their versions are theirs: [`Document::parse`] refuses one without).
+    /// (no dev auth) has everything it must: an operator, Clerk's key and a
+    /// long enough proof-of-work key. The documents are optional (a provided
+    /// one's version is its own: [`Document::parse`] refuses one without).
     pub fn validate(&self) -> anyhow::Result<()> {
         if !self.misparsed.is_empty() {
             bail!("not a valid value: {}", self.misparsed.join(", "));
@@ -390,12 +379,6 @@ impl Config {
         if dioxus_clerk::csp::ClerkCsp::from_publishable_key(key).is_none() {
             bail!(
                 "CLERK_PUBLISHABLE_KEY is not a Clerk publishable key (pk_live_… or pk_test_…, from the Clerk dashboard's API keys)"
-            );
-        }
-        if self.documents.placeholder {
-            bail!(
-                "the legal documents are placeholders or unreviewed templates (they still say {:?}): supply reviewed terms.md and privacy.md (RAFI_DOCS_DIR natively; legal/ of the installation's deploy/cloudflare on Workers)",
-                Documents::TEMPLATE_MARKER
             );
         }
         Ok(())
@@ -438,17 +421,18 @@ impl Config {
                 name: "Rafi Test Operator".into(),
                 email: "privacy@rafi.test".into(),
             },
-            documents: Documents::new(
-                Document {
+            documents: Documents {
+                terms: Some(Document {
                     version: "test-1".into(),
                     text: "# Test terms\n\nThe test terms, with the **processing agreement**.\n"
                         .into(),
-                },
-                Document {
+                }),
+                privacy: Some(Document {
                     version: "test-1".into(),
                     text: "# Test privacy notice\n\nThe test installation's notice.\n".into(),
-                },
-            ),
+                }),
+            },
+            hosting: Hosting::Native,
             docs_dir: None,
             misparsed: Vec::new(),
         }
@@ -481,8 +465,8 @@ const MAX_MIN_AGE: u32 = 30;
 
 /// What a server that refuses to start (a Worker: every request) says in
 /// public about why: `misconfigured`, the reason when it names only
-/// settings or files (a setting not set or required, the documents missing,
-/// still templates or without their front matter), never a value, and where the whole reason is. The
+/// settings or files (a setting not set or required, a document without its
+/// front matter), never a value, and where the whole reason is. The
 /// operator sees it on the first request after a deploy, rather than only in
 /// `wrangler tail`.
 pub fn refusal(e: &anyhow::Error, log: &str) -> String {
@@ -492,9 +476,7 @@ pub fn refusal(e: &anyhow::Error, log: &str) -> String {
         || reason.contains(" required")
         || reason.contains("must be at least")
         || reason.contains("has no `dev` feature")
-        || reason.contains(Documents::TEMPLATE_MARKER)
-        || reason.contains(FRONT_MATTER)
-        || reason.contains("missing from the Worker's static files");
+        || reason.contains(FRONT_MATTER);
     if names_only {
         format!("misconfigured: {reason}\n\nThe server's log has the details ({log}).\n")
     } else {
@@ -537,15 +519,8 @@ fn resolve_chain(configured: &str, mock: Option<ChainHash>) -> anyhow::Result<Ch
 mod tests {
     use super::*;
 
-    fn doc(text: &str) -> Document {
-        Document {
-            version: "2026-11".into(),
-            text: text.into(),
-        }
-    }
-
-    /// A refusal names a missing setting or the template marker, never a
-    /// value; anything else only points at the log.
+    /// A refusal names a missing setting or a document without its front
+    /// matter, never a value; anything else only points at the log.
     #[test]
     fn a_refusal_says_why_without_values() {
         let log = "wrangler tail";
@@ -554,10 +529,6 @@ mod tests {
             body.starts_with("misconfigured: RAFI_POW_KEY is not set") && body.contains(log),
             "{body}"
         );
-        let mut cfg = Config::for_tests();
-        cfg.documents = Documents::new(doc("# T\n\n> **Template.** Review me."), doc("# P"));
-        let body = refusal(&cfg.validate().unwrap_err(), log);
-        assert!(body.contains("**Template.**"), "{body}");
         // A document without its version: the file named, in public too.
         let body = refusal(
             &Document::parse("legal/terms.md", "# T\n").unwrap_err(),
@@ -597,25 +568,23 @@ mod tests {
     }
 
     #[test]
-    fn production_needs_an_operator_and_documents() {
+    fn production_needs_an_operator_but_no_documents() {
         let cfg = Config::from_lookup(|_| None);
-        assert!(cfg.validate().is_err(), "no operator, no documents");
+        assert!(cfg.validate().is_err(), "no operator");
         let dev = Config::from_lookup(|name| (name == "RAFI_DEV_AUTH").then(|| "1".into()));
-        assert!(dev.validate().is_ok(), "placeholders under dev auth");
-        assert!(dev.documents.placeholder);
-        assert_eq!(dev.documents.terms.version, "dev");
-        assert_eq!(dev.documents.privacy.version, "dev");
+        assert!(dev.validate().is_ok());
+        assert_eq!(dev.documents, Documents::default(), "no placeholders");
         let mut full = Config::from_lookup(|name| match name {
             "RAFI_OPERATOR_NAME" => Some("Op".into()),
             "RAFI_OPERATOR_EMAIL" => Some("p@op.example".into()),
             "CLERK_PUBLISHABLE_KEY" => Some(TEST_CLERK_PUBLISHABLE_KEY.into()),
             _ => None,
         });
-        assert!(full.validate().is_err(), "placeholder documents");
-        full.documents = Documents::new(doc("# T\n\n> **Template.** Review me."), doc("# P"));
-        assert!(full.validate().is_err(), "an unedited template");
-        full.documents = Documents::new(doc("# T"), doc("# P"));
-        assert!(full.validate().is_ok(), "a random key is long enough");
+        assert!(
+            full.validate().is_ok(),
+            "no documents, and a random key is long enough"
+        );
+        assert_eq!(full.hosting, Hosting::Native);
         // Without Clerk's publishable key the admin has no sign-in to offer,
         // while the server expects one: refused, like a missing operator.
         let key = full.clerk_publishable_key.take();
@@ -645,49 +614,39 @@ mod tests {
     }
 
     #[test]
-    fn documents_come_from_the_directory_or_the_server_doesnt_start() {
+    fn documents_come_from_the_directory_each_optional() {
         let dir = std::env::temp_dir().join(format!("rafi-docs-{}", uuid::Uuid::new_v4()));
-        // No directory at all (RAFI_DOCS_DIR pointing nowhere).
-        let err = Documents::from_dir(&dir).unwrap_err();
+        // No directory at all (RAFI_DOCS_DIR pointing nowhere): a mistake.
+        let err = format!("{:#}", Documents::from_dir(&dir).unwrap_err());
         assert!(
-            format!("{err:#}").contains(&dir.join("terms.md").display().to_string()),
-            "names the file it couldn't read: {err:#}"
+            err.contains(&dir.display().to_string()) && err.contains("not a directory"),
+            "names the directory: {err}"
         );
-        // One of the two missing: refused, naming the missing one, never
-        // half a set with a placeholder for the other.
+        // An empty one: neither document.
         std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(Documents::from_dir(&dir).unwrap(), Documents::default());
+        // One of the two: that one alone.
         std::fs::write(
             dir.join("terms.md"),
             "---\nversion: 2026-11\n---\n# Terms\n",
         )
         .unwrap();
-        let err = format!("{:#}", Documents::from_dir(&dir).unwrap_err());
-        assert!(
-            err.contains(&dir.join("privacy.md").display().to_string()),
-            "{err}"
-        );
-        // Both present: the documents, an unedited template still a placeholder.
-        std::fs::write(
-            dir.join("privacy.md"),
-            "---\nversion: 2026-10\n---\n# Privacy\n\n> **Template.** Review me.\n",
-        )
-        .unwrap();
         let docs = Documents::from_dir(&dir).unwrap();
-        assert_eq!(docs.terms.text, "# Terms\n");
-        assert_eq!(docs.terms.version, "2026-11");
-        assert_eq!(docs.privacy.version, "2026-10");
-        assert!(
-            docs.placeholder,
-            "the template marker is seen through a file too"
-        );
+        let terms = docs.terms.expect("the terms");
+        assert_eq!(terms.text, "# Terms\n");
+        assert_eq!(terms.version, "2026-11");
+        assert_eq!(docs.privacy, None);
+        // Both.
         std::fs::write(
             dir.join("privacy.md"),
             "---\nversion: 2026-10\n---\n# Privacy\n",
         )
         .unwrap();
         let docs = Documents::from_dir(&dir).unwrap();
-        assert!(!docs.placeholder);
-        assert_eq!(docs.privacy.text, "# Privacy\n");
+        assert_eq!(docs.terms.unwrap().version, "2026-11");
+        let privacy = docs.privacy.expect("the privacy notice");
+        assert_eq!(privacy.version, "2026-10");
+        assert_eq!(privacy.text, "# Privacy\n");
         // Without its version, the server doesn't start, under dev auth too
         // (Config::from_env reads RAFI_DOCS_DIR with this): the error names
         // the file.
@@ -708,7 +667,7 @@ mod tests {
         let d = parse("---\nversion: 2026-11\n---\n# Terms\n\nText.\n").unwrap();
         assert_eq!(d.version, "2026-11");
         assert_eq!(d.text, "# Terms\n\nText.\n");
-        let page = crate::pages::legal("Terms", &d.version, &d.text);
+        let page = crate::pages::legal("Terms", Some((&d.version, &d.text)), "terms");
         assert!(page.contains("Terms · version 2026-11"), "{page}");
         assert!(
             !page.contains("version:") && !page.contains("<hr"),

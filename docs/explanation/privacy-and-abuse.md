@@ -2,8 +2,8 @@
 
 What Rafi stores, what it publishes, when it erases it, and how it keeps a raffle free of spam and remote entries.
 The privacy notice each raffle shows its entrants is rendered from the raffle's settings at `/privacy/<slug>`; the
-installation's own notice is at `/privacy`, and the operator's terms, with the data processing agreement, at
-`/terms`.
+operator's own notice, if they provide one, is at `/privacy`, and their terms, with the data processing agreement,
+at `/terms`.
 
 > This page describes the software, not your legal obligations. As the organizer, you are the data controller; the
 > operator of the installation is your processor. The plan behind this design is
@@ -174,10 +174,11 @@ them, and Rafi doesn't reach them: the organizer tells them, before the event.
   In a Clerk organization the owner is the organization and every member runs its raffles; **admins** remove the
   organization's data, **managers** (the custom `org:manager` role, or the
   `org:raffles:manage` permission) also create, configure and delete raffles, **members** do everything else.
-- **The operator** of the installation is the organizer's processor, named in every notice with a link to the
-  installation's own, which lists its subprocessors (hosting, the raffle engine, organizer sign-in, drand).
-  Organizers accept the operator's terms, with the data processing agreement, by using the service; the admin
-  links them, and each version is shown with its text. The agreement covers the people organizers add as well as
+- **The operator** of the installation is the organizer's processor, named in every notice, which also says how
+  the software handles the data (the hosting, and that the raffle engine, organizer sign-in and drand receive none
+  of an entrant's) and links the operator's own notice, if they provide one. Organizers accept the operator's
+  terms, with the data processing agreement, by using the service, when the operator provides them; the admin
+  links them, and each version is shown with its text ([Your legal documents](../operations/legal-documents.md)). The agreement covers the people organizers add as well as
   those who join ([above](#people-the-organizer-adds)). Nothing records who accepted which version, so a change to
   the processing agreement is for the operator to notify organizers of directly.
 - **Leaving:** "Remove my data" in the admin deletes the organizer's raffles that were never frozen, erases their

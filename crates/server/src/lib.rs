@@ -96,8 +96,8 @@ impl AppState {
     /// The app over a database, a raffle engine, the platform's live
     /// updates and rate limits, and a clock (the system's, but in tests).
     /// The configuration is checked
-    /// ([`Config::validate`]): a production server with no operator or
-    /// documents doesn't start.
+    /// ([`Config::validate`]): a production server with no operator
+    /// doesn't start.
     pub fn from_parts(
         cfg: Config,
         db: Db,

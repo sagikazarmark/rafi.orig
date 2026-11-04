@@ -188,3 +188,14 @@ The naming rule is in the [configuration reference](../reference/configuration.m
 at its top ([the format](../reference/configuration.md#the-legal-documents-versions)). Add it to your `terms.md` and
 `privacy.md` (a document without it is refused, under dev auth too), then drop the two from your environment or
 `.dev.vars` (on Workers, `wrangler secret delete`; left set, they're ignored).
+
+## Optional legal documents
+
+Before the first release (2026-11), the legal documents became optional and the operator's own: Rafi no longer
+ships templates for them, and nothing refuses one that still carries the old templates' `**Template.**` note (it is
+served as written: delete the note, or the document). A missing `terms.md` or `privacy.md` is no longer a refusal:
+its page says the operator hasn't provided it, and the rest follows ([Your legal documents](legal-documents.md)).
+Every raffle's privacy notice now says how the software handles the data itself (on Workers, naming Cloudflare as
+the hosting), whatever your documents say, and claims a data processing agreement only when there are terms. If your
+privacy notice describes the raffle notice, check it against [what it says
+now](legal-documents.md#what-every-raffles-notice-already-says).

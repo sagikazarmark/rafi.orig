@@ -41,6 +41,13 @@ struct WebConfig {
     verifier_url: String,
     /// The organizers' guide ([`build_info::guide_url`]), which the admin links.
     guide_url: String,
+    /// Whether the operator has provided terms (`/terms`), which organizers
+    /// accept by using the service: the admin says so and the home page links
+    /// them only then.
+    terms: bool,
+    /// Whether the operator has provided a privacy notice (`/privacy`),
+    /// which the home page links only then.
+    privacy: bool,
 }
 
 /// How long a `security.txt` says it holds: RFC 9116 wants an expiry,
@@ -83,6 +90,8 @@ async fn config_js(Extension(app): Extension<AppState>) -> Response {
         source_url: build_info::source_url(),
         verifier_url: build_info::verifier_url(),
         guide_url: build_info::guide_url(),
+        terms: app.cfg.documents.terms.is_some(),
+        privacy: app.cfg.documents.privacy.is_some(),
     };
     // A JSON object is a JavaScript object literal; as an external script,
     // nothing in it can close a tag.

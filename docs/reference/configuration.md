@@ -48,13 +48,12 @@ var and a secret of the same name).
 | `RAFI_RETENTION_WINNERS_DAYS` | `90` | How long a winner's data is held past the erasure date unless their prize is marked delivered: the hard ceiling, after which everyone is erased and a finished raffle is purged. At most 365. The hold applies to every raffle as configured now, not as it was when the raffle was frozen: changing it moves the date held winners are erased, the one the privacy notices and the People tab show, for every raffle at once. Lowering it erases them earlier than they were told, which is allowed; raising it keeps them longer than they were told, so don't raise it while any raffle holds winners. (Each raffle's own erasure date, from its retention period, never moves.) |
 | `RAFI_MIN_AGE` | `16` | The youngest an entrant may be. Rendered in the rules and on the join form; entrants confirm it by entering. Organizers raise it in their additional rules. At most 30. |
 | `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | required | Who runs this installation: named as the processor in every raffle's privacy notice. Under `RAFI_DEV_AUTH`, placeholders. |
-| `RAFI_DOCS_DIR` | required (native) | The directory with the installation's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown. On Workers they are `legal/terms.md` and `legal/privacy.md` among the static files (`deploy/cloudflare`'s `legal/`; `just assets` in `apps/worker` copies them in from this variable), read through the assets binding. Each starts with front matter giving its version ([below](#the-legal-documents-versions)). Unset under `RAFI_DEV_AUTH`, placeholders marked as such (version `dev`). |
+| `RAFI_DOCS_DIR` | none | The directory with the operator's `terms.md` (with the data processing agreement) and `privacy.md`, as Markdown, each optional ([Your legal documents](../operations/legal-documents.md)); set, it must exist. On Workers they are `legal/terms.md` and `legal/privacy.md` among the static files (the installation's `legal/`, which its deploy copies in), read through the assets binding. Each starts with front matter giving its version ([below](#the-legal-documents-versions)). Unset, or a document not there: its page says the operator hasn't provided it. |
 | `RUST_LOG` | `info` | Log level, in [`tracing-subscriber` filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) (native only) |
 
 The app refuses to start (natively) or every request (on Workers) when a numeric variable or `RAFI_CSP` doesn't
-parse, the retention settings contradict each other, or the operator, the documents or a decodable Clerk
-publishable key are missing (or the documents still the unreviewed templates) without dev auth. A document without
-its version is refused with or without dev auth.
+parse, the retention settings contradict each other, or the operator or a decodable Clerk publishable key are
+missing without dev auth. The documents are optional; one without its version is refused with or without dev auth.
 
 #### The legal documents' versions
 
@@ -73,8 +72,7 @@ notice's. A changed document is a new version: change the line with the text. Th
 `key: value` lines up to the next `---`; `version` is required, not empty and the only key (any other, a typo
 included, is refused); whitespace around keys and values, a pair of quotes around the value and CRLF line endings
 don't matter. The front matter isn't rendered. A document without it, or without a version, makes the app refuse to
-start (natively) or every request (on Workers), naming the file, even under `RAFI_DEV_AUTH`: the repository's
-templates have it.
+start (natively) or every request (on Workers), naming the file, even under `RAFI_DEV_AUTH`.
 
 `rafi reapply-erasures` (native only) is the command for after a database restore: it takes the same environment,
 re-applies the erasure log, the purges and the organizers who left, runs housekeeping once, and exits.
@@ -117,7 +115,7 @@ The bindings:
 |---|---|---|
 | `DB` | all three | The D1 database (one, the same `database_id` in all three) |
 | `RAFFLE_ROOM` | all three | The per-raffle live channel (`RaffleRoom` Durable Object): the live Worker's class, with its migration; the app and the engine bind it by the live Worker's name (`script_name = "rafi-live"`) |
-| `ASSETS` | app | The static files, through which the app reads the legal documents |
+| `ASSETS` | app | The static files, through which the app reads the operator's legal documents, if any |
 | `JOIN_PER_RAFFLE_LIMITER` | app | 600 joins per minute per raffle (soft, per location) |
 | `JOIN_PER_EMAIL_LIMITER` | app | 5 joins per minute per raffle and email |
 | `ADD_LIMITER` | app | 20 adds or undos of the organizer's per minute (per owner) |

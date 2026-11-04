@@ -11,7 +11,7 @@ The words Rafi uses, in the docs, the UI and the code. Where the UI uses a diffe
 | **Owner** | Whom a raffle belongs to in the admin: a Clerk organization (shared by its members) or a user. The audit log's `actor`; the member who acted is its `user_id`. |
 | **Admin**, **Manager**, **Member** | An organization member's tier, from Clerk: admins remove the organization's data; managers (the custom `org:manager` role or `org:raffles:manage` permission) also create, configure and delete raffles; members run them |
 | **Leave**, "Remove my data" | The owner's data goes: never-frozen raffles deleted, the rest erased and purged with the organizer's name and contacts, the defaults deleted |
-| **Operator** | Whoever runs the installation: the organizer's processor, named in every privacy notice, whose terms (with the data processing agreement) organizers accept by using the service |
+| **Operator** | Whoever runs the installation: the organizer's processor, named in every privacy notice, whose terms (with the data processing agreement), if they provide them, organizers accept by using the service |
 | **Event date** | The calendar day the raffle is drawn. Required; fixed once a real entrant has joined. |
 | **Retention period** | Days after the event date before non-winners are erased: the installation's default (7), the organizer's, or the raffle's, at most the installation's maximum (30). Fixed with the event date. |
 | **Erasure date** | The end of the event day plus the retention period, computed by the database. Shown to entrants ("at the end of 4 November"); the day non-winners are erased. |

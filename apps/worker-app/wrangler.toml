@@ -26,8 +26,8 @@ preview_urls = false
 [build]
 command = "worker-build --release"
 
-# The web app's files, the participant scripts and the installation's legal
-# documents (legal/), as apps/worker/wrangler.toml has them. A path that
+# The web app's files, the participant scripts and the operator's legal
+# documents, if any (legal/), as apps/worker/wrangler.toml has them. A path that
 # isn't a file goes to the Worker: its routes and the web app's shell; the
 # raffle engine's paths (/restate/) answer 404 here.
 [assets]

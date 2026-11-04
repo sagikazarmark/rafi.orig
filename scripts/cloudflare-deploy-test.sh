@@ -7,8 +7,8 @@
 # fake Cloudflare and Restate admin API (a local node HTTP server answering from a state file
 # and logging each request, in one log with the stubs, so the order of calls shows).
 #
-#   - dry-run (no credentials; legal/ copied in): the release's VERSION, the version deployed
-#     (the installation's version files and the template's placeholders not looked at), the
+#   - dry-run (no credentials; legal/ copied in: both documents, one, or none): the release's
+#     VERSION, the version deployed (the installation's version files and the template's placeholders not looked at), the
 #     usage (check is gone), jq missing; the Workers' names read from the dry runs' ND-JSON
 #     deploy entries (whatever the files say), a dry run failing or reporting no name, the
 #     engine Worker's versioned name; Wrangler environments: none, one without a name of its
@@ -246,6 +246,11 @@ INSTALL="$TMP/installation"
 mkdir -p "$INSTALL"
 cp -R "$ROOT/deploy/cloudflare/." "$INSTALL/"
 rm -rf "$INSTALL/release" "$INSTALL/.wrangler" "$INSTALL/.dev.vars" "$INSTALL/node_modules"
+# The operator's documents, the tests' own (the template's legal/, if it has one, isn't theirs).
+rm -rf "$INSTALL/legal"
+mkdir "$INSTALL/legal"
+printf -- '---\nversion: test-1\n---\n# Terms\n' >"$INSTALL/legal/terms.md"
+printf -- '---\nversion: test-1\n---\n# Privacy notice\n' >"$INSTALL/legal/privacy.md"
 RELEASE="$INSTALL/release"
 mkdir -p "$RELEASE/app/build" "$RELEASE/app/assets" "$RELEASE/engine/build" "$RELEASE/live/build" "$RELEASE/migrations"
 touch "$RELEASE/app/build/index.js" "$RELEASE/engine/build/index.js"
@@ -377,6 +382,23 @@ if cmp -s "$INSTALL/legal/terms.md" "$RELEASE/app/assets/legal/terms.md" \
 else
   fail "legal/ isn't in $RELEASE/app/assets/legal"
 fi
+# The documents are the operator's, each optional: one alone is copied alone, and what a run
+# before copied doesn't outlive its removal.
+mv "$INSTALL/legal" "$TMP/legal.aside"
+mkdir "$INSTALL/legal"
+cp "$TMP/legal.aside/terms.md" "$INSTALL/legal/"
+ds dry-run
+ran "dry-run with the terms alone" 0 "copied terms.md from" "dry run of Rafi 0.1.0 done"
+if [ -f "$RELEASE/app/assets/legal/terms.md" ] && [ ! -e "$RELEASE/app/assets/legal/privacy.md" ]; then
+  pass "the terms alone are copied, the privacy notice a run before copied gone"
+else
+  fail "the app's legal/ after the terms alone: $(ls "$RELEASE/app/assets/legal" 2>&1)"
+fi
+rm -rf "$INSTALL/legal"
+ds dry-run
+ran "dry-run with no legal/ at all" 0 "no legal documents in" "dry run of Rafi 0.1.0 done"
+if [ ! -e "$RELEASE/app/assets/legal" ]; then pass "no legal/ among the app's static files"; else fail "the app's legal/ outlived the installation's"; fi
+mv "$TMP/legal.aside" "$INSTALL/legal"
 rm -rf "$RELEASE/app/assets/legal"
 
 # Filled in, as an installation does.

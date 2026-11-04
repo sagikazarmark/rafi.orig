@@ -31,10 +31,10 @@
 //!
 //! Nothing of an installation's is compiled in, so one build of the Worker
 //! serves every installation: its values are the Worker's secrets and vars
-//! (`wrangler.toml` lists the required ones), and its legal documents (the
-//! privacy notice, the terms with the processing agreement) are files among
-//! the static files, read through the assets binding (`documents`), each
-//! naming its version in its front matter.
+//! (`wrangler.toml` lists the required ones), and the operator's legal
+//! documents (the privacy notice, the terms with the processing agreement),
+//! each optional, are files among the static files, read through the assets
+//! binding (`documents`), each naming its version in its front matter.
 //!
 //! The Cloudflare pieces come from `rafi-cloudflare`: the notifier over the
 //! raffles' Durable Objects and configuration from the Worker's vars and
@@ -62,7 +62,10 @@ use rafi_cloudflare::{DurableObjects, lookup};
 use tower_service::Service;
 use worker::{Env, HttpRequest};
 
-use rafi_server::{self as server, AppState, config::Config};
+use rafi_server::{
+    self as server, AppState,
+    config::{Config, Hosting},
+};
 
 mod documents;
 mod ratelimit;
@@ -98,7 +101,8 @@ async fn cached(env: &Env) -> anyhow::Result<App> {
     }
     rafi_cloudflare::log::install();
     let mut cfg = Config::from_lookup(|name| lookup(env, name));
-    cfg.documents = documents::documents(env, cfg.dev_auth).await?;
+    cfg.documents = documents::documents(env).await?;
+    cfg.hosting = Hosting::Cloudflare;
     let app = app(env, cfg)?;
     Ok(APP.with(|cell| cell.get_or_init(|| app).clone()))
 }

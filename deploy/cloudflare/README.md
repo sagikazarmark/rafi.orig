@@ -1,8 +1,8 @@
 # Deploy Rafi on Cloudflare Workers
 
 One installation of [Rafi](https://github.com/sagikazarmark/rafi), the verifiable raffle for in-person events, on
-your own Cloudflare account. Nothing here is compiled: this repository holds your configuration and your legal
-documents, and its GitHub Actions workflows deploy the Rafi release that `VERSION` names.
+your own Cloudflare account. Nothing here is compiled: this repository holds your configuration and, if you write
+them, your legal documents, and its GitHub Actions workflows deploy the Rafi release that `VERSION` names.
 
 This page covers the tasks you'll come back to. The details, and the reasons behind them, are in Rafi's
 [Cloudflare operations guide](https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md).
@@ -17,8 +17,10 @@ This page covers the tasks you'll come back to. The details, and the reasons beh
 - A **[Clerk](https://clerk.com)** application, which signs organizers in: its production instance on your domain,
   or, on workers.dev, its development instance (for trying Rafi or small, private use).
 - A **GitHub** repository, created from this template, which runs the deploys.
-- Your legal documents, reviewed by a lawyer, each naming its version at its top (`version:`; a changed document is
-  a new version).
+- Optionally, your legal documents: your terms and privacy notice, which you write (Rafi ships none) and keep in
+  `legal/`, each naming its version at its top (`version:`; a changed document is a new version). Without them,
+  `/terms` and `/privacy` say you haven't provided them
+  ([INSTALL.md, step 7](INSTALL.md#7-your-legal-documents-optional)).
 - On your machine: [`gh`](https://cli.github.com), [Node.js](https://nodejs.org) 22.18 or later, and `jq`.
 
 ## Installation

@@ -36,8 +36,8 @@ details.
   - two **API keys** (**API Keys > Create API Key**): the app's, with the narrowest role that can call the ingress
     (else **Full**), and the workflows', with the **Admin** role.
 - **[Clerk](https://dashboard.clerk.com)**: an application. Its **API keys**, `pk_test_…` and `sk_test_…`.
-- **You**: the operator's name (a legal name) and privacy contact email, and your terms and privacy notice, which a
-  lawyer should review before real use ([step 7](#7-your-legal-documents)).
+- **You**: the operator's name (a legal name) and privacy contact email. Optionally, your terms and privacy notice
+  ([step 7](#7-your-legal-documents-optional)): you can add them later.
 - **Your machine**: `gh`, signed in ([`gh auth login`](https://cli.github.com/manual/gh_auth_login)),
   [Node.js](https://nodejs.org) 22.18 or later, `jq`, `openssl` and `git`.
 
@@ -57,9 +57,6 @@ id=$(npx wrangler d1 info rafi --json | jq -er .uuid) &&
   sed -i.bak "s/00000000-0000-0000-0000-000000000000/$id/" wrangler.*.toml
 sed -i.bak 's/^RESTATE_IDENTITY_KEYS = .*/RESTATE_IDENTITY_KEYS = "<public key>"/' wrangler.engine.toml
 rm wrangler.*.toml.bak
-
-# Your legal documents: fill in the bracketed parts, delete each **Template.** note (step 7)
-$EDITOR legal/terms.md legal/privacy.md
 
 # The app Worker's secrets (step 8): the values below
 cp .dev.vars.example .dev.vars
@@ -93,6 +90,11 @@ curl https://rafi-app.<subdomain>.workers.dev/healthz    # ok 0.1.0
 Creating the repository already ran the Deploy workflow once: with no secrets yet, it failed before touching
 anything. Ignore it. Then run a test-mode raffle end to end ([step 10](#10-deploy)'s last part).
 
+Your terms and privacy notice, whenever you have them: `legal/terms.md` and `legal/privacy.md`, either or both, each
+starting with its version ([step 7](#7-your-legal-documents-optional)), then
+`git add legal && git commit -m "Legal documents" && git push`. Until then, `/terms` and `/privacy` say you haven't
+provided them.
+
 ## What you'll need
 
 - [ ] A **Cloudflare account on the paid Workers plan**: verifying drand and rendering the participant page don't
@@ -105,7 +107,7 @@ anything. Ignore it. Then run a test-mode raffle end to end ([step 10](#10-deplo
   instance needs. Without one, the app is served on workers.dev ([step 4](#4-the-apps-address)).
 - [ ] The right to **create account API tokens**: a Super Administrator, or a member with API token provisioning.
 - [ ] Accounts at [Restate Cloud](https://cloud.restate.dev), [Clerk](https://clerk.com) and GitHub.
-- [ ] Your **legal documents**, reviewed by a lawyer (step 7), and the operator's (your) name and email.
+- [ ] The operator's (your) name and email, and optionally your **legal documents** (step 7).
 - [ ] On your machine:
   - the [GitHub CLI](https://cli.github.com/manual/), `gh`, signed in to GitHub
     ([`gh auth login`](https://cli.github.com/manual/gh_auth_login));
@@ -135,7 +137,7 @@ it, wrangler its configurations.
 | Restate's admin URL (`:9070`) | step 6 | GitHub secret `RESTATE_ADMIN_URL` |
 | Restate API key with the Admin role | step 6 | GitHub secret `RESTATE_AUTH_TOKEN` |
 | Restate's public key, `publickeyv1_…` | step 6 | `RESTATE_IDENTITY_KEYS` in `wrangler.engine.toml` |
-| Terms and privacy notice | step 7 | `legal/terms.md` and `legal/privacy.md` |
+| Terms and privacy notice, optional | step 7 (you write them) | `legal/terms.md` and `legal/privacy.md` |
 | Proof-of-work key | step 8 | app secret `RAFI_POW_KEY` |
 | Operator's name and email | you | app secrets `RAFI_OPERATOR_NAME` and `RAFI_OPERATOR_EMAIL` |
 
@@ -155,9 +157,9 @@ the EU:
 | Restate Cloud (the draws) | Create the environment in the EU region | Step 6 |
 
 Not covered: the Workers run near each visitor, wherever that is, and [Clerk](https://clerk.com) (organizers'
-accounts) is a US company, under the EU-U.S. Data Privacy Framework. Your privacy notice
-([`legal/privacy.md`](legal/privacy.md)) names the hosting's location as a bracketed choice: keep the true one.
-More, and Cloudflare's Regional Services: the guide's [Data residency][guide-residency].
+accounts) is a US company, under the EU-U.S. Data Privacy Framework. If you write a privacy notice
+([step 7](#7-your-legal-documents-optional)), say where the data is. More, and Cloudflare's Regional Services:
+the guide's [Data residency][guide-residency].
 
 ### Placement
 
@@ -202,8 +204,8 @@ at 0.1.0), with `package-lock.json`; wrangler logged in; and your Cloudflare acc
 The repository's branch is `main`, as the template's: the workflows run there.
 
 **The Deploy workflow has already run once.** Creating a repository from a template counts as a push for GitHub
-Actions ([GitHub's `push` event][gh-push-event]), and that first commit adds `VERSION`, `legal/` and the
-configurations, which Deploy runs on. Until step 9 has set its secrets, a run fails harmlessly at
+Actions ([GitHub's `push` event][gh-push-event]), and that first commit adds `VERSION` and the configurations,
+which Deploy runs on. Until step 9 has set its secrets, a run fails harmlessly at
 **Check Restate and Cloudflare**, before it touches anything (the daily Restate cleanup fails the same
 way). Once the secrets are set, a run with the configuration unfinished goes as far as it gets: nothing looks for
 the template's placeholders, so the zero database ID fails at the migrations, and an app Worker without its secrets
@@ -366,23 +368,34 @@ RESTATE_IDENTITY_KEYS = "publickeyv1_…"
   release's engine and remove drained ones ([the keys][guide-restate-keys]).
 - Nothing is registered by hand: each deploy registers its release's engine with Restate.
 
-## 7. Your legal documents
+## 7. Your legal documents (optional)
 
-You'll get: `legal/terms.md` and `legal/privacy.md` as yours, each with its version.
+You'll get: your terms at `/terms` and your privacy notice at `/privacy`. Or skip this step, and add them later.
 
-The app serves your terms (with the data processing agreement organizers accept by using the service) and your
-privacy notice from [`legal/terms.md`](legal/terms.md) and [`legal/privacy.md`](legal/privacy.md). They ship as
-engineering drafts. For each:
+The app can serve two documents of yours: your terms, with the data processing agreement organizers accept by using
+the service, and your privacy notice. Rafi doesn't ship them: you write them, with a lawyer, for how you run the
+service. [Your legal documents][guide-legal] has what the software does with personal data, for writing them.
 
-1. Fill in the bracketed parts.
-2. Have a lawyer review it.
-3. Delete its **Template.** note. `grep -l '\*\*Template\.\*\*' legal/*.md` prints nothing once both are done.
-4. Set its version, at the top, in the front matter (`---`, `version: 2026-11`, `---`). Change it whenever you
-   change the document: a changed document is a new version. The pages show it, and every raffle's notice names
-   the privacy notice's.
+Without them the app works the same: `/terms` and `/privacy` say you haven't provided them, the admin claims no
+terms, and each raffle's built-in privacy notice says you haven't published one.
 
-Until then the app Worker refuses every request, `/healthz` included, and says why: a document still marked
-**Template.**, or one without its front matter or its version.
+To add one, or both:
+
+1. Write it in Markdown, as `legal/terms.md` or `legal/privacy.md`, starting with its version in front matter:
+
+   ```markdown
+   ---
+   version: 2026-11
+   ---
+   # Privacy notice
+   ```
+
+2. Change the version whenever you change the text: a changed document is a new version. The pages show it, and
+   every raffle's notice names the privacy notice's. Nothing records who read which version, so tell organizers
+   directly about a change to the data processing agreement.
+
+A push of `legal/` deploys them. A document without its front matter or its version makes the app Worker refuse
+every request, `/healthz` included, naming the file.
 
 ## 8. The app Worker's secrets
 
@@ -461,8 +474,8 @@ You'll get: the three Workers, the database's tables, and the release's engine r
    curl https://rafi-app.<subdomain>.workers.dev/healthz    # ok 0.1.0 (B: https://raffle.example.org/healthz)
    ```
 
-   `ok 0.1.0` means the app Worker has its secrets and documents. Anything missing answers `500 misconfigured`
-   with the reason; the app Worker's logs have all of it.
+   `ok 0.1.0` means the app Worker has its secrets (and your documents, if any, their versions). Anything missing
+   answers `500 misconfigured` with the reason; the app Worker's logs have all of it.
 3. Run a **test-mode raffle** end to end:
    1. sign in at the app's address, `RAFI_PUBLIC_URL`;
    2. create a raffle with **Test mode** on;
@@ -679,6 +692,7 @@ Then push: `Deploy (eu)` deploys the environment's Workers, and its cleanup touc
 [gh-push-event]: https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push
 [guide]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md
 [guide-address]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#the-apps-address
+[guide-legal]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/legal-documents.md
 [guide-installation]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#what-an-installation-is
 [guide-residency]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#data-residency
 [guide-restate-keys]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#the-restate-keys

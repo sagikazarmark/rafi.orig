@@ -10,7 +10,8 @@
 # Actions.
 #
 # Usage, from the root of an installation's repository (a copy of deploy/cloudflare: VERSION,
-# package.json, wrangler.app.toml, wrangler.engine.toml, wrangler.live.toml, legal/), with the
+# package.json, wrangler.app.toml, wrangler.engine.toml, wrangler.live.toml, and legal/ with the
+# operator's terms.md and privacy.md, either or both, if they provide any), with the
 # release unpacked into release/ (the directory this script is in is the release; the
 # configurations point into it as release/...):
 #
@@ -90,9 +91,10 @@
 #     annotations), nothing is deployed: the live channels' connections are kept. Otherwise
 #     `wrangler deploy` (the class's Durable Object migrations need it); any edit of
 #     wrangler.live.toml, a comment too, deploys it.
-#   upload-app: legal/terms.md and legal/privacy.md copied into the app's static files
-#     (release/app/assets/legal/); then, if the app Worker has ever run a release's code (a
-#     version tagged v<version>, in its current deployment or among its recent versions),
+#   upload-app: legal/terms.md and legal/privacy.md, those there are, copied into the app's
+#     static files (release/app/assets/legal/, replacing what a run before copied); then, if
+#     the app Worker has ever run a release's code (a version tagged v<version>, in its
+#     current deployment or among its recent versions),
 #     `wrangler versions upload --tag v<version>`, the new version not serving yet: output
 #     app_version_id (from wrangler's ND-JSON output). Otherwise, a first install (the Worker
 #     holds only the secrets `wrangler secret put`/`bulk` created it with): `wrangler deploy`
@@ -337,13 +339,21 @@ read_names() {
 }
 
 copy_legal() {
-  local from="$1" to="$2/legal" doc
+  local from="$1" to="$2/legal" doc copied=()
+  # What a run before this one copied goes first: a document the installation has since removed
+  # is gone from the app too.
+  rm -rf "$to"
   for doc in terms.md privacy.md; do
-    [ -f "$from/$doc" ] || die "$from/$doc is missing: the installation's legal documents"
+    [ -f "$from/$doc" ] || continue
+    mkdir -p "$to"
+    cp "$from/$doc" "$to/"
+    copied+=("$doc")
   done
-  mkdir -p "$to"
-  cp "$from/terms.md" "$from/privacy.md" "$to/"
-  say "copied $from/terms.md and privacy.md into $to"
+  if [ "${#copied[@]}" -eq 0 ]; then
+    say "no legal documents in $from: the app's /terms and /privacy say the operator hasn't provided them"
+  else
+    say "copied ${copied[*]} from $from into $to"
+  fi
 }
 
 # require_env <name...>: each set; the tokens fit curl's configuration (quoted, below).

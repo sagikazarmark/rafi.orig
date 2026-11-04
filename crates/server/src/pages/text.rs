@@ -1,9 +1,11 @@
-//! The raffle's rules and its privacy notice, and the installation's own
-//! legal documents: text pages.
+//! The raffle's rules and its privacy notice, and the operator's own legal
+//! documents: text pages.
 
 use dioxus::prelude::*;
 use dioxus_icons::lucide::ArrowLeft;
 pub use rafi_lifecycle::settings::ErasureDates;
+
+pub use crate::config::Hosting;
 
 use super::participant::{Raffle, document};
 
@@ -36,13 +38,20 @@ impl Organizer<'_> {
     }
 }
 
-/// Who runs the installation, as every notice names them.
+/// Who runs the installation, as every notice names them, and what of the
+/// notice depends on them: their documents, and where they run it.
 #[derive(Debug, Clone, Copy)]
 pub struct Operator<'a> {
     pub name: &'a str,
     pub email: &'a str,
-    /// The installation's own privacy notice, at `/privacy`, and its version.
-    pub privacy_version: &'a str,
+    /// The operator's own privacy notice's version (at `/privacy`); `None`
+    /// when they haven't provided one.
+    pub privacy_version: Option<&'a str>,
+    /// Whether they have provided terms (with the data processing
+    /// agreement, at `/terms`).
+    pub terms: bool,
+    /// Where the service runs: the hosting the notice names.
+    pub hosting: Hosting,
 }
 
 /// The one sentence the join form says about erasure.
@@ -202,9 +211,10 @@ pub fn rules(r: &Rules<'_>) -> String {
 
 /// The raffle's privacy notice, as HTML: the controller, what is collected
 /// and why from someone who joins and from someone the organizer adds, what
-/// is public, the three erasure dates, the operator as the processor (its
-/// own notice names its subprocessors), the entrant's rights, then whatever
-/// the organizer adds.
+/// is public, the three erasure dates, the operator as the processor and
+/// what the software itself decides of the processing ([`processors`]), the
+/// entrant's rights, then whatever the organizer adds. Built in, whatever
+/// documents the operator has provided.
 pub fn privacy(p: &Privacy<'_>) -> String {
     let Privacy {
         raffle,
@@ -256,18 +266,9 @@ pub fn privacy(p: &Privacy<'_>) -> String {
                 retention.winners_erase.long()
             ).into(),
             "Anonymous IDs and the draw log are kept so the draw stays verifiable. The organizer can export the winners' details to deliver prizes; a copy they exported is outside this service, and its erasure is the organizer's responsibility.".into(),
-            "After erasure, the anonymous entry keeps when it joined, how it joined, whether a prize was delivered and whether its name was hidden. Backups and the hosting provider's point-in-time recovery may hold erased data a while longer; the service's notice says how long.".into(),
+            after_erasure(operator).into(),
         ]),
-        ("Who processes it".to_owned(), vec![
-            Para::Link {
-                text: format!(
-                    "{} ({}) runs this service and processes the raffle's data on the organizer's behalf, as its processor, under a data processing agreement. Its own privacy notice (version {}) names the providers it relies on: the hosting provider stores the raffle's data on the operator's behalf; the raffle engine, organizer sign-in and the public randomness network receive no personal data. Where a provider is outside the EU/EEA, that notice names it and the safeguard that covers the transfer (an adequacy decision, the Data Privacy Framework or standard contractual clauses) and how to obtain a copy.",
-                    operator.name, operator.email, operator.privacy_version
-                ),
-                href: "/privacy".into(),
-                label: "The service's privacy notice".into(),
-            },
-        ]),
+        ("Who processes it".to_owned(), processors(operator)),
         ("Your rights".to_owned(), vec![
             "You can request access, correction, erasure, restriction, or object to processing, and receive the data you gave in a portable form, by contacting the controller. You can also lodge a complaint with your local data protection supervisory authority.".into(),
         ]),
@@ -324,22 +325,102 @@ fn added(raffle: &Raffle<'_>, organizer: &Organizer<'_>) -> Vec<Para> {
     ]
 }
 
-/// One of the installation's documents (its privacy notice, its terms), as
-/// HTML: the Markdown rendered, with its version.
-pub fn legal(title: &str, version: &str, markdown_text: &str) -> String {
-    let html = markdown(markdown_text);
+/// What stays after erasure, and where erased data may linger: the
+/// hosting's point-in-time recovery (on Cloudflare, D1's Time Travel, whose
+/// 30 days are the Workers paid plan's), and backups, which only the
+/// operator's notice can put a time on.
+fn after_erasure(operator: &Operator<'_>) -> String {
+    let lingers = match operator.hosting {
+        Hosting::Cloudflare => {
+            "Erased data can stay in the database's point-in-time recovery (Cloudflare D1 Time Travel) for up to 30 days, and in any backup the operator keeps"
+        }
+        Hosting::Native => {
+            "Backups and the hosting provider's point-in-time recovery may hold erased data a while longer"
+        }
+    };
+    let how_long = if operator.privacy_version.is_some() {
+        "; the operator's privacy notice says how long"
+    } else {
+        ""
+    };
+    format!(
+        "After erasure, the anonymous entry keeps when it joined, how it joined, whether a prize was delivered and whether its name was hidden. {lingers}{how_long}."
+    )
+}
+
+/// Who processes the raffle's data: the operator, as the organizer's
+/// processor (under the data processing agreement only if their terms are
+/// there to hold one), then what the software itself decides, the same
+/// whatever the operator has written: the hosting, and the providers that
+/// receive none of an entrant's data. Then the operator's own privacy notice,
+/// or that there is none.
+fn processors(operator: &Operator<'_>) -> Vec<Para> {
+    let runs = format!(
+        "{} ({}) runs this service and processes the raffle's data on the organizer's behalf, as its processor",
+        operator.name, operator.email
+    );
+    let runs = if operator.terms {
+        Para::Link {
+            text: format!("{runs}, under the data processing agreement in its terms."),
+            href: "/terms".into(),
+            label: "The service's terms".into(),
+        }
+    } else {
+        format!("{runs}.").into()
+    };
+    let hosting = match operator.hosting {
+        Hosting::Cloudflare => {
+            "The service runs on Cloudflare (Cloudflare, Inc., a US company), whose Workers, D1 database and Durable Objects hold the raffle's data on the operator's behalf."
+        }
+        Hosting::Native => {
+            "The service runs on hosting the operator chose, which holds the raffle's data on the operator's behalf."
+        }
+    };
+    let software = format!(
+        "How the Rafi software works: {hosting} The raffle engine (Restate), organizer sign-in (Clerk) and the public randomness network (drand) receive none of your personal data."
+    );
+    let own = match operator.privacy_version {
+        Some(version) => Para::Link {
+            text: format!(
+                "The operator's own privacy notice (version {version}) covers the service as they run it."
+            ),
+            href: "/privacy".into(),
+            label: "The service's privacy notice".into(),
+        },
+        None => "The operator hasn't published a privacy notice of its own.".into(),
+    };
+    vec![runs, software.into(), own]
+}
+
+/// One of the operator's documents (their privacy notice, their terms), as
+/// HTML: the Markdown rendered, with its version; or, when they haven't
+/// provided it (`None`), a page that says so, `missing` naming what isn't
+/// there ("a privacy notice").
+pub fn legal(title: &str, doc: Option<(&str, &str)>, missing: &str) -> String {
     let title_owned = title.to_owned();
-    let version = version.to_owned();
+    let content = match doc {
+        Some((version, markdown_text)) => {
+            let html = markdown(markdown_text);
+            let version = version.to_owned();
+            rsx! {
+                p { class: "text-sm text-base-content/60", "{title_owned} · version {version}" }
+                article { class: "prose card bg-base-100 p-6 shadow-sm ring-1 ring-base-300 max-w-none",
+                    dangerous_inner_html: "{html}"
+                }
+            }
+        }
+        None => rsx! {
+            h1 { class: "text-3xl font-extrabold", "{title_owned}" }
+            p { class: "text-base-content/80", "The operator of this service hasn't provided {missing}." }
+        },
+    };
     let body = dioxus::ssr::render_element(rsx! {
         main { class: "mx-auto flex max-w-2xl flex-col gap-4 px-4 py-8",
             a { class: "btn btn-ghost btn-sm w-fit", href: "/",
                 ArrowLeft { class: "size-4" }
                 "rafi"
             }
-            p { class: "text-sm text-base-content/60", "{title_owned} · version {version}" }
-            article { class: "prose card bg-base-100 p-6 shadow-sm ring-1 ring-base-300 max-w-none",
-                dangerous_inner_html: "{html}"
-            }
+            {content}
         }
     });
     document(title, body, None, None)

@@ -170,6 +170,7 @@ pub fn ThemeToggle(
 
 #[component]
 fn Home() -> Element {
+    let documents = use_hook(crate::config::documents);
     rsx! {
         div { class: "min-h-screen bg-base-100 bg-dots",
             nav { class: "mx-auto flex max-w-6xl items-center gap-3 px-5 py-4",
@@ -226,9 +227,16 @@ fn Home() -> Element {
                 Feature { icon: rsx! { Dice5 { class: "size-6" } }, title: "Drawn in public", body: "Every prize commits to a future drand round first. The countdown is the suspense." }
                 Feature { icon: rsx! { ShieldCheck { class: "size-6" } }, title: "Check it yourself", body: "Anyone can re-run every draw in the browser afterwards. Personal data is erased on a date entrants see before they join." }
             }
-            nav { class: "flex justify-center gap-4 text-sm text-base-content/70",
-                a { class: "link link-hover", href: "/terms", "Terms" }
-                a { class: "link link-hover", href: "/privacy", "Privacy" }
+            // The operator's documents, those they have provided.
+            if documents.terms || documents.privacy {
+                nav { class: "flex justify-center gap-4 text-sm text-base-content/70",
+                    if documents.terms {
+                        a { class: "link link-hover", href: "/terms", "Terms" }
+                    }
+                    if documents.privacy {
+                        a { class: "link link-hover", href: "/privacy", "Privacy" }
+                    }
+                }
             }
             Colophon { info: use_hook(crate::config::build) }
         }

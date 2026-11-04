@@ -11,9 +11,9 @@ Every URL a Rafi app serves. All of them are on one origin.
 | `/v/<slug>` | The verification page. It re-runs every draw in the browser. | Public, once the list is frozen |
 | `/j/<CODE>` | The participant page: the join form, then the entrant's own card. Server-rendered. `POST` joins. Without registration, no form and no join: the organizer adds the people taking part, and the page links the rules, the notice and, once frozen, the verification page. | Public (the entry lives in a cookie) |
 | `/rules/<slug>` | The raffle's rules | Public |
-| `/privacy/<slug>` | The raffle's privacy notice: the organizer as controller, the erasure dates, the operator as processor, the organizer's own text | Public |
-| `/privacy` | The installation's own privacy notice (the operator's; from `privacy.md`) | Public |
-| `/terms` | The operator's terms, with the data processing agreement (from `terms.md`), which organizers accept by using the service | Public |
+| `/privacy/<slug>` | The raffle's privacy notice, built in: the organizer as controller, the erasure dates, the operator as processor and how the software handles the data, the organizer's own text | Public |
+| `/privacy` | The operator's own privacy notice (from `privacy.md`), or that they haven't provided one | Public |
+| `/terms` | The operator's terms, with the data processing agreement (from `terms.md`), which organizers accept by using the service; or that they haven't provided any | Public |
 
 The web app (`rafi-web`) serves `/admin`, `/s/…` and `/v/…` as a single-page app: the server answers every path it
 doesn't own with the web app's `index.html` (`GET` only; a miss under `/assets/`, `/participant/`, `/api/` or `/legal/`

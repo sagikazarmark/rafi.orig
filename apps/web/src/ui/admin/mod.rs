@@ -355,6 +355,7 @@ fn SignInAgain() -> Element {
 /// organization's (every co-host's raffles), by one of its admins.
 #[component]
 fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
+    let terms = use_hook(crate::config::documents).terms;
     let ask = use_confirm();
     let error = use_signal(|| None::<Problem>);
     let toast = use_toast();
@@ -367,7 +368,15 @@ fn YourData(shared: bool, on_removed: EventHandler<()>) -> Element {
         details { class: "collapse collapse-arrow bg-base-100 ring-1 ring-base-300",
             summary { class: "collapse-title text-sm font-semibold", "{title}" }
             div { class: "collapse-content space-y-3 text-sm text-base-content/70",
-                p { "This service keeps the organizer name and contacts on {whose} raffles, {whose} defaults, and the audit log of what was done. Entrants' data is erased on the dates their raffles show; it can always be erased earlier from a raffle's menu. By using the service you accept its " a { class: "link", href: "/terms", target: "_blank", "terms" } ", which include the data processing agreement." }
+                p {
+                    "This service keeps the organizer name and contacts on {whose} raffles, {whose} defaults, and the audit log of what was done. Entrants' data is erased on the dates their raffles show; it can always be erased earlier from a raffle's menu."
+                    // Only terms the operator has provided can be accepted.
+                    if terms {
+                        " By using the service you accept its "
+                        a { class: "link", href: "/terms", target: "_blank", "terms" }
+                        ", which include the data processing agreement."
+                    }
+                }
                 if shared {
                     p { "Leaving? Remove the organization's data here, for every co-host: raffles that were never frozen are deleted, finished ones lose their entrants' data and the organizer's name, and the defaults go. The anonymous draws stay verifiable. Then delete the organization in your account settings." }
                 } else {

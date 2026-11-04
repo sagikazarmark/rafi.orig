@@ -133,10 +133,13 @@ fn organizer_of(raffle: &RaffleRow) -> pages::Organizer<'_> {
 }
 
 fn operator_of(app: &AppState) -> pages::Operator<'_> {
+    let documents = &app.cfg.documents;
     pages::Operator {
         name: &app.cfg.operator.name,
         email: &app.cfg.operator.email,
-        privacy_version: &app.cfg.documents.privacy.version,
+        privacy_version: documents.privacy.as_ref().map(|d| d.version.as_str()),
+        terms: documents.terms.is_some(),
+        hosting: app.cfg.hosting,
     }
 }
 
@@ -360,30 +363,33 @@ async fn privacy(Extension(app): Extension<AppState>, Path(slug): Path<String>) 
     Html(pages::privacy(&notice)).into_response()
 }
 
-/// The installation's own privacy notice: the operator's, naming its
-/// subprocessors. Under the documents' policy, which lets the operator's
+/// The operator's own privacy notice, or a page saying they haven't
+/// provided one. Under the documents' policy, which lets the operator's
 /// Markdown show images from elsewhere.
 async fn installation_privacy(Extension(app): Extension<AppState>) -> Response {
+    let doc = app.cfg.documents.privacy.as_ref();
     (
         Extension(csp::Page::Legal),
         Html(pages::legal(
             "Privacy notice",
-            &app.cfg.documents.privacy.version,
-            &app.cfg.documents.privacy.text,
+            doc.map(|d| (d.version.as_str(), d.text.as_str())),
+            "a privacy notice",
         )),
     )
         .into_response()
 }
 
-/// The operator's terms, with the data processing agreement: what organizers
-/// accept in the admin.
+/// The operator's terms, with the data processing agreement, which
+/// organizers accept by using the service; or a page saying they haven't
+/// provided any.
 async fn installation_terms(Extension(app): Extension<AppState>) -> Response {
+    let doc = app.cfg.documents.terms.as_ref();
     (
         Extension(csp::Page::Legal),
         Html(pages::legal(
             "Terms",
-            &app.cfg.documents.terms.version,
-            &app.cfg.documents.terms.text,
+            doc.map(|d| (d.version.as_str(), d.text.as_str())),
+            "terms",
         )),
     )
         .into_response()
