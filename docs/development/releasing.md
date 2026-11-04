@@ -16,7 +16,7 @@ the top level of the archive:
 The combined Worker (`apps/worker`) is for local development only. Self-hosting builds from the tag.
 
 Installations deploy a release with GitHub Actions, from their own repository, created from the template
-repository, a copy of `deploy/cloudflare` ([below](#the-template-repository)): its
+repository ([below](#the-template-repository)): its
 `VERSION` names the release (`VERSION.<environment>` instead, when the workflows' `CLOUDFLARE_ENV` names a
 Wrangler environment and that file exists: several installations in one repository), and its two workflows,
 `.github/workflows/deploy.yaml` and `restate-cleanup.yaml`, download that release's `worker.tar.gz` from this
@@ -46,12 +46,10 @@ mark it **Template repository** (**Settings > General**).
 
 ## Before the tag
 
-Name the release in `deploy/cloudflare/VERSION` (`0.2.0`, or `0.2.0-rc.1` for a pre-release). The rehearsal refuses
-a release that file doesn't name (an installation copied at the tag would deploy another release), and CI's
-rehearsal and the Release workflow's manual run are of the version it names. The template's `INSTALL.md` and `README.md`
-name the release in their commands too (the template it creates from, the release step 10 downloads, `/healthz`'s
-answer, the engine Workers' names, the version files of Several installations): change them with `VERSION`
-(`rg -n '0\.1\.0|0-1-0' deploy/cloudflare/*.md`); nothing checks those.
+Name the release in `testdata/cloudflare-installation/VERSION` (`0.2.0`, or `0.2.0-rc.1` for a pre-release), the
+test fixture of an installation. The rehearsal refuses a release that file doesn't name, and CI's rehearsal and the
+Release workflow's manual run are of the version it names. The template repository's `VERSION`, `INSTALL.md` and
+`README.md` name the release too: change them there; nothing here checks those.
 
 When a change to `scripts/cloudflare-deploy.sh` changes how it is driven (a subcommand, its environment or outputs,
 what it expects of the installation's repository), change the template's workflows to fit, in the same commit, and
@@ -61,7 +59,7 @@ subcommand they still call has to keep working for a release, or the notes say w
 The release notes are generated from the merged pull requests; edit them on the release when an operator has to
 act or should know:
 
-- a migration, a new secret, a setting in `deploy/cloudflare`'s configurations or `.dev.vars.example` (operators
+- a migration, a new secret, a setting in the template's configurations or `.dev.vars.example` (operators
   carry those over by hand, into each `[env.<name>]` too, since environments don't inherit vars, bindings or required
   secrets);
 - a change to the workflows: "copy `.github/workflows/deploy.yaml` and `restate-cleanup.yaml` from
@@ -75,16 +73,15 @@ act or should know:
   ([Upgrades](../operations/upgrades.md#what-a-deploy-does-to-a-raffle-in-flight)), or a change to the live
   Worker's requests would break the previous app's or engine's (a change to them takes two releases).
 
-CI's `workers` job rehearses a release (of the version `deploy/cloudflare/VERSION` names) on every push.
+CI's `workers` job rehearses a release (of the version `testdata/cloudflare-installation/VERSION` names) on every
+push.
 
 ## Rehearsing
 
 Run the Release workflow by hand (**Actions > Release > Run workflow**): it runs CI, builds the release of the
-version given (by default the one `deploy/cloudflare/VERSION` names), checks that the template's `VERSION` names it,
-that its `package-lock.json` pins the devenv's wrangler (after a wrangler bump, `npm install
-wrangler@<version> --package-lock-only` in `deploy/cloudflare`), and that its workflows download the release the
-version file names (and call no `deploy.sh check`), and runs
-its `deploy.sh dry-run` from a copy of `deploy/cloudflare` with the release unpacked into `release/` (the devenv's
+version given (by default the one `testdata/cloudflare-installation/VERSION` names), checks that the fixture's
+`VERSION` names it, and runs its `deploy.sh dry-run` from a copy of `testdata/cloudflare-installation` (an
+installation's configuration, as the deploy template ships it) with the release unpacked into `release/` (the devenv's
 wrangler, the Workers' names read from its dry runs), at the configurations' top level and as a Wrangler
 environment (`[env.eu]` added to each configuration, with `RAFI_DO_JURISDICTION = "eu"`, `VERSION.eu`,
 `CLOUDFLARE_ENV=eu`), publishing nothing. `dry_run` off publishes a tag that already exists, to finish a release whose run failed: run it
@@ -119,19 +116,13 @@ A version with a pre-release suffix (`v0.2.0-rc.1`) is published as a pre-releas
 
 ## The template repository
 
-Operators create their repository from `sagikazarmark/rafi-deploy-template` (`deploy/cloudflare`'s INSTALL.md,
-step 1), which mirrors `deploy/cloudflare`: its `main` is the latest release's, and each release's is tagged the
-same, `v<version>`, which the release notes' "copy the workflows at this tag" means. Once the release is published,
-update it, by hand for now: `deploy/cloudflare` at the tag becomes the repository's whole content.
-
-```sh
-gh repo clone sagikazarmark/rafi-deploy-template && cd rafi-deploy-template
-git rm -rq --ignore-unmatch .
-git -C <your Rafi checkout> archive v<version> deploy/cloudflare | tar -x --strip-components=2
-git add -A && git commit -m "Rafi <version>"
-git tag -s v<version> -m "Rafi <version>"
-git push origin main v<version>
-```
+Operators will create their repository from a template repository, `sagikazarmark/rafi-deploy-template`, which is
+in the works: its `main` the latest release's configuration, workflows and docs (INSTALL.md, README.md), each
+release's tagged the same, `v<version>`, which the release notes' "copy the workflows at this tag" means. It is
+maintained by hand, and tried on real installations before it is published. Its configuration's shape is tested
+here, as a fixture: `testdata/cloudflare-installation` (its three `wrangler.*.toml` and `VERSION`), which
+`scripts/workers-check.sh` compares with the production Workers' and the release rehearsal deploys (dry). A change
+to the Workers' shape (a binding, a migration, a required secret) goes into the fixture here and the template there.
 
 ## Reproducible
 

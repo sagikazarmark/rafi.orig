@@ -8,9 +8,9 @@
 #
 # The Worker's shape, for building and a dry deploy (`just dry-run`): nothing
 # of an installation's is in it. An installation's configuration of this
-# Worker is wrangler.live.toml in its copy of deploy/cloudflare
-# (docs/operations/cloudflare.md), whose shape scripts/workers-check.sh
-# compares with this file's.
+# Worker is wrangler.live.toml in its repository (docs/operations/cloudflare.md),
+# whose shape, as the deploy template ships it (testdata/cloudflare-installation),
+# scripts/workers-check.sh compares with this file's.
 
 name = "rafi-live"
 main = "build/index.js"

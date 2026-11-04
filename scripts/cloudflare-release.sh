@@ -1,43 +1,32 @@
 #!/usr/bin/env bash
 # Builds a release of Rafi for Cloudflare and proves it deploys, the way an
-# installation deploys it. First that deploy/cloudflare, which an
-# installation copies at the release's tag (through the template repository,
-# sagikazarmark/rafi-deploy-template, which mirrors it), names this release
-# (its VERSION), has the package.json and package-lock.json its workflows
-# install wrangler and the Restate CLI from (the lockfile pinning the wrangler
-# this rehearsal runs) and the .dev.vars.example its secrets are set from
-# (.dev.vars git-ignored), the three configurations as
-# wrangler.<app|engine|live>.toml
-# (deploy.yaml running on a change to wrangler.*.toml), the app on its
-# workers.dev address by default (workers_dev = true, a custom domain's routes
-# commented out), and that its two workflows (.github/workflows/deploy.yaml and
-# restate-cleanup.yaml) name one Rafi repository (RAFI_REPOSITORY), verify the
-# attestation release.yaml makes, download the release the version file names
-# (VERSION.<CLOUDFLARE_ENV> when it exists, VERSION otherwise), no longer call
-# `deploy.sh check` (gone), and are each one job that installs the tools
-# (npm ci) and keeps deploy.sh's JSON (RAFI_ARTIFACTS_DIR, uploaded whatever
-# happened), and that release.yaml makes it. Then deploy.sh's
-# own checks (scripts/cloudflare-deploy-test.sh: each subcommand against a
-# stubbed wrangler and Restate CLI and a fake Cloudflare and Restate API).
-# Then the release (`just cloudflare-tarball`: worker.tar.gz, its files at the
-# top level: VERSION, app/, engine/build/, live/build/, migrations/,
-# deploy.sh), its layout and each Worker's exports checked (RaffleRoom the
-# live Worker's alone); then a copy of deploy/cloudflare with the tarball
-# unpacked into its release/, as an installation's workflow unpacks it, runs
-# `release/deploy.sh dry-run` with the devenv's wrangler (WRANGLER; nothing
-# installed, nothing asked of the network): the release's own VERSION read
-# (deploy.sh reads no version file and looks for no placeholder), legal/
-# copied in, and `wrangler deploy --dry-run` of the live Worker, the engine
-# Worker and the app Worker, whose names (read from the dry runs' ND-JSON
-# output, kept in RAFI_ARTIFACTS_DIR) and bindings are checked here: no
-# RAFI_DO_JURISDICTION, the template's default. Then one Wrangler
-# environment the same way: a copy whose three configurations have an
-# [env.eu] (repeating what environments don't inherit: the vars, with
-# RAFI_DO_JURISDICTION = "eu" and the engine's identity keys, the bindings,
-# the required secrets; the app on a custom domain, workers_dev = false) and a
-# VERSION.eu, dry-run with CLOUDFLARE_ENV=eu, the
-# Workers the environment's (rafi-app-eu, rafi-live-eu,
-# rafi-engine-eu-v<version>), each with the jurisdiction.
+# installation deploys it. First that the test fixture,
+# testdata/cloudflare-installation (an installation's configuration as the
+# deploy template ships it: VERSION and wrangler.<app|engine|live>.toml),
+# names this release, with the app on its workers.dev address by default
+# (workers_dev = true, a custom domain's routes commented out), and that
+# release.yaml attests the tarball, which installations' workflows verify.
+# Then deploy.sh's own checks (scripts/cloudflare-deploy-test.sh: each
+# subcommand against a stubbed wrangler and Restate CLI and a fake Cloudflare
+# and Restate API). Then the release (`just cloudflare-tarball`:
+# worker.tar.gz, its files at the top level: VERSION, app/, engine/build/,
+# live/build/, migrations/, deploy.sh), its layout and each Worker's exports
+# checked (RaffleRoom the live Worker's alone); then a copy of the fixture
+# with the tarball unpacked into its release/, as an installation's workflow
+# unpacks it, runs `release/deploy.sh dry-run` with the devenv's wrangler
+# (WRANGLER; nothing installed, nothing asked of the network): the release's
+# own VERSION read (deploy.sh reads no version file and looks for no
+# placeholder), no legal documents copied (the fixture has none), and
+# `wrangler deploy --dry-run` of the live Worker, the engine Worker and the
+# app Worker, whose names (read from the dry runs' ND-JSON output, kept in
+# RAFI_ARTIFACTS_DIR) and bindings are checked here: no RAFI_DO_JURISDICTION,
+# the default. Then one Wrangler environment the same way: a copy whose three
+# configurations have an [env.eu] (repeating what environments don't
+# inherit: the vars, with RAFI_DO_JURISDICTION = "eu" and the engine's
+# identity keys, the bindings, the required secrets; the app on a custom
+# domain, workers_dev = false) and a VERSION.eu, dry-run with
+# CLOUDFLARE_ENV=eu, the Workers the environment's (rafi-app-eu,
+# rafi-live-eu, rafi-engine-eu-v<version>), each with the jurisdiction.
 # .github/workflows/release.yaml runs this on a tag and attaches
 # <out dir>/worker.tar.gz; scripts/workers-check.sh runs it too, so CI
 # rehearses a release on every push; running it by hand does too.
@@ -62,101 +51,29 @@ fail() {
   exit 1
 }
 
-step "deploy/cloudflare deploys this release, with its workflows"
-# An installation's repository is a copy of deploy/cloudflare taken at a tag:
-# its VERSION names the release it deploys, and its workflows run that
-# release's deploy.sh. Both workflows download worker.tar.gz of the release
-# the version file names from the repository they name and verify that
-# release.yaml attested it; each is one job that installs the tools from
-# package-lock.json (deploy.sh runs them with npx -y) and keeps deploy.sh's
-# JSON as an artifact.
-template="$ROOT/deploy/cloudflare"
-named="$(tr -d '[:space:]' <"$template/VERSION" 2>/dev/null || true)"
-[ "$named" = "$VERSION" ] || fail "deploy/cloudflare/VERSION says '$named', not $VERSION: set it to $VERSION"
-jq -e '.private == true and (.devDependencies | keys) == ["@restatedev/restate", "wrangler"]' "$template/package.json" >/dev/null \
-  || fail "deploy/cloudflare/package.json isn't private with wrangler and @restatedev/restate as its devDependencies"
-grep -qx 'node_modules/' "$template/.gitignore" || fail "deploy/cloudflare/.gitignore doesn't ignore node_modules/"
-# The lockfile the workflows' npm ci installs from: package.json's dependencies, and the
-# wrangler this rehearsal's dry runs use (update it with npm install wrangler@<version>
-# --package-lock-only in deploy/cloudflare).
-jq -e --slurpfile pkg "$template/package.json" '.packages[""].devDependencies == $pkg[0].devDependencies' \
-  "$template/package-lock.json" >/dev/null 2>&1 \
-  || fail "deploy/cloudflare/package-lock.json is missing or doesn't match package.json: run npm install --package-lock-only there"
-locked="$(jq -r '.packages["node_modules/wrangler"].version' "$template/package-lock.json")"
-rehearsed="$($WRANGLER --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
-[ "$locked" = "$rehearsed" ] \
-  || fail "deploy/cloudflare/package-lock.json pins wrangler $locked, but this rehearsal runs $rehearsed: lock $rehearsed"
-echo "ok   deploy/cloudflare/package.json and package-lock.json: wrangler $locked and the Restate CLI"
-[ -f "$template/.dev.vars.example" ] || fail "no deploy/cloudflare/.dev.vars.example: the app Worker's secrets"
-grep -qx '\.dev\.vars' "$template/.gitignore" || fail "deploy/cloudflare/.gitignore doesn't ignore .dev.vars (the secrets, filled in)"
-[ ! -e "$template/.prod.vars.example" ] || fail "deploy/cloudflare/.prod.vars.example is back: it is .dev.vars.example"
-echo "ok   deploy/cloudflare/.dev.vars.example, and .dev.vars git-ignored"
-# The three configurations, as deploy.sh reads them (-c wrangler.<Worker>.toml),
-# and the deploy's paths filter that matches them.
+step "the installation names this release"
+# The test fixture, an installation's configuration as the deploy template
+# ships it: its VERSION names the release it deploys, its three
+# configurations are what deploy.sh reads (-c wrangler.<Worker>.toml), and the
+# app is on its workers.dev address by default (no zone, no routes; a custom
+# domain is an installation's edit, its route commented out here).
+fixture="$ROOT/testdata/cloudflare-installation"
+named="$(tr -d '[:space:]' <"$fixture/VERSION" 2>/dev/null || true)"
+[ "$named" = "$VERSION" ] || fail "testdata/cloudflare-installation/VERSION says '$named', not $VERSION: set it to $VERSION"
 for key in app engine live; do
-  [ -f "$template/wrangler.$key.toml" ] || fail "no deploy/cloudflare/wrangler.$key.toml"
-  [ ! -e "$template/$key.wrangler.toml" ] || fail "deploy/cloudflare/$key.wrangler.toml is back: it is wrangler.$key.toml"
+  [ -f "$fixture/wrangler.$key.toml" ] || fail "no testdata/cloudflare-installation/wrangler.$key.toml"
 done
-grep -qx '      - "wrangler\.\*\.toml"' "$template/.github/workflows/deploy.yaml" \
-  || fail "deploy.yaml doesn't run on a change to wrangler.*.toml"
-echo "ok   deploy/cloudflare/wrangler.{app,engine,live}.toml, and deploy.yaml runs on their changes"
-# The app's address: by default its workers.dev one (INSTALL.md's step 4, option A: no zone),
-# no routes; a custom domain (option B) is the installation's edit, its route there commented out.
-app_toml="$template/wrangler.app.toml"
+app_toml="$fixture/wrangler.app.toml"
 if ! grep -qx 'workers_dev = true' "$app_toml" || ! grep -qx 'preview_urls = false' "$app_toml" \
   || grep -q '^routes' "$app_toml" \
   || ! grep -qx '# routes = \[{ pattern = "raffle\.example\.org", custom_domain = true }\]' "$app_toml"; then
-  fail "deploy/cloudflare/wrangler.app.toml isn't on workers.dev by default: workers_dev = true, preview_urls = false, the custom domain's routes commented out"
+  fail "testdata/cloudflare-installation/wrangler.app.toml isn't on workers.dev by default: workers_dev = true, preview_urls = false, the custom domain's routes commented out"
 fi
-echo "ok   deploy/cloudflare/wrangler.app.toml: the app on workers.dev by default, a custom domain commented out"
-upstream=
-for workflow in deploy.yaml restate-cleanup.yaml; do
-  file="$template/.github/workflows/$workflow"
-  [ -f "$file" ] || fail "no deploy/cloudflare/.github/workflows/$workflow"
-  repository="$(sed -n 's/^  RAFI_REPOSITORY: *\([^ #]*\).*/\1/p' "$file")"
-  [[ "$repository" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || fail "$workflow names no one RAFI_REPOSITORY: '$repository'"
-  [ -z "$upstream" ] || [ "$repository" = "$upstream" ] || fail "the workflows name two Rafi repositories: $upstream and $repository"
-  upstream="$repository"
-  # shellcheck disable=SC2016 # the workflow's own shell variables, matched literally
-  grep -qF -- '--signer-workflow "github.com/$RAFI_REPOSITORY/.github/workflows/release.yaml"' "$file" \
-    || fail "$workflow doesn't verify the attestation's signer as release.yaml"
-  grep -qx '  CLOUDFLARE_ENV: ""' "$file" || fail "$workflow has no top-level CLOUDFLARE_ENV, empty by default"
-  # shellcheck disable=SC2016 # the workflow's own shell variables, matched literally
-  grep -qF 'if [ -n "$CLOUDFLARE_ENV" ] && [ -f "VERSION.$CLOUDFLARE_ENV" ]; then' "$file" \
-    || fail "$workflow doesn't download the release VERSION.<CLOUDFLARE_ENV> names when it exists"
-  ! grep -qE 'RAFI_(DEPLOY_VERSION|INSTANCE|VERSION)|deploy-rooms|release/deploy\.sh check *$' "$file" \
-    || fail "$workflow still has RAFI_DEPLOY_VERSION, RAFI_INSTANCE, RAFI_VERSION, deploy-rooms or deploy.sh check, which deploy.sh no longer knows"
-  # One job, which runs deploy.sh, installs the tools from the lockfile and keeps its JSON,
-  # whatever happened: per job, whether it runs deploy.sh, then whether it has each of the
-  # four lines.
-  # shellcheck disable=SC2016 # the workflow's own expressions, matched literally
-  jobs="$(awk -v npm='run: npm ci --no-audit --no-fund' \
-    -v dir='RAFI_ARTIFACTS_DIR: ${{ github.workspace }}/rafi-artifacts' -v path='path: ${{ env.RAFI_ARTIFACTS_DIR }}' '
-    function done_job() { if (job != "") print job, d, n, a, p, w }
-    /^jobs:$/ { inside = 1; next }
-    inside && /^  [A-Za-z0-9_-]+:$/ { done_job(); job = $1; sub(/:$/, "", job); d = n = a = p = w = 0; next }
-    job == "" { next }
-    index($0, "release/deploy.sh ") { d = 1 }
-    index($0, npm) { n = 1 }
-    index($0, dir) { a = 1 }
-    index($0, path) { p = 1 }
-    $0 == "        if: always()" { w = 1 }
-    END { done_job() }' "$file")"
-  runs=0
-  while read -r job d n a p w; do
-    [ "$d" = 1 ] || continue
-    runs=$((runs + 1))
-    [ "$n$a$p$w" = 1111 ] \
-      || fail "$workflow: the job $job runs deploy.sh without installing the tools, setting RAFI_ARTIFACTS_DIR or uploading it if: always() ($n$a$p$w)"
-  done <<<"$jobs"
-  [ "$runs" = 1 ] && [ "$(wc -l <<<"$jobs")" = 1 ] || fail "$workflow: not one job running deploy.sh"
-  ! grep -qE 'npm install|actions/download-artifact@|needs:' "$file" \
-    || fail "$workflow installs without the lockfile (npm install) or hands the release between jobs: it is one job, npm ci"
-  echo "ok   $workflow: one job; releases of $repository attested by release.yaml, the one the version file names; the tools installed with npm ci and deploy.sh's JSON kept"
-done
+echo "ok   testdata/cloudflare-installation: VERSION $VERSION, wrangler.{app,engine,live}.toml, the app on workers.dev"
+# What installations' workflows verify of a release: release.yaml's attestation.
 grep -q 'uses: actions/attest-build-provenance@' "$ROOT/.github/workflows/release.yaml" \
   || fail "release.yaml doesn't attest the tarball: the workflows would refuse every release"
-echo "ok   deploy/cloudflare/VERSION is $VERSION"
+echo "ok   release.yaml attests the tarball"
 
 step "deploy.sh's own checks"
 "$ROOT/scripts/cloudflare-deploy-test.sh"
@@ -182,13 +99,11 @@ done
 ! grep -q '^app/assets/legal' <<<"$listing" || fail "worker.tar.gz has app/assets/legal/: an installation's"
 echo "ok   worker.tar.gz: VERSION, app/, engine/build/, live/build/, migrations/ and deploy.sh"
 
-# installation <dir>: a copy of deploy/cloudflare with the tarball unpacked into its release/.
+# installation <dir>: a copy of the fixture with the tarball unpacked into its release/.
 installation() {
   rm -rf "$1"
   mkdir -p "$1/release"
-  (cd "$ROOT/deploy/cloudflare" && tar -c --exclude ./release --exclude ./node_modules --exclude ./.wrangler \
-    --exclude ./.dev.vars .) | tar -x -C "$1"
-  [ -f "$1/.dev.vars.example" ] || fail "the copy of deploy/cloudflare in $1 has no .dev.vars.example"
+  cp -R "$fixture/." "$1/"
   tar -xzf "$OUT/worker.tar.gz" -C "$1/release"
 }
 # dry_run <dir> [<VAR=value>...]: release/deploy.sh dry-run there with WRANGLER (nothing
@@ -251,7 +166,7 @@ check_dry_run() {
     if [ -n "$jurisdiction" ]; then
       expect "the $key Worker" "$got" "^env\\.RAFI_DO_JURISDICTION \\(\"$jurisdiction\"\\) "
     elif grep -qE '^env\.RAFI_DO_JURISDICTION ' <<<"$got"; then
-      fail "the $key Worker has a RAFI_DO_JURISDICTION, which the template leaves unset"
+      fail "the $key Worker has a RAFI_DO_JURISDICTION, which the fixture leaves unset"
     fi
   done
   echo "ok   the live Worker $live_name: DB, RAFFLE_ROOM (its own)"
@@ -260,7 +175,7 @@ check_dry_run() {
   echo "ok   RAFI_DO_JURISDICTION: ${jurisdiction:-none} in all three"
 }
 
-step "deploy/cloudflare deploys it (dry run)"
+step "the installation deploys it (dry run)"
 dir="$OUT/installation"
 installation "$dir"
 shipped="$(cat "$dir/release/VERSION")"
@@ -284,22 +199,14 @@ for worker in app engine live; do
 done
 [ -x "$dir/release/deploy.sh" ] || fail "release/deploy.sh isn't executable"
 dry_run "$dir"
-# The operator's documents, those the template has (each optional): copied as they are, and
-# none that it hasn't.
-for doc in terms.md privacy.md; do
-  if [ -f "$ROOT/deploy/cloudflare/legal/$doc" ]; then
-    cmp -s "$ROOT/deploy/cloudflare/legal/$doc" "$dir/release/app/assets/legal/$doc" \
-      || fail "deploy.sh didn't put legal/$doc into release/app/assets/legal/"
-  else
-    [ ! -e "$dir/release/app/assets/legal/$doc" ] || fail "deploy.sh put a legal/$doc the template hasn't into release/app/assets/legal/"
-  fi
-done
-echo "ok   deploy.sh copied legal/'s documents (those there are) into release/app/assets/legal/"
+# The fixture has no legal documents (each is the operator's, and optional): none copied.
+[ ! -e "$dir/release/app/assets/legal" ] || fail "deploy.sh put legal documents the installation hasn't into release/app/assets/legal/"
+echo "ok   deploy.sh copied no legal documents, the installation having none"
 grep -qF "Rafi $VERSION (the release's VERSION)" <<<"$DRY" || fail "deploy.sh didn't read the release's VERSION"
 check_dry_run "$dir" rafi-app rafi-live rafi-engine ""
 rm -rf "$dir"
 
-step "deploy/cloudflare deploys it as a Wrangler environment (CLOUDFLARE_ENV=eu, dry run)"
+step "the installation deploys it as a Wrangler environment (CLOUDFLARE_ENV=eu, dry run)"
 # One repository, several installations: an [env.eu] in each configuration,
 # repeating what environments don't inherit (vars, bindings, required
 # secrets; the rate limits with namespaces of their own), RAFFLE_ROOM bound
@@ -311,7 +218,7 @@ step "deploy/cloudflare deploys it as a Wrangler environment (CLOUDFLARE_ENV=eu,
 # (INSTALL.md's step 4, option B: workers_dev = false and its own route,
 # written out as INSTALL.md's [env.eu] does, which wrangler's dry run
 # validates), so the two rehearsals dry-run both addresses: the top level's
-# workers.dev, the template's default, and this one's domain.
+# workers.dev, the fixture's default, and this one's domain.
 dir="$OUT/installation-eu"
 installation "$dir"
 secrets="$(sed -n '/^\[secrets\]$/,/^\]$/p' "$dir/wrangler.app.toml" | sed '1d')"

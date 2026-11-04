@@ -4,12 +4,12 @@
 # Worker, registered with Restate; and cleans up the engine Workers Restate has drained. Each
 # release ships this file as its deploy.sh (the source is scripts/cloudflare-deploy.sh in the
 # Rafi repository), so the deploy logic is the release's own, pinned to it and covered by its
-# provenance attestation. An installation's workflows (deploy/cloudflare/.github/workflows:
-# deploy.yaml and restate-cleanup.yaml) download and verify the release, unpack it into
+# provenance attestation. An installation's workflows (the deploy template's
+# .github/workflows: deploy.yaml and restate-cleanup.yaml) download and verify the release, unpack it into
 # release/ and run these subcommands, one step each; nothing here is specific to GitHub
 # Actions.
 #
-# Usage, from the root of an installation's repository (a copy of deploy/cloudflare: VERSION,
+# Usage, from the root of an installation's repository (created from the deploy template: VERSION,
 # package.json, wrangler.app.toml, wrangler.engine.toml, wrangler.live.toml, and legal/ with the
 # operator's terms.md and privacy.md, either or both, if they provide any), with the
 # release unpacked into release/ (the directory this script is in is the release; the

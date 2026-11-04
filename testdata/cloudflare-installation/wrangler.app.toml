@@ -1,0 +1,88 @@
+# The app Worker: the web app, its API, phones' live-channel sockets and the
+# hourly housekeeping. Its name identifies the installation.
+# A test fixture: an installation's configuration as the deploy template
+# ships it (scripts/workers-check.sh, cloudflare-release.sh and
+# cloudflare-deploy-test.sh). See docs/operations/cloudflare.md.
+
+name = "rafi-app"
+main = "release/app/build/index.js"
+compatibility_date = "2026-10-01"
+
+# Its address, the origin RAFI_PUBLIC_URL names: by default
+# https://rafi-app.<subdomain>.workers.dev. For your domain instead (a
+# Cloudflare zone), set workers_dev = false and uncomment routes.
+workers_dev = true
+preview_urls = false
+# routes = [{ pattern = "raffle.example.org", custom_domain = true }]
+
+# The web app's files and your legal documents, if any (deploy.sh copies legal/ in).
+[assets]
+directory = "release/app/assets"
+binding = "ASSETS"
+
+# Your database; the same ID in all three files.
+[[d1_databases]]
+binding = "DB"
+database_name = "rafi"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "release/migrations"
+
+# The live Worker's class; script_name is wrangler.live.toml's name.
+[[durable_objects.bindings]]
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
+script_name = "rafi-live"
+
+# Soft limits on joining and on organizers' adds (per location, never by IP).
+[[ratelimits]]
+name = "JOIN_PER_RAFFLE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 600, period = 60 }
+
+[[ratelimits]]
+name = "JOIN_PER_EMAIL_LIMITER"
+namespace_id = "1002"
+simple = { limit = 5, period = 60 }
+
+[[ratelimits]]
+name = "CONNECT_LIMITER"
+namespace_id = "1003"
+simple = { limit = 600, period = 60 }
+
+[[ratelimits]]
+name = "ADD_LIMITER"
+namespace_id = "1004"
+simple = { limit = 20, period = 60 }
+
+# Housekeeping.
+[triggers]
+crons = ["0 * * * *"]
+
+# The application's log lines only: per-request records would hold IPs and cookies.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false
+
+# Optional, for latency, not data residency: pick one.
+# [placement]
+# mode = "smart"
+# region = "aws:eu-central-1"
+
+[vars]
+# Optional, before the first deploy only, the same in all three files.
+# RAFI_DO_JURISDICTION = "eu"
+
+# Set as secrets before the first deploy.
+[secrets]
+required = [
+  "RAFI_PUBLIC_URL",
+  "RESTATE_INGRESS_URL",
+  "RESTATE_INGRESS_API_KEY",
+  "RAFI_POW_KEY",
+  "CLERK_SECRET_KEY",
+  "CLERK_PUBLISHABLE_KEY",
+  "RAFI_OPERATOR_NAME",
+  "RAFI_OPERATOR_EMAIL",
+]

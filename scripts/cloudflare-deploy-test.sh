@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks the Cloudflare deploy script (scripts/cloudflare-deploy.sh, a release's deploy.sh)
 # without a Cloudflare or Restate account: each subcommand run as an installation's workflows
-# run it, from a copy of deploy/cloudflare with a release laid out in release/, against a
+# run it, from a copy of testdata/cloudflare-installation with a release laid out in release/, against a
 # stubbed wrangler CLI and Restate CLI (which log their arguments; the wrangler stub's dry runs
 # write a deploy entry with the Worker's name into its ND-JSON output, as wrangler does) and a
 # fake Cloudflare and Restate admin API (a local node HTTP server answering from a state file
@@ -240,13 +240,13 @@ for _ in $(seq 1 50); do [ -s "$TMP/port" ] && break; sleep 0.1; done
 BASE="http://127.0.0.1:$(cat "$TMP/port")"
 
 # A release as `just cloudflare-artifact` lays it out (empty files will do, the live Worker's
-# bundle with something in it), unpacked into an installation (a copy of deploy/cloudflare) as
+# bundle with something in it), unpacked into an installation (a copy of the fixture) as
 # release/.
 INSTALL="$TMP/installation"
 mkdir -p "$INSTALL"
-cp -R "$ROOT/deploy/cloudflare/." "$INSTALL/"
+cp -R "$ROOT/testdata/cloudflare-installation/." "$INSTALL/"
 rm -rf "$INSTALL/release" "$INSTALL/.wrangler" "$INSTALL/.dev.vars" "$INSTALL/node_modules"
-# The operator's documents, the tests' own (the template's legal/, if it has one, isn't theirs).
+# The operator's documents, the tests' own.
 rm -rf "$INSTALL/legal"
 mkdir "$INSTALL/legal"
 printf -- '---\nversion: test-1\n---\n# Terms\n' >"$INSTALL/legal/terms.md"

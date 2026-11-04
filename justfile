@@ -97,7 +97,7 @@ workers:
 cloudflare-artifact out="target/cloudflare/release":
     #!/usr/bin/env bash
     set -euo pipefail
-    # Nothing of an installation's is in it: its configuration (deploy/cloudflare's
+    # Nothing of an installation's is in it: its configuration (the deploy template's
     # wrangler.app.toml, wrangler.engine.toml and wrangler.live.toml, which point
     # into this layout as release/) and its legal documents, which deploy.sh
     # copies into app/assets/legal/, are its own.
@@ -133,6 +133,6 @@ cloudflare-tarball version out="target/cloudflare":
     if command -v sha256sum >/dev/null; then sum="sha256sum"; else sum="shasum -a 256"; fi
     echo "rafi-cloudflare: release {{ version }}: $out/worker.tar.gz, sha256:$($sum "$out/worker.tar.gz" | cut -d" " -f1)"
 
-# Build and prove a Cloudflare release (scripts/cloudflare-release.sh): worker.tar.gz, and its deploy.sh run (dry) from a copy of deploy/cloudflare.
+# Build and prove a Cloudflare release (scripts/cloudflare-release.sh): worker.tar.gz, and its deploy.sh run (dry) from a copy of testdata/cloudflare-installation.
 cloudflare-release version:
     ./scripts/cloudflare-release.sh {{ version }}

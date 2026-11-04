@@ -2,15 +2,13 @@
 
 Rafi on Cloudflare: three Workers and one D1 database, with Restate Cloud running the raffle engine's invocations
 and Clerk signing organizers in. This is the production deployment. An installation is a repository of the
-operator's, created from the template repository
-[`sagikazarmark/rafi-deploy-template`](https://github.com/sagikazarmark/rafi-deploy-template), which mirrors
-[`deploy/cloudflare/`](../../deploy/cloudflare/) at each release; its GitHub Actions workflows deploy the
-Rafi release its `VERSION` names (or several installations in one repository, as Wrangler environments: [Several
-installations](#several-installations)). The first deploy, step by step, is that directory's
-[INSTALL.md](../../deploy/cloudflare/INSTALL.md), and its day-to-day running (upgrading, the run reports, the
-cleanup, rotating keys, logs) its [README](../../deploy/cloudflare/README.md); this page is the reference behind
-both: what runs where, what the deploy does and why, the permissions it needs, and what to do when something goes
-wrong.
+operator's, created from the deploy template; its GitHub Actions workflows deploy the Rafi release its `VERSION`
+names (or several installations in one repository, as Wrangler environments: [Several
+installations](#several-installations)). The template repository, `sagikazarmark/rafi-deploy-template`, is in the
+works: it will carry the first deploy, step by step (its INSTALL.md, which this page calls "INSTALL.md"), and the
+day-to-day running (upgrading, the run reports, the cleanup, rotating keys, logs: its README). This page is the
+reference behind both: what runs where, what the deploy does and why, the permissions it needs, and what to do
+when something goes wrong.
 
 Cloudflare is one deployment, not an assumption of the code. The app and the engine are written against small
 interfaces (the engine's `Store` and `Observer`, the live `Notifier`, the app's `RateLimit`), and `rafi-cloudflare`
@@ -87,7 +85,7 @@ calls every registered engine at an address that contains it.
 
 The app Worker has one address, the origin `RAFI_PUBLIC_URL` names: QR codes and links are made of it, and Rafi
 accepts a Clerk session only if it was made there (the token's `azp`, Clerk's authorized party). An installation
-chooses it before its first deploy (INSTALL.md's [step 4](../../deploy/cloudflare/INSTALL.md#4-the-apps-address)):
+chooses it before its first deploy (INSTALL.md's step 4):
 
 | | A. workers.dev (the template's default) | B. A custom domain |
 |---|---|---|
@@ -167,8 +165,8 @@ Nothing of an installation's is compiled in: one build serves every installation
 `worker.tar.gz`, built and attested by `.github/workflows/release.yaml`, holds `VERSION`, `app/` (the app Worker
 and its static files), `engine/`, `live/`, `migrations/` (the D1 migrations) and `deploy.sh`
 (`scripts/cloudflare-deploy.sh`), so a release deploys with its own logic ([Releasing](../development/releasing.md)).
-The installation is the operator's repository, created from the template repository (`deploy/cloudflare` at a
-release's tag):
+The installation is the operator's repository, created from the deploy template (a template repository, in the
+works; its configuration as a test fixture here: `testdata/cloudflare-installation`):
 
 - `VERSION`: the release it deploys (`VERSION.<environment>` for an installation that is a Wrangler environment,
   when that file exists);
@@ -232,8 +230,7 @@ over each other's draws. The account, its workers.dev subdomain and the API toke
   its secrets, and its push paths narrowed to its version file. The installations share `legal/` (so the same
   operator and documents; installations with different ones take a repository each).
 
-INSTALL.md's [Several installations](../../deploy/cloudflare/INSTALL.md#several-installations) has both, step
-by step, with a whole `[env.eu]`.
+INSTALL.md's "Several installations" has both, step by step, with a whole `[env.eu]`.
 
 ## The workflows
 
@@ -375,8 +372,7 @@ delete <worker>`). Renaming or transferring the repository changes nothing.
 
 An account API token, owned by the account rather than a user, so it survives its creator leaving, for the account,
 and, when the app is on a custom domain, the installation's zone (several installations in one account can share
-one, with Workers Routes on the zone of each one on a domain). INSTALL.md's
-[step 2](../../deploy/cloudflare/INSTALL.md#2-a-cloudflare-api-token) creates it in the
+one, with Workers Routes on the zone of each one on a domain). INSTALL.md's step 2 creates it in the
 dashboard: **Manage account > Account API tokens > Create Token**, a custom token with these permissions and
 nothing else (Cloudflare's [Account API
 tokens](https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/) and [Create API
@@ -442,7 +438,7 @@ doesn't exist) and changed with `wrangler secret put <NAME> -c wrangler.app.toml
 installation that is a Wrangler environment, either with `CLOUDFLARE_ENV=<environment>` (or `--env`).
 `wrangler.app.toml` lists them under `[secrets] required` (an environment, under `[env.<name>.secrets]`), and
 wrangler refuses to deploy the app while one is missing. What each is:
-[`.dev.vars.example`](../../deploy/cloudflare/.dev.vars.example) and the
+`.dev.vars.example` and the
 [configuration reference](../reference/configuration.md). The Worker refuses every request without
 `RAFI_POW_KEY`, `RESTATE_INGRESS_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` or the operator, or with a
 document without its version (`/healthz` answers `500 misconfigured`, naming the reason when that names no value). Release builds
@@ -510,7 +506,7 @@ Nothing in this repository's CI holds a Cloudflare token: deploys run in install
 production shapes through `wrangler deploy --dry-run`, serves the app without secrets, runs `deploy.sh`'s
 subcommands against a stubbed wrangler and Restate CLI and a fake Cloudflare and Restate API
 (`scripts/cloudflare-deploy-test.sh`), and rehearses each release's `deploy.sh dry-run` from a copy of
-`deploy/cloudflare` ([Testing](../development/testing.md#workers)). What only a real deploy can check, so check it
+`testdata/cloudflare-installation`, the template's configuration ([Testing](../development/testing.md#workers)). What only a real deploy can check, so check it
 on the first one:
 
 - the token's permissions cover every step (the custom domain if there is one, the app's workers.dev address
@@ -571,8 +567,7 @@ so a build of your own deploys an engine of its own; the rule against older buil
 ## Data residency
 
 By default the database and the Durable Objects are wherever Cloudflare places them. Keeping them in the EU is
-optional and a first-deployment decision (INSTALL.md's [Keeping data in the
-EU](../../deploy/cloudflare/INSTALL.md#keeping-data-in-the-eu)):
+optional and a first-deployment decision (INSTALL.md's "Keeping data in the EU"):
 
 - **D1** created with `wrangler d1 create <name> --jurisdiction eu`: a database's jurisdiction is fixed when it
   is created, so a later move is a new database and a restore into it.
@@ -600,8 +595,7 @@ Cloud from there, a round trip each. `wrangler.app.toml` has a commented-out
 Worker's requests from the locations it already runs in and forwards them to a significantly faster one, if there
 is one) and `region = "aws:eu-central-1"` (the data center with the lowest latency to that cloud region; Restate
 Cloud's, say; `gcp:` and `azure:` regions are named the same way), so the app's request handling runs near the D1
-database and Restate Cloud instead of near each visitor ([INSTALL.md,
-Placement](../../deploy/cloudflare/INSTALL.md#placement)). From
+database and Restate Cloud instead of near each visitor (INSTALL.md, "Placement"). From
 [Cloudflare's placement documentation](https://developers.cloudflare.com/workers/configuration/placement/): "Workers
 run on Cloudflare's global network, not inside cloud provider regions", so a region names where to run *near*, not
 *in*; placement only affects the fetch handler (every request the app answers, phones' live-channel connections on
@@ -665,11 +659,11 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 | Any `deploy.sh` step but the migrations, at once: `wrangler deploy --dry-run -c <file> … failed (above)` | wrangler refuses that configuration (its error is above it in the log): a malformed file, or, with `CLOUDFLARE_ENV` set, an environment the file has no `[env.<name>]` for (add it to all three, or fix the name). |
 | … `reported no Worker's name` | wrangler's dry run wrote no `deploy` entry with a Worker's name into its ND-JSON output: a wrangler too old for it, or a name that isn't a Worker's (a-z, 0-9, -). The `wrangler-dry-run-<worker>.ndjson` artifact has what it wrote. |
 | **Read version file**: `… not a Rafi release` | The version file (`VERSION`, or `VERSION.<environment>`) isn't a version (`x.y.z`, or `x.y.z-pre.release`): fix it and push. Nothing else compares it with the release: `deploy.sh` deploys the release it came in. |
-| **Apply D1 migrations** fails on the database `00000000-0000-0000-0000-000000000000` | A configuration still has the template's zero `database_id` (nothing looks for it): [INSTALL.md step 3](../../deploy/cloudflare/INSTALL.md#3-the-database), the ID in all three files. |
+| **Apply D1 migrations** fails on the database `00000000-0000-0000-0000-000000000000` | A configuration still has the template's zero `database_id` (nothing looks for it): INSTALL.md step 3, the ID in all three files. |
 | Any step, at once: `jq isn't installed` | `deploy.sh` reads every JSON answer with `jq` (GitHub's runners have it): install it where you run it. |
 | **Install dependencies** fails | `npm ci` refuses a missing `package-lock.json`, or one that doesn't match `package.json`: run `npm install` and commit the lockfile. Otherwise npm couldn't reach its registry: run it again. |
 | Prepare fails at **Download release** or **Verify release provenance** | No release `v<VERSION>` (a typo, or a version not released yet), or a tarball that Rafi's release workflow didn't build from that tag on GitHub's runners: never work around this. |
-| **Upload app Worker version**: `the app Worker rafi-app doesn't exist on the account` | Its secrets come first: [INSTALL.md step 8](../../deploy/cloudflare/INSTALL.md#8-the-app-workers-secrets) (with `CLOUDFLARE_ENV=<name>` for an environment's Worker). |
+| **Upload app Worker version**: `the app Worker rafi-app doesn't exist on the account` | Its secrets come first: INSTALL.md step 8 (with `CLOUDFLARE_ENV=<name>` for an environment's Worker). |
 | **Upload app Worker version**: wrangler names missing secrets | One of `[secrets] required` isn't set: `wrangler secret put <NAME> -c wrangler.app.toml`. |
 | **Deploy engine Worker**: `the account's workers.dev subdomain: HTTP …` | The account has no workers.dev subdomain (register it on the dashboard's **Workers & Pages** page), or the token lacks Workers Scripts. |
 | Any Cloudflare step: `Authentication error` (10000) or 403 | The token is missing a permission or the zone (above), expired, or rolled: replace the `CLOUDFLARE_API_TOKEN` secret. |

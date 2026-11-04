@@ -24,18 +24,18 @@
 #      show their versions, and with a terms.md without its front matter
 #      (version) it refuses every request naming the file.
 #      Needs dx too (the dry run uploads the assets);
-#   6. deploy/cloudflare, what an installation deploys: its wrangler.app.toml,
-#      wrangler.engine.toml and wrangler.live.toml agree with the production
-#      Workers' (apps/worker-app, apps/worker-engine, apps/worker-live) on
-#      the bindings, limits, Durable Object migrations and required secrets,
-#      and a release (of the version deploy/cloudflare/VERSION names) is
-#      rehearsed the way a tag releases it (scripts/cloudflare-release.sh):
-#      the template's VERSION and workflows, deploy.sh's own checks,
-#      worker.tar.gz packaged, each Worker's exports checked, unpacked into a
-#      copy of the template's release/, and its deploy.sh dry-run there with
-#      this wrangler (the Workers' names read from its dry runs), at the top
-#      level and as a Wrangler environment (CLOUDFLARE_ENV=eu, with the EU
-#      jurisdiction).
+#   6. testdata/cloudflare-installation, what an installation deploys (the
+#      deploy template's configuration, as a test fixture): its
+#      wrangler.app.toml, wrangler.engine.toml and wrangler.live.toml agree
+#      with the production Workers' (apps/worker-app, apps/worker-engine,
+#      apps/worker-live) on the bindings, limits, Durable Object migrations
+#      and required secrets, and a release (of the version its VERSION names)
+#      is rehearsed the way a tag releases it (scripts/cloudflare-release.sh):
+#      the fixture's VERSION, deploy.sh's own checks, worker.tar.gz packaged,
+#      each Worker's exports checked, unpacked into a copy of the fixture's
+#      release/, and its deploy.sh dry-run there with this wrangler (the
+#      Workers' names read from its dry runs), at the top level and as a
+#      Wrangler environment (CLOUDFLARE_ENV=eu, with the EU jurisdiction).
 #
 # Needs: wrangler (WRANGLER overrides the command), worker-build, node, jq, just,
 # dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the
@@ -335,15 +335,15 @@ if command -v dx >/dev/null; then
   echo "ok   with a document without its version the production Worker refuses every request, naming the file"
   kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
 
-  step "deploy/cloudflare: the installation's shape, and its release rehearsed"
-  # The template's three files share the production Workers' shapes: their
+  step "testdata/cloudflare-installation: the installation's shape, and its release rehearsed"
+  # The fixture's three files (the deploy template's) share the production Workers' shapes: their
   # bindings, limits, Cron, addresses and required secrets. A route or a
   # secret added to one and not the other would deploy a Worker that 404s or
   # refuses; a limit or a class name changed in one alone would deploy a
-  # different Worker. The app's address is the template's default in both
-  # (workers_dev = true, no routes: INSTALL.md's step 4, option A), which an
-  # installation on a custom domain changes in its own copy. The paths differ
-  # (the template's point into a release), and the identity keys are an
+  # different Worker. The app's address is the default in both
+  # (workers_dev = true, no routes), which an installation on a custom
+  # domain changes in its own copy. The paths differ (the fixture's point
+  # into a release), and the identity keys are an
   # installation's, so only their name is compared.
   shape() {
     sed -n \
@@ -355,21 +355,21 @@ if command -v dx >/dev/null; then
   }
   for pair in worker-app:wrangler.app.toml worker-engine:wrangler.engine.toml worker-live:wrangler.live.toml; do
     worker="apps/${pair%%:*}/wrangler.toml"
-    template="deploy/cloudflare/${pair#*:}"
-    if ! diff <(shape "$ROOT/$worker") <(shape "$ROOT/$template"); then
-      echo "$template disagrees with $worker (above)" >&2
+    fixture="testdata/cloudflare-installation/${pair#*:}"
+    if ! diff <(shape "$ROOT/$worker") <(shape "$ROOT/$fixture"); then
+      echo "$fixture disagrees with $worker (above)" >&2
       exit 1
     fi
   done
-  echo "ok   the template's shapes are the production Workers'"
+  echo "ok   the installation's shapes are the production Workers'"
   # A release, as a tag releases it: the same script, so a broken tarball,
   # deploy.sh or dry deploy shows here, not on the tag. The version is the one
-  # the template names (deploy/cloudflare/VERSION), as the release workflow's
-  # manual run defaults to.
-  version="$(tr -d '[:space:]' <"$ROOT/deploy/cloudflare/VERSION")"
+  # the fixture names (testdata/cloudflare-installation/VERSION), as the
+  # release workflow's manual run defaults to.
+  version="$(tr -d '[:space:]' <"$ROOT/testdata/cloudflare-installation/VERSION")"
   WRANGLER="$WRANGLER" "$ROOT/scripts/cloudflare-release.sh" "$version" "$STATE/release" >"$LOGS/release.log" 2>&1 \
     || { tail -30 "$LOGS/release.log" >&2; exit 1; }
-  echo "ok   deploy/cloudflare deploys the release of $version with its deploy.sh (dry run)"
+  echo "ok   the installation deploys the release of $version with its deploy.sh (dry run)"
 else
   step "the production shape: skipped (needs dx for the assets)"
 fi

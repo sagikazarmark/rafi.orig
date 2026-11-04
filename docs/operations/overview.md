@@ -113,9 +113,8 @@ records (not legal advice):
 ## Guides
 
 - [Self-hosting](self-hosting.md): `rafi` and `rafi-restate` on your own machine
-- [Cloudflare Workers](cloudflare.md), the first deploy step by step in
-  [`deploy/cloudflare/INSTALL.md`](../../deploy/cloudflare/INSTALL.md), and the day-to-day in its
-  [README](../../deploy/cloudflare/README.md)
+- [Cloudflare Workers](cloudflare.md); the first deploy step by step and the day-to-day will be in the deploy
+  template (a template repository, in the works)
 - [Your legal documents](legal-documents.md): your terms and privacy notice, optional, and what the software does
   with personal data, for writing them
 - [Upgrades](upgrades.md): migrations, registering the engine, the deploy freeze

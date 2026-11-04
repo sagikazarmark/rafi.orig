@@ -1,0 +1,37 @@
+# The raffle engine Worker: the Restate endpoint under /restate. Each release
+# deploys it as its own Worker, <name>-v<version> (rafi-engine-v0-1-0).
+# A test fixture: an installation's configuration as the deploy template
+# ships it (scripts/workers-check.sh, cloudflare-release.sh and
+# cloudflare-deploy-test.sh). See docs/operations/cloudflare.md.
+
+name = "rafi-engine"
+main = "release/engine/build/index.js"
+compatibility_date = "2026-10-01"
+
+# Restate calls it at its workers.dev address; it accepts only signed requests.
+workers_dev = true
+preview_urls = false
+
+# Your database; the same ID in all three files.
+[[d1_databases]]
+binding = "DB"
+database_name = "rafi"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# The live Worker's class; script_name is wrangler.live.toml's name.
+[[durable_objects.bindings]]
+name = "RAFFLE_ROOM"
+class_name = "RaffleRoom"
+script_name = "rafi-live"
+
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false
+
+[vars]
+# Optional, the same in all three files.
+# RAFI_DO_JURISDICTION = "eu"
+# Your Restate environment's public key (comma-separated while rotating).
+RESTATE_IDENTITY_KEYS = "publickeyv1_…"

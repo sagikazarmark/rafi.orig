@@ -87,15 +87,14 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 ## Status
 
 - **Cloudflare Workers** is the production deployment, and needs no toolchain: create a repository of yours from
-  the template [`rafi-deploy-template`](https://github.com/sagikazarmark/rafi-deploy-template) (a copy of
-  [`deploy/cloudflare`](deploy/cloudflare) at each release), and its GitHub Actions workflows deploy a
-  release to your own account (the app Worker, the live Worker with the live channels, and each release's raffle
-  engine Worker, registered with Restate Cloud and removed once drained) with your configuration and, if you
-  provide them, your legal documents, after checking the release's provenance; one account can hold several installations, each in a
-  repository of its own or as Wrangler environments of one. [The first deploy](deploy/cloudflare/INSTALL.md) is
-  documented step by step and [running it after](deploy/cloudflare/README.md) beside it, and
-  [the reference](docs/operations/cloudflare.md) explains both. CI runs the production
-  shape through a dry deploy, a whole evening under `wrangler dev` and the hourly housekeeping.
+  the deploy template (a template repository, `sagikazarmark/rafi-deploy-template`, is in the works), and its
+  GitHub Actions workflows deploy a release to your own account (the app Worker, the live Worker with the live
+  channels, and each release's raffle engine Worker, registered with Restate Cloud and removed once drained) with
+  your configuration and, if you provide them, your legal documents, after checking the release's provenance; one
+  account can hold several installations, each in a repository of its own or as Wrangler environments of one. The
+  template will document the first deploy step by step and running it after, and
+  [the reference](docs/operations/cloudflare.md) explains both. CI runs the production shape through a dry deploy,
+  a whole evening under `wrangler dev` and the hourly housekeeping.
 - **Self-hosting** (native `rafi` and `rafi-restate`) is supported. There are no packaged images yet: you build
   from source. Container images and native packages come later.
 - The UI is in English only.
@@ -116,8 +115,7 @@ one. [Architecture](docs/explanation/architecture.md) explains the rest.
 **Operating Rafi**
 - [Overview](docs/operations/overview.md): what you deploy, and the topologies
 - [Self-hosting](docs/operations/self-hosting.md) · [Cloudflare Workers](docs/operations/cloudflare.md) (its first
-  deploy: [`deploy/cloudflare/INSTALL.md`](deploy/cloudflare/INSTALL.md); after it, its
-  [README](deploy/cloudflare/README.md))
+  deploy and the day-to-day: in the deploy template, a template repository in the works)
 - [Your legal documents](docs/operations/legal-documents.md): optional, yours to write, and what the software does
   with personal data
 - [Upgrades](docs/operations/upgrades.md) · [Troubleshooting](docs/operations/troubleshooting.md) ·

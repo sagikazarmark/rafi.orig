@@ -9,9 +9,9 @@
 #
 # Nothing of one installation's is in this file: it is the Worker's shape,
 # for development (`[env.dev]`, under `wrangler dev`) and CI (a dry deploy).
-# An installation deploys the three production Workers from its copy of
-# deploy/cloudflare/ (wrangler.app.toml, wrangler.engine.toml and
-# wrangler.live.toml, which point at a release's files), with
+# An installation deploys the three production Workers from its repository,
+# created from the deploy template (wrangler.app.toml, wrangler.engine.toml
+# and wrangler.live.toml, which point at a release's files), with
 # its database ID in them; everything else of the installation's is a secret (`wrangler secret
 # bulk`; the Worker reads vars and secrets alike), listed under [secrets] so a
 # deploy refuses to go out without them, or a file among the static files:
@@ -20,14 +20,15 @@
 # assets` none), and the Worker reads them through the assets binding when
 # an isolate starts. Nothing of
 # an installation's is compiled in: one build serves every installation.
-# scripts/workers-check.sh checks that deploy/cloudflare's files agree with
-# the production Workers'. The full procedure: docs/operations/cloudflare.md.
+# scripts/workers-check.sh checks that the template's files (their test
+# fixture, testdata/cloudflare-installation) agree with the production
+# Workers'. The full procedure: docs/operations/cloudflare.md.
 
 name = "rafi"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
 # No address here (an installation's app Worker has its workers.dev one or
-# a custom domain: deploy/cloudflare's wrangler.app.toml), and no public
+# a custom domain: its wrangler.app.toml), and no public
 # preview URLs (previews would share production's database and objects).
 workers_dev = false
 preview_urls = false
@@ -52,7 +53,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
-database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: an installation's is in its deploy/cloudflare copy
+database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: an installation's is in its own configuration
 migrations_dir = "../../migrations/sqlite"
 
 # One live channel per raffle (in a jurisdiction when RAFI_DO_JURISDICTION names one).

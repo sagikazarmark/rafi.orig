@@ -91,8 +91,8 @@ each reading its own settings:
 Their shapes are [`apps/worker-app/wrangler.toml`](../../apps/worker-app/wrangler.toml),
 [`apps/worker-engine/wrangler.toml`](../../apps/worker-engine/wrangler.toml) and
 [`apps/worker-live/wrangler.toml`](../../apps/worker-live/wrangler.toml), which an installation deploys from its
-repository, created from [`deploy/cloudflare`](../../deploy/cloudflare) (`wrangler.app.toml`, `wrangler.engine.toml`,
-`wrangler.live.toml`) with its database ID in them. The Worker names are the template's; an installation may name
+repository, created from the deploy template (a template repository, in the works; `wrangler.app.toml`,
+`wrangler.engine.toml`, `wrangler.live.toml`) with its database ID in them. The Worker names are the template's; an installation may name
 its own, and one of several in a repository is a Wrangler environment (`[env.<name>]`), which repeats the vars, the
 bindings and the required secrets, since environments don't inherit them
 ([Several installations](../operations/cloudflare.md#several-installations)). A Worker reads vars and secrets
@@ -103,7 +103,7 @@ them.
 | Variable | Worker | Default | |
 |---|---|---|---|
 | `RESTATE_IDENTITY_KEYS` | engine | required | Restate's request signing keys (`publickeyv1_…`, comma separated): the native engine's `endpoint.identity_keys` (`RAFI_RESTATE_ENDPOINT__IDENTITY_KEYS`). Without them the engine refuses every request, except in a `dev` build. |
-| `RAFI_DO_JURISDICTION` | all three | none | The Durable Objects' jurisdiction (`eu`, `fedramp`): set, the app and the engine create the objects' IDs with `ns.jurisdiction(<it>)`; unset or empty, in the plain namespace (Cloudflare places the objects). Optional, and decided before the first deploy: an object keeps the jurisdiction it was created in, so a later change moves the live channels to new objects. The three Workers say the same, which nothing checks ([Keeping data in the EU](../../deploy/cloudflare/INSTALL.md#keeping-data-in-the-eu)). Leave it unset locally: workerd has no jurisdictions. |
+| `RAFI_DO_JURISDICTION` | all three | none | The Durable Objects' jurisdiction (`eu`, `fedramp`): set, the app and the engine create the objects' IDs with `ns.jurisdiction(<it>)`; unset or empty, in the plain namespace (Cloudflare places the objects). Optional, and decided before the first deploy: an object keeps the jurisdiction it was created in, so a later change moves the live channels to new objects. The three Workers say the same, which nothing checks ([Data residency](../operations/cloudflare.md#data-residency)). Leave it unset locally: workerd has no jurisdictions. |
 | `RAFI_DRAND_RELAYS` | engine | as `drand.relays` below | Relays the engine asks, in order, comma separated |
 | `RAFI_DRAND_LEAD_SECS` | engine | `6` | As `drand.lead_secs` below |
 | `RAFI_DRAND_TIMEOUT_SECS` | engine | `60` | As `drand.timeout_secs` below |
