@@ -44,7 +44,7 @@ mod object;
 pub use config::{D1_BINDING, database, lookup};
 #[cfg(feature = "connect")]
 pub use gate::connect;
-pub use gate::{BINDING, CONNECT_LIMITER, JURISDICTION_VAR, destroy, namespace, nudge};
+pub use gate::{BINDING, CONNECT_LIMITER, JURISDICTION_VAR, destroy, namespace, nudge, stats};
 pub use notifier::DurableObjects;
 #[cfg(feature = "object")]
 pub use object::RaffleRoom;

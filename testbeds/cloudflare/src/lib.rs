@@ -295,6 +295,13 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         let snap = live::snapshot(&db, raffle).await.map_err(err)?;
         return Response::from_json(&snap.as_ref().map(participant_view));
     }
+    // The object's diagnostics: how many times it read the raffle, how many
+    // sockets it holds (scenario.mjs counts the reads a burst of connects costs).
+    if path == "/stats" {
+        let mut resp = Response::ok(rafi_cloudflare::stats(&env, raffle).await?)?;
+        resp.headers_mut().set("content-type", "application/json")?;
+        return Ok(resp);
+    }
     if req.method() != Method::Post {
         return Response::error("Not Found", 404);
     }

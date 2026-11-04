@@ -3,7 +3,8 @@
 //!
 //! It holds no workflow state. Whenever it is nudged (and every 15 s while
 //! sockets are open, to repair lost nudges) it reads the raffle from D1 in one
-//! snapshot and publishes the view if it is newer and different. Its own
+//! snapshot and publishes the view if it is newer and different; sockets
+//! accepted within a second of a read share it. Its own
 //! storage keeps only the raffle ID, the highest version seen and the last
 //! published view; destroying it deletes all of that.
 //!
@@ -12,8 +13,8 @@
 //! `x-rafi-raffle` header. In production the class is the live Worker's and
 //! the app's and the engine's Workers, deployed apart from it, send these
 //! requests, so a new object must still accept the previous release's
-//! (`/nudge`, `/destroy`, the forwarded socket upgrade): changing them takes
-//! two releases.
+//! (`/nudge`, `/destroy`, `/stats`, the forwarded socket upgrade): changing
+//! them takes two releases.
 
 use std::{cell::Cell, time::Duration};
 
@@ -35,6 +36,13 @@ use crate::gate::RAFFLE_HEADER;
 
 /// How often the object re-reads the raffle while sockets are open.
 const REREAD: Duration = Duration::from_secs(15);
+
+/// How long a read of the raffle stands in for the next when sockets connect:
+/// a room reconnecting after an eviction or a deploy (partyline retries from
+/// half a second) would otherwise read the raffle from D1 once per phone. A
+/// socket accepted within this window gets the view that read stored, which
+/// the handshake sends; anything written meanwhile arrives by its own nudge.
+const COALESCE_MS: f64 = 1_000.0;
 
 /// The most sockets one raffle accepts; the rest fall back to polling.
 const MAX_SOCKETS: usize = 2_000;
@@ -58,6 +66,12 @@ pub struct RaffleRoom {
     env: Env,
     /// Set first thing by destroy; checked after every `await`.
     destroyed: Cell<bool>,
+    /// The last read of the raffle: when (`Date.now()`), and whether it still
+    /// takes sockets. Stands in for a read while fresh ([`COALESCE_MS`]).
+    read: Cell<Option<(f64, bool)>>,
+    /// How many times this object read the raffle from D1 (this isolate's
+    /// count): what `/stats` reports, for the live channel's scenario.
+    reads: Cell<u64>,
 }
 
 impl RaffleRoom {
@@ -67,6 +81,10 @@ impl RaffleRoom {
 
     fn db(&self) -> Result<Db> {
         crate::database(&self.env)
+    }
+
+    fn now_ms() -> f64 {
+        js_sys::Date::now()
     }
 
     /// The raffle ID, highest version seen and last published view.
@@ -118,6 +136,7 @@ impl RaffleRoom {
         if self.destroyed.get() {
             return Ok((Decision::Ignore, false));
         }
+        self.reads.set(self.reads.get() + 1);
         let snapshot = live::snapshot(&self.db()?, raffle_id)
             .await
             .map_err(|e| worker::Error::RustError(e.to_string()))?;
@@ -126,12 +145,24 @@ impl RaffleRoom {
             return Ok((Decision::Ignore, false));
         }
         let Some(snapshot) = snapshot else {
+            self.read.set(Some((Self::now_ms(), false)));
             return Ok((Decision::Ignore, false));
         };
-        Ok((
-            self.apply(raffle_id, &snapshot).await?,
-            snapshot.accepts_sockets(),
-        ))
+        let accepts = snapshot.accepts_sockets();
+        let decision = self.apply(raffle_id, &snapshot).await?;
+        self.read.set(Some((Self::now_ms(), accepts)));
+        Ok((decision, accepts))
+    }
+
+    /// Whether the raffle takes sockets, from the last read if it is fresh
+    /// ([`COALESCE_MS`]), otherwise from a [`refresh`](Self::refresh).
+    async fn accepts(&self, raffle_id: &str) -> Result<bool> {
+        if let Some((at, accepts)) = self.read.get()
+            && Self::now_ms() - at < COALESCE_MS
+        {
+            return Ok(accepts);
+        }
+        Ok(self.refresh(raffle_id).await?.1)
     }
 
     /// Applies the publish rule to a snapshot. Everything up to and including
@@ -171,8 +202,9 @@ impl RaffleRoom {
             return reject(close::FORBIDDEN, "too many connections");
         }
         // Brings the stored view up to date first, so the handshake sends the
-        // current one; also re-checks that the channel is open.
-        let (_, accepts) = self.refresh(raffle_id).await?;
+        // current one, and re-checks that the channel is open; a read a moment
+        // ago stands in for both (a room connecting at once reads the raffle once).
+        let accepts = self.accepts(raffle_id).await?;
         if !accepts || self.destroyed.get() {
             return reject(close::FORBIDDEN, "live updates ended");
         }
@@ -183,6 +215,7 @@ impl RaffleRoom {
     async fn destroy(&self, raffle_id: &str) -> Result<()> {
         self.destroyed.set(true);
         // Phones that slept through the end get the final view before the close.
+        self.reads.set(self.reads.get() + 1);
         if let Ok(Some(snapshot)) = live::snapshot(&self.db()?, raffle_id).await {
             let view = raffle::view(&snapshot);
             let (seen, last) = self.meta().map_or((0, None), |(_, s, l)| (s, l));
@@ -210,6 +243,8 @@ impl DurableObject for RaffleRoom {
             hub,
             env,
             destroyed: Cell::new(false),
+            read: Cell::new(None),
+            reads: Cell::new(0),
         }
     }
 
@@ -235,6 +270,13 @@ impl DurableObject for RaffleRoom {
                 self.destroy(&raffle_id).await?;
                 Response::ok("destroyed")
             }
+            // Diagnostics, for the channel's scenario and `wrangler tail`: how
+            // many times this object (this isolate of it) read the raffle, and
+            // how many sockets it holds.
+            (Method::Get, "/stats") => Response::from_json(&serde_json::json!({
+                "reads": self.reads.get(),
+                "sockets": self.hub.state().get_websockets().len(),
+            })),
             _ => Response::error("Not Found", 404),
         }
     }

@@ -74,6 +74,22 @@ check(await anna.until((p) => p.last?.state === "frozen"), "phones see the freez
 const bence = new Phone("bence");
 check(await bence.until((p) => p.last?.state === "frozen"), "a late socket starts from the latest view");
 
+// A room reconnecting at once (an eviction, a deploy: partyline retries from
+// half a second) reads the raffle once, not once per phone: the gate reads
+// two columns of its row, and the object lets a read a moment old stand in
+// for the next. Every socket still gets the view.
+const stats = async () => (await fetch(`${base}/stats?r=${raffle}`)).json();
+await sleep(1100);
+const readsBefore = (await stats()).reads;
+const crowd = Array.from({ length: 50 }, (_, i) => new Phone(`crowd-${i}`));
+check(
+  (await Promise.all(crowd.map((p) => p.until((q) => q.last?.state === "frozen", 10000)))).every(Boolean),
+  "fifty sockets connecting at once each get the current view",
+);
+const readsDuring = (await stats()).reads - readsBefore;
+check(readsDuring <= 2, `the burst cost the object at most two reads of the raffle (${readsDuring})`);
+for (const p of crowd) p.ws.close();
+
 // Draws, as Restate's projector writes them.
 await post("/draw/anna");
 check(

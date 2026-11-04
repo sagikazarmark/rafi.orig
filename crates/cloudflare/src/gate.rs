@@ -57,11 +57,11 @@ fn stub(env: &Env, raffle_id: &str) -> Result<Stub> {
     namespace(env)?.id_from_name(raffle_id)?.get_stub()
 }
 
-async fn call(env: &Env, raffle_id: &str, path: &str) -> Result<String> {
+async fn call(env: &Env, raffle_id: &str, method: Method, path: &str) -> Result<String> {
     let headers = Headers::new();
     headers.set(RAFFLE_HEADER, raffle_id)?;
     let mut init = RequestInit::new();
-    init.with_method(Method::Post).with_headers(headers);
+    init.with_method(method).with_headers(headers);
     let req = Request::new_with_init(&format!("{INTERNAL}{path}"), &init)?;
     let mut res = stub(env, raffle_id)?.fetch_with_request(req).await?;
     let text = res.text().await?;
@@ -81,14 +81,23 @@ async fn call(env: &Env, raffle_id: &str, path: &str) -> Result<String> {
 /// callers log failures instead of failing their own write.
 /// [`DurableObjects`](crate::DurableObjects) does that for writers.
 pub async fn nudge(env: &Env, raffle_id: &str) -> Result<String> {
-    call(env, raffle_id, "/nudge").await
+    call(env, raffle_id, Method::Post, "/nudge").await
 }
 
 /// Ends the raffle's live channel: publishes the final view, closes every
 /// socket with 4403 and deletes the object's storage. Set `live_ended_at`
 /// first, so the object refuses to come back.
 pub async fn destroy(env: &Env, raffle_id: &str) -> Result<()> {
-    call(env, raffle_id, "/destroy").await.map(|_| ())
+    call(env, raffle_id, Method::Post, "/destroy")
+        .await
+        .map(|_| ())
+}
+
+/// The object's diagnostics, as JSON: `reads` (how many times it read the
+/// raffle from D1, in this isolate of it) and `sockets` (how many it holds).
+/// For the channel's scenario; reachable only through the binding.
+pub async fn stats(env: &Env, raffle_id: &str) -> Result<String> {
+    call(env, raffle_id, Method::Get, "/stats").await
 }
 
 /// Whether `id` has a raffle ID's shape: 32 lowercase hex digits
@@ -126,9 +135,12 @@ pub async fn connect(env: &Env, raffle_id: &str, req: Request) -> Result<Respons
             Err(e) => worker::console_error!("rafi: connect limiter: {e}"),
         }
     }
+    // Two columns of the raffle's row, not the snapshot: a room reconnecting
+    // after an eviction asks this hundreds of times in a second, and the
+    // object reads the raffle whole once it accepts (coalescing those too).
     let db = crate::database(env)?;
-    let open = match rafi_store::live::snapshot(&db, raffle_id).await {
-        Ok(Some(s)) => s.accepts_sockets(),
+    let open = match rafi_store::live::accepts_sockets(&db, raffle_id).await {
+        Ok(Some(open)) => open,
         Ok(None) => false,
         Err(e) => {
             worker::console_error!("rafi: reading raffle {raffle_id}: {e}");

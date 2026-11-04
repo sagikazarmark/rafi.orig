@@ -37,6 +37,21 @@ struct NameRow {
     source: rafi_lifecycle::entrant::Source,
 }
 
+/// Whether the raffle takes sockets ([`accepts_sockets`](rafi_lifecycle::live::accepts_sockets)),
+/// or `None` if it doesn't exist: the two columns the rule needs, one row.
+/// What the gate asks of every phone that connects, before forwarding the
+/// upgrade to the raffle's object: a room reconnecting at once asks it
+/// hundreds of times in a second, so it reads nothing else.
+pub async fn accepts_sockets(db: &Db, raffle_id: &str) -> Result<Option<bool>> {
+    let row: Option<(RaffleState, Option<i64>)> = db
+        .query("SELECT state, live_ended_at FROM raffles WHERE id = ?1")
+        .bind(raffle_id)
+        .optional()
+        .await?;
+    Ok(row
+        .map(|(state, live_ended_at)| rafi_lifecycle::live::accepts_sockets(state, live_ended_at)))
+}
+
 /// Reads the raffle, or `None` if it doesn't exist.
 pub async fn snapshot(db: &Db, raffle_id: &str) -> Result<Option<Snapshot>> {
     let mut sets = db
@@ -223,6 +238,31 @@ mod tests {
         assert!(snap.drawn.is_none() && snap.names.is_empty());
         assert!(snap.accepts_sockets());
         assert!(snapshot(&db, "nope").await.unwrap().is_none());
+    }
+
+    /// The gate's one-row read agrees with the snapshot's rule, raffle by
+    /// raffle: open, over, ended, and none.
+    #[tokio::test]
+    async fn the_gate_reads_two_columns_and_agrees_with_the_snapshot() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        raffle(&db).await;
+        assert_eq!(accepts_sockets(&db, "r1").await.unwrap(), Some(true));
+        assert_eq!(accepts_sockets(&db, "nope").await.unwrap(), None);
+        for (state, ended) in [("finished", None), ("open", Some(1)), ("draft", None)] {
+            db.query("UPDATE raffles SET state = ?, live_ended_at = ? WHERE id = 'r1'")
+                .bind(state)
+                .bind(ended)
+                .run()
+                .await
+                .unwrap();
+            let snap = snapshot(&db, "r1").await.unwrap().unwrap();
+            assert_eq!(
+                accepts_sockets(&db, "r1").await.unwrap(),
+                Some(snap.accepts_sockets()),
+                "{state} ended {ended:?}"
+            );
+            assert_eq!(accepts_sockets(&db, "r1").await.unwrap(), Some(false));
+        }
     }
 
     #[tokio::test]

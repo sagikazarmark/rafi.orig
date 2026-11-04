@@ -1,7 +1,7 @@
 # Final pre-release check
 
-**Status (2026-11-02): Tiers 0 and 1 done; Tier 2's repository side done; [the next run](#the-next-run) done, but
-what [What it left](#what-it-left) lists; `0001_init.sql` frozen; the open items are [tickets](#tickets).**
+**Status (2026-11-04): Tiers 0 and 1 done; Tier 2's repository side done; [the next run](#the-next-run) done, but
+what [What it left](#what-it-left) lists (T3-3 since done); `0001_init.sql` frozen; the open items are [tickets](#tickets).**
 Findings done before the next run say what shipped under **Done**; the next run's are summarized under it. Before
 the tag: Tier 2's GitHub and Cloudflare side (the rename, a dispatch dry run and `v0.1.0-rc.1`, a real deploy, a
 stranger's deploy, the attestation, the ruleset, the screenshot), the maintainer's.
@@ -12,7 +12,7 @@ stranger's deploy, the attestation, the ruleset, the screenshot), the maintainer
 |---|---|
 | 1. Tier 0 | **Done** (`cf56888`). `0001_init.sql` gained `draws.delivery` and `add_batches`. Verified: fmt, `just clippy` (native and wasm32), `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, the D1 conformance testbed (every scenario ok). `just workers` ran later, with Tier 2 (the evening on another port): every check ok, so `evening.mjs` exercised the stricter admin API. |
 | 2. Tier 1 | **Done**, with the `evening.mjs` parts of the Accepts (the countdowns sampled between fetches, `/view` blocked, a projector at an unknown slug), `just workers` green. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`; the D1 conformance testbed, the live channel's scenario and the participant smoke (steps 1–3 of `workers-check.sh`), every check ok. |
-| 3. Schema and query shapes | **Done**: T3-1, T3-7, T7-6's `erasures` index, T3-9's manifest row measured (natively) and kept. The `EXPLAIN` gate built (T3-11 7); the `rows_read` counter not ([#54](https://github.com/sagikazarmark/rafi.orig/issues/54)). |
+| 3. Schema and query shapes | **Done**: T3-1, T3-7, T7-6's `erasures` index, T3-9's manifest row measured (natively) and kept. The `EXPLAIN` gate built (T3-11 7); the `rows_read` counter not ([#54](https://github.com/sagikazarmark/rafi.orig/issues/54)). T3-3 (the sockets' reads) was missed by every list until 2026-11-04, and is done. |
 | 4. Contract notes | **Done**: T7-1, T0-8's `format` check, the retention-promise decision |
 | 5. Launch mechanics | **Done locally** (2026-11-02): T2-2, T2-4 … T2-8 as far as the repository goes; T2-1, T2-3, the stranger, the GitHub runs and settings open. Declined: release-note labels and templates, community files, third-party notices, Python in the release. Verified: fmt, `just clippy`, `just test` with `RESTATE_SERVER_BIN`, `just doc`, `just verify`, `just deny`, `just workers` (the evening on `WORKERS_APP_PORT=8797`, every check ok), two `cloudflare-release.sh 0.1.0` builds byte-identical. |
 | 6. Design and UX | **Done** in the next run: T5-1 … T5-7, T6-1 … T6-6 (with what [What it left](#what-it-left) lists) |
@@ -723,6 +723,15 @@ Worker 1,737,921 B gzip (budget 2560 KiB, `scripts/workers-check.sh:179-186`); B
 - **Size**: small.
 - **Accept**: `scenario.mjs` connects 50 sockets within 200 ms and asserts (via the testbed's query counter) at
   most `2 + ceil(0.2 s / 1 s)` snapshot batches ran; every socket still receives the first view.
+- **Done** (2026-11-04; it had been left out of the next run's list and of §What it left). The gate asks
+  `rafi_store::live::accepts_sockets` (one row, `state` and `live_ended_at`, the rule `rafi_lifecycle::live::
+  accepts_sockets` the snapshot's method shares); the object keeps its last read (when, and whether the raffle
+  takes sockets) and a socket accepted within `COALESCE_MS` (1 s) of it takes that answer, the handshake sending
+  the view that read stored, so a room reconnecting at once reads the raffle once; the object counts its reads and
+  answers `GET /stats` (reads, sockets) through the binding, which the testbed serves at `/stats?r=`. The
+  scenario connects fifty sockets at once, every one gets the view, and the burst costs at most two reads: one,
+  measured; twenty-one for twenty sockets with the window at 0, so the check has teeth. The client's resync on
+  `Open` stays (one narrow read per phone, `/api/r/<slug>/participant`).
 
 #### T3-4 · `DrawConsole` rebuilds a map of every entrant four times a second
 
@@ -1504,6 +1513,9 @@ clippy`, `just test` (with `RESTATE_SERVER_BIN`) and `just workers` (`WORKERS_AP
   disabled Add button on screen, a send can be out while a list is read, the batch ID and the name format outlive a
   new read), which one `Step` would change. [#50](https://github.com/sagikazarmark/rafi.orig/issues/50).
 
+- T3-3, the sockets' three reads: in no list above and in no ticket, found missing on 2026-11-04 by checking the
+  code against each Accept, and done the same day (its entry says how). The miss was the status table's, which
+  called step 3 done from the next run's summary rather than from the findings.
 Since then (2026-11-02, `d4797d2` … `04d8173`): the list import clicked in the evening (T4-5); a double winner's
 phone lists every prize, and the CSV a row per prize (T4-7); the verification page checks a record once, not per
 keystroke (T3-8); the restore rehearsed in `crates/app/tests/restore.rs`, which found and fixed what it brought back

@@ -34,16 +34,24 @@ pub struct Snapshot {
     pub deliveries: HashMap<String, Delivery>,
 }
 
+/// Whether phones should hold a socket to a raffle in `state` whose live
+/// updates ended at `live_ended_at` (if they did): the channel is open and the
+/// raffle is public and not over. The rule [`Snapshot::accepts_sockets`]
+/// applies, as the gate asks it of two columns before reading anything else of
+/// a raffle for a phone that connects.
+pub fn accepts_sockets(state: RaffleState, live_ended_at: Option<i64>) -> bool {
+    live_ended_at.is_none() && state.is_live()
+}
+
 impl Snapshot {
     /// Whether the live channel still runs: live updates haven't been ended.
     pub fn channel_open(&self) -> bool {
         self.live_ended_at.is_none()
     }
 
-    /// Whether phones should hold a socket: the channel is open and the raffle
-    /// is public and not over.
+    /// Whether phones should hold a socket ([`accepts_sockets`]).
     pub fn accepts_sockets(&self) -> bool {
-        self.channel_open() && self.state.is_live()
+        accepts_sockets(self.state, self.live_ended_at)
     }
 
     /// How `item`'s prize reaches its winner, if the prize is known.
@@ -73,9 +81,11 @@ mod tests {
     fn sockets_while_live_and_not_ended() {
         for state in RaffleState::ALL {
             assert_eq!(snapshot(state, None).accepts_sockets(), state.is_live());
+            assert_eq!(accepts_sockets(state, None), state.is_live());
             let ended = snapshot(state, Some(1));
             assert!(!ended.channel_open());
             assert!(!ended.accepts_sockets());
+            assert!(!accepts_sockets(state, Some(1)));
         }
     }
 
