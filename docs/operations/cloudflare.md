@@ -23,7 +23,7 @@ implements them over Workers bindings.
 | Worker (the template's names) | `rafi-app` | `rafi-engine-v<version, dashed>` (`rafi-engine-v0-1-0`), one per release | `rafi-live` |
 | Built from | `apps/worker-app` | `apps/worker-engine` | `apps/worker-live` |
 | Configuration | `wrangler.app.toml` | `wrangler.engine.toml` (named `rafi-engine` there) | `wrangler.live.toml` |
-| Address | your domain only (a custom domain; no workers.dev, no preview URLs) | `https://<it>.<subdomain>.workers.dev/restate` | none |
+| Address | one: its workers.dev address, `https://<it>.<subdomain>.workers.dev` (the template's default), or a custom domain on your zone, workers.dev off ([below](#the-apps-address)); no preview URLs | `https://<it>.<subdomain>.workers.dev/restate` | none |
 | Serves | the web app and its API, the static files, phones' live-channel sockets (gated, then handed to the raffle's object), `/healthz`; 404 under `/restate` | the Restate endpoint (`Raffle`, `EngineInfo`) under `/restate`; 404 elsewhere | 404 to every request: its objects are reached through the bindings |
 | Bindings | `ASSETS`, `DB`, `RAFFLE_ROOM` (`script_name = "rafi-live"`), four rate limiters, Cron `0 * * * *` | `DB`, `RAFFLE_ROOM` (`script_name = "rafi-live"`) | `DB`, `RAFFLE_ROOM` (its own class `RaffleRoom`, migration `v1`) |
 | Vars | optionally `RAFI_DO_JURISDICTION` | `RESTATE_IDENTITY_KEYS`; optionally `RAFI_DO_JURISDICTION`, `RAFI_DRAND_RELAYS`, `RAFI_DRAND_LEAD_SECS`, `RAFI_DRAND_TIMEOUT_SECS` | optionally `RAFI_DO_JURISDICTION` |
@@ -83,6 +83,84 @@ subdomain on its first visit there. With the deploy token you can read it (`GET
 (`check-remote`, in its first job, reads it, as `deploy-engine` does), naming the dashboard page. Don't change it once deployed: Restate
 calls every registered engine at an address that contains it.
 
+### The app's address
+
+The app Worker has one address, the origin `RAFI_PUBLIC_URL` names: QR codes and links are made of it, and Rafi
+accepts a Clerk session only if it was made there (the token's `azp`, Clerk's authorized party). An installation
+chooses it before its first deploy (INSTALL.md's [step 4](../../deploy/cloudflare/INSTALL.md#4-the-apps-address)):
+
+| | A. workers.dev (the template's default) | B. A custom domain |
+|---|---|---|
+| Address | `https://<app Worker's name>.<subdomain>.workers.dev` | a hostname on the installation's zone |
+| `wrangler.app.toml` | `workers_dev = true`, no `routes` | `workers_dev = false`, `routes = [{ pattern = "<hostname>", custom_domain = true }]` |
+| Token | Workers Scripts and D1 | and Workers Routes on the zone |
+| Clerk | a development instance (`pk_test_…`) | a production instance (`pk_live_…`) on the domain |
+| For | trying Rafi; small or private use | production |
+
+**Why A is the default**: the first deploy then needs no zone, no DNS, and no edit of `wrangler.app.toml` but the
+database ID; the token has two permissions; and Clerk's development instance, a Clerk application's default,
+needs nothing set up. B is two lines in `wrangler.app.toml`, a third permission, and Clerk's production
+instance with its DNS records. B states `workers_dev = false` rather than leaving it to wrangler (which infers
+`false` from routes when the key is absent): with workers.dev on beside the domain, the app would have a second
+address, where sign-in fails (the session's `azp` isn't `RAFI_PUBLIC_URL`) and the zone's rules don't apply. A
+Wrangler environment inherits both keys from the top level, so INSTALL.md's `[env.eu]` writes them out.
+`wrangler deploy` (a first install) and `wrangler triggers deploy` (`promote-app`) apply them: workers.dev on or
+off, and the custom domain when there is one; neither needs a route.
+
+**B's domain must be a Cloudflare zone** on the account: a Worker's custom domain needs "an active Cloudflare
+zone", and can't be on "a zone you do not own" ([Custom
+Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)). A domain whose DNS is
+elsewhere can hold Clerk's records, but can't serve the app, and a Clerk production instance on a domain the app
+isn't on doesn't sign anyone in to it: add the domain to Cloudflare, or stay on A.
+
+**What workers.dev exposes**: nothing the app doesn't already serve. It is public on either address, and like the
+engine on workers.dev ([above](#the-engine-on-workersdev)) it is outside any zone's rules (WAF, Bot Fight Mode,
+rate-limiting rules), which Rafi doesn't rely on: its rate limits, proof of work and entrant cap are in the Worker.
+The address shows the Worker's name and the account's subdomain to everyone who gets a link. `workers.dev` is on the
+[Public Suffix List](https://publicsuffix.org/list/public_suffix_list.dat) (Cloudflare's entry), so each account's
+`<subdomain>.workers.dev` is a site of its own, which the app shares with the account's other Workers, the engines
+among them. Cloudflare's own advice ([workers.dev](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)):
+"It's recommended to run production Workers on a Workers route or custom domain, rather than on your `workers.dev`
+subdomain. Your `workers.dev` subdomain is treated as a Free website and is intended for personal or hobby
+projects that aren't business-critical."
+
+**Clerk**, from its documentation:
+
+- A production instance needs "a domain you own" and "to be able to add DNS records on your domain" ([Deploy to
+  production](https://clerk.com/docs/guides/development/deployment/production)). Its sessions live in a cookie on
+  Clerk's Frontend API, a subdomain of yours (`clerk.example.org`), so the app and Clerk are the same site
+  ([Instances /
+  Environments](https://clerk.com/docs/guides/development/managing-environments#session-architecture-differences)).
+  workers.dev is neither yours nor open to your DNS records. Clerk says the same of other hosts' shared domains:
+  "It is currently not possible to use Clerk production API keys with your host's provided preview domain" (the
+  same page), and on Vercel, "you cannot use a `*.vercel.app` domain for production"
+  ([Vercel](https://clerk.com/docs/guides/development/deployment/vercel)).
+- A development instance works on any address. Clerk: "`Development` instances have a more relaxed security
+  posture and are not suitable for production workloads", and lists ([Instances /
+  Environments](https://clerk.com/docs/guides/development/managing-environments)): "Development instances are
+  capped at 100 users, and user data can not be transferred between instances"; its session is the "dev browser",
+  "transmitted via querystring (`__clerk_db_jwt`) rather than via cookie", which is "not secure enough for
+  production use"; email and SMS templates are prefixed with the environment type; some social connections use
+  shared credentials. Its prebuilt components show development-mode warnings
+  ([options](https://clerk.com/docs/js-frontend/guides/customizing-clerk/appearance-prop/options),
+  `unsafe_disableDevelopmentModeWarnings`), and clerk-js warns in the browser's console that "Development
+  instances have strict usage limits and should not be used when deploying your application to production". Clerk
+  delivers at most "20 SMS messages and 100 emails" a month from development instances, and emails 100 recipients
+  a day per workspace (50 in a workspace's first 7 days) ([Test emails and
+  phones](https://clerk.com/docs/guides/development/testing/test-emails-and-phones#monthly-limit)); its Backend
+  API allows development instances 100 requests per 10 seconds ([Rate
+  limits](https://clerk.com/docs/guides/how-clerk-works/system-limits)), and Rafi calls it only for the signing
+  keys, which it caches. The users are the organizers: entrants never sign in.
+- Rafi takes either: `CLERK_PUBLISHABLE_KEY` may be `pk_live_…` or `pk_test_…` (`rafi-server`'s config), the
+  Content-Security-Policy names the Frontend API host the key encodes (`<slug>.clerk.accounts.dev` for a
+  development instance, with Clerk's telemetry, which clerk-js sends from development instances only), and the
+  Worker verifies sessions against the signing keys Clerk's Backend API serves for the secret key's instance
+  (`https://api.clerk.com/v1/jwks`). Nothing in a release build refuses development keys.
+
+**Moving from A to B** later: links and QR codes already handed out name the old address, which `workers_dev =
+false` turns off; and the production instance has users of its own, so raffles, which belong to the Clerk user or
+organization that made them, stay with the development instance's accounts. Move before the first real event.
+
 ## What an installation is
 
 Nothing of an installation's is compiled in: one build serves every installation. A release's one asset,
@@ -96,7 +174,8 @@ release's tag):
   when that file exists);
 - `wrangler.app.toml`, `wrangler.engine.toml`, `wrangler.live.toml`: the three Workers' shapes as this repository
   ships them (`apps/worker-app/wrangler.toml` and the others; `scripts/workers-check.sh` checks they agree),
-  pointed at `release/`, with the operator's database ID, domain and Restate public key;
+  pointed at `release/`, with the operator's database ID, the app's address (workers.dev, or a custom domain) and
+  Restate public key;
 - `legal/terms.md` and `legal/privacy.md`, which the deploy copies into the app's static files;
 - `package.json` (wrangler and the Restate CLI, `"wrangler": "^4"` and `"@restatedev/restate": "^1"`) and the
   `package-lock.json` the operator commits after `npm install`, which pins them: the workflows install from it
@@ -132,7 +211,8 @@ draw, or the draw doesn't land). What `deploy.sh` does check before a deploy cha
 ## Several installations
 
 One account can hold several installations. Each has names of its own for its three Workers (so its own instance,
-and its own engine Workers, `<engine name>-v…`), its own D1 database, domain, Clerk instance and app secrets, and
+and its own engine Workers, `<engine name>-v…`), its own D1 database, address (its app Worker's workers.dev one,
+or its own domain), Clerk application and app secrets, and
 its own Restate environment: every Rafi engine registers the same services (`Raffle`, `EngineInfo`), and Restate
 sends a service's new invocations to its latest deployment, so two installations in one environment would take
 over each other's draws. The account, its workers.dev subdomain and the API token can be shared.
@@ -144,7 +224,8 @@ over each other's draws. The account, its workers.dev subdomain and the API toke
   to every wrangler call. An environment's Worker is `<top-level name>-<environment>` unless it names itself
   (`rafi-app-eu`, `rafi-live-eu`, `rafi-engine-eu-v0-1-0`); it inherits `main`, the static files, `workers_dev`,
   `preview_urls`, the Cron, the routes and the migrations, but not the vars, the bindings or the required
-  secrets, which it repeats (with routes and rate-limit namespaces of its own). Its version file is
+  secrets, which it repeats (with its own address, `workers_dev` and `routes` written out, and rate-limit
+  namespaces of its own). Its version file is
   `VERSION.<environment>` when that exists, `VERSION` otherwise. Each installation has its own copies of the two
   workflows, with `CLOUDFLARE_ENV` set, a concurrency group of its own, its jobs in a GitHub environment holding
   its secrets, and its push paths narrowed to its version file. The installations share `legal/` (so the same
@@ -226,7 +307,7 @@ each configuration for `CLOUDFLARE_ENV` ([above](#what-an-installation-is)); in 
 | `upload-app` | Copies `legal/` into the app's static files. Refuses an app Worker that doesn't exist (its secrets come first). If a release has run on it (a version tagged `v<version>`, deployed or among its recent versions): `wrangler versions upload --tag v<version>`, not serving yet. Otherwise, a first install: `wrangler deploy`. | `app_version_id`, or `app_promoted=true` |
 | `deploy-engine` | Looks up the account's workers.dev subdomain, then `wrangler deploy --name <engine name>-v<version> --tag v<version>` (`rafi-engine-v0-1-0`), every time (the same release is the same code). | `engine_worker`, `engine_url` |
 | `register-engine` | Refuses a downgrade (again, after `check-remote`, for a release registered since): if the deployment Restate routes new `Raffle` and `EngineInfo` invocations to is this installation's (its metadata) and of a newer release, it stops. Then `POST /deployments` of the engine's URL, `"force": false`, with the metadata `app` (`rafi`), `instance` (the app Worker's name), `version`, `cloudflare_account` and `worker`; 200 (Restate had it) and 201 succeed, a 5xx or no answer is retried five times (a Worker deployed a moment ago), anything else fails. | |
-| `promote-app` | After a first install, nothing. Otherwise `wrangler versions deploy <id>@100%`, then `wrangler triggers deploy` (the custom domain and the Cron, which a version upload doesn't apply). | |
+| `promote-app` | After a first install, nothing. Otherwise `wrangler versions deploy <id>@100%`, then `wrangler triggers deploy` (the app's address, workers.dev on or off and the custom domain if any, and the Cron, which a version upload doesn't apply). | |
 | `cleanup` | [Below](#the-restate-cleanup). | |
 | `dry-run` | `legal/` copied in, then the three `wrangler deploy --dry-run` that read the names. No credentials, nothing remote. | |
 
@@ -290,9 +371,10 @@ delete <worker>`). Renaming or transferring the repository changes nothing.
 
 ## The API token
 
-An account API token, owned by the account rather than a user, so it survives its creator leaving, for the account
-and the installation's zone (several installations in one account can share one, with Workers Routes on each one's
-zone). INSTALL.md's [step 2](../../deploy/cloudflare/INSTALL.md#2-a-cloudflare-api-token) creates it in the
+An account API token, owned by the account rather than a user, so it survives its creator leaving, for the account,
+and, when the app is on a custom domain, the installation's zone (several installations in one account can share
+one, with Workers Routes on the zone of each one on a domain). INSTALL.md's
+[step 2](../../deploy/cloudflare/INSTALL.md#2-a-cloudflare-api-token) creates it in the
 dashboard: **Manage account > Account API tokens > Create Token**, a custom token with these permissions and
 nothing else (Cloudflare's [Account API
 tokens](https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/) and [Create API
@@ -303,7 +385,7 @@ token](https://developers.cloudflare.com/fundamentals/api/get-started/create-tok
 |---|---|
 | Account · Workers Scripts · Edit (`Workers Scripts Write`) | Uploading and deploying the three Workers (`PUT …/workers/scripts/{name}`, versions and deployments), their secrets, Cron (`…/schedules`), settings, workers.dev on or off (`…/subdomain`), the Durable Object class's migrations (part of the upload), the app's custom domain; reading deployments and versions (`deploy-live`, `upload-app`); the account's workers.dev subdomain (`GET /accounts/{id}/workers/subdomain`); listing the account's Workers (`GET /accounts/{id}/workers/scripts`, the cleanup) and deleting a drained engine Worker (`DELETE …/workers/scripts/{name}`) |
 | Account · D1 · Edit (`D1 Write`) | `wrangler d1 migrations apply DB --remote` (the database's details and queries) |
-| Zone · Workers Routes · Edit (`Workers Routes Write`), the installation's zone | The app Worker's hostname on the zone |
+| Zone · Workers Routes · Edit (`Workers Routes Write`), the installation's zone | Only with a custom domain ([the app's address](#the-apps-address)): the app Worker's hostname on the zone |
 
 Sources: the "Accepted Permissions" of each endpoint in Cloudflare's API reference (the OpenAPI schema's
 `x-api-token-group`): Workers Scripts Write for the scripts, their versions, deployments, secrets, schedules,
@@ -311,7 +393,10 @@ settings and subdomain, the account's workers.dev subdomain and the Workers cust
 database and its queries; Workers Routes Write for a zone's Workers routes. Wrangler attaches a custom domain through
 an account-level Workers endpoint, and Cloudflare creates its DNS record and certificate on the zone; Cloudflare's
 **Edit Cloudflare Workers** token template, which its CI guide recommends for wrangler, includes Workers Routes on
-zones, and the token keeps it for the hostname. Not needed: Workers Tail Read (only `wrangler tail`, run by you),
+zones, and the token keeps it for the hostname. On workers.dev the app needs none of it: with no routes, `wrangler
+triggers deploy` (and a first install's `wrangler deploy`) reads and turns on the Worker's workers.dev address
+(`…/workers/scripts/{name}/subdomain` and the account's subdomain, Workers Scripts) and sets the Cron, with no zone
+call (wrangler 4.148.0's source). Not needed: Workers Tail Read (only `wrangler tail`, run by you),
 Account Settings Read, Memberships and User Details (wrangler reads `/memberships` and `/user` only for `wrangler
 whoami` and to explain an authentication error, and the account ID is given), KV, R2. That template plus Account ·
 D1 · Edit is a superset, if you'd rather start from it.
@@ -427,9 +512,12 @@ subcommands against a stubbed wrangler and Restate CLI and a fake Cloudflare and
 `deploy/cloudflare` ([Testing](../development/testing.md#workers)). What only a real deploy can check, so check it
 on the first one:
 
-- the token's permissions cover every step (the custom domain, the workers.dev subdomain lookup, the account's
+- the token's permissions cover every step (the custom domain if there is one, the app's workers.dev address
+  turned on if not, the workers.dev subdomain lookup, the account's
   Workers listed and a drained engine Worker deleted included), and the Admin key every Restate call (registering,
   listing, `/query`, removing);
+- on workers.dev with a Clerk development instance, organizers sign in (its dev browser, `__clerk_db_jwt` in the
+  URL), and the session's `azp` is `RAFI_PUBLIC_URL`;
 - a repository created from the template repository runs the Deploy workflow for its first commit (GitHub's
   [`push` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)
   says creating a repository from a template triggers it), which fails at **Check it against Restate and
@@ -501,8 +589,8 @@ template's provider table has the hosting's location and Restate's region as bra
 Workers run inside a region is Cloudflare's
 [Regional Services](https://developers.cloudflare.com/data-localization/regional-services/), an Enterprise add-on
 (a hostname's requests decrypted and handled, Workers scripts among what it lists, only in the chosen region's data
-centers); Rafi neither needs nor configures it, and what it would cover of these Workers (the engine is on
-workers.dev, not the installation's zone) is Cloudflare's to say.
+centers); Rafi neither needs nor configures it, and what it would cover of these Workers (the engine, and the app
+without a custom domain, are on workers.dev, not the installation's zone) is Cloudflare's to say.
 
 **Placement** is a latency option, not a residency control, and not tied to the first deploy: by default the app
 Worker handles each request in the data center nearest the visitor, which then reaches the D1 database and Restate
@@ -591,6 +679,8 @@ or undos/min per organizer, 600/min live connections). They are soft, per Cloudf
 | **Register the engine**: Restate couldn't discover the engine (at once, or after five attempts) | Restate couldn't reach the engine (workers.dev not serving it yet), or the engine refused the discovery because the identity key in `wrangler.engine.toml` isn't this environment's (still the template's `publickeyv1_…`, say: nothing looks for it; or, in a Wrangler environment, its `[env.<name>.vars]` has none: vars aren't inherited): check the engine Worker's logs, fix, re-run the failed jobs. |
 | A deploy shows as cancelled | A newer run replaced it while it waited (the concurrency group): run it again. |
 | `/healthz` answers `500 misconfigured` | Missing secrets or documents, a document still a template, or one without its version (`legal/terms.md: no front matter`): the reason is in the answer when it names no value, and in the app Worker's logs. |
+| Organizers sign in to Clerk but the admin refuses them | The app was opened at an address other than `RAFI_PUBLIC_URL`'s origin, whose sessions Rafi refuses (their `azp`): use that address, and with a custom domain keep `workers_dev = false` ([the app's address](#the-apps-address)). Or `RAFI_PUBLIC_URL` isn't exactly the address's origin (another scheme or host, or a path). |
+| The app's workers.dev address doesn't answer | `workers_dev = false` with no routes leaves the app no address; a first install's `wrangler deploy` or the next `promote-app` turns workers.dev on once `workers_dev = true`. |
 | The admin says the raffle engine can't be reached | `RESTATE_INGRESS_URL` or `RESTATE_INGRESS_API_KEY` wrong, or Restate Cloud down: the [runbook](runbook.md#when-the-raffle-engine-is-down-during-an-event). |
 | Phones don't update live | The app's logs (`nudging … failed`), the live Worker's logs; `RAFFLE_ROOM` bound with `script_name` the live Worker's name; the same `database_id` and `RAFI_DO_JURISDICTION` in all three configurations (nothing compares them: the app and the engine in different jurisdictions reach different objects). |
 | The cleanup reports a deployment draining for days | A paused invocation: resume or kill it ([Upgrades](upgrades.md#on-workers-automatic)). |

@@ -7,8 +7,9 @@
 # Restate CLI from and the .dev.vars.example its secrets are set from
 # (.dev.vars git-ignored), the three configurations as
 # wrangler.<app|engine|live>.toml
-# (deploy.yaml running on a change to wrangler.*.toml), and that its two
-# workflows (.github/workflows/deploy.yaml and
+# (deploy.yaml running on a change to wrangler.*.toml), the app on its
+# workers.dev address by default (workers_dev = true, a custom domain's routes
+# commented out), and that its two workflows (.github/workflows/deploy.yaml and
 # restate-cleanup.yaml) name one Rafi repository (RAFI_REPOSITORY), verify the
 # attestation release.yaml makes, download the release the version file names
 # (VERSION.<CLOUDFLARE_ENV> when it exists, VERSION otherwise), no longer call
@@ -33,7 +34,8 @@
 # environment the same way: a copy whose three configurations have an
 # [env.eu] (repeating what environments don't inherit: the vars, with
 # RAFI_DO_JURISDICTION = "eu" and the engine's identity keys, the bindings,
-# the required secrets) and a VERSION.eu, dry-run with CLOUDFLARE_ENV=eu, the
+# the required secrets; the app on a custom domain, workers_dev = false) and a
+# VERSION.eu, dry-run with CLOUDFLARE_ENV=eu, the
 # Workers the environment's (rafi-app-eu, rafi-live-eu,
 # rafi-engine-eu-v<version>), each with the jurisdiction.
 # .github/workflows/release.yaml runs this on a tag and attaches
@@ -88,6 +90,15 @@ done
 grep -qx '      - "wrangler\.\*\.toml"' "$template/.github/workflows/deploy.yaml" \
   || fail "deploy.yaml doesn't run on a change to wrangler.*.toml"
 echo "ok   deploy/cloudflare/wrangler.{app,engine,live}.toml, and deploy.yaml runs on their changes"
+# The app's address: by default its workers.dev one (INSTALL.md's step 4, option A: no zone),
+# no routes; a custom domain (option B) is the installation's edit, its route there commented out.
+app_toml="$template/wrangler.app.toml"
+if ! grep -qx 'workers_dev = true' "$app_toml" || ! grep -qx 'preview_urls = false' "$app_toml" \
+  || grep -q '^routes' "$app_toml" \
+  || ! grep -qx '# routes = \[{ pattern = "raffle\.example\.org", custom_domain = true }\]' "$app_toml"; then
+  fail "deploy/cloudflare/wrangler.app.toml isn't on workers.dev by default: workers_dev = true, preview_urls = false, the custom domain's routes commented out"
+fi
+echo "ok   deploy/cloudflare/wrangler.app.toml: the app on workers.dev by default, a custom domain commented out"
 upstream=
 for workflow in deploy.yaml restate-cleanup.yaml; do
   file="$template/.github/workflows/$workflow"
@@ -285,7 +296,11 @@ step "deploy/cloudflare deploys it as a Wrangler environment (CLOUDFLARE_ENV=eu,
 # (INSTALL.md's "Keeping data in the EU"), and the environment's own version
 # file, which the workflows download the release by and deploy.sh doesn't
 # read (the top level's VERSION names another release here: deploy.sh
-# deploys the release it is part of).
+# deploys the release it is part of). Its app is on a custom domain
+# (INSTALL.md's step 4, option B: workers_dev = false and its own route,
+# written out as INSTALL.md's [env.eu] does, which wrangler's dry run
+# validates), so the two rehearsals dry-run both addresses: the top level's
+# workers.dev, the template's default, and this one's domain.
 dir="$OUT/installation-eu"
 installation "$dir"
 secrets="$(sed -n '/^\[secrets\]$/,/^\]$/p' "$dir/wrangler.app.toml" | sed '1d')"
@@ -295,6 +310,7 @@ keys="$(sed -n 's/^RESTATE_IDENTITY_KEYS = \(".*"\)$/\1/p' "$dir/wrangler.engine
 database="$(sed -n 's/^database_id = \(".*"\)$/\1/p' "$dir/wrangler.app.toml")"
 {
   printf '\n[env.eu]\n'
+  printf 'workers_dev = false\nroutes = [{ pattern = "raffle.example.eu", custom_domain = true }]\n'
   printf '[[env.eu.d1_databases]]\nbinding = "DB"\ndatabase_name = "rafi"\ndatabase_id = %s\nmigrations_dir = "release/migrations"\n' "$database"
   printf '[[env.eu.durable_objects.bindings]]\nname = "RAFFLE_ROOM"\nclass_name = "RaffleRoom"\nscript_name = "rafi-live-eu"\n'
   n=2000

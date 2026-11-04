@@ -16,9 +16,11 @@
 name = "rafi-app"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
-# Only the custom domain: no *.workers.dev address, no public preview URLs
-# (previews would share production's database and objects).
-workers_dev = false
+# One address: the template's default, its workers.dev one (an installation
+# on a custom domain turns workers.dev off and adds its route instead:
+# deploy/cloudflare/INSTALL.md, step 4). No public preview URLs (previews
+# would share production's database and objects).
+workers_dev = true
 preview_urls = false
 
 [build]

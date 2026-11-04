@@ -25,8 +25,9 @@
 name = "rafi"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
-# Only the custom domain: no *.workers.dev address, no public preview URLs
-# (previews would share production's database and objects).
+# No address here (an installation's app Worker has its workers.dev one or
+# a custom domain: deploy/cloudflare's wrangler.app.toml), and no public
+# preview URLs (previews would share production's database and objects).
 workers_dev = false
 preview_urls = false
 

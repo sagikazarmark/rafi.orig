@@ -189,9 +189,10 @@ flowchart LR
 ```
 
 Natively the app and the engine are two processes, `rafi` and `rafi-restate`, each with its own configuration.
-In production on Workers they are three Workers sharing the D1 database: the app Worker on the installation's
-domain; one engine Worker per release on workers.dev, where Restate reaches it at `/restate/*` and the SDK verifies
-each request's signature before any routing, discovery included; and the live Worker, which defines the
+In production on Workers they are three Workers sharing the D1 database: the app Worker at the installation's
+address (its workers.dev one, or a custom domain); one engine Worker per release on workers.dev, where Restate
+reaches it at `/restate/*` and the SDK verifies each request's signature before any routing, discovery included;
+and the live Worker, which defines the
 `RaffleRoom` class and has no address, the app and the engine binding its objects by its name (`script_name`).
 One engine per release because Restate finishes each invocation on the deployment it started on: a draw in flight
 keeps its release's engine, which the installation's cleanup removes from Restate and deletes once drained

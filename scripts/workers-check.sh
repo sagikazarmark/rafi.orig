@@ -321,12 +321,14 @@ if command -v dx >/dev/null; then
   # bindings, limits, Cron, addresses and required secrets. A route or a
   # secret added to one and not the other would deploy a Worker that 404s or
   # refuses; a limit or a class name changed in one alone would deploy a
-  # different Worker. The paths differ (the template's point into a
-  # release), and the identity keys are an installation's, so only their
-  # name is compared.
+  # different Worker. The app's address is the template's default in both
+  # (workers_dev = true, no routes: INSTALL.md's step 4, option A), which an
+  # installation on a custom domain changes in its own copy. The paths differ
+  # (the template's point into a release), and the identity keys are an
+  # installation's, so only their name is compared.
   shape() {
     sed -n \
-      -e '/^compatibility_date/p' -e '/^workers_dev/p' -e '/^preview_urls/p' -e '/^binding = /p' \
+      -e '/^compatibility_date/p' -e '/^workers_dev/p' -e '/^preview_urls/p' -e '/^routes/p' -e '/^binding = /p' \
       -e '/^database_name/p' -e '/^name = "/p' -e '/^class_name/p' -e '/^script_name/p' \
       -e '/^new_sqlite_classes/p' -e '/^tag = /p' -e '/^namespace_id/p' -e '/^simple = /p' -e '/^crons/p' \
       -e '/^invocation_logs/p' -e 's/^\(RESTATE_IDENTITY_KEYS\) = .*/\1/p' -e '/^RAFI_[A-Z_]* = /p' \

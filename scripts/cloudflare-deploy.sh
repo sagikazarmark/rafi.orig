@@ -20,7 +20,7 @@
 #   release/deploy.sh upload-app        the app Worker's version uploaded (deployed directly on a first install)
 #   release/deploy.sh deploy-engine     this release's engine Worker, <engine name>-v<version>
 #   release/deploy.sh register-engine   the engine Worker registered with Restate (never a downgrade)
-#   release/deploy.sh promote-app       the uploaded app version deployed, then its routes and Cron
+#   release/deploy.sh promote-app       the uploaded app version deployed, then its address and Cron
 #   release/deploy.sh cleanup           drained engine deployments removed from Restate, then their Workers deleted
 #   release/deploy.sh dry-run           legal/ copied in, `wrangler deploy --dry-run` of the three Workers; nothing remote
 #
@@ -95,8 +95,9 @@
 #     version tagged v<version>, in its current deployment or among its recent versions),
 #     `wrangler versions upload --tag v<version>`, the new version not serving yet: output
 #     app_version_id (from wrangler's ND-JSON output). Otherwise, a first install (the Worker
-#     holds only the secrets `wrangler secret put`/`bulk` created it with): `wrangler deploy`,
-#     output app_promoted=true. A Worker that doesn't exist is refused: its secrets come first.
+#     holds only the secrets `wrangler secret put`/`bulk` created it with): `wrangler deploy`
+#     (its address and Cron too), output app_promoted=true. A Worker that doesn't exist is
+#     refused: its secrets come first.
 #   deploy-engine: `wrangler deploy` of the engine as <engine name>-v<version, dots as dashes>
 #     (rafi-engine-v0-1-0), every time (the same release is the same code, so a re-run changes
 #     nothing Restate relies on); outputs engine_worker and engine_url
@@ -111,8 +112,9 @@
 #     cloudflare_account and worker; 200 (Restate had it) and 201 succeed, a 5xx or no answer is
 #     retried (a Worker deployed a moment ago), anything else fails.
 #   promote-app: after a first install, nothing; otherwise `wrangler versions deploy
-#     <app_version_id>@100%`, then `wrangler triggers deploy` (the routes and the Cron, which a
-#     version upload doesn't apply).
+#     <app_version_id>@100%`, then `wrangler triggers deploy` (the Worker's address, workers.dev
+#     on or off and the routes, none by default, and the Cron, which a version upload doesn't
+#     apply).
 #   cleanup: Restate's deployments with their metadata (GET /deployments) and their status
 #     (`restate deployments list --extra --json`), joined by ID, and the account's Workers (GET
 #     /accounts/{id}/workers/scripts); any listing failing stops it before anything is removed
@@ -711,11 +713,11 @@ Rafi v$VERSION was deployed directly by upload-app (a first install): nothing to
   [ -n "${RAFI_APP_VERSION_ID:-}" ] || die "neither RAFI_APP_PROMOTED=true nor RAFI_APP_VERSION_ID: upload-app's outputs"
   [[ "$RAFI_APP_VERSION_ID" =~ ^[A-Za-z0-9-]+$ ]] || die "RAFI_APP_VERSION_ID is '$RAFI_APP_VERSION_ID', not a version ID"
   run_wrangler versions-deploy-app versions deploy "$RAFI_APP_VERSION_ID@100%" --yes -c "$APP_CONFIG" --message "rafi v$VERSION"
-  step "app Worker $APP_NAME: routes and Cron"
+  step "app Worker $APP_NAME: its address (workers.dev or its routes) and Cron"
   run_wrangler triggers-deploy-app triggers deploy -c "$APP_CONFIG"
   report "### App Worker \`$APP_NAME\`
 
-Version \`$RAFI_APP_VERSION_ID\` (Rafi v$VERSION) deployed at 100%, with its routes and Cron."
+Version \`$RAFI_APP_VERSION_ID\` (Rafi v$VERSION) deployed at 100%, with its address (workers.dev or its routes) and Cron."
 }
 
 # The cleanup's plan from its listings among the artifacts (restate-deployments.json: GET

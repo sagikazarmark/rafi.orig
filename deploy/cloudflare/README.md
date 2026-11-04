@@ -9,10 +9,13 @@ This page covers the tasks you'll come back to. The details, and the reasons beh
 
 ## Prerequisites
 
-- A **Cloudflare** account on the paid Workers plan, with your domain on it as a zone and a workers.dev subdomain.
+- A **Cloudflare** account on the paid Workers plan, with a workers.dev subdomain. Optionally your domain on it as a
+  zone, for the app's own address; without one the app is at its workers.dev address
+  ([INSTALL.md, step 4](INSTALL.md#4-the-apps-address)).
 - A **[Restate Cloud](https://cloud.restate.dev)** environment, which runs the raffle engine. Use one environment
   per installation.
-- A **[Clerk](https://clerk.com)** application, which signs organizers in.
+- A **[Clerk](https://clerk.com)** application, which signs organizers in: its production instance on your domain,
+  or, on workers.dev, its development instance (for trying Rafi or small, private use).
 - A **GitHub** repository, created from this template, which runs the deploys.
 - Your legal documents, reviewed by a lawyer, each naming its version at its top (`version:`; a changed document is
   a new version).

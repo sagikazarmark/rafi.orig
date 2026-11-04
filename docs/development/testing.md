@@ -187,9 +187,12 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   the file (`misconfigured: legal/terms.md: no front matter`), in the answer too
 - `deploy/cloudflare`, what an installation deploys: its `wrangler.app.toml`, `wrangler.engine.toml` and
   `wrangler.live.toml` agree with the production Workers' (`apps/worker-app`, `apps/worker-engine`,
-  `apps/worker-live`) on the bindings, limits, Durable Object migrations and required secrets, and a release (of the
+  `apps/worker-live`) on the bindings, limits, Durable Object migrations, required secrets and addresses (the app on
+  workers.dev, no routes: the template's default), and a release (of the
   version `deploy/cloudflare/VERSION` names) is rehearsed the way a tag releases it (`scripts/cloudflare-release.sh`):
-  first that the template's `VERSION` names it, that it has `.dev.vars.example` (and git-ignores `.dev.vars`),
+  first that the template's `VERSION` names it, that it has `.dev.vars.example` (and git-ignores `.dev.vars`), that
+  its `wrangler.app.toml` puts the app on workers.dev by default (`workers_dev = true`, the custom domain's `routes`
+  commented out),
   that its two workflows (`.github/workflows/deploy.yaml` and `restate-cleanup.yaml`) name one Rafi repository, verify
   the attestation `release.yaml` makes (its signer), download the release `VERSION.<CLOUDFLARE_ENV>` names when it
   exists and call no `deploy.sh check`, that each of their jobs that runs `deploy.sh` installs the tools from the
@@ -220,8 +223,10 @@ export RAFI_TEST_POSTGRES_URL=postgres://rafi@127.0.0.1:54329/rafi_test
   `legal/` in and dry-deploys the live Worker `rafi-live` (`DB`, `RAFFLE_ROOM` its own), the engine Worker
   `rafi-engine`, this release's `rafi-engine-v<version>` (`DB`, `RAFFLE_ROOM` defined in `rafi-live`, the identity
   keys) and the app Worker `rafi-app` (`ASSETS`, `DB`, `RAFFLE_ROOM` defined in `rafi-live`, the four rate
-  limiters), the names read from the dry runs' ND-JSON and no `RAFI_DO_JURISDICTION` (the template's default);
-  then the same for a copy with an `[env.eu]` in each configuration (with `RAFI_DO_JURISDICTION = "eu"`) and a
+  limiters; on workers.dev, the template's default), the names read from the dry runs' ND-JSON and no
+  `RAFI_DO_JURISDICTION` (the template's default);
+  then the same for a copy with an `[env.eu]` in each configuration (with `RAFI_DO_JURISDICTION = "eu"`, and the app
+  on a custom domain, `workers_dev = false` and its route, which wrangler's dry run validates) and a
   `VERSION.eu` (and the top level's `VERSION` another release, which `deploy.sh` doesn't read), with
   `CLOUDFLARE_ENV=eu`: `rafi-live-eu`, `rafi-engine-eu-v<version>` and `rafi-app-eu`, bound to
   `rafi-live-eu`, each with the jurisdiction. What `deploy.sh` does against the real

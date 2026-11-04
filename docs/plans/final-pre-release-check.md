@@ -558,6 +558,13 @@ copy → announce.
   `version: 2026-11`, `---`), which the server reads, strips before rendering and shows where `RAFI_TERMS_VERSION`
   and `RAFI_PRIVACY_VERSION` were (`/terms`, `/privacy`, every raffle's notice); those two settings are gone. A
   document without the front matter or a version is refused, naming the file, under dev auth too.
+- **Since** (2026-11-04, latest): a custom domain is optional. The template's app Worker is on its workers.dev
+  address by default (`workers_dev = true`, `routes` commented out; `apps/worker-app` the same, so the shape
+  check still compares it), `RAFI_PUBLIC_URL` `https://rafi-app.<subdomain>.workers.dev`, no zone, no Workers
+  Routes in the token, and a Clerk development instance (a production instance needs a domain the app is on). A
+  custom domain is `workers_dev = false` and the route uncommented, with Workers Routes and a Clerk production
+  instance; the release rehearsal dry-runs both (the top level on workers.dev, `[env.eu]` on a domain). Read "your
+  domain" above as the app's address, whichever it is.
 
 #### T2-6 · Licensing and attribution
 

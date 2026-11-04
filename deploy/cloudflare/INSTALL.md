@@ -15,10 +15,12 @@ installation, named by its app Worker, `rafi-app`. A second one in the same acco
 
 - [ ] A **Cloudflare account on the paid Workers plan**: verifying drand and rendering the participant page don't
   fit the free plan's CPU time.
-- [ ] A **zone** (your domain) on that account.
 - [ ] The account's **workers.dev subdomain**. Each release's engine Worker is served there, at
-  `https://rafi-engine-v<version>.<subdomain>.workers.dev`. The dashboard's **Workers & Pages** shows it (**Your
-  subdomain**), or offers one on your first visit. **Don't change it once deployed** ([why][guide-workers-dev]).
+  `https://rafi-engine-v<version>.<subdomain>.workers.dev`, and so is the app, without a domain. The dashboard's
+  **Workers & Pages** shows it (**Your subdomain**), or offers one on your first visit. **Don't change it once
+  deployed** ([why][guide-workers-dev]).
+- [ ] Optionally, **your domain as a zone** on that account: the app's own address, and what a Clerk production
+  instance needs. Without one, the app is served on workers.dev ([step 4](#4-the-apps-address)).
 - [ ] The right to **create account API tokens**: a Super Administrator, or a member with API token provisioning.
 - [ ] Accounts at [Restate Cloud](https://cloud.restate.dev), [Clerk](https://clerk.com) and GitHub.
 - [ ] Your **legal documents**, reviewed by a lawyer (step 7), and the operator's (your) name and email.
@@ -31,7 +33,8 @@ installation, named by its app Worker, `rafi-app`. A second one in the same acco
   wrangler and the Restate CLI come with your repository (its `package.json`): step 1 installs them, then logs
   wrangler in to your Cloudflare account ([`wrangler login`][wrangler-login]).
 
-Below, `<you>/<name>` is your new repository, `example.org` your zone and `raffle.example.org` the app's hostname.
+Below, `<you>/<name>` is your new repository and `<subdomain>` your workers.dev subdomain; with a domain,
+`example.org` is your zone and `raffle.example.org` the app's hostname.
 From step 1's `cd` on, every command runs in your repository's directory: `gh` takes the repository from
 it, wrangler its configurations.
 
@@ -42,9 +45,9 @@ it, wrangler its configurations.
 | Account ID | step 1 (`npx wrangler whoami`) | GitHub secret `CLOUDFLARE_ACCOUNT_ID` (step 2) |
 | API token | step 2 | GitHub secret `CLOUDFLARE_API_TOKEN` |
 | Database ID | step 3 | `database_id` in `wrangler.app.toml`, `wrangler.engine.toml` and `wrangler.live.toml` |
-| Hostname, `raffle.example.org` | step 4 | `routes` in `wrangler.app.toml` |
-| Public URL, `https://raffle.example.org` | step 4 | app secret `RAFI_PUBLIC_URL` |
-| Clerk's keys, `pk_live_…` and `sk_live_…` | step 5 | app secrets `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` |
+| With a domain: its hostname, `raffle.example.org` | step 4 | `routes` in `wrangler.app.toml` (and `workers_dev = false`) |
+| Public URL: `https://rafi-app.<subdomain>.workers.dev`, or `https://raffle.example.org` | step 4 | app secret `RAFI_PUBLIC_URL` |
+| Clerk's keys: `pk_test_…` and `sk_test_…` (development instance), or `pk_live_…` and `sk_live_…` (production) | step 5 | app secrets `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` |
 | Restate's ingress URL (`:8080`) | step 6 | app secret `RESTATE_INGRESS_URL` |
 | Restate API key for the app | step 6 | app secret `RESTATE_INGRESS_API_KEY` |
 | Restate's admin URL (`:9070`) | step 6 | GitHub secret `RESTATE_ADMIN_URL` |
@@ -146,7 +149,9 @@ permission its creator lacks.
    |---|---|
    | Account · Workers Scripts · Edit | your account |
    | Account · D1 · Edit | your account |
-   | Zone · Workers Routes · Edit | your zone (**Specific zone**, `example.org`) |
+   | Zone · Workers Routes · Edit | only with a domain ([step 4](#4-the-apps-address)'s B): your zone (**Specific zone**, `example.org`) |
+
+   Moving to a domain later? Edit the token then, adding the third.
 
 2. Cloudflare shows the token once. Hand it to GitHub, with step 1's account ID:
 
@@ -185,28 +190,66 @@ In `wrangler.app.toml`, `wrangler.engine.toml` and `wrangler.live.toml`, set `da
   left on another database shows only in step 10's test-mode raffle.
 - A [jurisdiction](#keeping-data-in-the-eu) can only be chosen here, when the database is created.
 
-## 4. Your domain
+## 4. The app's address
 
-You'll get: the app's hostname in `wrangler.app.toml`, and the value of `RAFI_PUBLIC_URL` (step 8).
+You'll get: the app's address, set in `wrangler.app.toml`, and the value of `RAFI_PUBLIC_URL` (step 8).
+
+Choose one:
+
+| | A. Its workers.dev address (the template's default) | B. Your domain |
+|---|---|---|
+| `RAFI_PUBLIC_URL` | `https://rafi-app.<subdomain>.workers.dev` (the app Worker's name: `rafi-app-eu` for an environment `eu`) | `https://raffle.example.org` |
+| Needs | nothing more | your domain as a zone on this account; Workers Routes in the token (step 2) |
+| In `wrangler.app.toml` | nothing: `workers_dev = true`, `routes` commented out | `workers_dev = false`, and `routes` uncommented with your hostname |
+| Clerk (step 5) | a development instance | a production instance |
+| Good for | trying Rafi, small or private use | production |
+
+For B, the domain must be a zone on this Cloudflare account: a Worker's custom domain needs one ([Custom
+Domains][cf-custom-domains]). A domain whose DNS is elsewhere can hold Clerk's records but can't serve the app:
+add it to Cloudflare, or use A. Then:
 
 1. Pick the hostname organizers and phones will use, on your zone, with no DNS record of its own yet. Each deploy
    attaches it to the app Worker as a custom domain: Cloudflare creates its DNS record and certificate. A
    workflow takes over an existing record or custom domain of that name without asking.
-2. In `wrangler.app.toml`, uncomment `routes` and set your hostname:
+2. In `wrangler.app.toml`, turn workers.dev off and uncomment `routes` with your hostname:
 
    ```toml
+   workers_dev = false
+   preview_urls = false
    routes = [{ pattern = "raffle.example.org", custom_domain = true }]
    ```
 
-3. `RAFI_PUBLIC_URL` is that origin with no trailing slash, `https://raffle.example.org`. QR codes and links use it,
-   and Clerk must allow it. The app has no other address (`workers_dev` and preview URLs are off).
+Either way, `RAFI_PUBLIC_URL` is that origin with no trailing slash. QR codes and links use it, and Rafi accepts
+Clerk sessions only from it, so the app has that one address (preview URLs are off, and with B workers.dev too).
+
+Moving from A to B later works, at a cost: the links and QR codes already handed out name the old address (gone
+once `workers_dev = false`), and the production instance has its own users (Clerk doesn't move them between
+instances), so the raffles organizers made stay with their development-instance accounts. Move before your first
+real event.
 
 ## 5. Clerk
 
-You'll get: `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` (step 8), and Clerk's DNS records in your zone.
+You'll get: `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` (step 8); with B, Clerk's DNS records in your zone.
 
-1. In the [Clerk dashboard](https://dashboard.clerk.com), create an application, then its **production instance**
-   for your domain.
+In the [Clerk dashboard](https://dashboard.clerk.com), create an application. Then, for your step 4 choice:
+
+**A. A development instance**, the one the application starts with. A production instance needs a domain you
+own, with Clerk's DNS records, and the app on it ([Clerk's production guide][clerk-production]): workers.dev is
+Cloudflare's. A development instance is fine for trying Rafi or a small private installation, but in Clerk's words
+"not suitable for production workloads" ([Instances / Environments][clerk-instances]; more in [the
+guide][guide-address]):
+
+- it is "capped at 100 users" (organizers: entrants don't sign in);
+- its sign-in components show development-mode warnings;
+- it keeps a session by a token in the URL (`__clerk_db_jwt`, the "dev browser"), "not secure enough for
+  production use";
+- Clerk sends at most 100 emails a month from it ([its limits][clerk-dev-limits]).
+
+Its **API keys**: `pk_test_…` is `CLERK_PUBLISHABLE_KEY`, `sk_test_…` is `CLERK_SECRET_KEY`.
+
+**B. A production instance** for your domain:
+
+1. **Create production instance** in the dashboard, for your domain.
 2. Add each DNS record Clerk lists (CNAMEs for its Frontend API, the accounts portal and email) to your zone in
    Cloudflare (**DNS > Records**), with **Proxy status** *DNS only*.
 3. Wait for Clerk to verify them and issue its certificates (**Domains** in Clerk shows the status). It can take a
@@ -277,12 +320,12 @@ rm .dev.vars
 
 | Secret | Value |
 |---|---|
-| `RAFI_PUBLIC_URL` | The public origin, no trailing slash (step 4) |
+| `RAFI_PUBLIC_URL` | The app's origin, no trailing slash (step 4): `https://rafi-app.<subdomain>.workers.dev` (A) or `https://raffle.example.org` (B) |
 | `RESTATE_INGRESS_URL` | Restate Cloud's ingress URL (step 6) |
 | `RESTATE_INGRESS_API_KEY` | The app's Restate Cloud API key (step 6) |
 | `RAFI_POW_KEY` | The proof-of-work key: random, 32 characters or more. Never rotate it during an event. |
-| `CLERK_SECRET_KEY` | `sk_live_…` (step 5) |
-| `CLERK_PUBLISHABLE_KEY` | `pk_live_…` (step 5): not secret (the web app gets it from `/config.js`), but yours |
+| `CLERK_SECRET_KEY` | `sk_test_…` (A) or `sk_live_…` (B) (step 5) |
+| `CLERK_PUBLISHABLE_KEY` | `pk_test_…` (A) or `pk_live_…` (B) (step 5): not secret (the web app gets it from `/config.js`), but yours |
 | `RAFI_OPERATOR_NAME`, `RAFI_OPERATOR_EMAIL` | Who runs this installation (a legal name) and its privacy contact, named as the processor in every raffle's notice |
 
 - **Never commit `.dev.vars`.** It's git-ignored; delete it once the secrets are set.
@@ -334,13 +377,13 @@ You'll get: the three Workers, the database's tables, and the release's engine r
    git commit -m "Configure the installation"
    git push                                     # nothing to push? gh workflow run deploy.yaml
    gh run watch                                 # pick the Deploy run
-   curl https://raffle.example.org/healthz      # ok 0.1.0
+   curl https://rafi-app.<subdomain>.workers.dev/healthz    # ok 0.1.0 (B: https://raffle.example.org/healthz)
    ```
 
    `ok 0.1.0` means the app Worker has its secrets and documents. Anything missing answers `500 misconfigured`
    with the reason; the app Worker's logs have all of it.
 3. Run a **test-mode raffle** end to end:
-   1. sign in at `https://raffle.example.org`;
+   1. sign in at the app's address, `RAFI_PUBLIC_URL`;
    2. create a raffle with **Test mode** on;
    3. open its participant page on a phone, and add fake entrants;
    4. freeze, and draw one item with the projector open.
@@ -361,12 +404,12 @@ release first. Each has its own:
 - **names for its three Workers**, chosen before its first deploy. The app Worker's name *is* the installation
   (the `instance` the cleanup and the downgrade check go by): renamed later, it's another installation, and the
   engines registered under the old name are no longer this one's;
-- **D1 database**, domain, Clerk production instance, app Worker secrets and
-  [jurisdiction](#keeping-data-in-the-eu);
+- **D1 database**, address (its own workers.dev name or its own domain: [step 4](#4-the-apps-address)), Clerk
+  application, app Worker secrets and [jurisdiction](#keeping-data-in-the-eu);
 - **Restate Cloud environment**: two installations in one environment would take over each other's draws.
 
-They can share the Cloudflare account, its workers.dev subdomain and the API token (with Workers Routes on each
-installation's zone). Why: the guide's [Several installations][guide-several].
+They can share the Cloudflare account, its workers.dev subdomain and the API token (with Workers Routes on the zone
+of each installation on a domain). Why: the guide's [Several installations][guide-several].
 
 ### A repository per installation
 
@@ -383,7 +426,8 @@ Steps 1 to 10 again, in a new repository. Before its first deploy, give it other
 | `wrangler.app.toml` | the four rate limits' `namespace_id`, so they don't share counters | `1001` to `1004` | `3001` to `3004` |
 
 Its Workers are then `acme-app`, `acme-live` and `acme-engine-v0-1-0`, and its database `acme`
-(`npx wrangler d1 create acme` in step 3). It has its own secrets, version, legal documents and workflows.
+(`npx wrangler d1 create acme` in step 3); without a domain, its address is
+`https://acme-app.<subdomain>.workers.dev`. It has its own secrets, version, legal documents and workflows.
 
 ### One repository, Wrangler environments
 
@@ -400,11 +444,15 @@ engine without its identity keys refuses Restate, so its registration fails; the
 
 For an environment `eu`, add to the end of each configuration:
 
-`wrangler.app.toml` (with routes of its own: the inherited ones would claim the top level's domain twice):
+`wrangler.app.toml` (with its address written out, so it inherits neither the top level's `workers_dev` nor its
+routes, which would claim the top level's domain twice):
 
 ```toml
 [env.eu]
-routes = [{ pattern = "raffle.example.eu", custom_domain = true }]
+# A: https://rafi-app-eu.<subdomain>.workers.dev. B, its own domain, instead:
+# workers_dev = false and routes = [{ pattern = "raffle.example.eu", custom_domain = true }]
+workers_dev = true
+routes = []
 
 [[env.eu.d1_databases]]
 binding = "DB"
@@ -498,7 +546,7 @@ Its Workers are `rafi-app-eu`, `rafi-live-eu` and, for 0.1.0, `rafi-engine-eu-v0
    names, and `VERSION`'s without one, so with it the installations upgrade each on its own.
 2. **Steps 3 to 8 for it**: its database (`npx wrangler d1 create rafi-eu`, with a
    [jurisdiction](#keeping-data-in-the-eu) if its data stays in the EU), the ID in the three `[env.eu]` sections;
-   its domain; its Clerk instance; its Restate environment, the public key in `[env.eu.vars]`; and its app
+   its address; its Clerk application; its Restate environment, the public key in `[env.eu.vars]`; and its app
    Worker's secrets, set with the environment chosen:
 
    ```sh
@@ -542,8 +590,13 @@ Then push: `Deploy (eu)` deploys the environment's Workers, and its cleanup touc
 
 [cf-account-tokens]: https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/
 [cf-create-token]: https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+[cf-custom-domains]: https://developers.cloudflare.com/workers/configuration/routing/custom-domains/
+[clerk-dev-limits]: https://clerk.com/docs/guides/development/testing/test-emails-and-phones#monthly-limit
+[clerk-instances]: https://clerk.com/docs/guides/development/managing-environments
+[clerk-production]: https://clerk.com/docs/guides/development/deployment/production
 [gh-push-event]: https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push
 [guide]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md
+[guide-address]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#the-apps-address
 [guide-installation]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#what-an-installation-is
 [guide-residency]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#data-residency
 [guide-restate-keys]: https://github.com/sagikazarmark/rafi/blob/main/docs/operations/cloudflare.md#the-restate-keys

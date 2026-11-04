@@ -7,10 +7,11 @@ name = "rafi-app"
 main = "release/app/build/index.js"
 compatibility_date = "2026-10-01"
 
-workers_dev = false
+# Its address, the origin RAFI_PUBLIC_URL names (INSTALL.md, step 4): by
+# default https://rafi-app.<subdomain>.workers.dev. For your domain instead
+# (a Cloudflare zone), set workers_dev = false and uncomment routes.
+workers_dev = true
 preview_urls = false
-
-# Your domain, the origin RAFI_PUBLIC_URL names.
 # routes = [{ pattern = "raffle.example.org", custom_domain = true }]
 
 # The web app's files and your legal documents (deploy.sh copies legal/ in).

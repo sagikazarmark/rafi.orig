@@ -465,7 +465,8 @@ add_env() {
   {
     printf '\n[env.%s]\n' "$env"
     [ -z "$app_name" ] || printf 'name = "%s"\n' "$app_name"
-    printf 'routes = [{ pattern = "%s.raffles.example", custom_domain = true }]\n' "$env"
+    # Its own address, as INSTALL.md's [env.eu] writes it out (a custom domain here).
+    printf 'workers_dev = false\nroutes = [{ pattern = "%s.raffles.example", custom_domain = true }]\n' "$env"
     printf '[[env.%s.d1_databases]]\nbinding = "DB"\ndatabase_name = "rafi"\ndatabase_id = "%s"\nmigrations_dir = "release/migrations"\n' "$env" "$DB_ID"
     printf '[[env.%s.durable_objects.bindings]]\nname = "RAFFLE_ROOM"\nclass_name = "RaffleRoom"\nscript_name = "%s"\n' "$env" "$live_name"
     printf '[env.%s.vars]\nRAFI_DO_JURISDICTION = "eu"\n' "$env"
@@ -851,10 +852,10 @@ not_logged "nothing deployed after a first install" "versions deploy" "triggers"
 reported "its report" "deployed directly by upload-app (a first install): nothing to promote"
 ds promote-app RAFI_APP_VERSION_ID=1b2c3d4e-0000-4000-8000-000000000001
 ran "an uploaded version deployed" 0
-in_order "the version at 100%, then the routes and Cron" \
+in_order "the version at 100%, then its address and Cron" \
   "wrangler versions deploy 1b2c3d4e-0000-4000-8000-000000000001@100% --yes -c $APP --message rafi v0.1.0" \
   "wrangler triggers deploy -c $APP"
-reported "promote-app's report" "### App Worker \`rafi-app\`" "Version \`1b2c3d4e-0000-4000-8000-000000000001\` (Rafi v0.1.0) deployed at 100%"
+reported "promote-app's report" "### App Worker \`rafi-app\`" "Version \`1b2c3d4e-0000-4000-8000-000000000001\` (Rafi v0.1.0) deployed at 100%, with its address (workers.dev or its routes) and Cron"
 ds promote-app
 ran "neither output: refused" 1 "neither RAFI_APP_PROMOTED=true nor RAFI_APP_VERSION_ID"
 ds promote-app RAFI_APP_VERSION_ID=1b2c3d4e-0000-4000-8000-000000000001 STUB_WRANGLER_FAIL="versions deploy"
