@@ -51,7 +51,7 @@ http-body-util = "0.1"
 altcha = { workspace = true }
 rafi-engine = { workspace = true, features = ["local", "mock-drand"] }
 rafi-raffle = { workspace = true, features = ["mock-chain"] }
-restate-e2e-harness = "0.3"
+restate-e2e-harness = "0.4"
 restate-sdk = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
