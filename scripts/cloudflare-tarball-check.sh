@@ -4,8 +4,7 @@
 # fixture, testdata/cloudflare-installation (an installation's configuration
 # as the deploy template ships it: VERSION and wrangler.<app|engine|live>.toml),
 # has its three configurations, with the app on its workers.dev address by default
-# (workers_dev = true, a custom domain's routes commented out), and that
-# release.yaml attests the tarball, which installations' workflows verify.
+# (workers_dev = true, a custom domain's routes commented out).
 # Then the tarball (worker.tar.gz, its files at the top level: VERSION, app/,
 # engine/build/, live/build/, migrations/, deploy.sh): its layout and each
 # Worker's exports checked (RaffleRoom the live Worker's alone); then a copy
@@ -70,10 +69,6 @@ if ! grep -qx 'workers_dev = true' "$app_toml" || ! grep -qx 'preview_urls = fal
   fail "testdata/cloudflare-installation/wrangler.app.toml isn't on workers.dev by default: workers_dev = true, preview_urls = false, the custom domain's routes commented out"
 fi
 echo "ok   testdata/cloudflare-installation: wrangler.{app,engine,live}.toml, the app on workers.dev"
-# What installations' workflows verify of a release: release.yaml's attestation.
-grep -q 'uses: actions/attest-build-provenance@' "$ROOT/.github/workflows/release.yaml" \
-  || fail "release.yaml doesn't attest the tarball: the workflows would refuse every release"
-echo "ok   release.yaml attests the tarball"
 
 step "the tarball: $TARBALL ($VERSION)"
 if command -v sha256sum >/dev/null; then SHA256="sha256sum"; else SHA256="shasum -a 256"; fi

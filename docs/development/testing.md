@@ -228,8 +228,7 @@ Restate's listings, the registration's answer, the Workers listing and `cleanup.
 them); the fake server is stopped on exit and on a signal). Then `just cloudflare-tarball-check [<version>]`
 (`scripts/cloudflare-tarball-check.sh`, CI's as `0.0.0`, a development build) builds `worker.tar.gz` as a tag
 builds it and checks it, in `build/cloudflare/check`: that the fixture's `wrangler.app.toml` puts the app on
-workers.dev by default (`workers_dev = true`, the custom domain's `routes` commented out) and that `release.yaml`
-attests the tarball; then the tarball's layout
+workers.dev by default (`workers_dev = true`, the custom domain's `routes` commented out); then the tarball's layout
 and each Worker's exports checked, unpacked into a copy of the template's `release/`, whose `release/deploy.sh
 dry-run` (with the devenv's wrangler through `WRANGLER`, nothing installed, nothing asked of the network) copies
 no legal documents (the fixture has none) and dry-deploys the live Worker `rafi-live` (`DB`, `RAFFLE_ROOM` its own), the engine Worker
