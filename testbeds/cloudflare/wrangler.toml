@@ -7,7 +7,7 @@ compatibility_date = "2026-10-01"
 command = "worker-build --release"
 
 # The participant build's assets and fallback (scripts/workers-check.sh
-# copies them from apps/participant/dist/public), served at /participant/;
+# copies them from apps/participant/build/public), served at /participant/;
 # the Worker serves its pow-worker.js.
 [assets]
 directory = "./site"

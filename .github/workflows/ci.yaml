@@ -5,9 +5,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  # The release (release.yaml) runs it on the commit it releases first, with
-  # the repository's secrets (the Clerk development instance's keys).
-  workflow_call:
 
 permissions:
   contents: read
@@ -17,10 +14,6 @@ env:
 
 defaults:
   run:
-    # Every step runs in the devenv shell, with the project's toolchain and
-    # tools at the versions used locally (wasm-bindgen at Cargo.lock's, dx,
-    # worker-build, wasm-opt, wrangler, node, tailwindcss, restate-server).
-    # Each job runs one recipe of the justfile, so CI and `just ci` agree.
     shell: devenv shell -- bash -e {0}
 
 jobs:
@@ -214,3 +207,31 @@ jobs:
           CLERK_TEST_SECRET_KEY: ${{ secrets.CLERK_TEST_SECRET_KEY }}
           CLERK_TEST_PUBLISHABLE_KEY: ${{ secrets.CLERK_TEST_PUBLISHABLE_KEY }}
         run: just workers
+
+  # deploy.sh's own checks, then a development build of the tarball (0.0.0),
+  # built as a tag builds it and dry-run deployed from a copy of
+  # testdata/cloudflare-installation.
+  cloudflare:
+    name: Cloudflare tarball
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
+
+      - name: Check deploy.sh
+        run: just cloudflare-deploy-test
+
+      - name: Build and check the tarball
+        run: just cloudflare-tarball-check 0.0.0

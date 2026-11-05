@@ -1,0 +1,71 @@
+name: Artifact
+
+# Builds the Cloudflare tarball of a version (`just cloudflare-tarball`):
+# worker.tar.gz, uploaded, unzipped, as the workflow artifact worker.tar.gz.
+# It checks nothing: CI does (ci.yaml's cloudflare job, `just
+# cloudflare-tarball-check`), on the commits a tag is made from.
+#
+# The release (release.yaml) runs it for the tag's version, then attests and
+# publishes the tarball. Run it by hand to build one.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "The version, X.Y.Z"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version, X.Y.Z"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: devenv shell -- bash -e {0}
+
+jobs:
+  worker:
+    name: Cloudflare Worker Bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
+
+      - name: Build the tarball
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$version' isn't a version (X.Y.Z)"
+            exit 1
+          fi
+          just cloudflare-tarball "$version"
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          # Unzipped: the artifact is the file itself, named worker.tar.gz.
+          path: build/cloudflare/worker.tar.gz
+          archive: false
+          if-no-files-found: error

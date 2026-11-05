@@ -2,8 +2,8 @@
 # Objects), reached only through the other two Workers' bindings. Deploying it
 # drops every live connection; any edit of this file redeploys it.
 # A test fixture: an installation's configuration as the deploy template
-# ships it (scripts/workers-check.sh, cloudflare-release.sh and
-# cloudflare-deploy-test.sh). See docs/operations/cloudflare.md.
+# ships it (scripts/workers-check.sh, cloudflare-tarball-check.sh
+# and cloudflare-deploy-test.sh). See docs/operations/cloudflare.md.
 
 name = "rafi-live"
 main = "release/live/build/index.js"

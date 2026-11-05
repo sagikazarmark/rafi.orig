@@ -60,12 +60,12 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| default.into())
     };
     // The web bundle: `just apps/web/ build` writes it here.
-    let public_dir = dir("RAFI_PUBLIC_DIR", "target/dx/rafi-web/release/web/public");
+    let public_dir = dir("RAFI_PUBLIC_DIR", "apps/web/build/public");
     // The participant build (`just apps/participant/ build`): the one this binary
     // was compiled against, or it doesn't start.
     let dirs = server::Dirs {
         public: public_dir,
-        participant: dir("RAFI_PARTICIPANT_DIR", "apps/participant/dist/public"),
+        participant: dir("RAFI_PARTICIPANT_DIR", "apps/participant/build/public"),
     };
     dirs.check_participant()
         .context("the participant build in RAFI_PARTICIPANT_DIR")?;

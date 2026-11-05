@@ -247,7 +247,7 @@ pub struct Dirs {
     /// The web app (admin, projector, verification page): `dx bundle`'s output.
     pub public: PathBuf,
     /// The participant build: `just build` in `apps/participant`, its output
-    /// `apps/participant/dist/public`. Served at `/participant/`: `assets/`
+    /// `apps/participant/build/public`. Served at `/participant/`: `assets/`
     /// (the module and its glue, named by their hash) and `fallback.js`, with
     /// `.br` and `.gz` next to each where the script could make them. Its
     /// `index.html`, the page's loader, isn't served: this server has it
@@ -267,7 +267,7 @@ impl Dirs {
         let path = self.participant.join("index.html");
         let loader = std::fs::read_to_string(&path).with_context(|| {
             format!(
-                "reading {}: RAFI_PARTICIPANT_DIR is the participant build's dist/public (just apps/participant/ build)",
+                "reading {}: RAFI_PARTICIPANT_DIR is the participant build's build/public (just apps/participant/ build)",
                 path.display()
             )
         })?;

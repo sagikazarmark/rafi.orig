@@ -26,8 +26,8 @@ var and a secret of the same name).
 | Variable | Default | |
 |---|---|---|
 | `IP`, `PORT` | `127.0.0.1`, `8080` | Listen address (native only) |
-| `RAFI_PUBLIC_DIR` | `target/dx/rafi-web/release/web/public` | The bundled web app, relative to the working directory: its `index.html` is read at start (and refused with an inline script), its `assets/` served (native only; the Worker compiles the `index.html` in) |
-| `RAFI_PARTICIPANT_DIR` | `apps/participant/dist/public` | The participant build (`just apps/participant/ build`): the one the binary was compiled against (native only) |
+| `RAFI_PUBLIC_DIR` | `apps/web/build/public` | The bundled web app, relative to the working directory: its `index.html` is read at start (and refused with an inline script), its `assets/` served (native only; the Worker compiles the `index.html` in) |
+| `RAFI_PARTICIPANT_DIR` | `apps/participant/build/public` | The participant build (`just apps/participant/ build`): the one the binary was compiled against (native only) |
 | `RAFI_PUBLIC_URL` | `http://localhost:8080` | External base URL, used for QR codes and links, and its host for the live channel's socket in the pages' Content-Security-Policy. With Clerk, the one origin whose sessions are accepted (the token's authorized party, `azp`), so the app's only address. On Workers, the app Worker's workers.dev address (`https://rafi-app.<subdomain>.workers.dev`) or its custom domain ([the app's address](../operations/cloudflare.md#the-apps-address)) |
 | `RAFI_COOKIE_SECURE` | on when `RAFI_PUBLIC_URL` is `https://` | Marks the participant cookie `Secure` (`1`/`true` or `0`/`false`). Set it when TLS ends at a proxy in front of a plain `http://` URL. |
 | `RAFI_DATABASE_URL` | `sqlite://rafi.db` | The database, shared with `rafi-restate` (native only; Workers use D1). Either SQLite (`sqlite://…`, created if missing) or PostgreSQL (`postgres://user:password@host/db`; the database must exist). The app applies the migrations on start. |
@@ -163,5 +163,5 @@ Nothing of an installation's: one build serves every installation. The features 
 |---|---|---|
 | Feature `mock-drand` | `rafi`, `rafi-server`, `rafi-restate` | Allows the mock chain. Never ship it. |
 | Feature `dev` | `rafi`, `rafi-worker` | Local development only. On `rafi`, allows `RAFI_DEV_AUTH`; on the Worker, also the mock chain and Restate requests without identity keys (`[env.dev]` in `apps/worker/wrangler.toml` builds with it). |
-| `RAFI_VERSION` | `rafi-server` (`build.rs`) | The version compiled in, which `/healthz`, `whoami` and the footers show, and whose tag the source links point at. A release sets it (`just cloudflare-tarball`); unset, a checkout at a tag `v<version>` is that version, any other build `<crate version>-dev+<commit>`. |
+| `RAFI_VERSION` | `rafi-server` (`build.rs`) | The version compiled in, which `/healthz`, `whoami` and the footers show, and whose tag the source links point at. A release sets it (`just cloudflare-artifact`); unset, a checkout at a tag `v<version>` is that version, any other build `<crate version>-dev+<commit>`. |
 | `RAFI_SOURCE_URL` | `rafi-server` (`build.rs`) | The repository the pages link as the source of the version running (AGPL §13), GitHub-shaped (`…/tree/<ref>`, `…/blob/<ref>/tools/verify.py`). Default: this repository. A fork that changes Rafi sets its own. |

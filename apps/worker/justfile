@@ -1,42 +1,26 @@
-# Rafi on Cloudflare Workers, the app and the raffle engine in one Worker, for
-# local development (production runs three, apps/worker-app,
-# apps/worker-engine and apps/worker-live, which a release ships: `just cloudflare-release` at the
-# repository root). Locally (`just dev`): the static files, the D1
-# migrations, then `wrangler dev --env dev` (dev auth, the mock chain, the
-# raffle engine in the same Worker under /restate), with the Worker's local
-# state (D1, Durable Objects) in .wrangler-state at the repository root, as
-# docs/development/getting-started.md has it. The static files are the app
-# Worker's too. The checks under wrangler dev are `just workers`.
+set default-list
+set ignore-comments
 
-state := "../../.wrangler-state"
-
-# List the recipes.
-[private]
-default:
-    @just --list --unsorted
-
-# Assemble the static files Workers Assets serves (worker-assets/): the web app bundle (but its index.html, which the Worker compiles in) and the participant build. No legal documents: they are an installation's (its deploy copies them in), so /terms and /privacy say the operator hasn't provided them.
+# Assemble the static files Workers Assets serves: the web app bundle and the participant build, from their own build/, whose index.html the Workers compile in.
 assets:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    public=../../target/dx/rafi-web/release/web/public
     {{ just_executable() }} ../web/ build
     {{ just_executable() }} ../participant/ build
+
     rm -rf worker-assets
     mkdir -p worker-assets/participant
-    cp -R "$public/." worker-assets/
-    # The web app's index.html is compiled into the Worker, which serves it
-    # with its Content-Security-Policy; among the files, Assets would serve
-    # it without one.
+
+    # The web app's files, but its index.html: compiled into the Worker, which serves it with its CSP.
+    cp -R ../web/build/public/. worker-assets/
     rm worker-assets/index.html
-    # The participant's hashed assets and its fallback; not its index.html,
-    # the page's loader, which the Worker has compiled in.
-    cp -R ../participant/dist/public/assets worker-assets/participant/assets
-    cp ../participant/dist/public/fallback.js worker-assets/participant/
-    # Cloudflare compresses at the edge; the precompressed variants (the web
-    # app's and the participant's) are for the native server and would only
-    # be served as files here.
+
+    # The participant's hashed assets and its fallback, but its index.html (the page's loader): compiled in too.
+    cp -R ../participant/build/public/assets worker-assets/participant/assets
+    cp ../participant/build/public/fallback.js worker-assets/participant/
+
+    # Cloudflare compresses at the edge: the precompressed variants are the native server's.
     find worker-assets -type f \( -name '*.gz' -o -name '*.br' \) -delete
+
+    # Last: devenv takes _headers as the mark of a finished build.
     cp _headers worker-assets/
 
 # Build the Worker as `wrangler deploy` builds it (`just build dev` as `wrangler dev --env dev` does).
@@ -45,12 +29,11 @@ build features="":
 
 # Apply the D1 migrations to the local database.
 migrate:
-    wrangler d1 migrations apply rafi --local --env dev --persist-to {{ state }}
+    wrangler d1 migrations apply rafi --local --env dev
 
-# Run the Worker at http://127.0.0.1:8787: the static files when there are none yet (`just assets` after a change), the migrations, then wrangler dev.
-dev: migrate
-    test -d worker-assets || {{ just_executable() }} assets
-    wrangler dev --env dev --persist-to {{ state }}
+# Run the Worker at http://127.0.0.1:8787.
+dev: assets migrate
+    wrangler dev --env dev
 
 # Validate the production shape without deploying: the configuration, every binding, the bundle and the static files.
 dry-run:

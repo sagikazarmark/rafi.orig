@@ -112,7 +112,7 @@ const HEAD_SCRIPT: &str = concat!("window.__rafiT0=Date.now();", apply_theme!())
 /// name filled in. Compiled in, so a server is built against one participant
 /// build and links that one; natively, `Dirs::check_participant` checks the
 /// directory served is that build.
-pub const LOADER: &str = include_str!("../../../../apps/participant/dist/public/index.html");
+pub const LOADER: &str = include_str!("../../../../apps/participant/build/public/index.html");
 
 /// The scripts the pages embed: [`HEAD_SCRIPT`] in every page, and the
 /// [`LOADER`]'s in the participant page. The pages' policy allows these by

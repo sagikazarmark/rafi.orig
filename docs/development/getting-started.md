@@ -23,12 +23,13 @@ Without devenv, you need each of these, with a way to install it:
 | `sqlite3` | inspecting the local database | your system's, or `brew install sqlite` |
 | `restate-server` 1.8 and `restate` | draws (the engine runs under Restate) | `brew install restatedev/tap/restate-server restatedev/tap/restate`, or [Restate's releases](https://github.com/restatedev/restate/releases); the end-to-end tests find the server through `RESTATE_SERVER_BIN` |
 | `wrangler` 4 | Workers | `npm install -g wrangler@4` |
-| `jq` | the deploy script and its checks (`scripts/cloudflare-deploy-test.sh`, `just cloudflare-release`, `just workers`) | your system's, or `brew install jq` |
+| `jq` | the deploy script and its checks (`scripts/cloudflare-deploy-test.sh`, `just cloudflare-deploy-test`, `just cloudflare-tarball-check`, `just workers`) | your system's, or `brew install jq` |
+| `gzip`, `brotli` | the precompressed variants of the web app and the participant page | your system's, or `brew install brotli` |
 | `worker-build` 0.8 | Workers | `cargo install worker-build --version ^0.8 --locked` |
 | `cargo-audit`, `cargo-deny` | `just audit`, `just deny` | `cargo install cargo-audit cargo-deny --locked` |
 | a Chrome | the browser checks (`just workers`) | devenv installs one (`google-chrome`, on Linux and macOS); without devenv, `google-chrome` or `chromium` on the path, or name yours in `CHROMIUM` |
 
-Then `npm ci` in `apps/web` (`just apps/web/ install`).
+Then `npm ci` in `apps/web` (daisyUI; the devenv shell does it on entry).
 
 ## With devenv
 
@@ -44,7 +45,7 @@ This runs everything natively, with dev auth (no Clerk) and live reload:
 | `engine` | The raffle engine (`rafi-restate`) on `:9080`, registered with Restate once it's up |
 | `rafi` | The server on `:8788`, behind `dx serve` (`apps/web/Dioxus.toml` proxies to it) |
 | `dioxus` | `dx serve`: the web app on `:8787`, with hot reload |
-| `participant` | Builds and checks the participant page (`just apps/participant/ check`), and again when it changes; `rafi` starts after it, and restarts on a new build (it compiles the build's loader in) |
+| `participant` | Builds the participant page (`just apps/participant/ build`), and again when it changes; `rafi` starts after it, and restarts on a new build (it compiles the build's loader in) |
 
 Then open <http://localhost:8787/admin>. Draws use real drand, so they need internet.
 
@@ -99,11 +100,11 @@ A fresh checkout needs two generated things before everything compiles and runs:
 # the web app's stylesheet (dx builds it too; plain cargo build/clippy of rafi-web needs it to exist)
 just apps/web/ css
 
-# the participant page's WebAssembly and fallback -> apps/participant/dist/public
+# the participant page's WebAssembly and fallback -> apps/participant/build/public
 just apps/participant/ build
 ```
 
-The server compiles the participant build's loader in (`dist/public/index.html`, with the hashed names of that
+The server compiles the participant build's loader in (`build/public/index.html`, with the hashed names of that
 build), so `rafi-server`, `rafi` and the Worker don't build without it: run it first, and again whenever
 `apps/participant` or `crates/live-client` change, then build the server again (`cargo run` does, and
 `devenv up` restarts it). The `just` recipes that build the server run it first.
@@ -161,13 +162,13 @@ Locally the app and the raffle engine are one Worker, `apps/worker` (`rafi-worke
 libraries production's three Workers are made of: the app's (`rafi-cloudflare-app`, deployed as `apps/worker-app`),
 the engine's (`rafi-cloudflare-engine` under `/restate`, deployed as `apps/worker-engine`) and the live channels'
 `RaffleRoom` class (`rafi-cloudflare`, deployed as `apps/worker-live`); see
-[Crates and apps](../reference/crates.md). `wasm-bindgen-cli` must match `Cargo.lock`. `--persist-to` keeps the
-Worker's local state (D1, Durable Objects) across restarts:
+[Crates and apps](../reference/crates.md). `wasm-bindgen-cli` must match `Cargo.lock`. The Worker's local
+state (D1, Durable Objects) is kept across restarts in `apps/worker/.wrangler/state`:
 
 ```sh
 just apps/worker/ assets                                  # web app bundle + participant build -> apps/worker/worker-assets (no legal documents)
-(cd apps/worker && wrangler d1 migrations apply rafi --local --env dev --persist-to ../../.wrangler-state)
-(cd apps/worker && wrangler dev --env dev --persist-to ../../.wrangler-state)   # http://127.0.0.1:8787, dev auth, mock drand
+(cd apps/worker && wrangler d1 migrations apply rafi --local --env dev)
+(cd apps/worker && wrangler dev --env dev)   # http://127.0.0.1:8787, dev auth, mock drand
 # Restate with its ingress on :18080 (the dev Worker's RESTATE_INGRESS_URL), then register the engine, which is
 # the same Worker under /restate (wrangler dev speaks HTTP/1.1 only):
 RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:18080 restate-server
@@ -190,8 +191,8 @@ unset. The web app needs nothing: it reads the server's `/config.js`.
 Once the web app is bundled, `rafi` serves everything itself:
 
 ```sh
-just apps/web/ build                                     # -> target/dx/rafi-web/release/web/public
-just apps/participant/ build                             # -> apps/participant/dist/public
+just apps/web/ build                                     # -> apps/web/build/public
+just apps/participant/ build                             # -> apps/participant/build/public
 RAFI_DEV_AUTH=1 cargo run --release -p rafi --features dev   # http://localhost:8080
 ```
 

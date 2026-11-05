@@ -1,8 +1,8 @@
 # The raffle engine Worker: the Restate endpoint under /restate. Each release
 # deploys it as its own Worker, <name>-v<version> (rafi-engine-v0-1-0).
 # A test fixture: an installation's configuration as the deploy template
-# ships it (scripts/workers-check.sh, cloudflare-release.sh and
-# cloudflare-deploy-test.sh). See docs/operations/cloudflare.md.
+# ships it (scripts/workers-check.sh, cloudflare-tarball-check.sh
+# and cloudflare-deploy-test.sh). See docs/operations/cloudflare.md.
 
 name = "rafi-engine"
 main = "release/engine/build/index.js"

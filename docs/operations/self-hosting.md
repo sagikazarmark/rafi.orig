@@ -13,11 +13,11 @@ daisyUI).
 ```sh
 # the web app (admin, projector, verification page); nothing of an installation's is in it
 just apps/web/ build
-#   -> target/dx/rafi-web/release/web/public
+#   -> apps/web/build/public
 
 # the participant page's WebAssembly and JavaScript fallback; before the binaries, which compile its loader in
 just apps/participant/ build
-#   -> apps/participant/dist/public
+#   -> apps/participant/build/public
 
 # the two binaries
 cargo build --release --locked -p rafi -p rafi-restate
@@ -122,7 +122,7 @@ IP=127.0.0.1 PORT=8081 \
 ```
 
 - Run it from the repository root, or set `RAFI_PUBLIC_DIR` and `RAFI_PARTICIPANT_DIR` to where you put the web
-  bundle and the participant build (`dist/public`, as it is). The builds' modules and glue are named by their
+  bundle and the participant build (`build/public`, as it is). The builds' modules and glue are named by their
   hash and served `Cache-Control: immutable`, so browsers and phones keep them and a deploy links new names; the
   rest (the web app's page, stylesheet, fonts and icons, the participant's fallback) is revalidated (`no-cache`,
   with an `ETag`). They are served precompressed (`.br` and `.gz`, which the two `just build` recipes write) when

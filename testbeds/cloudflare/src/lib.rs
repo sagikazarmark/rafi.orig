@@ -99,7 +99,7 @@ async fn freeze(db: &Db, raffle: &str) -> Result<()> {
 /// The page's loader, from the participant build, as rafi-server compiles it
 /// in (`scripts/workers-check.sh` builds it first, and puts the
 /// build's assets and fallback under `site/participant/`).
-const LOADER: &str = include_str!("../../../apps/participant/dist/public/index.html");
+const LOADER: &str = include_str!("../../../apps/participant/build/public/index.html");
 
 /// A stand-in for the participant page: the server-rendered card, the embedded
 /// config, the inline loader with its fallback, and the WASM. `me` picks the

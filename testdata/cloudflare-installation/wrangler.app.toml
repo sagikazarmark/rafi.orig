@@ -1,8 +1,8 @@
 # The app Worker: the web app, its API, phones' live-channel sockets and the
 # hourly housekeeping. Its name identifies the installation.
 # A test fixture: an installation's configuration as the deploy template
-# ships it (scripts/workers-check.sh, cloudflare-release.sh and
-# cloudflare-deploy-test.sh). See docs/operations/cloudflare.md.
+# ships it (scripts/workers-check.sh, cloudflare-tarball-check.sh
+# and cloudflare-deploy-test.sh). See docs/operations/cloudflare.md.
 
 name = "rafi-app"
 main = "release/app/build/index.js"

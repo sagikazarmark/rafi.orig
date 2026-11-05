@@ -1,36 +1,25 @@
-# Rafi's app Worker on Cloudflare (production): the web app and its API,
-# phones' live-channel sockets, the housekeeping Cron, the static files and
-# the rate limits. The raffle engine is another Worker (apps/worker-engine),
-# which Restate calls, and this Worker calls Restate's ingress; the raffles'
-# RaffleRoom objects are a third's (apps/worker-live, `rafi-live`), which
-# this one and the engine bind by its name. Local development runs all three
-# in one Worker (apps/worker, `wrangler dev --env dev`).
+# Rafi's app Worker (production): the web app and API, live-channel sockets,
+# housekeeping, static files and rate limits. The engine (apps/worker-engine)
+# and the RaffleRoom objects (apps/worker-live) are separate Workers.
+# Locally, apps/worker runs all three.
 #
-# The Worker's shape, for building and a dry deploy (`just dry-run`): nothing
-# of an installation's is in it. The static files are the combined Worker's
-# (`just assets`, apps/worker/worker-assets), the same files. An
-# installation's configuration of this Worker is wrangler.app.toml in its
-# repository (docs/operations/cloudflare.md), whose shape, as the deploy
-# template ships it (testdata/cloudflare-installation), scripts/workers-check.sh
-# compares with this file's.
+# Nothing installation-specific lives here; an installation's copy is
+# wrangler.app.toml (docs/operations/cloudflare.md), checked against this
+# file in CI.
 
 name = "rafi-app"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
-# One address: the template's default, its workers.dev one (an installation
-# on a custom domain turns workers.dev off and adds its route instead:
-# the template's INSTALL.md, step 4). No public preview URLs (previews
-# would share production's database and objects).
+# The workers.dev address by default; a custom domain replaces it with a
+# route. No preview URLs (they would share production's data).
 workers_dev = true
 preview_urls = false
 
 [build]
 command = "worker-build --release"
 
-# The web app's files, the participant scripts and the operator's legal
-# documents, if any (legal/), as apps/worker/wrangler.toml has them. A path that
-# isn't a file goes to the Worker: its routes and the web app's shell; the
-# raffle engine's paths (/restate/) answer 404 here.
+# The same static files as apps/worker. Other paths go to the Worker;
+# /restate/ is a 404 here.
 [assets]
 directory = "../worker/worker-assets"
 binding = "ASSETS"
@@ -38,19 +27,18 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
-database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: an installation's is in its deploy configuration
+database_id = "00000000-0000-0000-0000-000000000000" # placeholder
 migrations_dir = "../../migrations/sqlite"
 
-# One live channel per raffle (in a jurisdiction when RAFI_DO_JURISDICTION names one).
-# The class is the live Worker's (apps/worker-live), with its migrations:
-# none here.
+# One live channel per raffle; the class and its migrations are the live
+# Worker's.
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
 script_name = "rafi-live"
 
-# Soft limits (approximate, per location). Keys are never IP addresses: a
-# venue shares one. The hard limit is the entrant cap (RAFI_MAX_ENTRANTS).
+# Soft limits, per location. Keys are never IP addresses: a venue shares
+# one. The hard limit is RAFI_MAX_ENTRANTS.
 [[ratelimits]]
 name = "JOIN_PER_RAFFLE_LIMITER"
 namespace_id = "1001"
@@ -71,30 +59,25 @@ name = "ADD_LIMITER"
 namespace_id = "1004"
 simple = { limit = 20, period = 60 }
 
-# Housekeeping: erasing personal data as raffles age (see docs/explanation/privacy-and-abuse.md),
-# expired proof-of-work challenges, ending stale live channels.
+# Housekeeping: erasing aged personal data, expired challenges, stale live
+# channels (docs/explanation/privacy-and-abuse.md).
 [triggers]
 crons = ["0 * * * *"]
 
-# The application's own log lines are kept in Workers Logs; the automatic
-# per-invocation records (client IPs, cookies) are not.
+# Application log lines are kept; per-invocation records (client IPs,
+# cookies) are not.
 [observability]
 enabled = true
 
 [observability.logs]
 invocation_logs = false
 
-# What belongs to Rafi, not to an installation; optional settings with
-# defaults are secrets when an installation changes them, as in
-# apps/worker/wrangler.toml.
+# Optional settings are as in apps/worker/wrangler.toml.
 [vars]
-# Optional: RAFI_DO_JURISDICTION = "eu" (the live Worker's and the engine's
-# alike) creates the live channels' objects in that jurisdiction; unset, the
-# plain namespace.
+# Optional: RAFI_DO_JURISDICTION = "eu", matching the engine's and the live
+# Worker's.
 
-# apps/worker/wrangler.toml's, but RESTATE_IDENTITY_KEYS: the
-# Restate requests it verifies go to the engine's Worker, where the keys are
-# a var. A deploy refuses to go out while one is missing.
+# As apps/worker/wrangler.toml, minus RESTATE_IDENTITY_KEYS (the engine's).
 [secrets]
 required = [
   "RAFI_PUBLIC_URL",

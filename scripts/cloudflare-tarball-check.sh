@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
-# Builds a release of Rafi for Cloudflare and proves it deploys, the way an
-# installation deploys it. First that the test fixture,
-# testdata/cloudflare-installation (an installation's configuration as the
-# deploy template ships it: VERSION and wrangler.<app|engine|live>.toml),
-# names this release, with the app on its workers.dev address by default
+# Checks a built Cloudflare tarball (`just cloudflare-tarball`) deploys, the
+# way an installation deploys it; it builds nothing. First that the test
+# fixture, testdata/cloudflare-installation (an installation's configuration
+# as the deploy template ships it: VERSION and wrangler.<app|engine|live>.toml),
+# has its three configurations, with the app on its workers.dev address by default
 # (workers_dev = true, a custom domain's routes commented out), and that
 # release.yaml attests the tarball, which installations' workflows verify.
-# Then deploy.sh's own checks (scripts/cloudflare-deploy-test.sh: each
-# subcommand against a stubbed wrangler and Restate CLI and a fake Cloudflare
-# and Restate API). Then the release (`just cloudflare-tarball`:
-# worker.tar.gz, its files at the top level: VERSION, app/, engine/build/,
-# live/build/, migrations/, deploy.sh), its layout and each Worker's exports
-# checked (RaffleRoom the live Worker's alone); then a copy of the fixture
-# with the tarball unpacked into its release/, as an installation's workflow
-# unpacks it, runs `release/deploy.sh dry-run` with the devenv's wrangler
+# Then the tarball (worker.tar.gz, its files at the top level: VERSION, app/,
+# engine/build/, live/build/, migrations/, deploy.sh): its layout and each
+# Worker's exports checked (RaffleRoom the live Worker's alone); then a copy
+# of the fixture with the tarball unpacked into its release/, as an
+# installation's workflow unpacks it, runs `release/deploy.sh dry-run` with the devenv's wrangler
 # (WRANGLER; nothing installed, nothing asked of the network): the release's
 # own VERSION read (deploy.sh reads no version file and looks for no
 # placeholder), no legal documents copied (the fixture has none), and
@@ -26,22 +23,28 @@
 # identity keys, the bindings, the required secrets; the app on a custom
 # domain, workers_dev = false) and a VERSION.eu, dry-run with
 # CLOUDFLARE_ENV=eu, the Workers the environment's (rafi-app-eu,
-# rafi-live-eu, rafi-engine-eu-v<version>), each with the jurisdiction.
-# .github/workflows/release.yaml runs this on a tag and attaches
-# <out dir>/worker.tar.gz; scripts/workers-check.sh runs it too, so CI
-# rehearses a release on every push; running it by hand does too.
+# rafi-live-eu, rafi-engine-eu-v<version>), each with the jurisdiction. The
+# version is the tarball's VERSION.
+# CI runs it (`just cloudflare-tarball-check`, which builds the tarball first,
+# as 0.0.0 by default: a development build); a release doesn't.
 #
-#   ./scripts/cloudflare-release.sh <version> [<out dir>]    # default out dir: target/cloudflare
-#   ./scripts/cloudflare-release.sh 0.2.0
+#   ./scripts/cloudflare-tarball-check.sh <worker.tar.gz> <work dir>
+#   ./scripts/cloudflare-tarball-check.sh build/cloudflare/worker.tar.gz build/cloudflare/check
 #
-# Needs what the release needs (just, dx, worker-build, GNU tar), plus node,
-# jq and wrangler (WRANGLER names another command; the devenv's by default).
+# Needs GNU tar, node, jq and wrangler (WRANGLER names another command; the
+# devenv's by default). The work dir holds the installations' copies.
 set -euo pipefail
 
+usage="usage: cloudflare-tarball-check.sh <worker.tar.gz> <work dir>"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${1:?usage: cloudflare-release.sh <version> [<out dir>]}"
-OUT="${2:-$ROOT/target/cloudflare}"
+TARBALL="${1:?$usage}"
+OUT="${2:?$usage}"
+case "$TARBALL" in /*) ;; *) TARBALL="$PWD/$TARBALL" ;; esac
 case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
+[ -f "$TARBALL" ] || { echo "no $TARBALL: build it first (just cloudflare-tarball <version>)" >&2; exit 1; }
+VERSION="$(tar -xzOf "$TARBALL" VERSION)"
+[ -n "$VERSION" ] || { echo "$TARBALL has an empty VERSION" >&2; exit 1; }
+mkdir -p "$OUT"
 WRANGLER="${WRANGLER:-wrangler}"
 DASHED="v$(printf '%s' "$VERSION" | tr '.' '-' | tr '[:upper:]' '[:lower:]')"
 
@@ -51,15 +54,12 @@ fail() {
   exit 1
 }
 
-step "the installation names this release"
+step "the installation"
 # The test fixture, an installation's configuration as the deploy template
-# ships it: its VERSION names the release it deploys, its three
-# configurations are what deploy.sh reads (-c wrangler.<Worker>.toml), and the
+# ships it: its three configurations are what deploy.sh reads (-c wrangler.<Worker>.toml), and the
 # app is on its workers.dev address by default (no zone, no routes; a custom
 # domain is an installation's edit, its route commented out here).
 fixture="$ROOT/testdata/cloudflare-installation"
-named="$(tr -d '[:space:]' <"$fixture/VERSION" 2>/dev/null || true)"
-[ "$named" = "$VERSION" ] || fail "testdata/cloudflare-installation/VERSION says '$named', not $VERSION: set it to $VERSION"
 for key in app engine live; do
   [ -f "$fixture/wrangler.$key.toml" ] || fail "no testdata/cloudflare-installation/wrangler.$key.toml"
 done
@@ -69,22 +69,18 @@ if ! grep -qx 'workers_dev = true' "$app_toml" || ! grep -qx 'preview_urls = fal
   || ! grep -qx '# routes = \[{ pattern = "raffle\.example\.org", custom_domain = true }\]' "$app_toml"; then
   fail "testdata/cloudflare-installation/wrangler.app.toml isn't on workers.dev by default: workers_dev = true, preview_urls = false, the custom domain's routes commented out"
 fi
-echo "ok   testdata/cloudflare-installation: VERSION $VERSION, wrangler.{app,engine,live}.toml, the app on workers.dev"
+echo "ok   testdata/cloudflare-installation: wrangler.{app,engine,live}.toml, the app on workers.dev"
 # What installations' workflows verify of a release: release.yaml's attestation.
 grep -q 'uses: actions/attest-build-provenance@' "$ROOT/.github/workflows/release.yaml" \
   || fail "release.yaml doesn't attest the tarball: the workflows would refuse every release"
 echo "ok   release.yaml attests the tarball"
 
-step "deploy.sh's own checks"
-"$ROOT/scripts/cloudflare-deploy-test.sh"
-
-step "the release: worker.tar.gz"
-just "$ROOT/" cloudflare-tarball "$VERSION" "$OUT"
+step "the tarball: $TARBALL ($VERSION)"
 if command -v sha256sum >/dev/null; then SHA256="sha256sum"; else SHA256="shasum -a 256"; fi
-$SHA256 "$OUT/worker.tar.gz"
+$SHA256 "$TARBALL"
 # What an installation's release/ is: these at the top level, nothing else,
 # and none of an installation's documents.
-listing="$(tar -tzf "$OUT/worker.tar.gz")"
+listing="$(tar -tzf "$TARBALL")"
 top="$(echo "$listing" | cut -d/ -f1 | LC_ALL=C sort -u | tr '\n' ' ')"
 [ "$top" = "VERSION app deploy.sh engine live migrations " ] || fail "worker.tar.gz has at its top level: $top"
 for file in VERSION deploy.sh app/build/index.js app/assets/_headers engine/build/index.js \
@@ -104,7 +100,7 @@ installation() {
   rm -rf "$1"
   mkdir -p "$1/release"
   cp -R "$fixture/." "$1/"
-  tar -xzf "$OUT/worker.tar.gz" -C "$1/release"
+  tar -xzf "$TARBALL" -C "$1/release"
 }
 # dry_run <dir> [<VAR=value>...]: release/deploy.sh dry-run there with WRANGLER (nothing
 # installed), its output in DRY, its JSON in <dir>/artifacts/dry-run.
@@ -178,8 +174,6 @@ check_dry_run() {
 step "the installation deploys it (dry run)"
 dir="$OUT/installation"
 installation "$dir"
-shipped="$(cat "$dir/release/VERSION")"
-[ "$shipped" = "$VERSION" ] || fail "the release unpacked says it is $shipped, not $VERSION"
 # Each Worker's module exports (worker-build's index.js ends in one export
 # list): the RaffleRoom class is the live Worker's alone, since a Worker
 # exporting it would host a second class of that name.
@@ -253,7 +247,7 @@ database="$(sed -n 's/^database_id = \(".*"\)$/\1/p' "$dir/wrangler.app.toml")"
 } >>"$dir/wrangler.live.toml"
 # The environment's version file is this release; the top level's another.
 echo "$VERSION" >"$dir/VERSION.eu"
-echo "0.0.0" >"$dir/VERSION"
+echo "999.0.0" >"$dir/VERSION"
 dry_run "$dir" CLOUDFLARE_ENV=eu
 grep -qF "Rafi $VERSION (the release's VERSION)" <<<"$DRY" || fail "deploy.sh didn't deploy the release's own VERSION for CLOUDFLARE_ENV=eu"
 grep -qF "environment: eu ([env.eu] of each configuration)" <<<"$DRY" || fail "deploy.sh didn't read the environment eu"
@@ -261,4 +255,4 @@ echo "ok   deploy.sh deployed the release's VERSION in [env.eu]"
 check_dry_run "$dir" rafi-app-eu rafi-live-eu rafi-engine-eu eu
 rm -rf "$dir"
 
-step "release $VERSION: $OUT/worker.tar.gz"
+step "ok: $TARBALL ($VERSION)"

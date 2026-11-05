@@ -1,73 +1,33 @@
 name: Release
 
-# A tag v<version> builds the Cloudflare release (scripts/cloudflare-release.sh):
-# worker.tar.gz (the app, engine and live Workers, the D1 migrations and the
-# deploy script, deploy.sh), and dry runs of its deploy.sh from a copy of
-# testdata/cloudflare-installation (an installation's configuration, as the
-# deploy template ships it) with the tarball unpacked into release/, as an
-# installation deploys it (at the configurations' top level and as a Wrangler
-# environment); the rehearsal also checks that the fixture's VERSION is this
-# version.
+# A tag vX.Y.Z builds the Cloudflare tarball of X.Y.Z (artifact.yaml:
+# worker.tar.gz, the app, engine and live Workers, the D1 migrations and
+# deploy.sh), then publishes it with worker.tar.gz as its one asset and notes
+# generated from the merged pull requests. It checks nothing: CI checked the
+# commit (ci.yaml's cloudflare job) before it was tagged.
 #
-# The release job needs CI (ci.yaml, called here on the tag's commit): a
-# commit whose checks fail is never released; the job is skipped, not failed.
-# It publishes in three steps: a draft with worker.tar.gz, its one asset; the
-# tarball's digest as GitHub computed it on upload (the one the release page
-# shows next to the asset) checked against the build's own sha256 (an upload
-# gone wrong would otherwise be found by the first installation to upgrade);
-# then the draft published. The tarball has a build provenance attestation
-# (`gh attestation verify worker.tar.gz -R <repository>`), signed as this
-# workflow at the tag (.github/workflows/release.yaml@refs/tags/v<version>),
-# which is what installations' workflows (the deploy template's deploy.yaml
-# and restate-cleanup.yaml) require of it; and it is
-# packed reproducibly (`just cloudflare-tarball`: sorted, fixed times, modes
-# and owners), so another build of the tag can be compared with it.
-#
-# A tag with a pre-release suffix (v0.1.0-rc.1) is published as a pre-release.
-# The notes are generated from the merged pull requests.
-#
-# Run by hand (workflow_dispatch), it rehearses: CI, the build and the dry
-# deploy of the version given (by default testdata/cloudflare-installation/VERSION, which
-# the rehearsal checks names the version), publishing
-# nothing unless `dry_run` is off, which publishes the tag v<version> that
-# must already exist (to finish a release whose run failed), and only from a
-# run on that tag.
+# The tarball has a build provenance attestation, made here, not in
+# artifact.yaml: it is signed as this workflow at the tag
+# (.github/workflows/release.yaml@refs/tags/vX.Y.Z), which installations'
+# workflows (the deploy template's deploy.yaml and restate-cleanup.yaml)
+# require of it (`gh attestation verify worker.tar.gz -R <repository>`).
 on:
   push:
-    tags: ["v*"]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "The version (default: testdata/cloudflare-installation/VERSION)"
-        required: false
-        type: string
-      dry_run:
-        description: Rehearse only, publishing nothing
-        required: false
-        type: boolean
-        default: true
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
 permissions:
   contents: read
 
-env:
-  CARGO_TERM_COLOR: always
-
-defaults:
-  run:
-    # The devenv shell, with the toolchain at the versions used locally.
-    shell: devenv shell -- bash -e {0}
-
 jobs:
-  ci:
-    name: CI
-    uses: ./.github/workflows/ci.yaml
-    # The Clerk development instance's keys, for the admin behind Clerk.
-    secrets: inherit
+  artifact:
+    name: Artifact
+    uses: ./.github/workflows/artifact.yaml
+    with:
+      version: ${{ github.ref_name }}
 
-  cloudflare:
-    name: Cloudflare
-    needs: ci
+  release:
+    name: Release
+    needs: artifact
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -76,87 +36,18 @@ jobs:
       attestations: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download the tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          persist-credentials: false
-
-      - name: Set up devenv
-        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
-
-      - name: Which release
-        id: release
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-          INPUT_DRY_RUN: ${{ inputs.dry_run }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-            version="${GITHUB_REF_NAME#v}"
-            publish=true
-          else
-            version="${INPUT_VERSION#v}"
-            [ -n "$version" ] || version="$(tr -d '[:space:]' <testdata/cloudflare-installation/VERSION)"
-            if [ "$INPUT_DRY_RUN" = false ]; then publish=true; else publish=false; fi
-          fi
-          # A published release is built from its tag, and attested as such
-          # (installations' workflows check the attestation's ref): a manual
-          # publish runs on the tag (gh workflow run release.yaml --ref v<version>).
-          if [ "$publish" = true ] && [ "$GITHUB_REF" != "refs/tags/v$version" ]; then
-            echo "::error::publishing v$version needs a run on the tag v$version, not $GITHUB_REF"
-            exit 1
-          fi
-          case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
-          {
-            echo "version=$version"
-            echo "tag=v$version"
-            echo "publish=$publish"
-            echo "prerelease=$prerelease"
-          } >>"$GITHUB_OUTPUT"
-          echo "release $version (publish: $publish, pre-release: $prerelease)"
-
-      - name: Build and check the release
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: just cloudflare-release "$VERSION"
+          name: worker.tar.gz
 
       - name: Attest the tarball's provenance
-        if: steps.release.outputs.publish == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: target/cloudflare/worker.tar.gz
-
-      - name: Create the release as a draft
-        if: steps.release.outputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          PRERELEASE: ${{ steps.release.outputs.prerelease }}
-        run: |
-          flags=()
-          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
-          gh release create "$TAG" --verify-tag --draft --generate-notes "${flags[@]}" \
-            --title "$TAG" \
-            target/cloudflare/worker.tar.gz
-
-      - name: Check the uploaded tarball against the build
-        if: steps.release.outputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          built="$(sha256sum target/cloudflare/worker.tar.gz | cut -d' ' -f1)"
-          # A draft isn't found by its tag; the list has it.
-          uploaded="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            --jq ".[] | select(.tag_name == \"$TAG\") | .assets[] | select(.name == \"worker.tar.gz\") | .digest")"
-          if [ "$uploaded" != "sha256:$built" ]; then
-            echo "GitHub says worker.tar.gz is '$uploaded'; the build says sha256:$built. The draft stays a draft." >&2
-            exit 1
-          fi
-          echo "worker.tar.gz: sha256:$built"
+          subject-path: worker.tar.gz
 
       - name: Publish the release
-        if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: gh release edit "$TAG" --draft=false
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" worker.tar.gz

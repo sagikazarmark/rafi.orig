@@ -19,7 +19,7 @@
 //! data.
 //!
 //! `just build` here has dx build it (`Dioxus.toml`, the `justfile`) into
-//! `dist/public/`: the module and its glue under `assets/`, named by their
+//! `build/public/`: the module and its glue under `assets/`, named by their
 //! hash, so phones keep them for good; `fallback.js` from `public/`, as it
 //! is; and `index.html`, the page's loader (the file here, with the glue's
 //! hashed name filled in), which rafi-server compiles in: a server is built

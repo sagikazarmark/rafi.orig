@@ -12,6 +12,9 @@ devenv.local.yaml
 # Rust
 target/
 
+# The Cloudflare release artifact and tarball (just cloudflare-artifact, cloudflare-tarball)
+/build/
+
 .env
 .env.local
 .env.*.local
@@ -32,6 +35,3 @@ node_modules/
 
 # A local restate-server's data
 restate-data/
-
-# Local Workers state shared by both Workers (getting-started.md, without devenv)
-.wrangler-state/

@@ -1,58 +1,46 @@
-# Rafi's raffle engine Worker on Cloudflare (production): the Restate
-# endpoint under /restate, and nothing else (every other path is a 404). It
-# writes draws to the app's D1 database and nudges the raffles' RaffleRoom
-# objects through a binding to the live Worker's class (script_name).
-# No secrets: the Restate environment's identity keys are public keys, and
-# the drand settings are vars. Local development runs the engine inside the
-# combined Worker (apps/worker).
+# Rafi's raffle engine Worker (production): the Restate endpoint under
+# /restate; every other path is a 404. It writes draws to the app's database
+# and nudges the live Worker's RaffleRoom objects. No secrets. Locally,
+# apps/worker runs the engine.
 #
-# The Worker's shape, for building and a dry deploy (`just dry-run`): nothing
-# of an installation's is in it. An installation's configuration of this
-# Worker is wrangler.engine.toml in its repository (docs/operations/cloudflare.md),
-# whose shape, as the deploy template ships it (testdata/cloudflare-installation),
-# scripts/workers-check.sh compares with this file's.
+# Nothing installation-specific lives here; an installation's copy is
+# wrangler.engine.toml (docs/operations/cloudflare.md), checked against this
+# file in CI.
 
 name = "rafi-engine"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
-# Restate Cloud calls it at its workers.dev address (/restate); every request
-# must carry the environment's signature, so nothing else gets past the SDK.
+# Restate Cloud calls the workers.dev address; requests must be signed.
 workers_dev = true
 preview_urls = false
 
 [build]
 command = "worker-build --release"
 
-# The app's database: the engine writes draw states to it.
+# The app's database, for draw states.
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
-database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: the app's, in an installation's deploy configuration
+database_id = "00000000-0000-0000-0000-000000000000" # placeholder
 migrations_dir = "../../migrations/sqlite"
 
-# The raffles' live channels, nudged after each write. The class is the
-# live Worker's (apps/worker-live, named "rafi-live"), not this Worker's:
-# no [[migrations]].
+# The live Worker's class, so no [[migrations]] here.
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
 script_name = "rafi-live"
 
-# The engine's application log lines are kept in Workers Logs; the automatic
-# per-invocation records are not.
+# Application log lines are kept; per-invocation records are not.
 [observability]
 enabled = true
 
 [observability.logs]
 invocation_logs = false
 
-# Everything the engine reads (rafi_cloudflare_engine's docs):
-#   RAFI_DO_JURISDICTION                   optional: the objects' jurisdiction, the
-#                                          live Worker's and the app's; unset, none
-#   RESTATE_IDENTITY_KEYS                  the Restate environment's public key(s),
-#                                          comma separated; empty refuses every request
-# and, optional with defaults, RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS and
+#   RAFI_DO_JURISDICTION    optional, matching the app's and the live Worker's
+#   RESTATE_IDENTITY_KEYS   Restate public key(s), comma separated; empty refuses all
+# Optional with defaults: RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS,
 # RAFI_DRAND_TIMEOUT_SECS.
 [vars]
 # RAFI_DO_JURISDICTION = "eu"
-RESTATE_IDENTITY_KEYS = "" # an installation's, in its deploy configuration
+RESTATE_IDENTITY_KEYS = "" # set per installation

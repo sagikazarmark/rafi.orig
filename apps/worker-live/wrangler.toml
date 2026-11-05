@@ -1,38 +1,29 @@
-# Rafi's live Worker on Cloudflare (production): the raffles' live channels,
-# one RaffleRoom Durable Object per raffle. The class is this Worker's, with
-# its Durable Object migrations; the app Worker (apps/worker-app) and the
-# engine Worker (apps/worker-engine) bind it by this Worker's name,
-# `rafi-live` (script_name). It has no address of its own and no secrets: it
-# is reached only through those bindings. Local development hosts the class
-# in the combined Worker (apps/worker).
+# Rafi's live Worker (production): one RaffleRoom Durable Object per raffle.
+# It owns the class and its migrations; the app and engine Workers bind it
+# by name. No address, no secrets. Locally, apps/worker hosts the class.
 #
-# The Worker's shape, for building and a dry deploy (`just dry-run`): nothing
-# of an installation's is in it. An installation's configuration of this
-# Worker is wrangler.live.toml in its repository (docs/operations/cloudflare.md),
-# whose shape, as the deploy template ships it (testdata/cloudflare-installation),
-# scripts/workers-check.sh compares with this file's.
+# Nothing installation-specific lives here; an installation's copy is
+# wrangler.live.toml (docs/operations/cloudflare.md), checked against this
+# file in CI.
 
 name = "rafi-live"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
-# No address: no route, no *.workers.dev, no preview URLs. The objects are
-# reached through the other Workers' bindings.
+# Reached only through other Workers' bindings.
 workers_dev = false
 preview_urls = false
 
 [build]
 command = "worker-build --release"
 
-# The app's database: each object reads its raffle from it.
+# Each object reads its raffle from the app's database.
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
-database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: the app's, in an installation's deploy configuration
+database_id = "00000000-0000-0000-0000-000000000000" # placeholder
 migrations_dir = "../../migrations/sqlite"
 
-# One live channel per raffle (in a jurisdiction when RAFI_DO_JURISDICTION names one).
-# The class is this Worker's; the app's and the engine's Workers bind it
-# with script_name = "rafi-live".
+# One live channel per raffle.
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
@@ -41,16 +32,13 @@ class_name = "RaffleRoom"
 tag = "v1"
 new_sqlite_classes = ["RaffleRoom"]
 
-# The objects' application log lines are kept in Workers Logs; the automatic
-# per-invocation records are not.
+# Application log lines are kept; per-invocation records are not.
 [observability]
 enabled = true
 
 [observability.logs]
 invocation_logs = false
 
-# Optional: RAFI_DO_JURISDICTION, the objects' jurisdiction, as the app's and
-# the engine's say (they create the objects' IDs in it); unset, the plain
-# namespace.
+# Optional: RAFI_DO_JURISDICTION, matching the app's and the engine's.
 [vars]
 # RAFI_DO_JURISDICTION = "eu"

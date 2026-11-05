@@ -58,7 +58,7 @@ let
   appAssets = "apps/worker/worker-assets";
   # The web app's index.html, which the Worker compiles in (not among the
   # static files); `just assets` copies _headers in last, so it marks a build.
-  webShell = "target/dx/rafi-web/release/web/public/index.html";
+  webShell = "apps/web/build/public/index.html";
   appAssetsStamp = "target/app-assets.stamp";
   appAssetsSources = [
     "apps/web/src"
@@ -108,7 +108,9 @@ in
         # Rafi
         python3 # tools/verify.py
         sqlite
-        jq # scripts/cloudflare-deploy.sh (a release's deploy.sh), its checks and the release rehearsal
+        jq # scripts/cloudflare-deploy.sh (a release's deploy.sh), its checks and the tarball check
+        gzip # precompressed variants of the participant page and the web app
+        brotli
       ];
 
       dioxus = {
@@ -173,14 +175,13 @@ in
     }
 
     (lib.mkIf (cfg.stack == "native") {
-      # The participant build (apps/participant/dist/public; `just check`
-      # there: built, and held to its budget), rebuilt when its sources change.
-      # The server serves the directory as it is, and compiles its loader in,
-      # so it starts after the build and restarts on a new one.
+      # The participant build (apps/participant/build/public), rebuilt when its
+      # sources change. The server serves the directory as it is, and compiles
+      # its loader in, so it starts after the build and restarts on a new one.
       processes.participant = {
-        exec = "just apps/participant/ check";
+        exec = "just apps/participant/ build";
         cwd = root;
-        # Not apps/participant itself: the build writes apps/participant/dist.
+        # Not apps/participant itself: the build writes apps/participant/build.
         watch.paths = [
           ./apps/participant/src
           ./apps/participant/public
@@ -221,7 +222,7 @@ in
           in
           rust
           // {
-            paths = rust.paths ++ [ "${root}/apps/participant/dist" ];
+            paths = rust.paths ++ [ "${root}/apps/participant/build" ];
             extensions = rust.extensions ++ [ "html" ];
           };
       };

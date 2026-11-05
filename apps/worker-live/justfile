@@ -1,12 +1,5 @@
-# Rafi's live Worker (production): the raffles' RaffleRoom Durable Object
-# class, which the app Worker (apps/worker-app) and the engine Worker
-# (apps/worker-engine) bind by its name, `rafi-live`. Local development hosts
-# the class in the combined Worker (apps/worker).
-
-# List the recipes.
-[private]
-default:
-    @just --list --unsorted
+set default-list
+set ignore-comments
 
 # Build the Worker as `wrangler deploy` builds it.
 build:
@@ -16,12 +9,9 @@ build:
 dry-run:
     wrangler deploy --dry-run
 
-# The live Worker as a release ships it, into `out` (a release's live/): build/ (the Worker).
+# The Worker as a release ships it, into `out` (a release's live/).
 artifact out: build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    out="{{ out }}"
-    rm -rf "${out:?}"
-    mkdir -p "$out"
-    cp -R build "$out/build"
-    rm -f "$out/build/.gitignore"
+    rm -rf "{{ out }}"
+    mkdir -p "{{ out }}"
+    cp -R build "{{ out }}/build"
+    rm -f "{{ out }}/build/.gitignore"

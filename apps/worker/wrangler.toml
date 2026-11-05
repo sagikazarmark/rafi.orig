@@ -1,51 +1,27 @@
-# Rafi on Cloudflare Workers: the app and the raffle engine in one Worker. The
-# top level is the one-Worker production shape, which scripts/workers-check.sh
-# checks (a dry deploy, fail-closed without secrets); `[env.dev]` is local
-# development (`wrangler dev --env dev`), which stays one Worker. Production
-# runs three Workers over the same libraries, the app's (apps/worker-app),
-# the engine's (apps/worker-engine) and the live Worker (apps/worker-live,
-# the RaffleRoom class), whose wrangler.toml files are their shapes, and
-# which a release ships.
+# Rafi as one Worker: the app, the raffle engine and the live channels.
+# The top level is the combined production shape, checked in CI; [env.dev]
+# is local development. Production runs three Workers instead
+# (apps/worker-app, apps/worker-engine, apps/worker-live).
 #
-# Nothing of one installation's is in this file: it is the Worker's shape,
-# for development (`[env.dev]`, under `wrangler dev`) and CI (a dry deploy).
-# An installation deploys the three production Workers from its repository,
-# created from the deploy template (wrangler.app.toml, wrangler.engine.toml
-# and wrangler.live.toml, which point at a release's files), with
-# its database ID in them; everything else of the installation's is a secret (`wrangler secret
-# bulk`; the Worker reads vars and secrets alike), listed under [secrets] so a
-# deploy refuses to go out without them, or a file among the static files:
-# the operator's legal documents, if any, are `legal/terms.md` and
-# `legal/privacy.md` there (an installation's deploy copies them in; `just
-# assets` none), and the Worker reads them through the assets binding when
-# an isolate starts. Nothing of
-# an installation's is compiled in: one build serves every installation.
-# scripts/workers-check.sh checks that the template's files (their test
-# fixture, testdata/cloudflare-installation) agree with the production
-# Workers'. The full procedure: docs/operations/cloudflare.md.
+# Nothing installation-specific lives here: one build serves every
+# installation. An installation's values are secrets (listed under
+# [secrets]), its database ID is in its own deploy configuration, and its
+# legal documents, if any, are legal/terms.md and legal/privacy.md among the
+# static files. See docs/operations/cloudflare.md.
 
 name = "rafi"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
-# No address here (an installation's app Worker has its workers.dev one or
-# a custom domain: its wrangler.app.toml), and no public
-# preview URLs (previews would share production's database and objects).
+# No address, and no preview URLs (they would share production's data).
 workers_dev = false
 preview_urls = false
 
 [build]
 command = "worker-build --release"
 
-# The web app's files (admin, projector, verification page), the participant
-# scripts and the operator's legal documents, if any (legal/). A path that isn't
-# a file goes to the Worker: its routes, the web app's shell (its index.html,
-# compiled into the Worker, not among the files: it carries a
-# Content-Security-Policy naming the installation's Clerk host, which
-# _headers can't know), Restate's requests under /restate/, and /__scheduled,
-# `wrangler dev --test-scheduled`'s way of firing the Cron Trigger
-# (scripts/workers-check.sh; in production the Worker answers it with the
-# shell like any other path). No single-page fallback here, so a missing file
-# is a 404. The binding is how the Worker reads the legal documents.
+# The web app's files, participant scripts and legal documents. Other paths
+# go to the Worker (routes, the web app's shell, /restate/). No single-page
+# fallback: a missing file is a 404.
 [assets]
 directory = "./worker-assets"
 binding = "ASSETS"
@@ -53,10 +29,10 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "rafi"
-database_id = "00000000-0000-0000-0000-000000000000" # a placeholder: an installation's is in its own configuration
+database_id = "00000000-0000-0000-0000-000000000000" # placeholder
 migrations_dir = "../../migrations/sqlite"
 
-# One live channel per raffle (in a jurisdiction when RAFI_DO_JURISDICTION names one).
+# One live channel per raffle.
 [[durable_objects.bindings]]
 name = "RAFFLE_ROOM"
 class_name = "RaffleRoom"
@@ -65,8 +41,8 @@ class_name = "RaffleRoom"
 tag = "v1"
 new_sqlite_classes = ["RaffleRoom"]
 
-# Soft limits (approximate, per location). Keys are never IP addresses: a
-# venue shares one. The hard limit is the entrant cap (RAFI_MAX_ENTRANTS).
+# Soft limits, per location. Keys are never IP addresses: a venue shares
+# one. The hard limit is RAFI_MAX_ENTRANTS.
 [[ratelimits]]
 name = "JOIN_PER_RAFFLE_LIMITER"
 namespace_id = "1001"
@@ -87,43 +63,35 @@ name = "ADD_LIMITER"
 namespace_id = "1004"
 simple = { limit = 20, period = 60 }
 
-# Housekeeping: erasing personal data as raffles age (see docs/explanation/privacy-and-abuse.md),
-# expired proof-of-work challenges, ending stale live channels.
+# Housekeeping: erasing aged personal data, expired challenges, stale live
+# channels (docs/explanation/privacy-and-abuse.md).
 [triggers]
 crons = ["0 * * * *"]
 
-# The application's own log lines (warnings and errors, raffle IDs and error
-# text, never personal data; the hourly housekeeping report) are kept in
-# Workers Logs. The automatic per-invocation records are not: they would
-# hold client IPs and cookies. `wrangler tail` shows both live, whatever is
-# set here.
+# Application log lines are kept; per-invocation records (client IPs,
+# cookies) are not.
 [observability]
 enabled = true
 
 [observability.logs]
 invocation_logs = false
 
-# What belongs to Rafi, not to an installation. An installation's own values
-# are secrets (below); optional settings with defaults (RAFI_RETENTION_DAYS,
+# Optional settings with defaults (RAFI_RETENTION_DAYS,
 # RAFI_RETENTION_MAX_DAYS, RAFI_RETENTION_WINNERS_DAYS, RAFI_MIN_AGE,
-# RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS, RAFI_DRAND_TIMEOUT_SECS) are
-# secrets too when an installation changes them.
+# RAFI_DRAND_RELAYS, RAFI_DRAND_LEAD_SECS, RAFI_DRAND_TIMEOUT_SECS) are set
+# as secrets when changed.
 [vars]
-# Optional: RAFI_DO_JURISDICTION = "eu" creates the live channels' Durable
-# Objects in that jurisdiction; unset (here, and in local development:
-# workerd has no jurisdictions), the plain namespace.
+# Optional: RAFI_DO_JURISDICTION = "eu" places the live channels in that
+# jurisdiction (not supported locally).
 
-# What every installation must set before its first deploy, with
-# `wrangler secret bulk <file>` or `wrangler secret put <NAME>`:
-#   RAFI_PUBLIC_URL                        the public origin, no trailing slash
-#   RESTATE_INGRESS_URL                    Restate Cloud's ingress URL (EU)
-#   RESTATE_INGRESS_API_KEY                a Restate Cloud API key with ingress access
-#   RESTATE_IDENTITY_KEYS                  the Restate environment's public key(s), comma separated
-#   RAFI_POW_KEY                           random, 32+ characters; never rotate during an event
-#   CLERK_SECRET_KEY
-#   CLERK_PUBLISHABLE_KEY                  not secret (the web app gets it from /config.js), but the installation's
-#   RAFI_OPERATOR_NAME, RAFI_OPERATOR_EMAIL   named as the processor in every raffle's notice
-# A deploy refuses to go out while one is missing.
+# Required before a deploy:
+#   RAFI_PUBLIC_URL                        public origin, no trailing slash
+#   RESTATE_INGRESS_URL                    Restate Cloud ingress URL
+#   RESTATE_INGRESS_API_KEY                API key with ingress access
+#   RESTATE_IDENTITY_KEYS                  Restate public key(s), comma separated
+#   RAFI_POW_KEY                           random, 32+ chars; never rotate mid-event
+#   CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY
+#   RAFI_OPERATOR_NAME, RAFI_OPERATOR_EMAIL   the processor named in notices
 [secrets]
 required = [
   "RAFI_PUBLIC_URL",
@@ -137,9 +105,8 @@ required = [
   "RAFI_OPERATOR_EMAIL",
 ]
 
-# Local development: wrangler dev --env dev (docs/development/getting-started.md).
-# Bindings aren't inherited by environments, so they're repeated; the
-# required secrets are, as an empty list, so dev isn't asked for production's.
+# Local development (docs/development/getting-started.md). Environments
+# don't inherit bindings, so they're repeated; no secrets are required.
 [env.dev]
 workers_dev = true
 
@@ -183,6 +150,6 @@ simple = { limit = 20, period = 60 }
 RAFI_PUBLIC_URL = "http://127.0.0.1:8787"
 RESTATE_INGRESS_URL = "http://127.0.0.1:18080"
 RAFI_DEV_AUTH = "1" # also stands in for the operator
-RAFI_DRAND_MOCK = "1" # the mock chain, for the app and the engine alike
+RAFI_DRAND_MOCK = "1" # mock chain, for app and engine
 RAFI_DRAND_LEAD_SECS = "3"
 RAFI_POW_KEY = "local-development-only"

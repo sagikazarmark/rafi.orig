@@ -76,7 +76,7 @@ use ratelimit::RateLimitBindings;
 /// ships in one artifact with the files it links (`just artifact` in
 /// `apps/worker-app` builds the web app first), and isn't among the static
 /// files, so Workers Assets can't serve it without its policy.
-const SHELL: &str = include_str!("../../../target/dx/rafi-web/release/web/public/index.html");
+const SHELL: &str = include_str!("../../../apps/web/build/public/index.html");
 
 /// The isolate's state: the app (for the Cron) and its routes behind Clerk's
 /// layer (no layer under dev auth).

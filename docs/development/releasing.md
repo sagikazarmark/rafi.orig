@@ -1,6 +1,7 @@
 # Releasing
 
-A release is a tag, `v<version>`; `.github/workflows/release.yaml` does the rest. What ships is the Cloudflare
+A release is a tag, `vX.Y.Z` (numbers only: no pre-releases); `.github/workflows/release.yaml` does the rest. What
+ships is the Cloudflare
 Workers release, one asset, `worker.tar.gz` (`just cloudflare-artifact`, packed by `just cloudflare-tarball`),
 with at the top level of the archive:
 
@@ -46,10 +47,9 @@ mark it **Template repository** (**Settings > General**).
 
 ## Before the tag
 
-Name the release in `testdata/cloudflare-installation/VERSION` (`0.2.0`, or `0.2.0-rc.1` for a pre-release), the
-test fixture of an installation. The rehearsal refuses a release that file doesn't name, and CI's rehearsal and the
-Release workflow's manual run are of the version it names. The template repository's `VERSION`, `INSTALL.md` and
-`README.md` name the release too: change them there; nothing here checks those.
+The template repository's `VERSION`, `INSTALL.md` and `README.md` name the release: change them there; nothing here
+checks those (`testdata/cloudflare-installation/VERSION`, the fixture's copy, isn't checked either: `deploy.sh`
+doesn't read it).
 
 When a change to `scripts/cloudflare-deploy.sh` changes how it is driven (a subcommand, its environment or outputs,
 what it expects of the installation's repository), change the template's workflows to fit, in the same commit, and
@@ -73,46 +73,42 @@ act or should know:
   ([Upgrades](../operations/upgrades.md#what-a-deploy-does-to-a-raffle-in-flight)), or a change to the live
   Worker's requests would break the previous app's or engine's (a change to them takes two releases).
 
-CI's `workers` job rehearses a release (of the version `testdata/cloudflare-installation/VERSION` names) on every
-push.
+CI's `cloudflare` job (`just cloudflare-deploy-test`, `just cloudflare-tarball-check`) builds a development tarball,
+`0.0.0`, on every push and checks it: its layout, and its `deploy.sh dry-run` from a copy of
+`testdata/cloudflare-installation` (an installation's configuration, as the deploy template ships it) with the
+tarball unpacked into `release/` (the devenv's wrangler, the Workers' names read from its dry runs), at the
+configurations' top level and as a Wrangler environment (`[env.eu]` added to each configuration, with
+`RAFI_DO_JURISDICTION = "eu"`, `VERSION.eu`, `CLOUDFLARE_ENV=eu`). A release checks nothing: tag a commit CI passed.
+Locally, `just cloudflare-tarball-check <version>` builds and checks the same, in `build/cloudflare`.
 
-## Rehearsing
+## Building one by hand
 
-Run the Release workflow by hand (**Actions > Release > Run workflow**): it runs CI, builds the release of the
-version given (by default the one `testdata/cloudflare-installation/VERSION` names), checks that the fixture's
-`VERSION` names it, and runs its `deploy.sh dry-run` from a copy of `testdata/cloudflare-installation` (an
-installation's configuration, as the deploy template ships it) with the release unpacked into `release/` (the devenv's
-wrangler, the Workers' names read from its dry runs), at the configurations' top level and as a Wrangler
-environment (`[env.eu]` added to each configuration, with `RAFI_DO_JURISDICTION = "eu"`, `VERSION.eu`,
-`CLOUDFLARE_ENV=eu`), publishing nothing. `dry_run` off publishes a tag that already exists, to finish a release whose run failed: run it
-on the tag (**Use workflow from**: the tag, or `gh workflow run release.yaml --ref v<version> -f dry_run=false`),
-since the attestation names the ref the run was on and installations require the tag; from a branch it refuses.
-
-Locally, `just cloudflare-release <version>` builds and rehearses the same, into `target/cloudflare`.
+Run the Artifact workflow by hand (**Actions > Artifact > Run workflow**, or `gh workflow run artifact.yaml -f
+version=X.Y.Z`): it builds the tarball of the version given (`X.Y.Z`, required), uploads `worker.tar.gz` as the
+run's artifact and publishes nothing. It is never attested, so installations' workflows wouldn't take it.
 
 ## The tag
 
 ```sh
-git tag -s v<version> -m "Rafi <version>"
-git push origin v<version>
+git tag -s vX.Y.Z -m "Rafi X.Y.Z"
+git push origin vX.Y.Z
 ```
 
-The workflow then:
+Only tags matching `vX.Y.Z` (numbers) run the workflow. It then:
 
-1. runs CI on the tag's commit (`ci.yaml`, called): if anything fails, the release job is skipped, and nothing is
-   published;
-2. builds and rehearses the release (`just cloudflare-release`);
-3. attests the tarball's build provenance, signed as `.github/workflows/release.yaml@refs/tags/v<version>`
-   (`gh attestation verify worker.tar.gz -R <repository> --signer-workflow
-   github.com/<repository>/.github/workflows/release.yaml --source-ref refs/tags/v<version>` checks it, as every
+1. builds the tarball of `X.Y.Z` (`artifact.yaml`, called; nothing is checked again: CI checked the commit
+   before it was tagged);
+2. attests the tarball's build provenance, signed as `.github/workflows/release.yaml@refs/tags/vX.Y.Z` (made in
+   `release.yaml`, not `artifact.yaml`, so the signer is the workflow installations require;
+   `gh attestation verify worker.tar.gz -R <repository> --signer-workflow
+   github.com/<repository>/.github/workflows/release.yaml --source-ref refs/tags/vX.Y.Z` checks it, as every
    installation's deploy does);
-4. creates the release as a **draft**, with `worker.tar.gz` its one asset;
-5. checks the digest GitHub computed for the uploaded tarball (the one the release page shows) against the build's
-   own `sha256sum`; on a mismatch the release stays a draft;
-6. publishes it.
+3. publishes the release with `worker.tar.gz` its one asset (`gh release create`, which uploads the asset to a
+   draft before publishing it, as immutable releases require).
 
-A version with a pre-release suffix (`v0.2.0-rc.1`) is published as a pre-release; its engine Worker is
-`rafi-engine-v0-2-0-rc-1`.
+When a run fails, re-run its failed jobs: the run stays on the tag.
+
+A release's engine Worker is `rafi-engine-v<version, dashed>` (`rafi-engine-v0-2-0`).
 
 ## The template repository
 
@@ -121,7 +117,7 @@ in the works: its `main` the latest release's configuration, workflows and docs 
 release's tagged the same, `v<version>`, which the release notes' "copy the workflows at this tag" means. It is
 maintained by hand, and tried on real installations before it is published. Its configuration's shape is tested
 here, as a fixture: `testdata/cloudflare-installation` (its three `wrangler.*.toml` and `VERSION`), which
-`scripts/workers-check.sh` compares with the production Workers' and the release rehearsal deploys (dry). A change
+`scripts/workers-check.sh` compares with the production Workers' and the tarball check deploys (dry). A change
 to the Workers' shape (a binding, a migration, a required secret) goes into the fixture here and the template there.
 
 ## Reproducible
@@ -130,8 +126,8 @@ The tarball is packed reproducibly (`just cloudflare-tarball`, with GNU tar: ent
 time `SOURCE_DATE_EPOCH` (the commit's when unset), no owner, modes 644 and 755, gzip without a name or a time), so two builds of one commit can be compared byte for byte:
 
 ```sh
-just cloudflare-release <version>              # at the tag
-sha256sum target/cloudflare/worker.tar.gz
+just cloudflare-tarball <version>              # at the tag
+sha256sum build/cloudflare/worker.tar.gz
 ```
 
 The archive is deterministic; whether the WebAssembly inside is the same from another machine depends on the

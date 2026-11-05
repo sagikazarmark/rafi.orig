@@ -35,17 +35,13 @@
 #      wrangler.app.toml, wrangler.engine.toml and wrangler.live.toml agree
 #      with the production Workers' (apps/worker-app, apps/worker-engine,
 #      apps/worker-live) on the bindings, limits, Durable Object migrations
-#      and required secrets, and a release (of the version its VERSION names)
-#      is rehearsed the way a tag releases it (scripts/cloudflare-release.sh):
-#      the fixture's VERSION, deploy.sh's own checks, worker.tar.gz packaged,
-#      each Worker's exports checked, unpacked into a copy of the fixture's
-#      release/, and its deploy.sh dry-run there with this wrangler (the
-#      Workers' names read from its dry runs), at the top level and as a
-#      Wrangler environment (CLOUDFLARE_ENV=eu, with the EU jurisdiction).
+#      and required secrets. (The release tarball is checked by
+#      scripts/cloudflare-tarball-check.sh, `just cloudflare-tarball-check`,
+#      which CI runs.)
 #
-# Needs: wrangler (WRANGLER overrides the command), worker-build, node, jq, just,
+# Needs: wrangler (WRANGLER overrides the command), worker-build, node, just,
 # dx, wasm-bindgen-cli at the lockfile's version and wasm-opt (for the
-# participant page), and GNU tar (the release rehearsal).
+# participant page).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -107,11 +103,11 @@ logged() {
 
 step "build"
 # The participant build first: the testbed and the Worker compile its loader in.
-just "$ROOT/apps/participant/" check
+just "$ROOT/apps/participant/" build
 site="$ROOT/testbeds/cloudflare/site/participant"
 rm -rf "${site:?}" && mkdir -p "$site"
-cp -R "$ROOT/apps/participant/dist/public/assets" "$site/assets"
-cp "$ROOT/apps/participant/dist/public/fallback.js" "$site/"
+cp -R "$ROOT/apps/participant/build/public/assets" "$site/assets"
+cp "$ROOT/apps/participant/build/public/fallback.js" "$site/"
 for dir in testbeds/store-d1 testbeds/cloudflare; do
   (cd "$ROOT/$dir" && worker-build --release) >"$LOGS/build-${dir##*/}.log" 2>&1
 done
@@ -367,7 +363,7 @@ if command -v dx >/dev/null; then
     step "the admin behind Clerk: skipped (needs CLERK_TEST_SECRET_KEY, CLERK_TEST_PUBLISHABLE_KEY and Chromium)"
   fi
 
-  step "testdata/cloudflare-installation: the installation's shape, and its release rehearsed"
+  step "testdata/cloudflare-installation: the installation's shape"
   # The fixture's three files (the deploy template's) share the production Workers' shapes: their
   # bindings, limits, Cron, addresses and required secrets. A route or a
   # secret added to one and not the other would deploy a Worker that 404s or
@@ -394,14 +390,6 @@ if command -v dx >/dev/null; then
     fi
   done
   echo "ok   the installation's shapes are the production Workers'"
-  # A release, as a tag releases it: the same script, so a broken tarball,
-  # deploy.sh or dry deploy shows here, not on the tag. The version is the one
-  # the fixture names (testdata/cloudflare-installation/VERSION), as the
-  # release workflow's manual run defaults to.
-  version="$(tr -d '[:space:]' <"$ROOT/testdata/cloudflare-installation/VERSION")"
-  WRANGLER="$WRANGLER" "$ROOT/scripts/cloudflare-release.sh" "$version" "$STATE/release" >"$LOGS/release.log" 2>&1 \
-    || { tail -30 "$LOGS/release.log" >&2; exit 1; }
-  echo "ok   the installation deploys the release of $version with its deploy.sh (dry run)"
 else
   step "the production shape: skipped (needs dx for the assets)"
 fi

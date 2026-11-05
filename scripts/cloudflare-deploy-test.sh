@@ -35,7 +35,7 @@
 #   - the artifacts (RAFI_ARTIFACTS_DIR): wrangler's ND-JSON per call, Restate's listings, the
 #     registration's answer, the Workers listing and cleanup.json, and no token among them.
 #
-# scripts/cloudflare-release.sh runs it; so can you:
+# CI runs it (`just cloudflare-deploy-test`); so can you:
 #
 #   ./scripts/cloudflare-deploy-test.sh
 #

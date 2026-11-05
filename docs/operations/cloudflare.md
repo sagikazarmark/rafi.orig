@@ -162,7 +162,7 @@ organization that made them, stay with the development instance's accounts. Move
 ## What an installation is
 
 Nothing of an installation's is compiled in: one build serves every installation. A release's one asset,
-`worker.tar.gz`, built and attested by `.github/workflows/release.yaml`, holds `VERSION`, `app/` (the app Worker
+`worker.tar.gz`, built by `.github/workflows/artifact.yaml` and attested by `.github/workflows/release.yaml`, holds `VERSION`, `app/` (the app Worker
 and its static files), `engine/`, `live/`, `migrations/` (the D1 migrations) and `deploy.sh`
 (`scripts/cloudflare-deploy.sh`), so a release deploys with its own logic ([Releasing](../development/releasing.md)).
 The installation is the operator's repository, created from the deploy template (a template repository, in the
@@ -505,7 +505,7 @@ gh attestation verify worker.tar.gz -R sagikazarmark/rafi \
 Nothing in this repository's CI holds a Cloudflare token: deploys run in installations' repositories. CI runs the
 production shapes through `wrangler deploy --dry-run`, serves the app without secrets, runs `deploy.sh`'s
 subcommands against a stubbed wrangler and Restate CLI and a fake Cloudflare and Restate API
-(`scripts/cloudflare-deploy-test.sh`), and rehearses each release's `deploy.sh dry-run` from a copy of
+(`scripts/cloudflare-deploy-test.sh`), and runs a development tarball's `deploy.sh dry-run` from a copy of
 `testdata/cloudflare-installation`, the template's configuration ([Testing](../development/testing.md#workers)). What only a real deploy can check, so check it
 on the first one:
 
@@ -544,7 +544,7 @@ workflows' order, with their environment (`CLOUDFLARE_ENV` too, for an installat
 environment):
 
 ```sh
-RAFI_VERSION=<version> just cloudflare-artifact /path/to/your/installation/release
+just cloudflare-artifact <version> /path/to/your/installation/release
 cd /path/to/your/installation
 export CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=…
 RESTATE_ADMIN_URL=… RESTATE_AUTH_TOKEN=… release/deploy.sh check-remote

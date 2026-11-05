@@ -1,34 +1,22 @@
-# Rafi's app Worker (production): the web app and its API, the live channels,
-# the housekeeping Cron. Its static files are the combined Worker's
-# (apps/worker's `just assets`). Local development runs the combined Worker
-# (apps/worker), not this one.
-
-# List the recipes.
-[private]
-default:
-    @just --list --unsorted
+set default-list
+set ignore-comments
 
 # Assemble the static files (apps/worker/worker-assets, which wrangler.toml points at).
 assets:
     {{ just_executable() }} ../worker/ assets
 
-# Build the Worker as `wrangler deploy` builds it (needs the web app's bundle: its index.html is compiled in).
+# Build the Worker as `wrangler deploy` builds it.
 build:
     worker-build --release
 
 # Validate the Worker's shape without deploying: the configuration, every binding, the bundle and the static files.
-dry-run:
-    test -d ../worker/worker-assets || {{ just_executable() }} assets
+dry-run: assets
     wrangler deploy --dry-run
 
-# The app Worker as a release ships it, into `out` (a release's app/): build/ (the Worker) and assets/ (the static files, without legal/: an installation's deploy copies its own in).
+# The Worker as a release ships it.
 artifact out: assets build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    out="{{ out }}"
-    rm -rf "${out:?}"
-    mkdir -p "$out"
-    cp -R build "$out/build"
-    rm -f "$out/build/.gitignore"
-    cp -R ../worker/worker-assets "$out/assets"
-    rm -rf "$out/assets/legal"
+    rm -rf "{{ out }}"
+    mkdir -p "{{ out }}"
+    cp -R build "{{ out }}/build"
+    rm -f "{{ out }}/build/.gitignore"
+    cp -R ../worker/worker-assets "{{ out }}/assets"
