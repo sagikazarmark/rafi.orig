@@ -125,6 +125,10 @@ async fn entrants_are_erased_only_once_the_raffle_is_over() {
 async fn the_join_page_and_the_notices_say_when_data_is_erased() {
     use rafi_lifecycle::dates::Date;
     let app = app().await;
+    // The event's day, noon: the dates below are this event's, whenever the
+    // test runs (after the erasure date, joining would have closed).
+    app.clock
+        .set(Date::parse("2026-10-28").unwrap().starts_utc() + 12 * 3600);
     let router = routes(app.clone());
     let raffle = setup_open(&app, &[("Prize", 1)]).await;
     let mut settings = service::settings_of(&raffle);
